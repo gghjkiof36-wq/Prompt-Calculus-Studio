@@ -1,0 +1,184 @@
+{
+  "purpose": "small read-only feasibility probe",
+  "results": [
+    {
+      "check": "simple_prefix",
+      "url": "https://danbooru.donmai.us/tags.json?search%5Bname_matches%5D=simple%2A&search%5Border%5D=count&limit=5&only=id%2Cname%2Ccategory%2Cpost_count%2Cis_deprecated",
+      "status": 200,
+      "records": [
+        {
+          "id": 412368,
+          "name": "simple_background",
+          "category": 0,
+          "post_count": 2856003,
+          "is_deprecated": false
+        },
+        {
+          "id": 1945879,
+          "name": "simple_bird",
+          "category": 0,
+          "post_count": 3401,
+          "is_deprecated": false
+        },
+        {
+          "id": 1960950,
+          "name": "simple_fish",
+          "category": 0,
+          "post_count": 227,
+          "is_deprecated": false
+        },
+        {
+          "id": 2095063,
+          "name": "simple_bat",
+          "category": 0,
+          "post_count": 133,
+          "is_deprecated": false
+        },
+        {
+          "id": 1578959,
+          "name": "simplecar",
+          "category": 1,
+          "post_count": 118,
+          "is_deprecated": false
+        }
+      ]
+    },
+    {
+      "check": "ap_prefix",
+      "url": "https://danbooru.donmai.us/tags.json?search%5Bname_matches%5D=ap%2A&search%5Border%5D=count&limit=5&only=id%2Cname%2Ccategory%2Cpost_count%2Cis_deprecated",
+      "status": 200,
+      "records": [
+        {
+          "id": 273,
+          "name": "apron",
+          "category": 0,
+          "post_count": 308090,
+          "is_deprecated": false
+        },
+        {
+          "id": 461529,
+          "name": "apple",
+          "category": 0,
+          "post_count": 32219,
+          "is_deprecated": false
+        },
+        {
+          "id": 1511859,
+          "name": "apex_legends",
+          "category": 3,
+          "post_count": 7362,
+          "is_deprecated": false
+        },
+        {
+          "id": 615253,
+          "name": "applying_makeup",
+          "category": 0,
+          "post_count": 3245,
+          "is_deprecated": false
+        },
+        {
+          "id": 9396,
+          "name": "april_fools",
+          "category": 0,
+          "post_count": 2460,
+          "is_deprecated": false
+        }
+      ]
+    },
+    {
+      "check": "artist_prefix",
+      "url": "https://danbooru.donmai.us/tags.json?search%5Bname_matches%5D=ap%2A&search%5Bcategory%5D=1&search%5Border%5D=count&limit=5&only=id%2Cname%2Ccategory%2Cpost_count%2Cis_deprecated",
+      "status": 200,
+      "records": [
+        {
+          "id": 1468863,
+          "name": "apple_caramel",
+          "category": 1,
+          "post_count": 1087,
+          "is_deprecated": false
+        },
+        {
+          "id": 1886864,
+          "name": "apios",
+          "category": 1,
+          "post_count": 510,
+          "is_deprecated": false
+        },
+        {
+          "id": 1378540,
+          "name": "aposine",
+          "category": 1,
+          "post_count": 436,
+          "is_deprecated": false
+        },
+        {
+          "id": 711247,
+          "name": "apt",
+          "category": 1,
+          "post_count": 366,
+          "is_deprecated": false
+        },
+        {
+          "id": 1417170,
+          "name": "appleq",
+          "category": 1,
+          "post_count": 363,
+          "is_deprecated": false
+        }
+      ]
+    },
+    {
+      "check": "active_aliases",
+      "url": "https://danbooru.donmai.us/tag_aliases.json?search%5Bstatus%5D=active&limit=3&only=id%2Cantecedent_name%2Cconsequent_name%2Cstatus",
+      "status": 200,
+      "records": [
+        {
+          "id": 237347,
+          "antecedent_name": "phoenix_(zenless_zone_zero)",
+          "consequent_name": "phoenix_reffaella",
+          "status": "active"
+        },
+        {
+          "id": 237343,
+          "antecedent_name": "ranbi428",
+          "consequent_name": "uou_(tlswnsgh08)",
+          "status": "active"
+        },
+        {
+          "id": 237339,
+          "antecedent_name": "mii_8z",
+          "consequent_name": "sen_(5710265)",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "check": "tag_page",
+      "url": "https://danbooru.donmai.us/tags.json?search%5Border%5D=date&limit=3&only=id%2Cname%2Ccategory%2Cpost_count%2Cis_deprecated",
+      "status": 200,
+      "records": [
+        {
+          "id": 2726120,
+          "name": "shimmer_(xenoblade)",
+          "category": 4,
+          "post_count": 1,
+          "is_deprecated": false
+        },
+        {
+          "id": 2726119,
+          "name": "376697241",
+          "category": 1,
+          "post_count": 1,
+          "is_deprecated": false
+        },
+        {
+          "id": 2726118,
+          "name": "magnetarz",
+          "category": 1,
+          "post_count": 1,
+          "is_deprecated": false
+        }
+      ]
+    }
+  ]
+}
