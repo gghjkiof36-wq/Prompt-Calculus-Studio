@@ -1,0 +1,20 @@
+{
+  "version": "v0.81 Alpha 2 UI Repair 1",
+  "source_build": {
+    "version": "v0.81 Alpha 2 UI Repair 1",
+    "release": "--v081-ui-repair1",
+    "built_utc": "2026-09-13T19:39:19.440288+00:00",
+    "git_head": "6d48f59f065fd75678f182f8bdb6b69ea4fa4e0c",
+    "working_changes": "",
+    "source_sha256": "1e51201deee0dce2384ef981d3804d8ff1e307d02efc5443d245bb65523eeab3",
+    "validation": "docs/DEVELOPMENT_STATUS.md",
+    "binary_git_head": "32c859cbb156f806f77ba39573df8a018fbc55a8"
+  },
+  "original_source_zip_sha256": "1e51201deee0dce2384ef981d3804d8ff1e307d02efc5443d245bb65523eeab3",
+  "documentation_private_paths_redacted": [
+    "docs/BASELINE_081.md",
+    "docs/MAINTENANCE_REPORT.md"
+  ],
+  "program_code_changed": false,
+  "windows_binary_published": false
+}

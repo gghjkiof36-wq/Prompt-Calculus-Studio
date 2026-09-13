@@ -1,0 +1,11 @@
+.vendor/
+vendor/
+.builder/
+release/
+*.spec
+data/
+__pycache__/
+*.pyc
+build/
+dist/
+qa/
