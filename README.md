@@ -1,10 +1,22 @@
-# Prompt Studio
+# Prompt Calculus Studio（PCS）
 
-把常用提示詞整理成模組，選取素材、調整順序與權重，再送入 ComfyUI 工作流。Prompt Studio 是以本機資料為主的 Windows 桌面工具，也提供 ComfyUI 側邊欄擴充，方便保存角色、風格與場景組合。
+**化繁為簡，從混亂中找出秩序。**
+
+把常用提示詞整理成模組，選取素材、調整順序與權重，再送入 ComfyUI 工作流。Prompt Calculus Studio（原名 Prompt Studio）是以本機資料為主的 Windows 桌面工具，也提供 ComfyUI 側邊欄擴充，方便保存角色、風格與場景組合。
 
 [開始使用](docs/GETTING_STARTED.md) · [操作指南](docs/USER_GUIDE.md) · [ComfyUI 整合](COMFYUI_GUIDE.md) · [回報問題](https://github.com/gghjkiof36-wq/modular-prompt-manager/issues)
 
-目前為早期開發階段，尚未發布正式 1.0。此頁說明目前公開原始碼可使用的功能；截至 2026-09-13，尚無 GitHub Release 或預先打包的 EXE 下載。開發中的 Canvas 與圖生圖進度另見 [Roadmap](ROADMAP.md)。
+目前為早期開發階段，尚未發布正式 1.0。以下功能與操作以本儲存庫公開主分支為準。**已有 [0.81 Alpha 2 UI Repair 1 預覽版](https://github.com/gghjkiof36-wq/modular-prompt-manager/releases/tag/v0.81-alpha.2-ui-repair.1)**，提供該版原始碼、ComfyUI 擴充及校驗檔；Windows EXE 尚未公開。
+
+### 版本與維護現況
+
+截至 2026-09-15，公開主分支、0.81 Release 與本機開發成果分別維護，下載時請確認版本：
+
+- **公開主分支**：下方清單介面及安裝步驟所對應的程式；「Code → Download ZIP」取得這份原始碼。
+- **公開 0.81 預覽版**：已包含 Canvas、CivitAI 搜尋／下載及相關介面修正，請從上述 Release 取得配套來源與擴充，依該頁指示啟動。
+- **本機 0.82 Repair4（`9cea7f4`）**：已完成本輪本機維護與隔離資料回復驗收，涵蓋工作流刪除／復原、圖片來源及同步保護等修復；尚未整合公開主分支或發布。這些本機結果不代表 GitHub CI、真實 ComfyUI／GPU 或所有 Windows 環境皆已驗證。
+
+未來方向見 [Roadmap](ROADMAP.md)；其中舊規劃請結合本頁與實際 Release 閱讀。歷史 Prompt Studio 名稱、儲存庫網址、節點及資料識別保留相容用途。
 
 ## 能做什麼
 
@@ -20,9 +32,13 @@
 
 ![Prompt Studio：左側模組、中間素材與右側 Prompt 組合](docs/images/prompt-workspace.png)
 
-使用本儲存庫公開程式與內建範例資料擷取；未連接 ComfyUI、未載入個人素材。這是目前的清單介面，Canvas 屬於後續開發內容。
+使用本儲存庫公開程式與內建範例資料擷取；未連接 ComfyUI、未載入個人素材。這張圖展示公開主分支的清單介面，保留原始截圖；不代表 0.81 Canvas 或尚未公開的 0.82 畫面。
 
-## 安裝
+## 下載與安裝
+
+要使用公開 **0.81 預覽版**，下載 [Release](https://github.com/gghjkiof36-wq/modular-prompt-manager/releases/tag/v0.81-alpha.2-ui-repair.1) 中的 `PromptStudio-v0.81-alpha.2-ui-repair.1-source.zip`，需要 ComfyUI 時另取 `PromptStudio-v0.81-ComfyUI.zip`；`SHA256SUMS.txt` 可核對附件。請依該 Release 的啟動指令操作，來源 ZIP 不包含 EXE。
+
+以下步驟適用**公開主分支**：
 
 準備 Windows 64 位元與 Python 3.12，下載本儲存庫原始碼並解壓。在專案資料夾開啟 PowerShell，執行：
 
