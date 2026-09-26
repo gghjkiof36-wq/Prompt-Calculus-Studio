@@ -1,3 +1,5 @@
+> 歷史開發紀錄：本文描述當時候選或實驗，不能當作2026-09-27公開Repair5的完成清單。現版仍需開啟ComfyUI網頁、單工作流一次；跨工作流、背景無Web、多圖下游逐張未完成。現行使用範圍見[使用指南](USER_GUIDE.md)及[來源對照](SOURCE_PROVENANCE.md)。
+
 # 單一原生工作流：關頁交接與背景執行契約
 
 2026-09-22；02限定核心交付，基準 `8b39e2f63648a5becc7f9af829095bbaddbfe063`。03已確認本文件的接受點與介面，並委派02實作 `comfyui_prompt_studio/background_state.py` 及專屬單元測試。03負責Service、routes、native queue、前端及整合驗證；04獨立審查。跨工作流與A→B暫擱。

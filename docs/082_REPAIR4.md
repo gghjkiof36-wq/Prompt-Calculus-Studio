@@ -1,3 +1,5 @@
+> 歷史開發紀錄：本文描述當時候選或實驗，不能當作2026-09-27公開Repair5的完成清單。現版仍需開啟ComfyUI網頁、單工作流一次；跨工作流、背景無Web、多圖下游逐張未完成。現行使用範圍見[使用指南](USER_GUIDE.md)及[來源對照](SOURCE_PROVENANCE.md)。
+
 # 0.82 Alpha 1 Repair 4 隔離候選
 
 基於保留的 Repair3 4891465，僅在新的 03 修復 worktree 建置。本候選保留舊 EXE、ZIP、來源、入口及資料；不安裝到現有 ComfyUI，不合併主倉庫。

@@ -1,3 +1,5 @@
+> 歷史開發紀錄：本文描述當時候選或實驗，不能當作2026-09-27公開Repair5的完成清單。現版仍需開啟ComfyUI網頁、單工作流一次；跨工作流、背景無Web、多圖下游逐張未完成。現行使用範圍見[使用指南](USER_GUIDE.md)及[來源對照](SOURCE_PROVENANCE.md)。
+
 # 單一 ComfyUI 工作流關頁執行候選
 
 本輪只處理 illustrious v1.0，同一原生 ID 與檔案路徑；跨工作流仍暫擱。PCS 的正常 GenerationRunner 入口保持不變。

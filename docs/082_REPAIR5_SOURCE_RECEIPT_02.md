@@ -1,3 +1,5 @@
+> 歷史開發紀錄：本文描述當時候選或實驗，不能當作2026-09-27公開Repair5的完成清單。現版仍需開啟ComfyUI網頁、單工作流一次；跨工作流、背景無Web、多圖下游逐張未完成。現行使用範圍見[使用指南](USER_GUIDE.md)及[來源對照](SOURCE_PROVENANCE.md)。
+
 # 單一工作流的來源已套用收據
 
 2026-09-22；02依03明確委派，基準4daaa5d。範圍只含workflow_state.py、web/workflow_sync.js及對應測試。03負責capture、route、core持久化與冷開接線；04獨立審查。
