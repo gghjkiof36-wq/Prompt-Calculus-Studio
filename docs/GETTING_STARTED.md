@@ -1,45 +1,50 @@
 # 開始使用
 
-[返回首頁](../README.md)
+[回首頁](../README.md) · 適用：0.82 Alpha 1 Repair 5
 
-## 準備環境
+## 取得版本
 
-目前的桌面操作說明以 Windows 64 位元與 Python 3.12 為準。從 [Python 官方網站](https://www.python.org/downloads/windows/) 安裝 Python；此版本尚未完成其他作業系統的桌面相容性驗證。
+從 [Repair 5 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.82-alpha.1-repair.5) 取得 `PCS-v0.82-Alpha1-Repair5-source.zip`；要連接 ComfyUI 時另取同版擴充 ZIP。附件是否可下載以 Release 頁實際狀態為準。來源 ZIP 解壓後根目錄直接包含 `run.py`。Windows EXE 本次未提供。
 
-在 [專案首頁](https://github.com/gghjkiof36-wq/modular-prompt-manager) 按 **Code → Download ZIP**，解壓到可寫入的資料夾。這份 ZIP 是原始碼，沒有 EXE。已使用 Git 的人也可 clone 儲存庫。
+需要舊版時用 [0.81 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.81-alpha.2-ui-repair.1) 及該頁的啟動指令；不要把 0.81 的來源、Repair 5 擴充與同一份資料混用。
 
 ## 安裝與啟動
 
-在包含 `run.py`、`requirements.txt` 的資料夾開啟 PowerShell：
+準備 Windows 64 位元與 Python 3.12（含 Python Launcher）。在包含 `run.py` 和 `requirements.txt` 的資料夾開啟 PowerShell：
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py
+.\.venv\Scripts\python.exe run.py --v082-alpha
 ```
 
-第一次安裝需要網路，依賴套件來自 PyPI。後續啟動只需最後一行；建立的 `.venv` 只供這份專案使用，不必修改 PowerShell 執行原則。
+首次安裝需要連接 PyPI。之後只用最後一行，無須啟用虛擬環境或修改 PowerShell 執行原則。找不到 `py` 時，將第一行改用已安裝的 Python 3.12 執行檔完整路徑。
 
-如果找不到 `py`，請使用你安裝的 Python 3.12 執行檔路徑取代第一行的 `py -3.12`。安裝錯誤時，先確認 `py -3.12 --version` 能顯示版本。
+標題應為 PCS、Repair 5，並保留「0927-2 批次預覽候選」字樣。這是本次固定產品的標題。`run.py` 已預設開啟新版介面；上述明列 `--v082-alpha` 方便識別適用版本。
 
-## 建立不用輸入指令的捷徑
+## 建立雙擊捷徑
 
-完成第一次安裝後，在桌面新增捷徑，目標填入下列格式，將兩處路徑改成實際專案位置：
+完成安裝後建立桌面捷徑，將下列兩處路徑改成實際解壓位置：
 
 ```text
-"C:\Apps\PromptStudio\.venv\Scripts\pythonw.exe" "C:\Apps\PromptStudio\run.py"
+"D:\Apps\PCS\.venv\Scripts\pythonw.exe" "D:\Apps\PCS\run.py" --v082-alpha
 ```
 
-之後雙擊捷徑即可開啟。專案內現有的 `Start.cmd` 不會自動選擇 `.venv`；使用上述安裝方式時，請使用新建捷徑。
+專案內舊 `Start.cmd` 不會自動選擇此 `.venv`，請使用自己建立的捷徑。
 
-## 初次使用與保存
+## 第一次使用
 
-初次開啟會建立可修改的範例模組及專案根目錄的 `data` 資料夾。先從內建角色、動作、表情選取素材，再調整成自己的組合。修改會保存到本機資料庫。
+1. 初次開啟選清單或 Canvas；後續可從設定切換。
+2. 選取模組與素材，查看組合後的 Prompt，調整順序和權重。
+3. 保存自己的素材並複製文字；修改資料會保存在本機。
+4. 要直接生成時，依 [ComfyUI 指南](../COMFYUI_GUIDE.md) 安裝同版擴充與綁定 CLIP。網頁保持開啟，每次執行一個工作流一次。
 
-不使用網路候選時，可在「設定」關閉聯網。尚未連接 ComfyUI 時，右側提供「複製完整 Prompt」；接線與生成方式請看 [ComfyUI 整合](../COMFYUI_GUIDE.md)。
+清單與 Canvas 有各自操作及手動稿；網頁的「ComfyUI 手動文字」是 CLIP 的來源選擇，與桌面手動稿分開，見 [操作指南](USER_GUIDE.md)。
 
-## 更新與備份
+## 資料、更新與回退
 
-更新前先使用「資料與備份」建立 ZIP 備份，再關閉程式。保留原有 `data`，將新原始碼解壓到另一個資料夾，完成依賴安裝後再搬入資料副本。請保留原備份，直到新版本能正常開啟。
+預設資料位於 `run.py` 旁的 `data`；環境變數 `PROMPT_STUDIO_DATA` 可另指定位置。擴充必須指向同一份含 `studio.sqlite3` 的桌面資料夾。
 
-資料庫之外的圖片及模型可能只是外部連結，需另行備份。詳細範圍見 [資料與隱私](DATA_AND_PRIVACY.md)。
+更新前建立 ZIP 備份並關閉程式，把新版本放在新資料夾、使用資料副本。保留舊程式、舊擴充及舊資料；回退時三者一起回復到相容版本。不要讓舊程式開啟已被新版修改的唯一資料，舊資料也不要覆蓋新版新增內容。跨版資料無自動合併保證。
+
+外部圖片、模型、擴充資料與憑證需要分別處理，完整範圍見 [資料與隱私](DATA_AND_PRIVACY.md)。SHA256SUMS 用於核對下載內容，不是數位簽章。本輪未重新執行新電腦安裝或產品測試，驗收範圍見 [QA 摘要](validation/082_REPAIR5.md)。

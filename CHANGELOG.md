@@ -1,5 +1,33 @@
 # 更新紀錄
 
+日期使用 Asia/Taipei（UTC+8）。公開可下載內容以對應 Release 為準；下列開發紀錄不等於同名版本全部發布。
+
+## 0.82 Alpha 1 Repair 5｜2026-09-27 公開 Alpha 預覽版
+
+[Release 入口](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.82-alpha.1-repair.5)。固定產品來源 `5c621ecfdd4b30f8ade31dd6446dc9830871259a`；公開整合提交與附件由該頁追溯。本次提供來源、ComfyUI 擴充及校驗檔，不提供 EXE。
+
+- 整合清單／Canvas、模型與圖片管理；CLIP 明確選擇 PCS 或 ComfyUI 手動文字。
+- 原生提交前套用並核對綁定文字和 LoadImage，保留網頁未綁定參數。
+- 整批並排／網格預覽，點圖只放大；最新完整批次優先於延後送達的舊縮圖。
+- 未接線預覽清空，最近生成獨立保留；舊擴充協定不符時提示更新。
+- 整理清單操作、工作流選擇與重連等既有修復；CivitAI 例外文字去敏不代表真實 401 已排除。
+- 限制：網頁必開、單工作流每次一次；跨流程、多輪、無網頁背景及整批逐張下游尚未完成。
+
+使用者已確認人工校驗通過，本輪依指示不新增產品驗證；不擴張為所有環境通過。見 [QA 摘要](docs/validation/082_REPAIR5.md)。
+
+## 0.81 Alpha 2 UI Repair 1｜2026-09-14 04:07:49 UTC+8
+
+[已公開預覽版](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.81-alpha.2-ui-repair.1)（GitHub published_at：2026-09-13T20:07:49Z）。提供來源 ZIP、ComfyUI ZIP、SHA256SUMS.txt，無 Windows EXE。此版含 Canvas、CivitAI 搜尋／下載及 UI Repair 1 修正；下載與啟動以該頁說明為準。
+
+## 2026-09-15：公開首頁維護
+
+提交 [048a3ac](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/commit/048a3ac0a49e698db5ec85b80b31a9964e67fd10) 更新 PCS 品牌、0.81 下載入口並區分當時尚未公開的 Repair4。
+
+## 早期公開紀錄
+
+以下保留原公開 main 的記錄，原「未發布」僅描述当時文件整理狀態，不代表目前沒有 Release。
+
+
 此檔記錄公開儲存庫的變更。過去 README 使用過 0.4.x、0.5 等開發編號，公開原始碼也包含其後的改動；這些編號目前沒有對應的 GitHub Release，不作為可下載版本承諾。
 
 ## 未發布：對外文件整理

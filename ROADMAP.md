@@ -1,28 +1,26 @@
 # 開發方向
 
-目前仍是早期 Alpha 階段，1.0 尚未完成。以下區分公開程式、本機開發與預計工作；列入規劃不表示已可使用，也不代表已承諾發布日期。
+[回首頁](README.md) · 更新：2026-09-27（Asia/Taipei）
 
-## 目前公開
+## 已公開
 
-模組化 Prompt 編輯、工作區、模型與圖片管理，以及 ComfyUI 側邊欄綁定、透過網頁橋接的桌面控制、最近生成及快照。使用方式以 [首頁](README.md) 與 [操作指南](docs/USER_GUIDE.md) 為準。
+- [0.81 Alpha 2 UI Repair 1](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.81-alpha.2-ui-repair.1)：來源、ComfyUI 擴充與校驗檔；Canvas、CivitAI 及該版介面修正。
+- 早期 main 提供模組化提示詞、手動稿、素材管理與 ComfyUI 整合，保留公開提交紀錄。
 
-## 本機 Alpha 開發中
+## 本次公開預覽版
 
-截至 2026-09-13，開發工作包含文字 Canvas、工作流匯入、直接提交與單張圖生圖。這些內容尚未包含在本頁所對應的公開程式中，仍需持續驗證與整理後發布。
+0.82 Alpha 1 Repair 5 的產品來源固定為 `5c621ec`，使用者人工校驗已通過；公開狀態以 [Repair 5 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.82-alpha.1-repair.5) 為準。包括 Canvas／CLIP 綁定、明確文字來源、原生單工作流提交、圖片輸入及整批預覽。詳見 [更新紀錄](CHANGELOG.md) 與 [QA 範圍](docs/validation/082_REPAIR5.md)。
 
-## 下一階段
+## 尚未完成，沒有發布日期承諾
 
-- 多個有明確範圍的畫布，各自整理模組並輸出 Prompt。
-- 每個輸出綁定工作流的指定文字欄位，避免重複綁定；未綁定的畫布可保留作為草稿。
-- 以流程連線表達文字、圖片與生成的關係，畫布內保持自由放置與拖入歸屬。
-- 構圖底圖、匯入圖片與基本編輯，再銜接圖生圖。
+- 跨工作流執行、多輪及關閉網頁後可靠背景提交。
+- 多張圖片按原輸出順序逐張完成下游處理，並能選擇單張。
+- 純圖片且沒有有效 CLIP 綁定的執行路徑。
+- 更完整的工作流、節點、Windows 環境與新機安裝相容性證據。
+- 對應本版且可公開的截圖、實際 GitHub CI 紀錄及 EXE 散布準備。
 
-## 1.0 目標
+## 中期與探索
 
-完善 Prompt 操作、Canvas、圖生圖、Upscale，以及沿用 ComfyUI Manager 行為的管理介面。完成資料遷移、備份還原、實際工作流、Windows 相容性、打包、授權依賴與新環境安裝驗證後，再準備正式發行及商店上架。
+Trigger／History／Recipe、進階 Canvas、區域生成與圖片編排、Manager 整合、局部控制及本機 AI 等方向仍需逐項定義與驗收。品牌中的微積分是組織思路的隱喻，不保證生成品質或空間精準控制。
 
-無 metadata 圖片匯出也需完成公開版本整合與驗證。這些工作分批推進，不會一次將所有規劃視為已完成。
-
-## 1.0 之後
-
-持續開發進階 Canvas 與不同模型服務的應用整合。影片導演、鏡頭調度及 3D 工作流程留待 2.0 或之後探索，具體範圍尚未確定。
+更遠期的社群整合、影片與 3D 流程屬探索，沒有在本版完成，也不承諾開源申請結果。歡迎在 [Issues](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/issues) 提供具體使用情境。

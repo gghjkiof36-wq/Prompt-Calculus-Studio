@@ -1,14 +1,15 @@
 # 文件索引
 
-| 文件 | 內容 |
-|---|---|
-| [開始使用](GETTING_STARTED.md) | 原始碼安裝、啟動、桌面捷徑 |
-| [操作指南](USER_GUIDE.md) | 模組、手動稿、工作區、圖片與模型 |
-| [ComfyUI 整合](../COMFYUI_GUIDE.md) | 建立擴充、文字綁定、桌面控制、收藏 |
-| [資料與隱私](DATA_AND_PRIVACY.md) | 保存位置、備份範圍與聯網行為 |
-| [疑難排解](TROUBLESHOOTING.md) | 啟動及連線常見問題 |
-| [授權說明](LICENSING.md) | AGPL 與商業授權規劃 |
-| [貢獻指南](../CONTRIBUTING.md) | 回報問題與提交修改 |
-| [開發指南](DEVELOPMENT.md) | 開發環境、驗證與歷史紀錄 |
+本入口適用0.82 Alpha 1 Repair 5；舊版歷史文件不能取代本版操作與限制。
 
-[返回首頁](../README.md)
+- [首頁與版本下載](../README.md) · [English](../README.en.md)
+- [安裝、啟動與更新](GETTING_STARTED.md)
+- [使用手冊](USER_GUIDE.md)
+- [ComfyUI綁定、生成與圖片](../COMFYUI_GUIDE.md)
+- [圖片匯出](../CLEAN_EXPORT_GUIDE.md)
+- [資料、備份與隱私](DATA_AND_PRIVACY.md)
+- [疑難排解](TROUBLESHOOTING.md)
+- [更新紀錄](../CHANGELOG.md) · [Roadmap](../ROADMAP.md)
+- [驗收摘要](validation/082_REPAIR5.md) · [維護證據](MAINTENANCE_EVIDENCE.md)
+- [參與貢獻](../CONTRIBUTING.md) · [開發指南](DEVELOPMENT.md)
+- [授權](LICENSING.md) · [安全回報](../SECURITY.md)
