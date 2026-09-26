@@ -9,7 +9,7 @@ def archive_data(directory, snapshot, destination, cancel=None):
         raise ValueError("請將 ZIP 備份儲存在 data 資料夾外。")
     with zipfile.ZipFile(destination,"w",compression=zipfile.ZIP_STORED) as archive:
         archive.write(snapshot,"data/studio.sqlite3")
-        for name in ("thumbnails","originals"):
+        for name in ("thumbnails","originals","civitai/downloads"):
             folder=directory/name
             if not folder.is_dir(): continue
             for path in folder.rglob('*'):

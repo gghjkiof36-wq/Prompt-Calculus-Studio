@@ -193,7 +193,8 @@ class DesktopUiTests(unittest.TestCase):
         self.assertEqual(w.copy_button.text(),'複製完整 Prompt')
         w.comfy.ready=True; w.comfy.connected=True; w.comfy_changed()
         self.assertEqual(w.copy_button.text(),'運行')
-        w.run_controls.count.setValue(3); self.assertEqual(w.recent.run_controls.count.value(),3)
+        w.run_controls.count.setValue(3); self.assertEqual(w.run_controls.count.value(),3)
+        self.assertFalse(hasattr(w.recent,'run_controls'))
         w.comfy.ready=False; w.comfy_changed(); w.copy_final()
         self.assertEqual(APP.clipboard().text(),'manual')
 

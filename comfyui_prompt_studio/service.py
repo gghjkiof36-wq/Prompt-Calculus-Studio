@@ -15,7 +15,7 @@ from .shared.pnginfo import png_metadata
 
 
 class Service:
-    def __init__(self, directory, output_root, temp_root, default_library=''):
+    def __init__(self, directory, output_root, temp_root, default_library='', native_multi_user=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.config_path = self.directory / 'settings.json'
@@ -25,6 +25,11 @@ class Service:
         with self.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS collections (key TEXT PRIMARY KEY, path TEXT NOT NULL, hash TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL, created REAL NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS workflow_transfers (id TEXT PRIMARY KEY, library TEXT NOT NULL, body TEXT NOT NULL, created REAL NOT NULL, status TEXT NOT NULL, error TEXT NOT NULL)')
+        from .native_queue import NativeQueue
+        self.native_queue=NativeQueue(self,native_multi_user)
+        from .background_state import BackgroundState
+        self.background=BackgroundState(self)
 
     @contextmanager
     def connect(self):
@@ -61,7 +66,7 @@ class Service:
             os.replace(temporary, self.config_path)
             return config
 
-    def read_library(self, path=None):
+    def read_library(self, path=None, include_connection=False):
         path = Path(path or self.settings().get('library', '')).expanduser()
         if path.is_dir():
             path = path / 'studio.sqlite3'
@@ -73,10 +78,45 @@ class Service:
             if not row:
                 raise ValueError('素材庫尚未保存資料。')
             state = validate_state(json.loads(row[0]))
-            return dict(state=portable_state(state), library_id=str(uuid.uuid5(uuid.NAMESPACE_URL, str(path.resolve()).casefold())),
+            result=dict(state=portable_state(state), library_id=str(uuid.uuid5(uuid.NAMESPACE_URL, str(path.resolve()).casefold())),
                         library_revision=revision(state))
+            if include_connection:
+                result['connection']=dict(enabled=state['settings'].get('comfy_enabled',False),server=state['settings'].get('comfy_url',''))
+            return result
         finally:
             connection.close()
+
+    def publish_workflow(self,ident,library,value):
+        from .shared.workflow_transfer import import_transfer
+        current=self.read_library()
+        if not isinstance(ident,str) or not 1<=len(ident)<=100 or current['library_id']!=library: raise ValueError('桌面素材庫已切換，請重新讀取後匯出。')
+        import_transfer(current['state'],value)
+        payload=json.dumps(value,ensure_ascii=False)
+        if len(payload.encode('utf-8'))>3*1024*1024: raise ValueError('工作流檔案超過 3 MB。')
+        with self.lock,self.connect() as db:
+            old=db.execute('SELECT library,body FROM workflow_transfers WHERE id=?',(ident,)).fetchone()
+            if old:
+                if old!=(library,payload): raise ValueError('匯出識別碼重複。')
+            else:
+                if db.execute("SELECT COUNT(*) FROM workflow_transfers WHERE library=? AND status='pending'",(library,)).fetchone()[0]>=50: raise ValueError('待匯入工作流已滿，請先開啟桌面程式。')
+                db.execute('INSERT INTO workflow_transfers VALUES (?,?,?,?,?,?)',(ident,library,payload,time.time(),'pending',''))
+                db.execute("DELETE FROM workflow_transfers WHERE status!='pending' AND created<?",(time.time()-7*86400,))
+        return dict(id=ident,status='pending')
+
+    def take_workflow(self,library):
+        with self.connect() as db:
+            row=db.execute("SELECT id,body FROM workflow_transfers WHERE library=? AND status='pending' ORDER BY created LIMIT 1",(library,)).fetchone()
+        return dict(id=row[0],value=json.loads(row[1])) if row else {}
+
+    def acknowledge_workflow(self,ident,library,error=''):
+        if not isinstance(error,str): raise ValueError('匯入結果格式無效。')
+        with self.connect() as db: db.execute('UPDATE workflow_transfers SET status=?,error=? WHERE id=? AND library=?',('error' if error else 'done',error[:1000],ident,library))
+        return dict(ok=True)
+
+    def workflow_status(self,ident):
+        with self.connect() as db: row=db.execute('SELECT status,error FROM workflow_transfers WHERE id=?',(ident,)).fetchone()
+        if row is None: raise ValueError('匯出紀錄不存在。')
+        return dict(status=row[0],error=row[1])
 
     def prepare_prompt(self, data):
         """Runs on every queue submission, including cached node executions."""
@@ -86,6 +126,8 @@ class Service:
         extra = extra_data.get('extra_pnginfo')
         if not isinstance(extra, dict):
             return data
+        if self.native_queue.decorate(data):
+            return data
         # A loaded PNG may contain an earlier submission's envelope.
         extra.pop('prompt_studio', None)
         workflow = extra.get('workflow', {})
@@ -93,6 +135,29 @@ class Service:
         if not isinstance(workflow, dict) or not isinstance(graph, dict) or not isinstance(workflow.get('nodes', []), list):
             return data
         bindings, problems = [], []
+        direct=extra.pop('prompt_studio_request',None)
+        generation=None
+        if isinstance(direct,dict):
+            try:
+                snapshot=copy.deepcopy(validate_snapshot(direct['snapshot']))
+                node_id=str(direct['node_id']); field=direct['field']
+                actual=graph.get(node_id,{}).get('inputs',{}).get(field)
+                if isinstance(direct.get('generation'),dict) and 'effective' in direct['generation']:
+                    from .shared.generation import validate_effective_submission
+                    validate_effective_submission(direct,graph)
+                elif 'multi_output' in snapshot['state']:
+                    from .shared.multi_output import bound_texts
+                    workflow_ids={b['workflow'] for b in direct.get('texts',[])}
+                    profiles=snapshot['state'].get('generation',{}).get('profiles',[])
+                    profile=next((p for p in profiles if workflow_ids=={p['id']}),None)
+                    if profile is None or direct.get('texts')!=bound_texts(snapshot['state'],profile): raise ValueError('多欄綁定與提交快照不一致。')
+                    for text in direct['texts']:
+                        if graph.get(text['node'],{}).get('inputs',{}).get(text['field'])!=text['text']: raise ValueError('多欄文字與提交快照不一致。')
+                elif field not in ('text','text_g','text_l') or not isinstance(actual,str) or actual!=snapshot['final_prompt']:
+                    raise ValueError('直接生成的文字與提交快照不一致。')
+                bindings.append(dict(node_id=node_id,field=field,node_title=graph[node_id]['class_type'],snapshot=snapshot))
+                if isinstance(direct.get('generation'),dict): generation=copy.deepcopy(direct['generation'])
+            except (ValueError,KeyError,TypeError) as exc: problems.append(dict(node_id=str(direct.get('node_id','')),reason=str(exc)))
         for node in workflow.get('nodes', []):
             if not isinstance(node, dict):
                 continue
@@ -118,6 +183,9 @@ class Service:
                     snapshot['state']['draft_base'] = snapshot['generated_prompt']
                     snapshot['final_prompt'] = actual
                     snapshot['manual_draft'] = True
+                    if 'multi_output' in snapshot['state']:
+                        from .shared.multi_output import capture_current,compiled_outputs
+                        capture_current(snapshot['state']); snapshot['outputs']=compiled_outputs(snapshot['state'])
                 validate_snapshot(snapshot)
                 bindings.append(dict(node_id=node_id, field=field,
                                      node_title=str(node.get('title') or node.get('type', '')),
@@ -128,6 +196,8 @@ class Service:
             request_id = str(data.get('prompt_id') or uuid.uuid4())
             data['prompt_id'] = request_id
             envelope = dict(schema_version=1, submission_id=request_id, bindings=bindings, problems=problems)
+            if generation is not None: envelope['generation']=generation
+            if isinstance(direct,dict) and 'texts' in direct: envelope['texts']=copy.deepcopy(direct['texts'])
             extra['prompt_studio'] = envelope
             with self.connect() as db:
                 db.execute('INSERT OR REPLACE INTO jobs VALUES (?,?,?)',

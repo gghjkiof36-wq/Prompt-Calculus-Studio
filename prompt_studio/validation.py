@@ -21,7 +21,8 @@ def validate_resources(resources):
             if not isinstance(source,dict) or not isinstance(source.get('prompt_id'),str) or not isinstance(source.get('image'),dict) or not isinstance(body.get('collected',{}),dict):
                 raise ValueError('最近生成的來源格式無效。')
         if row["kind"]=="model":
-            if body.get("root")!=row["parent"] or body.get("kind") not in ("LoRA","CKPT","Diffusion") or not isinstance(body.get("relative"),str): raise ValueError("模型索引無效。")
+            from .civitai_assets import LOCAL_TYPES
+            if body.get("root")!=row["parent"] or body.get("kind") not in LOCAL_TYPES or not isinstance(body.get("relative"),str): raise ValueError("模型索引無效。")
             if type(body.get("size")) is not int or type(body.get("mtime")) is not int: raise ValueError("模型檔案資訊無效。")
             for key in ("category","trigger","url","notes"):
                 if not isinstance(body.get(key,""),str): raise ValueError("模型說明格式錯誤。")

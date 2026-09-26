@@ -1,5 +1,6 @@
 """Paint only visible rows; no per-item widgets, shadows or animation loops."""
-from PySide6.QtCore import Qt, QSize, QRectF, QPointF, Signal, QMimeData, QTimer, QEvent
+import uuid
+from PySide6.QtCore import Qt, QSize, QRectF, QPointF, QPoint, Signal, QMimeData, QTimer, QEvent
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPainterPath, QDrag
 from PySide6.QtWidgets import QStyledItemDelegate, QStyle, QTreeWidget, QAbstractItemView, QListWidget
 from .theme import font_pixels
@@ -15,8 +16,20 @@ def weight_buttons(rect):
 class PromptList(QListWidget):
     weightRequested=Signal(str, int)
 
+    def __init__(self):
+        super().__init__()
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.setDragDropOverwriteMode(False)
+        self.setDropIndicatorShown(True)
+
+    def startDrag(self,actions):
+        if getattr(self,'weight_press',False): return
+        self.dragged=True
+        super().startDrag(actions)
+
     def mousePressEvent(self, event):
-        self.weight_press=False
+        self.weight_press=False; self.dragged=False
         item=self.itemAt(event.position().toPoint())
         if item and event.button()==Qt.MouseButton.LeftButton:
             for rect, delta in zip(weight_buttons(self.visualItemRect(item)), (-1, 1)):
@@ -28,6 +41,7 @@ class PromptList(QListWidget):
 
     def mouseReleaseEvent(self,event):
         if getattr(self,'weight_press',False): self.weight_press=False; event.accept(); return
+        if getattr(self,'dragged',False): self.dragged=False; event.accept(); return
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self,event):
@@ -111,7 +125,9 @@ class BuilderDelegate(QStyledItemDelegate):
             else: path.moveTo(x+2,cy-4); path.lineTo(x+6,cy); path.lineTo(x+2,cy+4)
             painter.setPen(QPen(QColor("#aaaaaa"),1.3)); painter.drawPath(path); x+=22
         else:
-            painter.setPen(QColor("#858585")); painter.drawText(QRectF(x,rect.top(),12,rect.height()),Qt.AlignmentFlag.AlignCenter,"⋮"); x+=20
+            painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor('#858585'))
+            for offset in (-4,0,4): painter.drawEllipse(QPointF(x+6,rect.center().y()+offset),1,1)
+            x+=20
         painter.setPen(QColor("#eeeeee")); width=int(rect.right()-x-32)
         painter.drawText(QRectF(x,rect.top(),width,rect.height()),Qt.AlignmentFlag.AlignVCenter,QFontMetrics(font).elidedText(str(index.data()),Qt.TextElideMode.ElideRight,width))
         if not group and hover:
@@ -132,37 +148,63 @@ class BuilderTree(QTreeWidget):
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove); self.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.setDropIndicatorShown(False); self.setAutoScroll(True)
-        self._drag_source=None; self._drop_hint=None
+        self._drag_source=None; self._drop_hint=None; self._drag_token=b''; self._press_pos=None
         self._scroll_timer=QTimer(self); self._scroll_timer.setInterval(70); self._scroll_timer.timeout.connect(self.drag_scroll)
         self._drag_pos=None; self._scroll_direction=0
 
     def key(self,item): return tuple(item.data(0,Qt.ItemDataRole.UserRole)) if item else None
+
+    def mousePressEvent(self,event):
+        self._press_pos=event.position().toPoint() if event.button()==Qt.MouseButton.LeftButton else None
+        super().mousePressEvent(event)
+
+    def drag_preview(self):
+        rect=self.visualItemRect(self.currentItem()); pixmap=self.viewport().grab(rect)
+        anchor=(self._press_pos if self._press_pos is not None else rect.center())-rect.topLeft()
+        scale=1.0; host=self
+        while host is not None and host.graphicsProxyWidget() is None: host=host.parentWidget()
+        proxy=host.graphicsProxyWidget() if host is not None else None
+        if proxy is not None and proxy.scene() and proxy.scene().views():
+            transform=proxy.deviceTransform(proxy.scene().views()[0].viewportTransform())
+            scale=(transform.m11()**2+transform.m12()**2)**0.5
+        if abs(scale-1.0)>.001:
+            pixmap=pixmap.scaled(max(1,round(pixmap.width()*scale)),max(1,round(pixmap.height()*scale)),Qt.AspectRatioMode.IgnoreAspectRatio,Qt.TransformationMode.SmoothTransformation)
+        return pixmap,QPoint(round(anchor.x()*scale),round(anchor.y()*scale))
 
     def startDrag(self,actions):
         self._drag_source=self.key(self.currentItem())
         if not self._drag_source: return
         # Own the drag lifecycle: the native item view must not remove rows
         # after our state-driven drop handler has rebuilt the tree.
-        drag=QDrag(self); data=QMimeData(); data.setData("application/x-prompt-studio-order",b"internal"); drag.setMimeData(data)
-        drag.setPixmap(self.viewport().grab(self.visualItemRect(self.currentItem())))
-        drag.exec(Qt.DropAction.MoveAction)
-        self._scroll_timer.stop()
-        self._drag_source=None; self._drop_hint=None; self.viewport().update()
+        self._drag_token=uuid.uuid4().hex.encode('ascii')
+        drag=QDrag(self); data=QMimeData(); data.setData("application/x-prompt-studio-order",self._drag_token); drag.setMimeData(data)
+        pixmap,anchor=self.drag_preview(); drag.setPixmap(pixmap); drag.setHotSpot(anchor)
+        try: drag.exec(Qt.DropAction.MoveAction)
+        finally:
+            self._scroll_timer.stop(); drag.deleteLater()
+            self._drag_source=None; self._drop_hint=None; self._drag_token=b''; self._press_pos=None; self.viewport().update()
+
+    def owns_drag(self,event):
+        if not self._drag_source: return False
+        if event.source() is self: return True
+        # The graphics proxy may replace the native source widget. Only the
+        # token from this tree's active gesture may cross that boundary.
+        return bool(self._drag_token and bytes(event.mimeData().data('application/x-prompt-studio-order'))==self._drag_token)
 
     def dragEnterEvent(self,event):
-        if event.source() is self and self._drag_source: event.acceptProposedAction()
+        if self.owns_drag(event): event.acceptProposedAction()
         else: event.ignore()
 
     def drop_target(self,pos):
         target=self.itemAt(pos)
         if not self._drag_source: return None
         if target is None and self.topLevelItemCount():
-            if self._drag_source[0]=="group": target=self.topLevelItem(self.topLevelItemCount()-1)
+            if self._drag_source[0] in ('group','use'): target=self.topLevelItem(self.topLevelItemCount()-1)
             else:
                 current=self.currentItem(); parent=current.parent() if current else None
                 if parent: target=parent.child(parent.childCount()-1)
         if target is None: return None
-        if self._drag_source[0]=="group":
+        if self._drag_source[0] in ('group','use'):
             while target.parent(): target=target.parent()
         else:
             current=self.currentItem()
@@ -173,9 +215,9 @@ class BuilderTree(QTreeWidget):
     def dragMoveEvent(self,event):
         self._drag_pos=event.position().toPoint()
         self._scroll_direction=-1 if self._drag_pos.y()<28 else 1 if self._drag_pos.y()>self.viewport().height()-28 else 0
-        if event.source() is self and self._scroll_direction: self._scroll_timer.start()
+        if self.owns_drag(event) and self._scroll_direction: self._scroll_timer.start()
         else: self._scroll_timer.stop()
-        result=self.drop_target(event.position().toPoint()) if event.source() is self else None
+        result=self.drop_target(event.position().toPoint()) if self.owns_drag(event) else None
         if result:
             self._drop_hint=result; event.acceptProposedAction()
         else: self._drop_hint=None; event.ignore()
@@ -193,7 +235,7 @@ class BuilderTree(QTreeWidget):
 
     def dropEvent(self,event):
         self._scroll_timer.stop()
-        result=self.drop_target(event.position().toPoint()) if event.source() is self else None
+        result=self.drop_target(event.position().toPoint()) if self.owns_drag(event) else None
         source=self._drag_source; self._drop_hint=None; self.viewport().update()
         if result and source:
             target,after,_=result; self.moveRequested.emit(source,target,after); event.acceptProposedAction()
@@ -228,6 +270,10 @@ class BuilderTree(QTreeWidget):
             self.moveRequested.emit(self.key(current),self.key(target),delta>0)
 
     def keyPressEvent(self,event):
+        if event.key() in (Qt.Key.Key_Backspace,Qt.Key.Key_Delete):
+            key=self.key(self.currentItem())
+            if key and key[0]!='group': self.removeRequested.emit(key)
+            event.accept(); return
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() in (Qt.Key.Key_Up,Qt.Key.Key_Down):
             self.move_current(-1 if event.key()==Qt.Key.Key_Up else 1); event.accept(); return
         super().keyPressEvent(event)

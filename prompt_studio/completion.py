@@ -58,6 +58,12 @@ class PromptEdit(QPlainTextEdit):
         pos = len(text.encode("utf-16-le")[:self.textCursor().position()*2].decode("utf-16-le", errors="ignore"))
         return current_token(text, pos)
 
+    def lookup_active(self):
+        return self.hasFocus() and not self.composing
+
+    def lookup_notice(self, text):
+        self.service.window.notice(text)
+
     def schedule(self):
         if self.inserting or self.composing or self.isReadOnly() or not self.hasFocus():
             return
@@ -142,6 +148,19 @@ class CompletionService(QObject):
         self.next_request = 0
         self.tasks = {}
         self.api_key = ""
+        self.window.store.set_cache_enabled(self.window.state['settings'].get('search_cache',True))
+
+    def configure_cache(self,enabled):
+        self.window.store.set_cache_enabled(enabled)
+        self.window.state['settings']['search_cache']=enabled
+
+    def clear_cache(self):
+        self.window.store.clear_cache(); self.serial+=1; self.timer.stop()
+        try:
+            if self.editor:
+                self.editor.completer.popup().hide()
+                if self.editor.context(): self.editor.display(self.editor.context(),self.local(self.editor.context()))
+        except RuntimeError: pass
 
     def cancel(self, editor):
         if self.editor is editor:
@@ -151,6 +170,7 @@ class CompletionService(QObject):
     def schedule(self, editor):
         self.serial += 1
         self.editor = editor
+        self.scheduled_owner = (self.window.store, self.window.state['workspace'])
         self.timer.start(600)
 
     def local(self, token):
@@ -164,8 +184,9 @@ class CompletionService(QObject):
 
     def lookup(self):
         editor = self.editor
+        if getattr(self,'scheduled_owner',None)!=(self.window.store,self.window.state['workspace']): return
         try:
-            if not editor or not editor.hasFocus() or editor.composing:
+            if not editor or not editor.lookup_active():
                 return
         except RuntimeError:
             return
@@ -173,37 +194,39 @@ class CompletionService(QObject):
         if token is None:
             return
         settings = self.window.state["settings"]
+        self.configure_cache(settings.get('search_cache',True))
         local = self.local(token)
         if local:
             editor.display(token, local)
         # Exact personal glossary entries avoid unnecessary external translation.
         if token.query in self.window.state["dictionary"] and not token.artist:
-            self.window.notice("自訂字典候選；點選或按 Enter／Tab 插入。")
+            editor.lookup_notice("自訂字典候選")
             return
         provider = settings.get("translator","dictionary") if contains_chinese(token.query) else "dictionary"
+        if contains_chinese(token.query) and provider == "google" and not self.api_key:
+            editor.lookup_notice("Google 尚未設定金鑰；先查 Danbooru 的其他名稱。")
+            provider = "dictionary"
         key = json.dumps([provider,token.query.casefold(),token.artist],ensure_ascii=False)
-        cached = self.window.store.cached(key, 86400 if settings["online"] else None)
+        cached = self.window.store.cached(key)
         if cached is not None:
             self.show(editor, token, local+cached)
-            self.window.notice("已顯示快取候選。")
-            return
+            editor.lookup_notice("已顯示快取候選。")
+            if not settings['online'] or self.window.store.cache_fresh(key): return
         if not settings["online"]:
-            self.window.notice("離線模式：此片段沒有快取，可手動輸入。")
+            editor.lookup_notice("離線模式：此片段沒有快取，可手動輸入。")
             return
-        if contains_chinese(token.query) and provider == "google" and not self.api_key:
-            self.window.notice("Google 尚未設定金鑰；先查 Danbooru 的其他名稱。")
-            provider = "dictionary"
-            key = json.dumps([provider,token.query.casefold(),token.artist],ensure_ascii=False)
         if self.tasks or time.monotonic() < self.next_request:
             self.timer.start(max(200, int((self.next_request-time.monotonic())*1000)))
             return
         serial = self.serial
         task = RequestTask(serial, token, provider, self.api_key)
         self.active = (serial,editor,token,key,local)
+        self.request_owner = (self.window.store, self.window.state['workspace'])
+        self.request_cache_epoch=self.window.store.cache_epoch
         self.tasks[serial] = task
         task.signals.done.connect(self.finished)
         self.next_request = time.monotonic()+1.1
-        self.window.notice("正在查詢…可繼續輸入，過時結果會略過。")
+        editor.lookup_notice("已顯示快取候選，正在更新…" if cached is not None else "正在查詢…")
         self.pool.start(task)
 
     def show(self, editor, token, rows):
@@ -219,18 +242,27 @@ class CompletionService(QObject):
         if not active or active[0] != serial:
             return
         _, editor, token, key, local = active
+        if (serial != self.serial or self.request_owner != (self.window.store,self.window.state['workspace'])
+                or not self.window.state['settings']['online'] or self.window.closing):
+            return
+        self.configure_cache(self.window.state['settings'].get('search_cache',True))
+        if self.request_cache_epoch!=self.window.store.cache_epoch: return
+        try:
+            if not editor.lookup_active() or editor.context()!=token: return
+        except RuntimeError:
+            return
         if not error:
             try:
                 self.window.store.cache(key, rows)
             except Exception:
-                self.window.notice("候選已取得，但快取未能寫入。")
+                editor.lookup_notice("候選已取得，但快取未能寫入。")
         if serial != self.serial:
             return
         try:
             if error:
-                self.window.notice(error)
+                editor.lookup_notice(error)
             else:
                 self.show(editor,token,local+rows)
-                self.window.notice(f"找到 {len(rows)} 個候選；點選或 Enter／Tab 加入。" if rows else "沒有對應候選，可手動輸入或加入中文字典。")
+                editor.lookup_notice(f"找到 {len(rows)} 個候選。" if rows else "沒有對應候選，可手動輸入或加入中文字典。")
         except RuntimeError:
             pass

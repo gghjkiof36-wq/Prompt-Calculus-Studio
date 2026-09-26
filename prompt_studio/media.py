@@ -20,6 +20,14 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 MODEL_FOLDERS = {"loras": "LoRA", "checkpoints": "CKPT", "diffusion_models": "Diffusion", "unet": "Diffusion"}
 
 
+def model_root(value):
+    """Accept a models root or one of its standard category directories."""
+    if not value: raise ValueError('請先選擇模型根目錄。')
+    path = Path(value).expanduser().resolve(strict=True)
+    if not path.is_dir(): raise ValueError('請選擇模型資料夾。')
+    return path.parent if path.name.casefold() in MODEL_FOLDERS else path
+
+
 def checked_model(root, filename, expected=None):
     root = Path(root).resolve(strict=True)
     raw = Path(filename).absolute()
@@ -39,7 +47,7 @@ def checked_model(root, filename, expected=None):
 
 
 def scan_models(root, cancel=None):
-    root = Path(root).resolve(strict=True)
+    root = model_root(root)
     rows = []
     for folder, kind in MODEL_FOLDERS.items():
         base = root / folder
@@ -68,7 +76,7 @@ def scan_models(root, cancel=None):
 
 
 def copy_model(source, root, folder, cancel=None):
-    root = Path(root).resolve(strict=True)
+    root = model_root(root)
     if folder not in MODEL_FOLDERS:
         raise ValueError("不支援的模型資料夾。")
     source = Path(source).resolve(strict=True)
@@ -81,7 +89,7 @@ def copy_model(source, root, folder, cancel=None):
     dest = destdir / source.name
     if dest.exists():
         raise ValueError("目標已有同名檔案，未覆寫。")
-    partial = destdir / (".prompt-studio-"+uuid.uuid4().hex+".partial")
+    partial = destdir / (".pcs-"+uuid.uuid4().hex+".partial")
     try:
         with source.open("rb") as src, partial.open("xb") as output:
             while block := src.read(4*1024*1024):
@@ -159,6 +167,10 @@ class Catalog:
         self.store, self.db = store, store.db
         self.db.execute("CREATE TABLE IF NOT EXISTS resources (id TEXT PRIMARY KEY, kind TEXT, parent TEXT, name TEXT, body TEXT)")
         self.db.execute("CREATE INDEX IF NOT EXISTS resource_page ON resources(kind,parent,name)")
+        if not self.db.execute("SELECT 1 FROM sqlite_master WHERE name='asset_sources'").fetchone() and self.db.execute('SELECT 1 FROM document WHERE id=1').fetchone():
+            self.db.commit(); store.backup()
+        self.db.execute("CREATE TABLE IF NOT EXISTS asset_sources (sha256 TEXT PRIMARY KEY, provider TEXT NOT NULL, model_id INTEGER, version_id INTEGER, body TEXT NOT NULL, saved REAL NOT NULL)")
+        self.db.execute("CREATE INDEX IF NOT EXISTS asset_source_version ON asset_sources(provider,version_id)")
         self.db.commit()
 
     def put(self, kind, row, parent=""):
@@ -171,9 +183,8 @@ class Catalog:
         return self.resolve_original(json.loads(row[0])) if row else None
 
     def resolve_original(self,row):
-        if row.get("owned") and row.get("original_relative"):
-            path=(self.store.directory/row["original_relative"]).resolve()
-            if path.is_relative_to(self.store.directory.resolve()): row["path"]=str(path)
+        from .media_paths import original_path
+        if row.get('path'): row['path']=str(original_path(self.store.directory,row))
         return row
 
     def rows(self, kind, parent=None, limit=60, offset=0, search=""):
@@ -202,21 +213,96 @@ class Catalog:
         with self.db:
             self.db.execute("DELETE FROM resources WHERE id=?",(ident,))
 
+    def put_source(self, sha256, source):
+        value=str(sha256).upper()
+        if len(value)!=64 or not all(c in '0123456789ABCDEF' for c in value): raise ValueError('資產 SHA256 格式無效。')
+        if not isinstance(source,dict) or source.get('provider')!='civitai': raise ValueError('資產來源格式無效。')
+        with self.db:
+            self.db.execute("INSERT OR REPLACE INTO asset_sources VALUES (?,?,?,?,?,?)",
+                (value,'civitai',source.get('model_id'),source.get('version_id'),json.dumps(source,ensure_ascii=False),time.time()))
+
+    def source_for_hash(self, sha256):
+        row=self.db.execute("SELECT body FROM asset_sources WHERE sha256=?",(str(sha256).upper(),)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def source_for_version(self, version_id):
+        row=self.db.execute("SELECT body FROM asset_sources WHERE provider='civitai' AND version_id=? ORDER BY saved DESC LIMIT 1",(version_id,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def model_for_version(self, version_id):
+        from .civitai_assets import installed_version
+        return installed_version(self,version_id)
+
+    def update_identified_models(self, rows):
+        """Apply source fields to the latest record, never a worker's personal copy."""
+        from .civitai import SOURCE_FIELDS,HASH_FIELDS
+        with self.db:
+            for row in rows:
+                latest=self.get(row['id'])
+                if not latest or latest.get('missing') or latest.get('path')!=row.get('path'): continue
+                try: stat=Path(latest['path']).stat()
+                except OSError: continue
+                if (stat.st_size,stat.st_mtime_ns)!=(row.get('size'),row.get('mtime')) or (latest.get('size'),latest.get('mtime'))!=(row.get('size'),row.get('mtime')):
+                    for key in SOURCE_FIELDS+HASH_FIELDS: latest.pop(key,None)
+                    latest['civitai_status']='stale'
+                else:
+                    for key in SOURCE_FIELDS+HASH_FIELDS:
+                        latest.pop(key,None)
+                        if key in row: latest[key]=copy.deepcopy(row[key])
+                if latest.get('civitai_status')=='matched' and latest.get('sha256') and isinstance(latest.get('civitai'),dict):
+                    source=row['civitai']
+                    if source.get('sha256','').upper()!=latest['sha256'].upper(): raise ValueError('辨識來源與目前檔案 Hash 不符。')
+                    self.db.execute("INSERT OR REPLACE INTO asset_sources VALUES (?,?,?,?,?,?)",
+                        (latest['sha256'].upper(),'civitai',source.get('model_id'),source.get('version_id'),json.dumps(source,ensure_ascii=False),time.time()))
+                self.db.execute("INSERT OR REPLACE INTO resources VALUES (?,?,?,?,?)",
+                    (latest['id'],'model',latest['root'],latest.get('name',Path(latest['path']).stem),json.dumps(latest,ensure_ascii=False)))
+
     def merge_models(self, rows, root):
-        parent=str(Path(root).resolve())
+        parent=str(model_root(root))
         def write(row):
             self.db.execute("INSERT OR REPLACE INTO resources VALUES (?,?,?,?,?)",(row["id"],"model",parent,row["name"],json.dumps(row,ensure_ascii=False)))
         with self.db:
             for row in rows:
                 previous = self.get(row["id"]) or {}
                 current = {**previous, **row, "missing":False}
+                if previous and (previous.get('size'),previous.get('mtime'))!=(row.get('size'),row.get('mtime')):
+                    from .civitai import SOURCE_FIELDS,HASH_FIELDS
+                    for key in SOURCE_FIELDS+HASH_FIELDS: current.pop(key,None)
+                    current['civitai_status']='stale'
                 current.setdefault("name", Path(row["path"]).stem)
                 write(current)
             found = {r["id"] for r in rows}
-            for previous in self.rows("model",str(Path(root).resolve()),limit=20000):
+            for previous in self.rows("model",parent,limit=20000):
                 if previous["id"] not in found:
-                    previous["missing"] = True
+                    # Explicit downloads may live in a custom model directory.
+                    previous["missing"] = not Path(previous['path']).is_file() if previous.get('installed_by')=='civitai' else True
                     write(previous)
+
+    def archive_missing_models(self, root):
+        parent = str(model_root(root))
+        changed = []
+        with self.db:
+            for record in self.rows('model', parent, limit=20000):
+                path = Path(record['path'])
+                # An unavailable drive/folder or permission error is not proof
+                # that a model was deleted. Require its immediate folder.
+                try:
+                    if not path.parent.is_dir(): continue
+                    path.stat()
+                except FileNotFoundError:
+                    record['missing'] = True
+                    self.db.execute("UPDATE resources SET kind='missing_model',body=? WHERE id=? AND kind='model'",
+                                    (json.dumps(record,ensure_ascii=False),record['id']))
+                    changed.append(record['id'])
+                except OSError:
+                    continue
+        return changed
+
+    def restore_missing_models(self, root):
+        parent = str(model_root(root))
+        with self.db:
+            result = self.db.execute("UPDATE resources SET kind='model' WHERE kind='missing_model' AND parent=?", (parent,))
+        return result.rowcount
 
     def snapshot(self, state):
         from .core import build_prompt

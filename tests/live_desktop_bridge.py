@@ -84,9 +84,9 @@ try:
     w.comfy.interrupt(True)
     wait(lambda:not api('/queue')['queue_pending'] and not api('/queue')['queue_running'])
     stopped=[api('/history')[ident] for ident in history_ids()-before_stop]
-    assert len(stopped)==1,stopped
-    assert any(message[0]=='execution_interrupted' for message in stopped[0]['status']['messages']),stopped
-    assert not stopped[0]['outputs'],stopped
+    assert stopped,'The running fixture must be interrupted.'
+    assert all(any(message[0]=='execution_interrupted' for message in entry['status']['messages']) for entry in stopped)
+    assert all(not entry['outputs'] for entry in stopped),'An in-flight request must also be drained before saving an image.'
     w.comfy.disconnect(); w.copy_final(); assert APP.clipboard().text()==w.state['draft']
     report=dict(ok=True,batch_count=3,prompt_ids=sorted(submitted),old_prompt=expected,
         saved=str(saved),byte_identical=True,duplicate_prevented=True,stop_and_clear=True,disconnected_copy=True,notices=notices)

@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QCo
     QListWidget, QListWidgetItem, QScrollArea, QSlider, QAbstractItemView)
 from .widgets import label, button, row, dialog_buttons, image_path, set_preview, ask, scrolling, panel, StudioDialog, CheckList, InputDialog as QInputDialog, ComboBox as QComboBox
 from .completion import PromptEdit
-from .core import uid, DEFAULT_SETTINGS
+from .core import uid, DEFAULT_SETTINGS, set_selection_separation
 from .media import thumbnail
 from .image_drop import ImageDropLabel
 
@@ -121,7 +121,7 @@ class SettingsDialog(StudioDialog):
         self.setWindowTitle("設定")
         self.resize(760,780)
         layout = self.body
-        tabs = QTabWidget()
+        tabs = QTabWidget(); self.tabs=tabs
         layout.addWidget(tabs)
         appearance = QWidget(); appearance_layout=QVBoxLayout(appearance); appearance_layout.setContentsMargins(0,12,0,0); appearance_layout.setSpacing(18)
         appearance_layout.addWidget(label("閱讀與顯示","Heading"))
@@ -140,37 +140,52 @@ class SettingsDialog(StudioDialog):
         self.material.setCurrentIndex(self.material.findData(s["material"]))
         form.addRow("視窗材質",self.material)
         self.material_form=form
+        self.transparency_values={k:s.get(k+'_transparency',61) for k in ('mica','acrylic')}
+        self.transparency_material=self.material.currentData()
         self.transparency_row=QWidget(); transparency_layout=row()
         transparency_layout.setContentsMargins(0,0,0,0); self.transparency_row.setLayout(transparency_layout)
         self.transparency=QSlider(Qt.Orientation.Horizontal); self.transparency.setRange(0,100)
-        self.transparency.setAccessibleName("Acrylic 透明度")
+        self.transparency.setAccessibleName("材質透明度")
         self.transparency_value=QSpinBox(); self.transparency_value.setRange(0,100); self.transparency_value.setSuffix(" %")
-        self.transparency_value.setAccessibleName("Acrylic 透明度百分比"); self.transparency_value.setMinimumWidth(96)
-        self.transparency.setValue(s.get("acrylic_transparency",DEFAULT_SETTINGS["acrylic_transparency"]))
+        self.transparency_value.setAccessibleName("材質透明度百分比"); self.transparency_value.setMinimumWidth(96)
+        self.transparency.setValue(self.transparency_values.get(self.transparency_material,61))
         self.transparency_value.setValue(self.transparency.value())
         transparency_layout.addWidget(self.transparency,1); transparency_layout.addWidget(self.transparency_value)
         form.addRow("透明度",self.transparency_row)
-        self.transparency.setToolTip("數值越高，越能看見模糊背景；不影響文字區。")
+        self.transparency.setToolTip("調整周邊底色遮罩；數值越高，材質色調越明顯，不影響文字區。")
         self.transparency.valueChanged.connect(self.transparency_value.setValue)
         self.transparency_value.valueChanged.connect(self.transparency.setValue)
-        form.setRowVisible(self.transparency_row,self.material.currentData()=="acrylic")
+        form.setRowVisible(self.transparency_row,self.material.currentData() in ('mica','acrylic'))
         self.accent = QComboBox()
         for text,value in [("中性灰白","neutral"),("霧藍","blue"),("柔綠","green")]: self.accent.addItem(text,value)
         self.accent.setCurrentIndex(self.accent.findData(s["accent"]))
         self.density = QComboBox(); self.density.addItem("舒適","comfortable"); self.density.addItem("緊湊","compact")
         self.density.setCurrentIndex(self.density.findData(s["density"]))
         form.addRow("重點色",self.accent); form.addRow("清單間距",self.density)
-        material_layout.addWidget(label("玻璃效果用於視窗周邊，文字區維持深色。效果依 Windows 透明設定而定。","Subtle",True))
         appearance_layout.addWidget(label("操作確認","Heading"))
         confirmations,confirmations_layout=panel("SettingsGroup"); appearance_layout.addWidget(confirmations)
         self.confirm_clear_draft=QCheckBox("清除手動內容前先詢問")
         self.confirm_clear_draft.setChecked(s.get("confirm_clear_draft",True)); confirmations_layout.addWidget(self.confirm_clear_draft)
+        self.reduce_motion=QCheckBox('減少畫布展開動畫'); self.reduce_motion.setChecked(s.get('reduce_motion',False)); confirmations_layout.addWidget(self.reduce_motion)
+        self.connection_style=QComboBox()
+        for title,value in [('曲線','curve'),('直線','straight'),('直角 · 中段一次轉折','orthogonal')]: self.connection_style.addItem(title,value)
+        self.connection_style.setCurrentIndex(self.connection_style.findData(s.get('connection_style','curve')))
+        self.connection_style.setToolTip('直角線採水平、垂直、水平三段；只在中間轉折，不自動繞過模組。')
+        if 'multi_output' in window.state:
+            confirmations_layout.addWidget(label('畫布連線樣式','Subtle')); confirmations_layout.addWidget(self.connection_style)
+        self.separate_selections=QCheckBox('禁止清單選項跟 Canvas 選項共用')
+        self.separate_selections.setChecked(s.get('separate_selections',True)); confirmations_layout.addWidget(self.separate_selections)
+        confirmations_layout.addWidget(label('勾選後各自保留選擇與手動稿；素材庫仍共用。取消勾選可合併使用兩邊的組合。','Subtle',True))
         appearance_layout.addStretch()
         tabs.addTab(scrolling(appearance),"外觀")
         network = QWidget(); net = QFormLayout(network)
-        self.online = QCheckBox("啟用 Danbooru 聯網候選"); self.online.setChecked(s["online"])
+        self.online = QCheckBox("允許聯網（候選與 CivitAI 共用）"); self.online.setChecked(s["online"])
         net.addRow(self.online)
-        net.addRow(label("只送出目前輸入的片段，不上傳整份 Prompt、圖片或模型。停止輸入約 0.6 秒後查詢；已查內容會快取。","Subtle",True))
+        self.search_cache=QCheckBox('禁止搜尋快取'); self.search_cache.setChecked(not s.get('search_cache',True))
+        self.search_cache.toggled.connect(lambda disabled:window.completion.configure_cache(not disabled))
+        net.addRow(self.search_cache)
+        net.addRow(button('清除搜尋快取',lambda:(window.completion.clear_cache(),window.notice('搜尋快取已清除。')),'Quiet'))
+        net.addRow(label("只查目前輸入的片段。快取保留常用查詢，最多 5,000 筆／16 MiB；停用保留舊快取，清除不影響素材與個人字典。","Subtle",True))
         self.translator = QComboBox(); self.translator.addItem("個人字典 + Danbooru 名稱查詢","dictionary"); self.translator.addItem("個人字典 + Google Cloud 翻譯","google")
         self.translator.setCurrentIndex(self.translator.findData(s["translator"]))
         self.key = QLineEdit(window.completion.api_key); self.key.setEchoMode(QLineEdit.EchoMode.Password)
@@ -184,8 +199,10 @@ class SettingsDialog(StudioDialog):
         tabs.addTab(scrolling(network),"候選與翻譯")
         dictionary = QWidget(); dictionary_layout = QVBoxLayout(dictionary)
         dictionary_layout.addWidget(label("每行一個對照：中文 = 英文提示詞。這是可自行修改的小型字典。","Subtle",True))
-        self.dictionary = QPlainTextEdit("\n".join(f"{k} = {v}" for k,v in window.state["dictionary"].items()))
-        dictionary_layout.addWidget(self.dictionary)
+        self.dictionary = QPlainTextEdit(s.get("dictionary_buffer", "\n".join(f"{k} = {v}" for k,v in window.state["dictionary"].items())))
+        dictionary_layout.addWidget(self.dictionary,1)
+        self.dictionary_feedback=label("", "Subtle", True); dictionary_layout.addWidget(self.dictionary_feedback)
+        self.dictionary.setMinimumHeight(300)
         tabs.addTab(dictionary,"個人字典")
         layout.addWidget(dialog_buttons(self,self.save))
         self.material.currentIndexChanged.connect(self.preview_material)
@@ -193,34 +210,54 @@ class SettingsDialog(StudioDialog):
         self.finished.connect(self.finish_preview)
 
     def preview_material(self, *_):
-        self.material_form.setRowVisible(self.transparency_row,self.material.currentData()=="acrylic")
-        self.window.appearance_preview=dict(material=self.material.currentData(),acrylic_transparency=self.transparency.value())
+        material=self.material.currentData()
+        if self.transparency_material in self.transparency_values:
+            self.transparency_values[self.transparency_material]=self.transparency.value()
+        if material!=self.transparency_material:
+            self.transparency.blockSignals(True); self.transparency_value.blockSignals(True)
+            self.transparency.setValue(self.transparency_values.get(material,61)); self.transparency_value.setValue(self.transparency.value())
+            self.transparency.blockSignals(False); self.transparency_value.blockSignals(False); self.transparency_material=material
+        self.material_form.setRowVisible(self.transparency_row,material in ('mica','acrylic'))
+        self.window.appearance_preview=dict(material=material,**{k+'_transparency':v for k,v in self.transparency_values.items()})
         self.window.apply_theme(preserve_layout=True)
 
     def finish_preview(self, *_):
         self.window.appearance_preview={}
         self.window.apply_theme(preserve_layout=True)
 
-    def save(self):
-        dictionary = {}
+    def save(self, accept=True):
+        prior=dict(self.window.state["settings"]); dictionary = {}; valid=True
         for line in self.dictionary.toPlainText().splitlines():
             if not line.strip(): continue
             if "=" not in line or not all(v.strip() for v in line.split("=",1)):
-                self.window.error("字典請使用「中文 = 英文」格式。")
-                return
+                valid=False; break
             key,value = line.split("=",1); dictionary[key.strip()] = value.strip()
+        changed_separation=self.separate_selections.isChecked()!=self.window.state['settings'].get('separate_selections',True)
+        set_selection_separation(self.window.state,self.separate_selections.isChecked())
+        if changed_separation:
+            self.window.canvas.undo_stack.clear(); self.window.canvas.redo_stack.clear()
         self.window.state["settings"].update(ui_size=self.ui_size.value(),prompt_size=self.prompt_size.value(),
             font_family=self.family.currentFont().family(),material=self.material.currentData(),accent=self.accent.currentData(),
-            acrylic_transparency=self.transparency.value(),confirm_clear_draft=self.confirm_clear_draft.isChecked(),
-            density=self.density.currentData(),online=self.online.isChecked(),translator=self.translator.currentData(),
+            acrylic_transparency=self.transparency_values['acrylic'],mica_transparency=self.transparency_values['mica'],confirm_clear_draft=self.confirm_clear_draft.isChecked(),reduce_motion=self.reduce_motion.isChecked(),
+            connection_style=self.connection_style.currentData(),density=self.density.currentData(),online=self.online.isChecked(),translator=self.translator.currentData(),
             formatter=self.formatter.currentData(),artist_prefix=self.artist.isChecked())
-        self.window.state["dictionary"] = dictionary
+        self.dictionary_feedback.setText('' if valid else '尚未套用：每行請使用「中文 = 英文」格式。輸入內容已暫存。')
+        if valid:
+            self.window.state["dictionary"] = dictionary
+            self.window.state['settings'].pop('dictionary_buffer',None)
+        else:self.window.state['settings']['dictionary_buffer']=self.dictionary.toPlainText()
         self.window.completion.api_key = self.key.text().strip()
         self.window.completion.serial += 1
         self.window.completion.timer.stop()
-        self.window.changed()
-        self.window.apply_theme()
-        self.accept()
+        settings=self.window.state['settings']
+        prompt_changed=changed_separation or any(prior.get(k)!=settings.get(k) for k in ('formatter','artist_prefix'))
+        theme_changed=any(prior.get(k)!=settings.get(k) for k in ('ui_size','prompt_size','font_family','material','accent','density','acrylic_transparency','mica_transparency','reduce_motion','connection_style'))
+        self.window.changed('prompt' if prompt_changed else 'settings')
+        if prompt_changed:self.window.refresh_builder()
+        if theme_changed:
+            self.window.appearance_preview={}; self.window.apply_theme(preserve_layout=True)
+        if accept and valid:self.accept()
+        return valid
 
 
 class WorkspaceDialog(StudioDialog):
@@ -320,6 +357,12 @@ class WorkspaceDialog(StudioDialog):
             fixed=[self.fixed.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.fixed.count()) if self.fixed.item(i).checkState()==Qt.CheckState.Checked])
         if self.capture.isChecked():
             self.workspace["picks"] = {mid:list(self.window.state["selections"].get(mid,[])) for mid in self.workspace["fixed"]}
+            chosen={i for ids in self.workspace['picks'].values() for i in ids}
+            self.workspace['uses']={k:copy.deepcopy(v) for k,v in self.window.state.get('uses',{}).items() if v.get('source_module') in self.workspace['fixed'] or k in self.workspace.get('fixed_uses',[])}
+            if 'multi_output' in self.window.state:
+                from .multi_output import owner
+                self.workspace['canvas_owners']={k:owner(self.window.state,k) for k in self.workspace['uses']}
+            self.workspace['instances']={k:copy.deepcopy(v) for k,v in self.window.state.get('instances',{}).items() if k in chosen}
             self.workspace['weights']={i:self.window.state.get('weights',{}).get(i,10) for ids in self.workspace['picks'].values() for i in ids}
         self.window.state["workspaces"] = [self.workspace if w["id"]==self.workspace["id"] else w for w in self.window.state["workspaces"]]
         self.window.changed(); self.window.refresh_workspaces(); self.accept()
@@ -330,7 +373,11 @@ class CategoryDialog(StudioDialog):
         super().__init__(window)
         self.window=window; self.setWindowTitle("管理模型分類"); self.resize(470,470)
         layout=self.body; layout.addWidget(label("分類可自訂；重新命名會一併更新現有模型。","Subtle",True))
-        self.list=QListWidget(); self.list.addItems(window.state["settings"]["model_categories"]); layout.addWidget(self.list,1)
+        from .civitai_assets import categories,LOCAL_TYPES
+        self.scopes=copy.deepcopy(window.state['settings'].get('model_category_types',{})); self.scope_loading=False
+        self.list=QListWidget(); self.list.addItems(categories(window.state['settings'])); layout.addWidget(self.list,1)
+        self.scope=QComboBox(); self.scope.addItem('所有模型類型',''); self.scope.addItems(LOCAL_TYPES)
+        layout.addLayout(row(label('適用模型類型'),self.scope)); self.scope.currentIndexChanged.connect(self.change_scope); self.list.currentItemChanged.connect(self.select_scope)
         self.list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         for i in range(self.list.count()): self.list.item(i).setFlags(self.list.item(i).flags() & ~Qt.ItemFlag.ItemIsDropEnabled)
         self.mapping={name:name for name in window.state["settings"]["model_categories"]}
@@ -347,18 +394,27 @@ class CategoryDialog(StudioDialog):
 
     def rename(self):
         item=self.list.currentItem()
-        if not item or item.text()=="其他": return
+        if not item or item.text()=="未分類": return
         old=item.text(); name,ok=QInputDialog.getText(self,"重新命名分類","新的分類名稱",text=old)
         if ok and name.strip() and (name.strip()==old or name.strip() not in self.names()):
             item.setText(name.strip())
+            self.scopes[name.strip()]=self.scopes.pop(old,[])
             self.mapping={k:name.strip() if v==old else v for k,v in self.mapping.items()}
 
     def remove(self):
         item=self.list.currentItem()
-        if not item or item.text()=="其他": return
+        if not item or item.text()=="未分類": return
         old=item.text()
-        if ask(self,"刪除分類",f"刪除「{old}」分類？其中的模型會歸入「其他」，不會刪除檔案。"):
-            self.list.takeItem(self.list.row(item)); self.mapping={k:"其他" if v==old else v for k,v in self.mapping.items()}
+        if ask(self,"刪除分類",f"刪除「{old}」分類？其中的模型會歸入「未分類」，不會刪除檔案。"):
+            self.list.takeItem(self.list.row(item)); self.scopes.pop(old,None); self.mapping={k:'未分類' if v==old else v for k,v in self.mapping.items()}
+
+    def select_scope(self,item):
+        self.scope_loading=True; values=self.scopes.get(item.text(),[]) if item else []
+        self.scope.setCurrentText(values[0] if values else '所有模型類型'); self.scope.setEnabled(bool(item and item.text()!='未分類')); self.scope_loading=False
+
+    def change_scope(self):
+        item=self.list.currentItem()
+        if not self.scope_loading and item:self.scopes[item.text()]=[self.scope.currentText()] if self.scope.currentIndex()>0 else []
 
     def move_category(self,delta):
         index=self.list.currentRow(); target=index+delta

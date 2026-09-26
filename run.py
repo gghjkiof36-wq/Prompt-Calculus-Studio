@@ -7,21 +7,28 @@ ROOT=Path(sys.executable).resolve().parent if getattr(sys,"frozen",False) else P
 sys.path.insert(0,str(ROOT/"vendor"))
 
 def main():
+    os.environ.setdefault('PROMPT_STUDIO_V08','1')
+    if '--v08-alpha' in sys.argv or '--v08-smoke-test' in sys.argv or '--v081-alpha' in sys.argv or '--v081-smoke-test' in sys.argv or '--v082-alpha' in sys.argv: os.environ['PROMPT_STUDIO_V08']='1'
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication, QMessageBox
     from prompt_studio.window import Window
     app=QApplication(sys.argv)
-    app.setApplicationName("Prompt Studio"); app.setOrganizationName("Local Tools")
+    app.setApplicationName("Prompt Calculus Studio"); app.setOrganizationName("Local Tools")
     from prompt_studio import __file__ as package_file
     app.setWindowIcon(QIcon(str(Path(package_file).parent/"assets"/"studio.ico")))
     data=Path(os.environ.get("PROMPT_STUDIO_DATA",str(ROOT/"data"))).resolve(); data.mkdir(parents=True,exist_ok=True)
-    if any(flag in sys.argv for flag in ("--menu-smoke-test","--frame-smoke-test")) and (data/"studio.sqlite3").exists():
+    if any(flag in sys.argv for flag in ("--menu-smoke-test","--frame-smoke-test","--export-smoke-test","--canvas-smoke-test","--img2img-smoke-test","--interface-smoke-test","--repair-smoke-test","--v08-smoke-test","--v081-smoke-test")) and (data/"studio.sqlite3").exists():
         raise RuntimeError("Diagnostics require a new, empty PROMPT_STUDIO_DATA directory.")
     lock=QLockFile(str(data/"studio.lock")); lock.setStaleLockTime(0)
     if not lock.tryLock(100):
-        QMessageBox.information(None,"Prompt Studio","這個資料庫已在另一個 Prompt Studio 視窗開啟。")
+        QMessageBox.information(None,"Prompt Calculus Studio","這個資料庫已在另一個 Prompt Calculus Studio 視窗開啟。")
         return 0
+    # Native crashes bypass sys.excepthook. Keep stack traces with this data
+    # directory, without dumping prompts or changing the user's running process.
+    import faulthandler
+    fault_log=(data/'fault.log').open('a',encoding='utf-8')
+    faulthandler.enable(fault_log,all_threads=True)
     try:
         window=Window(data)
         def report_error(kind,exception,traceback_object):
@@ -32,6 +39,28 @@ def main():
         available=app.primaryScreen().availableGeometry()
         window.resize(min(1440,max(960,available.width()-60)),min(900,max(620,available.height()-60)))
         window.show()
+        if not any(arg.endswith('smoke-test') for arg in sys.argv): window.start_interface()
+        if '--v08-smoke-test' in sys.argv:
+            from prompt_studio.v08_check import start
+            start(window)
+        if '--v081-smoke-test' in sys.argv:
+            from prompt_studio.v081_check import start
+            start(window)
+        if '--interface-smoke-test' in sys.argv:
+            from prompt_studio.interface_check import start
+            start(window)
+        if '--repair-smoke-test' in sys.argv:
+            from prompt_studio.repair_check import start
+            start(window)
+        if '--img2img-smoke-test' in sys.argv:
+            from prompt_studio.generation_check import start
+            start(window)
+        if '--canvas-smoke-test' in sys.argv:
+            from prompt_studio.canvas_check import start
+            start(window)
+        if '--export-smoke-test' in sys.argv:
+            from prompt_studio.export_check import start
+            start(window)
         if "--frame-smoke-test" in sys.argv:
             from prompt_studio.frame_check import start
             start(window)
@@ -48,9 +77,10 @@ def main():
     except Exception as exc:
         import traceback
         (data/"error.log").write_text(traceback.format_exc(),encoding="utf-8")
-        QMessageBox.critical(None,"Prompt Studio 無法啟動",str(exc)+"\n詳細資訊已寫入 data/error.log")
+        QMessageBox.critical(None,"Prompt Calculus Studio 無法啟動",str(exc)+"\n詳細資訊已寫入 data/error.log")
         return 1
     finally:
+        faulthandler.disable(); fault_log.close()
         lock.unlock()
 
 if __name__=="__main__":

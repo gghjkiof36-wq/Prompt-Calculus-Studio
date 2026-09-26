@@ -1,4 +1,4 @@
-"""Prompt Studio: frontend extension only; no extra graph nodes or Qt."""
+"""Prompt Calculus Studio: frontend extension only; no extra graph nodes or Qt."""
 import asyncio
 import functools
 import ipaddress
@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from aiohttp import web
 import folder_paths
 from server import PromptServer
+from comfy.cli_args import args as comfy_args
 from .service import Service
 from .bridge import DesktopBridge
 from .shared.snapshots import make_snapshot
@@ -20,10 +21,18 @@ NODE_DISPLAY_NAME_MAPPINGS = {}
 _bootstrap = Path(__file__).with_name('local_library.json')
 _default_library = json.loads(_bootstrap.read_text(encoding='utf-8')).get('library', '') if _bootstrap.exists() else ''
 service = Service(Path(folder_paths.get_user_directory()) / 'prompt_studio',
-                  folder_paths.get_output_directory(), folder_paths.get_temp_directory(), _default_library)
+                  folder_paths.get_output_directory(), folder_paths.get_temp_directory(), _default_library,
+                  native_multi_user=lambda:getattr(comfy_args,'multi_user',None))
 _token = secrets.token_urlsafe(32)
 routes = PromptServer.instance.routes
 bridge = DesktopBridge()
+from .node_images import NodeImages
+node_images=NodeImages(dict(input=folder_paths.get_input_directory(),output=folder_paths.get_output_directory(),temp=folder_paths.get_temp_directory()))
+from .background_events import BackgroundEvents
+from .background_execution import BackgroundExecution,CaptureRejected
+background_events=BackgroundEvents(PromptServer.instance.send_sync)
+PromptServer.instance.send_sync=background_events.observe
+background_execution=BackgroundExecution(service,background_events)
 
 
 def local_route(function):
@@ -32,7 +41,7 @@ def local_route(function):
         try:
             peer = ipaddress.ip_address(request.remote or '')
             if not (peer.is_loopback or (getattr(peer, 'ipv4_mapped', None) and peer.ipv4_mapped.is_loopback)):
-                raise web.HTTPForbidden(text='Prompt Studio 第一版只接受本機連線。')
+                raise web.HTTPForbidden(text='Prompt Calculus Studio 第一版只接受本機連線。')
             if urlsplit('//'+request.host).hostname not in ('localhost', '127.0.0.1', '::1'):
                 raise web.HTTPForbidden(text='請使用 localhost 或 127.0.0.1 開啟 ComfyUI。')
             origin = request.headers.get('Origin')
@@ -45,10 +54,12 @@ def local_route(function):
             return await function(request)
         except web.HTTPException:
             raise
+        except CaptureRejected as exc:
+            return web.json_response({'error':str(exc),'capture_uncommitted':exc.operation_id},status=400)
         except (ValueError, OSError, KeyError, TypeError) as exc:
             return web.json_response({'error': str(exc)}, status=400)
         except Exception:
-            logging.exception('Prompt Studio request failed')
+            logging.exception('Prompt Calculus Studio request failed')
             return web.json_response({'error': '操作失敗，請查看 ComfyUI 終端紀錄。'}, status=500)
     return wrapped
 
@@ -129,7 +140,148 @@ async def desktop_status(request):
     status=bridge.status()
     running,queued=PromptServer.instance.prompt_queue.get_current_queue_volatile()
     status.update(running=len(running),pending=len(queued))
+    status.update(capabilities=['direct_generation_v1','multi_text_v1','flow_connections_v2','clip_inputs_v3','workflow_images_v1','workflow_transfer_v1'],snapshot_versions=[1,2,3,4],running_ids=[item[1] for item in running],queued_ids=[item[1] for item in queued])
+    status['executing_node']=str(PromptServer.instance.last_node_id) if running and PromptServer.instance.last_node_id is not None else None
+    status['capabilities'].append('workflow_sync_v1')
+    if service.native_queue.available():status['capabilities'].extend(['native_queue_v1','native_open_v1','native_bindings_v1'])
+    else:status['native_unavailable_reason']='此原生入口目前只支援 ComfyUI 單一使用者模式。'
+    status['pcs_version']='0.82 Alpha 1 Repair 5 (0927-2)'
     return web.json_response(status)
+
+
+@routes.post('/prompt_studio/workflow/native/poll')
+@local_route
+async def native_poll(request):
+    return web.json_response(service.native_queue.poll(await body(request)))
+
+
+@routes.post('/prompt_studio/workflow/native/start')
+@local_route
+async def native_start(request):
+    value=await body(request);origin=str(request.url.origin())
+    # This candidate requires the actual open Web workflow. Do not turn a
+    # missing frontend into a submission of an older saved/captured graph.
+    result=service.native_queue.start(value,origin)
+    return web.json_response(result)
+
+
+@routes.post('/prompt_studio/workflow/background/context')
+@local_route
+async def background_context(request):
+    service.native_queue.require_supported()
+    return web.json_response(background_execution.context(await body(request),str(request.url.origin())))
+
+
+@routes.post('/prompt_studio/workflow/background/lease')
+@routes.post('/prompt_studio/workflow/background/capture')
+@routes.post('/prompt_studio/workflow/background/release')
+@local_route
+async def background_edit(request):
+    service.native_queue.require_supported()
+    return web.json_response(background_execution.edit(request.path.rsplit('/',1)[-1],await body(request),str(request.url.origin())))
+
+
+@routes.post('/prompt_studio/workflow/background/attach')
+@local_route
+async def background_attach(request):
+    service.native_queue.require_supported()
+    return web.json_response(background_execution.attach(await body(request),str(request.url.origin()),PromptServer.instance.sockets))
+
+
+@routes.post('/prompt_studio/workflow/native/open')
+@local_route
+async def native_open(request):
+    service.native_queue.require_supported()
+    running,queued=PromptServer.instance.prompt_queue.get_current_queue_volatile()
+    if running or queued:raise ValueError('ComfyUI 仍有執行中的任務，請完成或取消後再切換工作流。')
+    return web.json_response(service.native_queue.start(await body(request),str(request.url.origin()),'open'))
+
+
+@routes.post('/prompt_studio/workflow/native/prepare')
+@local_route
+async def native_prepare(request):
+    return web.json_response(service.native_queue.prepare(await body(request)))
+
+
+@routes.post('/prompt_studio/workflow/native/reply')
+@local_route
+async def native_reply(request):
+    return web.json_response(service.native_queue.reply(await body(request)))
+
+
+@routes.post('/prompt_studio/workflow/native/status')
+@local_route
+async def native_status(request):
+    service.native_queue.require_supported()
+    ident=(await body(request))['id']; operation=service.native_queue.read(ident)
+    running,queued=PromptServer.instance.prompt_queue.get_current_queue_volatile()
+    known={p[1] for p in (*running,*queued)}
+    if operation.get('prompt_id'):
+        known.update(PromptServer.instance.prompt_queue.get_history(prompt_id=operation['prompt_id']))
+    return web.json_response(service.native_queue.reconcile(ident,known))
+
+
+@routes.post('/prompt_studio/workflow/images')
+@local_route
+async def workflow_images(request):
+    return web.json_response(node_images.publish(await body(request)))
+
+
+@routes.post('/prompt_studio/workflow/run-state')
+@local_route
+async def workflow_run_state(request):
+    from .workflow_state import latest_run,live_state
+    query=await body(request)
+    running,queued=PromptServer.instance.prompt_queue.get_current_queue_volatile()
+    history=PromptServer.instance.prompt_queue.get_history(max_items=100)
+    result=latest_run(query,history,running,queued)
+    result['live']=None
+    try:
+        library=await asyncio.to_thread(service.read_library,include_connection=True)
+        result['live']=live_state(query,library,str(request.url.origin()))
+    except (ValueError,OSError) as exc:
+        result['live_error']=str(exc)
+    return web.json_response(result)
+
+
+@routes.post('/prompt_studio/desktop/images')
+@local_route
+async def desktop_images(request):
+    data=await body(request); queries=data.get('queries',[])
+    if not isinstance(queries,list) or len(queries)>100: raise ValueError('圖片查詢數量無效。')
+    history=PromptServer.instance.prompt_queue.get_history(max_items=100); result={}
+    for query in queries:
+        if not isinstance(query,dict) or any(not isinstance(query.get(k),str) for k in ('key','workflow','node','class_type')): raise ValueError('圖片查詢無效。')
+        try: result[query['key']]=await asyncio.to_thread(node_images.resolve,query,history,str(request.url.origin()))
+        except (ValueError,OSError,KeyError) as exc: result[query['key']]={'error':str(exc)}
+    return web.json_response(result)
+
+
+@routes.post('/prompt_studio/workflow/export')
+@local_route
+async def workflow_export(request):
+    data=await body(request)
+    return web.json_response(await asyncio.to_thread(service.publish_workflow,data['id'],data['library'],data['value']))
+
+
+@routes.get('/prompt_studio/workflow/export/{ident}')
+@local_route
+async def workflow_export_status(request):
+    return web.json_response(await asyncio.to_thread(service.workflow_status,request.match_info['ident']))
+
+
+@routes.post('/prompt_studio/desktop/workflows')
+@local_route
+async def desktop_workflows(request):
+    data=await body(request)
+    return web.json_response(await asyncio.to_thread(service.take_workflow,data['library']))
+
+
+@routes.post('/prompt_studio/desktop/workflows/ack')
+@local_route
+async def desktop_workflows_ack(request):
+    data=await body(request)
+    return web.json_response(await asyncio.to_thread(service.acknowledge_workflow,data['id'],data['library'],data.get('error','')))
 
 
 @routes.post('/prompt_studio/desktop/claim')
@@ -198,6 +350,7 @@ async def desktop_collect(request):
 async def desktop_interrupt(request):
     import nodes
     data=await body(request)
+    service.native_queue.cancel_pending()
     if data.get('clear_pending'):
         bridge.cancel_runs()
         PromptServer.instance.prompt_queue.wipe_queue()

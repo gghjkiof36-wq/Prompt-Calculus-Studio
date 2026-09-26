@@ -1,10 +1,10 @@
 from pathlib import Path
-from PySide6.QtCore import Qt, QSize, QPoint, QRectF, QObject, QVariantAnimation, QEasingCurve
-from PySide6.QtGui import QPixmap, QDesktopServices, QIcon, QPainterPath, QRegion
+from PySide6.QtCore import Qt, QSize, QPoint, QPointF, QRectF, QObject, QVariantAnimation, QEasingCurve, QEvent
+from PySide6.QtGui import QPixmap, QDesktopServices, QIcon, QPainterPath, QRegion, QPainter, QPalette, QImageReader
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QFrame,
                               QDialogButtonBox, QFileDialog, QMessageBox, QDialog, QScrollArea,
-                              QLineEdit, QPlainTextEdit, QComboBox, QListView, QListWidget, QMenu, QSizePolicy, QWidget, QBoxLayout)
+                              QLineEdit, QPlainTextEdit, QComboBox, QListView, QListWidget, QMenu, QSizePolicy, QWidget, QBoxLayout, QApplication,QStyledItemDelegate,QStyle)
 
 def label(text, role=None, wrap=False):
     result = QLabel(text)
@@ -13,6 +13,15 @@ def label(text, role=None, wrap=False):
     result.setWordWrap(wrap)
     result.setTextFormat(Qt.TextFormat.PlainText)
     return result
+
+class ElidedLabel(QLabel):
+    """Single-line status that keeps its beginning and full text tooltip."""
+    def paintEvent(self,event):
+        painter=QPainter(self)
+        painter.setPen(self.palette().color(QPalette.ColorRole.WindowText))
+        text=self.fontMetrics().elidedText(self.text(),Qt.TextElideMode.ElideRight,self.contentsRect().width())
+        painter.drawText(self.contentsRect(),self.alignment(),text)
+
 
 def button(text, callback, role=None):
     result = QPushButton(text)
@@ -33,6 +42,7 @@ def row(*widgets):
 
 def panel(role="Panel"):
     frame = QFrame()
+    frame.setCursor(Qt.CursorShape.ArrowCursor)
     frame.setObjectName(role)
     layout = QVBoxLayout(frame)
     layout.setContentsMargins(20,20,20,20)
@@ -70,6 +80,17 @@ class WindowShell(QFrame):
     def __init__(self,window):
         super().__init__(window)
         self.setObjectName("Shell"); self.setMouseTracking(True)
+        QApplication.instance().installEventFilter(self)
+
+    def eventFilter(self,watched,event):
+        # Only reset the shell's inherited resize cursor. Editors keep their
+        # own I-beam, and splitter handles keep their own resize cursor.
+        if event.type() in (QEvent.Type.Enter,QEvent.Type.MouseMove) and isinstance(watched,QWidget) and watched is not self:
+            if QWidget.window(watched) is QWidget.window(self) and self.testAttribute(Qt.WidgetAttribute.WA_SetCursor): self.unsetCursor()
+        return super().eventFilter(watched,event)
+
+    def leaveEvent(self,event):
+        self.unsetCursor(); super().leaveEvent(event)
 
     def edges(self,pos):
         edges=Qt.Edge(0)
@@ -138,6 +159,26 @@ class StudioDialog(QDialog):
         self.move(max(screen.left()+12,min(center.x()-self.width()//2,screen.right()-self.width()-12)),
                   max(screen.top()+12,min(center.y()-self.height()//2,screen.bottom()-self.height()-12)))
         self.reveal.setStartValue(0.88); self.reveal.setEndValue(1.0); self.reveal.start()
+
+
+class DismissibleSheet(StudioDialog):
+    """Read-only browsing sheet: the Qt popup grab dismisses outside clicks."""
+    def __init__(self,parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setWindowModality(Qt.WindowModality.NonModal)
+        self._finished=False
+
+    def done(self,result):
+        if self._finished: return
+        self._finished=True
+        super().done(result)
+
+    def hideEvent(self,event):
+        super().hideEvent(event)
+        # Qt closes a popup on an outside click by hiding it, not by calling
+        # QDialog.reject. Finish exactly once so borrowed content is restored.
+        if not self._finished: self.done(QDialog.DialogCode.Rejected)
 
 
 class CheckList(QListWidget):
@@ -209,6 +250,18 @@ def rounded_mask(widget,radius=12):
     widget.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
 
+def widget_global_position(widget,position,view=None):
+    """Map an embedded widget through its scene/view, including zoom and pan."""
+    host=widget
+    while host is not None and host.graphicsProxyWidget() is None:host=host.parentWidget()
+    proxy=host.graphicsProxyWidget() if host is not None else None
+    if proxy is None or proxy.scene() is None:return widget.mapToGlobal(position)
+    view=view or next(iter(proxy.scene().views()),None)
+    if view is None:return widget.mapToGlobal(position)
+    scene=proxy.mapToScene(QPointF(widget.mapTo(host,position)))
+    return view.viewport().mapToGlobal(view.mapFromScene(scene))
+
+
 class RoundMenu(QMenu):
     """Use Qt's non-blocking popup path for custom-shaped Windows menus.
 
@@ -221,20 +274,40 @@ class RoundMenu(QMenu):
         # radius. Alpha-backed painting avoids that rim without a jagged mask.
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.aboutToHide.connect(self.deleteLater)
+        # A submenu hides whenever the pointer returns to its parent. Its
+        # action must live until the root popup closes, not until that hover ends.
+        if not isinstance(parent,QMenu): self.aboutToHide.connect(self.deleteLater)
 
     def open_at(self,position):
         self.popup(position)
+
+class ComboItemDelegate(QStyledItemDelegate):
+    def initStyleOption(self,option,index):
+        super().initStyleOption(option,index)
+        option.state &= ~QStyle.StateFlag.State_HasFocus
+        if not option.state & QStyle.StateFlag.State_MouseOver:
+            option.state &= ~QStyle.StateFlag.State_Selected
+
 
 class ComboBox(QComboBox):
     def __init__(self,*args):
         super().__init__(*args)
         view=QListView(); view.setSpacing(2); self.setView(view)
+        view.setItemDelegate(ComboItemDelegate(view))
+        view.setStyleSheet('QListView::item:selected { border-color:transparent; } QListView::item:hover { background:#353535; border-color:transparent; }')
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumContentsLength(6)
+        QApplication.setEffectEnabled(Qt.UIEffect.UI_AnimateCombo,False)
+        self._popup=self.view().window(); self._popup.installEventFilter(self)
+
+    def eventFilter(self,watched,event):
+        if watched is getattr(self,'_popup',None) and event.type() in (QEvent.Type.Resize,QEvent.Type.Show):
+            rounded_mask(watched,10)
+        return super().eventFilter(watched,event)
 
     def showPopup(self):
-        super().showPopup(); rounded_mask(self.view().window(),10)
+        # Install the final outline before the first visible paint.
+        rounded_mask(self._popup,10); super().showPopup()
 
 
 class SplitterFold(QObject):
@@ -303,11 +376,35 @@ def thumb_icon(store, relative, size):
     if not path: return QIcon()
     return QIcon(QPixmap(str(path)).scaled(size,size,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))
 
+def record_pixmap(store,record,size):
+    from .media_paths import preview_file
+    path=preview_file(store.directory,record)
+    if path is None: return QPixmap()
+    reader=QImageReader(str(path)); reader.setAutoTransform(True); reader.setAllocationLimit(128)
+    target=reader.size()
+    if target.isValid() and max(target.width(),target.height())>size*2:
+        target.scale(size*2,size*2,Qt.AspectRatioMode.KeepAspectRatio); reader.setScaledSize(target)
+    image=reader.read()
+    if image.isNull(): return QPixmap()
+    result=QPixmap.fromImage(image).scaled(size*2,size*2,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)
+    result.setDevicePixelRatio(2); return result
+
+def record_icon(store,record,size): return QIcon(record_pixmap(store,record,size))
+
+def set_record_preview(widget,store,record,size=240):
+    pixmap=record_pixmap(store,record,size); widget.setPixmap(pixmap)
+    if pixmap.isNull(): widget.setText('圖片無法讀取，可重新連結原圖。' if record else '選擇圖片')
+
 def open_file(parent, path):
     if not Path(path).is_file():
         information(parent,"找不到原檔","原檔可能已搬動，請重新連結檔案。")
         return
     QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).resolve())))
+
+def reveal_file(parent,path):
+    folder=Path(path).resolve().parent
+    if not folder.is_dir(): information(parent,'找不到資料夾','原圖所在的資料夾已不存在。'); return
+    QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
 def open_url(parent, url):
     parsed = QUrl(url.strip())

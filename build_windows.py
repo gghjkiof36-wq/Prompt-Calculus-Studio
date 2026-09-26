@@ -3,6 +3,8 @@ import os
 import sys
 import shutil
 import struct
+import uuid
+import json
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT/".builder"/"Lib"/"site-packages"))
@@ -11,6 +13,7 @@ os.environ["PYINSTALLER_CONFIG_DIR"]=str(ROOT/"build"/"cache")
 # The host may have Poppler/LibreOffice on PATH. Their icuuc.dll is ABI-
 # incompatible with the Windows ICU API used by Qt; keep discovery isolated.
 system=Path(os.environ.get("SystemRoot",r"C:\Windows"))
+os.environ['PROMPT_STUDIO_BUILD_GIT']=shutil.which('git') or 'git'
 os.environ["PATH"]=os.pathsep.join([str(ROOT/"vendor"/"PySide6"),str(ROOT/"vendor"/"shiboken6"),str(Path(sys.executable).parent),str(system/"System32"),str(system)])
 os.chdir(ROOT)
 # Rasterize the existing vector at each Windows icon size. PNG-compressed ICO
@@ -37,27 +40,60 @@ import PyInstaller.__main__
 diagnostic="--diagnostic" in sys.argv
 stage_only="--stage-only" in sys.argv
 output_name="diagnostic" if diagnostic else ("package-icon" if "--icon-refresh" in sys.argv else "package")
-package=ROOT/"build"/output_name/"PromptStudio"
-if not package.resolve().is_relative_to(ROOT) or package.is_symlink() or package.is_junction():
+from prompt_studio.releases import select_release,CURRENT,write_launchers,APP_BASENAME
+release=select_release(sys.argv)
+if release:
+    output_name=release.folder; stage_only=True
+if os.name=='nt':
+    import ctypes
+    ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(),0x4000)
+destination=ROOT/"build"/output_name/APP_BASENAME
+if destination.exists() and any(destination.iterdir()):raise RuntimeError('Use a fresh build destination; existing packages and data are preserved.')
+if not destination.resolve().is_relative_to(ROOT) or destination.is_symlink() or destination.is_junction():
     raise RuntimeError("Build output must stay in this workspace")
+# Users may run the staged EXE and create portable data beside it. PyInstaller
+# deletes its COLLECT destination, so always collect into a fresh directory and
+# merge only the generated program files into the public test package afterward.
+package=ROOT/"build"/"staging"/(output_name+'-'+uuid.uuid4().hex)/APP_BASENAME
+if not package.resolve().is_relative_to(ROOT): raise RuntimeError('Invalid staging path')
+release=release or CURRENT
+build_info=ROOT/'build'/'metadata'/output_name/'build-info.json'; build_info.parent.mkdir(parents=True,exist_ok=True)
+build_info.write_text(json.dumps(dict(release=release.flag,version=release.version)),encoding='utf-8')
 PyInstaller.__main__.run([
-    "--noconfirm","--clean","--console" if diagnostic else "--windowed","--onedir","--name","PromptStudio",
+    "--noconfirm","--clean","--console" if diagnostic else "--windowed","--onedir","--name",APP_BASENAME,
     "--paths",str(ROOT/"vendor"),"--paths",str(ROOT),
     "--icon",str(icon_path),
     "--add-data",str(ROOT/"prompt_studio"/"assets")+os.pathsep+"prompt_studio/assets",
+    "--add-data",str(build_info)+os.pathsep+"prompt_studio/assets",
     "--distpath",str(package.parent),"--workpath",str(ROOT/"build"),
     "--exclude-module","numpy","--exclude-module","matplotlib",
     "--exclude-module","PIL","--exclude-module","tkinter",
     str(ROOT/"run.py")])
+from package_documents import bundle_documents
+bundle_documents(package, desktop=True,release=release)
+write_launchers(package,release)
+from package_documents import package_manifest
+package_manifest(package,'desktop')
+if (package/'data').exists(): raise RuntimeError('Generated program package must not contain user data')
+try:
+    destination.mkdir(parents=True,exist_ok=True)
+    # Stop before updating any runtime files if the old EXE is still running.
+    shutil.copy2(package/(APP_BASENAME+'.exe'),destination/(APP_BASENAME+'.exe'))
+except OSError as exc:
+    if getattr(exc,'winerror',None) not in (5,32): raise
+    print('Existing test package is in use. Complete new package:',package)
+else:
+    shutil.copytree(package,destination,dirs_exist_ok=True)
+    print('Test package:',destination)
 # Merge program files only, preserving the user's portable data directory.
 if not diagnostic and not stage_only:
-    runtime=ROOT/"release"/"PromptStudio"/"_internal"
+    runtime=ROOT/"release"/APP_BASENAME/"_internal"
     if runtime.exists():
         if runtime.resolve()!=runtime.absolute() or not runtime.resolve().is_relative_to(ROOT):
             raise RuntimeError("Refusing to replace a redirected runtime directory")
         # Only generated runtime files are replaced; portable data stays intact.
         shutil.rmtree(runtime)
-    shutil.copytree(package,ROOT/"release"/"PromptStudio",dirs_exist_ok=True)
-    for document in ("README.md","IMPLEMENTATION_NOTES.md","使用說明.txt","NEXT_UI.md","COMFYUI_GUIDE.md"):
-        shutil.copy2(ROOT/document,ROOT/"release"/"PromptStudio"/document)
-    print("Ready: release/PromptStudio/PromptStudio.exe")
+    shutil.copytree(package,ROOT/"release"/APP_BASENAME,dirs_exist_ok=True)
+    for document in ("README.md","IMPLEMENTATION_NOTES.md","使用說明.txt","NEXT_UI.md","COMFYUI_GUIDE.md","CLEAN_EXPORT_GUIDE.md"):
+        shutil.copy2(ROOT/document,ROOT/"release"/APP_BASENAME/document)
+    print("Ready:",ROOT/"release"/APP_BASENAME/(APP_BASENAME+".exe"))

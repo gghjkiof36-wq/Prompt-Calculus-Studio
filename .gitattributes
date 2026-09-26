@@ -1,0 +1,2 @@
+# Legal notices retain upstream bytes for their recorded SHA256 identities.
+docs/third-party/*.txt -text

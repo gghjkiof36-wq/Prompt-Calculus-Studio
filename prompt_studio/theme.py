@@ -18,8 +18,8 @@ def stylesheet(settings):
     pad = 6 if settings["density"] == "compact" else 10
     family = settings.get("font_family", "Microsoft JhengHei UI").replace("'", "").replace(";", "")
     shell = "#1c1c1c" if settings.get("material") == "solid" else "rgba(14,14,14,100)"
-    if settings.get("material") == "acrylic":
-        transparency=settings.get("acrylic_transparency",61)
+    if settings.get("material") in ("acrylic","mica"):
+        transparency=settings.get(settings['material']+"_transparency",61)
         shell=f"rgba(14,14,14,{round(255*(100-transparency)/100)})"
     assets=(Path(__file__).parent/"assets").as_posix()
     return f"""
@@ -27,11 +27,17 @@ def stylesheet(settings):
     QMainWindow {{ background:transparent; }}
     QFrame#Shell {{ background:{shell}; border:0; border-radius:0; }}
     QWidget#TitleBar {{ background:transparent; }}
+    QWidget#SettingsSurface {{ background:transparent; }}
+    QFrame#SettingsReading {{ background:#111111; border:none; border-radius:0; }}
+    QFrame#SettingsReading QTabWidget::pane {{ top:0; }}
+    QPushButton#ResultPreview {{ background:#17191d; border:1px solid #333840; padding:6px; }}
     QFrame#WorkspaceSurface {{ background:#111111; border:none; border-radius:18px; }}
     QFrame#Panel {{ background:#111111; border:none; border-radius:16px; }}
     QFrame#SidePanel {{ background:transparent; border:none; }}
     QFrame#InsetPanel, QFrame#SettingsGroup {{ background:#202020; border:1px solid #303030; border-radius:16px; }}
     QFrame#DialogSurface {{ background:#202020; border:1px solid #484848; border-radius:20px; }}
+    QFrame#ErrorToast {{ background:#271b1d; border:1px solid #d85b64; border-radius:12px; }}
+    QFrame#ErrorToast QLabel#Heading {{ color:#ffafb5; }}
     QLabel#Subtle {{ color:#aeaeae; }}
     QLabel#Heading {{ font-size:{font_pixels(settings['ui_size']+2)}px; font-weight:600; }}
     QLabel#DialogTitle {{ font-size:{font_pixels(settings['ui_size']+4)}px; font-weight:600; }}
@@ -52,21 +58,28 @@ def stylesheet(settings):
     QPushButton#Run {{ background:#098bea; color:white; border:1px solid #239ef3; font-weight:600; }}
     QPushButton#Run:hover {{ background:#249ff4; }}
     QPushButton#Run:disabled {{ background:#28485c; color:#8ca3b3; border-color:#3b5666; }}
-    QPushButton#StopRun {{ background:#682d31; color:#f1a6aa; border:1px solid #783b40; font-size:24px; padding:0; }}
-    QPushButton#StopRun:hover {{ background:#943e44; color:white; }}
+    QPushButton#StopRun {{ background:#ce404a; color:#ffffff; border:1px solid #e45b65; font-size:24px; padding:0; }}
+    QPushButton#StopRun[textButton="true"] {{ font-size:{font_pixels(settings['ui_size'])}px; }}
+    QPushButton#StopRun:hover {{ background:#e14d57; color:white; }}
     QPushButton#StopRun:disabled {{ background:#3b292b; color:#7d6567; border-color:#493538; }}
     QLabel#ConflictNotice {{ color:#e2c879; border:1px solid #91772f; border-radius:8px; padding:8px; background:#302b1d; }}
     QPushButton#Quiet {{ background:transparent; border:1px solid transparent; }}
     QPushButton#Quiet:hover {{ background:rgba(255,255,255,18); border-color:rgba(255,255,255,28); }}
+    QPushButton#SettingsReturn {{ background:transparent; border:1px solid transparent; font-weight:600; text-align:left; }}
+    QPushButton#SettingsReturn:hover {{ background:rgba(255,255,255,18); border-color:rgba(255,255,255,28); }}
     QPushButton#Quiet:pressed {{ background:#404040; }}
     QPushButton#DialogClose {{ background:transparent; border:1px solid transparent; font-size:24px; padding:0; }}
     QPushButton#DialogClose:hover {{ background:#454545; border-color:#606060; }}
     QPushButton#Danger {{ color:#f0a7a7; }}
+    QPushButton#DeleteWorkflow {{ background:transparent; border:1px solid transparent; color:#ee9292; }}
+    QPushButton#DeleteWorkflow:hover {{ background:rgba(201,76,76,42); border-color:rgba(220,100,100,60); color:#ffc0c0; }}
+    QPushButton#DeleteWorkflow:pressed {{ background:rgba(201,76,76,70); }}
+    QPushButton#DeleteWorkflow:disabled {{ color:#707070; background:transparent; border-color:transparent; }}
     QPushButton#ClearDraft {{ background:transparent; border:1px solid transparent; color:#e5a0a0; }}
     QPushButton#ClearDraft:hover {{ background:rgba(201,76,76,35); border-color:rgba(220,100,100,48); color:#ffc0c0; }}
     QPushButton#ClearDraft:pressed {{ background:rgba(201,76,76,65); }}
     QPushButton#ClearDraft:disabled {{ background:transparent; border-color:transparent; color:#707070; }}
-    QLineEdit, QPlainTextEdit, QSpinBox, QComboBox {{ background:#181818; border:1px solid #393939; border-radius:10px; padding:9px 12px; selection-background-color:#565656; }}
+    QLineEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {{ background:#181818; border:1px solid #393939; border-radius:10px; padding:9px 12px; selection-background-color:#565656; }}
     QLineEdit:focus, QPlainTextEdit:focus {{ border:1px solid #b1b1b1; }}
     QPlainTextEdit#Prompt {{ font-family:'Cascadia Mono','Consolas','Microsoft JhengHei'; font-size:{font_pixels(settings['prompt_size'])}px; background:#181818; border-color:transparent; }}
     QPlainTextEdit#QuickSearch {{ background:#232323; }}
@@ -74,12 +87,12 @@ def stylesheet(settings):
     QComboBox::drop-down {{ subcontrol-origin:padding; subcontrol-position:top right; width:30px; border:none; background:transparent; }}
     QComboBox::down-arrow {{ image:url('{assets}/chevron-down.svg'); width:16px; height:16px; }}
     QComboBox:on {{ border-color:#707070; }}
-    QSpinBox {{ padding-right:34px; }}
-    QSpinBox QLineEdit {{ padding:0; border:none; background:transparent; }}
-    QSpinBox::up-button {{ subcontrol-origin:padding; subcontrol-position:top right; width:28px; border:none; background:transparent; }}
-    QSpinBox::down-button {{ subcontrol-origin:padding; subcontrol-position:bottom right; width:28px; border:none; background:transparent; }}
-    QSpinBox::up-arrow {{ image:url('{assets}/chevron-up.svg'); width:13px; height:13px; }}
-    QSpinBox::down-arrow {{ image:url('{assets}/chevron-down.svg'); width:13px; height:13px; }}
+    QSpinBox, QDoubleSpinBox {{ padding-right:34px; }}
+    QSpinBox QLineEdit, QDoubleSpinBox QLineEdit {{ padding:0; border:none; background:transparent; }}
+    QSpinBox::up-button, QDoubleSpinBox::up-button {{ subcontrol-origin:padding; subcontrol-position:top right; width:28px; border:none; background:transparent; }}
+    QSpinBox::down-button, QDoubleSpinBox::down-button {{ subcontrol-origin:padding; subcontrol-position:bottom right; width:28px; border:none; background:transparent; }}
+    QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ image:url('{assets}/chevron-up.svg'); width:13px; height:13px; }}
+    QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{ image:url('{assets}/chevron-down.svg'); width:13px; height:13px; }}
     QListView, QTreeWidget, QTableWidget {{ background:transparent; border:none; outline:0; }}
     QListView::item {{ padding:{pad}px 12px; border:1px solid transparent; border-radius:10px; }}
     QListView::item:selected {{ background:#353535; border-color:#616161; color:#ffffff; }}
@@ -101,12 +114,12 @@ def stylesheet(settings):
     QTabBar::tab:hover {{ background:rgba(255,255,255,13); color:#eeeeee; }}
     QTabBar::tear {{ width:0; }}
     QHeaderView::section {{ background:#303030; padding:7px; border:none; }}
-    QScrollBar:vertical {{ background:#181818; width:10px; margin:3px 1px; border-radius:4px; }}
+    QScrollBar:vertical {{ background:transparent; width:10px; margin:3px 1px; border-radius:4px; }}
     QScrollBar::handle:vertical {{ background:#777777; min-height:32px; border-radius:4px; }}
     QScrollBar::handle:vertical:hover {{ background:#a0a0a0; }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
     QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background:none; }}
-    QScrollBar:horizontal {{ background:#181818; height:10px; margin:1px 3px; border-radius:4px; }}
+    QScrollBar:horizontal {{ background:transparent; height:10px; margin:1px 3px; border-radius:4px; }}
     QScrollBar::handle:horizontal {{ background:#777777; min-width:32px; border-radius:4px; }}
     QScrollBar::handle:horizontal:hover {{ background:#a0a0a0; }}
     QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width:0; }}
