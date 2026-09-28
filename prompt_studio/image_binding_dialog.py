@@ -14,7 +14,7 @@ class ImageBindingDialog(ClipBindingDialog):
         self.target.clear(); self.target.addItem('選擇圖片節點',None); profile=self.profile()
         self.target.setEnabled(profile is not None)
         if profile:
-            for key,node in image_nodes(profile):self.target.addItem(node.get('_meta',{}).get('title',node['class_type'])+' · #'+key,key)
+            for key,node in image_nodes(profile):self.target.addItem(('輸入來源 · ' if node['class_type']=='LoadImage' else '生成輸出 · ')+node.get('_meta',{}).get('title',node['class_type'])+' · #'+key,key)
             if self.image_binding and self.image_binding['workflow']==profile['id']:
                 self.target.setCurrentIndex(max(0,self.target.findData(self.image_binding['node'])))
         self.hint.setText('此工作流没有加載、預覽或保存圖片節點。' if profile and self.target.count()==1 else '')

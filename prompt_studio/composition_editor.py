@@ -219,6 +219,7 @@ class CompositionEditor(QWidget):
         self.animation=QPropertyAnimation(self,b'geometry',self); self.animation.setDuration(180); self.animation.setStartValue(self.geometry()); self.animation.setEndValue(rect); self.animation.setEasingCurve(QEasingCurve.Type.InCubic)
         self.animation.finished.connect(self.finish_close); self.animation.start()
     def finish_close(self):
+        self.window.state['canvas_view']=[self.outer_transform.m11(),self.outer_center.x(),self.outer_center.y()]
         self.canvas.editor_page=None; self.window.surface_stack.setCurrentWidget(self.window.canvas_shell)
         self.canvas.refresh(); self.canvas.view.setTransform(self.outer_transform); self.canvas.view.centerOn(self.outer_center)
         self.window.surface_stack.removeWidget(self); self.deleteLater()

@@ -2,6 +2,9 @@
 // graph, serialization, seed hooks, HTTP submission and job registration.
 import {workflowIdentity} from './workflow_sync.js';
 import {nativeCatalog,confirmNativeWorkflow} from './native_open.js';
+import {graphFingerprint} from './graph_fingerprint.js';
+import {captureManual} from './state.js';
+import {openNativeWorkflow,nativeDraftRecoveryPending} from './native_switch.js';
 
 // Apply only explicitly bound fields on the real graph before native queue
 // serialization. Validate all destinations before changing any of them.
@@ -31,25 +34,46 @@ export async function applyNativeBindings(app,command,guard=()=>{}) {
     guard();
 }
 
-export function installNativeQueue(app,api,request,session,notice=()=>{},timeoutMs=12000,onIdle=()=>{},externalUnavailable=()=>'') {
+export function installNativeQueue(app,api,request,session,notice=()=>{},timeoutMs=12000,onIdle=()=>{},externalUnavailable=()=>'',seeds=null) {
     const nativeQueue=app.queuePrompt;
-    let stopped=false,epoch=0,active=null,ordinary=0,polling=false;
+    let stopped=false,epoch=0,active=null,ordinary=0,polling=false,composing=false,loading=0;
+    const nativeLoader=app.loadGraphData;
+    // Observe native loads from their entry, before clean()/async validation.
+    // Delegate unchanged; ordinary editing and undo are never refused here.
+    const loaderObserver=typeof nativeLoader==='function'?async function(...args){
+        loading++;
+        try{return await nativeLoader.apply(this,args);}finally{loading--;}
+    }:null;
+    if(loaderObserver)app.loadGraphData=loaderObserver;
+    const compositionStart=()=>{composing=true;},compositionEnd=()=>{composing=false;};
+    globalThis.document?.addEventListener?.('compositionstart',compositionStart,true);
+    globalThis.document?.addEventListener?.('compositionend',compositionEnd,true);
     // Existing queued native operations cannot be associated after the fact.
-    const installedIdle=app.processingQueue===false&&Array.isArray(app.queueItems)&&app.queueItems.length===0;
+    let installedIdle=app.processingQueue===false&&Array.isArray(app.queueItems)&&app.queueItems.length===0;
     const identity=()=>workflowIdentity(app);
     const key=value=>JSON.stringify(value);
     function assertCurrent(operation) {
-        if(stopped||operation.cancelled||active!==operation||epoch!==operation.epoch||epoch!==operation.command.epoch||app.rootGraph!==operation.graph||app.graph!==operation.graph
-            ||app.configuringGraph||key(identity())!==key(operation.command.identity)||api.clientId!==operation.clientId)
+        if(stopped||operation.cancelled||active!==operation||epoch!==operation.epoch||epoch!==(operation.expectedEpoch??operation.command.epoch)||app.rootGraph!==operation.graph||app.graph!==operation.graph
+            ||app.configuringGraph||key(identity())!==key(operation.currentIdentity??operation.command.identity)||api.clientId!==operation.clientId)
             throw new Error('原生工作流或連線已切換，停止這次提交。');
     }
     // Install once, before accepting PCS commands. Never probe busy state by
     // calling nativeQueue: it enqueues even when it returns false.
     const queueGate=async function(...args) {
-        if(active)throw new Error('PCS 正在提交這個工作流，請等候提交完成。');
+        // The native Run button always belongs to ComfyUI. A desktop pause,
+        // missing receipt or closed PCS process must never intercept it.
+        // Only defer across our short serialization transaction, never GPU work.
+        if(active)await new Promise(resolve=>nativeClicks.push(resolve));
         ordinary++;
         try {return await nativeQueue.apply(this,args);} finally {ordinary--;}
     };
+    const nativeClicks=[];
+    function release(operation){
+        if(active!==operation)return;
+        active=null;
+        for(const resolve of nativeClicks.splice(0))resolve();
+        queueMicrotask(()=>{if(!stopped)onIdle();});
+    }
     app.queuePrompt=queueGate;
 
     // Poll and command acceptance must use the same strict check. Missing
@@ -57,26 +81,49 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
     const unavailable=()=>{
         const external=externalUnavailable();if(external)return external;
         if(stopped)return '原生同步已停止，請重新整理 ComfyUI 頁面。';
-        if(!installedIdle)return '無法確認接管前的提交狀態，請等候 ComfyUI 空閒後重新整理頁面。';
+        if(nativeDraftRecoveryPending(app))return '工作流載入失敗，請在 ComfyUI 重新開啟工作流後再執行 PCS。';
+        if(composing)return '文字仍在輸入中，請完成輸入後再加入工作。';
+        if(!installedIdle&&app.processingQueue===false&&Array.isArray(app.queueItems)&&app.queueItems.length===0)installedIdle=true;
+        if(!installedIdle)return 'ComfyUI 正在完成原生提交，請稍後再試。';
         if(app.queuePrompt!==queueGate)return '其他擴充已變更執行入口，PCS 已停止提交；請重新整理 ComfyUI 頁面。';
         if(typeof app.processingQueue!=='boolean'||!Array.isArray(app.queueItems))return '目前 ComfyUI 的提交狀態無法辨識，PCS 未執行。';
         if(active||ordinary||app.processingQueue||app.queueItems.length)return 'ComfyUI 正在提交，請稍後再試。';
+        if(loading)return 'ComfyUI 正在載入工作流，請完成後再試。';
+        if(loaderObserver&&app.loadGraphData!==loaderObserver)return '原生載入入口已變更，請重新整理 ComfyUI 頁面。';
         if(!api.clientId)return 'ComfyUI 連線尚未就緒，請稍後再試。';
         if(!app.rootGraph||app.graph!==app.rootGraph||app.configuringGraph)return '請等候原生工作流載入或切換完成，並回到主畫布後再執行。';
         return '';
     };
     let reportedUnavailable='';
 
-    function confirm(command) {
+    async function select(operation) {
+        assertCurrent(operation);
+        const target=operation.command.target;
+        if(!target||identity().frontend_id===target.frontend_id&&(target.path?identity().path===target.path:identity().workflow===target.workflow))return;
+        const opened=await openNativeWorkflow(app,target,()=>assertCurrent(operation));
+        if(stopped||active!==operation||operation.cancelled||api.clientId!==operation.clientId)throw new Error('原生連線已變更，未提交。');
+        operation.currentIdentity=identity();operation.epoch=epoch;
+        // command identity remains the original authorization receipt; only
+        // the local live guard follows this explicitly acknowledged transition.
+        operation.expectedEpoch=epoch;
+        assertCurrent(operation);
+        if(operation.command.action!=='open')await request('workflow/native/activate',{
+            id:operation.command.id,session,identity:operation.command.identity,epoch:operation.command.epoch,
+            client_id:operation.clientId,opened_identity:opened,opened_epoch:epoch});
+        assertCurrent(operation);
+    }
+
+    async function confirm(command) {
         const error=unavailable();
         if(error)return {error,uncertain:false};
         const operation={command,epoch,graph:app.rootGraph,clientId:api.clientId,cancelled:false};
         active=operation;
         try {
             assertCurrent(operation);
+            await select(operation);
             return {opened_identity:confirmNativeWorkflow(app,command.target,()=>assertCurrent(operation))};
         } catch(error) {return {error:String(error?.message??error),uncertain:false};}
-        finally {if(active===operation)active=null;}
+        finally {release(operation);}
     }
 
     async function execute(command) {
@@ -90,19 +137,23 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
         // transport invalidates the identity/fingerprint checks below; do not
         // block its loader after native undo has already moved history entries.
         let serialized=null,completion=null,settled=false,timeout;
+        const fingerprint=()=>graphFingerprint(operation.graph.serialize());
         const serialize=async function(...args) {
             assertCurrent(operation);
-            const before=key(operation.graph.serialize());
+            // Our legacy wrapper normally records manual text during native
+            // serialization. Finish that synchronous bookkeeping first.
+            for(const node of operation.graph._nodes??[])captureManual(node);
+            const before=fingerprint();
             const value=await originalSerialize.apply(this,args);
             assertCurrent(operation);
-            if(key(operation.graph.serialize())!==before)throw new Error('序列化期間工作流被修改，未提交。');
+            if(fingerprint()!==before)throw new Error('序列化期間工作流被修改，未提交。');
             serialized={value,fingerprint:before};
             return value;
         };
         const submit=async function(...args) {
             assertCurrent(operation);
             const value=args[1];
-            if(operation.observed||!serialized||value!==serialized.value||key(operation.graph.serialize())!==serialized.fingerprint)
+            if(operation.observed||!serialized||value!==serialized.value||fingerprint()!==serialized.fingerprint)
                 throw new Error('無法確認原生提交屬於這次操作，未提交。');
             operation.observed=true;
             // Store the exact native serialization before sending. This endpoint
@@ -110,7 +161,7 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
             await request('workflow/native/prepare',{id:command.id,session,epoch:command.epoch,
                 identity:command.identity,client_id:operation.clientId,output:value.output,workflow:value.workflow});
             assertCurrent(operation);
-            if(key(operation.graph.serialize())!==serialized.fingerprint)throw new Error('提交前工作流被修改，未提交。');
+            if(fingerprint()!==serialized.fingerprint)throw new Error('提交前工作流被修改，未提交。');
             const marked={...value,workflow:{...value.workflow,extra:{...value.workflow.extra,pcs_native_operation:command.id}}};
             operation.payload={prompt:structuredClone(value.output),extra_data:{extra_pnginfo:{workflow:structuredClone(marked.workflow)}}};
             operation.attempted=true;
@@ -121,7 +172,33 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
         };
         try {
             assertCurrent(operation);
+            await select(operation);
+            if(command.action==='capture') {
+                globalThis.document?.activeElement?.blur?.();
+                await Promise.resolve();assertCurrent(operation);
+            }
             await applyNativeBindings(app,command,()=>assertCurrent(operation));
+            if(command.action==='capture') {
+                if(!seeds?.queueHooks)throw new Error('此網頁未載入 Queue 快照支援，請更新並重新整理。');
+                completion=(async()=>{
+                    assertCurrent(operation);
+                    const hooks=seeds.queueHooks(operation.graph);
+                    hooks.before();
+                    const value=await serialize.call(app);
+                    assertCurrent(operation);
+                    await request('workflow/native/prepare',{id:command.id,session,epoch:command.epoch,
+                        identity:command.identity,client_id:operation.clientId,output:value.output,workflow:value.workflow});
+                    // Do not change a newly edited seed after an asynchronous
+                    // receipt. The prepared record keeps its execution seed.
+                    assertCurrent(operation);
+                    if(fingerprint()===serialized.fingerprint)hooks.after();
+                })();
+                completion.then(()=>{settled=true;},()=>{settled=true;});
+                await Promise.race([completion,new Promise((_,reject)=>{timeout=setTimeout(()=>{
+                    operation.cancelled=true;reject(new Error('保存工作快照逾時，未派送生成。'));
+                },timeoutMs);})]);
+                return {captured:true};
+            }
             // The exact click-time PCS text is now on the native graph. All
             // unbound parameters and explicit Web text remain native values.
             app.graphToPrompt=serialize; api.queuePrompt=submit;
@@ -140,7 +217,7 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
             const restore=()=>{
                 if(app.graphToPrompt===serialize)app.graphToPrompt=originalSerialize;
                 if(api.queuePrompt===submit)api.queuePrompt=originalApi;
-                if(active===operation){active=null;queueMicrotask(()=>{if(!stopped)onIdle();});}
+                release(operation);
             };
             // A late serialization must still pass the cancelled guard. Do not
             // restore the unguarded transport while nativeQueue is suspended.
@@ -157,7 +234,7 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
             reportedUnavailable=abnormal?error:'';
             const value=identity();
             const result=await request('workflow/native/poll',{session,epoch,identity:value,client_id:api.clientId,
-                workflows:nativeCatalog(app),bindings_protocol:1,
+                workflows:nativeCatalog(app),bindings_protocol:1,capture_protocol:seeds?.queueHooks?1:0,navigation_protocol:1,
                 ready:!error});
             for(const command of result.commands??[]) {
                 const result=await execute(command);
@@ -168,5 +245,9 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
         finally {polling=false;}
     }
     const timer=setInterval(poll,500);
-    return {poll,execute,get busy(){return !!active;},changed(){epoch++;},stop(){stopped=true;epoch++;clearInterval(timer);if(app.queuePrompt===queueGate)app.queuePrompt=nativeQueue;}};
+    return {poll,execute,get busy(){return !!active;},changed(){epoch++;},stop(){stopped=true;epoch++;clearInterval(timer);
+        globalThis.document?.removeEventListener?.('compositionstart',compositionStart,true);
+        globalThis.document?.removeEventListener?.('compositionend',compositionEnd,true);
+        if(app.loadGraphData===loaderObserver)app.loadGraphData=nativeLoader;
+        if(app.queuePrompt===queueGate)app.queuePrompt=nativeQueue;}};
 }

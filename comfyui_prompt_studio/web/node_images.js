@@ -24,12 +24,13 @@ export function imageNodeState(graph,identity={}) {
     return {workflow:workflow||identity.path,nodes,frontend_id:identity.frontend_id??'',...(identity.path?{path:identity.path}:{})};
 }
 
-export function watchImageNodes(app,api,request,identity=()=>({}),paused=()=>false) {
+export function watchImageNodes(app,api,request,identity=()=>({}),paused=()=>false,publisher='') {
     let pending=false,dirty=false,last='';
     async function publish() {
         if(paused()||app.configuringGraph||app.rootGraph&&app.graph!==app.rootGraph)return;
         if (pending) { dirty=true; return; }
         const value=imageNodeState(app.graph,identity()); if (!value) return;
+        if(publisher)value.publisher=publisher;
         const signature=JSON.stringify(value); if (signature===last) return;
         pending=true;
         try { await request('workflow/images',value); last=signature; } catch {} finally {

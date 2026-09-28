@@ -74,7 +74,7 @@ class ClipPanel(QFrame):
         self.text_source.setToolTip('PCS：同步此 Prompt 輸出到已綁定欄位。手動：保留 ComfyUI 欄位內容，包括空字串。')
         self.text_source.currentIndexChanged.connect(self.change_text_source); body.addWidget(self.text_source)
         self.status=label('','Subtle',True); body.addWidget(self.status)
-        self.open_native=button('確認原生工作流',self.open_workflow,'Quiet');body.addWidget(self.open_native)
+        self.open_native=button('顯示原生工作流',self.open_workflow,'Quiet');body.addWidget(self.open_native)
     def open_workflow(self):
         from .native_workflow import open_bound_workflow
         workflow=self.canvas.data()['clip_inputs'][self.key].get('workflow')
@@ -148,8 +148,7 @@ class ExecutionBar(QFrame):
         self.handle=DragHandle(); self.handle.setToolTip('拖曳執行列'); self.handle.setCursor(Qt.CursorShape.SizeAllCursor)
         self.handle.installEventFilter(self); body.addWidget(self.handle)
         self.controls=canvas.window.run_controls
-        body.addWidget(button('預覽圖片',self.preview,'Quiet'))
-        body.addWidget(button('任務紀錄',lambda:canvas.window.generation_panel.history(),'Quiet'))
+        self.status=label('','Subtle');self.status.setAlignment(Qt.AlignmentFlag.AlignRight);self.status.hide();outer.addWidget(self.status)
         self.progress=QProgressBar(); self.progress.setTextVisible(True); self.progress.setFixedHeight(20); self.progress.hide(); outer.addWidget(self.progress)
         self.progress.setStyleSheet('QProgressBar {background:#24282d;border:1px solid #393e45;border-radius:3px;color:#d4dce5;text-align:center;font-size:12px;} QProgressBar::chunk {background:#315c83;border-radius:2px;}')
         canvas.view.viewport().installEventFilter(self); self.hide()
@@ -173,6 +172,11 @@ class ExecutionBar(QFrame):
         super().resizeEvent(event); self.parentWidget().update()
     def update_progress(self):
         client=getattr(self.canvas.window,'comfy',None); pipeline=client.generation.pipeline if client else None
+        modern=bool(client and self.canvas.window.state.get('multi_output',{}).get('version',1)>=5)
+        running=bool(client and client.running)
+        self.status.setVisible(modern and running)
+        node=client.input_flow.last_status.get('executing_node') if client else None
+        self.status.setText(('正在生成 · 節點 #'+str(node)) if node is not None else '正在生成')
         active=pipeline is not None and pipeline.active()
         self.progress.setVisible(active)
         if active:

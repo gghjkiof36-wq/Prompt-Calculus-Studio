@@ -101,7 +101,7 @@ class FlowUITests(unittest.TestCase):
         self.assertEqual((frozen['width'],frozen['height']),(80,40)); self.assertEqual(QImage(str(self.w.store.directory/frozen['relative'])).pixelColor(2,2).name(),'#ff0000')
         self.c.embed_source(source,self.cid); edge=next(c for c in self.c.data()['connections'] if c['destination']==self.cid and c['kind']=='image'); self.c.commit(lambda s:model.disconnect(s,edge['id']))
         doc=canvas_document(self.w.state,self.cid); self.assertEqual(len(doc['layers']),1); self.assertEqual(render_image(doc,self.w.store.directory).pixelColor(2,2).name(),'#ff0000')
-        self.assertTrue(self.c.execution_bar.isVisible()); self.assertTrue(self.w.run_controls.activity.isHidden())
+        self.assertTrue(self.c.execution_bar.isVisible()); self.assertFalse(self.w.run_controls.activity.isHidden())
         self.assertEqual(self.w.run_controls.run_button.text(),'執行'); self.assertEqual(self.w.run_controls.stop.text(),'取消')
     def test_order_native_proxy_drop_uses_token_and_commits_new_order(self):
         at=self.c.containers[self.cid].pos()+QPointF(25,80)

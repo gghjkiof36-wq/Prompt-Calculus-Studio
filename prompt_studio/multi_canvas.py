@@ -33,10 +33,11 @@ class OutputPanel(QFrame):
         self.split.setToolTip('拖曳分隔線，調整組合清單與文字欄的比例。')
         listing=QWidget(); list_layout=QVBoxLayout(listing); list_layout.setContentsMargins(0,0,0,0)
         list_layout.addWidget(label('目前組合','Subtle')); list_layout.addWidget(self.order)
+        list_layout.addWidget(button('排列文字來源',lambda:canvas.order_sources(key),'Quiet'))
         text_panel=QWidget(); text_layout=QVBoxLayout(text_panel); text_layout.setContentsMargins(0,0,0,0)
         self.draft_status=label('自動文字','Subtle'); text_layout.addWidget(self.draft_status)
         self.editor=QPlainTextEdit(); self.editor.setObjectName('Prompt'); self.editor.setMinimumSize(280,90)
-        self.editor.setPlaceholderText('連接畫布後產生文字，也可編輯手動版本。'); self.editor.textChanged.connect(self.edited); text_layout.addWidget(self.editor,1)
+        self.editor.setPlaceholderText('連接文字來源後產生內容，也可編輯手動版本。'); self.editor.textChanged.connect(self.edited); text_layout.addWidget(self.editor,1)
         self.split.addWidget(listing); self.split.addWidget(text_panel); body.addWidget(self.split,1)
         self.split.splitterMoved.connect(self.save_ratio); self.loaded_ratio=None
         self.conflicts=label('','ConflictNotice',True); body.addWidget(self.conflicts)
@@ -62,14 +63,18 @@ class OutputPanel(QFrame):
             self.canvas.context(key,widget_global_position(self.order.viewport(),pos,self.canvas.view),[key])
     def remove_items(self,keys):
         if self.updating or not self.order.isEnabled():return
-        cid=self.canvas.data()['outputs'][self.key]['canvas']
-        members=self.canvas.data()['canvases'].get(cid,{}).get('members',[])
+        from .flow_data import canvas_ids
+        members=[k for cid in canvas_ids(self.canvas.data()['outputs'][self.key]) for k in self.canvas.data()['canvases'][cid]['members']]
         self.canvas.remove_keys([key for key in keys if key in members])
     def reordered(self,*args):
         if self.updating: return
         keys=[self.order.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.order.count())]; canvas=self.canvas
-        cid=canvas.data()['outputs'][self.key]['canvas']
-        if cid: QTimer.singleShot(0,lambda:canvas.commit(lambda s:s['multi_output']['canvases'][cid].update(members=keys)))
+        from .flow_data import canvas_ids
+        def reorder(state):
+            for cid in canvas_ids(state['multi_output']['outputs'][self.key]):
+                value=state['multi_output']['canvases'][cid]
+                value['members']=[k for k in keys if k in value['members']]
+        QTimer.singleShot(0,lambda:canvas.commit(reorder))
     def edited(self):
         if self.updating: return
         from .drafts import edit
@@ -86,7 +91,8 @@ class OutputPanel(QFrame):
         try: compiled=model.compile_output(state,self.key); text=compiled['final_prompt']; affected=compiled['affected']
         except ValueError: text=output['draft'] or ''; affected={}
         if self.editor.toPlainText()!=text: self.editor.setPlainText(text)
-        cid=output['canvas']; members=self.canvas.data()['canvases'].get(cid,{}).get('members',[])
+        from .flow_data import canvas_ids
+        cid=output['canvas']; members=[k for c in canvas_ids(output) for k in self.canvas.data()['canvases'][c]['members']]
         prior=[self.order.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.order.count())]
         if prior!=members:
             self.order.clear()
@@ -113,7 +119,9 @@ class OutputCard(TextCard):
         self.restore_size(); self.layout_card(); self.panel.show(); self.panel.restore_ratio(); self.panel.refresh()
     def layout_card(self):
         width,height=self.requested_size; minimum=self.panel.minimumSizeHint()
-        self.proxy.setGeometry(QRectF(14,102,max(350,minimum.width(),width-28),max(300,minimum.height(),height-116))); self.sync_bounds()
+        from .flow_data import text_sources
+        top=max(102,90+24*len(text_sources(self.canvas.data()['outputs'][self.key])))
+        self.proxy.setGeometry(QRectF(14,top,max(350,minimum.width(),width-28),max(300,minimum.height(),height-top-14))); self.sync_bounds()
     def update_text(self):
         self.title=self.canvas.data()['outputs'][self.key]['name']; self.panel.refresh(); super().update_text()
     def contextMenuEvent(self,event): self.canvas.output_menu(self.key,event.screenPos()); event.accept()
@@ -188,10 +196,13 @@ class FlowFunctions(CanvasFunctions):
         return menu
     def insertion_actions(self,position=None):
         return [('畫布',lambda:self.canvas.add_canvas(position)),
-                ('Prompt 輸出',lambda:self.canvas.add_output(position)),
+                ('Prompt 控制',lambda:self.canvas.add_output(position)),
                 ('CLIP 輸入',lambda:self.canvas.add_clip(position)),
-                ('加載圖片',lambda:self.add_image(position=position)),
-                ('預覽圖片',self.show_preview),('工作流順序',lambda:self.canvas.show_workflow_order(position))]
+                ('圖片來源',lambda:self.add_image(position=position)),
+                ('載入圖片（單張／工作流輸出）',lambda:self.add_image(position=position,enhanced=False)),
+                ('圖片輸入',lambda:self.canvas.add_flow_node('image_inputs',position)),
+                ('預排程',lambda:self.canvas.add_flow_node('schedulers',position)),
+                ('預覽圖片',self.show_preview)]
     def context(self,key,position):
         menu=RoundMenu(self.window)
         if key in self.cards:
@@ -204,7 +215,7 @@ class FlowFunctions(CanvasFunctions):
 class MultiCanvas(TextCanvas):
     def __init__(self,window):
         super().__init__(window); self.functions=FlowFunctions(self); self.containers={}; self.outputs={}; self.ports={}; self.lines={}
-        self.clips={}; self.order_card=None; self.execution_bar=ExecutionBar(self)
+        self.clips={}; self.flow_cards={}; self.order_card=None; self.execution_bar=ExecutionBar(self)
         self.insertion_canvas=None; self.image_previews={}; self.editor_page=None; self.z_counter=-.9; self.refreshing=False
         from .flow_items import ConnectionGesture
         self.connection_gesture=ConnectionGesture(self)
@@ -216,19 +227,36 @@ class MultiCanvas(TextCanvas):
     def history_state(self):
         return {k:copy.deepcopy(self.window.state[k]) for k in HISTORY_FIELDS+('multi_output','draft','draft_base') if k in self.window.state}
     def commit(self,operation):
-        def apply(s): operation(s); model.reconcile(s)
+        old_connections=copy.deepcopy(self.data()['connections'])
+        def apply(s):
+            operation(s)
+            if s['multi_output']['version']>=5:
+                from .flow_data import materialize
+                materialize(s)
+            model.reconcile(s)
         result=super().commit(apply)
+        client=getattr(self.window,'comfy',None)
+        if result and client and old_connections!=self.data()['connections']:
+            removed=[c for c in old_connections if c not in self.data()['connections']]
+            for owner,control in client.input_flow.local_controls():
+                scheduler=control.get('route',{}).get('scheduler')
+                if scheduler and any(scheduler in (c['source'].split('::')[0],c['destination'].split('::')[0]) for c in removed):
+                    client.input_flow.detach(owner)
         if result and self.undo_stack:
             before,_=self.undo_stack[-1]; after=self.history_state(); self.undo_stack[-1]=(before,after); self.last_state=after
         return result
     def restore_history(self,source,destination,after):
+        from .snapshot_history import restore as restore_import
+        if restore_import(self,source,destination,after):return
         if not source: return
         before,later=source[-1]; expected,target=(before,later) if after else (later,before)
-        if self.history_state()!=expected:
-            source.clear(); self.window.notice('內容已在其他位置變更，已清除過期的復原紀錄。'); return
+        from .edit_history import merge
         value=copy.deepcopy(self.window.state)
-        for key in HISTORY_FIELDS+('multi_output','draft','draft_base'): value.pop(key,None)
-        value.update(copy.deepcopy(target)); validate_state(value)
+        try:
+            merged=merge(self.history_state(),expected,target)
+            for key in HISTORY_FIELDS+('multi_output','draft','draft_base'):value.pop(key,None)
+            value.update(merged);validate_state(value)
+        except ValueError as exc:self.window.notice(str(exc));return
         source.pop(); destination.append((before,later)); self.window.state=value; self.last_state=self.history_state()
         from .changes import layout_only
         self.sync('layout' if layout_only(expected,target) else 'prompt')
@@ -244,6 +272,7 @@ class MultiCanvas(TextCanvas):
         self.output_picker.setCurrentIndex(self.output_picker.findData(self.data()['current_output'])); self.output_picker.blockSignals(False)
         for card in self.outputs.values(): card.update_text()
         for card in self.clips.values(): card.update_text()
+        for card in self.flow_cards.values():card.update_text()
         if self.order_card: self.order_card.update_text()
         if self.preview_card: self.preview_card.update_text()
         preview_links=tuple(sorted(model.connected_outputs(self.window.state,'preview')))
@@ -257,7 +286,6 @@ class MultiCanvas(TextCanvas):
         try:
             self.connection_gesture.cancel()
             now=self.history_state()
-            if self.last_state is not None and now!=self.last_state: self.undo_stack.clear(); self.redo_stack.clear()
             state=self.window.state; selected={c.key for c in self.view.scene().selectedItems() if hasattr(c,'key')}
             self.entries={}
             for key,root in state.get('uses',{}).items():
@@ -294,6 +322,15 @@ class MultiCanvas(TextCanvas):
             for index,key in enumerate(self.data()['clip_inputs']):
                 if key not in self.clips: self.clips[key]=ClipCard(self,key); self.view.scene().addItem(self.clips[key])
                 card=self.clips[key]; card.attach(); card.setPos(*state.get('text_positions',{}).get(key,[650,index*300-350])); card.setSelected(key in selected)
+            from .flow_widgets import FlowCard
+            active_flow={key:kind for kind in ('schedulers','image_inputs') for key in self.data().get(kind,{})}
+            for key in list(self.flow_cards):
+                if key not in active_flow:
+                    card=self.flow_cards.pop(key);self.view.scene().removeItem(card);card.deleteLater()
+            for key,kind in active_flow.items():
+                if key not in self.flow_cards:
+                    self.flow_cards[key]=FlowCard(self,key,kind);self.view.scene().addItem(self.flow_cards[key])
+                card=self.flow_cards[key];card.attach();card.setPos(*state.get('text_positions',{}).get(key,[1000,400]));card.setSelected(key in selected)
             self.execution_bar.attach()
             if self.data().get('workflow_order',{}).get('visible'):
                 from .workflow_widgets import WorkflowOrderCard
@@ -304,12 +341,27 @@ class MultiCanvas(TextCanvas):
             self.preview_card.attach(); self.preview_card.setPos(*state.get('text_positions',{}).get('__result_preview__',[600,450])); self.results.refresh()
             self.functions.refresh()
             for key,container in self.containers.items():
-                self.add_port(container,key,'text',True); self.add_port(container,key,'image',True); self.add_port(container,key,'image',False)
+                self.add_port(container,key,'text',True); self.add_port(container,key,'image',True,index=1); self.add_port(container,key,'image',False)
+                if self.data()['version']>=5:
+                    self.add_port(container,key,'content',False,index=1);self.add_port(container,key,'clip',False,index=2)
             for index,(key,card) in enumerate(self.outputs.items()):
-                for kind in ('text','image'): self.add_port(card,key,kind,False)
+                from .flow_data import text_sources
+                inputs=text_sources(self.data()['outputs'][key])
+                for at,cid in enumerate(inputs):self.add_port(card,key,'text' if cid in self.data()['canvases'] else 'clip',False,slot=cid,index=at)
+                self.add_port(card,key,'text',False,index=len(inputs))
+                self.add_port(card,key,'image',False,index=len(inputs)+1)
                 self.add_port(card,key,'clip',True)
             for key,card in self.clips.items(): self.add_port(card,key,'clip',False)
-            for key,card in self.functions.cards.items(): self.add_port(card,key,'image',True)
+            for key,card in self.functions.cards.items():
+                self.add_port(card,key,'image',True)
+                if self.data()['version']>=5:
+                    self.add_port(card,key,'content',True,index=1);self.add_port(card,key,'clip',True,index=2)
+            from .flow_data import endpoint
+            for key,card in self.flow_cards.items():
+                if card.kind=='image_inputs':self.add_port(card,key,'image',False)
+                else:
+                    for index,channel in enumerate(self.data()['schedulers'][key]['channels']):
+                        for output in (False,True):self.add_port(card,endpoint(key,channel['id']),channel['type'],output,index=index)
             if self.data()['version']>=4:self.add_port(self.preview_card,model.PREVIEW,'image',False)
             for value in self.data()['connections']:
                 line=FlowLine(self,value); self.lines[value['id']]=line; self.view.scene().addItem(line)
@@ -342,12 +394,13 @@ class MultiCanvas(TextCanvas):
         self.ports[(key,kind,output,slot) if slot else (key,kind,output)]=Port(self,parent,key,kind,output,slot,index)
     def line_port(self,value,output):
         key=value['source'] if output else value['destination']; kind=value['kind']
-        return self.ports.get((key,kind,output,value['source']) if not output and kind in ('execution','preview') else (key,kind,output))
+        return self.ports.get((key,kind,output,value['source']) if not output and (kind in ('execution','preview','text') or kind=='clip' and key in self.outputs) else (key,kind,output))
     def update_lines(self):
         if not hasattr(self,'ports'): return
         for port in self.ports.values():
             parent=port.parentItem(); y=58+port.index*24 if port.slot else 82 if port.key in self.outputs or port.key in self.containers else 58
             if not port.slot and port.kind in ('text','execution','clip'): y=58
+            if self.data()['version']>=5:y=58+port.index*24
             port.setPos(parent.width if port.output else 0,y)
         for line in self.lines.values():
             value=line.value; source=self.line_port(value,True); dest=self.line_port(value,False)
@@ -409,6 +462,34 @@ class MultiCanvas(TextCanvas):
             order.update(visible=True,items=workflow_ids(s))
             s.setdefault('text_positions',{}).setdefault(ORDER_CARD,[position.x(),position.y()])
         self.commit(apply)
+
+    def add_flow_node(self,kind,position=None):
+        from .flow_data import add_scheduler,add_image_input
+        position=position or self.view.mapToScene(self.view.viewport().rect().center())
+        self.commit(lambda state:(add_scheduler if kind=='schedulers' else add_image_input)(state,(position.x(),position.y())))
+
+    def remove_flow_node(self,kind,key):
+        if kind=='schedulers':self.window.comfy.input_flow.detach(key)
+        def change(state):
+            for line in list(state['multi_output']['connections']):
+                if key in (line['source'].split('::')[0],line['destination'].split('::')[0]):model.disconnect(state,line['id'])
+            state['multi_output'][kind].pop(key,None)
+        self.commit(change)
+
+    def order_sources(self,key):
+        from .flow_data import text_sources,source_name
+        dialog=StudioDialog(self.window);dialog.setWindowTitle('Prompt 控制 · 文字合併順序');dialog.resize(400,380)
+        listing=QListWidget();listing.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        for cid in text_sources(self.data()['outputs'][key]):
+            item=QListWidgetItem(source_name(self.window.state,cid));item.setData(Qt.ItemDataRole.UserRole,cid);listing.addItem(item)
+        dialog.body.addWidget(label('拖曳排列；由上到下合併，各文字來源保持獨立。','Subtle',True))
+        dialog.body.addWidget(listing);dialog.body.addWidget(dialog_buttons(dialog))
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        ids=[listing.item(i).data(Qt.ItemDataRole.UserRole) for i in range(listing.count())]
+        def change(state):
+            canvases=[i for i in ids if i in state['multi_output']['canvases']]
+            state['multi_output']['outputs'][key].update(text_sources=ids,canvases=canvases,canvas=canvases[0] if canvases else None)
+        self.commit(change)
     def add_output(self,position=None):
         position=position or self.view.mapToScene(self.view.viewport().rect().center()); key=model.ident('output_')
         def apply(s):
@@ -443,6 +524,7 @@ class MultiCanvas(TextCanvas):
     def output_menu(self,key,position):
         menu=RoundMenu(self.window)
         menu.addAction('重新命名',lambda:self.rename_function('outputs',key))
+        menu.addAction('排列文字來源',lambda:self.order_sources(key))
         menu.addAction('新增 CLIP 輸入並連接',lambda:self.add_clip(self.outputs[key].pos()+QPointF(self.outputs[key].width+90,0),key))
         menu.addAction('設為目前輸出',lambda:self.set_current(key)); menu.addAction('移除輸出',lambda:self.remove_output(key)); menu.open_at(position)
     def rename_function(self,collection,key):
@@ -465,6 +547,7 @@ class MultiCanvas(TextCanvas):
                 output=s['multi_output']['outputs'].get(other,{}); s.update(draft=output.get('draft'),draft_base=output.get('draft_base',''))
         self.commit(apply)
     def delete_selected(self):
+        from .flow_widgets import FlowCard
         items=list(self.view.scene().selectedItems()); keys=[i.key for i in items if isinstance(i,NodeCard)]
         self.remove_keys(keys)
         for item in items:
@@ -472,6 +555,7 @@ class MultiCanvas(TextCanvas):
             elif isinstance(item,CanvasContainer): self.remove_container(item.key)
             elif isinstance(item,OutputCard): self.remove_output(item.key)
             elif isinstance(item,ClipCard): self.commit(lambda s,k=item.key:clip_flow.remove(s,k))
+            elif isinstance(item,FlowCard):self.remove_flow_node(item.kind,item.key)
             elif isinstance(item,TextCard) and item.key in self.functions.cards: self.functions.remove(item.key)
     def release_output(self):
         self.execution_bar.detach()

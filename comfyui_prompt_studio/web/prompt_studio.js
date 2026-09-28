@@ -303,13 +303,14 @@ app.registerExtension({
         restoreDesktop().catch(e=>notify(e.message,true));
     },
     async setup() {
-        publishImages=watchImageNodes(app,api,request,()=>workflowIdentity(app),()=>nativeQueue?.busy);
+        for(const node of nodes())seedObserver.observe(node,{loaded:true});
+        publishImages=watchImageNodes(app,api,request,()=>workflowIdentity(app),()=>nativeQueue?.busy,desktopSession);
         workflowRuns=watchWorkflowRuns(app,api,request,notify,fn=>{syncing=true;try{return fn();}finally{syncing=false;}},()=>nativeQueue?.busy);
         // ComfyUI runs extension setup concurrently. Its cold-start window.app
         // marker is published only after all setup promises complete, so capture
         // the final extension queue chain there, never partway through setup.
         const bootstrap=createNativeBootstrap({app,host:window,
-            install(){nativeQueue=installNativeQueue(app,api,request,desktopSession,notify,undefined,()=>{workflowRuns.refresh();publishImages();});},
+            install(){nativeQueue=installNativeQueue(app,api,request,desktopSession,notify,undefined,()=>{workflowRuns.refresh();publishImages();},undefined,seedObserver);},
             onStatus({state}){if(state==='rejected')notify('無法確認原生執行入口的啟動狀態，PCS 未提交；請重新整理 ComfyUI 頁面。',true);}
         });
         bootstrap.start(); // Do not await the completion marker from inside setup.

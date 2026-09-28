@@ -82,8 +82,13 @@ class NodeImages:
             if index is not None and (type(index) is not int or not 0<=index<len(images)): raise ValueError('圖片選擇無效。')
         path=value.get('path',''); native=value.get('frontend_id','')
         if not isinstance(path,str) or len(path)>1000 or not isinstance(native,str) or len(native)>200:raise ValueError('工作流身分無效。')
-        identity=(ident,path,native); previous=self.live.get(identity,{})
-        if previous.get('nodes')!=checked or previous.get('path')!=path or previous.get('frontend_id')!=native:
+        publisher=value.get('publisher','')
+        if not isinstance(publisher,str) or len(publisher)>100:raise ValueError('圖片來源分頁無效。')
+        # A native workflow may first publish under its path, then gain a PCS
+        # ID. That is one source, not two. Separate browser publishers still
+        # remain distinct and cannot silently win by publication time.
+        identity=(publisher,path,native or ident); previous=self.live.get(identity,{})
+        if previous.get('nodes')!=checked or previous.get('workflow')!=ident:
             now=time.time()
             times={key:previous.get('node_times',{}).get(key,now) if
                    all(previous.get('nodes',{}).get(key,{}).get(field)==node.get(field) for field in ('type','images','overflow')) else now for key,node in checked.items()}
@@ -98,7 +103,6 @@ class NodeImages:
         entry=history.get(prompt_id) if prompt_id else next((v for v in reversed(list(history.values())) if history_workflow(v) in (None,workflow) and matches_source(query,history_identity(v)) and v.get('status',{}).get('completed')),None)
         images=[]; selected=None; origin=''
         candidates=[v for v in self.live.values() if matches_source(query,v)]
-        if len(candidates)>1 and not prompt_id:raise ValueError('有多份相符工作流圖片來源，請確認工作流與節點綁定。')
         published=candidates[0] if len(candidates)==1 else {}
         live=published.get('nodes',{}).get(node)
         messages=entry.get('status',{}).get('messages',[]) if entry else []
@@ -114,6 +118,8 @@ class NodeImages:
         # real completion. For an exact native binding, use that completion's
         # whole batch; publication time is not execution time.
         native_result=bool(query.get('frontend_id') and images)
+        if len(candidates)>1 and not prompt_id and not (native_result and kind!='LoadImage'):
+            raise ValueError('有多份相符工作流圖片來源，請確認工作流與節點綁定。')
         if not prompt_id and live and live.get('overflow') and not native_result:raise ValueError('節點超過 64 張圖片，請減少單次批量後再讀取。')
         if not prompt_id and live and live['type']==kind and live['images'] and (kind=='LoadImage' or not images or not native_result and published.get('node_times',{}).get(node,published.get('updated',0))>=completed):
             # A current browser selection wins only for a free-standing read.

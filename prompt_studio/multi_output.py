@@ -47,6 +47,9 @@ def next_canvas_name(state):
 
 def valid_edge(state,source,destination,kind):
     data=state['multi_output']; canvases=data['canvases']; outputs=data['outputs']; images=state.get('canvas_functions',{}).get('images',{})
+    if data['version']>=5:
+        from .flow_data import valid_edge as typed_edge
+        return typed_edge(state,source,destination,kind)
     if kind=='text': return source in canvases and destination in outputs
     if data['version']>=3 and kind=='clip': return source in outputs and destination in data['clip_inputs']
     if kind=='image':
@@ -58,9 +61,9 @@ def valid_edge(state,source,destination,kind):
     return False
 
 
-def input_slot(source,destination,kind):
+def input_slot(source,destination,kind,outputs=()):
     # Each output gets a distinct socket on the shared execution/preview card.
-    return (destination,kind,source if kind in ('execution','preview') else '')
+    return (destination,kind,source if kind in ('execution','preview','text') or kind=='clip' and destination in outputs else '')
 
 
 def connected_outputs(state,kind='execution'):
@@ -125,19 +128,41 @@ def connect(state,source,destination,kind):
     if not valid_edge(state,source,destination,kind): raise ValueError('這兩個端口無法連接。')
     if kind=='text':
         if source not in canvases or destination not in outputs: raise ValueError('文字只能由畫布連到最終 Prompt。')
-        if any(c['kind']=='text' and c['source']==source and c['destination']!=destination for c in data['connections']):
+        if data['version']<5 and any(c['kind']=='text' and c['source']==source and c['destination']!=destination for c in data['connections']):
             raise ValueError('這張畫布已連接另一個最終 Prompt，請先解除。')
+    if data['version']>=5:
+        from .flow_data import check_cycle
+        check_cycle(state,source,destination)
+    elif kind=='text':
+        data['connections']=[c for c in data['connections'] if not(c['kind']=='text' and c['destination']==destination)]
     # Allowed edges form a DAG by type. A result can only be reused explicitly.
-    slot=input_slot(source,destination,kind)
-    data['connections']=[c for c in data['connections'] if input_slot(c['source'],c['destination'],c['kind'])!=slot]
+    slots=outputs if data['version']>=6 else ()
+    slot=input_slot(source,destination,kind,slots)
+    data['connections']=[c for c in data['connections'] if input_slot(c['source'],c['destination'],c['kind'],slots)!=slot]
     data['connections'].append(dict(id=ident('line_'),source=source,destination=destination,kind=kind))
-    if kind=='text': outputs[destination]['canvas']=source
+    if data['version']>=6 and destination in outputs and kind in ('text','clip'):
+        ids=outputs[destination].setdefault('text_sources',list(outputs[destination].get('canvases',[])))
+        if source not in ids:ids.append(source)
+    if kind=='text':
+        if data['version']>=5:
+            ids=outputs[destination].setdefault('canvases',[])
+            if source not in ids:ids.append(source)
+            outputs[destination]['canvas']=ids[0]
+        else:outputs[destination]['canvas']=source
 
 
 def disconnect(state,key):
     data=state['multi_output']
     for c in data['connections']:
-        if c['id']==key and c['kind']=='text': data['outputs'][c['destination']]['canvas']=None
+        if c['id']==key and data['version']>=6 and c['destination'] in data['outputs'] and c['kind'] in ('text','clip'):
+            output=data['outputs'][c['destination']]
+            output['text_sources']=[i for i in output.get('text_sources',[]) if i!=c['source']]
+        if c['id']==key and c['kind']=='text':
+            output=data['outputs'][c['destination']]
+            if data['version']>=5:
+                output['canvases']=[i for i in output['canvases'] if i!=c['source']]
+                output['canvas']=next(iter(output['canvases']),None)
+            else:output['canvas']=None
     data['connections']=[c for c in data['connections'] if c['id']!=key]
 
 
@@ -177,6 +202,10 @@ def canvas_projection(state,canvas_id):
     result=dict(state); result.pop('multi_output',None)
     result['uses']={key:state['uses'][key] for key in canvas['members']}
     result['output_order']=list(canvas['members'])
+    if canvas.get('raw_prompt') is not None:
+        excluded=set(canvas.get('source_members',[]))
+        result['uses']={k:v for k,v in result['uses'].items() if k not in excluded}
+        result['output_order']=[k for k in result['output_order'] if k not in excluded]
     result['settings']=dict(state['settings'],separate_selections=False)
     result.update(selections={},weights={},instances={},temporary=[])
     if not state['settings'].get('separate_selections',True):
@@ -192,7 +221,10 @@ def canvas_projection(state,canvas_id):
 def compile_output(state,key):
     from .core import compose_details
     data=state['multi_output']; output=data['outputs'][key]
-    if output['canvas'] is None: raise ValueError('「'+output['name']+'」缺少來源畫布。')
+    if output['canvas'] is None and not output.get('text_sources'):
+        if data['version']>=5 and output.get('draft') is not None:
+            return dict(output=key,name=output['name'],canvas=None,generated_prompt='',final_prompt=output['draft'],manual_draft=True,affected={})
+        raise ValueError('「'+output['name']+'」缺少來源，請接入文字。')
     isolated_list=state.get('selection_view')=='list' and state['settings'].get('separate_selections',True)
     if isolated_list:
         projection=dict(state); projection.pop('multi_output',None)
@@ -201,15 +233,45 @@ def compile_output(state,key):
         if key==data['current_output']: projection.update({k:state[k] for k in LIST_FIELDS if k in state})
         draft=state.get('draft') if key==data['current_output'] else output.get('list_draft',{}).get('draft')
     else:
-        projection=canvas_projection(state,output['canvas']); draft=output['draft']
+        projection=canvas_projection(state,output['canvas']) if output['canvas'] else dict(state,uses={}); draft=output['draft']
     generated,affected=compose_details(projection)
+    if not isolated_list and data['version']>=5:
+        from .flow_data import text_sources,resolve
+        parts=[]; affected={}
+        for cid in text_sources(output):
+            if cid not in data['canvases']:
+                try:parts.append(resolve(state,cid,'clip')['value'])
+                except ValueError:
+                    if draft is None:raise
+                continue
+            canvas=data['canvases'][cid]
+            if canvas.get('source_error'):
+                if draft is None:raise ValueError(canvas['source_error'])
+                continue
+            projection=canvas_projection(state,cid)
+            opaque=[v['prompt'] for v in projection.get('uses',{}).values() if v.get('opaque_source') and v['enabled']]
+            projection['uses']={k:v for k,v in projection.get('uses',{}).items() if not v.get('opaque_source')}
+            projection['output_order']=[k for k in projection.get('output_order',[]) if k in projection['uses']]
+            part,changes=compose_details(projection)
+            if opaque:part='\n'.join(p for p in [*opaque,part] if p)
+            raw=canvas.get('raw_prompt')
+            if raw is not None:part='\n'.join(p for p in (raw,part) if p)
+            parts.append(part); affected.update(changes)
+        generated='\n'.join(part for part in parts if part)
     if key==data['current_output'] and not isolated_list: draft=state.get('draft')
     return dict(output=key,name=output['name'],canvas=output['canvas'],generated_prompt=generated,
                 final_prompt=draft if draft is not None else generated,manual_draft=draft is not None,affected=affected)
 
 
 def compiled_outputs(state):
-    return {key:compile_output(state,key) for key,o in state['multi_output']['outputs'].items() if o['canvas'] is not None}
+    result={}
+    for key,o in state['multi_output']['outputs'].items():
+        if o['canvas'] is None and not o.get('text_sources') and not (state['multi_output']['version']>=5 and o.get('draft') is not None):continue
+        try:result[key]=compile_output(state,key)
+        except ValueError as exc:
+            if state['multi_output']['version']<5:raise
+            result[key]=dict(output=key,name=o['name'],canvas=o['canvas'],generated_prompt='',final_prompt='',manual_draft=False,affected={},error=str(exc))
+    return result
 
 
 def bound_texts(state,profile):
@@ -232,7 +294,7 @@ def bound_texts(state,profile):
 def validate_multi(state):
     from .composition import validate_node
     data=state['multi_output']
-    if not isinstance(data,dict) or data.get('version') not in (1,2,3,4): raise ValueError('多畫布資料版本無效。')
+    if not isinstance(data,dict) or data.get('version') not in (1,2,3,4,5,6): raise ValueError('多畫布資料版本無效。')
     for name in (('canvases','outputs','clip_inputs') if data['version']>=3 else ('canvases','outputs')):
         if not isinstance(data.get(name),dict) or len(data[name])>100: raise ValueError('畫布或輸出數量無效。')
         for key,v in data[name].items():
@@ -241,6 +303,9 @@ def validate_multi(state):
     if data['version']>=4:
         from .workflow_flow import validate
         validate(state)
+    if data['version']>=5:
+        from .flow_data import validate as validate_flow
+        validate_flow(state)
     owned=set()
     for c in data['canvases'].values():
         if not isinstance(c.get('members'),list): raise ValueError('畫布歸屬無效。')
@@ -266,15 +331,21 @@ def validate_multi(state):
     for line in data['connections']:
         if not isinstance(line,dict) or any(not isinstance(line.get(k),str) for k in ('id','source','destination','kind')): raise ValueError('連線格式無效。')
         src,dst,kind=line['source'],line['destination'],line['kind']
-        slot=input_slot(src,dst,kind)
+        slot=input_slot(src,dst,kind,data['outputs'] if data['version']>=6 else ())
         if line['id'] in line_ids or slot in seen: raise ValueError('輸入連線重複。')
         line_ids.add(line['id']); seen.add(slot)
         if not valid_edge(state,src,dst,kind): raise ValueError('連線類型或端口無效。')
         if kind=='text':
-            if src not in data['canvases'] or dst not in data['outputs'] or src in sources or data['outputs'][dst]['canvas']!=src: raise ValueError('文字連線或來源不一致。')
+            if data['version']>=5:
+                if src not in data['outputs'][dst]['canvases']:raise ValueError('文字連線或來源不一致。')
+            elif src not in data['canvases'] or dst not in data['outputs'] or src in sources or data['outputs'][dst]['canvas']!=src: raise ValueError('文字連線或來源不一致。')
             sources.add(src)
     for key,output in data['outputs'].items():
-        if output['canvas'] is not None and (key,'text','') not in seen: raise ValueError('輸出缺少文字連線。')
+        ids=output.get('canvases',[output['canvas']] if output['canvas'] else [])
+        if any((key,'text',cid) not in seen for cid in ids):raise ValueError('輸出缺少文字連線。')
+    if data['version']>=6:
+        from .flow_data import check_cycle
+        for line in data['connections']:check_cycle(state,line['source'],line['destination'])
     targets=set(); output_targets=set()
     if not isinstance(data.get('bindings'),list) or len(data['bindings'])>5000: raise ValueError('工作流綁定資料無效。')
     for b in data['bindings']:

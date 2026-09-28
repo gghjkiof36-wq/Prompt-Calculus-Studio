@@ -15,9 +15,11 @@ test('owner and binding changes do not release manual edits of the same actual f
     assert.match(apply(f,live('B text','B','clip-B')),/保留/);
     apply(f,live('C text','C','clip-C'));assert.equal(f.widget.value,'manual');
 });
-test('unedited field follows new owner and observed empty unbind still releases it',()=>{
-    const f=fixture();apply(f,live('A'));apply(f,live('B','B','clip-B'));assert.equal(f.widget.value,'B');
-    f.widget.value='manual';apply(f,{owner:'B',texts:[]});apply(f,live('rebound','C'));assert.equal(f.widget.value,'rebound');
+test('explicit PCS ownership can change, but unknown rebound does not overwrite manual text',()=>{
+    const controlled=(text,owner)=>{const value=live(text,owner);value.texts[0].text_source='pcs';return value;};
+    const f=fixture();apply(f,controlled('A','A'));apply(f,controlled('B','B'));assert.equal(f.widget.value,'B');
+    f.widget.value='manual';apply(f,{owner:'B',texts:[]});apply(f,live('rebound','C'));assert.equal(f.widget.value,'manual');
+    apply(f,controlled('rebound','C'));assert.equal(f.widget.value,'rebound');
 });
 test('manual edit during owner switch stays protected in later polls',()=>{
     const f=fixture();apply(f,live('A'));const before=captureFields(f.app.graph);f.widget.value='concurrent';
@@ -27,7 +29,8 @@ test('recreated nodes are distinct and stale lookup cannot write into replacemen
     const f=fixture();apply(f,live('A'));f.widget.value='manual';const before=captureFields(f.app.graph);
     const node={id:1,type:'CLIPTextEncode',widgets:[{name:'text',value:'manual'}]};f.app.graph._nodes=[node];
     assert.match(apply(f,live('B','B'),before),/保留/);assert.equal(node.widgets[0].value,'manual');
-    apply(f,live('B','B'));assert.equal(node.widgets[0].value,'B');assert.equal(f.widget.value,'manual');
+    apply(f,live('B','B'));assert.equal(node.widgets[0].value,'manual');assert.equal(f.widget.value,'manual');
+    const explicit=live('B','B');explicit.texts[0].text_source='pcs';apply(f,explicit);assert.equal(node.widgets[0].value,'B');
 });
 test('linked and converted fields are not overwritten after owner changes',()=>{
     for(const converted of [false,true]) {

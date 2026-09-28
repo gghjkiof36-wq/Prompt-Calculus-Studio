@@ -140,7 +140,9 @@ def freeze_source(state,directory,optional=False):
     data=state['multi_output']
     if data['version']==1: lines=[c for c in data['connections'] if c['kind']=='image']
     else:
-        outputs={b['output'] for b in bound_texts(state,active_profile(state))}
+        from .workflow_flow import execution_profiles
+        profiles=execution_profiles(state) if data['version']>=4 else [active_profile(state)]
+        outputs={b['output'] for profile in profiles if profile for b in bound_texts(state,profile)}
         lines=[c for c in data['connections'] if c['kind']=='image' and c['destination'] in outputs]
     if not lines:
         if optional: return None

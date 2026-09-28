@@ -82,11 +82,13 @@ class ConnectionRepairTests(unittest.TestCase):
         self.assertEqual(state['multi_output'],before)
         self.assertEqual(state['generation']['profiles'][0]['origin'],p['origin'])
 
-    def test_cancel_is_enabled_for_own_submission_and_other_comfy_work(self):
+    def test_cancel_only_targets_current_workspace_pcs_work(self):
         client=self.w.comfy; client.connected=True; client.run_id='submitted'
-        self.w.run_controls.refresh(); self.assertTrue(self.w.run_controls.stop.isEnabled())
-        client.run_id=''; client.running=1; self.w.run_controls.refresh(); self.assertTrue(self.w.run_controls.stop.isEnabled())
+        self.w.run_controls.refresh(); self.assertFalse(self.w.run_controls.stop.isEnabled())
+        client.run_id=''; client.running=1; self.w.run_controls.refresh(); self.assertFalse(self.w.run_controls.stop.isEnabled())
         client.running=0; self.w.run_controls.refresh(); self.assertFalse(self.w.run_controls.stop.isEnabled())
+        client.input_flow.store.set_control('live:'+self.w.state['workspace']+':flow',credits=2,route=dict(workspace=self.w.state['workspace'],server=client.url,workflow='flow'))
+        self.w.run_controls.refresh();self.assertTrue(self.w.run_controls.stop.isEnabled())
 
     def test_completed_backend_result_reaches_canvas_preview_without_browser(self):
         from test_multi_output import workflow

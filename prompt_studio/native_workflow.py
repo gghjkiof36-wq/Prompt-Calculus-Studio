@@ -1,4 +1,4 @@
-"""Confirm the active bound native workflow; never load, generate or change bindings."""
+"""Show the bound loaded native workflow without generating or changing bindings."""
 import copy
 import time
 import uuid
@@ -28,7 +28,7 @@ def open_bound_workflow(window,workflow):
         if valid:window.notice(message)
     def received(value):
         if not current():finish('');return
-        if value.get('state')=='opened':finish('已確認 ComfyUI 目前工作流：'+source['name']);return
+        if value.get('state')=='opened':finish('ComfyUI 已顯示綁定工作流：'+source['name']);return
         if value.get('state') in ('failed','unconfirmed'):
             finish(value.get('error') or '無法確認目前原生工作流。');return
         if time.monotonic()-started>35:
@@ -37,6 +37,6 @@ def open_bound_workflow(window,workflow):
     def poll():
         if not current():finish('');return
         client.request('workflow/native/status',dict(id=operation),done=received,failed=lambda error:finish(str(error)))
-    window.notice('正在確認 ComfyUI 目前工作流：'+source['name']+'…')
+    window.notice('正在定位 ComfyUI 原生工作流：'+source['name']+'…')
     client.request('workflow/native/open',dict(id=operation,workflow=workflow,snapshot=client.snapshot()),
         done=received,failed=lambda error:finish(str(error)))

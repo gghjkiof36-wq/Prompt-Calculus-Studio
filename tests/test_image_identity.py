@@ -31,11 +31,11 @@ class ImageIdentityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'多份'): self.service.resolve(self.query,{})
         self.assertEqual(self.service.resolve(dict(self.query,frontend_id='native-B'),{})['image']['filename'],'B.png')
 
-    def test_current_history_does_not_ignore_path_but_pinned_legacy_result_still_works(self):
+    def test_pinned_prompt_id_does_not_bypass_missing_workflow_ownership(self):
         entry=dict(prompt=[0,'p',{},dict(extra_pnginfo=dict(prompt_studio=dict(generation=dict(workflow_id='shared',origin=dict(path='other/A.json')))))],status=dict(completed=True),outputs={'9':dict(images=[dict(filename='B.png',type='temp')])})
         with self.assertRaisesRegex(ValueError,'尚無'): self.service.resolve(self.query,{'p':entry})
         del entry['prompt'][3]['extra_pnginfo']['prompt_studio']['generation']['origin']
-        self.assertEqual(self.service.resolve(dict(self.query,prompt_id='p'),{'p':entry})['image']['filename'],'B.png')
+        with self.assertRaisesRegex(ValueError,'不屬於'):self.service.resolve(dict(self.query,prompt_id='p'),{'p':entry})
 
     def test_server_origin_is_checked_with_normal_default_ports(self):
         self.publish('folder/A.json','native-A','A.png')

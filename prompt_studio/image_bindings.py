@@ -124,4 +124,8 @@ class ImageBindings:
                 canvas.results.refresh()
         def failed(error):
             receive({},dict.fromkeys(bound,str(error)))
-        self.resolve(state,bound,w.store.directory,{},receive,failed,valid=lambda:owner==self.identity() and not w.closing and all(self.scope(k)==scope for k,scope in bound.items()),collections=True)
+        # The live panel follows the latest result of this exact workflow/node.
+        # A previous PCS receipt must not pin it forever after manual native runs.
+        # Dispatch-time dependent reads still pass explicit prompt IDs to resolve.
+        completed={}
+        self.resolve(state,bound,w.store.directory,completed,receive,failed,valid=lambda:owner==self.identity() and not w.closing and all(self.scope(k)==scope for k,scope in bound.items()),collections=True)

@@ -78,7 +78,8 @@ class MultiCanvasTests(unittest.TestCase):
         self.assertIn('有效綁定',self.canvas.clips[clip2].panel.status.text())
         self.assertFalse(hasattr(self.canvas.outputs[o2].panel,'binding'))
         line=next(c for c in self.canvas.data()['connections'] if c['destination']==o2)
-        self.canvas.commit(lambda s:model.disconnect(s,line['id'])); self.assertIn('綁定失效',self.canvas.clips[clip2].panel.status.text())
+        self.canvas.commit(lambda s:model.disconnect(s,line['id'])); self.assertIn('有效綁定',self.canvas.clips[clip2].panel.status.text())
+        self.assertEqual(model.compile_output(self.w.state,o2)['final_prompt'],'manual negative')
         self.canvas.undo(); self.assertEqual(model.compile_output(self.w.state,o2)['final_prompt'],'manual negative')
     def test_canvas_drag_carries_members_and_ports_connect_by_gesture(self):
         root=self.add(); canvas=self.canvas; c=canvas.containers[self.cid]; card=canvas.cards[root]
@@ -147,7 +148,7 @@ class MultiCanvasTests(unittest.TestCase):
         drag((c2,'image',True),(self.oid,'text',False))
         self.assertEqual(canvas.data()['outputs'][self.oid]['canvas'],self.cid)
         drag((c2,'text',True),(self.oid,'text',False))
-        self.assertEqual(canvas.data()['outputs'][self.oid]['canvas'],c2)
+        self.assertEqual(canvas.data()['outputs'][self.oid]['canvases'],[self.cid,c2])
         canvas.undo(); self.assertEqual(canvas.data()['outputs'][self.oid]['canvas'],self.cid)
 
     def test_import_legacy_json_keeps_multi_canvas_and_original_text(self):

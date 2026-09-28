@@ -2,6 +2,18 @@
 
 日期使用 Asia/Taipei（UTC+8）。公開可下載內容以對應 Release 為準；下列開發紀錄不等於同名版本全部發布。
 
+## 0.83 Alpha 1｜2026-09-28
+
+[本次預覽版](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.83-alpha.1)，固定產品來源 `986da442f605512d30b9c3ef9005114a6a175825`；公開提交與附件以Release記錄為準。提供來源、配套擴充與校驗檔，無EXE／runtime。
+
+- 未接預排程，每次點擊直接提交原生佇列；次數3提交3次，使用點擊當時的文字／圖片。
+- 接預排程且空閒直接執行，忙碌才保存接入內容，完整完成後接續；未接入欄位派送時取值。
+- 圖片來源、圖片輸入及整批供應，預排程最多十項並於完成後補入。
+- 取消只針對指定PCS工作；PCS暫停、關閉或舊紀錄不鎖原生Run。
+- 底欄精簡為次數、執行、取消、任務數；舊普通等待不重播，舊預排程保留紀錄。
+
+使用者已回報更新後正常使用；開發自驗與人工回報分列於 [QA摘要](docs/validation/083_DIRECT.md)。關頁執行、跨工作流自動串接及AI文字轉譯不在本輪範圍。下列0.82及更早紀錄僅適用各自版本。
+
 ## 0.82 Alpha 1 Repair 5｜2026-09-27 公開 Alpha 預覽版
 
 [Release 入口](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.82-alpha.1-repair.5)。固定產品來源 `5c621ecfdd4b30f8ade31dd6446dc9830871259a`；公開整合提交與附件由該頁追溯。本次提供來源、ComfyUI 擴充及校驗檔，不提供 EXE。

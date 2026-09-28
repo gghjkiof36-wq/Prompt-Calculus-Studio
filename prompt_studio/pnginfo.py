@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def png_metadata(path):
-    result = {}
+    result = {}; warnings=[]
     budget = 8 * 1024 * 1024
     with Path(path).open('rb') as stream:
         if stream.read(8) != b'\x89PNG\r\n\x1a\n':
@@ -21,8 +21,10 @@ def png_metadata(path):
                 stream.seek(length + 4, 1)
                 continue
             raw = stream.read(length)
-            stream.read(4)
+            checksum=stream.read(4)
             budget -= length
+            if len(raw)!=length or len(checksum)!=4 or struct.unpack('>I',checksum)[0]!=(zlib.crc32(kind+raw)&0xffffffff):
+                warnings.append('PNG 內嵌資料損毀，未使用該資料區塊。');continue
             try:
                 key, data = raw.split(b'\0', 1)
                 if key not in (b'prompt', b'workflow', b'parameters', b'prompt_studio'):
@@ -59,5 +61,5 @@ def png_metadata(path):
                 and not isinstance(v, list)}
             if useful:
                 extracted.append(dict(node=key, type=node.get('class_type', ''), values=useful))
-    return dict(source='embedded' if result else 'none', raw=result, nodes=extracted,
+    return dict(source='embedded' if result else 'none', raw=result, nodes=extracted,warnings=list(dict.fromkeys(warnings)),
         note='圖片內嵌資料；列出節點原值，多個採樣器不會擅自合併。' if result else '圖片沒有可辨識的內嵌參數。')

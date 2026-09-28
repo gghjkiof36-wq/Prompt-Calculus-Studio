@@ -345,4 +345,11 @@ class GenerationPanel(QWidget):
             listing.setCurrentRow(next((i for i,r in enumerate(records) if r['id']==previous),0)); listing.blockSignals(False); selected(listing.currentRow())
         timer=QTimer(dialog); timer.setInterval(2000); timer.timeout.connect(reload); dialog.finished.connect(timer.stop); timer.start()
         listing.currentRowChanged.connect(selected); dialog.body.addWidget(listing,1); dialog.body.addWidget(detail,2)
-        dialog.body.addLayout(row(None,button('關閉',dialog.accept,'Quiet'))); listing.setCurrentRow(0); dialog.exec(); dialog.deleteLater()
+        from .flow_widgets import retained_records
+        def recovery(method):
+            index=listing.currentRow()
+            if 0<=index<len(records):getattr(self.window.comfy.generation,method)(records[index]['id'])
+        dialog.body.addLayout(row(button('更新這筆紀錄',lambda:recovery('recheck'),'Quiet'),
+                                  button('停止追蹤此筆（保留紀錄）',lambda:recovery('abandon'),'Quiet')))
+        dialog.body.addLayout(row(button('保留的預排程／舊紀錄',lambda:retained_records(self.window),'Quiet'),None,button('關閉',dialog.accept,'Quiet')))
+        listing.setCurrentRow(0); dialog.exec(); dialog.deleteLater()

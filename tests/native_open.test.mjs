@@ -27,11 +27,11 @@ test('current workflow confirmation is read-only and preserves native dirty stat
     } finally {f.adapter.stop();}
 });
 
-test('N03: another workflow is refused before any load, clean, timer or tracker mutation',async()=>{
+test('unknown tracker lifecycle refuses switching before any load or draft mutation',async()=>{
     const f=fixture(),before=JSON.stringify([f.a.activeState,f.a.changeTracker.undoQueue,f.graph]);
     try {
         const result=await f.adapter.execute(f.command(f.b));
-        assert.match(result.error,/尚未開放自動切換/);assert.equal(result.uncertain,false);assert.equal(result.opened_identity,undefined);
+        assert.match(result.error,/不支援安全切換/);assert.equal(result.uncertain,false);assert.equal(result.opened_identity,undefined);
         assert.deepEqual(f.calls,[]);assert.equal(f.store.activeWorkflow,f.a);assert.equal(f.adapter.busy,false);
         assert.equal(JSON.stringify([f.a.activeState,f.a.changeTracker.undoQueue,f.graph]),before);
     } finally {f.adapter.stop();}

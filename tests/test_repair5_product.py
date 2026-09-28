@@ -171,11 +171,10 @@ class ResultSelectionTests(unittest.TestCase):
     setUp = _Fixture.setUp
     tearDown = _Fixture.tearDown
 
-    def test_all_received_images_visible_selectable_and_selection_survives_refresh(self):
+    def test_unbound_preview_does_not_take_images_from_recent_records(self):
         from PySide6.QtGui import QImage, QColor
         from prompt_studio import multi_output
         from prompt_studio.media import import_image
-        self.canvas.commit(lambda s: multi_output.connect(s,self.oid,multi_output.PREVIEW,'preview'))
         records=[]
         for color in ('red','blue'):
             path=Path(self.tmp.name)/f'{color}.png'
@@ -185,16 +184,8 @@ class ResultSelectionTests(unittest.TestCase):
             record['metadata']['raw']={'prompt_studio':{'texts':[{'output':self.oid}]}}
             self.w.catalog.put('recent',record); records.append(record)
         card=self.canvas.results; card.refresh(); APP.processEvents()
-        self.assertEqual(card.images.count(),2); self.assertFalse(card.images.isHidden())
-        for record in records:
-            item=card.images.item(card.ids.index(record['id']))
-            self.assertFalse(item.icon().isNull())
-            card.images.scrollToItem(item); APP.processEvents()
-            QTest.mouseClick(card.images.viewport(),LEFT,pos=card.images.visualItemRect(item).center())
-            self.assertEqual(card.record['id'],record['id'])
-            self.assertFalse(card.preview.picture.isNull())
-        selected=card.record['id']; card.refresh()
-        self.assertEqual(card.record['id'],selected)
+        self.assertEqual(card.images.count(),0)
+        self.assertIsNone(card.record)
 
 
 if __name__ == '__main__':

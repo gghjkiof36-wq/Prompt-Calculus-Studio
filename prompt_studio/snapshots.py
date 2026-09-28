@@ -55,10 +55,13 @@ def portable_state(state, selected_only=False):
         result['generation']=copy.deepcopy(state['generation'])
     if 'multi_output' in state:
         from .multi_output import capture_current
-        for key in ('multi_output','text_positions','text_sizes','generation','canvas_functions'):
+        for key in ('multi_output','text_positions','text_sizes','generation','canvas_functions','_execution_inputs'):
             if key in state: result[key]=copy.deepcopy(state[key])
         capture_current(result)
         result['output_order']=output_groups(state,include_hidden=True)
+    if not selected_only and 'workspace_scenes' in state:
+        from .workspace_scene import capture
+        result['workspace_scenes']=copy.deepcopy(state['workspace_scenes']);capture(result)
     return result
 
 
@@ -124,6 +127,8 @@ def restore_snapshot(current, snapshot):
     """Create a new workspace; preserve library entries and historical text."""
     validate_snapshot(snapshot)
     result = copy.deepcopy(current)
+    from .workspace_scene import capture,scene
+    capture(result)
     source = snapshot['state']
     isolated=separate_selections(source)
     view=source.get('selection_view','canvas' if source.get('uses') and not any(source['selections'].values()) else 'list')
@@ -188,6 +193,8 @@ def restore_snapshot(current, snapshot):
         workspace['canvas_owners']={use_map[key]:cid for cid,c in source['multi_output']['canvases'].items() for key in c['members']}
         for canvas in result['multi_output']['canvases'].values():
             canvas['members']=[use_map[key] for key in canvas['members']]
+            if 'source_members' in canvas:
+                canvas['source_members']=[use_map[key] for key in canvas['source_members'] if key in use_map]
             if 'edit_positions' in canvas:
                 canvas['edit_positions']={use_map.get(k.split(':')[0],k.split(':')[0])+(':'+k.split(':',1)[1] if ':' in k else ''):v for k,v in canvas['edit_positions'].items()}
         for output in result['multi_output']['outputs'].values():
@@ -204,6 +211,7 @@ def restore_snapshot(current, snapshot):
     elif 'multi_output' in current:
         result.pop('multi_output',None)
     from .state_loading import prepare_state
+    if 'workspace_scenes' in result:result['workspace_scenes']['items'][workspace['id']]=scene(result)
     result=prepare_state(result,multi='multi_output' in current)
     if build_prompt(result) != snapshot['generated_prompt']:
         raise ValueError('恢復後的組合不一致，原狀態未變更。')

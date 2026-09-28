@@ -190,6 +190,9 @@ def validate_state(state):
         from .multi_output import validate_multi
         if state['version']<4: raise ValueError('多畫布需要第 4 版資料格式。')
         validate_multi(state)
+    if 'workspace_scenes' in state:
+        from .workspace_scene import validate as validate_scenes
+        validate_scenes(state)
     return state
 
 
@@ -345,6 +348,13 @@ def build_prompt(state):
 
 
 def apply_workspace(state, workspace_id):
+    if 'workspace_scenes' in state:
+        from .workspace_scene import switch
+        return switch(state,workspace_id)
+    return apply_workspace_legacy(state,workspace_id)
+
+
+def apply_workspace_legacy(state, workspace_id):
     w = next(w for w in state["workspaces"] if w["id"] == workspace_id)
     prior_owners={key:cid for cid,c in state.get('multi_output',{}).get('canvases',{}).items() for key in c['members']}
     if 'uses' in state or 'uses' in w:
@@ -452,6 +462,8 @@ class Storage:
         if 'multi_output' in state:
             from .multi_output import capture_current
             capture_current(state)
+        from .workspace_scene import capture
+        capture(state)
         validate_state(state)
         with self.db:
             self.db.execute("INSERT OR REPLACE INTO document VALUES (1,?)", (json.dumps(state, ensure_ascii=False),))

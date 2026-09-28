@@ -105,7 +105,13 @@ class TextCanvas(QWidget):
         # Startup may select this page before the outer window is shown.
         # Populate only after Qt has assigned the full viewport geometry.
         if self.parentWidget() and self.parentWidget().layout(): self.parentWidget().layout().activate()
-        self.layout().activate(); self.refresh(); self.fit(); self.view.viewport().update()
+        self.layout().activate(); self.refresh(); self.restore_view(); self.view.viewport().update()
+
+    def restore_view(self):
+        saved=self.window.state.get('canvas_view')
+        if saved:
+            self.view.resetTransform();self.view.scale(saved[0],saved[0]);self.view.centerOn(saved[1],saved[2])
+        else:self.fit()
 
     def history_state(self):
         return {k: copy.deepcopy(self.window.state[k]) for k in HISTORY_FIELDS if k in self.window.state}
@@ -159,6 +165,8 @@ class TextCanvas(QWidget):
                 self.layout_defaults[card.key]=[card.x(),card.y()]
 
     def restore_history(self, source, destination, after):
+        from .snapshot_history import restore as restore_import
+        if restore_import(self,source,destination,after):return
         if not source: return
         before, later = source[-1]
         expected, target = (before, later) if after else (later, before)

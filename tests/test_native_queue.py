@@ -78,6 +78,35 @@ class NativeQueueTests(unittest.TestCase):
         self.service.prepare_prompt(payload)
         self.assertEqual(self.queue.reply(dict(live,id=command['id'],prompt_id=payload['prompt_id']))['state'],'queued')
 
+    def test_inactive_target_requires_switch_receipt_then_records_target_not_source(self):
+        target=copy.deepcopy(self.live['identity'])
+        live=dict(self.live,identity=dict(workflow='',path='B.json',frontend_id='native-B'),workflows=[target],navigation_protocol=1)
+        self.queue.poll(live);self.queue.start(self.request)
+        command=self.queue.poll(live)['commands'][0]
+        profile=self.snapshot['state']['generation']['profiles'][0]
+        value=dict(command,session='tab',client_id='real-web-sid',output=profile['graph'],workflow=dict(id='native-A',nodes=[]))
+        with self.assertRaisesRegex(ValueError,'切換回執'):self.queue.prepare(value)
+        for opened,epoch in ((target,0),(dict(target,frontend_id='copy'),1)):
+            with self.assertRaisesRegex(ValueError,'切換回執'):
+                self.queue.activate(dict(value,opened_identity=opened,opened_epoch=epoch))
+        self.queue.activate(dict(value,opened_identity=target,opened_epoch=1))
+        self.queue.prepare(value)
+        operation=self.queue.read(command['id'])
+        self.assertEqual(operation['identity']['frontend_id'],'native-B')
+        self.assertEqual(operation['marker']['generation']['native_identity']['frontend_id'],'native-A')
+        self.assertEqual(operation['state'],'prepared')
+
+    def test_second_browser_with_inactive_same_target_still_blocks_and_stale_switch_never_prepares(self):
+        target=self.live['identity']
+        live=dict(self.live,identity=dict(workflow='',path='B.json',frontend_id='native-B'),workflows=[target],navigation_protocol=1)
+        self.queue.poll(live);self.queue.poll(dict(live,session='second'))
+        with self.assertRaisesRegex(ValueError,'同一份'):self.queue.start(self.request)
+        self.queue.sessions.pop('second');self.queue.start(self.request)
+        command=self.queue.poll(live)['commands'][0]
+        self.queue.cancel_pending()
+        with self.assertRaisesRegex(ValueError,'切換回執'):
+            self.queue.activate(dict(command,session='tab',client_id='real-web-sid',opened_identity=target,opened_epoch=1))
+
     def test_unsaved_workflow_identity_changed_before_prepare_is_refused(self):
         profile=self.snapshot['state']['generation']['profiles'][0];profile.pop('origin')
         self.queue.sessions.clear()
@@ -148,7 +177,7 @@ class NativeQueueTests(unittest.TestCase):
 
     def test_open_uses_loaded_native_catalog_and_cannot_be_prepared_as_generation(self):
         before=copy.deepcopy(self.snapshot)
-        target=self.live['identity'];live=dict(self.live,identity=dict(path='B.json',workflow='',frontend_id='native-B'),workflows=[target])
+        target=self.live['identity'];live=dict(self.live,identity=dict(path='B.json',workflow='',frontend_id='native-B'),workflows=[target],navigation_protocol=1)
         self.queue.poll(live)
         self.assertEqual(self.queue.start(self.request,action='open')['state'],'pending')
         command=self.queue.poll(live)['commands'][0]
@@ -200,6 +229,16 @@ class NativeDesktopTests(unittest.TestCase):
     tearDown=_Fixture.tearDown
     add=_Fixture.add
 
+    def test_delayed_native_error_does_not_reopen_terminal_job(self):
+        runner=self.w.comfy.generation;callbacks=[]
+        with patch.object(self.w.comfy,'request',lambda *args,**kwargs:callbacks.append(args)):
+            ident=runner.submit_native(dict(state=dict(workspace=self.w.state['workspace'],multi_output=dict(version=5))),'flow',lambda job:None,lambda error:None,lambda:False)
+            job=runner.jobs[ident];job.update(state='complete',prompt_id='confirmed');runner.save(job)
+            callbacks[0][3]('late timeout')
+            callbacks[0][2](dict(state='queued',prompt_id='stale'))
+            self.assertEqual(runner.record(ident)['state'],'complete')
+            self.assertEqual(runner.record(ident)['prompt_id'],'confirmed')
+
     def test_open_button_routes_only_to_native_open_and_ignores_late_workspace_reply(self):
         from test_multi_output import workflow
         from prompt_studio import clip_flow
@@ -211,7 +250,7 @@ class NativeDesktopTests(unittest.TestCase):
         def request(route,data=None,done=None,**kwargs):
             calls.append((route,data));done(dict(id=data['id'],state='pending'))
         with patch.object(client,'request',request),patch('prompt_studio.native_workflow.QTimer.singleShot',lambda delay,fn:timers.append(fn)):
-            self.assertEqual(self.canvas.clips[clip].panel.open_native.text(),'確認原生工作流')
+            self.assertEqual(self.canvas.clips[clip].panel.open_native.text(),'顯示原生工作流')
             self.canvas.clips[clip].panel.open_native.click()
             self.assertEqual([route for route,_ in calls],['workflow/native/open'])
             self.assertEqual(calls[0][1]['workflow'],'A');self.assertTrue(client.opening_native)
@@ -228,7 +267,7 @@ class NativeDesktopTests(unittest.TestCase):
         p=workflow('A');p.update(origin=dict(server='http://127.0.0.1:8188',path='A.json'),frontend_id='native-A')
         self.w.generation_panel.save_profile(p);self.add('PCS original')
         clip=next(iter(self.canvas.clips));self.canvas.commit(lambda s:clip_flow.set_binding(s,'A',clip,('6','text')))
-        client=self.w.comfy;client.native_supported=True
+        client=self.w.comfy;client.native_supported=True;client.connected=True
         runner=client.generation;service=Service(Path(self.tmp.name)/'backend',self.tmp.name,self.tmp.name);queue=service.native_queue
         live=dict(session='tab',client_id='sid',epoch=0,ready=True,bindings_protocol=1,identity=dict(workflow='',path='A.json',frontend_id='native-A'))
         queue.poll(live);calls=[];timers=[]
@@ -237,7 +276,7 @@ class NativeDesktopTests(unittest.TestCase):
             if route=='workflow/native/start':done(queue.start(data))
             elif route=='workflow/native/status':done(queue.status(data['id']))
             elif route.startswith('/history/'):
-                done({route.split('/')[-1]:dict(status=dict(completed=True,status_str='success'),outputs={'9':{'images':[{'filename':'one.png'},{'filename':'two.png'}]}})})
+                done({route.split('/')[-1]:dict(prompt=(0,payload['prompt_id'],payload['prompt'],payload['extra_data']),status=dict(completed=True,status_str='success'),outputs={'9':{'images':[{'filename':'one.png'},{'filename':'two.png'}]}})})
             else:self.fail('Unexpected execution route: '+route)
         with patch.object(client,'request',request),patch('prompt_studio.generation_runner.QTimer.singleShot',lambda delay,fn:timers.append(fn)):
             runner.run(1);self.assertEqual(calls,['workflow/native/start'])

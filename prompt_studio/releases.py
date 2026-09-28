@@ -27,12 +27,18 @@ RELEASES={r.flag:r for r in (
     Release('--v082-alpha1-repair3','v082-alpha-1-repair-3','v0.82 Alpha 1 Repair 3','Start-PCS-v0.82-Repair3','--v082-alpha'),
     Release('--v082-alpha1-repair4','v082-alpha-1-repair-4','v0.82 Alpha 1 Repair 4','Start-PCS-v0.82-Repair4','--v082-alpha'),
     Release('--v082-alpha1-repair5','v082-alpha-1-repair-5','v0.82 Alpha 1 Repair 5（0927-2 批次預覽候選）','Start-PCS-v0.82-Repair5','--v082-alpha'),
+    Release('--queue-preview','queue-preview-20260927','v0.82 工作佇列開發候選（0927）','Start-PCS-Queue-Preview','--v082-alpha'),
+    Release('--v083-preview','v083-preview-20260927','v0.83 開發候選（0927）','Start-PCS-v0.83-Preview','--v083-alpha'),
+    Release('--v083-inputs','v083-inputs-20260927','v0.83 圖片來源與預排程候選（0927）','Start-PCS-v0.83-Inputs','--v083-alpha'),
+    Release('--v083-repair1','v083-repair1-20260927','v0.83 執行與工作區修復候選（0927）','Start-PCS-v0.83-Repair1','--v083-alpha'),
+    Release('--v083-repair2','v083-repair2-20260928','v0.83 待核對阻塞修復候選（0928）','Start-PCS-v0.83-Repair2','--v083-alpha'),
+    Release('--v083-direct','v083-direct-20260928','v0.83 直接執行修復候選（0928）','Start-PCS-v0.83-Direct','--v083-alpha'),
 )}
-CURRENT=RELEASES['--v082-alpha1-repair5']
+CURRENT=RELEASES['--v083-direct']
 APP_BASENAME='PromptCalculusStudio'
 EXTENSION_FOLDER='comfyui_prompt_calculus_studio'
 SOURCE_ARCHIVE='PromptCalculusStudio-source.zip'
-SHARED_MODULES=('core','snapshots','pnginfo','exclusions','composition','generation','multi_output','clip_flow','workflow_flow','composition_image','workflow_transfer','workflow_import','state_loading')
+SHARED_MODULES=('core','snapshots','pnginfo','exclusions','composition','generation','multi_output','clip_flow','workflow_flow','flow_data','composition_image','workflow_transfer','workflow_import','state_loading','queued_work','native_graph','workspace_scene')
 
 def select_release(arguments):
     # Preserve historical last-version-flag precedence in build_windows.py.

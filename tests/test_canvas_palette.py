@@ -57,7 +57,7 @@ class PaletteTests(unittest.TestCase):
     def test_function_category_adds_at_invocation_point_and_undoes(self):
         self.search(''); self.p.restore_selection(self.p.modules,'@functions')
         names=[self.p.assets.item(i).text() for i in range(self.p.assets.count())]
-        self.assertEqual(names,['畫布','Prompt 輸出','CLIP 輸入','加載圖片','預覽圖片','工作流順序'])
+        self.assertEqual(names,['畫布','Prompt 控制','CLIP 輸入','圖片來源','載入圖片（單張／工作流輸出）','圖片輸入','預排程','預覽圖片'])
         before=copy.deepcopy(self.c.data()); self.p.restore_selection(self.p.assets,'CLIP 輸入'); self.p.insert()
         added=set(self.c.data()['clip_inputs'])-set(before['clip_inputs'])
         self.assertEqual(len(added),1); key=added.pop()

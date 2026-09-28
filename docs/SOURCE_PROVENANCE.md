@@ -1,15 +1,16 @@
-# Repair5 發布來源對照
+# 0.83 Alpha 1 發布來源對照
 
-本次代表版本為 `v0.82-alpha.1-repair.5`。產品固定來源為 `5c621ecfdd4b30f8ade31dd6446dc9830871259a`，包含 2026-09-27 綁定修復與整批圖片預覽修復。
+Release標籤為 `v0.83-alpha.1`，固定產品來源為 `986da442f605512d30b9c3ef9005114a6a175825`。公開提交由前次公開main `a859ebccebc8fe3363663845d2d3419fcb21ce4d` 衍生，保留舊公開歷史和Release。這次整合固定產品樹；沒有把本機完整開發歷史推到公開Git，上述產品SHA可能無法在公開倉庫解析。下載與重建以此Release tag和附件manifest為準。
 
-公開提交由原公開 main `048a3ac0a49e698db5ec85b80b31a9964e67fd10` 衍生，保留既有公開歷史與 0.81 tag。這是已核對的固定產品樹整合，不是全部本機開發提交的合併；上述本機來源SHA可能不在公開Git物件中。可下載內容應以本Release tag、附件BUILD_INFO與manifest核對。
+- `prompt_studio/`、`comfyui_prompt_studio/`、根目錄執行／建置／部署腳本與固定來源逐位元組一致；不納入未提交內容。
+- `tests/` 除 `verify_v083.py` 的本機專用測試資料絕對路徑改為本checkout下的 `qa/083/data` 外，其餘保持相同。這是公開路徑可攜化，不改測試斷言、產品行為，也未執行該歷史測試驅動器。
+- 公開指南取自文件提交 `e2556874827caa1e330339c8748a7660724a6677` 的11份文件；發布來源、建置及狀態說明由發布整合補齊。歷史候選文件標記適用時點，不以過時流程覆蓋本版直接提交行為。
+- 原固定交付的343份來源以換行正規化對照Git一致，原來源ZIP與擴充ZIP的SHA256已核對。公開包重新收集固定程式及公開文件，校驗值因此不同；不直接公開含本機路徑的候選啟動器、DELIVERY或驗證私有資料。
+- 來源ZIP依既有 `package_documents.source_paths` Git白名單收集。解壓根目錄含 `run.py`，不含Git歷史、個人資料、模型、第三方runtime、vendor及研究素材。歷史PNG截圖只保留於Git倉庫，不影響來源啟動。
+- ComfyUI ZIP以 `comfyui_prompt_calculus_studio/` 為根，內含擴充及 `releases.SHARED_MODULES` 的17個共用核心、公開文件、同一份來源ZIP與來源映射。版本字串、flag、資料夾與內嵌來源檔名均由 `prompt_studio/releases.py` 取得。
+- `SOURCE_MANIFEST.json` 列來源；`PACKAGE_MANIFEST.json` 列實際交付檔；`BUILD_INFO.json` 區分公開提交與固定產品提交，擴充亦記內嵌來源SHA256。沒有EXE，沒有 `binary_git_head` 或可執行檔建置聲明。
+- 程式標題保留「v0.83 直接執行修復候選（0928）」原字串，公開版本為Alpha prerelease；未改產品以重新命名候選。
 
-- `prompt_studio/`、`comfyui_prompt_studio/`、`tests/`及根目錄執行／建置／部署腳本對齊上述固定來源，不加入工作區未提交WIP。
-- 公開使用文件來自文件交付 `d60d5a94359d830ae5c5377d9a1fe11156931c62` 的12份文件，發布時將準備狀態改為公開狀態；這同樣是文件內容對照，不推送本機祖先歷史。既有公開圖片與研究文件保留。歷史技術文件另標適用時點，機器絕對路徑替換成工作區佔位，不將過期驗收描述當本版結果。
-- 來源ZIP依既有`package_documents.source_paths`白名單收集，包含執行、建置、測試與文件；不含Git歷史、私人資料、模型、第三方runtime、vendor或研究素材。排除的歷史README截圖僅在Git倉庫可查，來源ZIP的啟動不依賴它。
-- ComfyUI ZIP含固定擴充、SHARED_MODULES核心、文件及相同來源ZIP。`PACKAGE_MANIFEST.json`描述實際交付檔，`SOURCE_MANIFEST.json`描述專案來源；`BUILD_INFO.json`指出發布提交及內嵌來源ZIP的SHA256。兩個manifest用途不同。
-- 程式內版本字串仍帶「0927-2 批次預覽候選」，為固定已人工校驗來源的原字串；公開版本保持Alpha prerelease，不代表全部Repair5需求完成。
+使用者正常使用回報、既有150項Python／75項JavaScript及另16項選定檢查分開記錄；本次發布檢查不代表GPU、新機、升級或所有情境通過。兩項靜態待驗風險與詳細界線見 [QA摘要](validation/083_DIRECT.md)。
 
-本輪按使用者指示沿用人工校驗通過的成果，只核對Git、來源／包一致性、敏感檔排除及GitHub上傳完整性，未重跑產品、GPU、公開下載安裝或CI測試。
-
-目前需開啟ComfyUI網頁，同一工作流每次執行一次。跨工作流接續、背景無網頁執行及多圖下游依序逐張仍未完成。未提供Windows EXE：既有Qt／PySide6等完整散布附件、相應runtime來源與重建／替換證據尚未齊備，本次沒有重新散布第三方執行環境。
+本次不散布Windows EXE或第三方runtime；完整第三方散布附件、相應來源與Qt重建／替換材料仍待補齊。專案授權沿用 [LICENSE](../LICENSE) 與 [授權說明](LICENSING.md)，未制定新的商業替代授權或CLA。

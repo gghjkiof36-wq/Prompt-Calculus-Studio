@@ -23,7 +23,9 @@ class CompositionImageTests(unittest.TestCase):
         self.canvas=self.w.canvas; self.cid=next(iter(self.canvas.containers)); self.doc=document(120,80)
         from test_multi_output import workflow
         self.oid=self.canvas.data()['current_output']; self.w.generation_panel.save_profile(workflow())
-        model.bind(self.w.state,'flow',self.oid,'6','text')
+        from prompt_studio.clip_flow import set_binding,source
+        clip=next(k for k in self.canvas.data()['clip_inputs'] if source(self.w.state,k)==self.oid)
+        set_binding(self.w.state,'flow',clip,('6','text'))
     def tearDown(self): self.w.close(); APP.processEvents(); self.env.stop(); self.temp.cleanup()
     def test_clean_render_contains_shapes_strokes_and_erasure_only(self):
         rect=layer('rect',10,10,80,60); rect['fill']='#ff0000'; self.doc['layers'].append(rect)

@@ -457,10 +457,17 @@ class GalleryPage(QFrame):
         if not ask(self,'恢復圖片組合','會先備份目前狀態，再建立圖片工作區。素材已修改或遺失時，保留歷史文字，不覆蓋現有素材。'): return
         try:
             restored=restore_snapshot(self.window.state,selected['snapshot'])
+            from .snapshot_assets import missing_images
+            from .snapshot_history import capture as capture_restore
+            missing=missing_images(selected['snapshot'],self.window.store.directory)
             if not self.window.persist(): return
             backup=self.window.store.backup()
+            before=capture_restore(self.window.canvas)
+            undo=list(self.window.canvas.undo_stack)
             self.window.store.save(restored)
+            if hasattr(self.window.comfy,'input_flow'):self.window.comfy.input_flow.workspace_changed(self.window.state['workspace'])
             self.window.state=restored
+            self.window.canvas.last_state=self.window.canvas.history_state()
             self.window.current_module=restored['modules'][0]['id'] if restored['modules'] else None
             self.window.refresh_workspaces(); self.window.refresh_modules()
             self.window.refresh_library(); self.window.refresh_builder()
@@ -468,7 +475,11 @@ class GalleryPage(QFrame):
             self.window.tabs.setCurrentIndex(0)
             if self.window.canvas_mode: self.window.enter_canvas()
             else: self.window.leave_canvas()
-            self.window.notice('已恢復圖片組合；先前工作狀態已保存於 '+backup.name)
+            self.window.canvas.undo_stack=(undo+[(before,capture_restore(self.window.canvas))])[-30:]
+            self.window.canvas.redo_stack.clear()
+            self.window.canvas.last_state=self.window.canvas.history_state()
+            self.window.notice('已恢復圖片組合；先前工作狀態已保存於 '+backup.name+
+                ('；以下圖片缺失或內容不符，請重新指定：'+'、'.join(missing) if missing else ''))
         except Exception as exc: self.window.error(str(exc))
 
     def raw_metadata(self):

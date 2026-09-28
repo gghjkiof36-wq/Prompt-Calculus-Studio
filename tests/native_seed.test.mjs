@@ -19,6 +19,16 @@ test('captures before-first state without invoking queue or consuming seed',()=>
     f.control.beforeQueued();assert.equal(f.seed.value,10);assert.equal(f.observer.capture(f.graph).hasExecuted,true);
     f.control.beforeQueued();assert.equal(f.seed.value,11);
 });
+
+test('frozen queue supports image-only graphs and runs verified seed hooks exactly once',()=>{
+    const f=fixture('after');const hooks=f.observer.queueHooks(f.graph);
+    hooks.before();const frozen=f.seed.value;hooks.after();
+    assert.equal(frozen,10);assert.equal(f.seed.value,11);
+    const pure={_nodes:[{id:8,type:'ImageScale',widgets:[]}]};
+    const imageHooks=f.observer.queueHooks(pure);imageHooks.before();imageHooks.after();
+    pure._nodes[0].widgets.push({beforeQueued(){}});
+    assert.throws(()=>f.observer.queueHooks(pure),/未支援/);
+});
 test('restore uses verified partial initializer once and preserves native next before transition',()=>{
     const f=fixture();f.observer.restore(f.graph,{node_id:'1',hasExecuted:true});
     assert.equal(f.seed.value,10);f.observer.restore(f.graph,{node_id:'1',hasExecuted:true});
@@ -26,9 +36,9 @@ test('restore uses verified partial initializer once and preserves native next b
 });
 test('unknown or replaced native hooks are rejected, not interpreted as fixed seed',()=>{
     const f=fixture();f.control.afterQueued=()=>{};
-    assert.throws(()=>f.observer.capture(f.graph),/擴充修改/);
+    assert.throws(()=>f.observer.capture(f.graph),/回呼已變更/);
     const g=fixture();const unknown={...g.node};g.observer=createSeedObserver(()=>'after');
-    assert.throws(()=>g.observer.capture({_nodes:[unknown]}),/擴充修改/);
+    assert.throws(()=>g.observer.capture({_nodes:[unknown]}),/尚未觀察/);
 });
 test('after timing keeps current execution seed and native after hook unchanged',()=>{
     const f=fixture('after');f.control.beforeQueued();assert.equal(f.seed.value,10);

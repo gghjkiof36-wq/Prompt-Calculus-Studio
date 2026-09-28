@@ -163,7 +163,7 @@ class CanvasRefinementUiTests(unittest.TestCase):
         QTest.mousePress(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=point); self.assertEqual(card.pressed,'add')
         def add(palette):
             self.assertEqual(palette.canvas.current()['name'],self.w.state['uses'][a]['name'])
-            palette.query.setPlainText('smile'); palette.submit_tag(); self.assertIn('已加入',palette.feedback.text())
+            palette.query.setPlainText('smile'); palette.submit_tag();self.assertIn('已加入',self.w.canvas_status.text())
             return QDialog.DialogCode.Accepted
         with patch.object(CanvasPalette,'exec',add):
             QTest.mouseRelease(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=point); QTest.qWait(25)

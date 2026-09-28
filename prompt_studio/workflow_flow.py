@@ -52,6 +52,8 @@ def execution_profiles(state):
     from .generation import validate_profile
     data=state['multi_output']; profiles={p['id']:p for p in state.get('generation',{}).get('profiles',[])}
     used={v['workflow'] for key,v in data['clip_inputs'].items() if v.get('workflow') and source(state,key) is not None}
+    from .flow_data import incoming
+    used.update(v['workflow'] for key,v in data.get('image_inputs',{}).items() if v.get('workflow') and incoming(state,key,'image') is not None)
     result=[]
     for ident in ordered_ids(state,used):
         if ident not in profiles:raise ValueError('執行工作流已移除，請重新綁定。')

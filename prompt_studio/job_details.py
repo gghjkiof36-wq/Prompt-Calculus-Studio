@@ -17,9 +17,11 @@ def workflow_name(record):
 def describe(record,now=None):
     now=time.time() if now is None else now
     payload=record.get('payload',{}); marker=job_marker(record); gen=marker.get('generation',{})
+    recovery=record.get('recovery',{})
+    recovery_text=('最近核對：'+recovery['reason']) if recovery.get('reason') else ''
     if not marker:
         return '\n'.join(['狀態：'+NAMES.get(record['state'],record['state']),'原生操作：'+record['id'],
-            '工作流：'+workflow_name(record),'尚未收到原生提交內容；不會顯示 PCS 舊副本。',record.get('error','')])
+            '工作流：'+workflow_name(record),'尚未收到原生提交內容；不會顯示 PCS 舊副本。',record.get('error',''),recovery_text])
     snapshot=marker.get('snapshot') or next((b['snapshot'] for b in marker.get('bindings',[]) if 'snapshot' in b),{})
     profile=next((p for p in snapshot.get('state',{}).get('generation',{}).get('profiles',[]) if p['id']==gen['workflow_id']),{})
     origin=gen.get('origin') or profile.get('origin') or {}
@@ -27,6 +29,13 @@ def describe(record,now=None):
            '任務：'+record.get('prompt_id',record['id']),'工作流：'+gen['workflow'],
            '工作流 ID：'+gen['workflow_id'],'來源：'+origin.get('path','PCS 匯入副本'),
            '提交時間：'+time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(record['created']))]
+    workspace=record.get('workspace')
+    if recovery_text:lines[1:1]=[recovery_text,'']
+    if workspace:
+        name=next((w['name'] for w in snapshot.get('state',{}).get('workspaces',[]) if w['id']==workspace),workspace)
+        lines.append('來源工作區：'+name)
+    if record.get('entry_point'):lines.append('執行入口：'+('ComfyUI 手動按鍵' if record['entry_point']=='native' else 'PCS'))
+    if record.get('execution_state')=='complete' and record['state']!='complete':lines.append('執行已結束；內容或輸出核對異常，後續已暫停。')
     if record.get('started'):
         elapsed=max(0,int(record.get('finished',now)-record['started'])); lines.append(f'執行經過：{elapsed} 秒')
     if record.get('node'):

@@ -15,7 +15,7 @@ from .shared.pnginfo import png_metadata
 
 
 class Service:
-    def __init__(self, directory, output_root, temp_root, default_library='', native_multi_user=None):
+    def __init__(self, directory, output_root, temp_root, default_library='', native_multi_user=None, input_root=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.config_path = self.directory / 'settings.json'
@@ -28,6 +28,8 @@ class Service:
             db.execute('CREATE TABLE IF NOT EXISTS workflow_transfers (id TEXT PRIMARY KEY, library TEXT NOT NULL, body TEXT NOT NULL, created REAL NOT NULL, status TEXT NOT NULL, error TEXT NOT NULL)')
         from .native_queue import NativeQueue
         self.native_queue=NativeQueue(self,native_multi_user)
+        from .frozen_queue import FrozenQueue
+        self.work_queue=FrozenQueue(self,input_root)
         from .background_state import BackgroundState
         self.background=BackgroundState(self)
 
@@ -126,7 +128,17 @@ class Service:
         extra = extra_data.get('extra_pnginfo')
         if not isinstance(extra, dict):
             return data
+        if self.work_queue.decorate(data):
+            return data
+        # A new native click is its own operation. Legacy frozen-work records
+        # must not veto it; native_queue still validates its exact receipt.
         if self.native_queue.decorate(data):
+            return data
+        # Legacy PCS entry points share the same server occupancy gate. Manual
+        # ComfyUI submissions have neither marker and remain independent.
+        if extra.get('prompt_studio_request') and self.work_queue.unresolved():
+            data['prompt']={}
+            extra.pop('prompt_studio',None)
             return data
         # A loaded PNG may contain an earlier submission's envelope.
         extra.pop('prompt_studio', None)
@@ -202,7 +214,7 @@ class Service:
             with self.connect() as db:
                 db.execute('INSERT OR REPLACE INTO jobs VALUES (?,?,?)',
                     (request_id, json.dumps(envelope, ensure_ascii=False), time.time()))
-                db.execute('DELETE FROM jobs WHERE id IN (SELECT id FROM jobs ORDER BY created DESC LIMIT -1 OFFSET 2000)')
+                db.execute("DELETE FROM jobs WHERE id IN (SELECT id FROM jobs WHERE json_extract(body,'$.generation.queue_job') IS NULL ORDER BY created DESC LIMIT -1 OFFSET 2000)")
         return data
 
     def source(self, image):

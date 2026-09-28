@@ -63,6 +63,31 @@ class CollectionTests(unittest.TestCase):
         rows=self.service.resolve(query,{'p':old,'native-direct':latest})
         self.assertEqual(len(rows['items']),1);self.assertEqual(rows['items'][0]['prompt_id'],'p')
 
+    def test_native_path_then_pcs_id_is_one_source_and_real_publishers_stay_distinct(self):
+        query=dict(self.query,origin=dict(path='A.json'),frontend_id='native-A',collection=True)
+        value=dict(workflow='A.json',path='A.json',frontend_id='native-A',publisher='tab-1',
+                   nodes={'9':dict(type='SaveImage',images=[dict(filename='one.png',type='output')],selected=0)})
+        self.service.publish(value)
+        self.service.publish(dict(value,workflow='A'))
+        self.assertEqual(len(self.service.live),1)
+        self.assertEqual(len(self.service.resolve(query,{})['items']),1)
+        self.service.publish(dict(value,publisher='tab-2'))
+        with self.assertRaisesRegex(ValueError,'多份'):self.service.resolve(query,{})
+        entry=self.history();entry['prompt'][3]['extra_pnginfo']['prompt_studio_request']['generation'].update(frontend_id='native-A',origin=dict(path='A.json'))
+        entry['outputs']['9']['images'].append(dict(filename='two.png',type='output'))
+        self.assertEqual(len(self.service.resolve(query,{'p':entry})['items']),2)
+        # A different native workflow's same numbered output cannot clear an
+        # ambiguous live binding or provide a substitute preview.
+        entry['prompt'][3]['extra_pnginfo']['prompt_studio_request']['generation']['frontend_id']='native-B'
+        with self.assertRaisesRegex(ValueError,'多份'):self.service.resolve(query,{'p':entry})
+
+    def test_legacy_publisher_identity_alias_also_replaces_without_losing_node_age(self):
+        value=dict(workflow='A.json',path='A.json',frontend_id='native-A',nodes={'9':dict(type='SaveImage',images=[dict(filename='one.png',type='output')],selected=0)})
+        with patch.object(module.time,'time',return_value=10):self.service.publish(value)
+        with patch.object(module.time,'time',return_value=30):self.service.publish(dict(value,workflow='A'))
+        self.assertEqual(len(self.service.live),1)
+        self.assertEqual(next(iter(self.service.live.values()))['node_times']['9'],10)
+
 
 class BoundCollectionUITests(unittest.TestCase):
     from test_multi_canvas import MultiCanvasTests as _Fixture
@@ -76,7 +101,7 @@ class BoundCollectionUITests(unittest.TestCase):
         from test_multi_canvas import APP
         from test_multi_output import workflow
         from prompt_studio import multi_output,workflow_flow
-        p=workflow('A');p['graph']['9']=dict(class_type='PreviewImage',inputs=dict(images=['3',0]));self.w.generation_panel.save_profile(p)
+        p=workflow('A');p.update(frontend_id='native-A',origin=dict(path='A.json'));p['graph']['9']=dict(class_type='PreviewImage',inputs=dict(images=['3',0]));self.w.generation_panel.save_profile(p)
         key=self.canvas.functions.add_image()
         self.canvas.commit(lambda state:workflow_flow.bind_image(state,key,'A','9'))
         self.canvas.commit(lambda state:multi_output.connect(state,key,multi_output.PREVIEW,'image'))
@@ -84,8 +109,13 @@ class BoundCollectionUITests(unittest.TestCase):
         for color in ('red','blue'):
             image=QImage(32,24,QImage.Format.Format_RGB32);image.fill(QColor(color));self.assertTrue(image.save(str(root/(color+'.png'))))
         backend=module.NodeImages(dict(input=root,output=root,temp=root))
-        entry=dict(prompt=[0,'p',p['graph'],dict(extra_pnginfo=dict(prompt_studio=dict(generation=dict(workflow_id='A'))))],
+        entry=dict(prompt=[0,'p',p['graph'],dict(extra_pnginfo=dict(prompt_studio=dict(generation=dict(workflow_id='A',frontend_id='native-A',origin=dict(path='A.json')))))],
                    status=dict(completed=True),outputs={'9':dict(images=[dict(filename=color+'.png',type='output',subfolder='') for color in ('red','blue')])})
+        # Reproduce the screenshot's alias sequence all the way to both canvas
+        # cards, not just the service's collection return value.
+        for alias in ('A.json','A'):
+            backend.publish(dict(workflow=alias,path='A.json',frontend_id='native-A',
+                                 nodes={'9':dict(type='PreviewImage',images=entry['outputs']['9']['images'],selected=None)}))
         client=self.w.comfy;client.connected=True;client.images_supported=True
         def request(route,data=None,done=None,**kwargs):
             self.assertEqual(route,'desktop/images')

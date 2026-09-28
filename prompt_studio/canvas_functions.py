@@ -23,6 +23,20 @@ class SourcePanel(QFrame):
         body.addWidget(self.preview,1); self.name=ElidedLabel(''); body.addWidget(self.name)
         self.choose=button('選擇圖片 ▾',self.source_menu,'Quiet'); self.attach_button=button('接到 Prompt',self.toggle_attachment,'Quiet')
         body.addLayout(row(self.choose,None,self.attach_button))
+        from .source_controls import edit_list,step,choose_prompt
+        self.source_controls=QFrame();controls=QVBoxLayout(self.source_controls);controls.setContentsMargins(0,0,0,0)
+        self.source_status=label('','Subtle',True);controls.addWidget(self.source_status)
+        controls.addLayout(row(button('上一張',lambda:step(self,-1),'Quiet'),button('下一張',lambda:step(self,1),'Quiet'),button('圖片清單',lambda:edit_list(self),'Quiet')))
+        controls.addWidget(button('選擇正面提示詞來源',lambda:choose_prompt(self),'Quiet'))
+        controls.addLayout(row(button('暫停後續',lambda:self.live_control('pause'),'Quiet'),button('繼續',lambda:self.live_control('resume'),'Quiet')))
+        controls.addWidget(button('停止這批後續供應',lambda:self.live_control('stop_feed'),'Quiet'))
+        body.addWidget(self.source_controls)
+
+    def live_control(self,action):
+        flow=self.owner.window.comfy.input_flow
+        for owner,control in flow.controls():
+            source=control.get('feed') or control.get('cursor')
+            if source and source['key']==self.key:getattr(flow,action)(owner)
     def choose_file(self):
         path=choose_file(self.owner.window,'選擇圖片','圖片 (*.png *.jpg *.jpeg *.webp *.bmp)')
         if path: self.load(path)
@@ -35,6 +49,11 @@ class SourcePanel(QFrame):
     def load(self,path): return self.owner.replace(self.key,path)
     def source_menu(self):
         menu=RoundMenu(self.owner.window); menu.addAction('選擇圖片…',self.choose_file)
+        if self.owner.data()['images'][self.key].get('enhanced'):
+            from .source_controls import choose_many,choose_recent
+            menu.addAction('選擇多張圖片…',lambda:choose_many(self))
+            menu.addAction('選擇資料夾…',lambda:choose_many(self,True))
+            menu.addAction('選定最近生成…',lambda:choose_recent(self))
         images=self.owner.window.comfy.images;collection=images.collection(self.key)
         if collection:
             for index,item in enumerate(collection['items']):
@@ -49,13 +68,19 @@ class SourcePanel(QFrame):
         text=(profile['name'] if profile else '工作流已移除')+' · #'+binding['node'] if binding else '選擇工作流與圖片節點'
         self.binding.setText(text[:42]+('…' if len(text)>42 else '')); self.binding.setToolTip(text)
         advanced=self.owner.window.state.get('multi_output',{}).get('version',1)>=4
-        self.binding.setVisible(advanced); self.show_image.setVisible(advanced)
+        enhanced=value.get('enhanced',False)
+        self.source_controls.setVisible(enhanced)
+        self.binding.setVisible(advanced and not enhanced); self.show_image.setVisible(advanced)
+        if enhanced:
+            items=value.get('items',[]);count=len(items)
+            content=value.get('content');kind='PCS 文字模塊' if content and content['kind']=='modules' else '原始正面提示詞' if content else value.get('content_error','尚未選擇圖片')
+            self.source_status.setText((str(value.get('index',0)+1)+'／'+str(count)+' 張 · ' if count else '')+kind+'\n按執行處理一張；接入預排程可處理整批。')
         self.show_image.blockSignals(True); self.show_image.setChecked(value.get('show_image',True)); self.show_image.blockSignals(False)
         self.preview.setVisible(value.get('show_image',True))
         self.attach_button.setText('解除拼接' if value.get('attached') else '接到 Prompt')
         error=self.owner.window.comfy.images.errors.get(self.key,'') if binding and hasattr(self.owner.window,'comfy') else ''
         collection=self.owner.window.comfy.images.collection(self.key) if binding else None
-        self.choose.setText('選擇圖片 · '+str(len(collection['items']))+' 張 ▾' if collection else '選擇圖片 ▾')
+        self.choose.setText('選擇圖片／資料夾 ▾' if enhanced else '選擇圖片 · '+str(len(collection['items']))+' 張 ▾' if collection else '選擇圖片 ▾')
         self.name.setVisible(bool(source or error)); self.name.setText(source['name'] if source else error)
         if collection and not source and not error:
             self.name.setText('共 '+str(len(collection['items']))+' 張 · 依輸出順序');self.name.show()
@@ -78,6 +103,7 @@ class SourceCard(TextCard):
         return (360,440 if value.get('show_image',True) else 230)
     def __init__(self,owner,key):
         super().__init__(owner.canvas); self.owner=owner; self.key=key; self.title='加載圖片'
+        if owner.data()['images'][key].get('enhanced'):self.title='圖片來源'
         self.panel=SourcePanel(owner,key); self.setToolTip('')
     def attach(self):
         if self.proxy.widget() is not self.panel: self.proxy.setWidget(self.panel)
@@ -88,6 +114,7 @@ class SourceCard(TextCard):
     def layout_card(self):
         width,height=self.requested_size; minimum=self.panel.minimumSizeHint()
         top=78 if 'multi_output' in self.canvas.window.state else 46
+        if self.canvas.window.state.get('multi_output',{}).get('version',0)>=5:top=132
         shown=self.owner.data()['images'][self.key].get('show_image',True)
         self.proxy.setGeometry(QRectF(14,top,max(280,minimum.width(),width-28),max(230 if shown else 100,minimum.height(),height-top-14)))
         self.sync_bounds()
@@ -114,13 +141,18 @@ class CanvasFunctions:
                 if value.get('attached') and key in self.cards:
                     return path.subtracted(tab(1,card.height-self.cards[key].height+82))
         return path
-    def add_image(self,path=None,position=None,source=None,attached=False):
+    def add_image(self,path=None,position=None,source=None,attached=False,enhanced=True):
         try:
             if path: source=self.window.generation_panel.import_source(path)
         except (ValueError,OSError) as exc: import_error(self.window,exc); return
         key='__source_'+uid()
         def apply(state):
             data=self.data(state); data['images'][key]=dict(source=copy.deepcopy(source),attached=False)
+            if enhanced and state.get('multi_output',{}).get('version',0)>=5:
+                data['images'][key]['enhanced']=True
+                if source:
+                    from .image_source import set_items
+                    set_items(state,key,[source],self.window.store.directory,False)
             if position is not None: state.setdefault('text_positions',{})[key]=[position.x(),position.y()]
             if attached: self.set_attachment(state,key,True)
         return key if self.canvas.commit(apply) else None
@@ -150,10 +182,15 @@ class CanvasFunctions:
                 if card: state.setdefault('text_positions',{})[key]=[card.x()-64 if key!='__result_preview__' else card.x()+64,card.y()+48]
         self.canvas.commit(apply); self.window.generation_panel.changed()
     def replace(self,key,path):
+        if self.window.comfy.input_flow.source_active(key):
+            self.window.notice('這份圖片清單仍有未完成工作；先完成或停止這批供應，再更換圖片。');return False
         try: source=self.window.generation_panel.import_source(path)
         except (ValueError,OSError) as exc: import_error(self.window,exc); return
         def apply(state):
             value=self.data(state)['images'][key]; value['source']=source
+            if value.get('enhanced'):
+                from .image_source import set_items
+                set_items(state,key,[source],self.window.store.directory,False)
             value.pop('binding',None);value.pop('selection',None)
             if value.get('attached'): state['generation']['source']=copy.deepcopy(source)
         result=self.canvas.commit(apply); self.window.generation_panel.changed(); return result is not False

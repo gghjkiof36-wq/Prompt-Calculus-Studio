@@ -11,7 +11,10 @@ test('extension setup and graph-switch hooks restore desktop ownership without o
     const n=id=>({id,title:'fixture '+id,inputs:[],widgets:[{name:'text',value:'landscape'}],properties:{[KEY]:{
         field:'text',snapshot:{final_prompt:'landscape',generated_prompt:'landscape',state:{draft:null},manual_draft:false}}}});
     const a=n(1),b=n(2); let extension,owner='',serial=0; const waiting=[];
-    globalThis.document={createElement:()=>({}),head:{append(){}},addEventListener(){}};
+    globalThis.window=new EventTarget();
+    t.after(async()=>{window.dispatchEvent(new Event('pagehide'));await turn();
+        delete globalThis.window;delete globalThis.document;delete globalThis.testApi;delete globalThis.testApp;});
+    globalThis.document=Object.assign(new EventTarget(),{createElement:()=>({}),head:{append(){}}});
     globalThis.testApp={graph:{_nodes:[a],extra:{prompt_studio_active:'1'},change(){},setDirtyCanvas(){}},
         extensionManager:{registerSidebarTab(){}},registerExtension:e=>extension=e,graphToPrompt:async()=>({})};
     globalThis.testApi={addEventListener(){},async fetchApi(url,options={}){
@@ -26,6 +29,8 @@ test('extension setup and graph-switch hooks restore desktop ownership without o
         return {ok:true,json:async()=>result};
     }};
     let source=await readFile(new URL('../comfyui_prompt_studio/web/prompt_studio.js',import.meta.url),'utf8');
+    source=source.replace(/from '(\.\/[^']+)'/g,(_,relative)=>'from '+JSON.stringify(new URL('../comfyui_prompt_studio/web/'+relative.slice(2),import.meta.url).href));
+    source=source.replaceAll('import.meta.url',JSON.stringify(new URL('../comfyui_prompt_studio/web/prompt_studio.js',import.meta.url).href));
     source=source.replace("import {app} from '../../scripts/app.js';",'const app=globalThis.testApp;')
         .replace("import {api} from '../../scripts/api.js';",'const api=globalThis.testApi;')
         .replace("'./state.js'",JSON.stringify(new URL('../comfyui_prompt_studio/web/state.js',import.meta.url).href))
@@ -43,5 +48,4 @@ test('extension setup and graph-switch hooks restore desktop ownership without o
     extension.afterConfigureGraph(); for(let i=0;i<12;i++) await turn(); assert.match(owner,/#1 \/ text/);
     globalThis.testApp.graph.extra.prompt_studio_desktop=false; extension.afterConfigureGraph();
     for(let i=0;i<12;i++) await turn(); assert.equal(owner,''); assert.equal(serial,3);
-    delete globalThis.document; delete globalThis.testApi; delete globalThis.testApp;
 });

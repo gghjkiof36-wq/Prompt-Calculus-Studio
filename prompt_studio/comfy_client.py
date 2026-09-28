@@ -30,6 +30,10 @@ class ComfyClient(QObject):
         self.running=0; self.pending=0; self.epoch=0
         self.had_control=False; self.control_interrupted=False
         self.direct_supported=False; self.snapshot_versions=None; self.generation=GenerationRunner(self)
+        from .queue_runner import QueueRunner
+        self.queue_supported=False; self.queue=QueueRunner(self)
+        from .input_runner import InputRunner
+        self.input_flow=InputRunner(self)
         self.flow_supported=None; self.fetching_workflow=False; self.register_library=True
         from .image_bindings import ImageBindings
         self.images=ImageBindings(self); self.images_supported=False
@@ -40,6 +44,13 @@ class ComfyClient(QObject):
 
     @property
     def can_run(self):
+        if self.window.state.get('multi_output',{}).get('version',1)>=5:
+            if not(self.connected and self.native_supported and self.snapshot_compatible and self.flow_supported):return False
+            try:
+                from .workflow_flow import execution_profiles
+                return len(execution_profiles(self.window.state))==1
+            except ValueError:return False
+        if hasattr(self,'queue') and self.queue.busy():return False
         if not self.snapshot_compatible: return False
         if self.window.state.get('multi_output',{}).get('version',1)>=2:
             from .multi_output import connected_outputs
@@ -116,6 +127,8 @@ class ComfyClient(QObject):
         self.native_supported=False;self.native_open_supported=False;self.opening_native=False;self.native_unavailable_reason=''
         self.images.reset(); self.images_supported=False
         self.generation.disconnected(); self.direct_supported=False; self.snapshot_versions=None
+        self.input_flow.disconnected()
+        self.queue_supported=False;self.queue.disconnected()
         self.flow_supported=None; self.fetching_workflow=False; self.register_library=True
         self.had_control=False; self.control_interrupted=False
         self.sync_timer.stop()
@@ -134,6 +147,8 @@ class ComfyClient(QObject):
             self.control_interrupted=self.had_control
             self.message=message; self.stateChanged.emit()
             self.generation.disconnected()
+            self.input_flow.disconnected()
+            self.queue.disconnected()
             if self.run_id:
                 self.window.notice('生成提交的連線中斷，結果尚未確認；請查看 ComfyUI 紀錄，不會自動重送。'); self.run_id=''
         def received(status):
@@ -144,12 +159,14 @@ class ComfyClient(QObject):
             self.control_interrupted=self.had_control and not self.ready
             self.running=status.get('running',0); self.pending=status.get('pending',0)
             self.direct_supported='direct_generation_v1' in status.get('capabilities',[])
+            self.queue_supported='frozen_queue_v1' in status.get('capabilities',[])
             self.native_supported=all(c in status.get('capabilities',[]) for c in ('native_queue_v1','native_bindings_v1'))
             self.native_open_supported='native_open_v1' in status.get('capabilities',[])
             self.native_unavailable_reason=status.get('native_unavailable_reason','')
             self.images_supported='workflow_images_v1' in status.get('capabilities',[])
+            self.input_bridge_supported='input_run_bridge_v1' in status.get('capabilities',[])
             version=self.window.state.get('multi_output',{}).get('version',1)
-            required='workflow_images_v1' if version>=4 else 'clip_inputs_v3' if version>=3 else 'flow_connections_v2'
+            required='typed_inputs_v2' if version>=6 else 'typed_inputs_v1' if version>=5 else 'workflow_images_v1' if version>=4 else 'clip_inputs_v3' if version>=3 else 'flow_connections_v2'
             self.flow_supported=required in status.get('capabilities',[])
             if self.register_library and self.flow_supported and self.window.state.get('multi_output',{}).get('version',1)>=2:
                 self.register_library=False; self.window.persist()
@@ -160,12 +177,16 @@ class ComfyClient(QObject):
                 self.message='已連線 · 工作流直接生成' if self.direct_supported else '請更新 ComfyUI 擴充以啟用工作流直接生成。'
                 if version>=4:
                     self.message='已連線 · 請保持已綁定的 ComfyUI 工作流網頁開啟' if self.native_supported else '請更新配套 ComfyUI 擴充並重新整理網頁，以啟用文字與圖片綁定。'
+                    if self.queue_supported and version<5:self.message='已連線 · 加入新工作需開啟網頁；已保存佇列可關頁執行'
                 self.control_interrupted=False
+            if version>=5 and not self.flow_supported:self.message='請安裝本次配套 ComfyUI 擴充並重新整理網頁，以啟用圖片來源與預排程。'
             if not self.snapshot_compatible:
                 self.message='ComfyUI 仍載入舊快照版本；請重啟 ComfyUI 後端以載入已更新的擴充。'
                 self.control_interrupted=True; self.sync_timer.stop()
             self.stateChanged.emit()
             self.generation.observe(status)
+            self.input_flow.observe(status)
+            self.queue.observe()
             self.images.poll()
             if 'workflow_transfer_v1' in status.get('capabilities',[]) and 'multi_output' in self.window.state: self.receive_workflow()
             if self.ready and old!=self.lease and not direct_mode(self.window.state): self.last_signature=''; self.sync_timer.start()
@@ -224,7 +245,7 @@ class ComfyClient(QObject):
         if not self.snapshot_compatible:
             self.window.notice('請先重啟 ComfyUI 後端，載入支援 Canvas 快照的擴充。'); return
         if direct_mode(self.window.state):
-            if not self.can_run or self.run_id: return
+            if not self.can_run or (self.run_id and self.window.state.get('multi_output',{}).get('version',1)<5): return
             self.sync_timer.stop()
             try: self.generation.run(count)
             except (ValueError,OSError) as exc: self.window.notice(str(exc))
@@ -239,6 +260,10 @@ class ComfyClient(QObject):
 
     def interrupt(self,clear_pending=False):
         if not self.connected: return
+        if self.window.state.get('multi_output',{}).get('version',1)>=5:
+            self.input_flow.cancel();return
+        if self.queue.busy():
+            self.queue.pause();self.window.notice('已停止 Queue 後續派送；已提交工作保留，未中斷其他來源任務。');return
         self.generation.finish_batch('已停止後續生成提交。' if self.generation.batch else '')
         def done(_): self.window.notice('已要求停止目前生成'+('，並清空待執行佇列。' if clear_pending else '；其他待執行任務保留。')); self.poll()
         self.request('desktop/interrupt',{'clear_pending':clear_pending},done=done)
@@ -259,6 +284,8 @@ class ComfyClient(QObject):
         self.request('desktop/command/'+ident,done=done,failed=fail)
 
     def shutdown(self):
+        self.input_flow.disconnected()
+        self.queue.disconnected()
         self.generation.disconnected()
         self.stopped=True; self.timer.stop(); self.sync_timer.stop()
         for reply in list(self.replies): reply.abort()

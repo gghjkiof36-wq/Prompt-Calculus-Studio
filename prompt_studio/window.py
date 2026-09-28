@@ -398,6 +398,7 @@ class Window(QMainWindow):
 
     def persist(self):
         try:
+            self.remember_canvas_view()
             self.store.save(self.state)
             return True
         except Exception as exc:
@@ -458,32 +459,59 @@ class Window(QMainWindow):
 
     def switch_workspace(self):
         if self.workspace.currentData():
-            apply_workspace(self.state,self.workspace.currentData()); self.refresh_library(); self.refresh_builder(); self.changed()
+            target=self.workspace.currentData()
+            if target==self.state['workspace']:return
+            self.change_workspace(target)
             if hasattr(self,'canvas_workspace'):
                 self.canvas_workspace.blockSignals(True)
                 self.canvas_workspace.setCurrentIndex(self.canvas_workspace.findData(self.state['workspace']))
                 self.canvas_workspace.blockSignals(False)
-            self.notice("已還原此工作區的固定模組；其他選擇與臨時片段保留。")
+            self.notice('已切換工作區；原工作區的等待工作已保留並暫停。')
+
+    def remember_canvas_view(self):
+        if hasattr(self,'canvas') and self.canvas.isVisible():
+            view=self.canvas.view;point=view.mapToScene(view.viewport().rect().center())
+            self.state['canvas_view']=[view.transform().m11(),point.x(),point.y()]
+
+    def change_workspace(self,target):
+        previous=self.state['workspace'];self.remember_canvas_view()
+        if hasattr(self,'comfy'):self.comfy.input_flow.workspace_changed(previous)
+        if hasattr(self,'canvas'):
+            canvas=self.canvas
+            histories=getattr(self,'workspace_histories',{})
+            histories[previous]=(canvas.undo_stack,canvas.redo_stack)
+            self.workspace_histories=histories
+            canvas.undo_stack,canvas.redo_stack=histories.get(target,([],[]));canvas.last_state=None
+            canvas.root_id=None;canvas.path=[]
+        apply_workspace(self.state,target)
+        self.refresh_workspaces();self.refresh_library();self.refresh_builder();self.generation_panel.refresh()
+        if hasattr(self,'canvas'):self.canvas.restore_view()
+        self.changed()
 
     def workspace_settings(self):
         WorkspaceDialog(self).exec()
 
     def workspace_menu(self):
-        menu=QMenu(self); menu.addAction("工作區設定",self.workspace_settings); menu.addAction("新增工作區…",self.new_workspace)
+        menu=QMenu(self); menu.addAction("工作區設定",self.workspace_settings); menu.addAction("新增空白工作區…",self.new_workspace)
+        menu.addAction('複製目前工作區…',lambda:self.new_workspace(duplicate=True))
         menu.addSeparator(); menu.addAction("刪除目前工作區…",self.delete_workspace); menu.open_at(self.cursor().pos())
 
-    def new_workspace(self):
+    def new_workspace(self,checked=False,duplicate=False):
         name,ok=QInputDialog.getText(self,"新增工作區","名稱，例如：Anima2")
         if ok and name.strip():
-            workspace=dict(id=uid(),name=name.strip(),fixed=[],picks={},parameters={},history=[])
-            self.state["workspaces"].append(workspace); self.state["workspace"]=workspace["id"]
-            self.refresh_workspaces(); self.changed(); self.workspace_settings()
+            from .workspace_scene import create,upgrade
+            upgrade(self.state);ident=create(self.state,name.strip(),duplicate)
+            self.change_workspace(ident)
 
     def delete_workspace(self):
         if len(self.state["workspaces"])==1: self.notice("至少保留一個工作區。"); return
         if ask(self,"刪除工作區","移除此工作區及參數歷史？素材庫、圖片與模型不會刪除。"):
-            self.state["workspaces"]=[w for w in self.state["workspaces"] if w["id"]!=self.state["workspace"]]
-            apply_workspace(self.state,self.state["workspaces"][0]["id"]); self.refresh_workspaces(); self.refresh_library(); self.refresh_builder(); self.changed()
+            removed=self.state['workspace'];target=next(w['id'] for w in self.state['workspaces'] if w['id']!=removed)
+            self.change_workspace(target)
+            self.state['workspaces']=[w for w in self.state['workspaces'] if w['id']!=removed]
+            self.state.get('workspace_scenes',{}).get('items',{}).pop(removed,None)
+            getattr(self,'workspace_histories',{}).pop(removed,None)
+            self.refresh_workspaces();self.changed()
 
     def settings(self,section='interface'):
         if not isinstance(section,str): section='interface'
@@ -870,7 +898,7 @@ class Window(QMainWindow):
 
     def copy_final(self):
         if hasattr(self,'comfy') and self.comfy.can_run:
-            count=1 if self.state.get('multi_output',{}).get('version',1)>=4 else self.state['settings'].get('comfy_count',1)
+            count=1 if self.state.get('multi_output',{}).get('version',1)==4 else self.state['settings'].get('comfy_count',1)
             if direct_mode(self.state) or self.canvas_mode or self.recent.ensure_destination(): self.comfy.run(count)
             return
         if self.copy_text(self.final.toPlainText()):

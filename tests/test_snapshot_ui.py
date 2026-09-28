@@ -51,6 +51,24 @@ class SnapshotUiTests(unittest.TestCase):
             self.assertEqual(list(Path(folder).glob('before-import-*.sqlite3')),[])
             window.close()
 
+    def test_png_restore_has_undo_and_redo_and_keeps_empty_manual_draft(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'qa') as folder:
+            window=Window(folder)
+            snapshot=make_snapshot(window.state)
+            window.state['draft']=''
+            original=copy.deepcopy(window.state)
+            window.gallery.record={'metadata':{'raw':{'prompt_studio':{'schema_version':1,'bindings':[
+                {'node_id':'2','snapshot':snapshot}]}}}}
+            with patch('prompt_studio.pages.ask',return_value=True):window.gallery.restore_combination()
+            restored_workspace=window.state['workspace']
+            self.assertNotEqual(restored_workspace,original['workspace'])
+            window.canvas.undo()
+            self.assertEqual(window.state['workspace'],original['workspace'])
+            self.assertEqual(window.state['draft'],'')
+            window.canvas.redo()
+            self.assertEqual(window.state['workspace'],restored_workspace)
+            window.close()
+
     def test_metadata_retains_latest_user_requested_heading(self):
         from prompt_studio.core import initial_state
         state=initial_state(); state['draft']='history manual'

@@ -67,10 +67,15 @@ def bound_texts(state, profile):
         output=source(state,b['clip'])
         if output is None: continue
         if (b['node'],b['field']) not in available: raise ValueError('CLIP 綁定失效：#'+b['node']+' / '+b['field'])
-        item=dict(b,output=output,text=compile_output(state,output)['final_prompt'])
+        if data['version']>=5:
+            from .flow_data import resolve
+            content=resolve(state,output,'clip')
+            item=dict(b,output=content['origin'].get('output',output),text=content['value'])
+        else:item=dict(b,output=output,text=compile_output(state,output)['final_prompt'])
         if data['version']>=4:item['text_source']=data['clip_inputs'][b['clip']].get('text_source','pcs')
         result.append(item)
-    if not result: raise ValueError('請將 Prompt 輸出連接到已綁定工作流文字欄的 CLIP 輸入。')
+    if not result and not any(v.get('workflow')==profile['id'] for v in data.get('image_inputs',{}).values()):
+        raise ValueError('請將 Prompt 輸出連接到已綁定工作流文字欄的 CLIP 輸入。')
     return result
 
 

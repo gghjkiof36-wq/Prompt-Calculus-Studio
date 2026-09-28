@@ -10,6 +10,7 @@ FIELD_NAMES={"text":"提示詞","ckpt_name":"CKPT","unet_name":"Diffusion 模型
 def readable_metadata(record):
     meta=record.get("metadata",{})
     lines=["（此為圖片的內嵌資料）",""]
+    lines.extend(meta.get('warnings',[]))
     for node in meta.get("nodes",[]):
         kind=node.get("type","")
         if "Sampler" in kind: title="採樣器"
@@ -25,6 +26,9 @@ def readable_metadata(record):
     bindings=image_snapshots(meta)
     generation=raw.get('prompt_studio',{}).get('generation') if isinstance(raw.get('prompt_studio'),dict) else None
     if isinstance(generation,dict):
+        if generation.get('queue_revision'):
+            lines.extend(['Queue 固定工作版本：'+str(generation['queue_revision']),
+                          '以下為當次提交值；模組快照保留來源稿件。'])
         lines.extend(['當次生成方式：'+('圖生圖' if generation.get('mode')=='img2img' else '文生圖'),'工作流：'+str(generation.get('workflow',''))])
         source=generation.get('source')
         if isinstance(source,dict): lines.append('來源圖片：'+str(source.get('name',''))+' · SHA256 '+str(source.get('sha256','')))

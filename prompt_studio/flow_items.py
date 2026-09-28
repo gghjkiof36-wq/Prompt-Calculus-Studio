@@ -4,8 +4,8 @@ from PySide6.QtGui import QColor,QPen,QPainter,QPainterPath,QPainterPathStroker
 from PySide6.QtWidgets import QGraphicsObject,QGraphicsItem,QGraphicsPathItem,QGraphicsSimpleTextItem
 from . import multi_output as model
 
-COLORS={'text':'#9cbff3','image':'#e0bb79','execution':'#93cbb2','preview':'#baa6e0','clip':'#9cbff3'}
-LABELS={'text':'文字','image':'圖片','execution':'執行','preview':'預覽','clip':'Prompt'}
+COLORS={'text':'#9cbff3','image':'#e0bb79','execution':'#93cbb2','preview':'#baa6e0','clip':'#9cbff3','content':'#a9ceb0'}
+LABELS={'text':'文字','image':'圖片','execution':'執行','preview':'預覽','clip':'文字','content':'文字組合'}
 
 
 def curve(start,end,style='curve'):
@@ -26,11 +26,29 @@ class FlowLine(QGraphicsPathItem):
         super().__init__(); self.canvas=canvas; self.value=value; self.key=value['id']
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable); self.setZValue(-.1)
         self.setToolTip(LABELS[value['kind']]+'資料流 · 拖動尾端改接，選取後按 Delete 解除')
+    def itemChange(self,change,value):
+        if change==QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:self.setZValue(25 if value else -.1)
+        return super().itemChange(change,value)
     def shape(self):
         stroke=QPainterPathStroker(); stroke.setWidth(16); return stroke.createStroke(self.path())
     def paint(self,painter,option,widget=None):
         self.setPen(QPen(QColor('#ffffff' if self.isSelected() else COLORS[self.value['kind']]),3 if self.isSelected() else 2))
         super().paint(painter,option,widget)
+        if self.isSelected():
+            painter.setBrush(QColor('#202731'))
+            for at in (.12,.88):painter.drawEllipse(self.path().pointAtPercent(at),7,7)
+    def mousePressEvent(self,event):
+        if self.isSelected() and event.button()==Qt.MouseButton.LeftButton:
+            for at,moving_source in ((.12,True),(.88,False)):
+                if (event.pos()-self.path().pointAtPercent(at)).manhattanLength()<18:
+                    self.canvas.connection_gesture.begin_line(self.value,moving_source,event.scenePos());event.accept();return
+        super().mousePressEvent(event)
+    def mouseMoveEvent(self,event):
+        if self.canvas.connection_gesture.anchor:self.canvas.connection_gesture.move(event.scenePos());event.accept()
+        else:super().mouseMoveEvent(event)
+    def mouseReleaseEvent(self,event):
+        if self.canvas.connection_gesture.anchor:self.canvas.connection_gesture.release(event.scenePos());event.accept()
+        else:super().mouseReleaseEvent(event)
     def contextMenuEvent(self,event):
         from .widgets import RoundMenu
         menu=RoundMenu(self.canvas.window); menu.addAction('解除連線',lambda:self.canvas.commit(lambda s:model.disconnect(s,self.key))); menu.open_at(event.screenPos())
@@ -42,8 +60,12 @@ class Port(QGraphicsObject):
         self.slot=slot; self.index=index
         self.highlight=False; self.preview=None; self.target=None; self.setZValue(20)
         self.setAcceptHoverEvents(True); self.setCursor(Qt.CursorShape.CrossCursor)
-        self.setToolTip(LABELS[kind]+('輸出' if output else '輸入')+(' · '+canvas.data()['outputs'][slot]['name'] if slot else '')+' · 拖曳或點擊連線')
-        name=canvas.data()['outputs'][slot]['name'] if slot else LABELS[kind]
+        name=(canvas.data()['outputs'].get(slot) or canvas.data()['canvases'].get(slot) or {}).get('name',LABELS[kind])
+        from .flow_data import channel,source_name
+        if slot and key in canvas.data()['outputs']:name=source_name(canvas.window.state,slot)
+        typed=channel(canvas.window.state,key)
+        if typed:name=typed[1]['name']
+        self.setToolTip(name+('輸出' if output else '輸入')+' · 拖曳或點擊連線')
         self.caption=QGraphicsSimpleTextItem(name[:12],self); self.caption.setBrush(QColor(COLORS[kind])); self.caption.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         font=canvas.font(); font.setPixelSize(11); self.caption.setFont(font)
         self.caption.setPos(-self.caption.boundingRect().width()-13 if output else 13,-self.caption.boundingRect().height()/2)
@@ -55,11 +77,14 @@ class Port(QGraphicsObject):
         # Port captions stay within the node, above its controls.
         painter.setPen(QColor(COLORS[self.kind]))
     def compatible(self,other):
-        if self.output==other.output or self.kind!=other.kind or self.key==other.key: return False
+        if self.output==other.output or self.key==other.key: return False
         source,destination=(self,other) if self.output else (other,self)
-        if destination.slot and destination.slot!=source.key: return False
-        if not model.valid_edge(self.canvas.window.state,source.key,destination.key,self.kind): return False
-        if self.kind=='text':
+        textual=destination.key in self.canvas.data()['outputs'] and self.canvas.data()['version']>=6 and {self.kind,other.kind}<= {'text','clip'}
+        if self.kind!=other.kind and not textual:return False
+        gesture=self.canvas.connection_gesture
+        if destination.slot and destination.slot!=source.key and not (gesture.original and gesture.anchor is destination): return False
+        if not model.valid_edge(self.canvas.window.state,source.key,destination.key,source.kind): return False
+        if self.kind=='text' and self.canvas.data()['version']<5:
             original=getattr(self.canvas.connection_gesture,'original',None)
             return not any(c['id']!=original and c['kind']=='text' and c['source']==source.key and c['destination']!=destination.key for c in self.canvas.data()['connections'])
         return True
@@ -82,11 +107,13 @@ class ConnectionGesture(QObject):
         canvas.view.viewport().setMouseTracking(True); canvas.view.viewport().installEventFilter(self); canvas.view.installEventFilter(self)
     def begin(self,port,position):
         self.cancel(); self.anchor=port; self.start=QPointF(position)
-        if not port.output:
-            value=next((c for c in self.canvas.data()['connections'] if c['destination']==port.key and c['kind']==port.kind and (port.slot is None or c['source']==port.slot)),None)
+        if not port.output and not (port.kind=='text' and port.slot is None and self.canvas.data()['version']>=5):
+            value=next((c for c in self.canvas.data()['connections'] if c['destination']==port.key and
+                        (c['kind']==port.kind or port.key in self.canvas.data()['outputs'] and {c['kind'],port.kind}<={'clip','text'}) and
+                        (port.slot is None or c['source']==port.slot)),None)
             if value:
                 self.original=value['id']; self.anchor=self.canvas.line_port(value,True)
-                if self.original in self.canvas.lines: self.canvas.lines[self.original].hide()
+                if self.original in self.canvas.lines: self.canvas.lines[self.original].setOpacity(0)
         self.preview=QGraphicsPathItem(); self.preview.setZValue(30); self.preview.setPen(QPen(QColor(COLORS[port.kind]),2,Qt.PenStyle.DashLine))
         self.canvas.view.scene().addItem(self.preview)
         for p in self.canvas.ports.values(): p.highlight=self.anchor.compatible(p); p.update()
@@ -97,6 +124,13 @@ class ConnectionGesture(QObject):
         self.target=next((p for p in self.canvas.ports.values() if p.highlight and (view.mapFromScene(p.scenePos())-point).manhattanLength()<20),None)
         end=self.target.scenePos() if self.target else position; start=self.anchor.scenePos()
         self.preview.setPath(curve(start,end,self.canvas.window.state['settings'].get('connection_style','curve')) if self.anchor.output else curve(end,start,self.canvas.window.state['settings'].get('connection_style','curve')))
+    def begin_line(self,value,moving_source,position):
+        anchor=self.canvas.line_port(value,not moving_source)
+        if anchor is None:return
+        self.begin(anchor,position);self.anchor=anchor;self.original=value['id']
+        self.canvas.lines[self.original].setOpacity(0)
+        for p in self.canvas.ports.values():p.highlight=anchor.compatible(p);p.update()
+        self.move(position)
     def release(self,position):
         if self.anchor is None: return
         if (self.canvas.view.mapFromScene(position)-self.canvas.view.mapFromScene(self.start)).manhattanLength()<5:
@@ -104,7 +138,7 @@ class ConnectionGesture(QObject):
         self.finish(position)
     def finish(self,position):
         if self.anchor is None: return
-        self.move(position); anchor=self.anchor; target=self.target; original=self.original; kind=anchor.kind
+        self.move(position); anchor=self.anchor; target=self.target; original=self.original; kind=anchor.kind if anchor.output or target is None else target.kind
         src,dst=((anchor.key,target.key) if anchor.output else (target.key,anchor.key)) if target else (None,None)
         self.cancel(); canvas=self.canvas
         def apply(s):
@@ -113,7 +147,7 @@ class ConnectionGesture(QObject):
         if original or src: QTimer.singleShot(0,lambda:canvas.commit(apply))
     def cancel(self):
         if self.preview is not None: self.canvas.view.scene().removeItem(self.preview)
-        if self.original in self.canvas.lines: self.canvas.lines[self.original].show()
+        if self.original in self.canvas.lines: self.canvas.lines[self.original].setOpacity(1)
         for p in self.canvas.ports.values(): p.highlight=False; p.update()
         self.preview=None; self.anchor=None; self.target=None; self.original=None; self.latched=False
     def menu(self,position,port=None):

@@ -19,4 +19,10 @@ def prepare_state(state, *, multi=False):
         result=upgrade(result)
         from .workflow_flow import upgrade as upgrade_workflow_flow
         result=upgrade_workflow_flow(result)
+        from .flow_data import upgrade as upgrade_dataflow,materialize
+        result=upgrade_dataflow(result)
+        result.pop('_execution_inputs',None)
+        materialize(result)
+        from .workspace_scene import upgrade as upgrade_scenes
+        upgrade_scenes(result)
     return validate_state(result)

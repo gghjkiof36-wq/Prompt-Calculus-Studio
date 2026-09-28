@@ -22,7 +22,7 @@ _bootstrap = Path(__file__).with_name('local_library.json')
 _default_library = json.loads(_bootstrap.read_text(encoding='utf-8')).get('library', '') if _bootstrap.exists() else ''
 service = Service(Path(folder_paths.get_user_directory()) / 'prompt_studio',
                   folder_paths.get_output_directory(), folder_paths.get_temp_directory(), _default_library,
-                  native_multi_user=lambda:getattr(comfy_args,'multi_user',None))
+                  native_multi_user=lambda:getattr(comfy_args,'multi_user',None), input_root=folder_paths.get_input_directory())
 _token = secrets.token_urlsafe(32)
 routes = PromptServer.instance.routes
 bridge = DesktopBridge()
@@ -143,9 +143,10 @@ async def desktop_status(request):
     status.update(capabilities=['direct_generation_v1','multi_text_v1','flow_connections_v2','clip_inputs_v3','workflow_images_v1','workflow_transfer_v1'],snapshot_versions=[1,2,3,4],running_ids=[item[1] for item in running],queued_ids=[item[1] for item in queued])
     status['executing_node']=str(PromptServer.instance.last_node_id) if running and PromptServer.instance.last_node_id is not None else None
     status['capabilities'].append('workflow_sync_v1')
-    if service.native_queue.available():status['capabilities'].extend(['native_queue_v1','native_open_v1','native_bindings_v1'])
+    if service.native_queue.available():status['capabilities'].extend(['native_queue_v1','native_open_v1','native_bindings_v1','frozen_queue_v1','typed_inputs_v1','typed_inputs_v2','targeted_cancel_v1','input_run_bridge_v1'])
     else:status['native_unavailable_reason']='此原生入口目前只支援 ComfyUI 單一使用者模式。'
-    status['pcs_version']='0.82 Alpha 1 Repair 5 (0927-2)'
+    status['pcs_version']='0.83 direct execution repair candidate (0928)'
+    if service.native_queue.available():status['capabilities'].append('native_recovery_v1')
     return web.json_response(status)
 
 
@@ -153,6 +154,20 @@ async def desktop_status(request):
 @local_route
 async def native_poll(request):
     return web.json_response(service.native_queue.poll(await body(request)))
+
+
+@routes.post('/prompt_studio/workflow/inputs/publish')
+@local_route
+async def input_publish(request):
+    service.native_queue.require_supported()
+    return web.json_response(service.native_queue.inputs.publish(await body(request)))
+
+
+@routes.post('/prompt_studio/workflow/inputs/claim')
+@local_route
+async def input_claim(request):
+    service.native_queue.require_supported()
+    return web.json_response(service.native_queue.inputs.claim(await body(request)))
 
 
 @routes.post('/prompt_studio/workflow/native/start')
@@ -170,6 +185,60 @@ async def native_start(request):
 async def background_context(request):
     service.native_queue.require_supported()
     return web.json_response(background_execution.context(await body(request),str(request.url.origin())))
+
+
+@routes.post('/prompt_studio/workflow/queue/capture')
+@local_route
+async def queue_capture(request):
+    return web.json_response(service.native_queue.start(await body(request),str(request.url.origin()),'capture'))
+
+
+def native_unresolved():
+    queue=PromptServer.instance.prompt_queue
+    running,queued=queue.get_current_queue_volatile()
+    return service.native_queue.occupied(running,queued,lambda prompt:queue.get_history(prompt_id=prompt))
+
+
+@routes.post('/prompt_studio/workflow/queue/submit')
+@local_route
+async def queue_submit(request):
+    class PreparedRequest:
+        def __init__(self,payload):self.payload=payload
+        async def json(self):return self.payload
+        def __getattr__(self,name):return getattr(request,name)
+    handler=next((r.handler for r in routes if getattr(r,'method',None)=='POST' and getattr(r,'path',None)=='/prompt'),None)
+    if handler is None:raise ValueError('ComfyUI 未提供可核對的標準提交入口。')
+    async def post(payload):
+        response=await handler(PreparedRequest(payload))
+        return response.status,json.loads(response.text)
+    result=await service.work_queue.submit(await body(request),str(request.url.origin()),post,native_unresolved())
+    return web.json_response(result)
+
+
+@routes.post('/prompt_studio/workflow/native/cancel')
+@local_route
+async def native_cancel(request):
+    import nodes
+    value=await body(request)
+    return web.json_response(service.native_queue.cancel(value.get('id'),PromptServer.instance.prompt_queue,nodes.interrupt_processing))
+
+
+@routes.post('/prompt_studio/workflow/queue/variant')
+@local_route
+async def queue_variant(request):
+    service.native_queue.require_supported()
+    return web.json_response(service.work_queue.variant(await body(request),str(request.url.origin())))
+
+
+@routes.post('/prompt_studio/workflow/queue/status')
+@local_route
+async def queue_status(request):
+    value=await body(request);ident=value['attempt']
+    saved=service.work_queue.read('queue_attempts',ident)
+    queue=PromptServer.instance.prompt_queue
+    running,queued=queue.get_current_queue_volatile()
+    return web.json_response(service.work_queue.reconcile(ident,{p[1] for p in running},{p[1] for p in queued},
+        queue.get_history(prompt_id=saved['prompt_id'])))
 
 
 @routes.post('/prompt_studio/workflow/background/lease')
@@ -203,6 +272,12 @@ async def native_prepare(request):
     return web.json_response(service.native_queue.prepare(await body(request)))
 
 
+@routes.post('/prompt_studio/workflow/native/activate')
+@local_route
+async def native_activate(request):
+    return web.json_response(service.native_queue.activate(await body(request)))
+
+
 @routes.post('/prompt_studio/workflow/native/reply')
 @local_route
 async def native_reply(request):
@@ -219,6 +294,18 @@ async def native_status(request):
     if operation.get('prompt_id'):
         known.update(PromptServer.instance.prompt_queue.get_history(prompt_id=operation['prompt_id']))
     return web.json_response(service.native_queue.reconcile(ident,known))
+
+
+@routes.post('/prompt_studio/workflow/native/abandon')
+@local_route
+async def native_abandon(request):
+    return web.json_response(service.native_queue.abandon((await body(request))['id'],PromptServer.instance.prompt_queue))
+
+
+@routes.post('/prompt_studio/workflow/native/recovery')
+@local_route
+async def native_recovery(request):
+    return web.json_response(service.native_queue.recovery((await body(request))['id'],PromptServer.instance.prompt_queue))
 
 
 @routes.post('/prompt_studio/workflow/images')
@@ -328,7 +415,10 @@ async def desktop_command_status(request):
 @routes.get('/prompt_studio/desktop/results')
 @local_route
 async def desktop_results(request):
-    records=service.results(PromptServer.instance.prompt_queue.get_history(max_items=50))
+    ident=request.query.get('prompt_id','')
+    if ident and (len(ident)>128 or any(ord(c)<32 for c in ident)):raise ValueError('任務識別無效。')
+    history=PromptServer.instance.prompt_queue.get_history(prompt_id=ident) if ident else PromptServer.instance.prompt_queue.get_history(max_items=50)
+    records=service.results(history)
     for record in records:
         try: record['path']=str(service.source(record['image']))
         except (OSError,ValueError): record['path']=''

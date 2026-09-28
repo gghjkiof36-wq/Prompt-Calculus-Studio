@@ -5,23 +5,49 @@ from .core import validate_state
 
 
 def prepare_remove(state,key,remote=None):
+    if 'workspace_scenes' in state:
+        from .workspace_scene import capture,load,scene
+        base=copy.deepcopy(state);capture(base);scenes=base.pop('workspace_scenes');records={};candidate=None
+        for workspace,document in list(scenes['items'].items()):
+            projected=copy.deepcopy(base);load(projected,document);projected['workspace']=workspace
+            changed,records[workspace]=prepare_remove(projected,key,remote)
+            scenes['items'][workspace]=scene(changed)
+            if workspace==state['workspace']:candidate=changed
+        candidate['workspace_scenes']=scenes;validate_state(candidate)
+        record=copy.deepcopy(records[state['workspace']]);record['workspace_records']=records
+        return candidate,record
     candidate=copy.deepcopy(state)
     settings=candidate.setdefault('generation',dict(mode='txt2img',profiles=[],chosen={},source=None))
     multi=candidate.get('multi_output',{})
     profile=next((p for p in settings['profiles'] if p['id']==key),None)
     record=dict(profile=copy.deepcopy(profile),bindings=[b for b in multi.get('bindings',[]) if b['workflow']==key],chosen={k:v for k,v in settings['chosen'].items() if v==key},remote=copy.deepcopy(remote))
     record['clip_workflows']={ident:key for ident,clip in multi.get('clip_inputs',{}).items() if clip.get('workflow')==key}
+    if multi.get('version',0)>=5:
+        record['image_inputs']={ident:copy.deepcopy(value) for ident,value in multi.get('image_inputs',{}).items() if value.get('workflow')==key}
     settings['profiles']=[p for p in settings['profiles'] if p['id']!=key]
     settings['chosen']={k:v for k,v in settings['chosen'].items() if v!=key}
     if multi:
         multi['bindings']=[b for b in multi.get('bindings',[]) if b['workflow']!=key]
         for clip in multi.get('clip_inputs',{}).values():
             if clip.get('workflow')==key:clip['workflow']=None
+        for image in multi.get('image_inputs',{}).values():
+            if image.get('workflow')==key:image.update(workflow=None,node=None)
     validate_state(candidate)
     return candidate,record
 
 
 def prepare_restore(state,record):
+    if 'workspace_records' in record and 'workspace_scenes' in state:
+        from .workspace_scene import capture,load,scene
+        base=copy.deepcopy(state);capture(base);scenes=base.pop('workspace_scenes');candidate=None
+        for workspace,document in list(scenes['items'].items()):
+            projected=copy.deepcopy(base);load(projected,document);projected['workspace']=workspace
+            saved=record['workspace_records'].get(workspace)
+            if saved is None:
+                saved=dict(profile=record['profile'],bindings=[],chosen={},clip_workflows={},image_inputs={})
+            changed=prepare_restore(projected,saved);scenes['items'][workspace]=scene(changed)
+            if workspace==state['workspace']:candidate=changed
+        candidate['workspace_scenes']=scenes;validate_state(candidate);return candidate
     if not isinstance(record,dict) or not isinstance(record.get('bindings'),list) or not isinstance(record.get('chosen'),dict):
         raise ValueError('工作流復原紀錄格式無效。')
     candidate=copy.deepcopy(state);record=copy.deepcopy(record)
@@ -41,6 +67,10 @@ def prepare_restore(state,record):
     if 'clip_workflows' in record:
         validate_state(candidate)
         restore_clip_workflows(candidate,record)
+    for key,saved in record.get('image_inputs',{}).items():
+        target=candidate.get('multi_output',{}).get('image_inputs',{}).get(key)
+        if target is None or target.get('workflow') is not None:raise ValueError('圖片輸入已移除或改綁，保留目前內容。')
+        target.update(workflow=saved['workflow'],node=saved['node'])
     # Includes missing CLIPs, duplicate destinations and invalid references.
     validate_state(candidate)
     return candidate
@@ -68,6 +98,8 @@ def commit_change(store,candidate,record=None,consume=None):
     """Document and journal insertion/consumption form one SQLite transaction."""
     from .multi_output import capture_current
     if 'multi_output' in candidate:capture_current(candidate)
+    from .workspace_scene import capture
+    capture(candidate)
     validate_state(candidate)
     db=store.db
     with db:

@@ -18,12 +18,17 @@ class GenerationRunner:
         self.db.execute('CREATE TABLE IF NOT EXISTS generation_jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL, created REAL NOT NULL)'); self.db.commit()
         self.jobs={}
         for row in self.db.execute("SELECT body FROM generation_jobs WHERE json_extract(body,'$.state') IN ('submitting','queued','running','unconfirmed') ORDER BY created DESC LIMIT 100"):
-            job=json.loads(row[0]); self.jobs[job['id']]=job
+            job=json.loads(row[0])
+            if 'workspace' not in job:
+                from .job_details import job_marker
+                marker=job_marker(job);snapshot=marker.get('snapshot') or next((b.get('snapshot',{}) for b in marker.get('bindings',[]) if b.get('snapshot')), {})
+                if snapshot.get('state',{}).get('workspace'):job['workspace']=snapshot['state']['workspace']
+            if not job.get('queue_job'):self.jobs[job['id']]=job
 
     def save(self,job):
         with self.db:
             self.db.execute('INSERT OR REPLACE INTO generation_jobs VALUES (?,?,?)',(job['id'],json.dumps(job,ensure_ascii=False),job['created']))
-            self.db.execute("DELETE FROM generation_jobs WHERE id IN (SELECT id FROM generation_jobs WHERE json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed') ORDER BY created DESC LIMIT -1 OFFSET 200)")
+            self.db.execute("DELETE FROM generation_jobs WHERE id IN (SELECT id FROM generation_jobs WHERE json_extract(body,'$.queue_job') IS NULL AND json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed') ORDER BY created DESC LIMIT -1 OFFSET 200)")
 
     def status(self,text):
         self.message=text
@@ -31,6 +36,9 @@ class GenerationRunner:
         self.client.stateChanged.emit()
 
     def run(self,count):
+        if self.window.state.get('multi_output',{}).get('version',1)>=5:
+            return self.client.input_flow.execute(count)
+        if hasattr(self.client,'queue') and self.client.queue.busy():raise ValueError('Queue 尚未結案，請先暫停並核對目前工作。')
         if self.batch or self.client.run_id: return
         if self.window.state.get('multi_output',{}).get('version',1)>=4:
             from .workflow_runner import WorkflowRun
@@ -117,19 +125,26 @@ class GenerationRunner:
             failed(('後端拒絕生成：' if rejected else '提交未確認，不會自動重送：')+str(error))
         self.client.request('/prompt',payload,done,fail)
 
-    def submit_native(self,snapshot,workflow,queued,failed,valid,image=''):
+    def submit_native(self,snapshot,workflow,queued,failed,valid,image='',images=None,ident=None):
         """Journal an operation, then observe the actual native queue receipt."""
-        ident=uuid.uuid4().hex
+        ident=ident or uuid.uuid4().hex
         self.native_waiting.add(ident)
         job=dict(id=ident,native_operation=ident,state='submitting',created=time.time(),server=self.client.url,error='',
-                 requested_workflow=workflow)
+                 workspace=snapshot['state']['workspace'],requested_workflow=workflow,
+                 entry_point=snapshot['state'].get('_entry_point','pcs'),
+                 output_nodes=sorted({v['binding']['node'] for v in snapshot['state'].get('canvas_functions',{}).get('images',{}).values()
+                    if (v.get('binding') or {}).get('workflow')==workflow and v['binding'].get('node') and
+                    next((p for p in snapshot['state'].get('generation',{}).get('profiles',[]) if p['id']==workflow),{}).get('graph',{}).get(v['binding']['node'],{}).get('class_type') in ('SaveImage','PreviewImage')}),
+                 typed_inputs=snapshot['state'].get('multi_output',{}).get('version',0)>=5)
         self.jobs[ident]=job;self.save(job)
         def fail(error):
+            if job['state'] in ('failed','complete'):return
             self.native_waiting.discard(ident)
             job.update(state='failed' if getattr(error,'rejected',False) else 'unconfirmed',error=str(error));self.save(job)
             if job['state']=='failed':self.jobs.pop(ident,None)
             if valid():failed('原生提交未完成：'+str(error)+'；不會自動重送。')
         def received(result):
+            if job['state'] in ('failed','complete'):return
             if result.get('payload'):job['payload']=result['payload']
             if result.get('prompt_id'):job['prompt_id']=result['prompt_id']
             state=result.get('state')
@@ -149,7 +164,10 @@ class GenerationRunner:
                 # Keep reconciling the receipt even if a user cancelled the
                 # batch; a sent operation must not vanish from the journal.
                 QTimer.singleShot(500,lambda:self.client.request('workflow/native/status',dict(id=ident),received,fail))
-        self.client.request('workflow/native/start',dict(id=ident,snapshot=snapshot,workflow=workflow,image=image),received,fail)
+        request=dict(id=ident,snapshot=snapshot,workflow=workflow,image=image)
+        if images is not None:request['images']=images
+        self.client.request('workflow/native/start',request,received,fail)
+        return ident
 
     def finish_batch(self,message=''):
         if self.batch: self.client.run_id=''
@@ -172,6 +190,7 @@ class GenerationRunner:
                     self.checking.add(operation)
                     def reconciled(result,job=job,operation=operation):
                         self.checking.discard(operation)
+                        if job['state'] in ('failed','complete'):return
                         for key in ('payload','prompt_id','error'):
                             if key in result:job[key]=result[key]
                         if result.get('state') in ('queued','failed','unconfirmed'):job['state']=result['state']
@@ -197,21 +216,44 @@ class GenerationRunner:
             self.checking.add(ident)
             def done(history,job=job,ident=ident):
                 self.checking.discard(ident); entry=history.get(ident)
+                if job['state'] in ('failed','complete'):return
                 if not entry:
                     if time.time()-job['created']>30 and job['state']!='unconfirmed':
                         job.update(state='unconfirmed',error='佇列與後端紀錄中找不到這項任務；可能已移除或清空，未自動重送。'); self.save(job)
                         if self.pipeline and self.pipeline.waiting==ident:self.pipeline.fail(job['error'])
+                        flow=getattr(self.client,'input_flow',None)
+                        if flow and flow.current and flow.current['operation']==job['id']:flow.fail(job['error'])
                         if not self.batch: self.status(job['error'])
                     return
                 status=entry.get('status',{}); failed=status.get('status_str')=='error' or any(isinstance(m,list) and m and m[0] in ('execution_error','execution_interrupted') for m in status.get('messages',[]))
                 if not status.get('completed') and not failed: return
+                flow=getattr(self.client,'input_flow',None)
+                reason=''
+                if job.get('typed_inputs') and not failed:
+                    from .queued_work import result_state
+                    graph=job.get('payload',{}).get('prompt',{})
+                    original=entry.get('prompt',[])
+                    executed=original[4] if len(original)>4 and isinstance(original[4],list) else list(graph)
+                    targets=sorted(set(job.get('output_nodes',[]))|{str(k) for k in executed if graph.get(str(k),{}).get('class_type') in ('SaveImage','PreviewImage')})
+                    checked,reason=result_state(dict(graph=graph,outputs=targets,input_types=job.get('payload',{}).get('input_types')),ident,entry)
+                    if checked!='complete':
+                        if checked=='unconfirmed':
+                            job.update(state=checked,error=reason);self.save(job)
+                            if flow and flow.current and flow.current['operation']==job['id']:flow.fail(reason)
+                            return
+                        if checked!='failed':return
+                        failed=True
+                    job['input_check']='mismatch' if failed else 'matched'
                 errors=[str(message[1].get('exception_message',message[1].get('node_type','生成失敗'))) for message in status.get('messages',[]) if isinstance(message,list) and len(message)>1 and message[0] in ('execution_error','execution_interrupted') and isinstance(message[1],dict)]
                 count=sum(len(output.get('images',[])) for output in entry.get('outputs',{}).values() if isinstance(output,dict))
-                job.update(state='failed' if failed else 'complete',error='；'.join(errors),output_count=count,finished=time.time(),
+                job.update(state='failed' if failed else 'complete',execution_state='failed' if status.get('status_str')=='error' else 'complete',
+                           error=reason or '；'.join(errors),output_count=count,finished=time.time(),
                            outputs=copy.deepcopy(entry.get('outputs',{})),events=copy.deepcopy(status.get('messages',[])))
                 self.save(job)
                 self.jobs.pop(job['id'],None)
+                self.native_waiting.discard(job['id'])
                 handled=self.pipeline.finished(job,entry) if self.pipeline else False
+                if getattr(self.client,'input_flow',None):handled=self.client.input_flow.finished(job,entry) or handled
                 if not self.batch and not handled:
                     self.status('生成失敗：'+(job['error'] or '請查看 ComfyUI 紀錄。') if failed else
                                 '生成完成' if count else
@@ -225,6 +267,68 @@ class GenerationRunner:
 
     def records(self):
         return [json.loads(row[0]) for row in self.db.execute('SELECT body FROM generation_jobs ORDER BY created DESC LIMIT 100')]
+
+    def recheck(self,ident):
+        job=self.jobs.get(ident) or self.record(ident)
+        if not job or job['server']!=self.client.url:
+            self.window.notice('請連線至這項工作的原 ComfyUI 服務。');return
+        if job['state'] not in ACTIVE:
+            self.window.notice('這項工作已結案：'+job['state']);return
+        self.jobs[ident]=job
+        self.status('正在重新核對這項工作的原生紀錄…')
+        if not job.get('native_operation'):
+            self.client.poll();return
+        def done(result):
+            if job['state'] in ('failed','complete'):return
+            proof=result.get('recovery',{})
+            if not proof:
+                failed('擴充未回傳恢復核對結果，請換用同版擴充並重啟 ComfyUI。');return
+            job['recovery']=proof
+            for key in ('payload','prompt_id'):
+                if result.get(key):job[key]=result[key]
+            if result.get('state')=='failed':
+                job.update(state='failed',error=result.get('error','原生要求已結案。'))
+                self.jobs.pop(ident,None)
+            elif proof.get('location')=='missing':job['state']='unconfirmed'
+            self.save(job)
+            if job['state']=='failed':self.client.input_flow.finished(job,{})
+            self.client.input_flow.observe(self.client.input_flow.last_status)
+            self.status(proof['reason']);self.window.notice(proof['reason']);self.client.poll()
+        def failed(error):
+            if job['state'] in ('failed','complete'):return
+            job['recovery']=dict(location='unavailable',can_abandon=False,reason='核對失敗：'+str(error),checked=time.time())
+            self.save(job);self.status(job['recovery']['reason']);self.window.notice(job['recovery']['reason'])
+        self.client.request('workflow/native/recovery',dict(id=job['native_operation']),done=done,failed=failed)
+
+    def retired(self,ident,result):
+        # Mutate the same object held by in-flight callbacks before removing it;
+        # a delayed history/native reply must never resurrect an abandoned job.
+        job=self.jobs.get(ident) or self.record(ident)
+        if not job or job['state'] not in ACTIVE:return
+        job.update(state='failed',execution_state='unknown',input_check='unconfirmed',
+                   recovery=result.get('recovery',{}),
+                   error='已解除這筆舊任務的追蹤；保留紀錄，沒有重送。',finished=time.time())
+        self.save(job);self.jobs.pop(ident,None);self.native_waiting.discard(ident)
+        flow=self.client.input_flow
+        flow.finished(job,{})
+        flow.observe(flow.last_status)
+        for item in flow.store.rows():
+            if item.get('operation')==ident:
+                flow.store.update(item['id'],state='cancelled',error=job['error'])
+                flow.store.set_control(item['owner'],paused=True)
+        flow.notify('已停止追蹤這筆舊工作，原紀錄保留；沒有重新提交。')
+
+    def abandon(self,ident):
+        job=self.record(ident)
+        if not job or job['server']!=self.client.url or not job.get('native_operation'):
+            self.window.notice('無法核對這項工作的原生歸屬。');return
+        if job['state'] not in ACTIVE:
+            self.window.notice('這項工作已結案，不需要解除追蹤。');return
+        def done(result):
+            if result.get('state')!='abandoned':
+                self.window.notice(result.get('reason','工作仍待核對，尚未略過。'));self.recheck(ident);return
+            self.retired(ident,result)
+        self.client.request('workflow/native/abandon',dict(id=job['native_operation']),done=done,failed=self.window.notice)
 
     def record(self,ident):
         row=self.db.execute('SELECT body FROM generation_jobs WHERE id=?',(ident,)).fetchone()
