@@ -1,2 +1,6 @@
 # Legal notices retain upstream bytes for their recorded SHA256 identities.
 docs/third-party/*.txt -text
+
+# Preserve fixed upstream license bytes and their recorded SHA256.
+docs/third-party/0831/*-LICENSE.txt -text
+docs/third-party/0831/*-COPYING.txt -text
