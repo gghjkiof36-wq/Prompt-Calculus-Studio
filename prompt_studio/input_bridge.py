@@ -35,6 +35,7 @@ class InputBridge:
         return entries
 
     def poll(self):
+        if self.runner.window.state['multi_output']['version']>=7:return
         client=self.runner.client
         if self.pending or not client.connected or not getattr(client,'input_bridge_supported',False):return
         self.pending=True;ack=list(self.ack)

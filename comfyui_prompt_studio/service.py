@@ -301,7 +301,7 @@ class Service:
                     has_generation=isinstance(raw.get('prompt'), dict) and bool(raw['prompt']),
                     has_snapshot=bool(image_snapshots(meta)))
 
-    def results(self, history):
+    def results(self, history, limit=120):
         results = []
         for prompt_id, entry in reversed(list(history.items())):
             prompt = entry.get('prompt', [])
@@ -319,7 +319,9 @@ class Service:
                     if isinstance(image, dict) and str(image.get('filename', '')).lower().endswith('.png'):
                         results.append(dict(prompt_id=prompt_id, node_id=node_id, image=image,
                                             workspaces=workspaces))
-        return results[:120]
+        # Recent history is bounded; an explicitly requested task returns its
+        # entire batch so downstream stages never lose images past that bound.
+        return results[:limit]
 
     @staticmethod
     def folders(value):

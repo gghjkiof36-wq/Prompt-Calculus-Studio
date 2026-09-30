@@ -1,8 +1,9 @@
 """Browse ComfyUI's saved workflows without importing the whole collection."""
 import uuid
+import time
 from pathlib import PurePosixPath
 from urllib.parse import quote
-from PySide6.QtCore import QObject,Signal
+from PySide6.QtCore import QObject,Signal,QTimer
 
 
 def workflow_path(value):
@@ -46,6 +47,35 @@ class WorkflowCatalog(QObject):
     def identity(self,path): return uuid.uuid5(uuid.NAMESPACE_URL,self.server+'/workflows/'+workflow_path(path)).hex
     def read(self,path,done,failed):
         self.client.request('/userdata/'+quote('workflows/'+workflow_path(path),safe=''),done=done,failed=failed)
+    def read_draft(self,path,profile,done,failed):
+        """Prefer a verified open draft; never label a saved fallback as live."""
+        path=workflow_path(path);client=self.client;context=(client.url,client.epoch)
+        ident=uuid.uuid4().hex;started=time.monotonic()
+        def valid():return not client.stopped and context==(client.url,client.epoch)
+        def saved(reason):
+            if valid():self.read(path,lambda value:done(value,'已儲存版本 · '+reason) if valid() else None,failed)
+        if not getattr(client,'native_inspect_supported',False):
+            saved('更新擴充後可讀取未儲存節點');return
+        def error(message):
+            if not valid():return
+            # Ambiguity, failed switching or an uncertain in-flight read must
+            # remain errors. A saved file cannot stand in for those drafts.
+            if '[native_target_missing]' in str(message):saved('工作流尚未在網頁開啟')
+            elif '[native_not_ready]' in str(message):saved('網頁未回覆')
+            else:failed(message)
+        def received(value):
+            if not valid():return
+            state=value.get('state')
+            if state=='inspected':
+                data=value.get('inspection',{});identity=data.get('identity',{})
+                if identity.get('path')!=path or profile and profile.get('frontend_id') and identity.get('frontend_id')!=profile['frontend_id']:
+                    failed('原生讀取回覆與綁定不符。');return
+                done(dict(data,format='prompt_studio_native_inspection',version=1),'原生未儲存草稿');return
+            if state in ('pending','delivered') and time.monotonic()-started<35:
+                QTimer.singleShot(100,self,lambda:client.request('workflow/native/status',dict(id=ident),done=received,failed=error) if valid() else None)
+                return
+            failed(value.get('error') or '原生工作流未讀取，請重新整理。')
+        client.request('workflow/native/inspect',dict(id=ident,target=dict(path=path,frontend_id=(profile or {}).get('frontend_id',''))),done=received,failed=error)
     def trash(self,path,done,failed):
         path=workflow_path(path); target='prompt_studio/workflow-trash/'+uuid.uuid4().hex+'/'+path
         server,epoch=self.client.url,self.client.epoch

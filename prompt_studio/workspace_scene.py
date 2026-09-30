@@ -64,6 +64,8 @@ def create(state,name,duplicate=False):
         projected.update(uses={},selections={},temporary=[],draft=None,draft_base='',selection_view='canvas')
         projected['generation']=dict(mode='txt2img',profiles=[],chosen={},source=None)
         projected=inputs(workflows(clips(migrate(projected))))
+        from .stage_model import upgrade as stages
+        projected=stages(projected)
         value=scene(projected)
     ident=uid();state['workspaces'].append(dict(id=ident,name=name,fixed=[],picks={},parameters={},history=[]))
     state['workspace_scenes']['items'][ident]=value

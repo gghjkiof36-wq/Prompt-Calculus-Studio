@@ -1,6 +1,6 @@
 # 開發方向
 
-[回首頁](README.md) · 更新：2026-09-28（Asia/Taipei）
+[回首頁](README.md) · 更新：2026-09-30（Asia/Taipei）
 
 ## 已公開
 
@@ -11,17 +11,13 @@
 
 0.82 Alpha 1 Repair 5 的產品來源固定為 `5c621ec`，使用者人工校驗已通過；公開狀態以 [Repair 5 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.82-alpha.1-repair.5) 為準。包括 Canvas／CLIP 綁定、明確文字來源、原生單工作流提交、圖片輸入及整批預覽。詳見 [更新紀錄](CHANGELOG.md) 與 [QA 範圍](docs/validation/082_REPAIR5.md)。
 
-## 本次0.83預覽版
+## 本次0.831預覽版
 
-固定產品 `986da44`：直接原生提交、忙碌時才保存預排程、圖片來源與集合供應、指定取消及精簡底欄。使用者回報正常使用，範圍見 [QA摘要](docs/validation/083_DIRECT.md)；下載以 [Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.83-alpha.1) 為準。
+Stage生成、線性跨工作流及本輪圖片傳遞、分層預排程、種子與流程恢復。固定ea7df89，發布以 [Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.831-alpha.1) 為準。操作見 [發布說明](docs/RELEASE_NOTES_0831.md)。0.83的單工作流限制不直接套用本版。
 
-## 本輪未納入或仍需更多證據
+## 仍未納入
 
-- 關閉網頁後執行、跨工作流自動串接及 AI 文字轉譯。
-- 更完整的第三方節點、Windows／DPI、新機安裝與真實生成相容性證據。
-- 本版可公開截圖、實際CI執行紀錄及EXE/runtime散布準備。
-
-0.82的單次執行與圖片限制不可直接套用0.83；圖片集合及預排程的新操作以當前指南為準，未承諾未列出的跨流程能力。
+關頁執行、AI轉譯、Manager整合、條件分支、循環、影音、跨服務派送及全局視覺重整。永久pending原生loader仍需刷新，更多環境／新機／EXE GPU證據待累積，無日期承諾。
 
 ## 中期與探索
 

@@ -32,6 +32,21 @@ def queries(state,keys,completed=None):
 
 
 class ImageBindings:
+    def stage_collection(self,key):
+        w=self.client.window
+        from .stage_context import image_list
+        from .flow_data import incoming
+        image=w.state.get('canvas_functions',{}).get('images',{}).get(key,{})
+        if key not in w.state['multi_output'].get('stages',{}) and not incoming(w.state,key,'image') and not image.get('stage_reference'):
+            return None
+        try:
+            state=w.comfy.input_flow.chain.context(w.comfy.input_flow.chain.results)
+            if key in state.get('canvas_functions',{}).get('images',{}):state['canvas_functions']['images'][key].pop('input_index',None)
+            images=image_list(state,key)
+            ident=hashlib.sha256(str([(i['sha256'],i.get('reference')) for i in images]).encode()).hexdigest()
+            return dict(collection=ident,items=images)
+        except (ValueError,OSError):return None
+
     def __init__(self,client): self.client=client; self.values={}; self.collections={}; self.errors={}; self.pending=False; self.owner=None; self.cache={}; self.serial=0
     def identity(self):
         w=self.client.window
@@ -43,11 +58,19 @@ class ImageBindings:
             return {k:v for k,v in rows[0].items() if k not in ('selection','prompt_id')} if rows else None
         except ValueError:return None
     def collection(self,key):
+        if self.client.window.state.get('multi_output',{}).get('version',0)>=7:
+            return self.stage_collection(key)
         scope=self.scope(key)
         record=self.collections.get(key)
         return record[1] if self.owner==self.identity() and record and scope and record[0]==scope else None
     def source(self,key):
         w=self.client.window; value=w.state.get('canvas_functions',{}).get('images',{}).get(key,{})
+        if w.state.get('multi_output',{}).get('version',0)>=7:
+            from .flow_data import incoming,resolve
+            if key in w.state['multi_output']['stages'] or incoming(w.state,key,'image') or value.get('stage_reference'):
+                try:return resolve(w.comfy.input_flow.chain.context(w.comfy.input_flow.chain.results),key,'image')['value']
+                except (ValueError,OSError):return None
+            return value.get('source')
         if not value.get('binding'): return value.get('source')
         collection=self.collection(key)
         if collection:
@@ -62,6 +85,12 @@ class ImageBindings:
         collection=self.collection(key)
         if not collection or collection['collection']!=collection_id or type(index) is not int or not 0<=index<len(collection['items']):
             self.client.window.notice('圖片集合已更新，請重新選擇。');return
+        window=self.client.window
+        if window.state.get('multi_output',{}).get('version',0)>=7:
+            if key not in window.state.get('canvas_functions',{}).get('images',{}):return
+            if window.canvas.commit(lambda state:state['canvas_functions']['images'][key].update(input_index=index)):
+                window.comfy.input_flow.chain.refresh_results()
+            return
         selection=dict(collection=collection_id,image=copy.deepcopy(collection['items'][index]['reference']['image']))
         if not self.client.window.canvas.commit(lambda state:state['canvas_functions']['images'][key].update(selection=selection)):return
         self.errors[key]=''
@@ -99,6 +128,7 @@ class ImageBindings:
         self.client.request('desktop/images',dict(queries=requested),done=receive,failed=failed)
     def poll(self):
         w=self.client.window
+        if w.state.get('multi_output',{}).get('version',0)>=7:return
         if self.pending or not self.client.connected or not getattr(self.client,'images_supported',False) or w.closing:return
         bound={k:copy.deepcopy(self.scope(k)) for k,v in w.state.get('canvas_functions',{}).get('images',{}).items() if v.get('binding')}
         if not bound:return

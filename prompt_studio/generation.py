@@ -304,6 +304,10 @@ def validate_canvas_functions(value):
         if not isinstance(key,str) or not key.startswith('__source_') or not isinstance(item,dict) or type(item.get('attached')) is not bool:
             raise ValueError('圖片模組格式無效。')
         validate_generation(dict(mode='img2img',profiles=[],chosen={},source=item.get('source')))
+        if item.get('reader') not in (None,'text'):raise ValueError('讀取模塊類型無效。')
+        if item.get('output_node') is not None and not isinstance(item['output_node'],str):raise ValueError('圖片結果節點無效。')
+        field=item.get('text_field')
+        if field is not None and (not isinstance(field,list) or len(field)!=2 or any(not isinstance(v,str) for v in field)):raise ValueError('文字結果欄位無效。')
         selection=item.get('selection')
         if selection is not None:
             if (not isinstance(selection,dict) or not isinstance(selection.get('collection'),str) or

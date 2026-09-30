@@ -50,6 +50,10 @@ def choose_recent(panel):
 
 def edit_list(panel):
     window=panel.owner.window;value=panel.owner.data()['images'][panel.key]
+    if window.state.get('multi_output',{}).get('version',0)>=7:
+        from .flow_data import incoming
+        if incoming(window.state,panel.key,'image') or value.get('stage_reference'):
+            window.notice('這份清單來自接入圖片；可在「選擇圖片」選指定一張或全部。要改成固定清單，請從歷史選圖或載入資料夾。');return
     items=copy.deepcopy(value.get('items') or ([value['source']] if value.get('source') else []))
     dialog=StudioDialog(window);dialog.setWindowTitle('圖片來源 · 清單與目前圖片');dialog.resize(650,540)
     dialog.body.addWidget(label('拖曳排列；移除只略過這張圖片。保存清單後，由第一張開始；已排程的項目仍保留。','Subtle',True))
@@ -63,7 +67,9 @@ def edit_list(panel):
         source=listing.currentItem()
         if source:
             index=items.index(source.data(Qt.ItemDataRole.UserRole))
-            panel.owner.canvas.commit(lambda state:select(state,panel.key,index,window.store.directory));dialog.reject()
+            changed=panel.owner.canvas.commit(lambda state:select(state,panel.key,index,window.store.directory))
+            if changed is not False:window.comfy.input_flow.direct.reset_source(panel.key)
+            dialog.reject()
     dialog.body.addLayout(row(button('略過選取圖片',remove,'Quiet'),button('只切到選取圖片',jump,'Quiet'),None))
     dialog.body.addWidget(dialog_buttons(dialog))
     if dialog.exec()==QDialog.DialogCode.Accepted:
@@ -74,8 +80,14 @@ def edit_list(panel):
 
 def step(panel,delta):
     value=panel.owner.data()['images'][panel.key]
+    window=panel.owner.window
+    if window.state.get('multi_output',{}).get('version',0)>=7:
+        collection=window.comfy.images.collection(panel.key)
+        if collection:
+            window.comfy.images.choose(panel.key,collection['collection'],value.get('input_index',0)+delta);return
     index=value.get('index',0)+delta
-    panel.owner.canvas.commit(lambda state:select(state,panel.key,index,panel.owner.window.store.directory))
+    changed=panel.owner.canvas.commit(lambda state:select(state,panel.key,index,panel.owner.window.store.directory))
+    if changed is not False:panel.owner.window.comfy.input_flow.direct.reset_source(panel.key)
 
 
 def choose_prompt(panel):
@@ -92,5 +104,10 @@ def choose_prompt(panel):
     if dialog.exec()!=QDialog.DialogCode.Accepted:return
     def change(state):
         value=state['canvas_functions']['images'][panel.key];value['prompt_choice']=picker.currentData()
+        from .flow_data import incoming,materialize
+        if state['multi_output']['version']>=7 and (incoming(state,panel.key,'image') or value.get('stage_reference')):
+            from .image_source import read_content
+            value['content']=read_content(panel.owner.window.store.directory/source['relative'],value['prompt_choice'])
+            value.pop('content_error',None);materialize(state);return
         select(state,panel.key,value.get('index',0),panel.owner.window.store.directory)
     panel.owner.canvas.commit(change)

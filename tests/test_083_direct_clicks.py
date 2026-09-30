@@ -19,6 +19,12 @@ class DirectClickTests(unittest.TestCase):
     tearDown=runtime.RuntimeRepairTests.tearDown
     click=runtime.RuntimeRepairTests.click
     text=runtime.RuntimeRepairTests.text
+    image_batch=runtime.RuntimeRepairTests.image_batch
+
+    def test_failed_first_image_cannot_reuse_already_pending_second_image(self):
+        self.image_batch(3,False);self.click();self.click();self.executor.finish(mismatch=True)
+        self.click()
+        self.assertEqual([p['prompt']['6']['inputs']['text'] for p in self.executor.submissions],['image 1','image 2','image 3'])
 
     def schedule(self):
         created=[]

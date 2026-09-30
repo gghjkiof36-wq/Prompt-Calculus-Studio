@@ -4,6 +4,20 @@ import time
 
 NAMES={'submitting':'提交中','queued':'等待中','running':'執行中','complete':'完成','failed':'失敗','unconfirmed':'未確認'}
 
+def native_details(record):
+    phases=dict(received='網頁收到要求',select='切換工作流',activate='確認工作流',apply='套用輸入',
+        native_wait='等待原生執行入口',serialize='讀取原生工作流',prepare='保存提交內容',transport='送出生成',native_finish='原生提交收尾',reply='回傳結果')
+    states=dict(started='開始',done='完成',error='中斷',timeout='逾時')
+    lines=[]
+    events=record.get('diagnostics',{}).get('events',[])
+    if record.get('issued_at') and not events:lines.append('要求已派送；尚無網頁收到要求的紀錄。')
+    if events:
+        event=next((e for e in events if e['state'] in ('timeout','error')),events[-1])
+        lines.append('最後提交階段：'+phases.get(event['phase'],event['phase'])+' · '+states.get(event['state'],event['state']))
+    if record.get('first_error'):lines.append('最初錯誤：'+record['first_error'])
+    if record.get('terminal_action'):lines.append('後續處理：'+{'cancel':'取消','abandon':'停止追蹤'}.get(record['terminal_action'],record['terminal_action']))
+    return '\n'.join(lines)
+
 
 def job_marker(record):
     extra=record.get('payload',{}).get('extra_data',{}).get('extra_pnginfo',{})
@@ -21,7 +35,7 @@ def describe(record,now=None):
     recovery_text=('最近核對：'+recovery['reason']) if recovery.get('reason') else ''
     if not marker:
         return '\n'.join(['狀態：'+NAMES.get(record['state'],record['state']),'原生操作：'+record['id'],
-            '工作流：'+workflow_name(record),'尚未收到原生提交內容；不會顯示 PCS 舊副本。',record.get('error',''),recovery_text])
+            '工作流：'+workflow_name(record),'尚未收到原生提交內容；不會顯示 PCS 舊副本。',record.get('error',''),native_details(record),recovery_text])
     snapshot=marker.get('snapshot') or next((b['snapshot'] for b in marker.get('bindings',[]) if 'snapshot' in b),{})
     profile=next((p for p in snapshot.get('state',{}).get('generation',{}).get('profiles',[]) if p['id']==gen['workflow_id']),{})
     origin=gen.get('origin') or profile.get('origin') or {}
@@ -30,6 +44,7 @@ def describe(record,now=None):
            '工作流 ID：'+gen['workflow_id'],'來源：'+origin.get('path','PCS 匯入副本'),
            '提交時間：'+time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(record['created']))]
     workspace=record.get('workspace')
+    if native_details(record):lines.append(native_details(record))
     if recovery_text:lines[1:1]=[recovery_text,'']
     if workspace:
         name=next((w['name'] for w in snapshot.get('state',{}).get('workspaces',[]) if w['id']==workspace),workspace)

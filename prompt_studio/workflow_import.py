@@ -93,7 +93,15 @@ def infer_profile(graph,name,workflow=None):
 def read_profile(value,name,ident,origin):
     """Read nodes without applying a transfer's unrelated desktop bindings."""
     if not isinstance(value,dict): raise ValueError('工作流格式無效。')
-    if value.get('format')=='prompt_studio_workflow':
+    if value.get('format')=='prompt_studio_native_inspection':
+        visual=value.get('workflow');identity=value.get('identity',{})
+        if (value.get('version')!=1 or not isinstance(visual,dict) or not visual.get('id') or
+                visual.get('id')!=identity.get('frontend_id') or identity.get('path')!=origin.get('path') or type(value.get('epoch')) is not int):
+            raise ValueError('原生工作流讀取身分無效。')
+        # The official frontend serialized custom widgets and unsaved nodes.
+        # Never reverse-engineer widget positions from a visual JSON here.
+        profile=infer_profile(api_graph(value.get('output')),name,visual)
+    elif value.get('format')=='prompt_studio_workflow':
         if value.get('version')!=1 or not isinstance(value.get('id'),str) or not value['id']:
             raise ValueError('工作流交換檔格式無效。')
         profile=infer_profile(import_graph(value.get('graph')),value.get('name'),value.get('workflow'))

@@ -17,6 +17,9 @@ class InputRunner:
         self.bridge=InputBridge(self)
         from .direct_runs import DirectRuns
         self.direct=DirectRuns(self)
+        from .chain_runner import ChainRunner
+        from .stage_runner import StageRunner
+        self.chain=StageRunner(self) if self.window.state.get('multi_output',{}).get('version',0)>=7 else ChainRunner(self)
         # Unsaved live demands also survive reopening, but never resume silently.
         for owner,raw in list(self.store.db.execute('SELECT owner,body FROM input_queue_control')):
             self.store.set_control(owner,paused=True)
@@ -67,6 +70,9 @@ class InputRunner:
         return state
 
     def execute(self, count=1):
+        if self.window.state.get('multi_output',{}).get('version',0)>=7:return self.chain.start(count)
+        from .chain_model import enabled
+        if enabled(self.window.state):return self.chain.start(count)
         from .workflow_flow import execution_profiles
         if not self.client.connected:raise ValueError('請先連線至 ComfyUI。')
         if type(count) is not int or not 1<=count<=100:raise ValueError('執行次數須介於 1–100。')
@@ -77,14 +83,16 @@ class InputRunner:
         if not scheduler:
             if source:
                 image=state['canvas_functions']['images'][source]
-                items=[*self.direct.submitted.values(),*self.direct.pending,*([self.direct.current] if self.direct.current else [])]
-                offset=sum(bool(i.get('source') and i['source']['key']==source and i['source']['batch']==image['batch_id']) for i in items)
-                index=image.get('index',0)+offset
+                # Completion/failure can remove an earlier request while a
+                # later image is pending. Reserve positions monotonically so
+                # that another explicit click cannot submit that later image twice.
+                index=self.direct.next_source(source,image)
                 if index+count>len(image['items']):raise ValueError('執行次數超過本批剩餘圖片。')
                 stages=[]
                 for i in range(index,index+count):
                     origin=dict(key=source,batch=image['batch_id'],index=i)
                     stages.append((self.context(origin),origin))
+                self.direct.source_positions[self.direct.source_key(source,image['batch_id'])]=index+count
                 for stage,origin in stages:self.direct.add(stage,route,source=origin)
             else:self.direct.add(self.context(),route,count)
             return
@@ -128,6 +136,7 @@ class InputRunner:
                    [*direct.submitted.values(),*direct.pending,*([direct.current] if direct.current else [])])
 
     def fill(self, owner):
+        if self.chain.owns(owner):return
         control=self.store.control(owner);feed=control.get('feed')
         if control['paused'] or not feed:return
         if control['route']['workspace']!=self.window.state['workspace'] or control['route']['server']!=self.client.url:
@@ -154,11 +163,13 @@ class InputRunner:
     def next_item(self):
         for item in self.store.rows():
             control=self.store.control(item['owner'])
+            if self.chain.owns(item['owner']):continue
             if not control['paused'] and item['state']=='waiting' and item['route']['workspace']==self.window.state['workspace']:
                 return item
         return None
 
     def pump(self):
+        if self.window.state.get('multi_output',{}).get('version',0)>=7:return self.chain.pump()
         if self.pumping or self.current or not self.client.connected:return
         self.direct.pump()
         if self.client.running or self.client.pending or self.direct.busy():return
@@ -235,6 +246,10 @@ class InputRunner:
         self.current=None;self.notify('已暫停：'+str(error)+'；等待內容保留，不會自動重送。')
 
     def finished(self, job, entry):
+        if job.get('chain'):
+            if self.window.state.get('multi_output',{}).get('version',0)>=7:self.chain.observe(self.last_status)
+            else:QTimer.singleShot(0,lambda:self.chain.observe(self.last_status))
+            return True
         if self.direct.finished(job):return True
         current=self.current
         if not current or job['id']!=current['operation']:return False
@@ -252,6 +267,9 @@ class InputRunner:
 
     def observe(self, status):
         self.last_status=status
+        if self.window.state.get('multi_output',{}).get('version',0)>=7:
+            self.chain.observe(status);return
+        self.chain.observe(status)
         self.direct.observe()
         for owner,control in self.controls():
             active=control.get('active')
@@ -301,7 +319,8 @@ class InputRunner:
         self.store.set_control(owner,paused=True)
 
     def has_work(self):
-        return bool(self.direct.busy() or self.current and self.current['route']['workspace']==self.window.state['workspace'] or
+        if self.window.state.get('multi_output',{}).get('version',0)>=7:return bool(self.chain.runs(True) or self.chain.applying or self.chain.apply_queue)
+        return bool(self.chain.current() or self.direct.busy() or self.current and self.current['route']['workspace']==self.window.state['workspace'] or
                     any(r['route']['workspace']==self.window.state['workspace'] for r in self.store.rows()) or
                     any(c.get('credits',0) or c.get('active') for _,c in self.local_controls()))
 
@@ -310,6 +329,7 @@ class InputRunner:
                 and c['route'].get('server')==self.client.url]
 
     def workspace_changed(self,previous):
+        self.chain.workspace_changed(previous)
         self.direct.workspace_changed(previous)
         for owner,c in self.controls():
             if c.get('route',{}).get('workspace')==previous:self.store.set_control(owner,paused=True)
@@ -325,6 +345,10 @@ class InputRunner:
         return False
 
     def cancel(self, owner=None):
+        if self.window.state.get('multi_output',{}).get('version',0)>=7:return self.chain.cancel()
+        from .chain_model import enabled
+        if owner is None and enabled(self.window.state) and self.chain.current():
+            return self.chain.cancel(self.chain.current()['id'])
         owner=self.store.scoped(owner)
         for key,_ in self.local_controls():
             if owner is None or key==owner:self.store.set_control(key,paused=True)
@@ -365,6 +389,7 @@ class InputRunner:
         else:self.notify('已暫停後續項目，目前沒有本次 PCS 提交中的工作。')
 
     def disconnected(self):
+        self.chain.disconnected()
         self.direct.disconnected()
         for owner,_ in self.controls():self.store.set_control(owner,paused=True)
         self.current=None

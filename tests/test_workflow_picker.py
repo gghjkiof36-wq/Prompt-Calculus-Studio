@@ -1,8 +1,10 @@
 """Read-only browsing, atomic binding and stale-response protection; offline."""
 import copy,unittest
 from unittest.mock import patch
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt,QEvent
 from PySide6.QtWidgets import QPushButton
+from PySide6.QtTest import QTest
+from shiboken6 import isValid
 from prompt_studio.clip_widgets import ClipBindingDialog
 from prompt_studio.image_binding_dialog import ImageBindingDialog
 from prompt_studio.generation import active_profile
@@ -26,7 +28,7 @@ class PickerTests(unittest.TestCase):
         self.mock=patch.object(manager.catalog,'read',read); self.mock.start(); self.addCleanup(self.mock.stop)
         self.key=self.canvas.functions.add_image() if image else next(iter(self.canvas.clips))
         dialog=ImageBindingDialog(self.canvas,self.key) if image else ClipBindingDialog(self.canvas,self.key)
-        self.addCleanup(dialog.reject)
+        self.addCleanup(lambda:dialog.reject() if isValid(dialog) else None)
         return dialog
 
     def test_remote_nodes_read_in_picker_and_only_saved_with_binding(self):
@@ -96,6 +98,43 @@ class PickerTests(unittest.TestCase):
         self.assertIn('API',d.hint.text()); self.assertFalse(d.target.isEnabled()); self.assertEqual(self.w.state,before)
         d.read_current(); done=self.pending[-1][1]; d.reject(); done(workflow()['graph'])
         self.assertEqual(self.w.state,before); self.assertFalse(d.staged)
+
+    def test_refresh_reads_four_unsaved_clips_from_native_without_saving_or_submitting(self):
+        d=self.picker();self.pending[-1][1](workflow()['graph'])
+        before=copy.deepcopy(self.w.state);routes=[];self.w.comfy.native_inspect_supported=True
+        graph=copy.deepcopy(workflow()['graph'])
+        graph['91']=dict(class_type='CLIPTextEncode',inputs=dict(text='third unsaved'))
+        graph['92']=dict(class_type='CLIPTextEncode',inputs=dict(text='fourth unsaved'))
+        def request(route,data=None,done=None,failed=None,**_):
+            routes.append(route)
+            if route.startswith('/userdata?'):done(['A.json','B.json'])
+            elif route=='workflow/native/inspect':done(dict(id=data['id'],state='pending'))
+            elif route=='workflow/native/status':done(dict(state='inspected',inspection=dict(epoch=2,identity=dict(path='A.json',frontend_id='live-A'),workflow=dict(id='live-A',nodes=[]),output=graph)))
+            else:raise AssertionError(route)
+        with patch.object(self.w.comfy,'request',request):
+            refresh=next(b for b in d.findChildren(QPushButton) if b.text()=='重新整理')
+            QTest.mouseClick(refresh,Qt.MouseButton.LeftButton);QTest.qWait(150)
+        self.assertFalse(d.loading);self.assertEqual(len([d.target.itemData(i) for i in range(d.target.count()) if d.target.itemData(i)]),4)
+        self.assertEqual(d.profile()['frontend_id'],'live-A');self.assertEqual(self.w.state,before)
+        self.assertEqual(routes,['/userdata?dir=workflows&recurse=true','workflow/native/inspect','workflow/native/status'])
+
+    def test_saved_fallback_is_visible_and_ambiguous_live_draft_never_falls_back(self):
+        d=self.picker();self.pending[-1][1](workflow()['graph'])
+        self.assertIn('已儲存版本',d.source_hint.text())
+        d.staged.clear();self.w.comfy.native_inspect_supported=True
+        before=len(self.pending)
+        with patch.object(self.w.comfy,'request',lambda route,data=None,done=None,failed=None,**_:failed('ambiguous [native_ambiguous]')):
+            d.read_current()
+        self.assertEqual(len(self.pending),before);self.assertIn('native_ambiguous',d.hint.text());self.assertFalse(d.target.isEnabled())
+
+    def test_deleted_picker_ignores_late_native_receipt_without_touching_qt(self):
+        d=self.picker();self.pending[-1][1](workflow()['graph']);d.staged.clear()
+        self.w.comfy.native_inspect_supported=True;callbacks=[]
+        with patch.object(self.w.comfy,'request',lambda route,data=None,done=None,failed=None,**_:callbacks.append((done,failed))):d.read_current()
+        before=copy.deepcopy(self.w.state);d.deleteLater();APP.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+        self.assertFalse(isValid(d))
+        callbacks[0][0](dict(state='inspected',inspection=dict(epoch=0,identity=dict(path='A.json',frontend_id='live-A'),workflow=dict(id='live-A',nodes=[]),output=workflow()['graph'])))
+        self.assertEqual(self.w.state,before)
 
 
 

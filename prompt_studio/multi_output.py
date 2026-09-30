@@ -63,7 +63,7 @@ def valid_edge(state,source,destination,kind):
 
 def input_slot(source,destination,kind,outputs=()):
     # Each output gets a distinct socket on the shared execution/preview card.
-    return (destination,kind,source if kind in ('execution','preview','text') or kind=='clip' and destination in outputs else '')
+    return (destination,kind,source if kind in ('execution','preview','text','control','flow') or kind=='clip' and destination in outputs else '')
 
 
 def connected_outputs(state,kind='execution'):
@@ -126,10 +126,18 @@ def assign(state,use,canvas):
 def connect(state,source,destination,kind):
     data=state['multi_output']; canvases=data['canvases']; outputs=data['outputs']
     if not valid_edge(state,source,destination,kind): raise ValueError('這兩個端口無法連接。')
+    if kind=='control' and data['version']>=7:
+        from .stage_model import choose,terminals
+        if not data['stages'][destination].get('workflow'):choose(state,destination,terminals(state)[source].get('workflow'))
+    elif kind=='control':
+        from .chain_connections import connect as control_connect
+        destination=control_connect(state,source,destination)
     if kind=='text':
         if source not in canvases or destination not in outputs: raise ValueError('文字只能由畫布連到最終 Prompt。')
         if data['version']<5 and any(c['kind']=='text' and c['source']==source and c['destination']!=destination for c in data['connections']):
             raise ValueError('這張畫布已連接另一個最終 Prompt，請先解除。')
+    if kind=='flow' and data['version']>=7:
+        data['schedulers'][destination.split('::')[0]]['mode']='stage'
     if data['version']>=5:
         from .flow_data import check_cycle
         check_cycle(state,source,destination)
@@ -294,7 +302,10 @@ def bound_texts(state,profile):
 def validate_multi(state):
     from .composition import validate_node
     data=state['multi_output']
-    if not isinstance(data,dict) or data.get('version') not in (1,2,3,4,5,6): raise ValueError('多畫布資料版本無效。')
+    if not isinstance(data,dict) or data.get('version') not in (1,2,3,4,5,6,7): raise ValueError('多畫布資料版本無效。')
+    if data['version']>=7:
+        from .stage_model import validate as validate_stages
+        validate_stages(state)
     for name in (('canvases','outputs','clip_inputs') if data['version']>=3 else ('canvases','outputs')):
         if not isinstance(data.get(name),dict) or len(data[name])>100: raise ValueError('畫布或輸出數量無效。')
         for key,v in data[name].items():

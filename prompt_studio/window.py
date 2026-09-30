@@ -285,6 +285,20 @@ class Window(QMainWindow):
         self.record_navigation('page',next((name for name in ('gallery','recent','clean_export') if getattr(self,name) is page),None))
 
     def show_recent_sheet(self):
+        if self.state.get('multi_output',{}).get('version',0)>=7:
+            from PySide6.QtWidgets import QDockWidget
+            if not getattr(self,'recent_dock',None):
+                self.recent_dock=QDockWidget('最近生成',self);self.recent_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
+                self.recent_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
+                self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.recent_dock)
+                self.recent_dock.setMinimumWidth(350)
+                def restore_recent(visible):
+                    if not visible and self.recent_dock.widget():
+                        self.recent.setParent(None);self.tabs.insertTab(self.recent_dock_index,self.recent,'最近生成')
+                self.recent_dock.visibilityChanged.connect(restore_recent)
+            if self.recent_dock.widget():self.recent_dock.hide();return
+            self.recent_dock_index=max(0,self.tabs.indexOf(self.recent));self.tabs.removeTab(self.tabs.indexOf(self.recent))
+            self.recent_dock.setWidget(self.recent);self.recent_dock.show();self.recent.show();self.recent.request_refresh();return
         from .widgets import DismissibleSheet
         if getattr(self,'recent_sheet',None): self.recent_sheet.raise_(); return
         self.restore_canvas_page()
@@ -484,6 +498,7 @@ class Window(QMainWindow):
             canvas.undo_stack,canvas.redo_stack=histories.get(target,([],[]));canvas.last_state=None
             canvas.root_id=None;canvas.path=[]
         apply_workspace(self.state,target)
+        if hasattr(self,'comfy') and hasattr(self.comfy.input_flow.chain,'load_results'):self.comfy.input_flow.chain.load_results()
         self.refresh_workspaces();self.refresh_library();self.refresh_builder();self.generation_panel.refresh()
         if hasattr(self,'canvas'):self.canvas.restore_view()
         self.changed()

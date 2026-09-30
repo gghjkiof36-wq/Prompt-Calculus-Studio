@@ -1,7 +1,7 @@
 """Canvas editors for typed input buffers and explicit image destinations."""
 import copy
 from PySide6.QtCore import Qt,QRectF,QSize,QTimer
-from PySide6.QtGui import QImageReader,QPixmap,QIcon
+from PySide6.QtGui import QImageReader,QPixmap,QIcon,QColor
 from PySide6.QtWidgets import QFrame,QVBoxLayout,QListWidget,QListWidgetItem,QPlainTextEdit,QDialog,QAbstractItemView
 from .widgets import label,button,row,ComboBox,RoundMenu,StudioDialog,dialog_buttons,scrolling
 from .canvas_items import TextCard
@@ -63,7 +63,10 @@ def retained_records(window):
         runner.pause(owner)
         if canvas.commit(change):dialog.accept();window.notice('已恢復預排程模塊；接回原工作流及來源後，按「繼續」。')
     listing.currentRowChanged.connect(selected);dialog.body.addWidget(listing,1);dialog.body.addWidget(detail,1)
-    dialog.body.addLayout(row(button('顯示／恢復這份預排程',restore,'Quiet'),None,button('關閉',dialog.accept,'Quiet')))
+    if window.state.get('multi_output',{}).get('version',0)>=7:
+        dialog.body.addWidget(label('舊版項目僅保留閱讀；請以新版 Stage 與預排程明確建立新工作。','Subtle',True))
+        dialog.body.addWidget(button('關閉',dialog.accept,'Quiet'))
+    else:dialog.body.addLayout(row(button('顯示／恢復這份預排程',restore,'Quiet'),None,button('關閉',dialog.accept,'Quiet')))
     listing.setCurrentRow(0);dialog.exec();dialog.deleteLater()
 
 
@@ -103,7 +106,6 @@ class ImageInputPanel(QFrame):
         super().__init__();self.canvas=canvas;self.key=key;self.setObjectName('InsetPanel')
         body=QVBoxLayout(self);body.setContentsMargins(14,14,14,14)
         self.choose=button('選擇工作流與 LoadImage 節點',self.bind,'Quiet');body.addWidget(self.choose)
-        self.status=label('由連線接收圖片，不需再載入一次。','Subtle',True);body.addWidget(self.status)
 
     def bind(self):
         dialog=ImageInputDialog(self.canvas,self.key)
@@ -319,20 +321,34 @@ class SchedulePanel(QFrame):
 class FlowCard(TextCard):
     def __init__(self,canvas,key,kind):
         self.kind=kind;super().__init__(canvas);self.key=key
-        self.panel=SchedulePanel(canvas,key) if kind=='schedulers' else ImageInputPanel(canvas,key)
+        if canvas.data()['version']>=7 and kind in ('schedulers','stages'):
+            from .stage_widgets import StagePanel,SchedulePanel as StageSchedule
+            self.panel=StagePanel(canvas,key) if kind=='stages' else StageSchedule(canvas,key)
+        else:self.panel=SchedulePanel(canvas,key) if kind=='schedulers' else ImageInputPanel(canvas,key)
         self.init_interaction()
     @property
-    def default_size(self):return (540,550) if self.kind=='schedulers' else (440,240)
+    def default_size(self):return (500,550) if self.kind=='schedulers' else (360,245) if self.kind=='stages' else (360,160)
     def attach(self):
         if self.proxy.widget() is not self.panel:self.proxy.setWidget(self.panel)
         self.title=self.canvas.data()[self.kind][self.key]['name'];self.panel.setStyleSheet(self.canvas.window.styleSheet())
         self.panel.ensurePolished();self.restore_size();self.layout_card();self.panel.show();self.panel.refresh()
     def layout_card(self):
         top=82
+        if self.kind=='stages':
+            from .stage_model import controls
+            dependencies=sum(c['kind']=='done' and c['destination']==self.key for c in self.canvas.data()['connections'])
+            top=max(160,106+24*(len(controls(self.canvas.window.state,self.key))+dependencies+1))
         if self.kind=='schedulers':top=70+24*len(self.canvas.data()[self.kind][self.key]['channels'])
+        if self.kind=='schedulers' and self.canvas.data()['version']>=7:top+=24
         w,h=self.requested_size;minimum=self.panel.minimumSizeHint()
-        self.proxy.setGeometry(QRectF(14,top,max(340,w-28,minimum.width()),max(h-top-14,minimum.height())));self.sync_bounds()
+        self.proxy.setGeometry(QRectF(14,top,max(290,w-28,minimum.width()),max(h-top-14,minimum.height())));self.sync_bounds()
     def update_text(self):self.panel.refresh();super().update_text()
+    def paint(self,painter,option,widget=None):
+        super().paint(painter,option,widget)
+        if self.kind=='stages':
+            value=self.canvas.data()['stages'][self.key]
+            profile=next((p for p in self.canvas.window.state.get('generation',{}).get('profiles',[]) if p['id']==value.get('workflow')),None)
+            painter.setPen(QColor('#9da5af'));painter.drawText(QRectF(18,36,self.width-36,23),Qt.AlignmentFlag.AlignVCenter,profile['name'] if profile else '尚未選擇工作流')
     def contextMenuEvent(self,event):
         menu=RoundMenu(self.canvas.window)
         menu.addAction('重新命名',lambda:self.canvas.rename_function(self.kind,self.key))

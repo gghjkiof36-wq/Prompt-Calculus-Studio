@@ -4,12 +4,12 @@ import {installNativeQueue,applyNativeBindings} from '../comfyui_prompt_studio/w
 import {graphFingerprint} from '../comfyui_prompt_studio/web/graph_fingerprint.js';
 import {captureManual} from '../comfyui_prompt_studio/web/state.js';
 
-function fixture({busy=false,timeout=12000,capture=false,policy=null,manual=null}={}) {
+function fixture({busy=false,timeout=12000,capture=false,policy=null,manual=null,onRequest=null}={}) {
     globalThis.document=new EventTarget();
     const graph={id:'native-A',inputs:{width:1216,height:832,batch_size:2,seed:10},
         serialize(){return {id:this.id,nodes:[{id:1,type:'EmptyLatentImage',widgets_values:Object.values(this.inputs)}]};}};
-    const sent=[],prepared=[],events=[],notices=[];
-    const api={clientId:'real-web-sid',async queuePrompt(...args){sent.push(args);return {prompt_id:'actual-prompt-id',node_errors:{}};}};
+    const sent=[],prepared=[],events=[],notices=[],diagnostics=[];
+    const api=Object.assign(new EventTarget(),{clientId:'real-web-sid',async queuePrompt(...args){sent.push(args);return {prompt_id:'actual-prompt-id',node_errors:{}};}});
     const app={graph,rootGraph:graph,processingQueue:busy,queueItems:[],extensionManager:{workflow:{activeWorkflow:{path:'workflows/folder/A.json',activeState:{id:graph.id}}}},
         async graphToPrompt(){return {workflow:graph.serialize(),output:{'1':{class_type:'EmptyLatentImage',inputs:{...graph.inputs}}}};},
         async queuePrompt(number,count){
@@ -26,12 +26,174 @@ function fixture({busy=false,timeout=12000,capture=false,policy=null,manual=null
                 return true;
             } finally {this.processingQueue=false;}
         }};
-    const request=async (route,value)=>{prepared.push({route,value:structuredClone(value)});return route==='workflow/inputs/claim'&&manual?manual(value):{};};
+    const request=async (route,value)=>{(route==='workflow/native/event'?diagnostics:prepared).push({route,value:structuredClone(value)});return onRequest?onRequest(route,value):route==='workflow/inputs/claim'&&manual?manual(value):{};};
     const seeds={queueHooks(){return {before(){graph.inputs.seed++;},after(){graph.inputs.seed++;}};}};
     const adapter=installNativeQueue(app,api,request,'tab-session',(...args)=>notices.push(args),timeout,undefined,undefined,capture?seeds:null);
     const command={id:'operation',epoch:0,identity:{workflow:'',path:'folder/A.json',frontend_id:'native-A'}};
-    return {app,api,graph,sent,prepared,events,notices,adapter,command};
+    return {app,api,graph,sent,prepared,events,notices,diagnostics,adapter,command};
 }
+
+test('a lost poll response expires and a late command cannot run after the next poll',async()=>{
+    let release,count=0;
+    const f=fixture({timeout:25,onRequest:route=>{
+        if(route==='workflow/native/poll'&&++count===1)return new Promise(resolve=>release=resolve);
+        return {};
+    }});
+    try {
+        await f.adapter.poll();assert.equal(f.sent.length,0);
+        await f.adapter.poll();assert.equal(count,2);
+        release({commands:[f.command]});await new Promise(resolve=>setImmediate(resolve));
+        assert.equal(f.sent.length,0);assert.equal(f.adapter.busy,false);
+    } finally {release?.({});f.adapter.stop();}
+});
+
+test('lost reply and unavailable diagnostics cannot lock polling or repeat a submitted command',async()=>{
+    let poll=0,reply=0,release;
+    const f=fixture({timeout:25,onRequest:route=>{
+        if(route==='workflow/native/event')throw new Error('diagnostics unavailable');
+        if(route==='workflow/native/poll')return {commands:[{...f.command,id:'command-'+(++poll)}]};
+        if(route==='workflow/native/reply'&&++reply===1)return new Promise(resolve=>release=resolve);
+        return {};
+    }});
+    try {
+        await f.adapter.poll();assert.equal(f.sent.length,1);
+        await f.adapter.poll();assert.equal(f.sent.length,2);
+        release({});await new Promise(resolve=>setImmediate(resolve));
+        assert.equal(f.sent.length,2);assert.equal(f.adapter.busy,false);
+        assert.ok(f.diagnostics.some(e=>e.value.event.phase==='reply'&&e.value.event.state==='error'));
+    } finally {release?.({});f.adapter.stop();}
+});
+
+test('Stage apply-only updates input without serializing or seed hooks; native Run stays independent',async()=>{
+    const f=fixture(),widget={name:'text',value:'old',type:'text'};
+    f.graph._nodes=[{id:6,type:'CLIPTextEncode',widgets:[widget]}];let serialized=0;
+    const original=f.app.graphToPrompt;f.app.graphToPrompt=function(...args){serialized++;return original.apply(this,args);};
+    try {
+        const result=await f.adapter.execute({...f.command,action:'apply',texts:[{node:'6',field:'text',class_type:'CLIPTextEncode',text_source:'pcs',text:'new'}]});
+        assert.equal(result.applied,true);assert.equal(widget.value,'new');assert.equal(f.graph.inputs.seed,10);
+        assert.equal(serialized,0);assert.equal(f.sent.length,0);assert.ok(f.prepared.every(p=>p.route==='workflow/native/check_apply'));
+        await f.app.queuePrompt(0,1);assert.equal(f.sent.length,1);assert.equal(f.graph.inputs.seed,12);
+    } finally {f.adapter.stop();}
+});
+
+test('cancelled delivered apply rejects a late permission reply before any input mutation',async()=>{
+    let permission,entered;const waiting=new Promise(resolve=>entered=resolve);
+    const f=fixture({onRequest:async route=>{
+        if(route==='workflow/native/check_apply'){entered();await new Promise(resolve=>permission=resolve);}return {};
+    }}),widget={name:'text',value:'original'};
+    f.graph._nodes=[{id:6,type:'CLIPTextEncode',widgets:[widget]}];
+    try {
+        const pending=f.adapter.execute({...f.command,action:'apply',texts:[{node:'6',field:'text',class_type:'CLIPTextEncode',text_source:'pcs',text:'late'}]});
+        await waiting;
+        f.api.dispatchEvent(new CustomEvent('prompt_studio_native_cancel',{detail:{...f.command,session:'tab-session',client_id:f.api.clientId}}));
+        await new Promise(resolve=>setImmediate(resolve));
+        assert.ok(f.prepared.some(p=>p.route==='workflow/native/cancel_applied'));
+        permission();assert.match((await pending).error,/停止/);assert.equal(widget.value,'original');
+        assert.equal(f.sent.length,0);await f.app.queuePrompt(0,1);assert.equal(f.sent.length,1);
+    } finally {permission?.();f.adapter.stop();}
+});
+
+test('apply cancellation drains an entered image callback and prevents all later fields',async()=>{
+    const f=fixture();let finish,entered;const started=new Promise(resolve=>entered=resolve);
+    const first={name:'image',value:'first-old.png',callback:async()=>{entered();await new Promise(resolve=>finish=resolve);}};
+    const second={name:'image',value:'second-old.png'};
+    f.graph._nodes=[{id:10,type:'LoadImage',widgets:[first]},{id:11,type:'LoadImage',widgets:[second]}];
+    try {
+        const pending=f.adapter.execute({...f.command,action:'apply',images:[10,11].map(id=>({node:String(id),field:'image',class_type:'LoadImage',text:`new-${id}.png`}))});
+        await started;
+        f.api.dispatchEvent(new CustomEvent('prompt_studio_native_cancel',{detail:{...f.command,session:'tab-session',client_id:f.api.clientId}}));
+        await new Promise(resolve=>setImmediate(resolve));
+        assert.equal(f.prepared.some(p=>p.route==='workflow/native/cancel_applied'),false);
+        finish();assert.match((await pending).error,/停止/);await new Promise(resolve=>setImmediate(resolve));
+        assert.equal(first.value,'new-10.png');assert.equal(second.value,'second-old.png');
+        assert.ok(f.prepared.some(p=>p.route==='workflow/native/cancel_applied'));assert.equal(f.sent.length,0);
+        await f.app.queuePrompt(0,1);assert.equal(f.sent.length,1);
+    } finally {finish?.();f.adapter.stop();}
+});
+
+test('backend rejects already cancelled late apply even when the cancel websocket was lost',async()=>{
+    const f=fixture({onRequest:route=>{if(route==='workflow/native/check_apply')throw new Error('輸入套用已停止');return {};}});
+    const widget={name:'text',value:'original'};f.graph._nodes=[{id:6,type:'CLIPTextEncode',widgets:[widget]}];
+    try {
+        const result=await f.adapter.execute({...f.command,action:'apply',texts:[{node:'6',field:'text',class_type:'CLIPTextEncode',text_source:'pcs',text:'late'}]});
+        assert.match(result.error,/停止/);assert.equal(widget.value,'original');assert.equal(f.sent.length,0);
+        await f.app.queuePrompt(0,1);assert.equal(f.sent.length,1);
+    } finally {f.adapter.stop();}
+});
+
+test('cancelled image callback timeout never locks native Run or acknowledges an unfinished callback',async()=>{
+    const f=fixture({timeout:20});let entered,finish;const started=new Promise(resolve=>entered=resolve);
+    const image={name:'image',value:'old.png',callback:()=>{entered();return new Promise(resolve=>finish=resolve);}};
+    f.graph._nodes=[{id:10,type:'LoadImage',widgets:[image]}];
+    try {
+        const pending=f.adapter.execute({...f.command,action:'apply',images:[{node:'10',field:'image',class_type:'LoadImage',text:'new.png'}]});
+        await started;
+        f.api.dispatchEvent(new CustomEvent('prompt_studio_native_cancel',{detail:{...f.command,session:'tab-session',client_id:f.api.clientId}}));
+        assert.match((await pending).error,/逾時/);assert.equal(f.adapter.busy,false);
+        assert.equal(f.prepared.some(p=>p.route==='workflow/native/cancel_applied'),false);
+        await f.app.queuePrompt(0,1);assert.equal(f.sent.length,1);
+        finish();await new Promise(resolve=>setImmediate(resolve));
+        assert.ok(f.prepared.some(p=>p.route==='workflow/native/cancel_applied'));
+    } finally {finish?.();f.adapter.stop();}
+});
+
+test('cancel acknowledgement precedes a delayed command and prevents that same command from starting',async()=>{
+    const f=fixture();
+    try {
+        f.api.dispatchEvent(new CustomEvent('prompt_studio_native_cancel',{detail:{...f.command,session:'other-tab',client_id:f.api.clientId}}));
+        await new Promise(resolve=>setImmediate(resolve));assert.equal(f.prepared.length,0);
+        f.api.dispatchEvent(new CustomEvent('prompt_studio_native_cancel',{detail:{...f.command,session:'tab-session',client_id:f.api.clientId}}));
+        await new Promise(resolve=>setImmediate(resolve));assert.equal(f.prepared[0].route,'workflow/native/cancel_applied');
+        assert.match((await f.adapter.execute({...f.command,action:'apply'})).error,/取消/);
+        assert.equal(f.prepared.length,1);assert.equal(f.sent.length,0);
+        await f.app.queuePrompt(0,1);assert.equal(f.sent.length,1);
+    } finally {f.adapter.stop();}
+});
+
+test('inspect reads actual serializer without bindings, queue, seed hooks, prepare or transport submission',async()=>{
+    const f=fixture({capture:true}),before=structuredClone(f.graph.inputs);
+    try {
+        const result=await f.adapter.execute({...f.command,action:'inspect',texts:[{node:'missing',field:'text',text:'not applied'}]});
+        assert.equal(result.error,undefined);assert.deepEqual(result.inspection.output['1'].inputs,before);
+        assert.deepEqual(f.graph.inputs,before);assert.equal(f.events.length,0);assert.equal(f.sent.length,0);assert.equal(f.prepared.length,0);
+    } finally {f.adapter.stop();}
+});
+
+test('websocket probe refreshes identity immediately and reports short submission busy separately',async()=>{
+    const f=fixture({busy:true});
+    try {
+        f.api.dispatchEvent(new CustomEvent('prompt_studio_native_probe',{detail:{probe:'nonce-1'}}));
+        await new Promise(resolve=>setImmediate(resolve));
+        const first=f.prepared.find(p=>p.route==='workflow/native/poll').value;
+        assert.equal(first.probe,'nonce-1');assert.equal(first.ready,false);assert.match(first.reason,/提交/);
+        assert.equal(first.inspect_protocol,1);assert.equal(f.sent.length,0);
+        f.app.processingQueue=false;
+        f.api.dispatchEvent(new CustomEvent('prompt_studio_native_probe',{detail:{probe:'nonce-2'}}));
+        await new Promise(resolve=>setImmediate(resolve));
+        assert.equal(f.prepared.at(-1).value.probe,'nonce-2');assert.equal(f.prepared.at(-1).value.ready,true);
+        f.adapter.stop();const count=f.prepared.length;
+        f.api.dispatchEvent(new CustomEvent('prompt_studio_native_probe',{detail:{probe:'after-stop'}}));
+        await new Promise(resolve=>setImmediate(resolve));assert.equal(f.prepared.length,count);
+    } finally {f.adapter.stop();}
+});
+
+test('probe during owned serialization or native loading acknowledges busy without accepting a command',async()=>{
+    const f=fixture();let release,entered;
+    const waiting=new Promise(resolve=>entered=resolve),original=f.app.graphToPrompt;
+    f.app.graphToPrompt=async()=>{entered();await new Promise(resolve=>release=resolve);return original.call(f.app);};
+    try {
+        const pending=f.adapter.execute({...f.command,action:'inspect'});await waiting;
+        f.api.dispatchEvent(new CustomEvent('prompt_studio_native_probe',{detail:{probe:'during-inspect'}}));
+        await new Promise(resolve=>setImmediate(resolve));
+        assert.equal(f.prepared.at(-1).value.probe,'during-inspect');assert.equal(f.prepared.at(-1).value.ready,false);
+        assert.equal(f.sent.length,0);release();assert.equal((await pending).error,undefined);
+        f.app.configuringGraph=true;
+        f.api.dispatchEvent(new CustomEvent('prompt_studio_native_probe',{detail:{probe:'during-load'}}));
+        await new Promise(resolve=>setImmediate(resolve));
+        assert.equal(f.prepared.at(-1).value.probe,'during-load');assert.equal(f.prepared.at(-1).value.ready,false);
+        assert.equal(f.sent.length,0);
+    } finally {release?.();f.adapter.stop();}
+});
 
 test('native Run always submits natively regardless of PCS scheduled head',async()=>{
     let claims=0;const f=fixture({manual:()=>{claims++;return {handled:true,item:'head-A',message:'PCS 接續'};}});
@@ -258,6 +420,34 @@ test('timeout does not lock native editing; a late serialization still cannot su
         release();await new Promise(resolve=>setTimeout(resolve,0));assert.equal(f.sent.length,0);
         const after=new Event('pointerdown',{cancelable:true});document.dispatchEvent(after);assert.equal(after.defaultPrevented,false);
     } finally {f.adapter.stop();}
+});
+
+test('a permanently pending PCS serialization releases native Run after timeout',async()=>{
+    const f=fixture({timeout:10}),original=f.app.graphToPrompt;let calls=0,late;
+    f.app.graphToPrompt=function(...args){
+        if(++calls===1)return new Promise(resolve=>{late=resolve;});
+        return original.apply(this,args);
+    };
+    try {
+        const pcs=f.adapter.execute(f.command);
+        await new Promise(resolve=>setTimeout(resolve,1));
+        const manual=f.app.queuePrompt(0,1);
+        assert.match((await pcs).error,/逾時/);
+        await manual;assert.equal(f.sent.length,1);assert.equal(f.app.processingQueue,false);
+        late({workflow:f.graph.serialize(),output:{}});
+        await new Promise(resolve=>setTimeout(resolve,0));assert.equal(f.sent.length,1);
+    }finally{f.adapter.stop();}
+});
+
+test('chain retry records its execution seed once and preserves native after hook',async()=>{
+    let calls=0;const f=fixture({policy:{timing:'after',apply(inputs){calls++;inputs.seed++;}}});
+    const widget={name:'seed',get value(){return f.graph.inputs.seed;},set value(v){f.graph.inputs.seed=v;}};
+    f.graph._nodes=[{id:1,type:'EmptyLatentImage',widgets:[widget]}];
+    f.command.replay={'1':{class_type:'EmptyLatentImage',inputs:{seed:30}}};
+    try {
+        const result=await f.adapter.execute(f.command);assert.equal(result.prompt_id,'actual-prompt-id');
+        assert.equal(f.sent[0][1].output['1'].inputs.seed,30);assert.equal(calls,1);assert.equal(widget.value,31);
+    }finally{f.adapter.stop();}
 });
 
 test('command received after an A-B-A round trip cannot start on a newer epoch',async()=>{

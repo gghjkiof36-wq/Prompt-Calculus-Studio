@@ -1,0 +1,480 @@
+{
+  "original_zip_sha256": "f69a954e95d35092d2d41c6b3b555a6883867c9b72a5fe879361cadecfb541c4",
+  "binary_git_head": "ea7df89dc714fc83c7e11ca32e5c7655619ec8a0",
+  "manifest_entries": 274,
+  "manifest_passed": true,
+  "runtime_binaries": [
+    {
+      "path": "_internal/_bz2.pyd",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 88880,
+      "sha256": "54268c5cbefd96d9df377b40817cc09447d3a0a6734c300c442c0dde30cc75d7",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/_ctypes.pyd",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 131888,
+      "sha256": "eb533050b0b61203cc4918da1826372add87fe4acddb3f6e7b31301c7f93e67d",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/_decimal.pyd",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 263984,
+      "sha256": "539f8c32a3eafcf717cddbccf243167610671c5243ec3c7c40987d81066a557f",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/_hashlib.pyd",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 70448,
+      "sha256": "d99963665f72156067b432753d153ea456d0a0fa49d235c9b61bdb0a0d372ba4",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/_lzma.pyd",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 168240,
+      "sha256": "6337c7e78b7753865b2759cf296449b9d7af6aae0708b364ab9550dad00272be",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/_socket.pyd",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 87344,
+      "sha256": "371ae9f492330c021cb371a2e5be88ecb38b4e0dcb45a9f47376502b7920ff17",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/_sqlite3.pyd",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 127792,
+      "sha256": "875c66adc9c9fd5efdc5582c7ea5d04cdb060308f63240d6d1032e8023ba2bda",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/_ssl.pyd",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 180528,
+      "sha256": "d71677bb53df30a58510d0985174132f12374207310aa4895d8a6b8b8fcc66a3",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/_uuid.pyd",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 29488,
+      "sha256": "894f95ed8be644b3778a9836afd9bdbd6bd31df7788fd2683aff830b60badefa",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/_wmi.pyd",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 41264,
+      "sha256": "ea6ee0a2091687f2d68bfa6f871af2377c073a1b980db87082fb8887cca12a65",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/libcrypto-3-x64.dll",
+      "family": "OpenSSL",
+      "version": "3.5.8",
+      "size": 8003376,
+      "sha256": "35e0ae43af2876903b00ba955e400f6da1787defb1ba18b7ff35e540c7f4ed66",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/libffi-8.dll",
+      "family": "libffi",
+      "version": null,
+      "size": 43824,
+      "sha256": "34985fc0a2d5942dd6c0cf3205549dc56ed6ebef410884419c87e5fe4e00e988",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/libssl-3-x64.dll",
+      "family": "OpenSSL",
+      "version": "3.5.8",
+      "size": 1599280,
+      "sha256": "5bb445df170ac3df4524cd1f7edbad09bb249b77d1144f58ebd1615f730d162e",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/MSVCP140_1.dll",
+      "family": "MSVC",
+      "version": "14.44.35211.0",
+      "size": 27448,
+      "sha256": "d419d24b0a76366f5c9d908b0e45fe70e9e9154bb8ad5f3de42070f2337f857b",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/MSVCP140_2.dll",
+      "family": "MSVC",
+      "version": "14.44.35211.0",
+      "size": 271672,
+      "sha256": "89917964abb6ca16a260cab258e180c3abc239b5af00eed659d0edf0efdd339c",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/MSVCP140.dll",
+      "family": "MSVC",
+      "version": "14.44.35211.0",
+      "size": 549176,
+      "sha256": "fd4a8c046fa3fea9ca6132f50cf8a56cf1e783b2d3093ba5c85fa063bc6b3845",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/pyside6.abi3.dll",
+      "family": "Qt/PySide6",
+      "version": null,
+      "size": 255288,
+      "sha256": "d0b5c701fb3a8ea839e72b602058f3960935156ebeca084893c54c99e54dd707",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/python3.dll",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 71984,
+      "sha256": "c57bc21e131857f26db78d1512fbfcf67cac3273ee8b1cd704ed5645ec250884",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/python312.dll",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 6985520,
+      "sha256": "c1ce6d603041759061139f482c4b90c4ac9db676e30abf52fda66a794aab1bd0",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/Qt6Core.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 10363704,
+      "sha256": "d6a3c37c5263c5d418fc0e80b722bc9fca7c0859e6f635f9624a2fde00bdc653",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/Qt6Gui.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 9546552,
+      "sha256": "ae29b005f51b6850bf57fa06fced0dc8c7039fd6fafc3bfbcfe76e38adc7abf1",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/Qt6Network.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 1751352,
+      "sha256": "dd3512d1c5ed062d30c98426cd0a850f13e0cf31437afb5b0b474132b9c52922",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/Qt6Svg.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 609080,
+      "sha256": "1eac8f7415b311a88cb3cb4e25c3098d0e059c24c831fbbb13f43a80f0df06b7",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/Qt6Test.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 382264,
+      "sha256": "db459676d4b4a869fea1eedb5e9e28895a3adaa079d5dd0d7ff38c400edf1ad0",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/Qt6Widgets.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 6497080,
+      "sha256": "ff0df9e2e6827e035f0731a4cedfc6333f4602bca00775e56346f27032406b74",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/select.pyd",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 34608,
+      "sha256": "f04b6cb67a4fe77545bf7ebfb320b6ad216b5dc743215a33d70cd081233c94ac",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/shiboken6.abi3.dll",
+      "family": "shiboken6",
+      "version": null,
+      "size": 394040,
+      "sha256": "de3c6b2ed5f75c9ac0de4a6844b653b3b9d09263ce68c2b5fc25a96c5c3e8469",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/sqlite3.dll",
+      "family": "SQLite",
+      "version": "3.53.1.0",
+      "size": 1623344,
+      "sha256": "bcef9117c3a2a3d0d46d098d28e679f312b2f874482f6825e29d082b1652e127",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/unicodedata.pyd",
+      "family": "CPython",
+      "version": "3.12.14",
+      "size": 1143600,
+      "sha256": "6429fe36429af848faea82122ebd7f5c72b05d9ba643d0b3a92eafaf9f27d10c",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/VCRUNTIME140_1.dll",
+      "family": "MSVC",
+      "version": "14.44.35211.0",
+      "size": 49792,
+      "sha256": "1f2d41c4aa5db0bc33ebf7b66d72943a817d7ce6cbe880502a9403823633093f",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/VCRUNTIME140.dll",
+      "family": "MSVC",
+      "version": "14.44.35211.0",
+      "size": 124544,
+      "sha256": "d5e4d9a3e835fa679450145d6a7d94e36573a509317111904d9b3712c30d9066",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/opengl32sw.dll",
+      "family": "Qt/PySide6",
+      "version": null,
+      "size": 20639544,
+      "sha256": "34b444c016289b560662ff896deceb7f4b2c0723aed3d319ae167c9186ce42b3",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/QtCore.pyd",
+      "family": "Qt/PySide6",
+      "version": null,
+      "size": 3345720,
+      "sha256": "74f96322c5e9cea73aefd2ed5870e5275336b31f552fcd32f12fc81d23f1bc6f",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/QtGui.pyd",
+      "family": "Qt/PySide6",
+      "version": null,
+      "size": 3901240,
+      "sha256": "7bef20046045199c037b7cbfedaa1c5464730fa948b2c9ec8afbf718e63774d4",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/QtNetwork.pyd",
+      "family": "Qt/PySide6",
+      "version": null,
+      "size": 1009464,
+      "sha256": "c5038bb71fc9d57330fa2d8eeec65aab69fcf02687cc8f54dbfb5995cfec6a71",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/QtTest.pyd",
+      "family": "Qt/PySide6",
+      "version": null,
+      "size": 185144,
+      "sha256": "99d71955c692c7c62f295aef42fc4bf02a800bdb350d1ee32d3373a816a63e2a",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/QtWidgets.pyd",
+      "family": "Qt/PySide6",
+      "version": null,
+      "size": 4857656,
+      "sha256": "f12f4ca641998e5706d5f7b0023147d573f0f2d2361e26dadf31bdbf05fbfd1d",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/generic/qtuiotouchplugin.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 101176,
+      "sha256": "aa9080fa8b1c3cf4d3790c1eecf4a1f5c796ce58f31f80910357578f20fd80ac",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/iconengines/qsvgicon.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 72504,
+      "sha256": "5bb97b6f114682ae0b5f42b23b6818aece6499bad88dac80a138efa8a88c12bc",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/imageformats/qgif.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 47928,
+      "sha256": "d301d7e9a68327692e4c76faa6b125517730b22c68f4de7f09fda9d4ac0ddee1",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/imageformats/qicns.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 57144,
+      "sha256": "49db148fea9f01e9953fd0a771d16cfaf364599f07aab3634d4f5c7c25abd78a",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/imageformats/qico.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 46904,
+      "sha256": "1684fd56f1758167f7b3ac011264ae5859b3cf6113e381626ec3dc1d3122fe52",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/imageformats/qjpeg.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 591672,
+      "sha256": "6517345ac19f5c489daeadc029d0018bbdc09d8e1031c60d714557972f22c6d4",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/imageformats/qsvg.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 39736,
+      "sha256": "4b7d65ba39be58cb469b54b5fdee2987871d67e5050cd70724016e09966e54f6",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/imageformats/qtga.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 38200,
+      "sha256": "6b0381150070fcd4224597fe73c68b47055b30b418aa14794c94c5007d14ca5d",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/imageformats/qtiff.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 445752,
+      "sha256": "3d6ea04da215ee2a9459399fb9f6d73cad8787944b9d450399025bcd39d020b5",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/imageformats/qwbmp.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 36664,
+      "sha256": "1a4596509987e9557edda69ed13cdd0d33f4ebda72e464ddc00a566bec05f151",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/imageformats/qwebp.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 564536,
+      "sha256": "6b2c53cc4423140c29a6a1eb6dd908016e09d794b5739a05a3a39c8c49a0df8a",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/networkinformation/qnetworklistmanager.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 79160,
+      "sha256": "e571a4b4e582738cd1bc4889cb2896635c2543baff408442701b6706a1b4a86e",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/platforms/qdirect2d.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 1071416,
+      "sha256": "56f41ad523d016fe2cf2c90fae158e21766d1fcd021bced1a3704c6da0f00c98",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/platforms/qminimal.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 61752,
+      "sha256": "768a9c6dbb1c86abbefa2ff9d7e98cdfb4fdc9292eb8d64195bb6d23939a5344",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/platforms/qoffscreen.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 110904,
+      "sha256": "e776251668440169ed18a2fe1b236762d514ef5244639cbb559b5a77ddd38954",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/platforms/qwindows.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 991032,
+      "sha256": "bf6dbc3009f386fa22f0ced560bea6bbf3e0e0b4442d2fb855db67cffce49dbf",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/styles/qmodernwindowsstyle.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 240440,
+      "sha256": "a7a6424c23bf371bd28a404a196b210971726f6f2a87b63aac185a5e6e40da71",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/tls/qcertonlybackend.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 104760,
+      "sha256": "67be4d333a0f489d02714169a6ec54eaa80efa649d733fcbeb81881ecb02b4f3",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/tls/qopensslbackend.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 314168,
+      "sha256": "7a0727417b8e21e64d9a7cf0f390bc85b3e337b4eef5ac977f49659d97e6b552",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/PySide6/plugins/tls/qschannelbackend.dll",
+      "family": "Qt/PySide6",
+      "version": "6.11.2.0",
+      "size": 247608,
+      "sha256": "14abc5b245c0f2e03f7bc0b474a8db2ecb441c7300a8a8b16fb865eaf2674619",
+      "source_provenance_confirmed": false
+    },
+    {
+      "path": "_internal/shiboken6/Shiboken.pyd",
+      "family": "shiboken6",
+      "version": null,
+      "size": 33592,
+      "sha256": "2f6f3a694f675b1dafdae26903191613c02866ab48e02591ae34ca1a3b1284f1",
+      "source_provenance_confirmed": false
+    }
+  ],
+  "python_base_library_zip_sha256": "2e0bee8cfdf91ce6f5906f13ab9bd336e74cd1efe7ecbe49df8f4bfed0203585",
+  "qt_translations": 96,
+  "embedded_source_files": 375,
+  "private_embedded_source_paths": [
+    "tests/verify_v083.py"
+  ],
+  "private_document_paths": [],
+  "windows_publish_gate": "blocked: provenance/notices/corresponding source/rebuild replacement evidence incomplete"
+}

@@ -6,6 +6,12 @@ def source(state, key):
     return next((c['source'] for c in state['multi_output']['connections'] if c['kind']=='clip' and c['destination']==key),None)
 
 
+def selected_binding(state, key):
+    """Historical destinations are retained, but only the selected one is active."""
+    data=state['multi_output'];workflow=data['clip_inputs'].get(key,{}).get('workflow')
+    return next((b for b in data['bindings'] if b['clip']==key and b['workflow']==workflow),None)
+
+
 def add(state, position=(600,-350)):
     from .multi_output import ident
     data=state['multi_output']; names={v['name'] for v in data['clip_inputs'].values()}; number=1
@@ -72,7 +78,7 @@ def bound_texts(state, profile):
             content=resolve(state,output,'clip')
             item=dict(b,output=content['origin'].get('output',output),text=content['value'])
         else:item=dict(b,output=output,text=compile_output(state,output)['final_prompt'])
-        if data['version']>=4:item['text_source']=data['clip_inputs'][b['clip']].get('text_source','pcs')
+        if data['version']>=4:item['text_source']='pcs' if data['version']>=7 else data['clip_inputs'][b['clip']].get('text_source','pcs')
         result.append(item)
     if not result and not any(v.get('workflow')==profile['id'] for v in data.get('image_inputs',{}).values()):
         raise ValueError('請將 Prompt 輸出連接到已綁定工作流文字欄的 CLIP 輸入。')
@@ -81,5 +87,5 @@ def bound_texts(state, profile):
 
 def remove(state,key):
     data=state['multi_output']; data['clip_inputs'].pop(key)
-    data['connections']=[c for c in data['connections'] if c['destination']!=key]
+    data['connections']=[c for c in data['connections'] if c['destination']!=key and c['source']!=key]
     data['bindings']=[b for b in data['bindings'] if b['clip']!=key]

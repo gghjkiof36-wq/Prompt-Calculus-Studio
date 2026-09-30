@@ -2,7 +2,7 @@
 import json
 import time
 import uuid
-from PySide6.QtCore import QObject, Signal, QTimer, QUrl
+from PySide6.QtCore import QObject, Signal, QTimer, QUrl, QEventLoop
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 from .snapshots import make_snapshot
 from .core import local_address
@@ -24,6 +24,7 @@ class ComfyClient(QObject):
         self.enabled=window.state['settings'].get('comfy_enabled',False)
         self.connected=False; self.ready=False; self.lease=''; self.target=''; self.token=''
         self.native_supported=False
+        self.native_inspect_supported=False
         self.native_open_supported=False;self.opening_native=False;self.native_unavailable_reason=''
         self.message='尚未連接 ComfyUI'; self.polling=False; self.stopped=False; self.replies=set()
         self.run_id=''; self.run_started=0; self.checking_run=False; self.last_signature=''; self.last_results=0
@@ -44,9 +45,13 @@ class ComfyClient(QObject):
 
     @property
     def can_run(self):
+        if self.window.state.get('multi_output',{}).get('version',1)>=7:
+            return bool(self.connected and self.native_supported and self.snapshot_compatible and self.flow_supported)
         if self.window.state.get('multi_output',{}).get('version',1)>=5:
             if not(self.connected and self.native_supported and self.snapshot_compatible and self.flow_supported):return False
             try:
+                from .chain_model import enabled
+                if enabled(self.window.state):return True
                 from .workflow_flow import execution_profiles
                 return len(execution_profiles(self.window.state))==1
             except ValueError:return False
@@ -132,6 +137,7 @@ class ComfyClient(QObject):
         self.flow_supported=None; self.fetching_workflow=False; self.register_library=True
         self.had_control=False; self.control_interrupted=False
         self.sync_timer.stop()
+        self.flush_input_cancellations()
         for reply in list(self.replies): reply.abort()
         self.polling=False; self.checking_run=False; self.connected=False; self.ready=False
         self.lease=''; self.target=''; self.last_signature=''; self.last_results=0
@@ -162,11 +168,12 @@ class ComfyClient(QObject):
             self.queue_supported='frozen_queue_v1' in status.get('capabilities',[])
             self.native_supported=all(c in status.get('capabilities',[]) for c in ('native_queue_v1','native_bindings_v1'))
             self.native_open_supported='native_open_v1' in status.get('capabilities',[])
+            self.native_inspect_supported='native_inspect_v1' in status.get('capabilities',[])
             self.native_unavailable_reason=status.get('native_unavailable_reason','')
             self.images_supported='workflow_images_v1' in status.get('capabilities',[])
             self.input_bridge_supported='input_run_bridge_v1' in status.get('capabilities',[])
             version=self.window.state.get('multi_output',{}).get('version',1)
-            required='typed_inputs_v2' if version>=6 else 'typed_inputs_v1' if version>=5 else 'workflow_images_v1' if version>=4 else 'clip_inputs_v3' if version>=3 else 'flow_connections_v2'
+            required='stage_execution_v1' if version>=7 else 'typed_inputs_v2' if version>=6 else 'typed_inputs_v1' if version>=5 else 'workflow_images_v1' if version>=4 else 'clip_inputs_v3' if version>=3 else 'flow_connections_v2'
             self.flow_supported=required in status.get('capabilities',[])
             if self.register_library and self.flow_supported and self.window.state.get('multi_output',{}).get('version',1)>=2:
                 self.register_library=False; self.window.persist()
@@ -283,9 +290,22 @@ class ComfyClient(QObject):
         def fail(message): self.checking_run=False; self.window.notice(message)
         self.request('desktop/command/'+ident,done=done,failed=fail)
 
+    def flush_input_cancellations(self,timeout_ms=250):
+        """Bounded best effort before aborting transports; absent ACK stays unknown."""
+        pending=getattr(self.input_flow.chain,'apply_cancellations',set())
+        if not pending:return
+        loop=QEventLoop();poll=QTimer(loop);deadline=QTimer(loop);deadline.setSingleShot(True)
+        poll.timeout.connect(lambda:loop.quit() if not pending else None)
+        deadline.timeout.connect(loop.quit);poll.start(10);deadline.start(timeout_ms)
+        try:loop.exec(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        finally:poll.stop();deadline.stop()
+
     def shutdown(self):
+        self.timer.stop();self.sync_timer.stop()
         self.input_flow.disconnected()
         self.queue.disconnected()
         self.generation.disconnected()
+        self.flush_input_cancellations()
+        if hasattr(self.input_flow.chain,'close'):self.input_flow.chain.close()
         self.stopped=True; self.timer.stop(); self.sync_timer.stop()
         for reply in list(self.replies): reply.abort()

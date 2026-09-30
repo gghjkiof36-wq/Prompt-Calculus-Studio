@@ -1,5 +1,6 @@
 """Journal commands to the real browser queue; never execute a stored graph."""
 import copy
+import asyncio
 import hashlib
 import json
 import time
@@ -22,13 +23,16 @@ class BrowserUnavailable(ValueError):
 class NativeQueue:
     def __init__(self,service,multi_user=None):
         self.service=service; self.sessions={};self.multi_user=multi_user or (lambda:False)
+        self.entry_lock=asyncio.Lock()
         from .input_bridge import InputBridge
         self.inputs=InputBridge(service)
         with service.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS native_operations (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS native_diagnostics (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
             # A restart cannot prove whether a delivered browser command ran.
             for ident,raw in db.execute('SELECT id,body FROM native_operations').fetchall():
                 value=json.loads(raw)
+                if value['state']=='awaiting_browser':value.update(state='failed',error='擴充已重新啟動，這次要求尚未派送。')
                 if value['state'] in ('pending','delivered','prepared','submitted'):
                     value.update(state='unconfirmed',error='擴充已重新啟動，提交須對帳，不會重送。')
                 # No HTTP submit from the previous service process can still
@@ -50,7 +54,35 @@ class NativeQueue:
 
     def save(self,value):
         with self.service.connect() as db:
+            old=db.execute('SELECT body FROM native_operations WHERE id=?',(value['id'],)).fetchone()
+            prior=json.loads(old[0]) if old else {}
+            if prior.get('first_error'):value['first_error']=prior['first_error']
+            elif value.get('error') and value.get('state') in ('failed','unconfirmed'):value['first_error']=value['error']
             db.execute('INSERT OR REPLACE INTO native_operations VALUES (?,?)',(value['id'],json.dumps(value,ensure_ascii=False)))
+
+    def event(self,value):
+        """Bounded diagnostic receipt. It never changes execution permission."""
+        self.require_supported();operation=self.checked(value)
+        if value.get('client_id')!=operation['client_id']:raise ValueError('診斷回覆不屬於這次連線。')
+        event=value.get('event',{})
+        phases=('received','select','activate','apply','native_wait','serialize','prepare','transport','native_finish','reply')
+        if (not isinstance(event,dict) or set(event)!= {'seq','phase','state','elapsed_ms'} or type(event.get('seq')) is not int or not 1<=event['seq']<=64
+                or event.get('phase') not in phases or event.get('state') not in ('started','done','error','timeout')
+                or type(event.get('elapsed_ms')) is not int or not 0<=event['elapsed_ms']<=86400000):
+            raise ValueError('診斷事件格式無效。')
+        with self.service.connect() as db:
+            row=db.execute('SELECT body FROM native_diagnostics WHERE id=?',(operation['id'],)).fetchone()
+            body=json.loads(row[0]) if row else {}
+            events=body.setdefault('events',[])
+            if not any(e['seq']==event['seq'] for e in events) and len(events)<64:
+                events.append(dict(event,received_at=time.time()));events.sort(key=lambda e:e['seq'])
+            db.execute('INSERT OR REPLACE INTO native_diagnostics VALUES (?,?)',(operation['id'],json.dumps(body,ensure_ascii=False)))
+        return dict(ok=True)
+
+    def diagnostics(self,ident):
+        with self.service.connect() as db:row=db.execute('SELECT body FROM native_diagnostics WHERE id=?',(ident,)).fetchone()
+        value=json.loads(row[0]) if row else {}
+        return {k:value[k] for k in ('events','reason') if k in value}
 
     def poll(self,value):
         self.require_supported()
@@ -65,34 +97,85 @@ class NativeQueue:
             raise ValueError('原生工作流目錄無效。')
         now=time.monotonic(); self.sessions={k:v for k,v in self.sessions.items() if now-v['seen']<10}
         if session not in self.sessions and len(self.sessions)>=32:raise ValueError('原生分頁數量超過上限。')
-        self.sessions[session]=dict(identity=copy.deepcopy(identity),workflows=copy.deepcopy(workflows),client_id=client,epoch=epoch,seen=now,ready=value.get('ready') is True,user_scope='default',bindings_protocol=value.get('bindings_protocol'),capture_protocol=value.get('capture_protocol'),navigation_protocol=value.get('navigation_protocol'))
+        previous=self.sessions.get(session)
+        if previous and previous['client_id']==client and epoch<previous['epoch']:
+            # A busy probe sent before activate can arrive after its receipt.
+            # Never let an older heartbeat overwrite an acknowledged switch.
+            return dict(commands=[])
+        self.sessions[session]=dict(identity=copy.deepcopy(identity),workflows=copy.deepcopy(workflows),client_id=client,epoch=epoch,seen=now,ready=value.get('ready') is True,user_scope='default',bindings_protocol=value.get('bindings_protocol'),capture_protocol=value.get('capture_protocol'),navigation_protocol=value.get('navigation_protocol'),inspect_protocol=value.get('inspect_protocol'),apply_protocol=value.get('apply_protocol'),probe=str(value.get('probe',''))[:100],reason=str(value.get('reason',''))[:1000])
         with self.service.connect() as db:
             rows=db.execute("SELECT body FROM native_operations WHERE json_extract(body,'$.state')='pending'").fetchall()
         commands=[]
         for raw, in rows:
             operation=json.loads(raw)
             if operation['session']!=session:continue
-            if time.time()-operation['created']>10 or any(operation[k]!=value.get(k) for k in ('identity','epoch','client_id')) or not value.get('ready'):
-                operation.update(state='failed',error='原生工作流已切換或忙碌，未提交。');self.save(operation);continue
+            changed=[k for k in ('identity','epoch','client_id') if operation[k]!=value.get(k)]
+            if changed or time.time()-operation['created']>10:
+                reason='原生連線已改變' if 'client_id' in changed else '原生工作流已切換' if changed else '原生網頁未在期限內接受操作'
+                operation.update(state='failed',error=reason+'，未提交。',failure_fields=changed);self.save(operation);continue
+            # Busy native input/serialization is transient, not GPU execution.
+            # This command is still undelivered and safe to wait for briefly.
+            if value.get('ready') is not True:continue
             if (operation.get('action')=='open' or operation.get('needs_navigation')) and sum(self.target_matches(item,operation['target']) for item in workflows)!=1:
                 operation.update(state='failed',error='綁定的原生工作流已關閉或不再唯一，未切換。');self.save(operation);continue
-            operation['state']='delivered';self.save(operation)
+            operation.update(state='delivered',issued_at=time.time());self.save(operation)
             commands.append({k:copy.deepcopy(operation[k]) for k in ('id','identity','epoch','action','target') if k in operation})
-            if operation.get('action')!='open':
+            if operation.get('action') not in ('open','inspect'):
                 profile=next(p for p in operation['snapshot']['state']['generation']['profiles'] if p['id']==operation['workflow'])
                 commands[-1]['texts']=[dict(b,class_type=profile['graph'][b['node']]['class_type']) for b in operation['texts']]
                 commands[-1]['images']=copy.deepcopy(operation.get('images',[]))
+                if operation['snapshot'].get('chain_replay'):commands[-1]['replay']=copy.deepcopy(operation['snapshot']['chain_replay'])
         return dict(commands=commands)
 
     @staticmethod
     def target_matches(identity,target):
         return matches(identity,dict(workflow_id=target.get('workflow'),origin=dict(path=target.get('path')),frontend_id=target.get('frontend_id')), {})
 
-    def start(self,value,server='',action='queue'):
+    @classmethod
+    def contains(cls,live,target):
+        return cls.target_matches(live['identity'],target) or any(cls.target_matches(item,target) for item in live.get('workflows',[]))
+
+    def request_target(self,value,server='',inspect=False):
+        """Validate routing before the fresh browser acknowledgement; no work exists yet."""
+        ident=value.get('id')
+        if not isinstance(ident,str) or not 1<=len(ident)<=100:raise ValueError('操作識別碼無效。')
+        if inspect:
+            from pathlib import PurePosixPath
+            target=value.get('target',{});path=target.get('path')
+            if (not isinstance(path,str) or not path.endswith('.json') or len(path)>1000 or '\\' in path or ':' in path
+                    or PurePosixPath(path).is_absolute() or '..' in PurePosixPath(path).parts):raise ValueError('工作流路徑無效。')
+            frontend=target.get('frontend_id','')
+            if not isinstance(frontend,str) or len(frontend)>1000:raise ValueError('原生工作流身分無效。')
+            return dict(workflow='',path=path,frontend_id=frontend)
+        snapshot=validate_snapshot(value.get('snapshot'))
+        profile=next((p for p in snapshot['state'].get('generation',{}).get('profiles',[]) if p['id']==value.get('workflow')),None)
+        if not profile:raise ValueError('PCS 工作流綁定已失效。')
+        if not profile.get('frontend_id'):raise ValueError('這個綁定缺少原生工作流身分，請重新選擇原生工作流。')
+        origin=profile.get('origin',{})
+        if server and origin.get('server') and server_identity(server)!=server_identity(origin['server']):raise ValueError('工作流綁定屬於另一個 ComfyUI 服務。')
+        return dict(workflow=profile['id'],path=origin.get('path',''),frontend_id=profile['frontend_id'])
+
+    def start_inspect(self,value,target):
+        """Inspect the actual selected draft using the same native transaction lock."""
+        candidates=self.candidates(target)
+        if len(candidates)!=1:raise ValueError('原生工作流的分頁身分不再唯一，未讀取。')
+        session,live=candidates[0]
+        if not live['ready'] or live.get('inspect_protocol')!=1:raise ValueError('請更新擴充並重新整理 ComfyUI 網頁，才能讀取未儲存節點。')
+        if sum(self.target_matches(item,target) for item in live.get('workflows',[]))>1:raise ValueError('原生工作流的目錄身分不再唯一，未讀取。')
+        operation=dict(id=value['id'],request_hash=digest(['inspect',value]),created=time.time(),state='pending',error='',session=session,
+            identity=copy.deepcopy(live['identity']),epoch=live['epoch'],client_id=live['client_id'],action='inspect',
+            target=copy.deepcopy(target),needs_navigation=not self.target_matches(live['identity'],target))
+        if operation['needs_navigation'] and live.get('navigation_protocol')!=1:raise ValueError('請更新擴充並重新整理 ComfyUI 網頁。')
+        self.save(operation);return self.status(operation['id'])
+
+    def start(self,value,server='',action='queue',admitted=False):
         self.require_supported()
         ident=value.get('id')
         if not isinstance(ident,str) or not ident or len(ident)>100:raise ValueError('操作識別碼無效。')
         snapshot=copy.deepcopy(validate_snapshot(value.get('snapshot'))); workflow=value.get('workflow')
+        if snapshot.get('chain'):
+            from .shared.chain_model import provenance
+            provenance(snapshot['chain'])
         profiles=snapshot['state'].get('generation',{}).get('profiles',[])
         profile=next((p for p in profiles if p['id']==workflow),None)
         if profile is None:raise ValueError('PCS 工作流綁定已失效。')
@@ -109,6 +192,7 @@ class NativeQueue:
                         raise ValueError('Queue 明確文字對應無效。')
                     texts.append(copy.deepcopy(binding))
             elif action=='capture' and not text_fields(profile['graph']):texts=[]
+            elif (snapshot.get('chain') or action=='apply') and not any(b['workflow']==workflow for b in snapshot['state']['multi_output']['bindings']):texts=[]
             else:texts=bound_texts(snapshot['state'],profile)
         images=[]; uploaded=value.get('image','')
         requested=value.get('images',[])
@@ -125,7 +209,7 @@ class NativeQueue:
             if not isinstance(node,str) or profile['graph'].get(node,{}).get('class_type')!='LoadImage':raise ValueError('請選擇接收 PCS 圖片的 LoadImage 節點。')
             if node in seen:raise ValueError('同一個 LoadImage 不可重複指定圖片。')
             seen.add(node);images.append(dict(node=node,field='image',class_type='LoadImage',text=uploaded))
-        if action=='queue' and not texts and not images:raise ValueError('請連接 CLIP 輸入或圖片輸入。')
+        if action=='queue' and not texts and not images and not snapshot.get('chain'):raise ValueError('請連接 CLIP 輸入或圖片輸入。')
         target=dict(workflow=workflow,path=profile.get('origin',{}).get('path',''),frontend_id=profile['frontend_id'])
         if action=='queue' and snapshot['state'].get('multi_output',{}).get('version',1)<5:
             self.service.work_queue.require_idle()
@@ -140,7 +224,7 @@ class NativeQueue:
             if prior:
                 saved=json.loads(prior[0])
                 if saved['request_hash']!=fingerprint:raise ValueError('同一操作識別碼的內容不同。')
-                return self.status(ident)
+                if not(admitted and saved['state']=='awaiting_browser'):return self.status(ident)
             pending=db.execute("SELECT COUNT(*) FROM native_operations WHERE json_extract(body,'$.state') IN ('pending','delivered','prepared','submitted')").fetchone()[0]
             if pending:raise ValueError('已有原生提交待完成，未建立另一份要求。')
         candidates=self.candidates(target)
@@ -154,6 +238,8 @@ class NativeQueue:
             raise ValueError('請更新擴充並重新整理 ComfyUI 網頁，才能定位另一個已開啟的工作流。')
         if action=='capture' and live.get('capture_protocol')!=1:
             raise ValueError('請更新擴充並重新整理網頁，以準備 Queue 工作快照。')
+        if action=='apply' and live.get('apply_protocol')!=1:
+            raise ValueError('請更新擴充並重新整理 ComfyUI 網頁，才能套用或取消輸入操作。')
         if (images or any('text_source' in b for b in texts)) and live.get('bindings_protocol')!=1:
             raise ValueError('ComfyUI 網頁尚未載入新版綁定功能，請更新擴充並重新整理網頁。')
         if not live['ready']:raise ValueError('原生分頁正在提交或無法確認空閒，未提交。')
@@ -161,6 +247,7 @@ class NativeQueue:
             identity=copy.deepcopy(live['identity']),epoch=live['epoch'],client_id=live['client_id'],snapshot=snapshot,workflow=workflow,texts=texts,images=images,user_scope='default',target=target,needs_navigation=needs_navigation)
         if action=='open':operation.update(action='open',target=target)
         if action=='capture':operation.update(action='capture',server=server)
+        if action=='apply':operation.update(action='apply')
         self.save(operation);return self.status(ident)
 
     def checked(self,value):
@@ -168,9 +255,26 @@ class NativeQueue:
         if any(value.get(k)!=operation[k] for k in ('session','identity','epoch')):raise ValueError('原生回覆不屬於這次分頁／工作流。')
         return operation
 
+    def check_apply(self,value):
+        """An apply command must still own its receipt before each mutation."""
+        self.require_supported();operation=self.checked(value)
+        if (operation.get('action')!='apply' or operation['state']!='delivered'
+                or value.get('client_id')!=operation['client_id']):
+            raise ValueError('這次輸入套用已停止，未繼續修改工作流。')
+        return dict(ok=True)
+
+    def cancel_applied(self,value):
+        """The exact browser confirms that cancelled callbacks have drained."""
+        self.require_supported();operation=self.checked(value)
+        if (operation.get('action')!='apply' or not operation.get('cancel_requested')
+                or value.get('client_id')!=operation['client_id']):
+            raise ValueError('取消確認不屬於這次輸入操作。')
+        operation['cancel_confirmed']=True;self.save(operation)
+        return dict(ok=True)
+
     def candidates(self,target):
         return [(key,live) for key,live in self.sessions.items() if time.monotonic()-live['seen']<3 and
-                (self.target_matches(live['identity'],target) or any(self.target_matches(item,target) for item in live.get('workflows',[])))]
+                self.contains(live,target)]
 
     def activate(self,value):
         self.require_supported()
@@ -193,13 +297,19 @@ class NativeQueue:
     def prepare(self,value):
         self.require_supported()
         operation=self.checked(value)
-        if operation.get('action')=='open' or operation['state']!='delivered' or value.get('client_id')!=operation['client_id']:raise ValueError('原生提交已結束或連線已變更。')
+        if operation['state']!='delivered':raise ValueError('此原生操作已結束或不在待提交狀態。')
+        if operation.get('action') in ('open','apply','inspect') or value.get('client_id')!=operation['client_id']:raise ValueError('此操作不提交生成，或原生連線已變更。')
         graph=api_graph(value.get('output')); visual=copy.deepcopy(value.get('workflow'))
         if not isinstance(visual,dict) or not isinstance(visual.get('nodes'),list):raise ValueError('原生可視工作流資料無效。')
         identity=operation.get('resolved_identity',operation['identity'])
         if operation.get('needs_navigation') and not operation.get('resolved_identity'):raise ValueError('尚未收到原生切換回執，未提交。')
         if visual.get('id')!=identity['frontend_id']:raise ValueError('原生可視工作流身分與綁定不符。')
         profile=next(p for p in operation['snapshot']['state']['generation']['profiles'] if p['id']==operation['workflow'])
+        # An authenticated in-flight receipt is itself fresh evidence. The
+        # adapter intentionally stops polling while serializing this graph.
+        live=self.sessions.get(operation['session'])
+        if (live and live['client_id']==operation['client_id'] and live['identity']==identity
+                and live['epoch']==operation.get('resolved_epoch',operation['epoch'])):live['seen']=time.monotonic()
         candidates=self.candidates(operation['target'])
         if (len(candidates)!=1 or candidates[0][0]!=operation['session'] or
             candidates[0][1]['identity']!=identity or candidates[0][1]['epoch']!=operation.get('resolved_epoch',operation['epoch'])):
@@ -216,6 +326,15 @@ class NativeQueue:
     def prepare_payload(self,operation,graph,visual):
         """Journal one verified payload (native serialization or released state)."""
         profile=next(p for p in operation['snapshot']['state']['generation']['profiles'] if p['id']==operation['workflow'])
+        chain=operation['snapshot'].get('chain')
+        if chain:
+            from .shared.chain_model import topology
+            data=operation['snapshot']['state']['multi_output']
+            stage=(data['stages'][chain['stage']] if data['version']>=7 else
+                   next(s for s in data['workflow_order']['chain']['stages'] if s['id']==chain['stage']))
+            if data['version']<7 and topology(graph)!=topology(profile['graph']):raise ValueError('串接階段的原生節點或接線已變更，請重新確認階段設定。')
+            if stage.get('output') and graph.get(stage['output'],{}).get('class_type') not in ('SaveImage','PreviewImage'):
+                raise ValueError('串接選定的輸出節點已失效。')
         texts=[]
         for binding in operation['texts']:
             node,field=binding['node'],binding['field']; actual=graph.get(node,{}).get('inputs',{}).get(field)
@@ -234,6 +353,12 @@ class NativeQueue:
             workflow_sha256=digest(graph),parameters={k:graph[n]['inputs'][f] for k,(n,f) in parameter_bindings(current).items()},
             origin=copy.deepcopy(profile.get('origin',{})),frontend_id=identity['frontend_id'],
             native_operation=operation['id'],native_identity=identity,user_scope='default')
+        if operation['snapshot'].get('chain'):generation['chain']=copy.deepcopy(operation['snapshot']['chain'])
+        replay=operation['snapshot'].get('chain_replay')
+        if replay:
+            actual={k:dict(class_type=v['class_type'],inputs=v['inputs']) for k,v in graph.items()}
+            expected={k:dict(class_type=v['class_type'],inputs=v['inputs']) for k,v in replay.items()}
+            if actual!=expected:raise ValueError('重試的工作流內容已變更；請選擇重新準備並建立新嘗試。')
         try:
             import nodes
             schema=input_schema(graph,nodes.NODE_CLASS_MAPPINGS)
@@ -289,6 +414,24 @@ class NativeQueue:
     def reply(self,value):
         self.require_supported()
         operation=self.checked(value); prompt_id=value.get('prompt_id')
+        if operation.get('action')=='inspect':
+            if operation['state']!='delivered':return self.status(operation['id'])
+            inspection=value.get('inspection')
+            if isinstance(inspection,dict) and not value.get('error'):
+                identity=operation.get('resolved_identity',operation['identity'])
+                visual=inspection.get('workflow')
+                if (operation.get('needs_navigation') and not operation.get('resolved_identity') or
+                    inspection.get('identity')!=identity or not self.target_matches(identity,operation['target']) or
+                    not isinstance(visual,dict) or visual.get('id')!=identity['frontend_id'] or not isinstance(visual.get('nodes'),list)):
+                    raise ValueError('原生讀取回覆與綁定不符。')
+                operation.update(state='inspected',inspection=dict(identity=copy.deepcopy(identity),epoch=operation.get('resolved_epoch',operation['epoch']),workflow=copy.deepcopy(visual),output=api_graph(inspection.get('output'))),error='')
+            else:operation.update(state='failed',error=str(value.get('error','原生工作流未讀取。'))[:1000])
+            self.save(operation);return self.status(operation['id'])
+        if operation.get('action')=='apply':
+            if operation['state']=='delivered':
+                operation.update(state='applied' if value.get('applied') is True and not value.get('error') else 'failed',error=str(value.get('error',''))[:1000])
+                self.save(operation)
+            return self.status(operation['id'])
         if operation.get('action')=='open':
             if operation['state']!='delivered':return self.status(operation['id'])
             opened=value.get('opened_identity')
@@ -307,13 +450,15 @@ class NativeQueue:
     def status(self,ident):
         self.require_supported()
         operation=self.read(ident)
-        if operation['state'] in ('pending','delivered','prepared','submitted') and time.time()-operation['created']>30:
-            operation.update(state='unconfirmed' if operation['state']!='pending' else 'failed',error='原生提交逾時，不會自動重送。');self.save(operation)
-        return {k:copy.deepcopy(operation[k]) for k in ('id','state','error','prompt_id','payload','opened_identity','work') if k in operation}
+        if operation['state'] in ('awaiting_browser','pending','delivered','prepared','submitted') and time.time()-operation['created']>30:
+            operation.update(state='failed' if operation['state'] in ('awaiting_browser','pending') else 'unconfirmed',error='原生提交逾時，不會自動重送。');self.save(operation)
+        result={k:copy.deepcopy(operation[k]) for k in ('id','state','error','first_error','terminal_action','issued_at','prompt_id','payload','opened_identity','work','inspection') if k in operation}
+        result['diagnostics']=self.diagnostics(ident)
+        return result
 
     def cancel_pending(self):
         with self.service.connect() as db:
-            rows=db.execute("SELECT body FROM native_operations WHERE json_extract(body,'$.state') IN ('pending','delivered','prepared')").fetchall()
+            rows=db.execute("SELECT body FROM native_operations WHERE json_extract(body,'$.state') IN ('awaiting_browser','pending','delivered','prepared')").fetchall()
         for raw, in rows:
             operation=json.loads(raw);operation.update(state='failed',error='已取消原生提交。');self.save(operation)
 
@@ -321,9 +466,14 @@ class NativeQueue:
         """Cancel only a journaled operation. Hold the executor lock through interruption."""
         import heapq
         self.require_supported();operation=self.read(ident)
-        if operation['state'] in ('pending','delivered','prepared'):
-            operation.update(state='failed',error='已取消這項 PCS 工作。');self.save(operation)
-            return dict(ok=True,state='failed')
+        if operation.get('action')=='apply' and operation.get('cancel_requested'):
+            return dict(ok=True,state='failed' if operation.get('cancel_confirmed') else 'cancelling')
+        if operation['state'] in ('awaiting_browser','pending','delivered','prepared') or operation.get('action')=='apply' and operation['state']=='unconfirmed':
+            delivered_apply=operation.get('action')=='apply' and operation['state'] in ('delivered','unconfirmed')
+            if delivered_apply:operation.update(cancel_requested=True,cancel_confirmed=False)
+            operation.update(state='failed',terminal_action='cancel',error='已取消這項 PCS 工作。');self.save(operation)
+            return dict(ok=True,state='cancelling' if delivered_apply else 'failed')
+        if operation.get('action')=='apply':return dict(ok=True,state='settled')
         prompt=operation.get('prompt_id')
         mutex=getattr(queue,'mutex',None)
         if mutex is None:raise ValueError('ComfyUI 無法核對指定任務的取消；後續已暫停，請在原生任務紀錄處理。')
@@ -336,7 +486,7 @@ class NativeQueue:
                     raise ValueError('任務歸屬不符，未取消其他來源的工作。')
             if any(p[1]==prompt for p in pending):
                 queue.queue[:]=[p for p in queue.queue if p[1]!=prompt];heapq.heapify(queue.queue)
-                operation.update(state='failed',error='已移除這項尚未執行的 PCS 工作。');self.save(operation)
+                operation.update(state='failed',terminal_action='cancel',error='已移除這項尚未執行的 PCS 工作。');self.save(operation)
                 return dict(ok=True,state='failed')
             if any(p[1]==prompt for p in running):
                 interrupt();return dict(ok=True,state='cancelling')
@@ -384,7 +534,7 @@ class NativeQueue:
         with self.service.connect() as db:
             rows=[json.loads(r[0]) for r in db.execute('SELECT body FROM native_operations')]
         for operation in rows:
-            if (operation.get('action') in ('capture','open') or operation.get('queue_terminal')
+            if (operation.get('action') in ('capture','open','apply','inspect') or operation.get('queue_terminal')
                     or operation['state'] in ('failed','opened','captured')):
                 continue
             prompt=operation.get('prompt_id')
@@ -406,7 +556,7 @@ class NativeQueue:
             operation=self.read(ident);proof=self._recovery(operation,queue)
             if not proof['can_abandon']:raise ValueError(proof['reason'])
             # Updating the receipt also rejects any late prepare/decorate/reply.
-            operation.update(state='failed',queue_terminal=True,abandoned=True,submit_inflight=False,
+            operation.update(state='failed',queue_terminal=True,abandoned=True,submit_inflight=False,terminal_action='abandon',
                 recovery=dict(proof,checked=time.time()),error='已解除這筆舊任務的追蹤；保留紀錄，沒有重送。')
             self.save(operation)
         return dict(ok=True,state='abandoned',recovery=operation['recovery'],reason=operation['error'])

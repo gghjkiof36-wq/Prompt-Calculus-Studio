@@ -12,7 +12,15 @@ from PySide6.QtCore import QTimer
 class DirectRuns:
     def __init__(self, runner):
         self.runner=runner;self.client=runner.client;self.window=runner.window
-        self.pending=deque();self.current=None;self.submitted={}
+        self.pending=deque();self.current=None;self.submitted={};self.source_positions={}
+
+    def source_key(self,key,batch):return (self.window.state['workspace'],self.client.url,key,batch)
+
+    def next_source(self,key,image):
+        return max(image.get('index',0),self.source_positions.get(self.source_key(key,image['batch_id']),0))
+
+    def reset_source(self,key):
+        self.source_positions={k:v for k,v in self.source_positions.items() if k[:3]!=(self.window.state['workspace'],self.client.url,key)}
 
     def add(self, state, route, count=1, source=None):
         # Capture the click, not a later edit while the browser acknowledges it.
@@ -28,6 +36,7 @@ class DirectRuns:
 
     def pump(self):
         if self.current or not self.pending or not self.client.connected:return
+        if self.runner.chain.preparing:return
         flow=self.runner.current
         if flow and not flow.get('waiting'):return
         self.current=item=self.pending.popleft()
@@ -89,6 +98,7 @@ class DirectRuns:
         known=set(self.runner.last_status.get('running_ids',[]))|set(self.runner.last_status.get('queued_ids',[]))
         buffered={item.get('operation') for item in self.runner.store.rows()}
         for ident,job in self.client.generation.jobs.items():
+            if job.get('chain'):continue
             if job.get('prompt_id') not in known or ident in self.submitted or ident in buffered:continue
             route=job.get('input_route') or dict(server=job.get('server'),workspace=job.get('workspace'),workflow=job.get('requested_workflow'),scheduler=None)
             if route.get('workspace') and route.get('workflow') and route.get('server')==self.client.url:

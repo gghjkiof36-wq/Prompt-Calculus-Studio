@@ -26,9 +26,10 @@ class GenerationRunner:
             if not job.get('queue_job'):self.jobs[job['id']]=job
 
     def save(self,job):
+        if self.client.stopped:return
         with self.db:
             self.db.execute('INSERT OR REPLACE INTO generation_jobs VALUES (?,?,?)',(job['id'],json.dumps(job,ensure_ascii=False),job['created']))
-            self.db.execute("DELETE FROM generation_jobs WHERE id IN (SELECT id FROM generation_jobs WHERE json_extract(body,'$.queue_job') IS NULL AND json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed') ORDER BY created DESC LIMIT -1 OFFSET 200)")
+            self.db.execute("DELETE FROM generation_jobs WHERE id IN (SELECT id FROM generation_jobs WHERE json_extract(body,'$.queue_job') IS NULL AND json_extract(body,'$.chain') IS NULL AND json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed') ORDER BY created DESC LIMIT -1 OFFSET 200)")
 
     def status(self,text):
         self.message=text
@@ -136,15 +137,21 @@ class GenerationRunner:
                     if (v.get('binding') or {}).get('workflow')==workflow and v['binding'].get('node') and
                     next((p for p in snapshot['state'].get('generation',{}).get('profiles',[]) if p['id']==workflow),{}).get('graph',{}).get(v['binding']['node'],{}).get('class_type') in ('SaveImage','PreviewImage')}),
                  typed_inputs=snapshot['state'].get('multi_output',{}).get('version',0)>=5)
+        if snapshot.get('chain'):job['chain']=copy.deepcopy(snapshot['chain'])
         self.jobs[ident]=job;self.save(job)
         def fail(error):
+            if self.client.stopped:return
             if job['state'] in ('failed','complete'):return
             self.native_waiting.discard(ident)
+            job.setdefault('first_error',str(error))
             job.update(state='failed' if getattr(error,'rejected',False) else 'unconfirmed',error=str(error));self.save(job)
             if job['state']=='failed':self.jobs.pop(ident,None)
             if valid():failed('原生提交未完成：'+str(error)+'；不會自動重送。')
         def received(result):
+            if self.client.stopped:return
             if job['state'] in ('failed','complete'):return
+            for key in ('diagnostics','first_error','terminal_action','issued_at'):
+                if key in result:job[key]=copy.deepcopy(result[key])
             if result.get('payload'):job['payload']=result['payload']
             if result.get('prompt_id'):job['prompt_id']=result['prompt_id']
             state=result.get('state')
@@ -163,7 +170,7 @@ class GenerationRunner:
                 self.save(job)
                 # Keep reconciling the receipt even if a user cancelled the
                 # batch; a sent operation must not vanish from the journal.
-                QTimer.singleShot(500,lambda:self.client.request('workflow/native/status',dict(id=ident),received,fail))
+                QTimer.singleShot(500,self.client,lambda:self.client.request('workflow/native/status',dict(id=ident),received,fail) if not self.client.stopped else None)
         request=dict(id=ident,snapshot=snapshot,workflow=workflow,image=image)
         if images is not None:request['images']=images
         self.client.request('workflow/native/start',request,received,fail)
@@ -191,7 +198,7 @@ class GenerationRunner:
                     def reconciled(result,job=job,operation=operation):
                         self.checking.discard(operation)
                         if job['state'] in ('failed','complete'):return
-                        for key in ('payload','prompt_id','error'):
+                        for key in ('payload','prompt_id','error','diagnostics','first_error','terminal_action','issued_at'):
                             if key in result:job[key]=result[key]
                         if result.get('state') in ('queued','failed','unconfirmed'):job['state']=result['state']
                         self.save(job)
@@ -284,7 +291,7 @@ class GenerationRunner:
             if not proof:
                 failed('擴充未回傳恢復核對結果，請換用同版擴充並重啟 ComfyUI。');return
             job['recovery']=proof
-            for key in ('payload','prompt_id'):
+            for key in ('payload','prompt_id','diagnostics','first_error','terminal_action','issued_at'):
                 if result.get(key):job[key]=result[key]
             if result.get('state')=='failed':
                 job.update(state='failed',error=result.get('error','原生要求已結案。'))
@@ -305,7 +312,9 @@ class GenerationRunner:
         # a delayed history/native reply must never resurrect an abandoned job.
         job=self.jobs.get(ident) or self.record(ident)
         if not job or job['state'] not in ACTIVE:return
+        if job.get('error'):job.setdefault('first_error',job['error'])
         job.update(state='failed',execution_state='unknown',input_check='unconfirmed',
+                   terminal_action='abandon',
                    recovery=result.get('recovery',{}),
                    error='已解除這筆舊任務的追蹤；保留紀錄，沒有重送。',finished=time.time())
         self.save(job);self.jobs.pop(ident,None);self.native_waiting.discard(ident)

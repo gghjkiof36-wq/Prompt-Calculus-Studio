@@ -6,7 +6,7 @@ import {installNativeQueue} from '../comfyui_prompt_studio/web/native_queue.js';
 import {nativeIdentity} from '../comfyui_prompt_studio/web/native_open.js';
 const copy=value=>JSON.parse(JSON.stringify(value));
 
-function fixture() {
+function fixture(timeout=12000) {
     globalThis.document=new EventTarget();globalThis.window=new EventTarget();
     let adapter;
     const graph={state:null,get id(){return this.state.id;},serialize(){return copy(this.state);}};
@@ -41,11 +41,47 @@ function fixture() {
         },
         async graphToPrompt(){return {workflow:graph.serialize(),output:{'1':{class_type:'CLIPTextEncode',inputs:{text:graph.state.nodes[0].widgets_values[0]}}}};},
         async queuePrompt(){this.processingQueue=true;try{return await api.queuePrompt(0,await this.graphToPrompt());}finally{this.processingQueue=false;}}};
-    const request=async(route,value)=>{requests.push({route,value:copy(value)});return {};};
-    adapter=installNativeQueue(app,api,request,'tab');
+    const request=async(route,value)=>{if(route!=='workflow/native/event')requests.push({route,value:copy(value)});return {};};
+    adapter=installNativeQueue(app,api,request,'tab',()=>{},timeout);
     const command={id:'switch',action:'open',identity:nativeIdentity(a),epoch:0,target:nativeIdentity(b)};
     return {app,api,graph,store,a,b,adapter,command,sent,requests,loads};
 }
+
+for(const action of ['open','queue'])test(`hung ${action} load releases page controls, protects drafts and fences a late load until native recovery`,async()=>{
+    const f=fixture(25),source=copy(f.a.activeState),target=copy(f.b.activeState);
+    let finish;
+    f.app.onClean=()=>new Promise(resolve=>finish=resolve);
+    try {
+        const result=await f.adapter.execute({...f.command,action});
+        assert.match(result.error,/逾時/);
+        await new Promise(resolve=>setTimeout(resolve,10));
+        assert.equal(f.adapter.busy,false);assert.equal(f.sent.length,0);
+        const pointer=new Event('pointerdown',{cancelable:true});window.dispatchEvent(pointer);assert.equal(pointer.defaultPrevented,false);
+        f.a.changeTracker.checkState();await f.a.changeTracker.undo();
+        assert.deepEqual(f.a.activeState,source);assert.deepEqual(f.b.activeState,target);
+        await assert.rejects(f.app.loadGraphData(source,true,true,f.a),/重新整理/);
+        assert.equal(f.loads.length,1,'no overlapping rollback while the native loader is pending');
+        f.app.onClean=null;finish();await new Promise(resolve=>setImmediate(resolve));
+        assert.deepEqual(f.a.activeState,source);assert.deepEqual(f.b.activeState,target);
+        assert.equal(f.sent.length,0,'late load cannot continue the cancelled submission');
+        await f.app.loadGraphData(source,true,true,f.a);
+        await f.app.queuePrompt();assert.equal(f.sent.length,1);
+    } finally {finish?.();f.adapter.stop();}
+});
+
+test('inspect switches through the same native owner, returns unsaved draft, and never invokes queue or seeds',async()=>{
+    const f=fixture(),source=copy(f.a.activeState),aUndo=copy(f.a.changeTracker.undoQueue),bUndo=copy(f.b.changeTracker.undoQueue);
+    try {
+        const result=await f.adapter.execute({...f.command,action:'inspect',texts:[{node:'1',field:'text',text:'must not apply',text_source:'pcs',class_type:'CLIPTextEncode'}]});
+        assert.equal(result.error,undefined);assert.equal(result.inspection.workflow.id,'native-B');
+        assert.equal(result.inspection.output['1'].inputs.text,'');
+        assert.equal(result.inspection.identity.frontend_id,'native-B');assert.equal(f.sent.length,0);
+        assert.deepEqual(f.requests.map(r=>r.route),['workflow/native/activate']);
+        assert.deepEqual(f.a.activeState,source);assert.deepEqual(f.a.changeTracker.undoQueue,aUndo);assert.deepEqual(f.b.changeTracker.undoQueue,bUndo);
+        const generated=await f.adapter.execute({...f.command,action:'queue',epoch:1,identity:nativeIdentity(f.b)});
+        assert.equal(generated.prompt_id,'job-1');assert.equal(f.sent.length,1);
+    } finally {f.adapter.stop();}
+});
 
 test('switch uses exact native draft, retains both saved baselines and undo, and queue uses the selected target',async()=>{
     const f=fixture(),source=copy(f.a.activeState),aUndo=copy(f.a.changeTracker.undoQueue),bUndo=copy(f.b.changeTracker.undoQueue);

@@ -36,6 +36,15 @@ def png(path, metadata):
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_exact_task_results_are_not_truncated_by_recent_history_limit(self):
+        service=object.__new__(Service)
+        images=[dict(filename=f'image-{i}.png',type='temp',subfolder='') for i in range(137)]
+        history={'task':dict(outputs={'9':dict(images=images)})}
+        self.assertEqual(len(service.results(history)),120)
+        result=service.results(history,limit=None)
+        self.assertEqual([row['image'] for row in result],images)
+        self.assertTrue(all(row['prompt_id']=='task' and row['node_id']=='9' for row in result))
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(dir=ROOT / 'qa')
         self.addCleanup(self.tmp.cleanup)

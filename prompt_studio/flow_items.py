@@ -4,8 +4,9 @@ from PySide6.QtGui import QColor,QPen,QPainter,QPainterPath,QPainterPathStroker
 from PySide6.QtWidgets import QGraphicsObject,QGraphicsItem,QGraphicsPathItem,QGraphicsSimpleTextItem
 from . import multi_output as model
 
-COLORS={'text':'#9cbff3','image':'#e0bb79','execution':'#93cbb2','preview':'#baa6e0','clip':'#9cbff3','content':'#a9ceb0'}
-LABELS={'text':'文字','image':'圖片','execution':'執行','preview':'預覽','clip':'文字','content':'文字組合'}
+from .module_contracts import WIRES
+COLORS={key:value.color for key,value in WIRES.items()}
+LABELS={key:value.label for key,value in WIRES.items()}
 
 
 def curve(start,end,style='curve'):
@@ -63,8 +64,14 @@ class Port(QGraphicsObject):
         name=(canvas.data()['outputs'].get(slot) or canvas.data()['canvases'].get(slot) or {}).get('name',LABELS[kind])
         from .flow_data import channel,source_name
         if slot and key in canvas.data()['outputs']:name=source_name(canvas.window.state,slot)
+        if slot and key in canvas.data().get('stages',{}) and kind=='control':
+            name=(canvas.data()['clip_inputs'].get(slot) or canvas.data().get('image_inputs',{}).get(slot) or {}).get('name',name)
         typed=channel(canvas.window.state,key)
         if typed:name=typed[1]['name']
+        if kind=='control' and not output and canvas.data()['version']<7:
+            from .chain_connections import caption
+            name=caption(canvas.window.state,key)
+        if kind in ('control','flow','done') and canvas.data()['version']>=7:name='輸出' if output else '輸入'
         self.setToolTip(name+('輸出' if output else '輸入')+' · 拖曳或點擊連線')
         self.caption=QGraphicsSimpleTextItem(name[:12],self); self.caption.setBrush(QColor(COLORS[kind])); self.caption.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         font=canvas.font(); font.setPixelSize(11); self.caption.setFont(font)
@@ -80,10 +87,11 @@ class Port(QGraphicsObject):
         if self.output==other.output or self.key==other.key: return False
         source,destination=(self,other) if self.output else (other,self)
         textual=destination.key in self.canvas.data()['outputs'] and self.canvas.data()['version']>=6 and {self.kind,other.kind}<= {'text','clip'}
-        if self.kind!=other.kind and not textual:return False
+        ordering=(source.kind=='flow' and destination.kind=='control' and source.key in self.canvas.data().get('stages',{}) and destination.key in self.canvas.data().get('stages',{}))
+        if self.kind!=other.kind and not textual and not ordering:return False
         gesture=self.canvas.connection_gesture
         if destination.slot and destination.slot!=source.key and not (gesture.original and gesture.anchor is destination): return False
-        if not model.valid_edge(self.canvas.window.state,source.key,destination.key,source.kind): return False
+        if not model.valid_edge(self.canvas.window.state,source.key,destination.key,'done' if ordering else source.kind): return False
         if self.kind=='text' and self.canvas.data()['version']<5:
             original=getattr(self.canvas.connection_gesture,'original',None)
             return not any(c['id']!=original and c['kind']=='text' and c['source']==source.key and c['destination']!=destination.key for c in self.canvas.data()['connections'])
@@ -109,7 +117,7 @@ class ConnectionGesture(QObject):
         self.cancel(); self.anchor=port; self.start=QPointF(position)
         if not port.output and not (port.kind=='text' and port.slot is None and self.canvas.data()['version']>=5):
             value=next((c for c in self.canvas.data()['connections'] if c['destination']==port.key and
-                        (c['kind']==port.kind or port.key in self.canvas.data()['outputs'] and {c['kind'],port.kind}<={'clip','text'}) and
+                        (c['kind']==port.kind or port.kind=='control' and c['kind']=='done' or port.key in self.canvas.data()['outputs'] and {c['kind'],port.kind}<={'clip','text'}) and
                         (port.slot is None or c['source']==port.slot)),None)
             if value:
                 self.original=value['id']; self.anchor=self.canvas.line_port(value,True)
@@ -140,6 +148,7 @@ class ConnectionGesture(QObject):
         if self.anchor is None: return
         self.move(position); anchor=self.anchor; target=self.target; original=self.original; kind=anchor.kind if anchor.output or target is None else target.kind
         src,dst=((anchor.key,target.key) if anchor.output else (target.key,anchor.key)) if target else (None,None)
+        if src in self.canvas.data().get('stages',{}) and dst in self.canvas.data().get('stages',{}) and kind=='flow':kind='done'
         self.cancel(); canvas=self.canvas
         def apply(s):
             if original: model.disconnect(s,original)

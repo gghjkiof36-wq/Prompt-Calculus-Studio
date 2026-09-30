@@ -37,7 +37,7 @@ class RunControls(QWidget):
             for widget in (self.count,self.run_button,self.stop):widget.ensurePolished()
             height=max(40,self.count.fontMetrics().height()+18,self.run_button.fontMetrics().height()+18)
             for widget in (self.count,self.run_button,self.stop):widget.setFixedHeight(height)
-            self.count.setFixedWidth(max(88,self.count.fontMetrics().horizontalAdvance('100')+58))
+            self.count.setFixedWidth(max(88,self.count.fontMetrics().horizontalAdvance('100'+self.count.suffix())+58))
             self.run_button.setFixedWidth(max(94,self.run_button.fontMetrics().horizontalAdvance('執行')+52))
             self.stop.setFixedWidth(height)
         else:
@@ -57,6 +57,15 @@ class RunControls(QWidget):
         self.count.blockSignals(True); self.count.setMaximum(1 if single_native else 100); self.count.blockSignals(False)
         if single_native:self.count.setToolTip('本候選每次執行一個工作流；圖片批量大小沿用 ComfyUI 設定。多輪與跨流程暫擱。')
         if modern:self.count.setToolTip('提交次數。未接預排程時立即交給 ComfyUI；接上預排程後，忙碌時保存下一份輸入。')
+        from .chain_model import enabled
+        chained=modern and enabled(self.window.state)
+        stage_mode=self.window.state.get('multi_output',{}).get('version',1)>=7
+        if stage_mode:chained=len(self.window.state['multi_output'].get('stages',{}))>1
+        self.count.setSuffix(' 輪' if chained else '')
+        if chained:self.count.setToolTip('完整串接的輪數；圖片清單每張處理一輪，請設 1。')
+        if stage_mode:self.count.setToolTip('完整流程輪數；有預排程時代表加入的外層項目數。' if chained else '立即提交次數；有預排程時代表加入的項目數。無 Stage 只同步輸入。')
+        if self.execution_only:
+            self.count.setFixedWidth(max(88,self.count.fontMetrics().horizontalAdvance('100 輪' if chained else '100')+58))
         client=getattr(self.window,'comfy',None); ready=bool(client and client.can_run)
         incompatible=bool(client and client.connected and not client.snapshot_compatible)
         needs=bool(client and client.connected and direct_mode(self.window.state) and not ready and not incompatible)
@@ -78,7 +87,7 @@ class RunControls(QWidget):
         self.count.setEnabled(ready); self.stop.setEnabled(bool(client and client.connected and (client.running or client.pending or client.run_id)))
         if modern and client:
             self.stop.setEnabled(client.connected and client.input_flow.has_work())
-            self.stop.setToolTip('取消目前 PCS 工作；預排程的後續項目保留並暫停。')
+            self.stop.setToolTip('取消本次流程及可確認的 PCS 任務，保留紀錄。' if stage_mode or chained else '取消目前 PCS 工作；預排程的後續項目保留並暫停。')
         self.activity.setText(f'{client.running+client.pending if client else 0} 個活動任務')
         if modern and client:
             self.activity.setVisible(True)

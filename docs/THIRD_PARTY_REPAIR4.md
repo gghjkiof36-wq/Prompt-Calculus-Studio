@@ -1,3 +1,5 @@
+> 歷史Repair4稽核；0.831實際Windows包核對見 [THIRD_PARTY_0831.md](THIRD_PARTY_0831.md)。
+
 # Repair 4 依賴與授權附件
 
 本機候選包重用既有 Python、Qt 及建置工具，沒有下載新執行依賴。附件由 06 提供官方固定版本文字，03 核對其 SHA256 後原文採入 docs/third-party；來源網址及雜湊在 NOTICE_SOURCES.json。桌面包另附本機 dist-info 的 METADATA／licenses 及 Python-LICENSE.txt。

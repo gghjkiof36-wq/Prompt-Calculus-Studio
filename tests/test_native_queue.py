@@ -13,6 +13,28 @@ from prompt_studio.job_details import describe
 
 
 class NativeQueueTests(unittest.TestCase):
+    def test_diagnostics_are_owned_bounded_and_do_not_replace_first_error(self):
+        self.queue.start(self.request);self.queue.poll(self.live)
+        issued=self.queue.status(self.request['id'])
+        self.assertIn('issued_at',issued);self.assertEqual(issued['diagnostics'],{})
+        value=dict(self.live,id=self.request['id'],event=dict(seq=1,phase='received',state='started',elapsed_ms=0))
+        with self.assertRaises(ValueError):self.queue.event(dict(value,session='other'))
+        with self.assertRaises(ValueError):self.queue.event(dict(value,client_id='other'))
+        with self.assertRaises(ValueError):self.queue.event(dict(value,event=dict(value['event'],prompt='secret')))
+        for i in reversed(range(1,65)):
+            self.queue.event(dict(value,event=dict(seq=i,phase='select',state='timeout' if i==64 else 'started',elapsed_ms=i)))
+        self.queue.event(value)
+        events=self.queue.status(self.request['id'])['diagnostics']['events']
+        self.assertEqual(len(events),64);self.assertEqual(events[-1]['seq'],64)
+        self.assertTrue(all(set(e)=={'seq','phase','state','elapsed_ms','received_at'} for e in events))
+        self.queue.reply(dict(self.live,id=self.request['id'],error='original load timeout'))
+        operation=self.queue.read(self.request['id']);operation.update(error='cancelled later',terminal_action='cancel');self.queue.save(operation)
+        receipt=self.queue.status(self.request['id'])
+        self.assertEqual(receipt['first_error'],'original load timeout')
+        self.assertEqual(receipt['terminal_action'],'cancel')
+        text=describe(dict(receipt,requested_workflow='test'))
+        self.assertIn('切換工作流 · 逾時',text);self.assertIn('最初錯誤：original load timeout',text)
+
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name);self.service=Service(self.root,self.root,self.root);self.queue=self.service.native_queue
@@ -239,7 +261,7 @@ class NativeDesktopTests(unittest.TestCase):
             self.assertEqual(runner.record(ident)['state'],'complete')
             self.assertEqual(runner.record(ident)['prompt_id'],'confirmed')
 
-    def test_open_button_routes_only_to_native_open_and_ignores_late_workspace_reply(self):
+    def test_native_open_api_is_separate_from_clip_card_and_ignores_late_workspace_reply(self):
         from test_multi_output import workflow
         from prompt_studio import clip_flow
         p=workflow('A');p.update(origin=dict(server='http://127.0.0.1:8188',path='A.json'),frontend_id='native-A')
@@ -250,8 +272,9 @@ class NativeDesktopTests(unittest.TestCase):
         def request(route,data=None,done=None,**kwargs):
             calls.append((route,data));done(dict(id=data['id'],state='pending'))
         with patch.object(client,'request',request),patch('prompt_studio.native_workflow.QTimer.singleShot',lambda delay,fn:timers.append(fn)):
-            self.assertEqual(self.canvas.clips[clip].panel.open_native.text(),'顯示原生工作流')
-            self.canvas.clips[clip].panel.open_native.click()
+            self.assertFalse(hasattr(self.canvas.clips[clip].panel,'open_native'))
+            from prompt_studio.native_workflow import open_bound_workflow
+            open_bound_workflow(self.w,'A')
             self.assertEqual([route for route,_ in calls],['workflow/native/open'])
             self.assertEqual(calls[0][1]['workflow'],'A');self.assertTrue(client.opening_native)
             original_workspace=self.w.state['workspace']
@@ -267,6 +290,11 @@ class NativeDesktopTests(unittest.TestCase):
         p=workflow('A');p.update(origin=dict(server='http://127.0.0.1:8188',path='A.json'),frontend_id='native-A')
         self.w.generation_panel.save_profile(p);self.add('PCS original')
         clip=next(iter(self.canvas.clips));self.canvas.commit(lambda s:clip_flow.set_binding(s,'A',clip,('6','text')))
+        from prompt_studio import stage_model,multi_output
+        def add_stage(s):
+            key=stage_model.add(s,workflow='A');s['multi_output']['stages'][key]['output']=None
+            multi_output.connect(s,clip,key,'control')
+        self.canvas.commit(add_stage)
         client=self.w.comfy;client.native_supported=True;client.connected=True
         runner=client.generation;service=Service(Path(self.tmp.name)/'backend',self.tmp.name,self.tmp.name);queue=service.native_queue
         live=dict(session='tab',client_id='sid',epoch=0,ready=True,bindings_protocol=1,identity=dict(workflow='',path='A.json',frontend_id='native-A'))
@@ -278,15 +306,16 @@ class NativeDesktopTests(unittest.TestCase):
             elif route.startswith('/history/'):
                 done({route.split('/')[-1]:dict(prompt=(0,payload['prompt_id'],payload['prompt'],payload['extra_data']),status=dict(completed=True,status_str='success'),outputs={'9':{'images':[{'filename':'one.png'},{'filename':'two.png'}]}})})
             else:self.fail('Unexpected execution route: '+route)
-        with patch.object(client,'request',request),patch('prompt_studio.generation_runner.QTimer.singleShot',lambda delay,fn:timers.append(fn)):
-            runner.run(1);self.assertEqual(calls,['workflow/native/start'])
+        with patch.object(client,'request',request):
+            runner.run(1);client.input_flow.chain.pump();self.assertEqual(calls,['workflow/native/start'])
             command=queue.poll(live)['commands'][0]
             actual=copy.deepcopy(p['graph']);actual['5']['inputs'].update(width=1216,height=832,batch_size=2)
             for field in command['texts']:actual[field['node']]['inputs'][field['field']]=field['text']
             queue.prepare(dict(command,session='tab',client_id='sid',output=actual,workflow=dict(id='native-A',nodes=[])))
             payload=dict(prompt=actual,client_id='sid',extra_data=dict(extra_pnginfo=dict(workflow=dict(extra=dict(pcs_native_operation=command['id'])))))
             service.prepare_prompt(payload);queue.reply(dict(command,session='tab',prompt_id=payload['prompt_id']))
-            timers.pop(0)()
+            from PySide6.QtTest import QTest
+            QTest.qWait(550)
             runner.observe(dict(running_ids=[payload['prompt_id']],queued_ids=[],executing_node='3'))
             job=runner.records()[0];self.assertEqual(job['node'],'3')
             self.assertEqual(job['payload']['prompt']['5']['inputs']['batch_size'],2)

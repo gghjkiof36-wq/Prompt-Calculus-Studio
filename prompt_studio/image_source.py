@@ -125,5 +125,6 @@ def set_items(state, key, items, directory, iterate=True):
     if not items:raise ValueError('沒有選擇可用圖片。')
     source=state['canvas_functions']['images'][key]
     source.update(items=copy.deepcopy(items),iterate=iterate,index=0,batch_id=uuid.uuid4().hex)
+    source.pop('stage_reference',None);source.pop('input_index',None)
     source.pop('binding',None); source.pop('selection',None)
     return select(state,key,0,directory)

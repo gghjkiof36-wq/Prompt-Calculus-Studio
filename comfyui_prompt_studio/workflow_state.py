@@ -16,6 +16,9 @@ def live_state(query,library,server):
     from .shared.multi_output import bound_texts
     from .native_queue import digest
     state=library['state']; connection=library.get('connection',{})
+    # Stage-era inputs are applied by an explicit Execute transaction only.
+    # Library polling remains read-only; native Run never pulls desktop edits.
+    if state.get('multi_output',{}).get('version',0)>=7:return None
     if not connection.get('enabled') or server_identity(connection.get('server',''))!=server_identity(server):return None
     if state.get('multi_output',{}).get('version',0)<4:return None
     profiles=[p for p in state.get('generation',{}).get('profiles',[])

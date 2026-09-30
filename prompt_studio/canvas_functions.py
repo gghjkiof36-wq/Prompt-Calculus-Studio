@@ -17,6 +17,8 @@ class SourcePanel(QFrame):
         super().__init__(); self.owner=owner; self.key=key; self.current=None
         self.setObjectName('InsetPanel'); body=QVBoxLayout(self); body.setContentsMargins(14,14,14,14)
         self.binding=button('選擇工作流與圖片節點',self.bind_node,'Quiet'); body.addWidget(self.binding)
+        from .result_widgets import ResultSelector
+        self.result_node=ResultSelector(owner,key,'image');body.addWidget(self.result_node)
         self.show_image=QCheckBox('顯示圖片'); self.show_image.setChecked(True); self.show_image.toggled.connect(self.toggle_preview); body.addWidget(self.show_image)
         self.preview=SourcePreview(owner.window.store); self.preview.setMinimumSize(240,160); self.preview.clicked.connect(self.choose_file)
         self.preview.setWordWrap(True); self.preview.pathReady.connect(self.load); self.preview.failed.connect(lambda message:import_error(owner.window,message))
@@ -34,6 +36,14 @@ class SourcePanel(QFrame):
 
     def live_control(self,action):
         flow=self.owner.window.comfy.input_flow
+        if self.owner.window.state['multi_output']['version']>=7:
+            try:
+                for run in flow.chain.runs(True):
+                    if any(s.get('auto')==self.key for s in run['plan']['stages'].values()):
+                        if action=='stop_feed':flow.chain.stop_feed(run['id'],self.key)
+                        else:getattr(flow.chain,action)(run['id'])
+            except ValueError as exc:self.owner.window.notice(str(exc))
+            return
         for owner,control in flow.controls():
             source=control.get('feed') or control.get('cursor')
             if source and source['key']==self.key:getattr(flow,action)(owner)
@@ -49,6 +59,17 @@ class SourcePanel(QFrame):
     def load(self,path): return self.owner.replace(self.key,path)
     def source_menu(self):
         menu=RoundMenu(self.owner.window); menu.addAction('選擇圖片…',self.choose_file)
+        if self.owner.window.state['multi_output']['version']>=7:
+            stages=self.owner.window.state['multi_output']['stages']
+            submenu=menu.addMenu('本次 Stage 結果')
+            for key,stage in stages.items():
+                def select_stage(checked=False,key=key):
+                    def apply(state):
+                        value=state['canvas_functions']['images'][self.key];value.update(stage_reference=key,iterate=True);value.pop('input_index',None)
+                    self.owner.canvas.commit(apply)
+                submenu.addAction(stage['name'],select_stage)
+            menu.addAction('使用手動來源',lambda:self.owner.canvas.commit(lambda s:s['canvas_functions']['images'][self.key].pop('stage_reference',None)))
+            menu.addAction('使用全部接入圖片',lambda:self.owner.canvas.commit(lambda s:s['canvas_functions']['images'][self.key].pop('input_index',None)))
         if self.owner.data()['images'][self.key].get('enhanced'):
             from .source_controls import choose_many,choose_recent
             menu.addAction('選擇多張圖片…',lambda:choose_many(self))
@@ -63,6 +84,7 @@ class SourcePanel(QFrame):
         menu.open_at(self.cursor().pos())
     def toggle_attachment(self): self.owner.attach(self.key,not self.owner.data()['images'][self.key].get('attached',False))
     def refresh(self):
+        self.result_node.refresh()
         value=self.owner.data()['images'][self.key]; source=self.owner.current_source(self.key); self.current=source
         binding=value.get('binding'); profile=next((p for p in self.owner.window.state.get('generation',{}).get('profiles',[]) if binding and p['id']==binding['workflow']),None)
         text=(profile['name'] if profile else '工作流已移除')+' · #'+binding['node'] if binding else '選擇工作流與圖片節點'
@@ -70,7 +92,7 @@ class SourcePanel(QFrame):
         advanced=self.owner.window.state.get('multi_output',{}).get('version',1)>=4
         enhanced=value.get('enhanced',False)
         self.source_controls.setVisible(enhanced)
-        self.binding.setVisible(advanced and not enhanced); self.show_image.setVisible(advanced)
+        self.binding.setVisible(advanced and not enhanced and self.owner.window.state['multi_output']['version']<7); self.show_image.setVisible(advanced)
         if enhanced:
             items=value.get('items',[]);count=len(items)
             content=value.get('content');kind='PCS 文字模塊' if content and content['kind']=='modules' else '原始正面提示詞' if content else value.get('content_error','尚未選擇圖片')
@@ -100,11 +122,16 @@ class SourceCard(TextCard):
     @property
     def default_size(self):
         value=self.canvas.window.state.get('canvas_functions',{}).get('images',{}).get(self.key,{})
+        if value.get('reader')=='text':return (360,160)
         return (360,440 if value.get('show_image',True) else 230)
     def __init__(self,owner,key):
         super().__init__(owner.canvas); self.owner=owner; self.key=key; self.title='加載圖片'
         if owner.data()['images'][key].get('enhanced'):self.title='圖片來源'
-        self.panel=SourcePanel(owner,key); self.setToolTip('')
+        if owner.data()['images'][key].get('reader')=='text':
+            from .result_widgets import TextResultPanel
+            self.title='讀取文字';self.panel=TextResultPanel(owner,key)
+        else:self.panel=SourcePanel(owner,key)
+        self.setToolTip('')
     def attach(self):
         if self.proxy.widget() is not self.panel: self.proxy.setWidget(self.panel)
         self.panel.setStyleSheet(self.canvas.window.styleSheet()); self.panel.ensurePolished()
@@ -115,6 +142,7 @@ class SourceCard(TextCard):
         width,height=self.requested_size; minimum=self.panel.minimumSizeHint()
         top=78 if 'multi_output' in self.canvas.window.state else 46
         if self.canvas.window.state.get('multi_output',{}).get('version',0)>=5:top=132
+        if self.owner.data()['images'][self.key].get('reader')=='text':top=78
         shown=self.owner.data()['images'][self.key].get('show_image',True)
         self.proxy.setGeometry(QRectF(14,top,max(280,minimum.width(),width-28),max(230 if shown else 100,minimum.height(),height-top-14)))
         self.sync_bounds()
@@ -150,9 +178,9 @@ class CanvasFunctions:
             data=self.data(state); data['images'][key]=dict(source=copy.deepcopy(source),attached=False)
             if enhanced and state.get('multi_output',{}).get('version',0)>=5:
                 data['images'][key]['enhanced']=True
-                if source:
-                    from .image_source import set_items
-                    set_items(state,key,[source],self.window.store.directory,False)
+            if source and (enhanced or state.get('multi_output',{}).get('version',0)>=7):
+                from .image_source import set_items
+                set_items(state,key,[source],self.window.store.directory,False)
             if position is not None: state.setdefault('text_positions',{})[key]=[position.x(),position.y()]
             if attached: self.set_attachment(state,key,True)
         return key if self.canvas.commit(apply) else None
@@ -188,7 +216,7 @@ class CanvasFunctions:
         except (ValueError,OSError) as exc: import_error(self.window,exc); return
         def apply(state):
             value=self.data(state)['images'][key]; value['source']=source
-            if value.get('enhanced'):
+            if value.get('enhanced') or state.get('multi_output',{}).get('version',0)>=7:
                 from .image_source import set_items
                 set_items(state,key,[source],self.window.store.directory,False)
             value.pop('binding',None);value.pop('selection',None)

@@ -10,7 +10,7 @@
 
 - **組合 Prompt**：用模組、順序、權重與排除 Tag 整理文字，保留臨時片段及手動稿。
 - **整理 Canvas**：在畫布安排模組、Prompt、CLIP 與圖片接線，保存工作區並使用復原／重做。
-- **連接 ComfyUI**：明確選擇由 PCS 提供文字或保留網頁手動文字，提交目前開啟的單一工作流。
+- **連接 ComfyUI**：將 CLIP 接入文字套用到明確綁定欄位，透過 Stage 生成，按接線串接工作流、傳遞本輪圖片。
 - **查看圖片**：整批排列生成結果、點圖放大；圖片來源可供應單張或集合，接入 LoadImage，並可用預排程保存後續輸入。
 - **管理素材與生成脈絡**：整理模型、CivitAI 資產及媒體庫，收藏圖片並讀取可用的 PNG 資料與模組快照。
 
@@ -18,16 +18,17 @@
 
 ## 版本與下載
 
-本文件適用 **0.83 Alpha 1**。目前仍為預覽版，尚未發布正式 1.0。
+本文件適用 **0.831 Alpha 1**。目前仍為預覽版，尚未發布正式 1.0。
 
 | 版本 | 取得方式與適用範圍 |
 |---|---|
-| 0.83 Alpha 1 | [本次 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.83-alpha.1)：本次 Alpha 預覽版，提供來源包、配套 ComfyUI 擴充與 SHA256SUMS；以下指南適用此版。 |
+| 0.831 Alpha 1 | [本次 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.831-alpha.1)：本次 Alpha 預覽版，提供來源包、配套 ComfyUI 擴充與 SHA256SUMS；以下指南適用此版。 |
+| 0.83 Alpha 1 | [舊版 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.83-alpha.1)：舊操作依該版指南。 |
 | 0.82 Alpha 1 Repair 5 | [既有預覽版](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.82-alpha.1-repair.5)：保留原附件與該版指南。 |
 | 0.81 Alpha 2 UI Repair 1 | [既有預覽版](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.81-alpha.2-ui-repair.1)：保留來源與擴充；啟動依該頁說明，勿混用新版擴充。 |
 | main | 開發分支；Code → Download ZIP 取得當時的來源，固定版本請選 Release。 |
 
-本次附件為 `PCS-v0.83-Alpha1-source.zip`、`PCS-v0.83-Alpha1-ComfyUI.zip` 與 `SHA256SUMS.txt`，**不提供 Windows EXE**。原始碼不含 Python、Qt、模型或私人資料。程式標題仍保留「v0.83 直接執行修復候選（0928）」，對應本次固定產品來源；來源對照與驗收界線見 [QA 摘要](docs/validation/083_DIRECT.md)。
+本次附件為 `PCS-v0.831-Alpha1-source.zip`、`PCS-v0.831-Alpha1-ComfyUI.zip` 與 `SHA256SUMS.txt`。**本次暫不提供 Windows 執行檔下載**，待執行環境的散布材料補齊後另行處理；請使用下方來源啟動方式。原始碼不含 Python、Qt、模型或私人資料。程式標題仍保留「v0.831 種子與流程恢復修復候選（0930）」，對應本次固定產品來源；來源對照與驗收界線見 [QA 摘要](docs/validation/0831_STAGE.md)。
 
 ### 安裝與第一次使用
 
@@ -39,24 +40,26 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe run.py --v083-alpha
 ```
 
-首次安裝從 PyPI 取得依賴。以後只需最後一行，或依 [開始使用](docs/GETTING_STARTED.md) 建立雙擊捷徑。
+來源版首次安裝從 PyPI 取得依賴。以後只需最後一行，或依 [開始使用](docs/GETTING_STARTED.md) 建立雙擊捷徑。
 
 1. 第一次開啟選清單或 Canvas；先選一個模組與素材，查看組合後的 Prompt。
 2. 調整順序與權重，或保存自己的素材；先複製文字確認結果。
 3. 要生成時，安裝同版擴充、開啟 ComfyUI 工作流，依 [ComfyUI 指南](COMFYUI_GUIDE.md) 綁定 CLIP。
-4. 選「使用 PCS 提示詞」或「使用 ComfyUI 手動文字」，確認目前工作流，再執行一次。
+4. 將 CLIP／圖片輸入的紫色控制輸出接入 Stage，確認 Stage 工作流後執行；沒有有效 Stage 接入時只套用輸入。
 
 ### 執行方式與限制
 
-PCS、ComfyUI 服務與網頁都須保持開啟。**未接預排程時，每次點擊直接提交**到 ComfyUI 原生佇列；次數設為 3 就提交 3 次，採用點擊當時的文字與圖片。**接上預排程時，空閒直接執行，忙碌才保存後續接入內容**，當前工作完整完成後接續。未經預排程的欄位在派送時取值。
+PCS、ComfyUI 服務與原生網頁都須保持開啟。**Stage 是生成入口**：CLIP 或 ComfyUI 圖片輸入接入 Stage，按執行才套用並生成；修改 PCS 文字不即時覆蓋原生欄位。沒有有效 Stage 接入時只套用綁定輸入。
 
-底欄提供「次數、執行、取消、任務數」，點任務數查看紀錄。取消只針對指定 PCS 工作，其他已提交項目留在原生佇列；PCS 暫停或關閉不鎖住 ComfyUI 原生按鈕。
+單一 Stage 可在生成中再次點擊；多 Stage 按控制接線與結果依賴依序執行，次數代表完整流程輪數。本輪支持線性 A→B→C，以及使用不同 Stage 實例的 A→B→A；圖片來源可把本輪 A 的結果供給 B，不以舊圖替代。
 
-本版不支援關閉網頁後執行，跨工作流自動串接與 AI 文字轉譯也不在本次範圍。圖片集合與預排程操作見 [操作指南](docs/USER_GUIDE.md)。使用者已回報更新後可正常使用；這不等於逐項 GPU、多 DPI、新機安裝或所有工作流皆已驗收，詳見 [驗收範圍與兩項待驗風險](docs/validation/083_DIRECT.md)。
+資料預排程保存指定文字／圖片，Stage 預排程保存一個或一組階段並逐輸入選保存或即時取值。圖片清單最多十個未結束項目、完成後補入。底欄保留次數、執行、取消、活動任務數，取消只操作確認歸屬的 PCS 任務。
+
+原生載入一直不返回時仍需重新整理 ComfyUI 網頁；第三方入口無法安全隔離時也會提示刷新。未知提交不自動重送。關頁執行、AI 轉譯、Manager整合、條件分支及循環未納入。使用者人工驗收與 EXE 本機離屏自驗分列，見 [QA 與限制](docs/validation/0831_STAGE.md)。
 
 ## 介面
 
-本次尚無已確認可公開的 0.83 截圖，先提供操作文字。既有 [清單介面截圖](docs/images/prompt-workspace.png) 來自早期公開 main 與範例資料，不代表本版 Canvas。
+本次尚無已確認可公開的 0.831 截圖，先提供操作文字。既有 [清單介面截圖](docs/images/prompt-workspace.png) 來自早期公開 main 與範例資料，不代表本版 Canvas。
 
 ## 文件與支援
 

@@ -3,6 +3,7 @@
 
 export function createSeedObserver(setting) {
     const records=new WeakMap();
+    const workflows=new WeakMap();
     function observe(node,{loaded=false}={}) {
         if(node.type!=='KSampler'||records.has(node))return;
         const seed=node.widgets?.find(w=>w.name==='seed');
@@ -59,5 +60,29 @@ export function createSeedObserver(setting) {
         return {before(){for(const c of controls)c.beforeQueued.call(c);},
                 after(){for(const c of controls)c.afterQueued.call(c);}};
     }
-    return {observe,capture,restore,queueHooks};
+    // Widget-private HAS_EXECUTED is lost when native tabs reconstruct nodes.
+    // Keep only observed state, in this browser session, for the same native
+    // workflow object and unchanged sampler. Never draw a seed during a load.
+    const signature=node=>JSON.stringify([node.type,node.widgets?.map(w=>[w.name,w.value])]);
+    function remember(graph,workflow) {
+        if(!workflow||graph?.id!==workflow.activeState?.id)return;
+        const values=new Map();
+        for(const node of graph._nodes??[]) {
+            const r=records.get(node);
+            if(r?.hasExecuted===true&&r.control.beforeQueued===r.before&&r.control.afterQueued===r.after)
+                values.set(String(node.id),signature(node));
+        }
+        workflows.set(workflow,{id:graph.id,values});
+    }
+    function resume(graph,workflow) {
+        const saved=workflows.get(workflow);
+        if(!saved||saved.id!==graph?.id)return;
+        for(const node of graph._nodes??[]) {
+            if(saved.values.get(String(node.id))!==signature(node))continue;
+            const r=records.get(node);
+            if(r&&r.control.beforeQueued===r.before&&r.control.afterQueued===r.after)
+                restore(graph,{node_id:String(node.id),hasExecuted:true});
+        }
+    }
+    return {observe,capture,restore,queueHooks,remember,resume};
 }

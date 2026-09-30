@@ -8,15 +8,15 @@ PCS is a local-first Windows tool for composing reusable prompts and connecting 
 
 - Compose prompts with ordering, weights and tag exclusions.
 - Arrange Canvas modules, text destinations and image connections.
-- Choose PCS text or ComfyUI manual text for an explicitly bound CLIP field.
-- Submit to the native ComfyUI queue, view output batches, and route image sources through optional pre-scheduling.
+- Apply the text connected to CLIP to its explicitly bound field, preserving unbound browser fields.
+- Use Stage nodes for generation, chain linear workflows, and route current-run images through data or Stage pre-scheduling.
 - Organize local models and images, and inspect available PNG metadata and module snapshots.
 
 ## Download and start
 
-These instructions target **0.83 Alpha 1**, a prerelease. Get `PCS-v0.83-Alpha1-source.zip`, the matching `PCS-v0.83-Alpha1-ComfyUI.zip`, and `SHA256SUMS.txt` from the [release page](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.83-alpha.1). Availability is determined by the actual published assets. No Windows EXE is included. The earlier [0.82 Repair 5 release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.82-alpha.1-repair.5) and [0.81 release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.81-alpha.2-ui-repair.1) remain available with their own instructions.
+These instructions target **0.831 Alpha 1**, a prerelease. Get `PCS-v0.831-Alpha1-source.zip`, the matching `PCS-v0.831-Alpha1-ComfyUI.zip`, and `SHA256SUMS.txt` from the [release page](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.831-alpha.1). Availability is determined by the actual published assets. **This release does not provide a Windows executable download.** Distribution materials for its runtime still need to be completed; use the source instructions below. The earlier [0.82 Repair 5 release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.82-alpha.1-repair.5) and [0.81 release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.81-alpha.2-ui-repair.1) remain available with their own instructions.
 
-Use Windows 64-bit and Python 3.12. Extract the source ZIP and run these commands beside `run.py`:
+For the source edition, use Windows 64-bit and Python 3.12. Extract the source ZIP and run these commands beside `run.py`:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -28,13 +28,15 @@ Choose the list or Canvas interface, select a module and an item, adjust the res
 
 ## Limits
 
-Keep PCS, ComfyUI and the bound browser page open. Without pre-scheduling, each click submits directly to the native ComfyUI queue using the text and image captured at that click; a count of 3 submits 3 jobs. With pre-scheduling connected, an idle workflow starts immediately. Only later input arriving while busy is saved for execution after the current job fully completes. Fields not routed through pre-scheduling are read at dispatch time.
+Keep PCS, ComfyUI and its native browser page open. Stage is the generation entry point: connect CLIP or image-input control outputs to a Stage. Run applies the bound inputs and generates the Stage's selected workflow; without a valid Stage connection it only applies inputs. Editing PCS text alone does not overwrite browser fields.
 
-The bottom bar contains count, run, cancel and task count. Cancellation targets the specified PCS job, leaving unrelated native jobs alone. Pausing or closing PCS does not lock ComfyUI's native Run button. Previous waiting records are retained without automatic replay.
+A single Stage accepts additional clicks while generating. Multiple Stages follow control connections and result dependencies; count means complete workflow rounds. Linear A→B→C and A→B→A with separate Stage instances are supported. Downstream inputs can select the current Stage's image node and batch images rather than reusing old results.
 
-Image collections follow click counts without pre-scheduling; connected pre-scheduling supports batch supply with up to ten active/waiting items and refill after completion. Browser-free execution, automatic cross-workflow chaining and AI text interpretation are outside this release. The user reported normal operation after updating; this is not a claim that every GPU or environment was tested.
+Data pre-scheduling saves selected text or images. Stage pre-scheduling saves a Stage or group, with saved/live choices for each input. Image lists supply up to ten unfinished items and refill after completion. Cancellation only targets confirmed PCS jobs.
 
-The application title retains “v0.83 直接執行修復候選（0928）” candidate wording for the fixed product source. [Validation](docs/validation/083_DIRECT.md) separates the maintainer-reported manual acceptance from developer checks and unverified environments. Static review also identified two unconfirmed risks: a never-returning submission may keep native Run waiting, and a failed earlier image job may cause a later click to select an already queued image. These are recorded for a future version. A public screenshot for this version is not yet available. Models, Python/Qt and private data are not bundled.
+A native workflow loader that never returns still requires refreshing ComfyUI. Third-party Run wrappers that cannot be safely isolated also require a refresh. Unknown submissions are not automatically resent. Browser-free execution, AI interpretation, Manager integration, conditional branches and loops are outside this release.
+
+The application title retains “v0.831 種子與流程恢復修復候選（0930）” candidate wording for the fixed product source. [Validation](docs/validation/0831_STAGE.md) separates the maintainer-reported manual acceptance from developer checks and unverified environments. User acceptance and local offscreen EXE startup checks are reported separately; neither implies full clean-machine or EXE GPU coverage or public EXE availability. A public screenshot for this version is not yet available. Source and extension archives do not bundle Python/Qt, models or private data.
 
 ## Contribute and license
 

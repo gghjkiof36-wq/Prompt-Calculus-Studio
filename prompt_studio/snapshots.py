@@ -190,6 +190,8 @@ def restore_snapshot(current, snapshot):
         result['output_order']=list(dict.fromkeys(result['output_order']+hidden))
     if 'multi_output' in source:
         result['multi_output']=copy.deepcopy(source['multi_output'])
+        chain=result['multi_output'].get('workflow_order',{}).get('chain')
+        if chain:chain['enabled']=False
         workspace['canvas_owners']={use_map[key]:cid for cid,c in source['multi_output']['canvases'].items() for key in c['members']}
         for canvas in result['multi_output']['canvases'].values():
             canvas['members']=[use_map[key] for key in canvas['members']]

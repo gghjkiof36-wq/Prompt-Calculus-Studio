@@ -3,8 +3,9 @@ import copy
 import hashlib
 import json
 
-TYPES = ('clip', 'image', 'content')
-TYPE_NAMES = {'clip': '文字', 'image': '圖片', 'content': '文字組合'}
+from .module_contracts import DATA_TYPES,WIRES
+TYPES = DATA_TYPES
+TYPE_NAMES = {key:WIRES[key].label for key in TYPES}
 CAPACITY = 10
 
 
@@ -32,6 +33,7 @@ def source_name(state,key):
     data=state['multi_output']
     if key in data['canvases']:return data['canvases'][key]['name']
     if key in data['outputs']:return data['outputs'][key]['name']
+    if key in data.get('stages',{}):return data['stages'][key]['name']
     route=channel(state,key)
     if route:return data['schedulers'][route[0]]['name']+' · '+route[1]['name']
     image=state.get('canvas_functions',{}).get('images',{}).get(key,{})
@@ -69,12 +71,18 @@ def add_scheduler(state, position=(400, 300)):
 def add_image_input(state, position=(1000, 300)):
     from .multi_output import ident
     key = ident('image_input_')
-    state['multi_output']['image_inputs'][key] = dict(name='圖片輸入', workflow=None, node=None)
+    state['multi_output']['image_inputs'][key] = dict(name='ComfyUI 圖片輸入', workflow=None, node=None)
     state.setdefault('text_positions', {})[key] = list(position)
     return key
 
 
 def valid_edge(state, source, destination, kind):
+    if state['multi_output']['version']>=7:
+        from .module_contracts import can_connect
+        return can_connect(state,source,destination,kind)
+    elif kind=='control':
+        from .chain_connections import valid_edge as control_edge
+        return control_edge(state,source,destination)
     data = state['multi_output']
     images = state.get('canvas_functions', {}).get('images', {})
     src, dst = channel(state, source), channel(state, destination)
@@ -163,13 +171,31 @@ def resolve(state, key, kind, seen=None):
             raise ValueError('預排程的「'+route[1]['name']+'」尚未接入資料。')
         return resolve(state, source, kind, seen)
     data = state['multi_output']
+    if key in data.get('stages',{}):
+        result=state.get('_stage_results',{}).get(key)
+        if not result:raise ValueError(data['stages'][key]['name']+'：本次結果尚未產生。')
+        if kind=='clip':
+            from .result_data import text_value
+            text=text_value(state,key)
+            return value('clip',text,stage=key,run=result.get('run'))
+        if kind=='image':
+            images=result.get('images',[])
+            if not images:raise ValueError('Stage 本次沒有圖片結果。')
+            return value('image',images[0],stage=key,run=result.get('run'))
     if kind == 'clip' and key in data['outputs']:
         from .multi_output import compile_output
         result = compile_output(state, key)
         return value(kind, result['final_prompt'], output=key, canvases=canvas_ids(data['outputs'][key]),
-                     canvas_names=[data['canvases'][cid]['name'] for cid in canvas_ids(data['outputs'][key])])
+                     canvas_names=[data['canvases'][cid]['name'] for cid in canvas_ids(data['outputs'][key])],manual_draft=result['manual_draft'])
     images = state.get('canvas_functions', {}).get('images', {})
     if key in images:
+        if kind=='clip' and (images[key].get('reader')=='text' or images[key].get('text_field')):
+            from .result_data import stage_source,text_value
+            stage=stage_source(state,key,'clip' if images[key].get('reader')=='text' else 'image')
+            if not stage:raise ValueError('請連接 Stage 文字結果。')
+            return value('clip',text_value(state,stage,images[key].get('text_field')),stage=stage,source=key)
+        linked=incoming(state,key,'image') or images[key].get('stage_reference')
+        if linked and kind=='image':return value('image',image_list(state,key)[0],source=key)
         source = images[key].get('source')
         if not source:
             raise ValueError('圖片來源尚未選擇圖片。')
@@ -184,6 +210,39 @@ def resolve(state, key, kind, seen=None):
         if kind == 'clip':
             return value(kind, content.get('text', ''), **origin)
     raise ValueError('資料來源已移除或型別不相容。')
+
+
+def image_list(state,key,seen=None):
+    seen=set(seen or ())
+    if key in seen:raise ValueError('圖片來源形成循環。')
+    seen.add(key);data=state['multi_output']
+    if key in data.get('stages',{}):
+        result=state.get('_stage_results',{}).get(key,{})
+        images=result.get('images',[])
+        if not images:raise ValueError(data['stages'][key]['name']+'：本次圖片尚未產生。')
+        return copy.deepcopy(images)
+    images=state.get('canvas_functions',{}).get('images',{})
+    if key in images:
+        item=images[key];link=incoming(state,key,'image') or item.get('stage_reference')
+        if link:
+            values=image_list(state,link,seen);index=item.get('input_index')
+            node=item.get('output_node')
+            if node:
+                values=[v for v in values if v.get('reference',{}).get('node')==node]
+                if not values:raise ValueError('本次結果的圖片節點 #'+node+' 沒有圖片。')
+            if index is not None:
+                if type(index) is not int or not 0<=index<len(values):raise ValueError('圖片來源指定序號不存在。')
+                values=[values[index]]
+            return values
+        return copy.deepcopy(item.get('items') or ([item['source']] if item.get('source') else []))
+    from .flow_data import channel
+    route=channel(state,key)
+    if route:
+        saved=state.get('_execution_inputs',{}).get(key)
+        if saved:return [copy.deepcopy(saved['value'])]
+        source=incoming(state,key,'image')
+        if source:return image_list(state,source,seen)
+    return [resolve(state,key,'image')['value']]
 
 
 def capture_inputs(state, scheduler, image_resolver=None):
@@ -204,6 +263,9 @@ def capture_inputs(state, scheduler, image_resolver=None):
                 captured['origin']['composition']=dict(kind='modules' if roots else 'raw',roots=roots,
                     text=captured['value'],manual_text=captured['value'] if current.get('draft') is not None or
                     any(state['multi_output']['canvases'][cid].get('raw_prompt') is not None for cid in canvas_ids(current)) else None)
+                if state['multi_output']['version']>=7:
+                    captured['origin']['canvas_records']={cid:dict(canvas=copy.deepcopy(state['multi_output']['canvases'][cid]),
+                        roots={rid:copy.deepcopy(state['uses'][rid]) for rid in state['multi_output']['canvases'][cid]['members']}) for cid in canvas_ids(current)}
             result[key] = captured
     if not result:
         raise ValueError('請先將文字、圖片或文字組合接入預排程。')

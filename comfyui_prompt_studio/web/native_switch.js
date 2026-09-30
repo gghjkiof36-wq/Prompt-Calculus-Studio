@@ -11,7 +11,7 @@ export const nativeDraftRecoveryPending=app=>recovering.has(app);
 // tracker entry points as well as input events: an undo must be refused BEFORE
 // updateState pops either history stack. No loader interception during ordinary
 // native submission/serialization (where user editing still invalidates PCS).
-export async function openNativeWorkflow(app,target,guard) {
+export async function openNativeWorkflow(app,target,guard,timeoutMs=12000) {
     guard();
     const store=app.extensionManager?.workflow,source=store?.activeWorkflow,graph=app.rootGraph;
     const destinations=store?.workflows?.filter(w=>w.isLoaded&&same(nativeIdentity(w),target))??[];
@@ -44,13 +44,29 @@ export async function openNativeWorkflow(app,target,guard) {
     const blockEvent=event=>{event.preventDefault();event.stopImmediatePropagation();};
     const surface=globalThis.window??globalThis.document;
     const events=['keydown','keyup','pointerdown','pointerup','mousedown','mouseup','click','dblclick','wheel','beforeinput','input','change','paste','cut','drop'];
-    let release=true,succeeded=false;
+    let release=true,succeeded=false,pendingLoad=null;
+    function restoreDrafts() {
+        for(const {t,initial,active,undo,redo,cache} of saved) {
+            t.initialState=initial;t.undoQueue.splice(0,t.undoQueue.length,...undo);t.redoQueue.splice(0,t.redoQueue.length,...redo);
+            if(!succeeded){t.activeState=copy(active);Object.assign(t,cache);}
+            t.updateModified();
+        }
+    }
+    const load=async state=>{
+        let timer;
+        const pending=Promise.resolve().then(()=>loader.call(app,state,true,true,state===destinationState?destination:source,
+            {checkForRerouteMigration:false,deferWarnings:true,skipAssetScans:true}));
+        pendingLoad=pending;
+        pending.then(()=>{if(pendingLoad===pending)pendingLoad=null;},()=>{if(pendingLoad===pending)pendingLoad=null;});
+        try{return await Promise.race([pending,new Promise((_,reject)=>{timer=setTimeout(()=>{
+            const error=new Error('原生工作流載入逾時；請重新整理 ComfyUI 網頁後再試。');
+            error.loadPending=true;reject(error);
+        },timeoutMs);})]);}finally{clearTimeout(timer);}
+    };
     try {
         for(const t of trackers){replace(t,'checkState',()=>{});replace(t,'updateState',async()=>{});}
         replace(app,'loadGraphData',blocked);
         for(const name of events)surface?.addEventListener?.(name,blockEvent,{capture:true,passive:false});
-        const load=state=>loader.call(app,state,true,true,state===destinationState?destination:source,
-            {checkForRerouteMigration:false,deferWarnings:true,skipAssetScans:true});
         try {
             await load(destinationState);
             if(store.activeWorkflow!==destination||app.rootGraph!==graph||app.graph!==graph||app.configuringGraph||
@@ -58,6 +74,9 @@ export async function openNativeWorkflow(app,target,guard) {
                 graphFingerprint(graph.serialize())!==graphFingerprint(destinationState))
                 throw new Error('原生載入結果與綁定工作流不符，未提交。');
         } catch(error) {
+            // A native loader has no abort contract. Never start a concurrent
+            // rollback over a suspended configure/afterLoad callback.
+            if(error.loadPending){release=false;throw error;}
             try {
                 await load(sourceState);
                 if(store.activeWorkflow!==source||graphFingerprint(graph.serialize())!==graphFingerprint(sourceState))throw new Error('restore mismatch');
@@ -72,20 +91,32 @@ export async function openNativeWorkflow(app,target,guard) {
         }
         succeeded=true;return nativeIdentity(destination);
     } finally {
-        for(const {t,initial,active,undo,redo,cache} of saved) {
-            // Native afterLoad resets initialState even when loading a dirty
-            // draft. Preserve its saved baseline and its existing undo/redo.
-            t.initialState=initial;t.undoQueue.splice(0,t.undoQueue.length,...undo);t.redoQueue.splice(0,t.redoQueue.length,...redo);
-            if(!succeeded){t.activeState=active;Object.assign(t,cache);}
-            t.updateModified();
-        }
+        restoreDrafts();
         if(release){for(const undo of restore.reverse())undo();}
         else {
             // The last replacement is the loader, the remaining replacements
             // guard only autosave/history. A successful native load releases
             // those guards without leaving a PCS transaction or click lock.
             restore.pop()();recovering.add(app);
+            // Release the whole-window input lock even if native code never
+            // returns. Protect only the incomplete canvas; browser refresh,
+            // native controls and menus remain available. Late completion may
+            // restore a partial tracker, so restore the saved drafts again.
+            const canvas=app.canvasEl??app.canvas?.canvas;
+            const protectCanvas=event=>{
+                if(event.key==='F5'||((event.ctrlKey||event.metaKey)&&event.key?.toLowerCase()==='r'))return;
+                if(pendingLoad&&canvas?.contains?.(event.target))blockEvent(event);
+            };
+            if(pendingLoad){
+                for(const name of events)surface?.addEventListener?.(name,protectCanvas,{capture:true,passive:false});
+                const settled=()=>{
+                    restoreDrafts();
+                    for(const name of events)surface?.removeEventListener?.(name,protectCanvas,{capture:true});
+                };
+                pendingLoad.then(settled,settled);
+            }
             const recoveryLoader=async function(...args){
+                if(pendingLoad)throw new Error('原生工作流仍未結束載入；請重新整理 ComfyUI 網頁。');
                 const result=await loader.apply(this,args);
                 const current=store.activeWorkflow;
                 if(!app.configuringGraph&&app.rootGraph===graph&&app.graph===graph&&current?.activeState&&

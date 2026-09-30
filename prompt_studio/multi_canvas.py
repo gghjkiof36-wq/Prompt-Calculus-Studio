@@ -161,7 +161,7 @@ class FlowFunctions(CanvasFunctions):
                 s['multi_output']['connections']=[c for c in s['multi_output']['connections'] if c['destination']!=key]
             else:
                 for line in list(s['multi_output']['connections']):
-                    if line['source']==key: model.disconnect(s,line['id'])
+                    if line['source']==key or line['destination']==key: model.disconnect(s,line['id'])
                 self.data(s)['images'].pop(key,None)
         self.canvas.commit(apply)
     def source_position(self,output):
@@ -199,16 +199,24 @@ class FlowFunctions(CanvasFunctions):
                 ('Prompt 控制',lambda:self.canvas.add_output(position)),
                 ('CLIP 輸入',lambda:self.canvas.add_clip(position)),
                 ('圖片來源',lambda:self.add_image(position=position)),
-                ('載入圖片（單張／工作流輸出）',lambda:self.add_image(position=position,enhanced=False)),
-                ('圖片輸入',lambda:self.canvas.add_flow_node('image_inputs',position)),
+                ('加載圖片（單張）',lambda:self.add_image(position=position,enhanced=False)),
+                ('讀取文字',lambda:self.add_text_reader(position)),
+                ('ComfyUI 圖片輸入',lambda:self.canvas.add_flow_node('image_inputs',position)),
                 ('預排程',lambda:self.canvas.add_flow_node('schedulers',position)),
+                ('Stage／執行階段',lambda:self.canvas.add_flow_node('stages',position)),
+                ('依現有綁定補建 Stage',self.canvas.migrate_stages),
                 ('預覽圖片',self.show_preview)]
+    def add_text_reader(self,position=None):
+        from .result_data import add_text_reader
+        position=position or self.canvas.view.mapToScene(self.canvas.view.viewport().rect().center())
+        self.canvas.commit(lambda s:add_text_reader(s,(position.x(),position.y())))
     def context(self,key,position):
         menu=RoundMenu(self.window)
         if key in self.cards:
-            menu.addAction('選擇圖片…',self.cards[key].panel.choose_file)
-            embed=menu.addMenu('嵌入畫布')
-            for cid,value in self.canvas.data()['canvases'].items(): embed.addAction(value['name'],lambda checked=False,c=cid:self.canvas.embed_source(key,c))
+            if hasattr(self.cards[key].panel,'choose_file'):menu.addAction('選擇圖片…',self.cards[key].panel.choose_file)
+            if self.data()['images'][key].get('reader')!='text':
+                embed=menu.addMenu('嵌入畫布')
+                for cid,value in self.canvas.data()['canvases'].items(): embed.addAction(value['name'],lambda checked=False,c=cid:self.canvas.embed_source(key,c))
         menu.addAction('移除',lambda:self.remove(key)); menu.open_at(position)
 
 
@@ -216,6 +224,9 @@ class MultiCanvas(TextCanvas):
     def __init__(self,window):
         super().__init__(window); self.functions=FlowFunctions(self); self.containers={}; self.outputs={}; self.ports={}; self.lines={}
         self.clips={}; self.flow_cards={}; self.order_card=None; self.execution_bar=ExecutionBar(self)
+        if window.state['multi_output']['version']>=7:
+            from .stage_widgets import RecentCorner
+            self.recent_corner=RecentCorner(self)
         self.insertion_canvas=None; self.image_previews={}; self.editor_page=None; self.z_counter=-.9; self.refreshing=False
         from .flow_items import ConnectionGesture
         self.connection_gesture=ConnectionGesture(self)
@@ -230,12 +241,18 @@ class MultiCanvas(TextCanvas):
         old_connections=copy.deepcopy(self.data()['connections'])
         def apply(s):
             operation(s)
-            if s['multi_output']['version']>=5:
+            client=getattr(self.window,'comfy',None)
+            if s['multi_output']['version']>=7 and client:
+                from .stage_context import sync_result_view
+                sync_result_view(s,self.window.store.directory,client.input_flow.chain.results)
+            elif s['multi_output']['version']>=5:
                 from .flow_data import materialize
                 materialize(s)
             model.reconcile(s)
         result=super().commit(apply)
         client=getattr(self.window,'comfy',None)
+        if result and client and self.data()['version']>=7:
+            client.input_flow.chain.route_changed()
         if result and client and old_connections!=self.data()['connections']:
             removed=[c for c in old_connections if c not in self.data()['connections']]
             for owner,control in client.input_flow.local_controls():
@@ -247,7 +264,19 @@ class MultiCanvas(TextCanvas):
         return result
     def restore_history(self,source,destination,after):
         from .snapshot_history import restore as restore_import
-        if restore_import(self,source,destination,after):return
+        previous=self.window.state
+        canvas_focus=self.view.hasFocus() and self.view.scene().focusItem() is None
+        if restore_import(self,source,destination,after):
+            if self.window.state is not previous:
+                client=getattr(self.window,'comfy',None)
+                if client:
+                    runner=client.input_flow.chain
+                    if previous['workspace']!=self.window.state['workspace']:
+                        runner.workspace_changed(previous['workspace']);runner.load_results()
+                    if self.data()['version']>=7:
+                        runner.refresh_results();runner.route_changed()
+                if canvas_focus:self.view.setFocus();self.view.scene().clearFocus()
+            return
         if not source: return
         before,later=source[-1]; expected,target=(before,later) if after else (later,before)
         from .edit_history import merge
@@ -257,9 +286,16 @@ class MultiCanvas(TextCanvas):
             for key in HISTORY_FIELDS+('multi_output','draft','draft_base'):value.pop(key,None)
             value.update(merged);validate_state(value)
         except ValueError as exc:self.window.notice(str(exc));return
+        old_images=self.window.state.get('canvas_functions',{}).get('images',{})
+        new_images=value.get('canvas_functions',{}).get('images',{})
+        reader_changed=any(old_images.get(key,{}).get(field)!=new_images.get(key,{}).get(field)
+            for key in old_images.keys()|new_images.keys() for field in ('output_node','text_field','input_index','stage_reference'))
         source.pop(); destination.append((before,later)); self.window.state=value; self.last_state=self.history_state()
         from .changes import layout_only
         self.sync('layout' if layout_only(expected,target) else 'prompt')
+        if reader_changed and self.data()['version']>=7:self.window.comfy.input_flow.chain.refresh_results()
+        if self.data()['version']>=7:self.window.comfy.input_flow.chain.route_changed()
+        if canvas_focus:self.view.setFocus();self.view.scene().clearFocus()
     def choose_current(self):
         key=self.output_picker.currentData()
         if key and key!=self.data()['current_output']:
@@ -323,7 +359,7 @@ class MultiCanvas(TextCanvas):
                 if key not in self.clips: self.clips[key]=ClipCard(self,key); self.view.scene().addItem(self.clips[key])
                 card=self.clips[key]; card.attach(); card.setPos(*state.get('text_positions',{}).get(key,[650,index*300-350])); card.setSelected(key in selected)
             from .flow_widgets import FlowCard
-            active_flow={key:kind for kind in ('schedulers','image_inputs') for key in self.data().get(kind,{})}
+            active_flow={key:kind for kind in ('schedulers','image_inputs','stages') for key in self.data().get(kind,{})}
             for key in list(self.flow_cards):
                 if key not in active_flow:
                     card=self.flow_cards.pop(key);self.view.scene().removeItem(card);card.deleteLater()
@@ -351,18 +387,38 @@ class MultiCanvas(TextCanvas):
                 self.add_port(card,key,'text',False,index=len(inputs))
                 self.add_port(card,key,'image',False,index=len(inputs)+1)
                 self.add_port(card,key,'clip',True)
-            for key,card in self.clips.items(): self.add_port(card,key,'clip',False)
+            for key,card in self.clips.items():
+                self.add_port(card,key,'clip',False);self.add_port(card,key,'control',True)
             for key,card in self.functions.cards.items():
+                if state['canvas_functions']['images'][key].get('reader')=='text':
+                    self.add_port(card,key,'clip',False);self.add_port(card,key,'clip',True);continue
                 self.add_port(card,key,'image',True)
+                if self.data()['version']>=7:self.add_port(card,key,'image',False)
                 if self.data()['version']>=5:
                     self.add_port(card,key,'content',True,index=1);self.add_port(card,key,'clip',True,index=2)
             from .flow_data import endpoint
             for key,card in self.flow_cards.items():
-                if card.kind=='image_inputs':self.add_port(card,key,'image',False)
+                if card.kind=='image_inputs':
+                    self.add_port(card,key,'image',False);self.add_port(card,key,'control',True)
+                elif card.kind=='stages':
+                    from .stage_model import controls
+                    connected=controls(state,key)+[c['source'] for c in self.data()['connections'] if c['kind']=='done' and c['destination']==key]
+                    for index,source in enumerate(connected):self.add_port(card,key,'control',False,slot=source,index=index)
+                    self.add_port(card,key,'control',False,index=len(connected))
+                    for index,kind in enumerate(('flow','image','clip')):self.add_port(card,key,kind,True,index=index)
                 else:
                     for index,channel in enumerate(self.data()['schedulers'][key]['channels']):
                         for output in (False,True):self.add_port(card,endpoint(key,channel['id']),channel['type'],output,index=index)
+                    if self.data()['version']>=7:
+                        index=len(self.data()['schedulers'][key]['channels'])
+                        for output in (False,True):self.add_port(card,key+'::flow','flow',output,index=index)
             if self.data()['version']>=4:self.add_port(self.preview_card,model.PREVIEW,'image',False)
+            if self.order_card and self.data()['workflow_order'].get('visible'):
+                from .chain_connections import endpoint as stage_endpoint,ADD
+                from .chain_model import definition
+                stages=(definition(state) or {}).get('stages',[])
+                for i,stage in enumerate(stages):self.add_port(self.order_card,stage_endpoint(stage['id']),'control',False,index=i)
+                self.add_port(self.order_card,ADD,'control',False,index=len(stages))
             for value in self.data()['connections']:
                 line=FlowLine(self,value); self.lines[value['id']]=line; self.view.scene().addItem(line)
             self.update_output(); self.view.scene().setSceneRect(self.content_bounds().adjusted(-2400,-1800,2400,1800))
@@ -394,13 +450,15 @@ class MultiCanvas(TextCanvas):
         self.ports[(key,kind,output,slot) if slot else (key,kind,output)]=Port(self,parent,key,kind,output,slot,index)
     def line_port(self,value,output):
         key=value['source'] if output else value['destination']; kind=value['kind']
-        return self.ports.get((key,kind,output,value['source']) if not output and (kind in ('execution','preview','text') or kind=='clip' and key in self.outputs) else (key,kind,output))
+        if kind=='done' and self.data()['version']>=7:kind='flow' if output else 'control'
+        return self.ports.get((key,kind,output,value['source']) if not output and (kind in ('execution','preview','text') or kind=='control' and key in self.data().get('stages',{}) or kind=='clip' and key in self.outputs) else (key,kind,output))
     def update_lines(self):
         if not hasattr(self,'ports'): return
         for port in self.ports.values():
             parent=port.parentItem(); y=58+port.index*24 if port.slot else 82 if port.key in self.outputs or port.key in self.containers else 58
             if not port.slot and port.kind in ('text','execution','clip'): y=58
             if self.data()['version']>=5:y=58+port.index*24
+            if port.key in self.data().get('stages',{}):y+=24
             port.setPos(parent.width if port.output else 0,y)
         for line in self.lines.values():
             value=line.value; source=self.line_port(value,True); dest=self.line_port(value,False)
@@ -465,8 +523,13 @@ class MultiCanvas(TextCanvas):
 
     def add_flow_node(self,kind,position=None):
         from .flow_data import add_scheduler,add_image_input
+        from .stage_model import add as add_stage
         position=position or self.view.mapToScene(self.view.viewport().rect().center())
-        self.commit(lambda state:(add_scheduler if kind=='schedulers' else add_image_input)(state,(position.x(),position.y())))
+        self.commit(lambda state:({'schedulers':add_scheduler,'image_inputs':add_image_input,'stages':add_stage}[kind])(state,(position.x(),position.y())))
+
+    def migrate_stages(self):
+        from .stage_model import migrate_bindings
+        self.commit(migrate_bindings)
 
     def remove_flow_node(self,kind,key):
         if kind=='schedulers':self.window.comfy.input_flow.detach(key)
@@ -556,7 +619,7 @@ class MultiCanvas(TextCanvas):
             elif isinstance(item,OutputCard): self.remove_output(item.key)
             elif isinstance(item,ClipCard): self.commit(lambda s,k=item.key:clip_flow.remove(s,k))
             elif isinstance(item,FlowCard):self.remove_flow_node(item.kind,item.key)
-            elif isinstance(item,TextCard) and item.key in self.functions.cards: self.functions.remove(item.key)
+            elif isinstance(item,TextCard) and (item.key in self.functions.cards or item is self.preview_card): self.functions.remove(item.key)
     def release_output(self):
         self.execution_bar.detach()
     def open_editor(self,key):

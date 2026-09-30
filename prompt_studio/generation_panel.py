@@ -351,5 +351,6 @@ class GenerationPanel(QWidget):
             if 0<=index<len(records):getattr(self.window.comfy.generation,method)(records[index]['id'])
         dialog.body.addLayout(row(button('更新這筆紀錄',lambda:recovery('recheck'),'Quiet'),
                                   button('停止追蹤此筆（保留紀錄）',lambda:recovery('abandon'),'Quiet')))
-        dialog.body.addLayout(row(button('保留的預排程／舊紀錄',lambda:retained_records(self.window),'Quiet'),None,button('關閉',dialog.accept,'Quiet')))
+        from .stage_widgets import show_history as chain_history
+        dialog.body.addLayout(row(button('串接流程',lambda:chain_history(self.window),'Quiet'),button('保留的預排程／舊紀錄',lambda:retained_records(self.window),'Quiet'),None,button('關閉',dialog.accept,'Quiet')))
         listing.setCurrentRow(0); dialog.exec(); dialog.deleteLater()

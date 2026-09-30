@@ -128,6 +128,7 @@ class CanvasResults(QFrame):
         if self.window.state.get('multi_output',{}).get('version',1)>=2 and not outputs: self.preview.setText('尚未連接 Prompt')
 
     def refresh_input(self):
+        if self.window.state.get('multi_output',{}).get('version',0)>=7:return self.refresh_stage_input()
         data=self.window.state.get('multi_output',{})
         line=next((c for c in data.get('connections',[]) if c['destination']=='__result_preview__' and c['kind']=='image'),None)
         was_input=self.input_active;self.input_active=bool(line); self.input_record=None; self.input_records=[]
@@ -180,6 +181,33 @@ class CanvasResults(QFrame):
             elif not collection and picture is not None and not picture.isNull():self.preview.set_picture(QPixmap.fromImage(picture)); self.preview.setText('')
         return True
 
+    def refresh_stage_input(self):
+        data=self.window.state['multi_output'];self.recent_button.hide()
+        for widget in (self.images,self.destination,self.choose_folder,self.save_button,self.reuse,self.feedback):widget.hide()
+        line=next((c for c in data['connections'] if c['destination']=='__result_preview__' and c['kind']=='image'),None)
+        self.input_active=True;self.input_records=[];self.input_record=None
+        if not line:self.preview.set_picture(QPixmap());self.preview.setText('請連接圖片來源或 Stage 結果');self.preview.setEnabled(False);self.image_key=None;return True
+        key=line['source'];images=self.window.comfy.images
+        collection=images.collection(key);source=images.source(key)
+        items=collection['items'] if collection else [source] if source else []
+        self.input_records=[dict(path=str(self.window.store.directory/i['relative']),name=i['name']) for i in items]
+        signature=tuple((i['sha256'],str(i.get('reference'))) for i in items)
+        if items:
+            self.preview.setEnabled(True)
+            if self.image_key!=signature:
+                pictures=[];limit=min(1536,int((4_000_000/max(1,len(items)))**.5))
+                for record in self.input_records:
+                    reader=QImageReader(record['path']);reader.setAutoTransform(True);reader.setAllocationLimit(128);size=reader.size()
+                    if size.isValid():size.scale(limit,limit,Qt.AspectRatioMode.KeepAspectRatio);reader.setScaledSize(size)
+                    pictures.append(QPixmap.fromImage(reader.read()))
+                self.preview.set_pictures(pictures);self.image_key=signature
+            self.input_record=self.input_records[0]
+        else:
+            canvas=getattr(self.window,'canvas',None);picture=canvas.image_previews.get(key) if canvas else None
+            self.image_key=None;self.preview.set_picture(QPixmap.fromImage(picture) if picture is not None and not picture.isNull() else QPixmap())
+            self.preview.setText('等待本次 Stage 結果' if key in data['stages'] else '尚未載入圖片');self.preview.setEnabled(False)
+        return True
+
     def refresh_destination(self):
         self.destination.blockSignals(True); self.destination.clear()
         picker=self.window.recent.destination_picker
@@ -198,7 +226,7 @@ class CanvasResults(QFrame):
         if self.loading: return
         if self.input_active:
             value=item.data(Qt.ItemDataRole.UserRole) if item else None
-            if isinstance(value,dict):self.window.comfy.images.choose(value['key'],value['collection'],value['index'])
+            if isinstance(value,dict):self.show_image(value['index'])
             return
         self.record=self.window.catalog.get(item.data(Qt.ItemDataRole.UserRole)) if item else None
         if self.record:

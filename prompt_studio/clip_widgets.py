@@ -12,7 +12,7 @@ from .workflow_binding import WorkflowBindingDialog
 
 class ClipBindingDialog(WorkflowBindingDialog):
     def __init__(self,canvas,key):
-        self.image_input=None if self.manual_choice else ComboBox()
+        self.image_input=None if self.manual_choice or canvas.data()['version']>=7 else ComboBox()
         super().__init__(canvas,key)
         if self.image_input is not None:
             self.body.insertWidget(4,label('接收 PCS 圖片的節點（選填，同工作流共用）','Subtle'))
@@ -63,57 +63,27 @@ class ClipBindingDialog(WorkflowBindingDialog):
 
 class ClipPanel(QFrame):
     def __init__(self,canvas,key):
-        super().__init__(); self.canvas=canvas; self.key=key; self.setObjectName('InsetPanel')
-        body=QVBoxLayout(self); body.setContentsMargins(14,10,14,14)
+        super().__init__();self.canvas=canvas;self.key=key;self.setObjectName('InsetPanel')
+        body=QVBoxLayout(self);body.setContentsMargins(14,10,14,14)
         self.binding=button('選擇工作流與 CLIP 節點',lambda:canvas.bind_dialog(key),'Quiet')
-        self.binding.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed)
-        self.order=QSpinBox(); self.order.setRange(1,50); self.order.setFixedWidth(96); self.order.setToolTip('工作流執行順序；同一工作流的 CLIP 共用此順序')
-        self.order.valueChanged.connect(self.reorder)
-        binding_row=QHBoxLayout(); binding_row.addWidget(self.binding,1); binding_row.addWidget(self.order); body.addLayout(binding_row)
-        self.text_source=ComboBox(); self.text_source.addItem('使用 PCS 提示詞','pcs'); self.text_source.addItem('使用 ComfyUI 手動文字','web')
-        self.text_source.setToolTip('PCS：同步此 Prompt 輸出到已綁定欄位。手動：保留 ComfyUI 欄位內容，包括空字串。')
-        self.text_source.currentIndexChanged.connect(self.change_text_source); body.addWidget(self.text_source)
-        self.status=label('','Subtle',True); body.addWidget(self.status)
-        self.open_native=button('顯示原生工作流',self.open_workflow,'Quiet');body.addWidget(self.open_native)
-    def open_workflow(self):
-        from .native_workflow import open_bound_workflow
-        workflow=self.canvas.data()['clip_inputs'][self.key].get('workflow')
-        if workflow:open_bound_workflow(self.canvas.window,workflow)
-    def reorder(self,position):
-        from .workflow_flow import set_position
-        workflow=self.canvas.data()['clip_inputs'][self.key].get('workflow')
-        if workflow:self.canvas.commit(lambda s:set_position(s,workflow,position))
-    def change_text_source(self):
-        choice=self.text_source.currentData()
-        if choice in ('pcs','web'):self.canvas.commit(lambda s:s['multi_output']['clip_inputs'][self.key].update(text_source=choice))
+        body.addWidget(self.binding)
+        self.status=label('','Subtle',True);body.addWidget(self.status)
+
     def refresh(self):
-        state=self.canvas.window.state; data=self.canvas.data(); output=clip_flow.source(state,self.key)
-        self.text_source.blockSignals(True); self.text_source.setCurrentIndex(self.text_source.findData(data['clip_inputs'][self.key].get('text_source','pcs')))
-        self.text_source.blockSignals(False); self.text_source.setVisible(data['version']>=4)
-        profile=active_profile(state)
-        bindings=[b for b in data['bindings'] if b['clip']==self.key]
-        selected=data['clip_inputs'][self.key].get('workflow')
-        binding=next((b for b in bindings if b['workflow']==selected),None) if data['version']>=4 else next((b for b in bindings if profile and b['workflow']==profile['id']),next(iter(bindings),None))
-        if binding: profile=next((p for p in options(state)['profiles'] if p['id']==binding['workflow']),None)
+        state=self.canvas.window.state;binding=clip_flow.selected_binding(state,self.key)
+        profile=next((p for p in options(state)['profiles'] if binding and p['id']==binding['workflow']),None)
+        error=''
         if binding and profile:
-            valid=(binding['node'],binding['field']) in text_fields(profile['graph']) and output is not None
-            node=profile['graph'].get(binding['node'],{}); title=node.get('_meta',{}).get('title',node.get('class_type','節點已移除'))
-            text=profile['name']+' · '+title+' #'+binding['node']+' / '+binding['field']
-            self.binding.setText(profile['name']+' · #'+binding['node']+' / '+binding['field']); self.binding.setToolTip(text)
-            self.status.setText('有效綁定' if valid else '綁定失效 · 請檢查文字來源與工作流欄位')
+            self.binding.setText(profile['name']+' · #'+binding['node']+' / '+binding['field'])
+            if (binding['node'],binding['field']) not in text_fields(profile['graph']):error='綁定節點已移除，請重新選擇。'
         else:
-            self.binding.setText('選擇工作流與 CLIP 節點'); self.binding.setToolTip('')
-            self.status.setText('綁定的工作流已移除' if binding else '尚未綁定')
-        if output is None: self.status.setText('未連接 Prompt 輸出')
-        from .workflow_flow import workflow_ids
-        ids=workflow_ids(state); self.order.setFixedWidth(max(106,self.order.sizeHint().width(),self.order.fontMetrics().horizontalAdvance('50')+82)); self.order.blockSignals(True); self.order.setMaximum(max(1,len(ids)))
-        self.order.setValue(ids.index(selected)+1 if selected in ids else 1); self.order.setEnabled(selected in ids)
-        self.order.setVisible(data['version']>=4); self.order.blockSignals(False)
-        self.open_native.setVisible(data['version']>=4 and bool(binding and profile))
+            self.binding.setText('選擇工作流與 CLIP 節點')
+            if binding:error='綁定的工作流已移除。'
+        self.status.setText(error);self.status.setVisible(bool(error))
 
 
 class ClipCard(TextCard):
-    default_size=(440,290)
+    default_size=(360,160)
     def __init__(self,canvas,key):
         super().__init__(canvas); self.key=key; self.panel=ClipPanel(canvas,key); self.init_interaction()
     def attach(self):
@@ -123,7 +93,7 @@ class ClipCard(TextCard):
         self.layout_card(); self.panel.show(); self.update_text()
     def layout_card(self):
         width,height=self.requested_size; minimum=self.panel.minimumSizeHint()
-        self.proxy.setGeometry(QRectF(14,86,max(330,minimum.width(),width-28),max(100,minimum.height(),height-100))); self.sync_bounds()
+        self.proxy.setGeometry(QRectF(14,86,max(290,minimum.width(),width-28),max(55,minimum.height(),height-100))); self.sync_bounds()
     def update_text(self):
         self.title=self.canvas.data()['clip_inputs'][self.key]['name']; self.panel.refresh(); super().update_text()
     def contextMenuEvent(self,event): self.canvas.clip_menu(self.key,event.screenPos()); event.accept()
@@ -177,6 +147,8 @@ class ExecutionBar(QFrame):
         self.status.setVisible(modern and running)
         node=client.input_flow.last_status.get('executing_node') if client else None
         self.status.setText(('正在生成 · 節點 #'+str(node)) if node is not None else '正在生成')
+        chain=client.input_flow.chain.progress() if modern and self.canvas.window.state['multi_output']['version']<7 else ''
+        if chain:self.status.setText(chain);self.status.show()
         active=pipeline is not None and pipeline.active()
         self.progress.setVisible(active)
         if active:

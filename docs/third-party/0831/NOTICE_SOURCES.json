@@ -1,0 +1,23 @@
+[
+  {
+    "file": "CPython-v3.12.14-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/python/cpython/v3.12.14/LICENSE",
+    "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf",
+    "bytes": 13936,
+    "retrieved": true
+  },
+  {
+    "file": "OpenSSL-3.5.8-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.5.8/LICENSE.txt",
+    "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+    "bytes": 10175,
+    "retrieved": true
+  },
+  {
+    "file": "PyInstaller-v6.22.2-COPYING.txt",
+    "url": "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.22.2/COPYING.txt",
+    "sha256": "dcf75fdb959db1e3b41c0f8505069d2ece781b5ec6b3d0a4d30975cfc6580245",
+    "bytes": 32138,
+    "retrieved": true
+  }
+]

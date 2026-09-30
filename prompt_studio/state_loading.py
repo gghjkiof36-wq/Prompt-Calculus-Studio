@@ -21,7 +21,14 @@ def prepare_state(state, *, multi=False):
         result=upgrade_workflow_flow(result)
         from .flow_data import upgrade as upgrade_dataflow,materialize
         result=upgrade_dataflow(result)
+        from .stage_model import upgrade as upgrade_stages
+        result=upgrade_stages(result)
+        for scene in result.get('workspace_scenes',{}).get('items',{}).values():
+            projected=upgrade_stages(dict(result,**scene))
+            scene['multi_output']=projected['multi_output']
+            scene['canvas_functions']=projected['canvas_functions']
         result.pop('_execution_inputs',None)
+        result.pop('_stage_results',None)
         materialize(result)
         from .workspace_scene import upgrade as upgrade_scenes
         upgrade_scenes(result)

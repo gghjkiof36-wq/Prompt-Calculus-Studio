@@ -76,6 +76,9 @@ def bind_image(state,key,workflow,node):
 
 def validate(state):
     data=state['multi_output']; order=data.get('workflow_order',{})
+    if order.get('chain') is not None:
+        from .chain_model import validate as validate_chain
+        validate_chain(order['chain'])
     if not isinstance(order,dict) or type(order.get('visible')) is not bool: raise ValueError('工作流排序設定無效。')
     for name in ('items','established'):
         values=order.get(name)

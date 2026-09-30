@@ -26,7 +26,7 @@ class ReceiptExecutor:
         self.w=window;self.client=window.comfy;self.service=Service(root/'service',root,root)
         self.native=self.service.native_queue;self.pending={};self.history={};self.submissions=[]
         self.live=dict(session='fixture-tab',epoch=0,identity=dict(workflow='flow',path='',frontend_id='native-A'),
-                       client_id='fixture-web',ready=True,bindings_protocol=1,navigation_protocol=1)
+                       client_id='fixture-web',ready=True,bindings_protocol=1,navigation_protocol=1,apply_protocol=1)
         self.native.poll(self.live)
         self.graph=copy.deepcopy(workflow()['graph']);self.graph['5']['inputs']['batch_size']=2
         self.graph['9']=dict(class_type='PreviewImage',inputs=dict(images=['5',0]))
