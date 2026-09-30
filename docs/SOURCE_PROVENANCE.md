@@ -1,15 +1,14 @@
-# 0.831 Alpha 1 發布來源對照
+# 0.84 Alpha 1 發布來源對照
 
-產品固定 `ea7df89dc714fc83c7e11ca32e5c7655619ec8a0`，公開基準main `238aef37b3d2b4b02b73bcc73a182ee9883b2590`。本次整合固定產品樹與公開文件，保留既有公開歷史及Release/tag；沒有把全部本機祖先提交推到公開Git，本機產品SHA可能無法在公開倉庫解析。下載以 `v0.831-alpha.1` tag及附件BUILD_INFO／manifest為準。
+2026-09-30 將原 0.831 Alpha 1 統一改名為 **0.84 Alpha 1**。功能與資料格式沿用同一輪成果，這次更新版本宣告、建置參數、啟動器名稱、測試檔名與公開文件。下載以 `v0.84-alpha.1` 的來源及同版擴充為準。
 
-- `prompt_studio/`、`comfyui_prompt_studio/`、根目錄執行／建置／部署腳本與固定產品逐位元組一致。`tests/`仅verify_v083.py將本機絕對資料路徑改為本checkout的qa/083/data，未改斷言或執行測試；其餘相同。
-- 原交付source／ComfyUI ZIP的SHA256及375份來源換行正規化對Git核對一致。公開包重新收集Git blobs與公開文件，與原候選ZIP hash不同；不公開原候選啟動器／DELIVERY／驗證私有資料。
-- 文件交付固定提交 `a4f8b33f22a6920a3497ee9b881cacb584a7c3ff` 的12份文件已整合。公開使用指南、驗收摘要與Release notes来自本版文件；發布狀態、建置及第三方實際稽核另由發布整合補齊。歷史候選的待驗／限制不當本版現況。
-- 来源ZIP用原有 `package_documents.source_paths` Git白名單，根直接包含run.py。排除個人資料、模型、憑證、Git歷史、qa、vendor、第三方runtime及研究素材；歷史PNG截圖只在Git倉庫保留，不影響来源啟動。
-- 擴充以 `comfyui_prompt_calculus_studio/` 為根，由固定擴充及 `releases.SHARED_MODULES` 的22個共用核心組成，附公開文件、相同來源ZIP與runtime來源映射。內部node/data/route識別沿用，不追溯改舊版。
-- `SOURCE_MANIFEST.json`描述來源，`PACKAGE_MANIFEST.json`描述交付；`BUILD_INFO.json`分列公開git_head與固定product_git_head，擴充記內嵌source_sha256。包不附EXE/runtime，沒有binary建置聲明。
-- 原本機Windows candidate的binary_git_head為ea7df89；EXE沒有由本次公開文件提交重建。原ZIP／EXE hash及58個實際runtime二進位、第三方材料缺口見[THIRD_PARTY_0831.md](THIRD_PARTY_0831.md)。Windows未作公開附件，待來源／通知／重建替換核對補齊；本機可用EXE不代表全部公開散布材料齊備。
+- 功能基準為 `ea7df89dc714fc83c7e11ca32e5c7655619ec8a0`；改名前公開提交為 `f8a43af783e160a30cfabe290567e705bee7f4a2`。本次提交接續公開歷史，未推送全部本機開發祖先，未重寫既有標籤。
+- `prompt_studio/releases.py` 更新 CURRENT、版本及 launcher，接受舊 `--v0831-*` 參數與舊 build-info 的 release 值；新輸出一律採 0.84。`run.py` 明列 `--v084-alpha`，既有啟動參數仍可使用。儲存目錄、節點 ID、序列化欄位及資料內容沒有改版遷移。
+- ComfyUI 程式與22個共享核心維持功能基準內容。測試檔名和相互匯入改用084；歷史 `verify_v083.py` 的私有絕對路徑可攜化沿用前次公開修正。
+- 來源由 Git 白名單收集，ZIP 根目錄包含 run.py；排除個人資料、憑證、模型、Git 歷史、qa、vendor 和第三方 runtime。擴充附相同來源 ZIP 與 runtime 來源映射。
+- `SOURCE_MANIFEST.json` 描述來源；`PACKAGE_MANIFEST.json` 描述交付。`BUILD_INFO.json` 的 git_head／product_git_head 指本次含版本更名的來源，functional_baseline_git_head 另記既有功能基準，previous_public_git_head 記改名前公開提交；包不附 EXE，沒有 binary 建置聲明。
+- 舊 0.831 Release 保留既有 URL、tag、附件及雜湊作歷史追溯，頁首明示已更名並連到 0.84。舊附件內容仍是原始版本，不能以重新命名附件冒充重建。
 
-程式標題保留固定產品「v0.831 種子與流程恢復修復候選（0930）」；公开Alpha prerelease不改程式版本字串。使用者功能驗收、本機離屏EXE啟動、228 Python／263 JS與三項流程複驗分列；08獨立檢查及本次來源／包／上傳核對不擴寫成真GPU、新機、全情境或全部升級／回退通過。操作與未驗範圍見[QA摘要](validation/0831_STAGE.md)。
+原本機 Windows 候選的 binary_git_head 仍為 ea7df89，本次未重建或公開 EXE；其原 ZIP／EXE 雜湊、58個實際 runtime 二進位及散布缺口見 [第三方核對](THIRD_PARTY_084.md)。本機包整合與重建另依正式交付記錄確認。
 
-舊0.83來源及公開提交、附件SHA仍由舊tag／Release和歷史SOURCE_PROVENANCE可追溯；不覆蓋舊包或標籤。
+既有功能驗收、開發測試及本機離屏 EXE 證據見 [驗收範圍](validation/084_STAGE.md)。本次版本相容性、來源／套件及公開下載核對，均不擴寫成真 GPU、新機或完整升級／回退驗收。

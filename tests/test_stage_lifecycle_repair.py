@@ -4,7 +4,7 @@ from unittest.mock import patch
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QPushButton
-from test_0831_stages import StageTests
+from test_084_stages import StageTests
 from prompt_studio import multi_output as model,stage_model
 from prompt_studio.flow_data import add_scheduler
 

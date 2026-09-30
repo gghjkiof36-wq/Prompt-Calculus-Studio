@@ -33,12 +33,20 @@ RELEASES={r.flag:r for r in (
     Release('--v083-repair1','v083-repair1-20260927','v0.83 執行與工作區修復候選（0927）','Start-PCS-v0.83-Repair1','--v083-alpha'),
     Release('--v083-repair2','v083-repair2-20260928','v0.83 待核對阻塞修復候選（0928）','Start-PCS-v0.83-Repair2','--v083-alpha'),
     Release('--v083-direct','v083-direct-20260928','v0.83 直接執行修復候選（0928）','Start-PCS-v0.83-Direct','--v083-alpha'),
-    Release('--v0831-chain','v0831-chain-20260929','v0.831 Stage 與分層預排程候選（0929）','Start-PCS-v0.831-Chain','--v083-alpha'),
-    Release('--v0831-repair1','v0831-repair1-20260929','v0.831 綁定與介面修復候選（0929）','Start-PCS-v0.831-Repair1','--v083-alpha'),
-    Release('--v0831-repair2','v0831-repair2-20260929','v0.831 流程與原生讀取修復候選（0929）','Start-PCS-v0.831-Repair2','--v083-alpha'),
-    Release('--v0831-repair3','v0831-repair3-20260930','v0.831 種子與流程恢復修復候選（0930）','Start-PCS-v0.831-Repair3','--v083-alpha'),
+    Release('--v084-chain','v084-chain-20260929','v0.84 Stage 與分層預排程候選（0929）','Start-PCS-v0.84-Chain','--v083-alpha'),
+    Release('--v084-repair1','v084-repair1-20260929','v0.84 綁定與介面修復候選（0929）','Start-PCS-v0.84-Repair1','--v083-alpha'),
+    Release('--v084-repair2','v084-repair2-20260929','v0.84 流程與原生讀取修復候選（0929）','Start-PCS-v0.84-Repair2','--v083-alpha'),
+    Release('--v084-alpha1','v084-alpha-1','v0.84 Alpha 1','Start-PCS-v0.84-Alpha','--v084-alpha'),
 )}
-CURRENT=RELEASES['--v0831-repair3']
+CURRENT=RELEASES['--v084-alpha1']
+# Historical build flags remain readable; new metadata uses canonical 0.84 flags.
+RELEASE_ALIASES={
+    '--v0831-chain':'--v084-chain',
+    '--v0831-repair1':'--v084-repair1',
+    '--v0831-repair2':'--v084-repair2',
+    '--v0831-repair3':'--v084-alpha1',
+    '--v084-repair3':'--v084-alpha1',
+}
 APP_BASENAME='PromptCalculusStudio'
 EXTENSION_FOLDER='comfyui_prompt_calculus_studio'
 SOURCE_ARCHIVE='PromptCalculusStudio-source.zip'
@@ -46,6 +54,7 @@ SHARED_MODULES=('core','snapshots','pnginfo','exclusions','composition','generat
 
 def select_release(arguments):
     # Preserve historical last-version-flag precedence in build_windows.py.
+    arguments={RELEASE_ALIASES.get(flag,flag) for flag in arguments}
     selected=[r for flag,r in RELEASES.items() if flag in arguments]
     return selected[-1] if selected else None
 
@@ -53,8 +62,9 @@ def runtime_release():
     path=Path(__file__).parent/'assets/build-info.json'
     if not path.exists():return CURRENT
     info=json.loads(path.read_text(encoding='utf-8'))
-    if info.get('release') not in RELEASES:raise ValueError('安裝包版本資訊無效。')
-    return RELEASES[info['release']]
+    flag=RELEASE_ALIASES.get(info.get('release'),info.get('release'))
+    if flag not in RELEASES:raise ValueError('安裝包版本資訊無效。')
+    return RELEASES[flag]
 
 def window_title():return 'Prompt Calculus Studio · '+runtime_release().version
 

@@ -6,7 +6,7 @@ from PySide6.QtGui import QContextMenuEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QMenu,QLineEdit,QDialogButtonBox
 import stage_fixture as fixture
-import test_0831_stages as stages
+import test_084_stages as stages
 from prompt_studio import multi_output as model
 from prompt_studio.flow_data import image_list
 

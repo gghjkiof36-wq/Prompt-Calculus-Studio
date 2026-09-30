@@ -14,14 +14,14 @@ PCS is a local-first Windows tool for composing reusable prompts and connecting 
 
 ## Download and start
 
-These instructions target **0.831 Alpha 1**, a prerelease. Get `PCS-v0.831-Alpha1-source.zip`, the matching `PCS-v0.831-Alpha1-ComfyUI.zip`, and `SHA256SUMS.txt` from the [release page](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.831-alpha.1). Availability is determined by the actual published assets. **This release does not provide a Windows executable download.** Distribution materials for its runtime still need to be completed; use the source instructions below. The earlier [0.82 Repair 5 release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.82-alpha.1-repair.5) and [0.81 release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.81-alpha.2-ui-repair.1) remain available with their own instructions.
+These instructions target **0.84 Alpha 1**, a prerelease. Get `PCS-v0.84-Alpha1-source.zip`, the matching `PCS-v0.84-Alpha1-ComfyUI.zip`, and `SHA256SUMS.txt` from the [release page](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.84-alpha.1). Availability is determined by the actual published assets. **This release does not provide a Windows executable download.** Distribution materials for its runtime still need to be completed; use the source instructions below. The earlier [0.82 Repair 5 release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.82-alpha.1-repair.5) and [0.81 release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.81-alpha.2-ui-repair.1) remain available with their own instructions.
 
 For the source edition, use Windows 64-bit and Python 3.12. Extract the source ZIP and run these commands beside `run.py`:
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py --v083-alpha
+.\.venv\Scripts\python.exe run.py --v084-alpha
 ```
 
 Choose the list or Canvas interface, select a module and an item, adjust the resulting prompt, then copy the text. For generation, install the matching extension, restart ComfyUI and refresh its browser page; connect the desktop library and bind the intended workflow/CLIP field. See [installation](docs/GETTING_STARTED.md) and the [ComfyUI guide](COMFYUI_GUIDE.md) (Chinese).
@@ -36,7 +36,7 @@ Data pre-scheduling saves selected text or images. Stage pre-scheduling saves a 
 
 A native workflow loader that never returns still requires refreshing ComfyUI. Third-party Run wrappers that cannot be safely isolated also require a refresh. Unknown submissions are not automatically resent. Browser-free execution, AI interpretation, Manager integration, conditional branches and loops are outside this release.
 
-The application title retains “v0.831 種子與流程恢復修復候選（0930）” candidate wording for the fixed product source. [Validation](docs/validation/0831_STAGE.md) separates the maintainer-reported manual acceptance from developer checks and unverified environments. User acceptance and local offscreen EXE startup checks are reported separately; neither implies full clean-machine or EXE GPU coverage or public EXE availability. A public screenshot for this version is not yet available. Source and extension archives do not bundle Python/Qt, models or private data.
+The application title is “v0.84 Alpha 1”. [Validation](docs/validation/084_STAGE.md) separates the maintainer-reported manual acceptance from developer checks and unverified environments. User acceptance and local offscreen EXE startup checks are reported separately; neither implies full clean-machine or EXE GPU coverage or public EXE availability. A public screenshot for this version is not yet available. Source and extension archives do not bundle Python/Qt, models or private data.
 
 ## Contribute and license
 

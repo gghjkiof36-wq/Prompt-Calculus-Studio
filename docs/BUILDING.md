@@ -1,10 +1,10 @@
-# 0.831 Alpha 1 來源與建置
+# 0.84 Alpha 1 來源與建置
 
-本次公開source／ComfyUI擴充，不附Windows執行環境；本機Windows候選的第三方核對與缺口見[THIRD_PARTY_0831.md](THIRD_PARTY_0831.md)。固定產品與既有EXE編譯來源ea7df89；發布文件整合提交另記，不冒用作binary_git_head。
+本次公開source／ComfyUI擴充，不附Windows執行環境；本機Windows候選的第三方核對與缺口見[THIRD_PARTY_084.md](THIRD_PARTY_084.md)。功能基準與既有EXE編譯來源ea7df89；本次來源提交另含0.84版本更名，詳見[SOURCE_PROVENANCE.md](SOURCE_PROVENANCE.md)。
 
-`prompt_studio/releases.py` CURRENT為 `--v0831-repair3`，啟動參數仍為 `--v083-alpha`，版本字串保留「v0.831 種子與流程恢復修復候選（0930）」。22項SHARED_MODULES由同一固定產品來源收集。一般來源啟動依[入門指南](GETTING_STARTED.md)；Git checkout可執行標準建置腳本，解壓source ZIP不含Git歷史，不放寬Git來源白名單來包含本機檔案。
+`prompt_studio/releases.py` CURRENT為 `--v084-alpha1`，啟動參數仍為 `--v084-alpha`，版本字串為「v0.84 Alpha 1」。22項SHARED_MODULES由同一固定產品來源收集。一般來源啟動依[入門指南](GETTING_STARTED.md)；Git checkout可執行標準建置腳本，解壓source ZIP不含Git歷史，不放寬Git來源白名單來包含本機檔案。
 
-公开包使用Git blobs建立，BUILD_INFO指出公開與產品來源，SOURCE_MANIFEST描述源檔、PACKAGE_MANIFEST描述交付檔；擴充内嵌同一source ZIP和來源映射。Windows固定候選以 `build_windows.py --v0831-repair3` 建立，原包與binary hash见散布核對。公開Windows須另外補實際runtime來源／通知與Qt重建替換材料並核對包；本次沒有重新建置EXE或正式替換安裝。
+公开包使用Git blobs建立，BUILD_INFO指出公開與產品來源，SOURCE_MANIFEST描述源檔、PACKAGE_MANIFEST描述交付檔；擴充内嵌同一source ZIP和來源映射。新0.84 Windows建置入口為 `build_windows.py --v084-alpha1`；既有Windows候選來自改名前基準，原包與binary hash见散布核對。公開Windows須另外補實際runtime來源／通知與Qt重建替換材料並核對包；本次沒有重新建置EXE或正式替換安裝。
 
 ---
 

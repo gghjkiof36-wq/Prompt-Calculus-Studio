@@ -1,4 +1,4 @@
-# 0.831 模塊、接點與執行邊界
+# 0.84 模塊、接點與執行邊界
 
 本輪集中接點規則並完成 Stage 路徑；全應用的分類、設定頁及服務抽象仍屬後續整理，不能據此認為已有通用插件系統。
 
@@ -32,4 +32,4 @@ Canvas 配置屬工作區與 Undo；`stage_journal` 屬執行紀錄；生成回�
 
 共享核心和擴充保持無 Qt，可由包匯入測試阻擋意外桌面依賴。原生瀏覽器頁面是目前 ComfyUI 介面的實作限制，不應變成所有未來模塊的前置條件。
 
-自驗使用正式 prepare、原生接收、queue/history、結果保存與下游派送，只替換 ComfyUI 執行器及 GPU。原生網頁、GPU、安裝和公開發布另行驗收。操作見 [使用說明](PCS_0831_STAGE.md)，遷移見 [資料相容](DATA_COMPATIBILITY.md)。
+自驗使用正式 prepare、原生接收、queue/history、結果保存與下游派送，只替換 ComfyUI 執行器及 GPU。原生網頁、GPU、安裝和公開發布另行驗收。操作見 [使用說明](PCS_084_STAGE.md)，遷移見 [資料相容](DATA_COMPATIBILITY.md)。

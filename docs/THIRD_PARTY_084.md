@@ -1,8 +1,8 @@
-# 0.831 Windows runtime 散布核對（2026-09-30）
+# 0.84 Windows runtime 散布核對（2026-09-30）
 
-核對對象是固定产品／binary `ea7df89dc714fc83c7e11ca32e5c7655619ec8a0` 的乾淨Windows候選。原ZIP SHA256 `f69a954e95d35092d2d41c6b3b555a6883867c9b72a5fe879361cadecfb541c4`，EXE SHA256 `b09819f062100240e2012c9f89c472ece405ffd119b429bdfe264a991a401b23`。274項套件清單逐檔雜湊核對通過；原包保留，不作公開附件。本次公開交付為source／ComfyUI，沒有重新散布下列runtime。
+本頁沿用改名前候選的實際稽核證據，沒有以0.84名稱重建該EXE。核對對象是固定产品／binary `ea7df89dc714fc83c7e11ca32e5c7655619ec8a0` 的乾淨Windows候選。原ZIP SHA256 `f69a954e95d35092d2d41c6b3b555a6883867c9b72a5fe879361cadecfb541c4`，EXE SHA256 `b09819f062100240e2012c9f89c472ece405ffd119b429bdfe264a991a401b23`。274項套件清單逐檔雜湊核對通過；原包保留，不作公開附件。本次公開交付為source／ComfyUI，沒有重新散布下列runtime。
 
-[逐檔清單](third-party/0831/WINDOWS_RUNTIME_INVENTORY.json)列58個DLL／PYD的大小、SHA256、可取得的PE版本及來源尚未確認狀態；另記Python base_library.zip雜湊和96個Qt翻譯檔。檔案版本僅是二進位資源宣告，不能證明原wheel、編譯選項或完整來源。
+[逐檔清單](third-party/084/WINDOWS_RUNTIME_INVENTORY.json)列58個DLL／PYD的大小、SHA256、可取得的PE版本及來源尚未確認狀態；另記Python base_library.zip雜湊和96個Qt翻譯檔。檔案版本僅是二進位資源宣告，不能證明原wheel、編譯選項或完整來源。
 
 | 實際包內容 | 已核實 | 尚需補齊 |
 |---|---|---|
@@ -24,10 +24,10 @@
 - [Qt for Python條款](https://doc.qt.io/qtforpython-6/licenses.html)是查核入口；實際包METADATA聲明LGPL/GPL選項，附件卻只有商業文字和另存的GNU本文，仍須補完整元件歸屬。
 - [CPython v3.12.14 get_externals](https://github.com/python/cpython/blob/v3.12.14/PCbuild/get_externals.bat)列OpenSSL3.0.16和SQLite3.49.1.0，與本包3.5.8／3.53.1不同；已取得官方腳本留核對證據，不能稱它是本runtime的完整重建輸入。
 - [SQLite官方聲明](https://sqlite.org/copyright.html)、[Microsoft再散布文件](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files?view=msvc-170)僅作權利來源查核入口，尚未對本包具體供應履行完成。
-- 固定版本CPython／OpenSSL／PyInstaller條款原文已下載並附於[通知來源清單](third-party/0831/NOTICE_SOURCES.json)，每份記官方URL、取得結果與SHA256。取得條款不代表所有相應來源／通知已齊；未用不存在的OpenSSL NOTICE.txt代填。
+- 固定版本CPython／OpenSSL／PyInstaller條款原文已下載並附於[通知來源清單](third-party/084/NOTICE_SOURCES.json)，每份記官方URL、取得結果與SHA256。取得條款不代表所有相應來源／通知已齊；未用不存在的OpenSSL NOTICE.txt代填。
 
 ## 重建與替換資料仍需完成
 
-從Release tag的Git checkout可取得專案建置腳本；source ZIP不附Git歷史與第三方runtime。Windows候選用 `build_windows.py --v0831-repair3`，EXE編譯來源固定ea7df89，後續只補文件也不得改稱binary由公開文件提交重建。
+從Release tag的Git checkout可取得專案建置腳本；source ZIP不附Git歷史與第三方runtime。新建置入口為 `build_windows.py --v084-alpha1`；下列原候選的EXE編譯來源仍固定ea7df89，後續只補文件也不得改稱binary由公開文件提交重建。
 
 尚須固定Python供應／wheel檔與hash、22個專案共享模組、PyInstaller／hook輸入、Qt各實際模組及其third-party build flags；取得匹配來源或有效的來源提供方式，補使用者替換相容DLL／PySide6並重建PCS的具體步驟與驗證。未執行這些重建替換驗證，也沒有授予商業替代授權或CLA。

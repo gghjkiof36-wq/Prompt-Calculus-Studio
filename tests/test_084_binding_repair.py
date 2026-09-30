@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QPushButton
 from PySide6.QtTest import QTest
 import stage_fixture as fixture
-import test_0831_stages as stages
+import test_084_stages as stages
 from prompt_studio import clip_flow,multi_output as model,stage_model
 from prompt_studio.flow_data import resolve,image_list
 from prompt_studio.result_data import add_text_reader

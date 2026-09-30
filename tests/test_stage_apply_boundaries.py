@@ -11,7 +11,7 @@ from contextlib import closing
 from types import SimpleNamespace
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-import test_0831_free_results as free
+import test_084_free_results as free
 from prompt_studio import workspace_scene
 
 

@@ -11,9 +11,9 @@
 
 0.82 Alpha 1 Repair 5 的產品來源固定為 `5c621ec`，使用者人工校驗已通過；公開狀態以 [Repair 5 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.82-alpha.1-repair.5) 為準。包括 Canvas／CLIP 綁定、明確文字來源、原生單工作流提交、圖片輸入及整批預覽。詳見 [更新紀錄](CHANGELOG.md) 與 [QA 範圍](docs/validation/082_REPAIR5.md)。
 
-## 本次0.831預覽版
+## 本次0.84預覽版
 
-Stage生成、線性跨工作流及本輪圖片傳遞、分層預排程、種子與流程恢復。固定ea7df89，發布以 [Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.831-alpha.1) 為準。操作見 [發布說明](docs/RELEASE_NOTES_0831.md)。0.83的單工作流限制不直接套用本版。
+Stage生成、線性跨工作流及本輪圖片傳遞、分層預排程、種子與流程恢復。固定ea7df89，發布以 [Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.84-alpha.1) 為準。操作見 [發布說明](docs/RELEASE_NOTES_084.md)。0.83的單工作流限制不直接套用本版。
 
 ## 仍未納入
 

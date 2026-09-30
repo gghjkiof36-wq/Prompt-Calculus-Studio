@@ -2,7 +2,7 @@
 import unittest
 from PySide6.QtTest import QTest
 import stage_fixture as fixture
-import test_0831_stages as stages
+import test_084_stages as stages
 from prompt_studio import multi_output as model
 from prompt_studio.flow_data import add_image_input
 

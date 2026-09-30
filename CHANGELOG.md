@@ -2,11 +2,11 @@
 
 日期使用 Asia/Taipei（UTC+8）。公開可下載內容以對應 Release 為準；下列開發紀錄不等於同名版本全部發布。
 
-## 0.831 Alpha 1｜2026-09-30
+## 0.84 Alpha 1｜2026-09-30
 
-[本次Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.831-alpha.1)；產品／binary來源ea7df89。Stage生成入口、跨工作流圖片及分層預排程；修復種子生命週期、等待收尾、排程狀態與有界診斷。未接Stage只套用輸入，按執行才更新原生欄位。
+[本次Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.84-alpha.1)；產品／binary來源ea7df89。Stage生成入口、跨工作流圖片及分層預排程；修復種子生命週期、等待收尾、排程狀態與有界診斷。未接Stage只套用輸入，按執行才更新原生欄位。
 
-原生loader永久pending仍需刷新；未知不重送。本次發布來源與同版擴充，Windows 執行檔暫不提供下載，待執行環境的散布材料補齊後另行處理。使用者人工驗收與EXE本機離屏自驗分列，見 [發布說明](docs/RELEASE_NOTES_0831.md) 及 [QA範圍](docs/validation/0831_STAGE.md)。舊版紀錄僅適用各自版本。
+原生loader永久pending仍需刷新；未知不重送。本次發布來源與同版擴充，Windows 執行檔暫不提供下載，待執行環境的散布材料補齊後另行處理。使用者人工驗收與EXE本機離屏自驗分列，見 [發布說明](docs/RELEASE_NOTES_084.md) 及 [QA範圍](docs/validation/084_STAGE.md)。舊版紀錄僅適用各自版本。
 
 ## 0.83 Alpha 1｜2026-09-28
 

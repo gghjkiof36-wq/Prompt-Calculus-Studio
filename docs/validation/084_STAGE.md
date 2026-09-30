@@ -1,6 +1,8 @@
-# 0.831 Stage與恢復：驗收範圍
+# 0.84 Stage與恢復：驗收範圍
 
-整理：2026-09-30（Asia/Taipei）。固定產品與EXE建置提交 `ea7df89dc714fc83c7e11ca32e5c7655619ec8a0`。公開整合提交與附件由 [Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.831-alpha.1) 及來源追溯確認，不用文件更新冒充重新建置binary。
+2026-09-30：本輪成果由原 0.831 統一更名為 0.84；既有功能與驗收證據沿用，更名提交另外核對版本相容性及套件。原 EXE 證據保留實際編譯來源，本次未重建 EXE。
+
+整理：2026-09-30（Asia/Taipei）。固定產品與EXE建置提交 `ea7df89dc714fc83c7e11ca32e5c7655619ec8a0`。公開整合提交與附件由 [Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.84-alpha.1) 及來源追溯確認，不用文件更新冒充重新建置binary。
 
 ## 已有證據
 
