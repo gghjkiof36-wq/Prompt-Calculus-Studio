@@ -2,7 +2,7 @@
 
 # 單一 ComfyUI 工作流關頁執行候選
 
-本輪只處理 illustrious v1.0.0，同一原生 ID 與檔案路徑；跨工作流仍暫擱。PCS 的正常 GenerationRunner 入口保持不變。
+本輪只處理 illustrious v1.0，同一原生 ID 與檔案路徑；跨工作流仍暫擱。PCS 的正常 GenerationRunner 入口保持不變。
 
 網頁正常開啟時，仍由原生 queuePrompt 執行。網頁將目前完整視覺圖、API 圖及可核實的原生種子控制狀態交給 Service 的 BackgroundState 保存。僅正常 pagehide、沒有未確認請求、最後完整內容與已確認版本相同時才釋放編輯權；心跳失聯不能代替這個交接。
 

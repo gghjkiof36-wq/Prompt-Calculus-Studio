@@ -30,9 +30,9 @@ Canvas 模組以素材項目為單位，例如直接使用「紅色衣服女孩�
 
 例如女孩包含 1girl, red clothes, red eyes, long hair, smile, dancing，背景包含 simple background, white background，輸出為：
 
-    (1girl, red clothes, red eyes, long hair, smile, dancing:1.0.0),
+    (1girl, red clothes, red eyes, long hair, smile, dancing:1.0),
 
-    (simple background, white background:1.0.0)
+    (simple background, white background:1.0)
 
 原始文字不做語義推測、去重或自動改寫。已有 LoRA、括號、權重及空格維持既有處理規則。
 
