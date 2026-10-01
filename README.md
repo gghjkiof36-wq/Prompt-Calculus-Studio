@@ -1,5 +1,7 @@
 # Prompt Calculus Studio（PCS）
 
+[版本命名與歷史對照](docs/VERSIONING.md)
+
 **化繁為簡，從混亂中找出秩序。**
 
 把常用提示詞整理成模組，選取素材、調整順序與權重，再送入 ComfyUI 工作流。PCS（原名 Prompt Studio）是以本機資料為主的 Windows 桌面工具，提供清單、Canvas 與 ComfyUI 擴充，方便保存角色、風格與場景組合。
@@ -18,17 +20,17 @@
 
 ## 版本與下載
 
-本文件適用 **0.84 Alpha 1**。目前仍為預覽版，尚未發布正式 1.0。
+本文件適用 **0.8.4 Alpha 1**。目前仍為預覽版，尚未發布正式 1.0.0。
 
 | 版本 | 取得方式與適用範圍 |
 |---|---|
-| 0.84 Alpha 1 | [本次 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.84-alpha.1)：本次 Alpha 預覽版，提供來源包、配套 ComfyUI 擴充與 SHA256SUMS；以下指南適用此版。 |
-| 0.83 Alpha 1 | [舊版 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.83-alpha.1)：舊操作依該版指南。 |
-| 0.82 Alpha 1 Repair 5 | [既有預覽版](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.82-alpha.1-repair.5)：保留原附件與該版指南。 |
-| 0.81 Alpha 2 UI Repair 1 | [既有預覽版](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.81-alpha.2-ui-repair.1)：保留來源與擴充；啟動依該頁說明，勿混用新版擴充。 |
+| 0.8.4 Alpha 1 | [本次 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.4-alpha.1)：本次 Alpha 預覽版，提供來源包、配套 ComfyUI 擴充與 SHA256SUMS；以下指南適用此版。 |
+| 0.8.3 Alpha 1 | [舊版 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.3-alpha.1)：舊操作依該版指南。 |
+| 0.8.2 Alpha 1 Repair 5 | [既有預覽版](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.2-alpha.1.repair.5)：保留原附件與該版指南。 |
+| 0.8.1 Alpha 2 UI Repair 1 | [既有預覽版](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.1-alpha.2.ui-repair.1)：保留來源與擴充；啟動依該頁說明，勿混用新版擴充。 |
 | main | 開發分支；Code → Download ZIP 取得當時的來源，固定版本請選 Release。 |
 
-本次附件為 `PCS-v0.84-Alpha1-source.zip`、`PCS-v0.84-Alpha1-ComfyUI.zip` 與 `SHA256SUMS.txt`。**本次暫不提供 Windows 執行檔下載**，待執行環境的散布材料補齊後另行處理；請使用下方來源啟動方式。原始碼不含 Python、Qt、模型或私人資料。程式標題為「v0.84 Alpha 1」，對應本次版本更名來源；來源對照與驗收界線見 [QA 摘要](docs/validation/084_STAGE.md)。
+本次附件為 `PCS-v0.8.4-Alpha1-source.zip`、`PCS-v0.8.4-Alpha1-ComfyUI.zip` 與 `SHA256SUMS.txt`。**本次暫不提供 Windows 執行檔下載**，待執行環境的散布材料補齊後另行處理；請使用下方來源啟動方式。原始碼不含 Python、Qt、模型或私人資料。程式標題為「v0.8.4 Alpha 1」，對應本次版本更名來源；來源對照與驗收界線見 [QA 摘要](docs/validation/084_STAGE.md)。
 
 ### 安裝與第一次使用
 
@@ -37,7 +39,7 @@
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py --v084-alpha
+.\.venv\Scripts\python.exe run.py --v0.8.4-alpha
 ```
 
 來源版首次安裝從 PyPI 取得依賴。以後只需最後一行，或依 [開始使用](docs/GETTING_STARTED.md) 建立雙擊捷徑。
@@ -59,7 +61,7 @@ PCS、ComfyUI 服務與原生網頁都須保持開啟。**Stage 是生成入口*
 
 ## 介面
 
-本次尚無已確認可公開的 0.84 截圖，先提供操作文字。既有 [清單介面截圖](docs/images/prompt-workspace.png) 來自早期公開 main 與範例資料，不代表本版 Canvas。
+本次尚無已確認可公開的 0.8.4 截圖，先提供操作文字。既有 [清單介面截圖](docs/images/prompt-workspace.png) 來自早期公開 main 與範例資料，不代表本版 Canvas。
 
 ## 文件與支援
 

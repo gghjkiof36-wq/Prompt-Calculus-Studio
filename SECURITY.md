@@ -1,6 +1,6 @@
 # 安全問題
 
-目前提供 v0.82 Alpha 1 Repair 5 預覽版；尚無長期支援或舊版修補期限的承諾。ComfyUI 擴充設計供本機連線使用，不應直接暴露到公共網路。
+目前提供 v0.8.2 Alpha 1 Repair 5 預覽版；尚無長期支援或舊版修補期限的承諾。ComfyUI 擴充設計供本機連線使用，不應直接暴露到公共網路。
 
 請使用 GitHub 的[私人漏洞回報入口](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/security/advisories/new)。維護者已於 2026-09-27 啟用並核對此倉庫的 Private vulnerability reporting 設定；提交需要登入 GitHub。本輪沒有送出測試漏洞報告。
 

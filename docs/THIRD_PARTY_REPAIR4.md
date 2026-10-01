@@ -1,4 +1,4 @@
-> 歷史Repair4稽核；0.84實際Windows包核對見 [THIRD_PARTY_084.md](THIRD_PARTY_084.md)。
+> 歷史Repair4稽核；0.8.4實際Windows包核對見 [THIRD_PARTY_084.md](THIRD_PARTY_084.md)。
 
 # Repair 4 依賴與授權附件
 

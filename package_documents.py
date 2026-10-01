@@ -95,7 +95,7 @@ def bundle_documents(destination, desktop=False, release=None):
     (destination/'BUILD_NOTICE.txt').write_text(
         'Prompt Calculus Studio '+release.version+'\n'
         '獨立 Alpha 測試包。來源與逐檔校驗見 BUILD_INFO.json、SOURCE_MANIFEST.json。\n'
-        '目前驗證範圍及限制見 docs/DEVELOPMENT_STATUS.md；0.82 操作見 docs/082_WORKFLOW_IMAGES.md，舊版操作見 V081_ALPHA2.md。\n'
+        '目前驗證範圍及限制見 docs/DEVELOPMENT_STATUS.md；本版操作見 docs/GETTING_STARTED.md，版本對照見 docs/VERSIONING.md。\n'
         '維護版本說明見 MAINTENANCE_081.md（若本版附有）。\n'+
         SOURCE_ARCHIVE+' 包含本包對應的專案原始碼與建置腳本，不含個人資料或第三方執行環境。\n'
         '專案授權見 LICENSE；第三方元件依各自授權，見 docs/LICENSING.md。\n'

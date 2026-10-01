@@ -1,6 +1,6 @@
-> 歷史候選文件：此處的行為、待驗與完成狀態僅適用該次候選。0.83 Alpha 1 的操作以 [直接執行說明](PCS_083_DIRECT.md)、[入門指南](GETTING_STARTED.md) 及 [QA 摘要](validation/083_DIRECT.md) 為準。
+> 歷史候選文件：此處的行為、待驗與完成狀態僅適用該次候選。0.8.3 Alpha 1 的操作以 [直接執行說明](PCS_083_DIRECT.md)、[入門指南](GETTING_STARTED.md) 及 [QA 摘要](validation/083_DIRECT.md) 為準。
 
-# PCS 0.83 執行與工作區修復候選
+# PCS 0.8.3 執行與工作區修復候選
 
 這份候選接續「圖片來源與預排程」版本。使用時保持 PCS、ComfyUI 網頁及服務開啟，桌面與擴充使用同一交付包。實際原生網頁、GPU 及其他擴充的組合，仍需人工驗證。
 

@@ -1,4 +1,4 @@
-# 0.81 Alpha 2 UI Repair 1
+# 0.8.1 Alpha 2 UI Repair 1
 
 本版接續 Maintenance 1，修正設定頁邊緣、材質與 Canvas 按鈕排版。沒有新增生成、CivitAI 搜尋或資料格式功能。
 

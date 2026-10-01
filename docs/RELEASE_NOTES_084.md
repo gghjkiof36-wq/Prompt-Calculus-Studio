@@ -1,10 +1,10 @@
-# 0.84 Alpha 1 發布說明
+# 0.8.4 Alpha 1 發布說明
 
-2026-09-30：本輪成果由原 0.831 統一更名為 0.84；既有功能與驗收證據沿用，更名提交另外核對版本相容性及套件。原 EXE 證據保留實際編譯來源，本次未重建 EXE。
+2026-10-01：對外改採分段名稱0.8.4；本輪原稱0.831，9月30日曾改稱0.84。既有功能與驗收證據沿用，更名提交另外核對版本相容性及套件。原 EXE 證據保留實際編譯來源，本次未重建 EXE。
 
 本次預覽版以Stage統一生成入口，提供跨工作流圖片傳遞、資料／Stage分層預排程，以及種子生命週期與逾時恢復修復。固定產品／binary提交ea7df89dc714fc83c7e11ca32e5c7655619ec8a0。
 
-下載 [Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.84-alpha.1) 的來源與同版 ComfyUI 擴充，依 [開始使用](GETTING_STARTED.md) 安裝依賴並啟動。本次暫不提供 Windows 執行檔下載，待執行環境的散布材料補齊後另行處理。可下載內容以頁面附件為準。
+下載 [Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.4-alpha.1) 的來源與同版 ComfyUI 擴充，依 [開始使用](GETTING_STARTED.md) 安裝依賴並啟動。本次暫不提供 Windows 執行檔下載，待執行環境的散布材料補齊後另行處理。可下載內容以頁面附件為準。
 
 1. 更新同版擴充、重啟ComfyUI與刷新網頁，保留PCS／服務／網頁開啟。
 2. CLIP或圖片輸入的紫色控制接入Stage，確認工作流。沒接入Stage只套用輸入；修改文字不即時覆蓋原生欄位。

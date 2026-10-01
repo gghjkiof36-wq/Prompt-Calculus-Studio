@@ -1,4 +1,4 @@
-# Prompt Studio 0.4 驗證
+# Prompt Studio 0.4.0 驗證
 
 2026-09-10，Windows 11 build 26200，PySide6 6.11.2，Python 3.12.14。
 

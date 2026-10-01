@@ -1,10 +1,10 @@
 # ComfyUI 整合
 
-適用：0.84 Alpha 1。先確認本機 ComfyUI 與工作流能正常生成；本版需要保持該工作流網頁開啟。
+適用：0.8.4 Alpha 1。先確認本機 ComfyUI 與工作流能正常生成；本版需要保持該工作流網頁開啟。
 
 ## 安裝配套擴充
 
-從 [同版 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.84-alpha.1) 取得 `PCS-v0.84-Alpha1-ComfyUI.zip`，解壓到 ComfyUI 安裝目錄以外。完整資料夾名稱為 `comfyui_prompt_calculus_studio`；不能只複製開發原始碼中的 `comfyui_prompt_studio`，它缺少打包時加入的共用核心。
+從 [同版 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.4-alpha.1) 取得 `PCS-v0.8.4-Alpha1-ComfyUI.zip`，解壓到 ComfyUI 安裝目錄以外。完整資料夾名稱為 `comfyui_prompt_calculus_studio`；不能只複製開發原始碼中的 `comfyui_prompt_studio`，它缺少打包時加入的共用核心。
 
 先啟動一次 PCS 建立資料庫，再關閉 ComfyUI。使用完整擴充包內的安裝腳本，將範例路徑改成實際位置：
 
@@ -19,7 +19,7 @@
 
 安裝後重新啟動 ComfyUI 後端並重新整理網頁；舊網頁仍可能使用舊協定。此指南以可管理 `custom_nodes` 的本機安裝為準，官方 ComfyUI Desktop 尚未完成本版相容性驗收。
 
-開發者從完整 Git checkout 建包可執行 `py -3.12 build_comfyui.py --v084-alpha1`，預設輸出 `release/PromptCalculusStudio-ComfyUI.zip`，且需要全新輸出目錄。發布來源 ZIP 不含 Git 中繼資料，請直接使用同版擴充附件，不把自行建包當成使用前提。
+開發者從完整 Git checkout 建包可執行 `py -3.12 build_comfyui.py --v0.8.4-alpha.1`，預設輸出 `release/PromptCalculusStudio-ComfyUI.zip`，且需要全新輸出目錄。發布來源 ZIP 不含 Git 中繼資料，請直接使用同版擴充附件，不把自行建包當成使用前提。
 
 ## 第一次連接與綁定
 

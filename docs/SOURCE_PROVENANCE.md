@@ -1,14 +1,14 @@
-# 0.84 Alpha 1 發布來源對照
+# 0.8.4 Alpha 1 公開來源對照
 
-2026-09-30 將原 0.831 Alpha 1 統一改名為 **0.84 Alpha 1**。功能與資料格式沿用同一輪成果，這次更新版本宣告、建置參數、啟動器名稱、測試檔名與公開文件。下載以 `v0.84-alpha.1` 的來源及同版擴充為準。
+2026-10-01 對外版本統一採分段格式：本輪成果的舊稱0.831、0.84對應 **0.8.4 Alpha 1**。完整歷史對照見 [版本規則](VERSIONING.md)。本次只更新公開來源的當前版本身份、文件與封裝，功能、資料格式及內部工作紀錄維持原樣。
 
-- 功能基準為 `ea7df89dc714fc83c7e11ca32e5c7655619ec8a0`；改名前公開提交為 `f8a43af783e160a30cfabe290567e705bee7f4a2`。本次提交接續公開歷史，未推送全部本機開發祖先，未重寫既有標籤。
-- `prompt_studio/releases.py` 更新 CURRENT、版本及 launcher，接受舊 `--v0831-*` 參數與舊 build-info 的 release 值；新輸出一律採 0.84。`run.py` 明列 `--v084-alpha`，既有啟動參數仍可使用。儲存目錄、節點 ID、序列化欄位及資料內容沒有改版遷移。
-- ComfyUI 程式與22個共享核心維持功能基準內容。測試檔名和相互匯入改用084；歷史 `verify_v083.py` 的私有絕對路徑可攜化沿用前次公開修正。
-- 來源由 Git 白名單收集，ZIP 根目錄包含 run.py；排除個人資料、憑證、模型、Git 歷史、qa、vendor 和第三方 runtime。擴充附相同來源 ZIP 與 runtime 來源映射。
-- `SOURCE_MANIFEST.json` 描述來源；`PACKAGE_MANIFEST.json` 描述交付。`BUILD_INFO.json` 的 git_head／product_git_head 指本次含版本更名的來源，functional_baseline_git_head 另記既有功能基準，previous_public_git_head 記改名前公開提交；包不附 EXE，沒有 binary 建置聲明。
-- 舊 0.831 Release 保留既有 URL、tag、附件及雜湊作歷史追溯，頁首明示已更名並連到 0.84。舊附件內容仍是原始版本，不能以重新命名附件冒充重建。
+- 功能基準 `ea7df89dc714fc83c7e11ca32e5c7655619ec8a0`；原0.84公開提交 `8b123f77087a521c32737a73ffcc2a6ec8ba5465`。本次接續此公開歷史，沒有覆寫舊提交或推送全部本機開發祖先。
+- 程式差異僅 `prompt_studio/releases.py` 的 CURRENT、版本、launcher及相容別名，與 `run.py` 的新啟動參數。新建置參數為 `--v0.8.4-alpha.1`，新啟動參數為 `--v0.8.4-alpha`；舊 `--v084-alpha1`、`--v084-alpha` 及前次別名仍可使用。歷史版本登記保持舊值供舊包相容；資料目錄、節點ID與序列化欄位不改。
+- ComfyUI程式與22個共享核心維持前公開提交內容。版本相容檢查涵蓋舊包release值及0.11.1／0.20.2多位數版本識別，沒有新增產品功能或真GPU驗收。
+- 來源由Git白名單收集，ZIP根目錄包含run.py；排除個人資料、憑證、模型、Git歷史、qa、vendor及第三方runtime。擴充附完全相同的來源ZIP與153項runtime來源映射。
+- `SOURCE_MANIFEST.json` 描述來源，`PACKAGE_MANIFEST.json` 描述交付；`BUILD_INFO.json` 的git_head／product_git_head記本次來源，functional_baseline_git_head記既有功能基準，previous_public_git_head記8b123f7。來源和擴充未附EXE，不宣稱binary重建。
+- 新0.8.1／0.8.2／0.8.3歷史標籤直接指向原公開提交，附件ZIP與原包逐位元組相同。當時包內的舊版號保留，對外名稱透過RELEASE_IDENTITY明確對照；不假裝重新驗收或重建過往版本。
 
-原本機 Windows 候選的 binary_git_head 仍為 ea7df89，本次未重建或公開 EXE；其原 ZIP／EXE 雜湊、58個實際 runtime 二進位及散布缺口見 [第三方核對](THIRD_PARTY_084.md)。本機包整合與重建另依正式交付記錄確認。
+[第三方核對](THIRD_PARTY_084.md)仍是原ea7df89 Windows候選的實際稽核，保留原ZIP／EXE雜湊。內部本機0.84後續交付不由本次公開更名重新編譯，也不取代該歷史稽核。Windows未公開，完整runtime通知／對應來源／重建替換材料仍待補。
 
-既有功能驗收、開發測試及本機離屏 EXE 證據見 [驗收範圍](validation/084_STAGE.md)。本次版本相容性、來源／套件及公開下載核對，均不擴寫成真 GPU、新機或完整升級／回退驗收。
+既有功能驗收與EXE證據見 [驗收範圍](validation/084_STAGE.md)。此次核對只涵蓋版本、公開文件、來源／套件及下載一致性。

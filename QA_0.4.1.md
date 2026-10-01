@@ -32,4 +32,4 @@
 
 ## 外框修正依據
 
-0.4 的透明無框視窗與 QRegion 會阻止 Windows 原生圓角。本版保留實際原生框架，由 DWM 管理外輪廓和標題列，移除自繪 TitleBar、Shell 圓角及主視窗 region。參考 [Microsoft 圓角限制](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/ui/apply-rounded-corners) 與 [Qt 6.11.2 原生框架／分層判斷](https://github.com/qt/qtbase/blob/v6.11.2/src/plugins/platforms/windows/qwindowswindow.cpp)。
+0.4.0 的透明無框視窗與 QRegion 會阻止 Windows 原生圓角。本版保留實際原生框架，由 DWM 管理外輪廓和標題列，移除自繪 TitleBar、Shell 圓角及主視窗 region。參考 [Microsoft 圓角限制](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/ui/apply-rounded-corners) 與 [Qt 6.11.2 原生框架／分層判斷](https://github.com/qt/qtbase/blob/v6.11.2/src/plugins/platforms/windows/qwindowswindow.cpp)。

@@ -36,16 +36,17 @@ RELEASES={r.flag:r for r in (
     Release('--v084-chain','v084-chain-20260929','v0.84 Stage 與分層預排程候選（0929）','Start-PCS-v0.84-Chain','--v083-alpha'),
     Release('--v084-repair1','v084-repair1-20260929','v0.84 綁定與介面修復候選（0929）','Start-PCS-v0.84-Repair1','--v083-alpha'),
     Release('--v084-repair2','v084-repair2-20260929','v0.84 流程與原生讀取修復候選（0929）','Start-PCS-v0.84-Repair2','--v083-alpha'),
-    Release('--v084-alpha1','v084-alpha-1','v0.84 Alpha 1','Start-PCS-v0.84-Alpha','--v084-alpha'),
+    Release('--v0.8.4-alpha.1','v0.8.4-alpha.1','v0.8.4 Alpha 1','Start-PCS-v0.8.4-Alpha','--v0.8.4-alpha'),
 )}
-CURRENT=RELEASES['--v084-alpha1']
-# Historical build flags remain readable; new metadata uses canonical 0.84 flags.
+CURRENT=RELEASES['--v0.8.4-alpha.1']
+# Historical build flags remain readable; new metadata uses explicit dotted version identifiers.
 RELEASE_ALIASES={
+    '--v084-alpha1':'--v0.8.4-alpha.1',
     '--v0831-chain':'--v084-chain',
     '--v0831-repair1':'--v084-repair1',
     '--v0831-repair2':'--v084-repair2',
-    '--v0831-repair3':'--v084-alpha1',
-    '--v084-repair3':'--v084-alpha1',
+    '--v0831-repair3':'--v0.8.4-alpha.1',
+    '--v084-repair3':'--v0.8.4-alpha.1',
 }
 APP_BASENAME='PromptCalculusStudio'
 EXTENSION_FOLDER='comfyui_prompt_calculus_studio'

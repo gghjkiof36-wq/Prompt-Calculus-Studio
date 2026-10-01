@@ -1,4 +1,4 @@
-# Prompt Studio v0.8 Alpha 2
+# Prompt Studio v0.8.0 Alpha 2
 
 這份獨立修正版處理畫布操作、連線流程及工作流管理。雙擊同資料夾的 `Start-v0.8-Alpha.vbs` 開啟。開發輸出位於 `build/v08-alpha-2/PromptStudio`；舊 Alpha 與日常版保持原樣。
 

@@ -1,4 +1,4 @@
-# Prompt Studio 0.2 驗證紀錄
+# Prompt Studio 0.2.0 驗證紀錄
 
 日期：2026-09-10。本機 Windows 11，Python 3.12.14、PySide6 Essentials 6.11.2、PyInstaller 6.22.2。
 

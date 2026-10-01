@@ -1,4 +1,4 @@
-# Prompt Studio 0.81 Alpha 2
+# Prompt Studio 0.8.1 Alpha 2
 
 2026-09-14。原始 Alpha 2 由 `Start-v0.81-Alpha.vbs` 啟動；若使用後續維護包，請由 `Start-v0.81-Maintenance.vbs` 啟動，詳見 `MAINTENANCE_081.md`。原有 Alpha 1 與日常版本保留。
 

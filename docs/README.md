@@ -1,6 +1,8 @@
 # 文件索引
 
-本入口適用0.84 Alpha 1；舊版歷史文件不能取代本版操作與限制。
+[版本命名與歷史對照](VERSIONING.md)
+
+本入口適用0.8.4 Alpha 1；舊版歷史文件不能取代本版操作與限制。
 
 - [首頁與版本下載](../README.md) · [English](../README.en.md)
 - [安裝、啟動與更新](GETTING_STARTED.md)
@@ -10,7 +12,7 @@
 - [資料、備份與隱私](DATA_AND_PRIVACY.md)
 - [疑難排解](TROUBLESHOOTING.md)
 - [更新紀錄](../CHANGELOG.md) · [Roadmap](../ROADMAP.md)
-- [0.84發布說明](RELEASE_NOTES_084.md)
+- [0.8.4發布說明](RELEASE_NOTES_084.md)
 - [驗收摘要](validation/084_STAGE.md) · [維護證據](MAINTENANCE_EVIDENCE.md)
 - [參與貢獻](../CONTRIBUTING.md) · [開發指南](DEVELOPMENT.md)
 - [授權](LICENSING.md) · [安全回報](../SECURITY.md)

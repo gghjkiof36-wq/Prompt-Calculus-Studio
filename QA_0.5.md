@@ -1,4 +1,4 @@
-# Prompt Studio 0.5 驗收紀錄
+# Prompt Studio 0.5.0 驗收紀錄
 
 驗收日期：2026-09-11。
 

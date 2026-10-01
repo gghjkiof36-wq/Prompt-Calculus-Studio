@@ -1,6 +1,6 @@
 # 疑難排解
 
-[回首頁](../README.md) · 適用：0.84 Alpha 1
+[回首頁](../README.md) · 適用：0.8.4 Alpha 1
 
 ## 如何取得Windows版
 

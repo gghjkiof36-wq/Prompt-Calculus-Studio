@@ -10,7 +10,7 @@
 - 設定內提供只在 Acrylic 可見的滑桿／百分比欄位；預覽存在 Window.appearance_preview，不寫入已保存設定，取消或關閉時移除。顯示恢復事件亦使用同一預覽來源，避免操作途中被覆蓋。
 - ClearDraftDialog 專門提供「不再提示」；只有確認清除時才保存偏好，取消或關閉不保存。略過提示也只清除手動稿，保留模組與片段；外觀設定提供恢復確認勾選。其他刪除提示不受影響。
 
-- 0.4.1 撤回 0.4 的主視窗 QRegion 做法。使用原生 Qt Window + Title/SystemMenu/MinMax/Close flags，保留 WS_CAPTION、WS_THICKFRAME，沒有 FramelessWindowHint。雖保留 alpha backing store，Qt 的原生框架路徑不啟用 WS_EX_LAYERED；Windows 11 的 DWM 負責唯一外輪廓、陰影與原生標題列。Shell 不再繪製第二圈圓角或邊框，任何材質下都不設定主視窗遮罩。各彈窗和右鍵選單仍是獨立的 alpha 圓角表面，不啟用主視窗玻璃背景。
+- 0.4.1 撤回 0.4.0 的主視窗 QRegion 做法。使用原生 Qt Window + Title/SystemMenu/MinMax/Close flags，保留 WS_CAPTION、WS_THICKFRAME，沒有 FramelessWindowHint。雖保留 alpha backing store，Qt 的原生框架路徑不啟用 WS_EX_LAYERED；Windows 11 的 DWM 負責唯一外輪廓、陰影與原生標題列。Shell 不再繪製第二圈圓角或邊框，任何材質下都不設定主視窗遮罩。各彈窗和右鍵選單仍是獨立的 alpha 圓角表面，不啟用主視窗玻璃背景。
 - 0.4.1 的玻璃底色 alpha 從 175 調為 100，DWM 桌布／背景著色可以較明顯透出；提示詞及素材內容區仍不透明。
 - 標題列移除使用文字字元代替的最小化／最大化／關閉圖示，改交系統繪製與切換還原狀態。應用圖示使用 assets/studio.svg。
 - 字型設定仍以 pt 保存與顯示，繪製時統一換成以 96 DPI 為基準的 Qt 邏輯像素，再由 Qt 處理各螢幕 DPR；卡片 delegate 同步採用此尺度。display.py 對 DPI／顯示變更／恢復啟用通知延遲重新整理字型、材質及清單，不重建資料、不改系統設定，也不輪詢。使用者已表示睡眠縮小不需優先解決，只有通知與狀態保留的模擬驗證，未驗證實際睡眠。
@@ -20,7 +20,7 @@
 
 以下保留先前版本實作歷史；外框部分已由上方 0.4.1 取代。
 
-- 0.4 選單使用透明背景直接繪製圓角，移除 QRegion 選單裁切及原生矩形陰影。主視窗停用 DWM 額外邊框，材質模式以視窗 region 裁切整個背景；最大化時移除圓角及外框填滿畫面。依 Microsoft 文件，逐像素透明視窗無法套用自動 DWM 圓角。
+- 0.4.0 選單使用透明背景直接繪製圓角，移除 QRegion 選單裁切及原生矩形陰影。主視窗停用 DWM 額外邊框，材質模式以視窗 region 裁切整個背景；最大化時移除圓角及外框填滿畫面。依 Microsoft 文件，逐像素透明視窗無法套用自動 DWM 圓角。
 - 手動版本以 draft is not None 判斷，空字串也視為手動版本。停用右側排序區，180 ms 淡出；清除需確認，取消保留內容，確認只清除 draft/draft_base。左側素材仍可瀏覽及選擇，新組合不覆寫手動內容。
 - 模組及右側組合以 190 ms splitter 幾何過渡收合；樹狀群組使用 Qt 展開動畫。命名／設定視窗用 140 ms 入場淡入。沒有持續動畫計時器。
 - 儲存與取消使用相同 padding，對話框同列按鈕設共同最小寬度。最終文字框上方操作會依寬度換行。複製成功回饋 1.4 秒，可重複按，修改文字時立即重置。
@@ -31,7 +31,7 @@
 - 0.3.1 在 Windows / Qt 6.11.2 重現 RoundMenu 同步 exec 的原生 access violation；普通 QMenu.exec 與 RoundMenu.popup 正常。移除所有自訂選單同步呼叫，使用 open_at → popup，沿用 QAction 處理動作；關閉後 deferred delete。
 - `run.py --menu-smoke-test` 僅允許全新的資料目錄，執行 7 類選單反覆開啟／關閉、複製、工作區設定／新增／刪除取消／刪除確認，以及圖片附註。資料僅為測試 fixture；結果寫入 menu-result.json。可對最終 EXE 執行相同測試，避免只驗證外觀而漏掉入口。
 
-- 0.3 改用集中操作列、統一黑色內容區與有限寬度；自訂圓角命名／編輯視窗，保留系統檔案挑選器。
+- 0.3.0 改用集中操作列、統一黑色內容區與有限寬度；自訂圓角命名／編輯視窗，保留系統檔案挑選器。
 - `views.py` 使用 delegate 繪製可見素材卡片與組合項目，不為每張卡片建立完整 QWidget。
 - 右側群組順序同步更新原有 modules 清單；新增可選的 `temporary_before` 錨點，讓臨時片段群組能置於任意模組之前。舊資料沒有此欄位時仍置於最後。
 - 模組內以 selections 順序組合，臨時片段以清單順序組合。拖曳不跨模組改分類，亦不覆寫手動稿。

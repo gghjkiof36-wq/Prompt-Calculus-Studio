@@ -1,4 +1,4 @@
-# Prompt Studio v0.8 Alpha 1 開發紀錄
+# Prompt Studio v0.8.0 Alpha 1 開發紀錄
 
 **目前測試版為 Alpha 2，請先閱讀 [V08_ALPHA2.md](V08_ALPHA2.md)。** 以下保留 Alpha 1 的操作與驗收紀錄；連線接法、工作流自動匯入與執行操作已由 Alpha 2 更新。
 
@@ -40,7 +40,7 @@
 
 工作區資料與快照提升為 v4，保留舊版本讀取。圖片 Metadata 保存多畫布、各輸出與綁定的快照；「資料與備份」的完整 ZIP 包含資料庫、構圖原圖與編輯資料。文字 JSON 不包含圖片位元組；跨電腦恢復構圖請使用完整 ZIP 或一併帶走資料夾中的圖片資產。
 
-開發前備份在 `build/v08-backups/20260913-145002`：原始碼 ZIP、舊 ComfyUI 擴充 ZIP、日常及 Alpha 資料庫，以及完整資料 ZIP。`manifest.json` 記錄修改前原始碼雜湊。v0.8 包另附遷移核對與交付清單。
+開發前備份在 `build/v08-backups/20260913-145002`：原始碼 ZIP、舊 ComfyUI 擴充 ZIP、日常及 Alpha 資料庫，以及完整資料 ZIP。`manifest.json` 記錄修改前原始碼雜湊。v0.8.0 包另附遷移核對與交付清單。
 
 ## 驗證範圍
 

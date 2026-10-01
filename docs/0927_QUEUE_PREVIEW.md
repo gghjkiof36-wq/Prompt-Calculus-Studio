@@ -1,4 +1,4 @@
-> 歷史候選文件：此處的行為、待驗與完成狀態僅適用該次候選。0.83 Alpha 1 的操作以 [直接執行說明](PCS_083_DIRECT.md)、[入門指南](GETTING_STARTED.md) 及 [QA 摘要](validation/083_DIRECT.md) 為準。
+> 歷史候選文件：此處的行為、待驗與完成狀態僅適用該次候選。0.8.3 Alpha 1 的操作以 [直接執行說明](PCS_083_DIRECT.md)、[入門指南](GETTING_STARTED.md) 及 [QA 摘要](validation/083_DIRECT.md) 為準。
 
 # 工作佇列開發候選
 

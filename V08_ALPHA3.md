@@ -1,4 +1,4 @@
-# v0.8 Alpha 3 操作修正
+# v0.8.0 Alpha 3 操作修正
 
 這是獨立測試版本。執行 `Start-v0.8-Alpha.vbs`，使用同目錄的 `data`；原有 Alpha 2 與日常版本均保留。
 

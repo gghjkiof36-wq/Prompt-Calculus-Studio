@@ -1,12 +1,12 @@
-# Prompt Studio v0.81 Alpha 1
+# Prompt Studio v0.8.1 Alpha 1
 
-本版完成設定頁中的「CivitAI 搜尋 → 選擇版本與檔案 → 下載 → 納入 ComfyUI 模型資產」流程，供獨立測試。主畫布及工作流輸入規則沿用 v0.8 Alpha 3 修正包 2，不屬於正式 0.9。
+本版完成設定頁中的「CivitAI 搜尋 → 選擇版本與檔案 → 下載 → 納入 ComfyUI 模型資產」流程，供獨立測試。主畫布及工作流輸入規則沿用 v0.8.0 Alpha 3 修正包 2，不屬於正式 0.9.0。
 
 ## 啟動與資料
 
-雙擊本包的 `Start-v0.81-Alpha.vbs`。視窗標題為「Prompt Studio · v0.81 Alpha 1」，請用標題辨識版本。
+雙擊本包的 `Start-v0.81-Alpha.vbs`。視窗標題為「Prompt Studio · v0.8.1 Alpha 1」，請用標題辨識版本。
 
-測試包位於 `build/v081-alpha-1/PromptStudio`，使用包內 `data`，由本輪開始前備份的 0.8 修正包 2 資料建立副本。原有程式、工作區與資料不覆寫。若之後又在舊版編輯，請用舊版完整 ZIP 備份，再於此測試包還原；不要同時讓兩個程式使用同一個 data。
+測試包位於 `build/v081-alpha-1/PromptStudio`，使用包內 `data`，由本輪開始前備份的 0.8.0 修正包 2 資料建立副本。原有程式、工作區與資料不覆寫。若之後又在舊版編輯，請用舊版完整 ZIP 備份，再於此測試包還原；不要同時讓兩個程式使用同一個 data。
 
 本輪開始前備份：`build/v081-backup-20260913-231621`，包含原始碼、未提交差異、檔案雜湊及一致的測試資料副本。未使用整包還原或 Git 回退。
 
@@ -61,8 +61,8 @@
 
 尚未驗證：真實 Token／受限模型、大模型長時間下載、原生視窗拖曳／多 DPI，以及 ComfyUI 實際載入新模型並用 GPU 生圖。生成品質不包含在上述流程通過的結論內。
 
-Trigger 自動啟停、Recipe、History 重構、WebUI 及自動工作流接入均未加入。這些仍是後續範圍，不能視為 0.81 已完成能力。
+Trigger 自動啟停、Recipe、History 重構、WebUI 及自動工作流接入均未加入。這些仍是後續範圍，不能視為 0.8.1 已完成能力。
 
 ## ComfyUI 擴充
 
-本包附 `PromptStudio-v0.8-ComfyUI.zip`，與 0.8 修正包 2 相同。若已更新該擴充，本次不需要再安裝。尚未更新者可沿用 `V08_ALPHA3_HOTFIX2.md` 的備份及更新步驟；本輪沒有代為停止或重啟 ComfyUI。
+本包附 `PromptStudio-v0.8-ComfyUI.zip`，與 0.8.0 修正包 2 相同。若已更新該擴充，本次不需要再安裝。尚未更新者可沿用 `V08_ALPHA3_HOTFIX2.md` 的備份及更新步驟；本輪沒有代為停止或重啟 ComfyUI。

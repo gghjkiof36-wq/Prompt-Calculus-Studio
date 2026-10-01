@@ -1,6 +1,6 @@
-# 1.0 第一階段：文字 Canvas 開發測試
+# 1.0.0 第一階段：文字 Canvas 開發測試
 
-2026-09-13。這是 Alpha 開發測試版本，尚未完成所有 1.0 功能。單張圖生圖與共用生成面板的操作和限制見 [IMG2IMG_ALPHA.md](IMG2IMG_ALPHA.md)。
+2026-09-13。這是 Alpha 開發測試版本，尚未完成所有 1.0.0 功能。單張圖生圖與共用生成面板的操作和限制見 [IMG2IMG_ALPHA.md](IMG2IMG_ALPHA.md)。
 
 ## 本輪確定的操作與資料邏輯
 
@@ -30,9 +30,9 @@ Canvas 模組以素材項目為單位，例如直接使用「紅色衣服女孩�
 
 例如女孩包含 1girl, red clothes, red eyes, long hair, smile, dancing，背景包含 simple background, white background，輸出為：
 
-    (1girl, red clothes, red eyes, long hair, smile, dancing:1.0),
+    (1girl, red clothes, red eyes, long hair, smile, dancing:1.0.0),
 
-    (simple background, white background:1.0)
+    (simple background, white background:1.0.0)
 
 原始文字不做語義推測、去重或自動改寫。已有 LoRA、括號、權重及空格維持既有處理規則。
 
@@ -69,4 +69,4 @@ Canvas 模組以素材項目為單位，例如直接使用「紅色衣服女孩�
 - 媒體庫、最近生成與匯出整合為一處。
 - 單張圖生圖已有共用入口；使用者指定模型的實際工作流仍待驗證，圖片拼排與色塊底圖尚未開發。
 
-1.0 原有待辦仍包含圖片拼排與色塊 Canvas、文生圖／圖生圖／Upscale 閉環、更多工作流參數支援、Manager 介面整合、官方桌面版驗證和發售前驗收，尚未全部完成。
+1.0.0 原有待辦仍包含圖片拼排與色塊 Canvas、文生圖／圖生圖／Upscale 閉環、更多工作流參數支援、Manager 介面整合、官方桌面版驗證和發售前驗收，尚未全部完成。
