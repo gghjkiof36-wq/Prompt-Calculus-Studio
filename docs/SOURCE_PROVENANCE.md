@@ -5,7 +5,7 @@
 - 功能基準 `ea7df89dc714fc83c7e11ca32e5c7655619ec8a0`；原0.84公開提交 `8b123f77087a521c32737a73ffcc2a6ec8ba5465`。本次接續此公開歷史，沒有覆寫舊提交或推送全部本機開發祖先。
 - 程式差異僅 `prompt_studio/releases.py` 的 CURRENT、版本、launcher及相容別名，與 `run.py` 的新啟動參數。新建置參數為 `--v0.8.4-alpha.1`，新啟動參數為 `--v0.8.4-alpha`；舊 `--v084-alpha1`、`--v084-alpha` 及前次別名仍可使用。歷史版本登記保持舊值供舊包相容；資料目錄、節點ID與序列化欄位不改。
 - ComfyUI程式與22個共享核心維持前公開提交內容。版本相容檢查涵蓋舊包release值及0.11.1／0.20.2多位數版本識別，沒有新增產品功能或真GPU驗收。
-- 來源由Git白名單收集，ZIP根目錄包含run.py；排除個人資料、憑證、模型、Git歷史、qa、vendor及第三方runtime。擴充附完全相同的來源ZIP與153項runtime來源映射。
+- 來源由Git白名單收集，ZIP根目錄包含run.py；排除個人資料、憑證、模型、Git歷史、qa、vendor及第三方runtime。擴充附完全相同的來源ZIP與154項runtime來源映射。
 - `SOURCE_MANIFEST.json` 描述來源，`PACKAGE_MANIFEST.json` 描述交付；`BUILD_INFO.json` 的git_head／product_git_head記本次來源，functional_baseline_git_head記既有功能基準，previous_public_git_head記8b123f7。來源和擴充未附EXE，不宣稱binary重建。
 - 新0.8.1／0.8.2／0.8.3歷史標籤直接指向原公開提交，附件ZIP與原包逐位元組相同。當時包內的舊版號保留，對外名稱透過RELEASE_IDENTITY明確對照；不假裝重新驗收或重建過往版本。
 
