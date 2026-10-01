@@ -20,7 +20,7 @@
 現有基準與草稿：
 
 - 0.8.0 基準與保護範圍：[V08_BASELINE_REVIEW.md](V08_BASELINE_REVIEW.md)。
-- CivitAI 隔離審查：[CIVITAI_DRAFT_REVIEW.md](build/civitai-review-20260913-210744/CIVITAI_DRAFT_REVIEW.md)。
+- CivitAI 隔離審查：`CIVITAI_DRAFT_REVIEW.md`（歷史本機審查資料，未收錄於公開來源）。
 - 隔離工作目錄：`build/civitai-review-20260913-210744/workspace/`。
 
 審查紀錄已有資料保留、背景工作、預覽與下載校驗等修正及模擬驗證，但草稿尚未接回 0.8.0。這些成果可供逐項整合，不等於 0.8.1 搜尋到安裝流程已完成；真實模型下載及完整 UI 仍需驗證。禁止以草稿或舊備份整包覆蓋最新工作目錄。
