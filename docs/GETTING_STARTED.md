@@ -22,15 +22,13 @@ py -3.12 -m venv .venv
 
 標題應為 PCS、「v0.8.4 Alpha 1」字樣。
 
-## 建立雙擊捷徑
+## 雙擊啟動
 
-完成安裝後建立桌面捷徑，將下列兩處路徑改成實際解壓位置：
+完成上方安裝後，雙擊 `Start.cmd` 即可啟動。它會使用同一資料夾的 `.venv`；如果啟動失敗，視窗會保留錯誤訊息供查看。
 
-```text
-"D:\Apps\PCS\.venv\Scripts\pythonw.exe" "D:\Apps\PCS\run.py" --v0.8.4-alpha
-```
+使用 0.8.4 Release 來源 ZIP 的讀者，請先[下載更新的 Start.cmd](https://raw.githubusercontent.com/gghjkiof36-wq/Prompt-Culculus-Studio/main/Start.cmd)，存到 `run.py` 所在資料夾，取代原有檔案。請保留 `.cmd` 副檔名，避免存成 `.txt`。
 
-專案內舊 `Start.cmd` 不會自動選擇此 `.venv`，請使用自己建立的捷徑。
+想從桌面開啟，可在 `Start.cmd` 按右鍵建立捷徑，再將捷徑移到桌面。
 
 ## 第一次使用
 

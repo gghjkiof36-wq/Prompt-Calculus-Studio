@@ -1,19 +1,16 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-if exist "%~dp0release\PromptStudio\PromptStudio.exe" (
-  start "" "%~dp0release\PromptStudio\PromptStudio.exe"
-  exit /b
+if not exist "%~dp0.venv\Scripts\python.exe" (
+  echo PCS needs its local Python environment.
+  echo Follow docs\GETTING_STARTED.md to install Python 3.12 and create .venv.
+  pause
+  exit /b 1
 )
-set "STUDIO_PY=%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\pythonw.exe"
-if exist "%STUDIO_PY%" (
-  start "" "%STUDIO_PY%" "%~dp0run.py"
-  exit /b
+"%~dp0.venv\Scripts\python.exe" "%~dp0run.py" --v0.8.4-alpha
+if errorlevel 1 (
+  echo PCS could not start or stopped with an error. See the message above.
+  pause
+  exit /b 1
 )
-where pythonw >nul 2>nul
-if not errorlevel 1 (
-  start "" pythonw "%~dp0run.py"
-  exit /b
-)
-echo Python 3.12+ is required. See README.md for setup.
-pause
+exit /b 0

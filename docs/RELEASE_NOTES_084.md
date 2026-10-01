@@ -27,7 +27,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe run.py --v0.8.4-alpha
 ```
 
-首次安裝需要網路下載套件，以後只需執行最後一行。
+首次安裝需要網路下載套件，以後只需執行最後一行。若想雙擊啟動，請[下載更新的 Start.cmd](https://raw.githubusercontent.com/gghjkiof36-wq/Prompt-Culculus-Studio/main/Start.cmd)，存到 `run.py` 所在資料夾取代原有檔案，再雙擊執行。
 
 要生成圖片，請安裝同版 ComfyUI 擴充、重啟 ComfyUI 並重新整理網頁，再把畫布中的文字或圖片輸入接到 Stage。生成時保持 PCS、ComfyUI 及其工作流網頁開啟。詳細步驟見[開始使用](GETTING_STARTED.md)與[ComfyUI 指南](../COMFYUI_GUIDE.md)。
 
