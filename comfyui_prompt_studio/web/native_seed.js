@@ -1,24 +1,67 @@
 // Observe native calls without comparing compiled source strings or changing seeds.
 // New typed queues use app.queuePrompt, which owns all before/after callbacks.
+import {captureWidgetAccess,matchesWidgetAccess} from './native_parameter_capabilities.js';
 
 export function createSeedObserver(setting) {
     const records=new WeakMap();
     const workflows=new WeakMap();
+    const proven=new WeakMap();let requireProvenance=false;
+    const seedWidgets=node=>(node.widgets??[]).filter(w=>['seed','noise_seed'].includes(w.name));
+    function samePair(node,seed,control,links) {
+        const candidates=seedWidgets(node),controls=(node.widgets??[]).filter(w=>w.name==='control_after_generate');
+        return candidates.length===1&&candidates[0]===seed&&controls.length===1&&controls[0]===control&&
+            (!links||seed.linkedWidgets===links&&links.length===1&&links[0]===control);
+    }
+    function installFactory(widgets) {
+        requireProvenance=true;const original=widgets?.INT;
+        if(typeof original!=='function'||original.constructor?.name==='AsyncFunction')return false;
+        widgets.INT=function(node,...args){
+            const existing=new Set(node.widgets??[]),result=original.call(this,node,...args);
+            if(!result?.then)for(const seed of node.widgets??[])if(!existing.has(seed)&&['seed','noise_seed'].includes(seed.name)){
+                const links=seed.linkedWidgets,control=Array.isArray(links)&&links.length===1?links[0]:null;
+                if(control?.name==='control_after_generate'&&!existing.has(control)&&node.widgets.includes(control)&&
+                    typeof control.beforeQueued==='function'&&typeof control.afterQueued==='function'&&
+                    control.beforeQueued.constructor?.name!=='AsyncFunction'&&control.afterQueued.constructor?.name!=='AsyncFunction')
+                    proven.set(control,{node,seed,links,before:control.beforeQueued,after:control.afterQueued,
+                        seedAccess:captureWidgetAccess(seed),controlAccess:captureWidgetAccess(control)});
+            }
+            return result;
+        };
+        return true;
+    }
     function observe(node,{loaded=false}={}) {
-        if(node.type!=='KSampler'||records.has(node))return;
-        const seed=node.widgets?.find(w=>w.name==='seed');
+        // Native ComfyNode calls extension.nodeCreated from its constructor.
+        // LiteGraph assigns the instance type only after that constructor returns;
+        // registerNodeType has already assigned the registered constructor type.
+        const type=node.type||node.constructor?.type;
+        if(!type||records.has(node))return;
+        const standard=['KSampler','KSamplerAdvanced','RandomNoise'].includes(type),seed=seedWidgets(node)[0];
         const control=node.widgets?.find(w=>w.name==='control_after_generate');
-        if(!seed||!control||typeof control.beforeQueued!=='function'||typeof control.afterQueued!=='function')return;
+        if(!seed||!control||!samePair(node,seed,control)||typeof control.beforeQueued!=='function'||typeof control.afterQueued!=='function')return;
+        if(standard&&seed.name!==(type==='KSampler'?'seed':'noise_seed'))return;
         const original=control.beforeQueued,after=control.afterQueued;
-        const record={seed,control,original,after,hasExecuted:loaded?null:false};
+        const provenance=proven.get(control);
+        const safe=original.constructor?.name!=='AsyncFunction'&&after.constructor?.name!=='AsyncFunction'&&
+            (!requireProvenance||provenance?.node===node&&provenance.seed===seed&&samePair(node,seed,control,provenance.links)&&
+                provenance.before===original&&provenance.after===after&&
+                matchesWidgetAccess(seed,provenance.seedAccess)&&matchesWidgetAccess(control,provenance.controlAccess));
+        // A custom node is eligible through the observed native INT/control pair,
+        // never its class name. Legacy background admission remains separate.
+        if(!standard&&(!requireProvenance||!safe))return;
+        const record={seed,control,original,after,type,field:seed.name,links:provenance?.links,
+            constructor:node.constructor,hasExecuted:loaded?null:false};
+        record.parameterSafe=safe;record.seedAccess=provenance?.seedAccess??captureWidgetAccess(seed);
+        record.controlAccess=provenance?.controlAccess??captureWidgetAccess(control);
         record.before=function(...args){const result=original.apply(this,args);record.hasExecuted=true;return result;};
         control.beforeQueued=record.before;records.set(node,record);
     }
     function checked(node) {
         const r=records.get(node);
         if(!r)throw new Error('尚未觀察到此採樣器的原生種子回呼；請使用網頁原生執行。');
-        if(r.control.beforeQueued!==r.before||r.control.afterQueued!==r.after
-            ||!node.widgets.includes(r.seed)||!node.widgets.includes(r.control))
+        if(node.type!==r.type||node.constructor!==r.constructor)
+            throw new Error('觀察後採樣器類型已變更，無法確認原生種子狀態；請使用網頁原生執行。');
+        if(r.control.beforeQueued!==r.before||r.control.afterQueued!==r.after||r.seed.name!==r.field||
+            !samePair(node,r.seed,r.control,r.links))
             throw new Error('觀察後種子回呼已變更，無法確認舊快照狀態；請使用網頁原生執行。');
         return r;
     }
@@ -84,5 +127,11 @@ export function createSeedObserver(setting) {
                 restore(graph,{node_id:String(node.id),hasExecuted:true});
         }
     }
-    return {observe,capture,restore,queueHooks,remember,resume};
+    function parameterControl(node,field){
+        const record=records.get(node);
+        if(!record||record.seed.name!==field||!record.parameterSafe||
+            !matchesWidgetAccess(record.seed,record.seedAccess)||!matchesWidgetAccess(record.control,record.controlAccess))return null;
+        try{return checked(node).control;}catch{return null;}
+    }
+    return {observe,capture,restore,queueHooks,remember,resume,parameterControl,parameterTiming:setting,installFactory};
 }

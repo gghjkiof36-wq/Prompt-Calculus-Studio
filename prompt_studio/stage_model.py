@@ -57,6 +57,9 @@ def validate(state):
         if item.get('selection','all') not in ('all','single') or type(item.get('index',0)) is not int or item.get('index',0)<0:raise ValueError('Stage 圖片選取無效。')
         text=item.get('text_output')
         if text is not None and (not isinstance(text,list) or len(text)!=2 or any(not isinstance(v,str) for v in text)):raise ValueError('Stage 文字輸出無效。')
+        if item.get('parameters') is not None:
+            from .stage_parameters import validate as validate_parameters
+            validate_parameters(item['parameters'])
     for item in data['schedulers'].values():
         if item.get('mode','data') not in ('data','stage'):raise ValueError('預排程範圍無效。')
         if any(v not in ('saved','live') for v in item.get('policies',{}).values()):raise ValueError('預排程輸入取值方式無效。')

@@ -94,9 +94,7 @@ def bundle_documents(destination, desktop=False, release=None):
     (destination/'BUILD_INFO.json').write_text(json.dumps(info,ensure_ascii=False,indent=2),encoding='utf-8')
     (destination/'BUILD_NOTICE.txt').write_text(
         'Prompt Calculus Studio '+release.version+'\n'
-        '獨立 Alpha 測試包。來源與逐檔校驗見 BUILD_INFO.json、SOURCE_MANIFEST.json。\n'
-        '目前驗證範圍及限制見 docs/DEVELOPMENT_STATUS.md；本版操作見 docs/GETTING_STARTED.md，版本對照見 docs/VERSIONING.md。\n'
-        '維護版本說明見 MAINTENANCE_081.md（若本版附有）。\n'+
-        SOURCE_ARCHIVE+' 包含本包對應的專案原始碼與建置腳本，不含個人資料或第三方執行環境。\n'
-        '專案授權見 LICENSE；第三方元件依各自授權，見 docs/LICENSING.md。\n'
-        '正式對外發行前仍需完成 Qt 等第三方條款、通知與相應原始碼取得方式的完整稽核。\n', encoding='utf-8')
+        '操作與安裝：docs/GETTING_STARTED.md；版本對照：docs/VERSIONING.md。\n'
+        '來源與逐檔校驗：BUILD_INFO.json、SOURCE_MANIFEST.json、PACKAGE_MANIFEST.json。\n'+
+        SOURCE_ARCHIVE+' 包含對應專案原始碼與建置腳本。\n'
+        '專案授權：AGPL-3.0-only，完整條款見 LICENSE；第三方套件見 docs/LICENSING.md。\n', encoding='utf-8')

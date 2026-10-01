@@ -457,10 +457,20 @@ class StageInterfaceTests(unittest.TestCase):
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a);QTest.mouseMove(view.viewport(),b,20);QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b);QTest.qWait(20)
         self.assertEqual(self.c.data()['stages'][stage]['workflow'],'flow',self.notices)
         self.w.settings_page.workflow_manager.catalog.loaded=True
-        def edit():
-            dialog=QApplication.activeModalWidget();dialog.workflow.setCurrentIndex(dialog.workflow.findData('B'));dialog.target.setCurrentIndex(dialog.target.findData('9'))
-            QTest.mouseClick(next(b for b in dialog.findChildren(QPushButton) if b.text()=='儲存'),Qt.MouseButton.LeftButton)
-        QTimer.singleShot(20,edit);self.c.flow_cards[stage].panel.edit();self.assertEqual(self.c.data()['stages'][stage]['workflow'],'B',self.notices)
+        from prompt_studio.stage_parameter_panel import ParameterSheet
+        from stage_parameter_fixture import inspection
+        catalog=self.w.settings_page.workflow_manager.catalog
+        for p in self.w.state['generation']['profiles']:p['origin']=dict(server=self.w.comfy.url,path=p['id']+'.json')
+        for p in self.w.state['generation']['profiles']:self.executor.identities[p['id']]['path']=p['origin']['path']
+        self.executor.live['workflows']=list(self.executor.identities.values())
+        self.executor.live['identity']=copy.deepcopy(self.executor.identities['flow'])
+        def read(path,profile,done,failed):QTimer.singleShot(0,lambda:done(inspection(profile),'native'))
+        with patch.object(catalog,'read_draft',side_effect=read):
+            self.c.flow_cards[stage].panel.edit();QTest.qWait(30)
+            dialog=self.w.findChild(ParameterSheet);dialog.workflow.setCurrentIndex(dialog.workflow.findData('B'));QTest.qWait(30)
+            QTest.mouseClick(dialog.apply_button,Qt.MouseButton.LeftButton);QTest.qWait(30)
+        self.assertEqual(self.c.data()['stages'][stage]['workflow'],'B',self.notices)
+        self.c.view.setFocus();QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=view.mapFromScene(self.c.flow_cards[stage].scenePos()+QPointF(80,15)))
         from prompt_studio.stage_widgets import StageDialog
         self.c.commit(lambda s:s['multi_output']['stages'][stage].update(output=None))
         dialog=StageDialog(self.c,stage);self.assertIsNone(dialog.target.currentData());dialog.deleteLater()
@@ -470,8 +480,10 @@ class StageInterfaceTests(unittest.TestCase):
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=b);QTest.mouseMove(view.viewport(),blank,20);QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=blank)
         self.executor.finish();QTest.qWait(150);self.assertIsNone(self.runner.current())
         self.assertEqual(self.runner.runs()[-1]['status'],'complete')
+        actual=self.c.history_state();expected=self.c.undo_stack[-1][1]
+        self.assertEqual([k for k in set(actual)|set(expected) if actual.get(k)!=expected.get(k)],[],self.notices)
         QTest.keyClick(view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
-        self.assertIn(self.clip,stage_model.controls(self.w.state,stage));self.assertEqual(len(self.executor.submissions),1)
+        self.assertIn(self.clip,stage_model.controls(self.w.state,stage),self.notices);self.assertEqual(len(self.executor.submissions),1)
 
     def test_pending_drag_full_editor_and_runtime_readonly(self):
         stage=self.stages()[0];refs=[]

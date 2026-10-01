@@ -77,10 +77,8 @@ class StagePanel(QFrame):
         self.canvas.window.comfy.stateChanged.connect(self.refresh)
 
     def edit(self):
-        dialog=StageDialog(self.canvas,self.key)
-        if dialog.exec()==QDialog.DialogCode.Accepted:
-            try:dialog.apply()
-            except ValueError as exc:self.canvas.window.notice(str(exc))
+        from .stage_parameter_panel import open_parameters
+        open_parameters(self.canvas,self.key)
 
     def refresh(self):
         runner=self.canvas.window.comfy.input_flow.chain
@@ -203,6 +201,16 @@ def entry_detail(window,item):
     runner=window.comfy.input_flow.chain;dialog=StudioDialog(window);dialog.setWindowTitle(item['label']+' · 完整內容');dialog.resize(740,620)
     saved=copy.deepcopy(item['saved']);status=label('','Subtle',True);dialog.body.addWidget(status)
     run=runner.store.read(item['run']);names={}
+    def parameters(stage_id):
+        persist()
+        if saved!=item['saved']:
+            try:runner.store.edit(item['id'],saved,item['saved'])
+            except ValueError as exc:window.notice(str(exc));return
+        dialog.accept()
+        from .stage_parameter_panel import open_parameters
+        QTimer.singleShot(0,window,lambda:open_parameters(window.canvas,stage_id,runner.store.read(item['id'])))
+    for stage_id in item['stages']:
+        dialog.body.addWidget(button(run['plan']['stages'][stage_id]['name']+' · 參數',lambda key=stage_id:parameters(key),'Quiet'))
     policy=[]
     for stage_id in item['stages']:
         stage=run['plan']['stages'][stage_id]
@@ -258,7 +266,7 @@ def entry_detail(window,item):
     def save():
         persist()
         for key,(source,index) in batch_refs.items():saved['batches'][source][index]=values[key]['value']
-        try:runner.store.edit(item['id'],saved);dialog.accept()
+        try:runner.store.edit(item['id'],saved,item['saved']);dialog.accept()
         except ValueError as exc:window.notice(str(exc))
     save_button=button('保存此項',save,'Primary')
     def image_change():
@@ -271,11 +279,20 @@ def entry_detail(window,item):
             try:values[key]['value']=import_source(path,window.store.directory);values[key]['origin']={};selected()
             except (ValueError,OSError) as exc:window.notice(str(exc))
     image_button=button('替換此項圖片',image_change,'Quiet')
-    dialog.body.addLayout(row(save_button,image_button,None,button('關閉',dialog.reject,'Quiet')))
+    def duplicate():
+        try:
+            persist()
+            if saved!=item['saved']:runner.store.edit(item['id'],saved,item['saved'])
+            copied=runner.store.copy_entry(item['id']);dialog.accept();runner.notify('已複製這一項。')
+            QTimer.singleShot(0,window,lambda:entry_detail(window,copied))
+        except ValueError as exc:window.notice(str(exc))
+    copy_button=button('複製此項',duplicate,'Quiet')
+    dialog.body.addLayout(row(save_button,image_button,copy_button,None,button('關閉',dialog.reject,'Quiet')))
     def refresh_status():
         if runner.closed:return
         current=runner.store.read(item['id']);item['status']=current['status']
         waiting=item['status']=='waiting';save_button.setEnabled(waiting and bool(values))
+        copy_button.setEnabled(waiting)
         image_button.setEnabled(waiting and values.get(picker.currentData(),{}).get('type')=='image')
         editor.setReadOnly(not waiting or values.get(picker.currentData(),{}).get('type')!='clip')
         status.setText(NAMES.get(runner.entry_status(current),item['status'])+' · '+('修改只影響這一項' if waiting else '已提交，僅供查看'))

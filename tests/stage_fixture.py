@@ -56,8 +56,14 @@ class ChainExecutor(ReceiptExecutor):
                 for key,value in (command.get('replay') or {}).items():
                     for field in ('seed','noise_seed'):
                         if field in value['inputs']:graph[key]['inputs'][field]=value['inputs'][field]
+                evidence=[]
+                for field in (command.get('parameters') or {}).get('patches',[]):
+                    actual=field.get('resolved',field['value'])
+                    graph[field['node']]['inputs'][field['field']]=actual
+                    evidence.append(dict(field,actual=actual,requested=field['value']))
                 visual=dict(id=target['frontend_id'],nodes=[])
-                self.native.prepare(dict(command,session=self.live['session'],client_id=self.live['client_id'],output=graph,workflow=visual))
+                self.native.prepare(dict(command,session=self.live['session'],client_id=self.live['client_id'],output=graph,workflow=visual,
+                                         **(dict(parameter_evidence=evidence) if command.get('parameters') else {})))
                 visual['extra']=dict(pcs_native_operation=command['id'])
                 payload=dict(prompt=graph,client_id=self.live['client_id'],extra_data=dict(extra_pnginfo=dict(workflow=visual)))
                 self.service.prepare_prompt(payload);assert payload['prompt'],payload

@@ -37,8 +37,14 @@ RELEASES={r.flag:r for r in (
     Release('--v084-repair1','v084-repair1-20260929','v0.84 綁定與介面修復候選（0929）','Start-PCS-v0.84-Repair1','--v083-alpha'),
     Release('--v084-repair2','v084-repair2-20260929','v0.84 流程與原生讀取修復候選（0929）','Start-PCS-v0.84-Repair2','--v083-alpha'),
     Release('--v0.8.4-alpha.1','v0.8.4-alpha.1','v0.8.4 Alpha 1','Start-PCS-v0.8.4-Alpha','--v0.8.4-alpha'),
+    Release('--v085-stage','v085-stage-controls-20261001','v0.8.5 Stage 參數控制候選','Start-PCS-v0.8.5-Stage','--v084-alpha'),
+    Release('--v085-repair1','v085-stage-repair1-20261001','v0.8.5 Stage 參數修復候選 1','Start-PCS-v0.8.5-Repair1','--v084-alpha'),
+    Release('--v085-repair2','v085-stage-repair2-20261001','v0.8.5 Stage 介面修復候選 2','Start-PCS-v0.8.5-Repair2','--v084-alpha'),
+    Release('--v085-repair3','v085-stage-repair3-20261002','v0.8.5 Stage 參數控制修復候選 3','Start-PCS-v0.8.5-Repair3','--v084-alpha'),
+    Release('--v085-repair4','v085-stage-repair4-20261002','v0.8.5 Stage 種子控制修復候選 4','Start-PCS-v0.8.5-Repair4','--v084-alpha'),
+    Release('--v0.8.5-alpha.1','v0.8.5-alpha.1','v0.8.5 Alpha 1','Start-PCS-v0.8.5-Alpha','--v0.8.5-alpha'),
 )}
-CURRENT=RELEASES['--v0.8.4-alpha.1']
+CURRENT=RELEASES['--v0.8.5-alpha.1']
 # Historical build flags remain readable; new metadata uses explicit dotted version identifiers.
 RELEASE_ALIASES={
     '--v084-alpha1':'--v0.8.4-alpha.1',
@@ -51,7 +57,7 @@ RELEASE_ALIASES={
 APP_BASENAME='PromptCalculusStudio'
 EXTENSION_FOLDER='comfyui_prompt_calculus_studio'
 SOURCE_ARCHIVE='PromptCalculusStudio-source.zip'
-SHARED_MODULES=('core','snapshots','pnginfo','exclusions','composition','generation','multi_output','clip_flow','workflow_flow','flow_data','composition_image','workflow_transfer','workflow_import','state_loading','queued_work','native_graph','workspace_scene','chain_model','chain_connections','stage_model','module_contracts','result_data')
+SHARED_MODULES=('core','snapshots','pnginfo','exclusions','composition','generation','multi_output','clip_flow','workflow_flow','flow_data','composition_image','workflow_transfer','workflow_import','state_loading','queued_work','native_graph','workspace_scene','chain_model','chain_connections','stage_model','stage_parameters','module_contracts','result_data')
 
 def select_release(arguments):
     # Preserve historical last-version-flag precedence in build_windows.py.

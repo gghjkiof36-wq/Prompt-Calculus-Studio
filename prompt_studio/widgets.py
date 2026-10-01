@@ -306,6 +306,9 @@ class ComboBox(QComboBox):
         return super().eventFilter(watched,event)
 
     def showPopup(self):
+        # Inherited item padding can change after the hidden view cached its
+        # rows. Synchronize them before Qt measures and positions the popup.
+        self.view().ensurePolished(); self.view().doItemsLayout()
         # Install the final outline before the first visible paint.
         rounded_mask(self._popup,10); super().showPopup()
 

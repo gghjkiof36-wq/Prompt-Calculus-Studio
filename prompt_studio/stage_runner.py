@@ -129,9 +129,11 @@ class StageRunner(QObject):
         if any(len(items)+sum(r['scheduler']==key for r in pending)>10 for key,items in initial.items()):
             raise ValueError('預排程最多十項，這次尚未加入。')
         saved=capture(state,plan,plan['order'],self.window.store.directory) if direct else {}
+        from .stage_parameters import capture as capture_parameters
+        saved['parameters']=capture_parameters(state,plan['order'])
         ctx=dict(results={},saved=saved,sources={})
         run=self.store.add('run',state['workspace'],server=self.client.url,plan=copy.deepcopy(plan),status=status,
-            direct=direct,round=1,rounds=1 if initial or direct else count,initial=initial,
+            direct=direct,round=1,rounds=1 if initial or direct else count,initial=initial,parameters=copy.deepcopy(saved['parameters']),
             stack=[dict(kind='seq',nodes=plan['tree'],index=0,ctx=ctx,produced={})],message='已暫停後續派送。' if paused else '',pause_reason='manual' if paused else '',revision=uuid.uuid4().hex)
         self.capture_free(run)
         # Show saved outer items immediately, even while an earlier Stage runs.
@@ -213,7 +215,7 @@ class StageRunner(QObject):
             stack=run['stack']
             if not stack:
                 if run['round']<run['rounds']:
-                    run['round']+=1;stack.append(dict(kind='seq',nodes=run['plan']['tree'],index=0,ctx=dict(results={},saved={},sources={}),produced={}))
+                    run['round']+=1;stack.append(dict(kind='seq',nodes=run['plan']['tree'],index=0,ctx=dict(results={},saved=dict(parameters=copy.deepcopy(run.get('parameters',{}))),sources={}),produced={}))
                 else:
                     self.complete(run);return
             frame=stack[-1]
@@ -299,6 +301,12 @@ class StageRunner(QObject):
                 base=copy.deepcopy(base);load(base,frame['ctx']['scene'])
             state=project(base,self.window.store.directory,frame['ctx']['results'],sources,frame['ctx'].get('saved',{}).get('readers'))
             saved=self.capture_scope(run['plan'],frame['node'],state)
+            # A refill resolves one image's data, never recaptures the Stage
+            # intentions or task target already owned by the outer item.
+            inherited=frame['ctx'].get('saved',{})
+            saved['parameters']={key:copy.deepcopy(inherited.get('parameters',{}).get(key)) for key in saved.get('parameters',{})}
+            for kind in ('parameter_overrides','parameter_profiles'):
+                saved[kind]=copy.deepcopy(inherited.get(kind,{}))
             # This child is exactly one image. The complete feed belongs to the
             # parent frame; retaining it here misrepresents editable child data.
             saved.get('batches',{}).pop(frame['auto'],None)
@@ -357,11 +365,17 @@ class StageRunner(QObject):
         ctx=copy.deepcopy(frame['ctx']);variant=frame['variants'][frame['index']]
         ctx['saved']=merge_saved(ctx.get('saved',{}),dict(values=variant['values']))
         ctx.setdefault('sources',{}).update(variant['sources']);ctx['results'].update(variant['results'])
+        from .stage_parameters import effective
+        parameters=effective(ctx['saved'],stage['id'])
+        if parameters is not None:
+            stage=copy.deepcopy(stage);stage['workflow']=parameters['identity']['workflow']
         state,images,foreign=prepare_state(self,run,stage,ctx,ctx.get('sources'))
+        cfg=state['multi_output']['stages'][stage['id']]
         retry=frame.pop('retry',None)
         if retry:state,images=retry['snapshot_state'],retry['images']
+        else:cfg['parameters']=self.store.resolve_parameters(run['workspace'],stage['id'],cfg.get('parameters'))
         attempt=self.store.add('attempt',run['workspace'],run['id'],status='preparing',stage=stage['id'],parent=ctx.get('parent'),
-            round=run['round'],position=frame['index'],snapshot_state=state,images=images,error='',sources=ctx.get('saved',{}).get('source_positions',{}))
+            round=run['round'],position=frame['index'],snapshot_state=state,images=images,error='',sources=ctx.get('saved',{}).get('source_positions',{}),parameter_replay=bool(retry))
         frame['job']=attempt['id'];self.save(run);self.preparing=attempt['id']
         def valid():
             if self.closed or self.preparing!=attempt['id'] or not self.client.connected:return False
@@ -382,6 +396,7 @@ class StageRunner(QObject):
             snapshot['chain']=dict(run=run['id'],round=run['round'],stage=stage['id'],item=attempt['id'],attempt=attempt['id'],revision=run['revision'],parent=ctx.get('parent'))
             def queued(job):
                 if not valid():return
+                self.store.record_parameters(attempt,job)
                 self.preparing=None;self.store.update(attempt['id'],status='submitted',prompt_id=job['prompt_id']);self.notify();self.later()
             self.client.generation.submit_native(snapshot,stage['workflow'],queued,fail,valid,images=uploads,ident=attempt['id'])
         def prepared():
@@ -398,6 +413,7 @@ class StageRunner(QObject):
                 if attempt['status']=='preparing' and self.preparing!=attempt['id']:
                     self.store.update(attempt['id'],status='failed',error='提交前中斷，未找到原生要求。')
                 continue
+            self.store.record_parameters(attempt,job)
             if job['state']=='complete' and attempt['status']!='result_error':self.collect(attempt,job)
             elif job['state'] in ('failed','unconfirmed'):
                 if attempt['status']!=job['state']:

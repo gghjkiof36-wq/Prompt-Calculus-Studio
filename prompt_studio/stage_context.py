@@ -1,4 +1,4 @@
-"""Isolated per-item PCS inputs. Native parameters always come from dispatch."""
+"""Isolated per-item intentions; unspecified native fields stay live at dispatch."""
 import copy
 from .flow_data import incoming,resolve,materialize,capture_inputs
 from .stage_model import input_nodes as upstream
@@ -67,6 +67,8 @@ def sync_result_view(state,directory,results):
 def capture(state,plan,keys,directory,policies=None):
     """A deferred upstream reference is never replaced with the last preview."""
     saved=dict(values={},inputs={},batches={},source_positions={},readers={})
+    from .stage_parameters import capture as capture_parameters
+    saved['parameters']=capture_parameters(state,keys)
     for key in keys:
         stage=plan['stages'][key]
         for binding in stage['bindings']:
@@ -119,7 +121,7 @@ def capture(state,plan,keys,directory,policies=None):
 
 def merge_saved(outer,inner):
     result=copy.deepcopy(outer)
-    for kind in ('values','inputs','batches','source_positions','readers'):
+    for kind in ('values','inputs','batches','source_positions','readers','parameters','parameter_overrides','parameter_profiles'):
         result.setdefault(kind,{}).update(copy.deepcopy(inner.get(kind,{})))
     return result
 
@@ -158,6 +160,9 @@ def prepare_state(runner,run,stage,context,source_values=None):
     state['uses']={k:v for k,v in state.get('uses',{}).items() if k in roots}
     state['output_order']=[k for k in state.get('output_order',[]) if k in roots]
     data.update(outputs={},clip_inputs={},bindings=[],connections=[],image_inputs={},schedulers={},stages={stage['id']:copy.deepcopy(live['multi_output']['stages'].get(stage['id'],stage))},current_output=None)
+    from .stage_parameters import effective
+    # Config displayed on today's Canvas is not the intention of an old item.
+    data['stages'][stage['id']].update(workflow=stage['workflow'],parameters=effective(saved,stage['id']))
     data['workflow_order']=dict(visible=False,items=[],established=[])
     for i,(binding,text) in enumerate(texts):
         out='stage_text_'+str(i);clip=binding['key']
@@ -175,5 +180,7 @@ def prepare_state(runner,run,stage,context,source_values=None):
     state['canvas_functions']=dict(images={},preview=True,preview_attached=False)
     state['draft']=data['outputs'][data['current_output']]['draft'] if texts else None;state['draft_base']='';state['selection_view']='canvas'
     state.pop('workspace_scenes',None);state.pop('_execution_inputs',None);state.pop('_stage_results',None)
-    state['generation']['profiles']=[p for p in state['generation']['profiles'] if p['id']==stage['workflow']]
+    profile=saved.get('parameter_profiles',{}).get(stage['id'])
+    state['generation']['profiles']=([copy.deepcopy(profile)] if profile is not None else
+        [p for p in state['generation']['profiles'] if p['id']==stage['workflow']])
     return state,images,foreign

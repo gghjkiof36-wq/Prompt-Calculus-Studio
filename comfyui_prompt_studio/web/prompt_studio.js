@@ -1,5 +1,6 @@
 import {app} from '../../scripts/app.js';
 import {api} from '../../scripts/api.js';
+import {ComfyWidgets} from '../../scripts/widgets.js';
 import {KEY, textWidget, captureManual, bind, writeSnapshot} from './state.js';
 
 import {DesktopHandoff, workflowTarget} from './desktop_binding.js';
@@ -9,10 +10,13 @@ import {watchWorkflowRuns,workflowIdentity} from './workflow_sync.js';
 import {installNativeQueue} from './native_queue.js';
 import {createNativeBootstrap} from './native_bootstrap.js';
 import {createSeedObserver} from './native_seed.js';
+import {createParameterCapabilities} from './native_parameter_capabilities.js';
 
 const observed = new WeakSet();
 let root, token, config = {destinations: {}}, library, active = null, mode = 'binding', publishImages, workflowRuns, nativeQueue;
 const seedObserver=createSeedObserver(()=>app.extensionManager.setting.get('Comfy.WidgetControlMode'));
+seedObserver.installFactory(ComfyWidgets);
+const parameterCapabilities=createParameterCapabilities(app,ComfyWidgets);
 let filter = '', moduleFilter = '', page = 0, resultPage = 0, results = [], busy = false;
 let noticeText = '', noticeError = false, syncing = false, refreshTimer, searchTimer;
 const desktopSession = crypto.randomUUID();
@@ -72,8 +76,7 @@ function observe(node) {
     };
     for (const w of node.widgets ?? []) {
         if (w.name !== 'text') continue;
-        const old = w.callback;
-        w.callback = function(...args) { const result = old?.apply(this, args); changed(); return result; };
+        parameterCapabilities.observeCallback(w,changed);
         w.inputEl?.addEventListener('input', () => { w.value = w.inputEl.value; changed(); });
     }
     const old = node.onWidgetChanged;
@@ -291,6 +294,7 @@ async function desktopLoop(lease, node) {
 
 app.registerExtension({
     name: 'PromptStudio.DesktopWorkflow',
+    getCustomWidgets() { return parameterCapabilities.getCustomWidgets(); },
     nodeCreated(node) { seedObserver.observe(node); observe(node); if (root?.isConnected) setTimeout(render, 0); },
     afterConfigureGraph() {
         workflowVersion++;
@@ -310,7 +314,7 @@ app.registerExtension({
         // marker is published only after all setup promises complete, so capture
         // the final extension queue chain there, never partway through setup.
         const bootstrap=createNativeBootstrap({app,host:window,
-            install(){nativeQueue=installNativeQueue(app,api,request,desktopSession,notify,undefined,()=>{workflowRuns.refresh();publishImages();},undefined,seedObserver);},
+            install(){nativeQueue=installNativeQueue(app,api,request,desktopSession,notify,undefined,()=>{workflowRuns.refresh();publishImages();},undefined,seedObserver,parameterCapabilities);},
             onStatus({state}){if(state==='rejected')notify('無法確認原生執行入口的啟動狀態，PCS 未提交；請重新整理 ComfyUI 頁面。',true);}
         });
         bootstrap.start(); // Do not await the completion marker from inside setup.

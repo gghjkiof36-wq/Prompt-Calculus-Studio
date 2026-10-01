@@ -8,7 +8,7 @@ sys.path.insert(0,str(ROOT/"vendor"))
 
 def main():
     os.environ.setdefault('PROMPT_STUDIO_V08','1')
-    if any(flag in sys.argv for flag in ('--v08-alpha','--v08-smoke-test','--v081-alpha','--v081-smoke-test','--v082-alpha','--v083-alpha','--v084-alpha','--v0.8.4-alpha')):os.environ['PROMPT_STUDIO_V08']='1'
+    if any(flag in sys.argv for flag in ('--v08-alpha','--v08-smoke-test','--v081-alpha','--v081-smoke-test','--v082-alpha','--v083-alpha','--v084-alpha','--v0.8.4-alpha','--v0.8.5-alpha')):os.environ['PROMPT_STUDIO_V08']='1'
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication, QMessageBox

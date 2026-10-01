@@ -5,6 +5,7 @@ import {nativeCatalog,confirmNativeWorkflow} from './native_open.js';
 import {graphFingerprint} from './graph_fingerprint.js';
 import {captureManual} from './state.js';
 import {openNativeWorkflow,nativeDraftRecoveryPending} from './native_switch.js';
+import {describeParameters,parameterTransaction} from './native_parameters.js';
 
 // Apply only explicitly bound fields on the real graph before native queue
 // serialization. Validate all destinations before changing any of them.
@@ -35,7 +36,7 @@ export async function applyNativeBindings(app,command,guard=()=>{},wait=value=>v
     guard();
 }
 
-export function installNativeQueue(app,api,request,session,notice=()=>{},timeoutMs=12000,onIdle=()=>{},externalUnavailable=()=>'',seeds=null) {
+export function installNativeQueue(app,api,request,session,notice=()=>{},timeoutMs=12000,onIdle=()=>{},externalUnavailable=()=>'',seeds=null,parameterCapabilities=null) {
     const nativeQueue=app.queuePrompt;
     const cancelledApplies=new Set(),applyOperations=new Map();
     let stopped=false,epoch=0,active=null,ordinary=0,polling=false,acknowledging=false,composing=false,loading=0,probe='';
@@ -123,7 +124,7 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
     let reportedUnavailable='';
     const pollValue=error=>({session,epoch:active?(active.expectedEpoch??active.command.epoch):epoch,
         identity:active?(active.currentIdentity??active.command.identity):identity(),client_id:api.clientId,
-        workflows:nativeCatalog(app),bindings_protocol:1,capture_protocol:seeds?.queueHooks?1:0,navigation_protocol:1,inspect_protocol:1,apply_protocol:1,
+        workflows:nativeCatalog(app),bindings_protocol:1,capture_protocol:seeds?.queueHooks?1:0,navigation_protocol:1,inspect_protocol:1,apply_protocol:1,parameters_protocol:1,
         ready:!error,reason:error,probe});
 
     async function select(operation) {
@@ -176,7 +177,7 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
         // Native editing and undo retain their own lifecycle. Any edit before
         // transport invalidates the identity/fingerprint checks below; do not
         // block its loader after native undo has already moved history entries.
-        let serialized=null,completion=null,settled=false,timeout;
+        let serialized=null,completion=null,settled=false,timeout,parameters=null;
         // Run the original method with an operation-local input queue. Its
         // auth await occurs outside native try/finally (frontend 1.43.18).
         // A cancelled continuation must never drain a newer native Run queue.
@@ -220,6 +221,11 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
         const serialize=async function(...args) {
             operation.trace('serialize');
             assertCurrent(operation);
+            // Finish PCS text bookkeeping before comparing the native draft.
+            for(const node of operation.graph._nodes??[])captureManual(node);
+            const nativeBefore=fingerprint();
+            parameters?.enterSerialize();
+            try {
             // Explicit retry keeps the recorded execution seed. Native seed
             // hooks still run once; the retry value is selected at serialization.
             for(const [id,saved] of Object.entries(command.replay??{})){
@@ -230,15 +236,18 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
                     widget.value=saved.inputs[field];
                 }
             }
-            // Our legacy wrapper normally records manual text during native
-            // serialization. Finish that synchronous bookkeeping first.
-            for(const node of operation.graph._nodes??[])captureManual(node);
-            const before=fingerprint();
-            const value=await wait(originalSerialize.apply(this,args));
+            const before=parameters?nativeBefore:fingerprint();
+            let pending;
+            try{pending=originalSerialize.apply(this,args);}
+            finally{parameters?.leaveSerialize();}
+            const value=await wait(pending);
             assertCurrent(operation);
             if(fingerprint()!==before)throw new Error('序列化期間工作流被修改，未提交。');
-            serialized={value,fingerprint:before};
+            operation.parameterEvidence=parameters?.evidence(value.output);
+            parameters?.leaveSerialize();
+            serialized={value,fingerprint:fingerprint()};
             return value;
+            } finally {parameters?.leaveSerialize();}
         };
         const submit=async function(...args) {
             assertCurrent(operation);
@@ -250,7 +259,8 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
             // does not generate or patch an API graph.
             operation.trace('prepare');
             await wait(request('workflow/native/prepare',{id:command.id,session,epoch:command.epoch,
-                identity:command.identity,client_id:operation.clientId,output:value.output,workflow:value.workflow}));
+                identity:command.identity,client_id:operation.clientId,output:value.output,workflow:value.workflow,
+                ...(operation.parameterEvidence?{parameter_evidence:operation.parameterEvidence}:{})}));
             assertCurrent(operation);
             if(fingerprint()!==serialized.fingerprint)throw new Error('提交前工作流被修改，未提交。');
             const marked={...value,workflow:{...value.workflow,extra:{...value.workflow.extra,pcs_native_operation:command.id}}};
@@ -275,13 +285,35 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
                 const value=await wait(originalSerialize.call(app));
                 assertCurrent(operation);
                 if(fingerprint()!==before)throw new Error('讀取期間工作流被修改，請重新整理節點。');
-                return {inspection:{workflow:structuredClone(value.workflow),output:structuredClone(value.output),identity:identity()}};
+                const definitions=typeof api.getNodeDefs==='function'?await wait(api.getNodeDefs()):{};
+                assertCurrent(operation);
+                if(fingerprint()!==before)throw new Error('讀取期間工作流被修改，請重新整理節點。');
+                return {inspection:{workflow:structuredClone(value.workflow),output:structuredClone(value.output),identity:identity(),
+                    parameters:describeParameters(app,value.output,definitions,seeds,parameterCapabilities)}};
             }
             if(command.action==='capture') {
                 globalThis.document?.activeElement?.blur?.();
                 await Promise.resolve();assertCurrent(operation);
             }
             operation.trace('apply');
+            if(command.parameters?.patches?.length){
+                // Reinspect live values before any PCS mutation. The serializer
+                // is still native, and no seed hook is executed by this read.
+                const before=fingerprint(),baseline=await wait(originalSerialize.call(app));
+                const definitions=typeof api.getNodeDefs==='function'?await wait(api.getNodeDefs()):{};
+                assertCurrent(operation);
+                if(fingerprint()!==before)throw new Error('準備參數期間工作流被修改，未提交。');
+                const progress=()=>{
+                    if(!operation.prompt_id||command.replay)return;
+                    // Persist the observed after-hook immediately, even if native
+                    // queue UI refresh later hangs. This never submits a prompt.
+                    boundedRequest('workflow/native/reply',{id:command.id,session,epoch:command.epoch,
+                        identity:command.identity,prompt_id:operation.prompt_id,
+                        parameter_evidence:parameters.finish()}).catch(()=>{});
+                };
+                parameters=parameterTransaction(app,command,describeParameters(app,baseline.output,definitions,seeds,parameterCapabilities),()=>assertCurrent(operation),seeds,progress,parameterCapabilities);
+                parameters?.apply();
+            }
             await applyNativeBindings(app,command,()=>assertCurrent(operation),mutationWait,checkpoint);
             operation.trace('apply','done');
             // Apply-only never serializes, advances seeds or calls native Run.
@@ -313,15 +345,18 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
             completion.then(()=>{settled=true;},()=>{settled=true;});
             await wait(completion);
             if(!operation.prompt_id)throw new Error(operation.attempted?'提交回覆未確認，請查看任務紀錄。':'ComfyUI 未接受生成，請查看原生錯誤提示。');
-            return {prompt_id:operation.prompt_id,payload:operation.payload};
+            return {prompt_id:operation.prompt_id,payload:operation.payload,
+                ...(parameters?{parameter_evidence:parameters.finish()}:{})};
         } catch(error) {
             operation.trace(undefined,'error');
             return {prompt_id:operation.prompt_id||undefined,payload:operation.payload||undefined,
+                ...(parameters?{parameter_evidence:parameters.finish()}:{ }),
                 error:completion&&!settled&&!(ownsQueue&&ownsProcessing)?
                     '原生提交逾時且擴充執行入口無法安全解除；請重新整理 ComfyUI 網頁。':String(error?.message??error),
                 uncertain:operation.attempted&&!operation.prompt_id};
         } finally {
             clearTimeout(timeout);
+            parameters?.restore();
             operation.cancelled=true;localQueue.length=0;
             if(command.action==='apply')Promise.allSettled([...operation.mutations]).then(()=>applyOperations.delete(command.id));
             const restore=()=>{

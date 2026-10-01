@@ -10,6 +10,7 @@ from .shared.generation import api_graph, parameter_bindings, image_target, text
 from .shared.multi_output import bound_texts
 from .shared.snapshots import validate_snapshot
 from .shared.native_graph import graph_matches, input_schema
+from .shared.stage_parameters import validate as validate_parameters, identity as parameter_identity, payload_evidence
 
 
 def digest(value):
@@ -102,7 +103,7 @@ class NativeQueue:
             # A busy probe sent before activate can arrive after its receipt.
             # Never let an older heartbeat overwrite an acknowledged switch.
             return dict(commands=[])
-        self.sessions[session]=dict(identity=copy.deepcopy(identity),workflows=copy.deepcopy(workflows),client_id=client,epoch=epoch,seen=now,ready=value.get('ready') is True,user_scope='default',bindings_protocol=value.get('bindings_protocol'),capture_protocol=value.get('capture_protocol'),navigation_protocol=value.get('navigation_protocol'),inspect_protocol=value.get('inspect_protocol'),apply_protocol=value.get('apply_protocol'),probe=str(value.get('probe',''))[:100],reason=str(value.get('reason',''))[:1000])
+        self.sessions[session]=dict(identity=copy.deepcopy(identity),workflows=copy.deepcopy(workflows),client_id=client,epoch=epoch,seen=now,ready=value.get('ready') is True,user_scope='default',bindings_protocol=value.get('bindings_protocol'),capture_protocol=value.get('capture_protocol'),navigation_protocol=value.get('navigation_protocol'),inspect_protocol=value.get('inspect_protocol'),apply_protocol=value.get('apply_protocol'),parameters_protocol=value.get('parameters_protocol'),probe=str(value.get('probe',''))[:100],reason=str(value.get('reason',''))[:1000])
         with self.service.connect() as db:
             rows=db.execute("SELECT body FROM native_operations WHERE json_extract(body,'$.state')='pending'").fetchall()
         commands=[]
@@ -124,6 +125,7 @@ class NativeQueue:
                 profile=next(p for p in operation['snapshot']['state']['generation']['profiles'] if p['id']==operation['workflow'])
                 commands[-1]['texts']=[dict(b,class_type=profile['graph'][b['node']]['class_type']) for b in operation['texts']]
                 commands[-1]['images']=copy.deepcopy(operation.get('images',[]))
+                if operation.get('parameters'):commands[-1]['parameters']=copy.deepcopy(operation['parameters'])
                 if operation['snapshot'].get('chain_replay'):commands[-1]['replay']=copy.deepcopy(operation['snapshot']['chain_replay'])
         return dict(commands=commands)
 
@@ -210,6 +212,17 @@ class NativeQueue:
             if node in seen:raise ValueError('同一個 LoadImage 不可重複指定圖片。')
             seen.add(node);images.append(dict(node=node,field='image',class_type='LoadImage',text=uploaded))
         if action=='queue' and not texts and not images and not snapshot.get('chain'):raise ValueError('請連接 CLIP 輸入或圖片輸入。')
+        parameters=None
+        chain=snapshot.get('chain')
+        if action=='queue' and chain and snapshot['state']['multi_output'].get('version',1)>=7:
+            stage=snapshot['state']['multi_output']['stages'].get(chain['stage'])
+            if stage is None:raise ValueError('Stage 不屬於這份提交快照。')
+            parameters=copy.deepcopy(stage.get('parameters'))
+            if parameters:
+                validate_parameters(parameters)
+                if parameters['identity']!=parameter_identity(profile):raise ValueError('Stage 參數不屬於這份工作流。')
+                owned={(v['node'],v['field']) for v in texts+images}
+                if any((p['node'],p['field']) in owned for p in parameters['patches']):raise ValueError('Stage 參數與 PCS 輸入來源衝突。')
         target=dict(workflow=workflow,path=profile.get('origin',{}).get('path',''),frontend_id=profile['frontend_id'])
         if action=='queue' and snapshot['state'].get('multi_output',{}).get('version',1)<5:
             self.service.work_queue.require_idle()
@@ -243,11 +256,16 @@ class NativeQueue:
         if (images or any('text_source' in b for b in texts)) and live.get('bindings_protocol')!=1:
             raise ValueError('ComfyUI 網頁尚未載入新版綁定功能，請更新擴充並重新整理網頁。')
         if not live['ready']:raise ValueError('原生分頁正在提交或無法確認空閒，未提交。')
+        if parameters and parameters['patches'] and live.get('parameters_protocol')!=1:
+            raise ValueError('請更新同版擴充並重新整理 ComfyUI，才能使用 Stage 參數。')
         operation=dict(id=ident,request_hash=fingerprint,created=time.time(),state='pending',error='',session=session,
             identity=copy.deepcopy(live['identity']),epoch=live['epoch'],client_id=live['client_id'],snapshot=snapshot,workflow=workflow,texts=texts,images=images,user_scope='default',target=target,needs_navigation=needs_navigation)
         if action=='open':operation.update(action='open',target=target)
         if action=='capture':operation.update(action='capture',server=server)
         if action=='apply':operation.update(action='apply')
+        if parameters:
+            operation['parameters']=parameters
+            operation['parameter_owner']=dict(stage=chain['stage'],parent=chain.get('parent'),workspace=snapshot['state']['workspace'])
         self.save(operation);return self.status(ident)
 
     def checked(self,value):
@@ -316,14 +334,14 @@ class NativeQueue:
             raise ValueError('原生工作流的分頁身分不再唯一，未提交。')
         if sum(self.target_matches(item,operation['target']) for item in candidates[0][1].get('workflows',[]))>1:
             raise ValueError('原生工作流的目錄身分不再唯一，未提交。')
-        self.prepare_payload(operation,graph,visual)
+        self.prepare_payload(operation,graph,visual,value.get('parameter_evidence'))
         if operation.get('action')=='capture':
             work=self.service.work_queue.capture(operation)
             operation.update(state='captured',work=work)
             self.save(operation)
         return dict(ok=True)
 
-    def prepare_payload(self,operation,graph,visual):
+    def prepare_payload(self,operation,graph,visual,parameter_evidence=None):
         """Journal one verified payload (native serialization or released state)."""
         profile=next(p for p in operation['snapshot']['state']['generation']['profiles'] if p['id']==operation['workflow'])
         chain=operation['snapshot'].get('chain')
@@ -354,6 +372,11 @@ class NativeQueue:
             origin=copy.deepcopy(profile.get('origin',{})),frontend_id=identity['frontend_id'],
             native_operation=operation['id'],native_identity=identity,user_scope='default')
         if operation['snapshot'].get('chain'):generation['chain']=copy.deepcopy(operation['snapshot']['chain'])
+        if operation.get('parameters') and operation['parameters']['patches']:
+            proof=payload_evidence(operation['parameters'],graph,parameter_evidence)
+            generation['stage_parameters']=dict(version=1,identity=copy.deepcopy(operation['parameters']['identity']),
+                owner=copy.deepcopy(operation['parameter_owner']),fields=proof)
+            operation['parameter_receipt']=copy.deepcopy(generation['stage_parameters'])
         replay=operation['snapshot'].get('chain_replay')
         if replay:
             actual={k:dict(class_type=v['class_type'],inputs=v['inputs']) for k,v in graph.items()}
@@ -425,6 +448,13 @@ class NativeQueue:
                     not isinstance(visual,dict) or visual.get('id')!=identity['frontend_id'] or not isinstance(visual.get('nodes'),list)):
                     raise ValueError('原生讀取回覆與綁定不符。')
                 operation.update(state='inspected',inspection=dict(identity=copy.deepcopy(identity),epoch=operation.get('resolved_epoch',operation['epoch']),workflow=copy.deepcopy(visual),output=api_graph(inspection.get('output'))),error='')
+                description=inspection.get('parameters')
+                if description is not None:
+                    if (not isinstance(description,dict) or description.get('version')!=1
+                            or not isinstance(description.get('nodes'),list) or len(description['nodes'])>1000
+                            or len(json.dumps(description,allow_nan=False).encode())>2000000):
+                        raise ValueError('原生參數描述無效。')
+                    operation['inspection']['parameters']=copy.deepcopy(description)
             else:operation.update(state='failed',error=str(value.get('error','原生工作流未讀取。'))[:1000])
             self.save(operation);return self.status(operation['id'])
         if operation.get('action')=='apply':
@@ -440,9 +470,16 @@ class NativeQueue:
                 operation.update(state='opened',opened_identity=copy.deepcopy(opened),error='')
             else:operation.update(state='unconfirmed' if value.get('uncertain') else 'failed',error=str(value.get('error','未確認原生工作流已開啟。'))[:1000])
             self.save(operation);return self.status(operation['id'])
-        if operation['state'] not in ('delivered','prepared','submitted'):return self.status(operation['id'])
+        if operation['state'] not in ('delivered','prepared','submitted','queued'):return self.status(operation['id'])
         if prompt_id:
             if operation.get('prompt_id')!=prompt_id:raise ValueError('原生回執任務編號與後端記錄不符。')
+            if operation.get('parameters') and value.get('parameter_evidence') is not None:
+                proof=payload_evidence(operation['parameters'],operation['graph'],value['parameter_evidence'])
+                for p,e in zip(operation['parameters']['patches'],proof):
+                    if 'next_value' in e:
+                        from .shared.stage_parameters import validate_value
+                        validate_value(e['next_value'],p)
+                operation['parameter_receipt']['fields']=proof
             operation.update(state='queued',submit_inflight=False,error=str(value.get('error',''))[:1000])
         else:operation.update(state='unconfirmed' if value.get('uncertain') or operation['state']=='submitted' else 'failed',error=str(value.get('error','未取得提交回執。'))[:1000])
         self.save(operation);return self.status(operation['id'])
@@ -452,7 +489,7 @@ class NativeQueue:
         operation=self.read(ident)
         if operation['state'] in ('awaiting_browser','pending','delivered','prepared','submitted') and time.time()-operation['created']>30:
             operation.update(state='failed' if operation['state'] in ('awaiting_browser','pending') else 'unconfirmed',error='原生提交逾時，不會自動重送。');self.save(operation)
-        result={k:copy.deepcopy(operation[k]) for k in ('id','state','error','first_error','terminal_action','issued_at','prompt_id','payload','opened_identity','work','inspection') if k in operation}
+        result={k:copy.deepcopy(operation[k]) for k in ('id','state','error','first_error','terminal_action','issued_at','prompt_id','payload','opened_identity','work','inspection','parameter_receipt') if k in operation}
         result['diagnostics']=self.diagnostics(ident)
         return result
 

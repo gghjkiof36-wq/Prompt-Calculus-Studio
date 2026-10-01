@@ -108,4 +108,8 @@ def read_profile(value,name,ident,origin):
         ident=value['id']
     else: profile=infer_profile(import_graph(value),name,value)
     profile.update(id=ident,multi_text=True,origin=origin)
+    if value.get('format')=='prompt_studio_native_inspection' and value.get('parameters'):
+        from .stage_parameters import identity
+        description=copy.deepcopy(value['parameters']);description['identity']=identity(profile)
+        profile['parameter_description']=description
     return validate_profile(profile)

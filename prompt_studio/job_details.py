@@ -66,6 +66,12 @@ def describe(record,now=None):
             item=event[1]; lines.append('失敗節點：#'+str(item.get('node_id',''))+' · '+str(item.get('node_type','')))
             if item.get('exception_type'):lines.append('錯誤類型：'+str(item['exception_type']))
     source=gen.get('source')
+    parameters=record.get('parameter_receipt') or gen.get('stage_parameters',{})
+    if parameters.get('fields'):
+        lines.extend(['','當次 Stage 參數：'])
+        for field in parameters['fields']:
+            lines.append('#'+'/'.join(field.get('path',[field['node']]))+' / '+field['field']+'：'+str(field['actual'])+
+                         (' · '+field['seed_mode']+' / '+field['seed_timing'] if field.get('seed_mode') else ''))
     if source:lines.extend(['','來源圖片：'+source['name'],'圖片 SHA256：'+source['sha256'],'送入 ComfyUI：'+source.get('uploaded','')])
     for node,output in record.get('outputs',{}).items():
         for image in output.get('images',[]) if isinstance(output,dict) else []:

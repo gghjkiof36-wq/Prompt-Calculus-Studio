@@ -2,7 +2,7 @@
 import copy
 from PySide6.QtCore import Qt,QRectF,QSize,QTimer
 from PySide6.QtGui import QImageReader,QPixmap,QIcon,QColor
-from PySide6.QtWidgets import QFrame,QVBoxLayout,QListWidget,QListWidgetItem,QPlainTextEdit,QDialog,QAbstractItemView
+from PySide6.QtWidgets import QFrame,QVBoxLayout,QListWidget,QListWidgetItem,QPlainTextEdit,QDialog,QAbstractItemView,QGraphicsItem
 from .widgets import label,button,row,ComboBox,RoundMenu,StudioDialog,dialog_buttons,scrolling
 from .canvas_items import TextCard
 from .workflow_binding import WorkflowBindingDialog
@@ -326,6 +326,7 @@ class FlowCard(TextCard):
             self.panel=StagePanel(canvas,key) if kind=='stages' else StageSchedule(canvas,key)
         else:self.panel=SchedulePanel(canvas,key) if kind=='schedulers' else ImageInputPanel(canvas,key)
         self.init_interaction()
+        if self.kind=='stages':self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable,True)
     @property
     def default_size(self):return (500,550) if self.kind=='schedulers' else (360,245) if self.kind=='stages' else (360,160)
     def attach(self):
@@ -343,6 +344,29 @@ class FlowCard(TextCard):
         w,h=self.requested_size;minimum=self.panel.minimumSizeHint()
         self.proxy.setGeometry(QRectF(14,top,max(290,w-28,minimum.width()),max(h-top-14,minimum.height())));self.sync_bounds()
     def update_text(self):self.panel.refresh();super().update_text()
+    def release_control(self,event):
+        if self.kind=='stages' and self.pressed=='size' and not self.resizing:
+            self.pressed=None
+            if self.action_at(event.pos())=='size':QTimer.singleShot(0,self.panel.edit)
+            self.update();event.accept();return True
+        return super().release_control(event)
+    def hoverMoveEvent(self,event):
+        super().hoverMoveEvent(event)
+        if self.kind=='stages' and self.hot=='size':self.setToolTip('參數')
+    def mouseDoubleClickEvent(self,event):
+        if self.kind=='stages' and event.button()==Qt.MouseButton.LeftButton:
+            QTimer.singleShot(0,self.panel.edit);event.accept();return
+        super().mouseDoubleClickEvent(event)
+    def keyPressEvent(self,event):
+        if self.kind=='stages':
+            if event.key() in (Qt.Key.Key_Delete,Qt.Key.Key_Backspace):
+                self.canvas.delete_selected();event.accept();return
+            if event.modifiers()&Qt.KeyboardModifier.ControlModifier:
+                if event.key()==Qt.Key.Key_Z:self.canvas.undo();event.accept();return
+                if event.key()==Qt.Key.Key_Y:self.canvas.redo();event.accept();return
+        if self.kind=='stages' and event.key() in (Qt.Key.Key_Return,Qt.Key.Key_Enter):
+            QTimer.singleShot(0,self.panel.edit);event.accept();return
+        super().keyPressEvent(event)
     def paint(self,painter,option,widget=None):
         super().paint(painter,option,widget)
         if self.kind=='stages':
@@ -351,6 +375,7 @@ class FlowCard(TextCard):
             painter.setPen(QColor('#9da5af'));painter.drawText(QRectF(18,36,self.width-36,23),Qt.AlignmentFlag.AlignVCenter,profile['name'] if profile else '尚未選擇工作流')
     def contextMenuEvent(self,event):
         menu=RoundMenu(self.canvas.window)
+        if self.kind=='stages':menu.addAction('參數',self.panel.edit)
         menu.addAction('重新命名',lambda:self.canvas.rename_function(self.kind,self.key))
         menu.addAction('移除模塊（保留並暫停等待項目）',lambda:self.canvas.remove_flow_node(self.kind,self.key))
         menu.open_at(event.screenPos());event.accept()

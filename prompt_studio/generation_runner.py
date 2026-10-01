@@ -13,7 +13,7 @@ ACTIVE=('submitting','queued','running','unconfirmed')
 
 class GenerationRunner:
     def __init__(self,client):
-        self.client=client; self.window=client.window; self.batch=None; self.checking=set(); self.message=''; self.pipeline=None; self.native_waiting=set()
+        self.client=client; self.window=client.window; self.batch=None; self.checking=set(); self.message=''; self.pipeline=None; self.native_waiting=set();self.parameter_checking=set();self.parameter_checked={}
         self.db=self.window.store.db
         self.db.execute('CREATE TABLE IF NOT EXISTS generation_jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL, created REAL NOT NULL)'); self.db.commit()
         self.jobs={}
@@ -150,7 +150,7 @@ class GenerationRunner:
         def received(result):
             if self.client.stopped:return
             if job['state'] in ('failed','complete'):return
-            for key in ('diagnostics','first_error','terminal_action','issued_at'):
+            for key in ('diagnostics','first_error','terminal_action','issued_at','parameter_receipt'):
                 if key in result:job[key]=copy.deepcopy(result[key])
             if result.get('payload'):job['payload']=result['payload']
             if result.get('prompt_id'):job['prompt_id']=result['prompt_id']
@@ -191,6 +191,7 @@ class GenerationRunner:
         running=set(status.get('running_ids',[])); queued=set(status.get('queued_ids',[]))
         for job in list(self.jobs.values()):
             if job['server']!=self.client.url or job['state'] not in ACTIVE: continue
+            self.refresh_parameters(job)
             if job.get('native_operation') and not job.get('prompt_id'):
                 operation=job['native_operation']
                 if operation not in self.native_waiting and operation not in self.checking:
@@ -198,7 +199,7 @@ class GenerationRunner:
                     def reconciled(result,job=job,operation=operation):
                         self.checking.discard(operation)
                         if job['state'] in ('failed','complete'):return
-                        for key in ('payload','prompt_id','error','diagnostics','first_error','terminal_action','issued_at'):
+                        for key in ('payload','prompt_id','error','diagnostics','first_error','terminal_action','issued_at','parameter_receipt'):
                             if key in result:job[key]=result[key]
                         if result.get('state') in ('queued','failed','unconfirmed'):job['state']=result['state']
                         self.save(job)
@@ -275,11 +276,35 @@ class GenerationRunner:
     def records(self):
         return [json.loads(row[0]) for row in self.db.execute('SELECT body FROM generation_jobs ORDER BY created DESC LIMIT 100')]
 
+    def refresh_parameters(self,job,force=False):
+        from .job_details import job_marker
+        receipt=job.get('parameter_receipt') or job_marker(job).get('generation',{}).get('stage_parameters',{})
+        pending=any(f.get('seed_mode') not in (None,'fixed') and f.get('next_value') is None for f in receipt.get('fields',[]))
+        operation=job.get('native_operation')
+        if not pending or not operation or not job.get('prompt_id'):return False
+        if operation in self.parameter_checking or (not force and time.time()-self.parameter_checked.get(operation,0)<2):return True
+        self.parameter_checking.add(operation);self.parameter_checked[operation]=time.time()
+        store=self.window.store;epoch=self.client.epoch;server=self.client.url
+        def done(value):
+            self.parameter_checking.discard(operation)
+            if (self.client.stopped or self.window.store is not store or self.client.epoch!=epoch or self.client.url!=server
+                    or value.get('prompt_id')!=job['prompt_id']):return
+            if value.get('parameter_receipt'):
+                job['parameter_receipt']=copy.deepcopy(value['parameter_receipt']);self.save(job)
+                chain=getattr(getattr(self.client,'input_flow',None),'chain',None)
+                if chain and not chain.closed:
+                    attempt=chain.store.read(job['id'])
+                    if attempt:chain.store.record_parameters(attempt,job);chain.later()
+        self.client.request('workflow/native/status',dict(id=operation),done,
+                            lambda error:self.parameter_checking.discard(operation))
+        return True
+
     def recheck(self,ident):
         job=self.jobs.get(ident) or self.record(ident)
         if not job or job['server']!=self.client.url:
             self.window.notice('請連線至這項工作的原 ComfyUI 服務。');return
         if job['state'] not in ACTIVE:
+            if self.refresh_parameters(job,force=True):self.window.notice('已要求更新原任務的參數回執；不重新生成。');return
             self.window.notice('這項工作已結案：'+job['state']);return
         self.jobs[ident]=job
         self.status('正在重新核對這項工作的原生紀錄…')

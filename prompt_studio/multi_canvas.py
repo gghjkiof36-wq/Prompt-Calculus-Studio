@@ -300,8 +300,40 @@ class MultiCanvas(TextCanvas):
         key=self.output_picker.currentData()
         if key and key!=self.data()['current_output']:
             model.select_output(self.window.state,key); self.last_state=None; self.window.refresh_library(); self.window.refresh_builder(); self.window.changed()
+    def prune_cards(self):
+        """Discard scene objects whose owners left the current document.
+
+        Import and workspace changes can happen while Settings hides the Canvas.
+        Deferred output/layout refreshes must not use cards from the old model;
+        constructing new cards remains the visible Canvas refresh's job.
+        """
+        state=self.window.state; data=self.data(); removed=set()
+        node_keys={key for key in state.get('uses',{})}
+        for key,root in state.get('uses',{}).items():
+            node_keys.update(key+':'+part['id'] for part in comp.walk(root) if part is not root)
+        flow_keys={key for kind in ('schedulers','image_inputs','stages') for key in data.get(kind,{})}
+        for collection,keys in ((self.containers,data['canvases']), (self.outputs,data['outputs']),
+                (self.clips,data['clip_inputs']), (self.flow_cards,flow_keys), (self.cards,node_keys),
+                (self.functions.cards,state.get('canvas_functions',{}).get('images',{}))):
+            for key in list(collection):
+                if key not in keys:removed.add(collection.pop(key))
+        if not removed:return
+        self.connection_gesture.cancel()
+        # Ports belong to cards; discard references before Qt destroys parents.
+        for key,port in list(self.ports.items()):
+            if port.parentItem() in removed:
+                self.ports.pop(key);self.view.scene().removeItem(port);port.setParentItem(None);port.deleteLater()
+        connections={value['id'] for value in data['connections']}
+        for key,line in list(self.lines.items()):
+            if key not in connections or not all(self.line_port(line.value,output) for output in (False,True)):
+                self.lines.pop(key);self.view.scene().removeItem(line)
+        for item in removed:
+            if item.parentItem() not in removed:
+                self.view.scene().removeItem(item);item.deleteLater()
+        if self.output in removed:self.output=None
     def update_output(self):
         if not hasattr(self,'outputs'): return
+        self.prune_cards()
         model.capture_current(self.window.state)
         self.output_picker.blockSignals(True); self.output_picker.clear()
         for key,o in self.data()['outputs'].items(): self.output_picker.addItem('目前輸出 · '+o['name'],key)
@@ -316,6 +348,9 @@ class MultiCanvas(TextCanvas):
             self.preview_links=preview_links; self.results.refresh()
         self.update_lines()
         if self.editor_page and not self.editor_page.refreshing: self.editor_page.refresh()
+    def refresh_layout(self):
+        self.prune_cards()
+        if self.isVisible():super().refresh_layout()
     def refresh(self):
         if not hasattr(self,'outputs') or self.refreshing: return
         self.refreshing=True

@@ -991,13 +991,21 @@ class Window(QMainWindow):
             from .validation import validate_resources
             validate_resources(resources)
             if not ask(self,"匯入資料",f"以備份取代目前的素材與檔案索引？\n共 {len(state['items'])} 個提示詞、{len(resources)} 筆模型／圖片資料。\n\n會先建立 SQLite 備份；不複製、搬移或刪除外部原檔。"): return
-            self.save_timer.stop(); self.models.save(); backup=self.store.backup()
+            self.save_timer.stop(); self.models.save(); self.changes.stop(); backup=self.store.backup()
             self.completion.serial+=1; self.completion.timer.stop()
             with self.store.db:
                 self.store.db.execute("DELETE FROM resources")
                 for r in resources: self.store.db.execute("INSERT INTO resources VALUES (?,?,?,?,?)",(r["id"],r["kind"],r["parent"],r["name"],json.dumps(r["body"],ensure_ascii=False)))
                 self.store.db.execute("INSERT OR REPLACE INTO document VALUES (1,?)",(json.dumps(state,ensure_ascii=False),))
             self.state=self.store.load(); self.current_module=self.state["modules"][0]["id"] if self.state["modules"] else None
+            # JSON replaces the document, not one undoable Canvas edit. Old
+            # histories/editors contain owner IDs from the previous document.
+            self.canvas.undo_stack.clear(); self.canvas.redo_stack.clear(); self.canvas.last_state=None
+            self.workspace_histories={}; self.canvas.root_id=None; self.canvas.path=[]
+            editor=getattr(self.canvas,'editor_page',None)
+            if editor is not None:
+                if editor.animation:editor.animation.stop()
+                self.canvas.editor_page=None;self.surface_stack.removeWidget(editor);editor.deleteLater()
             self.models.record=None; self.models.root.setText(self.state["settings"]["model_root"])
             self.models.loading=True; self.models.category.clear(); self.models.category.addItems(self.state["settings"]["model_categories"]); self.models.loading=False
             self.models.refresh_categories(); self.models.refresh()
