@@ -1,24 +1,28 @@
 # Prompt Calculus Studio (PCS)
 
-[Version naming and legacy mapping](docs/VERSIONING.md)
-
 [繁體中文](README.md)
 
-PCS is a local-first Windows tool for composing reusable prompts and connecting them to ComfyUI. Organize characters, styles and scenes as modules, arrange them in a list or Canvas, and keep manual text and saved workspaces.
+PCS is a Windows desktop tool for organizing reusable prompts and running ComfyUI workflows. Save characters, styles and scenes as modules, edit them in a list or Canvas, and keep your workspaces locally.
 
 ## What it does
 
-- Compose prompts with ordering, weights and tag exclusions.
-- Arrange Canvas modules, text destinations and image connections.
-- Apply the text connected to CLIP to its explicitly bound field, preserving unbound browser fields.
-- Use Stage nodes for generation, chain linear workflows, and route current-run images through data or Stage pre-scheduling.
-- Organize local models and images, and inspect available PNG metadata and module snapshots.
+- Combine prompts with ordering, weights, tag exclusions and manual edits.
+- Use Stage nodes to arrange generation steps and pass images from one workflow to the next.
+- Queue different prompts, images or groups of steps; reorder or edit waiting items.
+- Preview batches, save images and reuse selected results in another workflow.
+- Organize models and CivitAI assets, and read prompt information and PCS snapshots from images.
+
+Image generation uses your own ComfyUI installation, models and workflows. Prompt editing and copying can be used on their own.
 
 ## Download and start
 
-These instructions target **0.8.4 Alpha 1**, a prerelease. Get `PCS-v0.8.4-Alpha1-source.zip`, the matching `PCS-v0.8.4-Alpha1-ComfyUI.zip`, and `SHA256SUMS.txt` from the [release page](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.4-alpha.1). Availability is determined by the actual published assets. **This release does not provide a Windows executable download.** Distribution materials for its runtime still need to be completed; use the source instructions below. The earlier [0.8.2 Repair 5 release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.2-alpha.1.repair.5) and [0.8.1 release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.1-alpha.2.ui-repair.1) remain available with their own instructions.
+Current version: **[0.8.4 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.4-alpha.1)**.
 
-For the source edition, use Windows 64-bit and Python 3.12. Extract the source ZIP and run these commands beside `run.py`:
+- `PCS-v0.8.4-Alpha1-source.zip`: the PCS source edition.
+- `PCS-v0.8.4-Alpha1-ComfyUI.zip`: the matching ComfyUI extension.
+- `SHA256SUMS.txt`: download checksums.
+
+Install 64-bit Python 3.12 on Windows. Extract the source ZIP and open PowerShell beside `run.py`:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -26,22 +30,22 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe run.py --v0.8.4-alpha
 ```
 
-Choose the list or Canvas interface, select a module and an item, adjust the resulting prompt, then copy the text. For generation, install the matching extension, restart ComfyUI and refresh its browser page; connect the desktop library and bind the intended workflow/CLIP field. See [installation](docs/GETTING_STARTED.md) and the [ComfyUI guide](COMFYUI_GUIDE.md) (Chinese).
+The first installation downloads dependencies. Use only the last command for later launches.
 
-## Limits
+For generation, install the matching extension, restart ComfyUI and refresh its browser page. Connect text or image inputs to a Stage, select its workflow, then press Run. Keep PCS, ComfyUI and the workflow browser page open. See [installation](docs/GETTING_STARTED.md) and the [ComfyUI guide](COMFYUI_GUIDE.md) (Chinese).
 
-Keep PCS, ComfyUI and its native browser page open. Stage is the generation entry point: connect CLIP or image-input control outputs to a Stage. Run applies the bound inputs and generates the Stage's selected workflow; without a valid Stage connection it only applies inputs. Editing PCS text alone does not overwrite browser fields.
+Back up your data before updating. Extract the new version into a separate folder and use a copy of your data. Use matching PCS and extension versions; see the [version table](docs/VERSIONING.md) for older names and downloads.
 
-A single Stage accepts additional clicks while generating. Multiple Stages follow control connections and result dependencies; count means complete workflow rounds. Linear A→B→C and A→B→A with separate Stage instances are supported. Downstream inputs can select the current Stage's image node and batch images rather than reusing old results.
+## Usage notes
 
-Data pre-scheduling saves selected text or images. Stage pre-scheduling saves a Stage or group, with saved/live choices for each input. Image lists supply up to ten unfinished items and refill after completion. Cancellation only targets confirmed PCS jobs.
+PCS sends edited text to ComfyUI when you press Run. Without a Stage connection, it only updates the bound inputs. Pause keeps waiting items; jobs already running can still finish.
 
-A native workflow loader that never returns still requires refreshing ComfyUI. Third-party Run wrappers that cannot be safely isolated also require a refresh. Unknown submissions are not automatically resent. Browser-free execution, AI interpretation, Manager integration, conditional branches and loops are outside this release.
+If switching workflows gets stuck, check ComfyUI for running jobs, save the workflow, then refresh the browser page. See [troubleshooting](docs/TROUBLESHOOTING.md).
 
-The application title is “v0.8.4 Alpha 1”. [Validation](docs/validation/084_STAGE.md) separates the maintainer-reported manual acceptance from developer checks and unverified environments. User acceptance and local offscreen EXE startup checks are reported separately; neither implies full clean-machine or EXE GPU coverage or public EXE availability. A public screenshot for this version is not yet available. Source and extension archives do not bundle Python/Qt, models or private data.
+## Support
 
-## Contribute and license
+Report issues with the version and steps at [Issues](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/issues). See [CONTRIBUTING](CONTRIBUTING.md) and [SECURITY](SECURITY.md) for development and private security reports.
 
-Report reproducible issues with versions and steps at [Issues](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/issues). Remove tokens, private images and local paths first. Read [CONTRIBUTING](CONTRIBUTING.md) and [SECURITY](SECURITY.md).
+## License
 
-Original project code and documentation use [AGPL-3.0-only](LICENSE); third-party components retain their own licenses. See [licensing](docs/LICENSING.md).
+[AGPL-3.0-only](LICENSE)

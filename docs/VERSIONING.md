@@ -1,29 +1,24 @@
-# 公開版本命名
+# 版本對照
 
-自 2026-10-01 起，PCS 對外使用三段版本 `主版.次版.修訂`，每段都是獨立的非負整數，完整保留分隔點。例如 `0.8.4`、`0.11.1`、`0.20.2`；不當作小數，不以字串排序，不把次版或修訂壓成一串數字。`0.9.0 < 0.10.0 < 0.11.1 < 0.20.2`。
+PCS 使用「主版.次版.修訂」三段版本號；目前版本為 **0.8.4 Alpha 1**。
 
-格式與預覽標記參考 [Semantic Versioning 2.0.0](https://semver.org/)。正常格式為 X.Y.Z，Alpha 標籤如 `v0.8.4-alpha.1`；v 是 Git 標籤前綴。數字段不加前導零，修正編號分段，如 `v0.8.2-alpha.1.repair.5`。目前仍屬 0.x 預覽階段，命名校正不新增穩定性或 API 相容承諾。之後版本依實際功能及相容變更決定，不把本次舊名對照當成通用轉換算法。
+| 舊名稱 | 現行名稱／下載 |
+|---|---|
+| 0.84、0.831 | [0.8.4 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.4-alpha.1) |
+| 0.83 | [0.8.3 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.3-alpha.1) |
+| 0.82 | [0.8.2 Alpha 1 Repair 5](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.2-alpha.1.repair.5) |
+| 0.81 | [0.8.1 Alpha 2 UI Repair 1](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.1-alpha.2.ui-repair.1) |
+| 0.8 | 0.8.0 |
+| 0.7 | 0.7.0 |
+| 0.6 | 0.6.0 |
+| 0.5 | 0.5.0 |
+| 0.4 | 0.4.0 |
+| 0.3 | 0.3.0 |
+| 0.2 | 0.2.0 |
+| 0.3.1、0.4.1、0.4.2、0.4.3 | 名稱不變 |
 
-## 已確認對照
+0.8.0 及更早版本只保留開發紀錄，沒有 GitHub Release 下載頁。
 
-| 舊寫法 | 對外正式寫法 | 處理 |
-|---|---|---|
-| 0.84，以及此前已撤用的0.831 | **0.8.4** | 本輪同一功能成果，新的來源／ComfyUI包與程式標题採0.8.4 |
-| 0.83 | **0.8.3** | Alpha 1歷史發布，新增正式命名入口 |
-| 0.82 | **0.8.2** | Alpha 1 Repair 5歷史發布，新增正式命名入口 |
-| 0.81 | **0.8.1** | Alpha 2 UI Repair 1歷史發布，新增正式命名入口 |
-| 0.8 | **0.8.0** | 早期Alpha開發系列；本次盤點沒有對應公開Release |
-| 0.7、0.6、0.5、0.4、0.3、0.2 | **0.7.0、0.6.0、0.5.0、0.4.0、0.3.0、0.2.0** | 有文件／截圖命名可辨識的早期開發版；補足省略的修訂0，沒有新增下載或虛構Release |
-| 0.3.1、0.4.1、0.4.2、0.4.3 | 原值保留 | 已經是分段版本 |
+使用舊版時，請搭配同一版本的 PCS 與 ComfyUI 擴充。0.8.1 至 0.8.3 的下載檔名已更新，包內程式標題與文件仍保留上表的舊名稱。若要核對個別檔案，可查看該頁的 `RELEASE_IDENTITY.json` 與 `SHA256SUMS.txt`。
 
-`0.831` 是前次指定更名的歷史別名，對應0.8.4，不能另解釋成0.8.3.1。`0.11.1` 和 `0.20.2` 都是合法的未來版本例子，不映射成0.1.1.1或0.2.0.2。
-
-## 下載、標籤與歷史證據
-
-- 目前使用 [0.8.4 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.4-alpha.1)。新來源與擴充從更名提交重新封裝，BUILD_INFO、清單和SHA256一起產生。
-- [0.8.3 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.3-alpha.1)、[0.8.2 Alpha 1 Repair 5](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.2-alpha.1.repair.5)、[0.8.1 Alpha 2 UI Repair 1](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.1-alpha.2.ui-repair.1) 是歷史發布的正式命名入口。新標籤指向原提交；下載ZIP僅校正外部檔名，內容和SHA256保持原樣，包內標題、BUILD_INFO及舊文件保留當時原值。
-- 每個歷史入口的 `RELEASE_IDENTITY.json` 列正式版號、原版號、固定提交、原始包名與新包名及雜湊。`SHA256SUMS.txt` 對應目前下載檔名；`ORIGINAL_SHA256SUMS.txt` 保留當時校驗檔。這些是命名對照，沒有重建舊產品、改寫舊commit或追認驗收。
-- 舊 Release URL、標籤、附件及校驗值保留供既有連結和證據查閱，頁首／標題清楚引導正式命名。舊文件檔名、啟動參數、來源內歷史版本登記及截圖檔名也保留可用，不因文字校正破壞路徑。
-- 本次只更正公開內容。內部既有0.84文件／本機EXE未再次修改；它們對應對外0.8.4功能基準，但不是本次重新封裝的公開來源包。Windows散布條件及驗收界線維持原狀。
-
-數值參數（例如Denoise 0.8、縮放0.7、量測0.819秒）、ComfyUI／Python等第三方版本、資料schema、節點ID、port、hash與原始證據路徑不屬於PCS發布版號，不套用此對照。
+舊下載連結仍可使用，會顯示對應的現行版本入口。
