@@ -10,7 +10,7 @@
 
 | 要求 | 已實作結果 |
 |---|---|
-| 程式名稱與版本 | 視窗／應用名為 Prompt Calculus Studio，開發版本 v0.8.2 Alpha 1；增加 --v082-alpha 入口。 |
+| 程式名稱與版本 | 視窗／應用名為 Prompt Calculus Studio，開發版本 v0.82 Alpha 1（當時實際標示，對外對應0.8.2）；增加 --v082-alpha 入口。 |
 | 預設 Canvas | 本版首次開啟套用 Canvas，清單與畫布手動稿各自保留；使用者之後選擇清單會被記住。 |
 | 獨立綁定與執行 | 畫布→Prompt 輸出→CLIP 輸入；綁定按鈕位於 CLIP 卡片。可新增、改接、移除 CLIP，工作流欄位不得重複綁定。底部執行列可拖移，固定在視窗座標，不隨畫布縮放；圖片預覽入口放在此列，開啟既有預覽。 |
 | 素材面板尺寸 | 拖曳尺寸與三欄比例保存於設定；重新開啟恢復，在較小螢幕中限制於可用範圍。 |
@@ -44,7 +44,7 @@
 - 生成、介面切換與基本資料的 53 項回歸通過，34.693 秒（test_generation、test_interface_modes、test_studio；工具執行結果）。
 - 另以共享後端 Service 驗證 v3 提交與真實提交文字記錄，1 項通過，0.106 秒；完全本機 stub，不是 GPU 生成。
 - 150% 縮放重跑 multi_canvas、canvas_palette、settings_edges 共 36 項通過，44.562 秒；`qa/082-final-scale150.log`。這是重跑，不另累計獨立測試數。
-- 使用本機既有字型檢查離屏截圖：`qa/082-flow.png`、`082-palette.png`、`082-list.png`、`082-cache.png`。版本入口查詢結果為 Prompt Calculus Studio · v0.8.2 Alpha 1／--v082-alpha，差異空白檢查通過。
+- 使用本機既有字型檢查離屏截圖：`qa/082-flow.png`、`082-palette.png`、`082-list.png`、`082-cache.png`。版本入口查詢結果為 Prompt Calculus Studio · v0.82 Alpha 1／--v082-alpha（當時原值，對外對應0.8.2），差異空白檢查通過。
 - 原生 Windows 多螢幕 DPI、實際 IME 候選窗、真實 API／Token、大型下載、ComfyUI GPU 生成、封裝及全新安裝未驗。本組驗證不代替獨立 Review／QA。
 
 重現環境沿用 <workspace>/tools/python312/python.exe 與只讀 repository/vendor；PYTHONPATH 加 worktree 和 worktree/tests，QT_QPA_PLATFORM 設 offscreen:configfile=tests/offscreen_1920.json，TEMP/TMP 指向 worktree/qa。150% 另設 QT_SCALE_FACTOR=1.5。測試用獨立臨時資料，沒有新增依賴。

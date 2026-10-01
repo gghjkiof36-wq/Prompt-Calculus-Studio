@@ -4,7 +4,7 @@
 
 ## 啟動與資料
 
-雙擊本包的 `Start-v0.81-Alpha.vbs`。視窗標題為「Prompt Studio · v0.8.1 Alpha 1」，請用標題辨識版本。
+雙擊本包的 `Start-v0.81-Alpha.vbs`。視窗標題為「Prompt Studio · v0.81 Alpha 1」（當時實際字串，對外對應0.8.1），請用標題辨識版本。
 
 測試包位於 `build/v081-alpha-1/PromptStudio`，使用包內 `data`，由本輪開始前備份的 0.8.0 修正包 2 資料建立副本。原有程式、工作區與資料不覆寫。若之後又在舊版編輯，請用舊版完整 ZIP 備份，再於此測試包還原；不要同時讓兩個程式使用同一個 data。
 

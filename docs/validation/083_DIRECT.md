@@ -1,6 +1,6 @@
 # 0.8.3 直接執行修復：驗收範圍
 
-整理日期：2026-09-28（Asia/Taipei）。固定產品來源 `986da442f605512d30b9c3ef9005114a6a175825`，標題保留「v0.8.3 直接執行修復候選（0928）」。公開整合提交可能不同，以 [Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.3-alpha.1) 及來源追溯為準。
+整理日期：2026-09-28（Asia/Taipei）。固定產品來源 `986da442f605512d30b9c3ef9005114a6a175825`，標題保留「v0.83 直接執行修復候選（0928）」（原包實際標題，對外對應0.8.3）。公開整合提交可能不同，以 [Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.3-alpha.1) 及來源追溯為準。
 
 ## 使用者回報與既有開發檢查
 
