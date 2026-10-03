@@ -14,12 +14,22 @@ PCS is a Windows desktop tool for organizing reusable prompts and running ComfyU
 
 Image generation uses your own ComfyUI installation, models and workflows. Prompt editing and copying can be used on their own.
 
+## Canvas
+
+![PCS 0.8.6 actual Canvas](docs/images/canvas-0.8.6.png)
+
+Actual PCS 0.8.6 window with public sample text. It shows the starter connections and setup prompts; ComfyUI is not connected.
+
+## What changed
+
+This release unifies navigation and themes across Canvas, media, exploration, export and settings. New workspaces start with six connected nodes; existing layouts are retained. Media details distinguish the viewed image from selected images, waiting tasks can be removed or cancelled individually, and PCS adds bundled-extension installation and Manager package controls.
+
 ## Download and start
 
-These instructions cover: **[0.8.5 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.5-alpha.1)**.
+These instructions cover: **[0.8.6 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.6-alpha.1)**.
 
-- `PCS-v0.8.5-Alpha1-source.zip`: the PCS source edition.
-- `PCS-v0.8.5-Alpha1-ComfyUI.zip`: the matching ComfyUI extension.
+- `PCS-v0.8.6-Alpha1-source.zip`: the PCS source edition.
+- `PCS-v0.8.6-Alpha1-ComfyUI.zip`: the matching ComfyUI extension.
 - `SHA256SUMS.txt`: download checksums.
 
 Install 64-bit Python 3.12 on Windows. Extract the source ZIP and open PowerShell beside `run.py`:
@@ -27,12 +37,12 @@ Install 64-bit Python 3.12 on Windows. Extract the source ZIP and open PowerShel
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py --v0.8.5-alpha
+.\.venv\Scripts\python.exe run.py --v0.8.6-alpha
 ```
 
 The first installation downloads dependencies. Once installed, double-click `Start.cmd` from the source archive to start PCS. This release provides the source edition and requires Python; no Windows executable download is included.
 
-For generation, install the matching extension, restart ComfyUI and refresh its browser page. Connect text or image inputs to a Stage, select its workflow, then press Run. Keep PCS, ComfyUI and the workflow browser page open. See [installation](docs/GETTING_STARTED.md) and the [ComfyUI guide](COMFYUI_GUIDE.md) (Chinese).
+The source archive includes the matching extension. In Explore → ComfyUI → Connection and workflows, choose Install/update PCS extension and select your ComfyUI folder. Close ComfyUI for installation, then restart it and refresh its browser page. Follow the Canvas setup prompts to bind CLIP and select the Stage workflow, then press Run. Keep PCS, ComfyUI and the workflow browser page open. See [installation](docs/GETTING_STARTED.md) and the [ComfyUI guide](COMFYUI_GUIDE.md) (Chinese).
 
 Back up your data before updating. Extract the new version into a separate folder and use a copy of your data. Use matching PCS and extension versions; see the [version table](docs/VERSIONING.md) for older names and downloads.
 
@@ -42,11 +52,13 @@ Double-click a Stage, select its workflow and node, edit the fields, then review
 
 ## Usage notes
 
-PCS sends edited text to ComfyUI when you press Run. Without a Stage connection, it only updates the bound inputs. Pause keeps waiting items; jobs already running can still finish.
+PCS sends edited text to ComfyUI when you press Run. Without a Stage connection, it only updates the bound inputs. Pause keeps waiting items; jobs already running can still finish. The bottom cancel button cancels the current item and pauses the remaining queue. Use its context menu or the scheduler’s More menu to cancel the whole flow.
 
 For read-only fields, check the displayed reason. After updating the matching extension, restart ComfyUI and refresh its browser page. Configure connected or unsupported fields in ComfyUI. Editable seeds are limited to `1125899906842624` and the node’s own range.
 
 If switching workflows gets stuck, check ComfyUI for running jobs, save the workflow, then refresh the browser page. See [troubleshooting](docs/TROUBLESHOOTING.md).
+
+For changes, downloads and important problems, see the [release notes](docs/RELEASE_NOTES_086.md) (Chinese).
 
 ## Support
 

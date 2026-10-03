@@ -1,6 +1,6 @@
 # 開發方向
 
-[回首頁](README.md) · 更新：2026-10-02（Asia/Taipei）
+[回首頁](README.md) · 更新：2026-10-03（Asia/Taipei）
 
 ## 已公開
 
@@ -15,16 +15,20 @@
 
 Stage生成、線性跨工作流及本輪圖片傳遞、分層預排程、種子與流程恢復。固定ea7df89，發布以 [Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.4-alpha.1) 為準。操作見 [發布說明](docs/RELEASE_NOTES_084.md)。0.8.3的單工作流限制不直接套用本版。
 
-## 本次 0.8.5 預覽版
+## 0.8.5 預覽版
 
 在 Stage 內編輯節點參數，讓每筆等待任務保存自己的設定，並改善參數面板、模型下拉及種子控制。操作見[Stage 參數指南](docs/STAGE_PARAMETERS.md)，下載及重要問題見[發布說明](docs/RELEASE_NOTES_085.md)。
 
+## 本次 0.8.6 預覽版
+
+共同導覽與配色、六節點起始流程、媒體檢視與匯出整理、Manager 套件管理、配套擴充安裝及單筆排程操作。用途與問題處理見[發布說明](docs/RELEASE_NOTES_086.md)。
+
 ## 仍未納入
 
-關頁執行、AI轉譯、Manager整合、條件分支、循環、影音、跨服務派送及全局視覺重整。切換工作流後若一直載入，保存工作流並重新整理 ComfyUI 網頁；具體處理見[疑難排解](docs/TROUBLESHOOTING.md)。未列明的擴展沒有日期承諾。
+關頁執行、AI轉譯、條件分支、循環、影音、跨服務派送及全局視覺重整。切換工作流後若一直載入，保存工作流並重新整理 ComfyUI 網頁；具體處理見[疑難排解](docs/TROUBLESHOOTING.md)。未列明的擴展沒有日期承諾。
 
 ## 中期與探索
 
-Trigger／History／Recipe、進階 Canvas、區域生成與圖片編排、Manager 整合、局部控制及本機 AI 等方向仍需逐項定義與驗收。品牌中的微積分是組織思路的隱喻，不保證生成品質或空間精準控制。
+Trigger／History／Recipe、進階 Canvas、區域生成與圖片編排、更完整的 Manager 相容、局部控制及本機 AI 等方向仍需逐項定義與驗收。品牌中的微積分是組織思路的隱喻，不保證生成品質或空間精準控制。
 
 更遠期的社群整合、影片與 3D 流程屬探索，沒有在本版完成，也不承諾開源申請結果。歡迎在 [Issues](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/issues) 提供具體使用情境。

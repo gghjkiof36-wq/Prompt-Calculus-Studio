@@ -1,6 +1,6 @@
 # 版本對照
 
-PCS 使用「主版.次版.修訂」三段版本號；本次版本為 **0.8.5 Alpha 1**，下載入口為[本次 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.5-alpha.1)。
+PCS 使用「主版.次版.修訂」三段版本號；本次版本為 **0.8.6 Alpha 1**，下載入口為[本次 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.6-alpha.1)。0.8.5 的來源與操作保留於[舊版 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.5-alpha.1)。
 
 | 舊名稱 | 現行名稱／下載 |
 |---|---|
