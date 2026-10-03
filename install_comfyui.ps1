@@ -21,11 +21,19 @@ $codeRoot=Test-Path -LiteralPath (Join-Path $comfy 'main.py') -PathType Leaf
 $dataRoot=(Test-Path -LiteralPath (Join-Path $comfy 'models') -PathType Container) -and (Test-Path -LiteralPath (Join-Path $comfy 'user') -PathType Container)
 if ((-not $codeRoot -and -not $dataRoot) -or -not (Test-Path -LiteralPath $custom -PathType Container)) { throw 'Not a ComfyUI directory.' }
 function Test-ComfyRunning {
-    # A relative main.py has no reliable working-directory field in CIM.
-    # Defer rather than replacing files of an unidentifiable live server.
+    # CIM has no reliable working directory for a relative main.py, so any
+    # positively identified ComfyUI server must defer replacement.
     $processes=@(Get-CimInstance Win32_Process -OperationTimeoutSec 5 -ErrorAction Stop | Where-Object { $_.Name -match '^(python(w)?|python[0-9.]+|ComfyUI)\.exe$' })
     foreach ($process in $processes) {
         if ($process.Name -eq 'ComfyUI.exe' -or $process.CommandLine -match '(?i)(^|[\\/\s"''])main\.py([\s"'']|$)' -or ($process.ExecutablePath -and $process.ExecutablePath.StartsWith($comfy+'\',[StringComparison]::OrdinalIgnoreCase))) { return $true }
+    }
+    # A successful CIM query can still return unreadable fields. Only a
+    # positively identified server is a retryable wait; an unidentified
+    # Python process must stop the install at either preflight checkpoint.
+    foreach ($process in $processes) {
+        if ([string]::IsNullOrWhiteSpace([string]$process.CommandLine) -or [string]::IsNullOrWhiteSpace([string]$process.ExecutablePath)) {
+            throw 'PCS_PROCESS_STATE_UNKNOWN: Cannot identify a running Python process. Installation stopped; verify process access and retry manually.'
+        }
     }
     return $false
 }

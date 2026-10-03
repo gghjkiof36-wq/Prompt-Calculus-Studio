@@ -53,6 +53,7 @@ RELEASES={r.flag:r for r in (
     Release('--v086-revision8','v086-revision8-20261003','v0.8.6 背景連線與排程修訂 8','Start-PCS-v0.8.6-Revision8','--v0.8.6-alpha'),
     Release('--v086-revision9','v086-revision9-20261003','v0.8.6 擴充安裝與更新修訂 9','Start-PCS-v0.8.6-Revision9','--v0.8.6-alpha'),
     Release('--v086-revision10','v086-revision10-20261003','v0.8.6 提示框修訂 10','Start-PCS-v0.8.6-Revision10','--v0.8.6-alpha'),
+    Release('--v086-revision11','v086-revision11-20261003','v0.8.6 安裝保護修訂 11','Start-PCS-v0.8.6-Revision11','--v0.8.6-alpha'),
     Release('--v0.8.6-alpha.1','v0.8.6-alpha.1','v0.8.6 Alpha 1','Start-PCS-v0.8.6-Alpha','--v0.8.6-alpha'),
 )}
 CURRENT=RELEASES['--v0.8.6-alpha.1']

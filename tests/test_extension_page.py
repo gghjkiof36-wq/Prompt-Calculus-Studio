@@ -105,6 +105,18 @@ class ExtensionPageTests(unittest.TestCase):
             self.page.startup(); start.assert_not_called()
         self.assertEqual(list((self.comfy/'custom_nodes').iterdir()),[])
 
+    def test_unreadable_python_process_stops_automatic_install_without_retry(self):
+        quoted=str(ROOT/'install_comfyui.ps1').replace("'", "''")
+        (self.base/'install_comfyui.ps1').write_text("$ErrorActionPreference='Stop'\n"
+            "function Get-CimInstance { [pscustomobject]@{Name='python.exe';CommandLine=$null;ExecutablePath=$null} }\n"
+            "& '"+quoted+"' @args\nexit $LASTEXITCODE",encoding='utf-8-sig')
+        self.page.preferences.value['root']=str(self.comfy);self.page.preferences.save()
+        self.page.startup();self.wait_install()
+        self.assertEqual(list((self.comfy/'custom_nodes').iterdir()),[])
+        self.assertIn('不會自動重試',self.page.status.text())
+        self.assertFalse(self.page.waiting);self.assertFalse(self.page.retry_timer.isActive())
+        self.assertIn(b'PCS_PROCESS_STATE_UNKNOWN',bytes(self.page.output))
+
     def test_wait_for_stop_only_retries_explicit_preflight_deferral(self):
         self.page.finished(20,QProcess.ExitStatus.NormalExit)
         self.assertTrue(self.page.waiting); self.assertTrue(self.page.retry_timer.isActive())

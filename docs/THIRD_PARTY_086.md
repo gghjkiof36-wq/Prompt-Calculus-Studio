@@ -1,6 +1,6 @@
 # 0.8.6 Windows 候選材料核對
 
-核對固定產品與 binary `edad2af00e7ff37051077da470da55590134d1d2`；EXE SHA256 為 `26ab0fc657c2328b1755b7469a9b3043b871acd4f675f403be790da22d9b833c`。
+核對固定產品與 binary `a8e37b40e5abb57642975e9c1e64a3da7fe6a21f`；EXE SHA256 為 `3fe79b9125ca26a9ae4b8137024508106ce98209110d5c4315ca2c0be34eff70`。
 
 實際包含 59 個 DLL／PYD，其中 58 個與 [既有 runtime 清單](third-party/084/WINDOWS_RUNTIME_INVENTORY.json) 逐檔 SHA256 相同。新增檔案是 `PySide6/QtSvg.pyd`，屬現有 PySide6 Essentials 套件的 SVG 綁定；隨包 PySide6／Shiboken6 metadata 仍為 6.11.2。這些核對不代表兩版 EXE 相同。
 

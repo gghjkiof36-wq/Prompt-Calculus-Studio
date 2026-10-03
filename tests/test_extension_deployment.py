@@ -15,6 +15,37 @@ class ExtensionDeploymentTests(DeploymentTests):
             ' -DesktopData ' + quote(self.data) + ' -Update -PreserveLibrary -RequireStopped\nexit $LASTEXITCODE', encoding='utf-8-sig')
         result = subprocess.run([SHELL, '-NoProfile', '-NonInteractive', '-File', str(script)], env=self.env, capture_output=True, timeout=30)
         self.assertEqual(result.returncode, expected, result.stdout.decode(errors='replace') + result.stderr.decode(errors='replace'))
+        return result
+
+    def assert_incomplete_python_refused(self, checkpoint):
+        self.old_install()
+        other=self.comfy/'custom_nodes'/'unrelated';other.mkdir();(other/'keep.py').write_text('# keep')
+        before=self.tree(self.comfy);data_before=self.tree(self.data)
+        custom_before=self.tree(self.comfy/'custom_nodes')
+        for command, executable in ((None,None), ('',''), ('  ','\t'),
+                                    (None,r'C:\Python\python.exe'),
+                                    ('python other_task.py',None)):
+            with self.subTest(checkpoint=checkpoint,command=command,executable=executable):
+                inventory=json.dumps(dict(Name='python.exe',CommandLine=command,ExecutablePath=executable)).replace("'","''")
+                prefix="$global:pcsInventoryReads=0\nfunction Get-CimInstance { $global:pcsInventoryReads++\n"
+                if checkpoint==2:prefix+='if ($global:pcsInventoryReads -eq 1) { return @() }\n'
+                prefix+="'"+inventory+"' | ConvertFrom-Json\n}"
+                result=self.wrapper(prefix,1)
+                self.assertIn(b'PCS_PROCESS_STATE_UNKNOWN',result.stderr)
+                self.assertNotIn(b'PCS_WAIT_FOR_COMFY_EXIT',result.stdout)
+                self.assertEqual(self.tree(self.comfy/'custom_nodes'),custom_before)
+                self.assertEqual(self.tree(self.data),data_before)
+                self.assertFalse((self.comfy/'.pcs-program-backups/install-state.json').exists())
+                if checkpoint==1:self.assertEqual(self.tree(self.comfy),before)
+                else:
+                    self.assertTrue(list((self.comfy/'.pcs-program-backups').glob('stage-*')))
+                    self.assertFalse(list((self.comfy/'.pcs-program-backups').glob('previous-*')))
+
+    def test_incomplete_python_inventory_blocks_initial_check(self):
+        self.assert_incomplete_python_refused(1)
+
+    def test_incomplete_python_inventory_blocks_replacement_check(self):
+        self.assert_incomplete_python_refused(2)
 
     def test_existing_library_is_preserved_when_current_pcs_uses_other_data(self):
         self.old_install()

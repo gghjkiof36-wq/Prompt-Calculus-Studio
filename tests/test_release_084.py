@@ -12,7 +12,7 @@ class Release084Tests(unittest.TestCase):
         self.assertEqual(releases.CURRENT.version, 'v0.8.6 Alpha 1')
         self.assertEqual(releases.CURRENT.flag, '--v0.8.6-alpha.1')
         self.assertIs(releases.select_release(['--v086-revision10', '--v086-revision9']), releases.RELEASES['--v086-revision10'])
-        self.assertIs(releases.select_release(['--v0.8.6-alpha.1', '--v086-revision10']), releases.CURRENT)
+        self.assertIs(releases.select_release(['--v0.8.6-alpha.1', '--v086-revision11']), releases.CURRENT)
         self.assertIs(releases.select_release(['--v086-phase1-revision3', '--v086-phase1-revision2']), releases.RELEASES['--v086-phase1-revision3'])
         self.assertIs(releases.select_release(['--v086-phase1-revision2', '--v086-phase1']), releases.RELEASES['--v086-phase1-revision2'])
         self.assertIs(releases.select_release(['--v086-phase1', '--v0.8.5-alpha.1']), releases.RELEASES['--v086-phase1'])
