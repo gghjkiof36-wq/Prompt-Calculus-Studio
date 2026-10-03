@@ -13,6 +13,7 @@ from server import PromptServer
 from comfy.cli_args import args as comfy_args
 from .service import Service
 from .bridge import DesktopBridge
+from .build_identity import LOADED_BUILD
 from .shared.snapshots import make_snapshot
 
 WEB_DIRECTORY = './web'
@@ -145,7 +146,8 @@ async def desktop_status(request):
     status['capabilities'].append('workflow_sync_v1')
     if service.native_queue.available():status['capabilities'].extend(['native_queue_v1','native_open_v1','native_bindings_v1','frozen_queue_v1','typed_inputs_v1','typed_inputs_v2','stage_execution_v1','targeted_cancel_v1','input_run_bridge_v1'])
     else:status['native_unavailable_reason']='此原生入口目前只支援 ComfyUI 單一使用者模式。'
-    status['pcs_version']='0.8.5 Alpha 1'
+    status['pcs_version']=LOADED_BUILD.get('version','開發版')
+    status['extension']=LOADED_BUILD
     if service.native_queue.available():status['capabilities'].extend(['native_recovery_v1','native_inspect_v1','native_parameters_v1'])
     return web.json_response(status)
 

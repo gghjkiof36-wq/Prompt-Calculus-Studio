@@ -95,13 +95,6 @@ class CanvasPalette(QDialog):
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.surface=QFrame(self); self.surface.setObjectName('DialogSurface')
-        self.surface.setStyleSheet('''
-            QListWidget::item { border:none; }
-            QListWidget::item:selected { background:rgba(112,162,230,65); border-radius:6px; }
-            QListWidget#PaletteAssets::item { background:rgba(255,255,255,9); border:1px solid rgba(255,255,255,24); border-radius:10px; padding:14px; }
-            QListWidget#PaletteAssets::item:hover { background:rgba(255,255,255,16); border-color:rgba(255,255,255,40); }
-            QListWidget#PaletteAssets::item:selected { background:rgba(112,162,230,35); border-color:rgba(180,190,205,70); }
-        ''')
         self.body=QVBoxLayout(self.surface); self.body.setContentsMargins(20,20,20,18); self.body.setSpacing(14)
         self.query=CanvasTagEdit(self); self.query.setPlaceholderText('搜尋素材或輸入 Tag')
         self.body.addWidget(self.query)

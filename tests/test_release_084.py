@@ -9,9 +9,14 @@ from prompt_studio import releases
 class Release084Tests(unittest.TestCase):
     def test_current_and_legacy_selection(self):
         historical = releases.RELEASES['--v0.8.4-alpha.1']
-        self.assertEqual(releases.CURRENT.version, 'v0.8.5 Alpha 1')
-        self.assertEqual(releases.CURRENT.flag, '--v0.8.5-alpha.1')
-        self.assertIs(releases.select_release(['--v0.8.5-alpha.1', '--v085-repair4']), releases.CURRENT)
+        self.assertEqual(releases.CURRENT.version, 'v0.8.6 Alpha 1')
+        self.assertEqual(releases.CURRENT.flag, '--v0.8.6-alpha.1')
+        self.assertIs(releases.select_release(['--v086-revision10', '--v086-revision9']), releases.RELEASES['--v086-revision10'])
+        self.assertIs(releases.select_release(['--v0.8.6-alpha.1', '--v086-revision10']), releases.CURRENT)
+        self.assertIs(releases.select_release(['--v086-phase1-revision3', '--v086-phase1-revision2']), releases.RELEASES['--v086-phase1-revision3'])
+        self.assertIs(releases.select_release(['--v086-phase1-revision2', '--v086-phase1']), releases.RELEASES['--v086-phase1-revision2'])
+        self.assertIs(releases.select_release(['--v086-phase1', '--v0.8.5-alpha.1']), releases.RELEASES['--v086-phase1'])
+        self.assertIs(releases.select_release(['--v0.8.5-alpha.1', '--v085-repair4']), releases.RELEASES['--v0.8.5-alpha.1'])
         for flag in ('--v0.8.4-alpha.1', '--v084-alpha1', '--v084-repair3', '--v0831-repair3'):
             self.assertIs(releases.select_release([flag]), historical)
         self.assertIs(releases.select_release(['--v0831-repair3', '--v083-direct']), historical)
@@ -35,7 +40,7 @@ class Release084Tests(unittest.TestCase):
             releases.write_launchers(folder, releases.CURRENT)
             for suffix in ('.cmd', '.vbs'):
                 text = (Path(folder)/(releases.CURRENT.launcher+suffix)).read_text(encoding='utf-8')
-                self.assertIn('--v0.8.5-alpha', text)
+                self.assertIn('--v0.8.6-alpha', text)
                 self.assertIn('PROMPT_STUDIO_DATA', text)
                 self.assertNotIn('0.831', text)
 

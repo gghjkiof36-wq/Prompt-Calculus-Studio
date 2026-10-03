@@ -2,7 +2,8 @@
 from PySide6.QtCore import Qt, QEvent, QPoint, QPersistentModelIndex
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QLabel
 from shiboken6 import isValid
-from .widgets import ComboBox, rounded_mask
+from .widgets import ComboBox, ComboItemDelegate, sync_popup_appearance
+from .popup_surface import PopupSurface, popup_width
 
 
 class _ChoicesPopup(QFrame):
@@ -11,29 +12,23 @@ class _ChoicesPopup(QFrame):
         self.owner = owner
         self.setObjectName('StageParameterChoicesPopup')
         self.setFont(owner.font())
-        # This popup is a separate native window. An alpha-backed QFrame can
-        # omit its stylesheet surface, exposing the editor through list gaps.
-        # Use the same opaque, rounded-mask surface as the ordinary ComboBox.
+        # Native popup windows do not reliably inherit a Window-scoped QSS.
+        # Copy the actual owner's visual source, leaving QApplication and any
+        # other open PCS window unchanged.
+        sync_popup_appearance(self,owner)
+        self._surface=PopupSurface(self,owner,paint_in_filter=False)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
-        self.setStyleSheet('''
-            #StageParameterChoicesPopup {background:#222324;border:1px solid #414342;border-radius:10px;}
-            #StageParameterChoicesPopup QLineEdit {background:#171819;color:#edeae5;border:1px solid #414342;border-radius:7px;padding:0 10px;min-height:36px;}
-            #StageParameterChoicesPopup QListWidget {background:#222324;color:#edeae5;border:0;outline:0;}
-            #StageParameterChoicesPopup QListWidget::item {padding:8px 10px;border-radius:6px;}
-            #StageParameterChoicesPopup QListWidget::item:selected {background:#393c39;}
-            #StageParameterChoicesPopup QListWidget::item:hover {background:#303332;}
-            #StageParameterChoicesPopup QLabel {color:#aaa9a4;border:0;background:transparent;}
-        ''')
         body = QVBoxLayout(self)
         body.setContentsMargins(10, 10, 10, 10)
         body.setSpacing(8)
         self.search = QLineEdit()
-        self.search.setPlaceholderText('搜尋選項 / Search options')
-        self.search.setAccessibleName('搜尋選項 / Search options')
+        self.search.setPlaceholderText('搜尋選項')
+        self.search.setAccessibleName('搜尋選項')
         self.items = QListWidget()
+        self.items.setItemDelegate(ComboItemDelegate(self.items))
         self.items.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.items.setTextElideMode(Qt.TextElideMode.ElideMiddle)
-        self.empty = QLabel('沒有符合的選項 / No matching options')
+        self.empty = QLabel('沒有符合的選項')
         body.addWidget(self.search)
         body.addWidget(self.items, 1)
         body.addWidget(self.empty)
@@ -69,7 +64,9 @@ class _ChoicesPopup(QFrame):
     def open(self):
         owner = self.owner
         bounds = owner.screen().availableGeometry().adjusted(8, 8, -8, -8)
-        self.resize(min(max(owner.width(), 340), bounds.width()), min(360, bounds.height()))
+        text_width=max((self.items.fontMetrics().horizontalAdvance(owner.itemText(i))
+                        for i in range(owner.count())),default=0)
+        self.resize(popup_width(owner.width(),text_width,bounds.width()), min(360, bounds.height()))
         below = owner.mapToGlobal(QPoint(0, owner.height()))
         above = owner.mapToGlobal(QPoint(0, 0)).y() - self.height()
         y = below.y() if below.y() + self.height() <= bounds.bottom() + 1 else above
@@ -78,9 +75,8 @@ class _ChoicesPopup(QFrame):
         self.show()
         self.search.setFocus(Qt.FocusReason.PopupFocusReason)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        rounded_mask(self, 10)
+    def paintEvent(self, event):
+        self._surface.paint()
 
     def choose(self, item):
         if item is None:

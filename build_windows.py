@@ -70,6 +70,10 @@ PyInstaller.__main__.run([
     "--exclude-module","PIL","--exclude-module","tkinter",
     str(ROOT/"run.py")])
 from package_documents import bundle_documents
+from build_comfyui import build as build_companion
+from prompt_studio.releases import EXTENSION_FOLDER
+build_companion(package/'extensions'/EXTENSION_FOLDER,
+                package/'extensions'/'PromptCalculusStudio-ComfyUI.zip',release=release)
 bundle_documents(package, desktop=True,release=release)
 write_launchers(package,release)
 from package_documents import package_manifest

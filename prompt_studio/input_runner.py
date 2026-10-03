@@ -345,7 +345,7 @@ class InputRunner:
         return False
 
     def cancel(self, owner=None):
-        if self.window.state.get('multi_output',{}).get('version',0)>=7:return self.chain.cancel()
+        if self.window.state.get('multi_output',{}).get('version',0)>=7:return self.chain.cancel_current()
         from .chain_model import enabled
         if owner is None and enabled(self.window.state) and self.chain.current():
             return self.chain.cancel(self.chain.current()['id'])

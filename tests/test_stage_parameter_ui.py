@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from unittest.mock import patch
 from PySide6.QtCore import Qt,QTimer,QPoint,QPointF
-from PySide6.QtGui import QFont,QFontDatabase,QContextMenuEvent
+from PySide6.QtGui import QFont,QFontDatabase,QContextMenuEvent,QPalette
 from PySide6.QtWidgets import QLineEdit,QWidget,QPushButton,QLabel,QFrame,QComboBox,QToolButton
 from PySide6.QtTest import QTest
 from stage_fixture import StageFixture,APP
@@ -142,7 +142,7 @@ class StageParameterUITests(StageFixture):
     def test_seed_mode_selected_node_reset_focus_and_escape_keep_main_geometry(self):
         sheet=self.sheet();rect=sheet.panel.geometry();button_pos=sheet.apply_button.mapTo(sheet,sheet.apply_button.rect().center())
         seed=sheet.findChild(SeedEditor,'parameter_35_seed');seed.text.setFocus();QTest.qWait(10)
-        self.assertIn('#7d9cbf',seed.styleSheet())
+        self.assertIn(sheet.tokens['accent'],seed.styleSheet())
         QTest.mouseClick(seed.action,Qt.MouseButton.LeftButton);QTest.qWait(15)
         menu=APP.activePopupWidget();self.assertIsNotNone(menu)
         QTest.mouseClick(menu,Qt.MouseButton.LeftButton,pos=menu.actionGeometry(menu.actions()[1]).center());QTest.qWait(15)
@@ -157,6 +157,26 @@ class StageParameterUITests(StageFixture):
         QTest.mouseClick(sheet.diff_button,Qt.MouseButton.LeftButton);QTest.keyClick(sheet,Qt.Key.Key_Escape);self.assertFalse(sheet.drawer.isVisible())
         self.assertEqual(sheet.apply_button.mapTo(sheet,sheet.apply_button.rect().center()),button_pos)
         QTest.mouseClick(sheet.reset_button,Qt.MouseButton.LeftButton);self.assertFalse(sheet.proposed()['patches']);sheet.finish()
+
+    def test_parameter_surfaces_seed_glyph_and_focus_follow_each_palette(self):
+        for palette in ('graphite','mist','paper'):
+            with self.subTest(palette=palette):
+                self.w.state['settings']['visual_palette']=palette;self.w.apply_theme()
+                sheet=self.sheet();t=sheet.tokens
+                self.assertEqual(sheet.panel.grab().toImage().pixelColor(10,30).name(),t['base'])
+                self.assertEqual(sheet.editor.grab().toImage().pixelColor(10,10).name(),t['surface'])
+                self.assertEqual(sheet.footer.grab().toImage().pixelColor(10,10).name(),t['surface'])
+                seed=sheet.findChild(SeedEditor,'parameter_35_seed')
+                seed.text.setFocus();QTest.qWait(10)
+                image=seed.grab().toImage()
+                self.assertEqual(image.pixelColor(image.width()//2,image.height()-1).name(),t['accent'])
+                self.assertEqual(seed.text.palette().color(QPalette.ColorRole.Text).name(),t['text'])
+                glyph=seed.action.icon().pixmap(16,16).toImage()
+                inks={glyph.pixelColor(x,y).name() for x in range(glyph.width()) for y in range(glyph.height())
+                      if glyph.pixelColor(x,y).alpha()>200}
+                self.assertIn(t['text'],inks)
+                self.assertFalse(sheet.dirty());sheet.finish();QTest.qWait(10)
+        self.assertFalse(self.executor.submissions)
 
     def test_actual_card_entry_points_close_hit_area_and_focused_card_shortcuts(self):
         view=self.c.view;view.resetTransform();view.scale(.8,.8)
@@ -193,7 +213,14 @@ class StageParameterUITests(StageFixture):
         self.assertIn(self.stage,self.c.data()['stages']);self.assertFalse(self.executor.submissions)
 
     def test_task_edit_isolated_and_started_task_keeps_unsaved_draft(self):
-        plan=stage_model.compile_plan(self.w.state);run=self.runner.create_run(plan,1,status='paused')
+        # This case edits a single task's parameter copy, not the empty starter
+        # Stage that a fresh canvas now offers. Keep the shared fixture intact.
+        planned=copy.deepcopy(self.w.state);data=planned['multi_output']
+        other_stages=set(data['stages'])-{self.stage}
+        data['stages']={self.stage:data['stages'][self.stage]}
+        data['connections']=[c for c in data['connections'] if c['source'] not in other_stages and c['destination'] not in other_stages]
+        plan=stage_model.compile_plan(planned);self.assertEqual(set(plan['stages']),{self.stage})
+        run=self.runner.create_run(plan,1,status='paused')
         first=self.runner.store.add('entry',self.w.state['workspace'],'owner',run=run['id'],scheduler='q',stages=[self.stage],label='Task',
                                     status='waiting',saved=dict(parameters={self.stage:intention(self.profile,value=3)}))
         second=self.runner.store.copy_entry(first['id'])

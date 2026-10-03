@@ -264,6 +264,7 @@ class StageRunner(QObject):
         attempts=[a for a in self.store.rows('attempt',item['workspace']) if belongs(a)]
         if attempts:
             attempt=attempts[-1];status=attempt['status']
+            if attempt.get('cancel_requested'):return 'cancelling'
             if status in ('unconfirmed','failed','result_error','preparing','collecting'):return status
             if status=='submitted':return 'submitted'
         run=self.store.read(item['run'])
@@ -409,6 +410,11 @@ class StageRunner(QObject):
         if self.closed:return
         for attempt in self.store.rows('attempt',active=True):
             job=self.client.generation.record(attempt['id'])
+            if attempt.get('cancel_requested'):
+                if job and job['state'] in ('complete','failed'):
+                    from .stage_queue_actions import finish_cancel
+                    finish_cancel(self,attempt)
+                continue
             if job is None:
                 if attempt['status']=='preparing' and self.preparing!=attempt['id']:
                     self.store.update(attempt['id'],status='failed',error='提交前中斷，未找到原生要求。')
@@ -511,7 +517,7 @@ class StageRunner(QObject):
         run=self.store.read(ident)
         if not run or run['status'] in ('complete','cancelled'):return
         self.check_route(run)
-        if any(a['status'] in ('failed','unconfirmed','result_error') for a in self.store.rows('attempt',owner=ident,active=True)):raise ValueError('這份流程有失敗項目，請從紀錄處理該項；其他流程仍可使用。')
+        if any(a.get('cancel_requested') or a['status'] in ('failed','unconfirmed','result_error') for a in self.store.rows('attempt',owner=ident,active=True)):raise ValueError('這份流程有失敗或取消待確認項目，請先處理該項；其他流程仍可使用。')
         self.store.restore_retained(run)
         for key in self.scheduler_keys(run['plan']):self.store.set_scheduler_paused(run['workspace'],key,False)
         self.store.update(ident,status='running',message='',pause_reason='');self.later();self.notify('已繼續這份流程。')
@@ -540,6 +546,7 @@ class StageRunner(QObject):
 
     def retry(self,ident,reprepare=False,allow_unknown=False):
         item=self.store.read(ident);run=self.store.read(item['owner']);self.check_route(run)
+        if item.get('cancel_requested'):raise ValueError('這項取消仍待確認，不能重新生成。')
         if run['status'] in ('complete','cancelled'):raise ValueError('流程已結束，請明確建立新的執行。')
         if item['status']=='result_error':self.collect(item,self.client.generation.record(item['id']));return
         if item['status']!='failed':raise ValueError('提交結果不明時不可重新生成；請先查看原任務紀錄。')
@@ -551,6 +558,18 @@ class StageRunner(QObject):
                 if job and job.get('payload',{}).get('prompt'):frame['retry']['replay']=copy.deepcopy(job['payload']['prompt'])
             self.save(run)
         self.store.update(ident,status='retried');self.store.update(run['id'],status='running');self.later()
+
+    def cancel_current(self,entry_id=None):
+        from .stage_queue_actions import cancel_current
+        cancel_current(self,entry_id)
+
+    def remove_entry(self,ident):
+        from .stage_queue_actions import remove_entry
+        remove_entry(self,ident)
+
+    def can_remove_entry(self,ident):
+        from .stage_queue_actions import can_remove
+        return can_remove(self,ident)
 
     def disconnected(self):
         if self.closed:return

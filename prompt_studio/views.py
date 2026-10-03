@@ -3,9 +3,23 @@ import uuid
 from PySide6.QtCore import Qt, QSize, QRectF, QPointF, QPoint, Signal, QMimeData, QTimer, QEvent
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPainterPath, QDrag
 from PySide6.QtWidgets import QStyledItemDelegate, QStyle, QTreeWidget, QAbstractItemView, QListWidget
-from .theme import font_pixels
+from .theme import font_pixels,visual_tokens
 
 DETAIL_ROLE=int(Qt.ItemDataRole.UserRole)+1
+
+
+def widget_colors(widget):
+    """Resolve the owner even when a list is embedded in a graphics proxy."""
+    while widget is not None:
+        for owner in (widget,getattr(widget,'window',None),getattr(widget,'canvas',None)):
+            state=getattr(owner,'state',None)
+            if isinstance(state,dict):return visual_tokens(state.get('settings'))
+            state=getattr(getattr(owner,'window',None),'state',None)
+            if isinstance(state,dict):return visual_tokens(state.get('settings'))
+        parent=widget.parent()
+        proxy=widget.graphicsProxyWidget() if parent is None and hasattr(widget,'graphicsProxyWidget') else None
+        widget=proxy.scene().views()[0] if proxy is not None and proxy.scene() and proxy.scene().views() else parent
+    return visual_tokens()
 
 
 def weight_buttons(rect):
@@ -63,34 +77,35 @@ class PromptDelegate(QStyledItemDelegate):
 
     def paint(self,painter,option,index):
         data=index.data(DETAIL_ROLE) or {}; chosen=data.get("chosen",False)
+        colors=visual_tokens(self.window.state['settings'])
         hover=bool(option.state & QStyle.StateFlag.State_MouseOver)
         rect=QRectF(option.rect).adjusted(1,5,-4,-5)
         painter.save(); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor('#d5ad4b' if data.get('affected') else "#646464" if chosen else "#444444" if hover else "#292929"),1.5 if data.get('affected') else 1))
-        painter.setBrush(QColor("#2b2b2b" if chosen else "#242424" if hover else "#1b1b1b")); painter.drawRoundedRect(rect,12,12)
+        painter.setPen(QPen(QColor(colors['warning' if data.get('affected') else 'control' if chosen else 'line']),1.5 if data.get('affected') else 1))
+        painter.setBrush(QColor(colors['selected' if chosen else 'hover' if hover else 'surface'])); painter.drawRoundedRect(rect,12,12)
         font=QFont(option.font); font.setPixelSize(font_pixels(self.window.state["settings"]["ui_size"]))
         fm=QFontMetrics(font); line=fm.height(); x=rect.left()+18; y=rect.top()+17
         circle=QRectF(x,y+2,17,17)
-        painter.setPen(QPen(QColor("#dedede" if chosen else "#626262"),1)); painter.setBrush(QColor("#dedede") if chosen else Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(colors['accent' if chosen else 'control']),1)); painter.setBrush(QColor(colors['accent']) if chosen else Qt.BrushStyle.NoBrush)
         painter.drawEllipse(circle)
         if chosen:
-            painter.setPen(QPen(QColor("#222222"),1.8)); path=QPainterPath(); path.moveTo(x+4,y+10); path.lineTo(x+7,y+13); path.lineTo(x+13,y+6); painter.drawPath(path)
+            painter.setPen(QPen(QColor(colors['on_accent']),1.8)); path=QPainterPath(); path.moveTo(x+4,y+10); path.lineTo(x+7,y+13); path.lineTo(x+13,y+6); painter.drawPath(path)
         icon=index.data(Qt.ItemDataRole.DecorationRole)
         has_icon=icon is not None and not icon.isNull()
         width=int(rect.width()-64-(76 if has_icon else 0)); tx=x+29
-        font.setWeight(QFont.Weight.DemiBold); painter.setFont(font); painter.setPen(QColor("#f2f2f2"))
+        font.setWeight(QFont.Weight.DemiBold); painter.setFont(font); painter.setPen(QColor(colors['text']))
         title_width=max(20,int(rect.right()-88-tx))
         painter.drawText(QRectF(tx,y-2,title_width,line+4),Qt.AlignmentFlag.AlignVCenter,QFontMetrics(font).elidedText(data.get("name",""),Qt.TextElideMode.ElideRight,title_width))
         for area, symbol in zip(weight_buttons(option.rect), ('−','+')):
             local=self.window.library.viewport().mapFromGlobal(self.window.cursor().pos())
             hot=area.contains(local) and self.window.state['draft'] is None
-            painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor('#555555' if hot else '#303030'))
-            painter.drawRoundedRect(area,6,6); painter.setPen(QColor('#ffffff' if hot else '#aaaaaa'))
+            painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(colors['hover' if hot else 'raised']))
+            painter.drawRoundedRect(area,6,6); painter.setPen(QColor(colors['text' if hot else 'secondary']))
             painter.drawText(area,Qt.AlignmentFlag.AlignCenter,symbol)
-        font.setWeight(QFont.Weight.Normal); painter.setFont(font); painter.setPen(QColor("#bdbdbd"))
+        font.setWeight(QFont.Weight.Normal); painter.setFont(font); painter.setPen(QColor(colors['secondary']))
         prompt=data.get("prompt","").replace("\n"," ")
         painter.drawText(QRectF(tx,y+line+8,width,line+2),Qt.AlignmentFlag.AlignVCenter,QFontMetrics(font).elidedText(prompt,Qt.TextElideMode.ElideRight,width))
-        font.setPixelSize(font_pixels(max(9,self.window.state["settings"]["ui_size"]-1))); painter.setFont(font); painter.setPen(QColor("#969696"))
+        font.setPixelSize(font_pixels(max(9,self.window.state["settings"]["ui_size"]-1))); painter.setFont(font); painter.setPen(QColor(colors['muted']))
         aliases=("  ·  ".join(data.get("aliases",[])[:3]) or data.get("module_name",""))+f"  ·  ×{data.get('weight',10)/10:.1f}"
         painter.drawText(QRectF(tx,y+line*2+16,width,line+2),Qt.AlignmentFlag.AlignVCenter,QFontMetrics(font).elidedText(aliases,Qt.TextElideMode.ElideRight,width))
         if has_icon:
@@ -105,6 +120,7 @@ class BuilderDelegate(QStyledItemDelegate):
         return QSize(130,QFontMetrics(option.font).height()+22)
 
     def paint(self,painter,option,index):
+        colors=widget_colors(self.parent())
         kind,_=index.data(Qt.ItemDataRole.UserRole) or ("","")
         group=kind=="group"; hover=bool(option.state & QStyle.StateFlag.State_MouseOver)
         selected=bool(option.state & QStyle.StateFlag.State_Selected)
@@ -112,10 +128,10 @@ class BuilderDelegate(QStyledItemDelegate):
         painter.save(); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setOpacity(getattr(self.parent(),"activity",1.0))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#444444" if selected else "#333333" if hover else "#292929" if not group else "#202020"))
+        painter.setBrush(QColor(colors['selected' if selected else 'hover' if hover else 'surface' if not group else 'base']))
         painter.drawRoundedRect(rect,8,8)
         font=QFont(option.font); font.setWeight(QFont.Weight.DemiBold if group else QFont.Weight.Normal)
-        painter.setFont(font); painter.setPen(QColor("#dddddd" if group else "#eeeeee"))
+        painter.setFont(font); painter.setPen(QColor(colors['text']))
         x=rect.left()+12
         if group:
             # A small disclosure mark, without a separate square button.
@@ -123,16 +139,16 @@ class BuilderDelegate(QStyledItemDelegate):
             path=QPainterPath(); cy=rect.center().y()
             if expanded: path.moveTo(x,cy-2); path.lineTo(x+4,cy+2); path.lineTo(x+8,cy-2)
             else: path.moveTo(x+2,cy-4); path.lineTo(x+6,cy); path.lineTo(x+2,cy+4)
-            painter.setPen(QPen(QColor("#aaaaaa"),1.3)); painter.drawPath(path); x+=22
+            painter.setPen(QPen(QColor(colors['secondary']),1.3)); painter.drawPath(path); x+=22
         else:
-            painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor('#858585'))
+            painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(colors['muted']))
             for offset in (-4,0,4): painter.drawEllipse(QPointF(x+6,rect.center().y()+offset),1,1)
             x+=20
-        painter.setPen(QColor("#eeeeee")); width=int(rect.right()-x-32)
+        painter.setPen(QColor(colors['text'])); width=int(rect.right()-x-32)
         painter.drawText(QRectF(x,rect.top(),width,rect.height()),Qt.AlignmentFlag.AlignVCenter,QFontMetrics(font).elidedText(str(index.data()),Qt.TextElideMode.ElideRight,width))
         if not group and hover:
             font.setPixelSize(22); painter.setFont(font)
-            painter.setPen(QColor("#cccccc")); painter.drawText(QRectF(rect.right()-29,rect.top(),24,rect.height()),Qt.AlignmentFlag.AlignCenter,"×")
+            painter.setPen(QColor(colors['secondary'])); painter.drawText(QRectF(rect.right()-29,rect.top(),24,rect.height()),Qt.AlignmentFlag.AlignCenter,"×")
         painter.restore()
 
 
@@ -246,7 +262,7 @@ class BuilderTree(QTreeWidget):
         super().paintEvent(event)
         if self._drop_hint:
             _,after,rect=self._drop_hint; painter=QPainter(self.viewport()); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setPen(QPen(QColor("#cccccc"),2,Qt.PenStyle.SolidLine,Qt.PenCapStyle.RoundCap))
+            painter.setPen(QPen(QColor(widget_colors(self)['accent']),2,Qt.PenStyle.SolidLine,Qt.PenCapStyle.RoundCap))
             y=rect.bottom() if after else rect.top(); painter.drawLine(rect.left()+8,y,rect.right()-8,y)
 
     def mouseReleaseEvent(self,event):

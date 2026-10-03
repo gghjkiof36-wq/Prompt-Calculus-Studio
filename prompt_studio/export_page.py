@@ -2,16 +2,17 @@
 import copy
 import json
 from pathlib import Path
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal,QSize
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import (QFrame,QVBoxLayout,QSplitter,QWidget,QFormLayout,
+from PySide6.QtWidgets import (QFrame,QVBoxLayout,QHBoxLayout,QSplitter,QWidget,QFormLayout,
     QLineEdit,QSpinBox,QCheckBox,QTabWidget,QFileDialog,QTableWidget,QTableWidgetItem,
-    QHeaderView,QAbstractItemView,QProgressBar,QPlainTextEdit)
+    QHeaderView,QAbstractItemView,QProgressBar,QPlainTextEdit,QScrollArea,QSizePolicy)
 from .widgets import (label,button,row,panel,scrolling,ComboBox,StudioDialog,
                       InputDialog,open_file,RoundMenu)
 from .export_views import ExportDelegate,ExportHeader
 from . import clean_export as exporter
 from .clean_metadata import inspect
+from .theme import visual_tokens
 
 def combo(choices):
     widget=ComboBox()
@@ -21,6 +22,16 @@ def combo(choices):
 def spin(value,low,high):
     widget=QSpinBox(); widget.setRange(low,high); widget.setValue(value); return widget
 
+
+class ExportSettingsScroll(QScrollArea):
+    """One settings scroll area; the destination and export actions stay visible."""
+    def sizeHint(self):
+        content=self.widget()
+        return QSize(300,min(420,content.sizeHint().height())) if content else QSize(300,240)
+
+    def minimumSizeHint(self):return QSize(0,48)
+
+
 class ExportPage(QFrame):
     progressed=Signal(int,int)
     def __init__(self,window):
@@ -28,15 +39,28 @@ class ExportPage(QFrame):
         self.inputs=[]; self.rows=[]; self.plan=None; self.result=None; self.page=0; self.loading=False; self.busy=False
         self.pending_sources=None; self.pending_action=None
         window.jobs.became_idle.connect(self.resume_pending)
-        self.setObjectName('WorkspaceSurface'); layout=QVBoxLayout(self); layout.setContentsMargins(20,16,20,16)
+        self.setObjectName('WorkspaceSurface'); outer=QHBoxLayout(self); outer.setContentsMargins(0,0,0,0);outer.setSpacing(0)
+        self.sidebar=QFrame();self.sidebar.setObjectName('ContextSidebar');self.sidebar.setFixedWidth(240)
+        side=QVBoxLayout(self.sidebar);side.setContentsMargins(16,20,16,16);side.setSpacing(12);outer.addWidget(self.sidebar)
+        side.addWidget(label('匯出','Heading'))
+        main=QWidget();layout=QVBoxLayout(main);self.main_layout=layout;layout.setContentsMargins(24,24,24,24);layout.setSpacing(16);outer.addWidget(main,1)
+        self.sidebar_expanded=True;self.manual_sidebar=None
+        self.add_images_button=button('加入圖片',self.choose_files);self.add_images_button.setProperty('iconName','plus')
+        self.header=row(label('圖片匯出','DialogTitle'),None,self.add_images_button);layout.addLayout(self.header)
         self.add_files_button=button('選擇圖片…',self.choose_files)
-        self.add_folder_button=button('選擇資料夾…',self.folder_menu)
+        self.add_folder_button=button('選擇資料夾…',lambda:self.folder_menu(self.add_folder_button))
         self.recursive=QCheckBox('包含子資料夾'); self.recursive.toggled.connect(self.rescan)
         self.clear_button=button('清空',self.clear,'Quiet'); self.rescan_button=button('重新掃描',self.rescan,'Quiet')
-        layout.addLayout(row(self.add_files_button,self.add_folder_button,self.recursive,self.rescan_button,self.clear_button,None,button('匯出紀錄',self.history,'Quiet')))
-        split=QSplitter(); split.setChildrenCollapsible(False); layout.addWidget(split,1)
-        left,body=panel(); split.addWidget(left); body.setContentsMargins(0,6,12,0)
-        self.summary=label('選擇圖片或資料夾','Heading',True); body.addWidget(self.summary)
+        self.source_tools=QWidget(); source_tools=QVBoxLayout(self.source_tools); source_tools.setContentsMargins(0,0,0,0)
+        source_tools.addWidget(self.add_files_button);source_tools.addWidget(self.add_folder_button)
+        source_tools.addWidget(self.recursive);source_tools.addWidget(self.rescan_button);source_tools.addWidget(self.clear_button)
+        side.addWidget(self.source_tools);side.addStretch();side.addWidget(button('匯出紀錄',self.history,'Quiet'))
+        self.compact_view=ComboBox(); self.compact_view.addItems(['圖片清單','匯出設定']); self.compact_view.currentIndexChanged.connect(self.adapt_layout)
+        self.compact_view.setMaximumWidth(190);self.compact_view.setAccessibleName('匯出檢視');self.header.insertWidget(2,self.compact_view)
+        split=QSplitter(); self.split=split; split.setChildrenCollapsible(False); layout.addWidget(split,1)
+        left,body=panel(); self.image_panel=left; split.addWidget(left); body.setContentsMargins(0,6,12,0)
+        self.summary=label('選擇圖片或資料夾','Heading',True)
+        body.addLayout(row(self.summary,None,button('查看 Metadata',self.inspector,'Quiet')))
         self.feedback=label('','Subtle',True); self.feedback.hide(); body.addWidget(self.feedback)
         self.table=QTableWidget(0,3)
         self.table.setHorizontalHeader(ExportHeader(self.table)); self.table.setItemDelegate(ExportDelegate(self.table))
@@ -46,16 +70,36 @@ class ExportPage(QFrame):
         self.table.setWordWrap(False); self.table.setShowGrid(False); self.table.setAlternatingRowColors(False)
         self.table.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeMode.Interactive)
         self.table.setColumnWidth(0,180); self.table.horizontalHeader().setSectionResizeMode(1,QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(2,QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2,QHeaderView.ResizeMode.Interactive); self.table.setColumnWidth(2,88)
         body.addWidget(self.table,1)
+        self.empty_start=QWidget(); empty=QVBoxLayout(self.empty_start); empty.addStretch()
+        start=QWidget(); start.setMaximumWidth(380); start_layout=QVBoxLayout(start); start_layout.setContentsMargins(0,0,0,0); start_layout.setSpacing(12)
+        start_layout.addWidget(label('選擇圖片或資料夾開始','Heading',True))
+        self.start_folder_button=button('選擇資料夾…',lambda:self.folder_menu(self.start_folder_button))
+        start_layout.addLayout(row(button('選擇圖片…',self.choose_files,'Primary'),self.start_folder_button))
+        empty.addLayout(row(None,start,None)); empty.addStretch()
+        body.addWidget(self.empty_start,1); self.table.hide()
         self.only_failed=QCheckBox('只看失敗'); self.only_failed.toggled.connect(self.render); self.only_failed.hide()
-        body.addLayout(row(button('查看 Metadata',self.inspector,'Quiet'),self.only_failed,None,button('‹',lambda:self.turn(-1),'Quiet'),button('›',lambda:self.turn(1),'Quiet')))
-        self.position=label('','Subtle'); body.addWidget(self.position)
-        settings,form_area=panel('InsetPanel'); settings.setMinimumWidth(300); settings.setMaximumWidth(530); split.addWidget(settings); split.setSizes([760,410])
+        self.list_footer=QWidget(); footer=QVBoxLayout(self.list_footer); footer.setContentsMargins(0,0,0,0)
+        self.position=label('','Subtle')
+        self.previous_page=button('',lambda:self.turn(-1),'IconButton');self.next_page=button('',lambda:self.turn(1),'IconButton')
+        for control,title,symbol in ((self.previous_page,'上一頁','back'),(self.next_page,'下一頁','forward')):
+            control.setProperty('iconName',symbol);control.setFixedSize(32,32);control.setToolTip(title);control.setAccessibleName(title)
+        footer.addLayout(row(self.position,self.only_failed,None,self.previous_page,self.next_page)); body.addWidget(self.list_footer)
+        self.options_panel=QWidget(); self.options_panel.setMinimumWidth(300); self.options_panel.setMaximumWidth(400)
+        options_layout=QVBoxLayout(self.options_panel);options_layout.setContentsMargins(0,0,0,0)
+        settings,form_area=panel('InsetPanel');self.options_card=settings;self.options_layout=form_area;options_layout.addWidget(settings);options_layout.addStretch()
+        split.addWidget(self.options_panel); split.setSizes([760,380])
+        content=QWidget();content.setObjectName('ScrollContent');content.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Minimum)
+        settings_body=QVBoxLayout(content);settings_body.setContentsMargins(0,0,0,0);settings_body.setSpacing(12)
+        self.settings_scroll=ExportSettingsScroll();self.settings_scroll.setWidgetResizable(True)
+        self.settings_scroll.setFrameShape(QFrame.Shape.NoFrame);self.settings_scroll.viewport().setObjectName('ScrollViewport')
+        self.settings_scroll.setWidget(content);form_area.addWidget(self.settings_scroll,1)
         self.preset=ComboBox(); self.refresh_presets(); self.preset.currentTextChanged.connect(self.apply_preset)
-        form_area.addLayout(row(self.preset,button('儲存預設',self.save_preset,'Quiet')))
-        self.settings_tabs=QTabWidget(); form_area.addWidget(self.settings_tabs,1)
-        basic=QWidget(); basic_form=QFormLayout(basic); basic_form.setContentsMargins(8,16,8,16); basic_form.setSpacing(14)
+        settings_body.addLayout(row(self.preset,button('儲存預設',self.save_preset,'Quiet')))
+        self.settings_tabs=QTabWidget();self.settings_tabs.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Minimum)
+        settings_body.addWidget(self.settings_tabs)
+        basic=QWidget(); basic_form=QFormLayout(basic); self.basic_form=basic_form;basic_form.setContentsMargins(8,16,8,16); basic_form.setSpacing(14)
         basic_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.mode=combo([('移除全部 Metadata','all'),('移除生成資訊','generation')])
         self.mode.setToolTip('移除生成資訊：移除文字、EXIF、XMP、IPTC 等可攜帶生成資料的欄位，保留色彩與解析度資料。')
@@ -70,8 +114,8 @@ class ExportPage(QFrame):
         self.exact_label=label('寬 × 高')
         for title,widget in [('清理方式',self.mode),('輸出格式',self.format),(self.quality_label,self.quality),('尺寸',self.resize),(self.long_label,self.long_side),(self.percent_label,self.percent),(self.exact_label,self.exact)]: basic_form.addRow(title,widget)
         basic_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self.settings_tabs.addTab(scrolling(basic),'清理與尺寸')
-        naming=QWidget(); naming_form=QFormLayout(naming); naming_form.setContentsMargins(8,16,8,16); naming_form.setSpacing(14)
+        self.settings_tabs.addTab(basic,'清理與尺寸')
+        naming=QWidget(); naming_form=QFormLayout(naming); self.naming_form=naming_form;naming_form.setContentsMargins(8,16,8,16); naming_form.setSpacing(14)
         naming_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.pattern=QLineEdit('{name}'); self.pattern.setToolTip('可用：{name} 原檔名、{index:04d} 序號、{date} 日期、{folder} 原資料夾名稱。副檔名會自動附加。')
         self.collision=combo([('自動重新命名','rename'),('跳過','skip'),('覆蓋同名匯出檔','overwrite')])
@@ -79,7 +123,7 @@ class ExportPage(QFrame):
         self.structure=QCheckBox('保留原始資料夾結構'); self.structure.setChecked(True)
         self.sha=QCheckBox('記錄 SHA-256'); self.sha.setToolTip('原圖與匯出圖的雜湊只保存在本機資料庫。')
         naming_form.addRow('檔名規則',self.pattern); naming_form.addRow('遇到同名檔',self.collision); naming_form.addRow(self.structure); naming_form.addRow(self.sha)
-        self.settings_tabs.addTab(scrolling(naming),'檔名與紀錄')
+        self.settings_tabs.addTab(naming,'檔名與紀錄')
         self.directory=QLineEdit(); self.directory.setPlaceholderText('選擇輸出資料夾'); self.directory.setReadOnly(True)
         form_area.addLayout(row(self.directory,button('選擇…',self.choose_destination)))
         self.preview_button=button('預覽匯出',self.preview)
@@ -92,6 +136,37 @@ class ExportPage(QFrame):
         for widget in (self.aspect,self.structure,self.sha): widget.toggled.connect(self.invalidate)
         self.pattern.textChanged.connect(self.invalidate); self.directory.textChanged.connect(self.invalidate)
         self.update_fields()
+        self.render()
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        if hasattr(self,'options_panel'):self.adapt_layout()
+
+    def adapt_layout(self,*_):
+        if not hasattr(self,'options_panel'):return
+        borrowed=bool(self.sidebar.property('pcsSidebarBorrowed'))
+        show=False if borrowed else self.size().width()>=1320 if self.manual_sidebar is None else self.manual_sidebar
+        if not borrowed:self.sidebar.setVisible(show)
+        self.sidebar_expanded=show
+        narrow=self.size().width()-(self.sidebar.width() if show else 0)<940
+        # Keep the view switch in the page header: a second toolbar and a
+        # repeated settings title previously consumed the short-window form.
+        margin=14 if narrow else 24
+        self.main_layout.setContentsMargins(margin,margin,margin,margin)
+        self.main_layout.setSpacing(10 if narrow else 16)
+        inset=14 if narrow else 20
+        self.options_layout.setContentsMargins(inset,inset,inset,inset)
+        self.options_layout.setSpacing(8 if narrow else 12)
+        for form in (self.basic_form,self.naming_form):
+            form.setContentsMargins(8,8 if narrow else 16,8,8 if narrow else 16)
+            form.setVerticalSpacing(8 if narrow else 14)
+        self.compact_view.setVisible(narrow)
+        self.image_panel.setVisible(not narrow or self.compact_view.currentIndex()==0)
+        self.options_panel.setVisible(not narrow or self.compact_view.currentIndex()==1)
+        self.options_panel.setMaximumWidth(16777215 if narrow else 400)
+
+    def toggle_sidebar(self):
+        self.manual_sidebar=not self.sidebar.isVisible();self.adapt_layout()
 
     def refresh_presets(self):
         values=self.records.presets(); current=self.preset.currentText() if hasattr(self,'preset') else ''
@@ -131,7 +206,7 @@ class ExportPage(QFrame):
 
     def set_busy(self,busy):
         self.busy=busy
-        for widget in (self.add_files_button,self.add_folder_button,self.rescan_button,self.recursive,self.clear_button,self.settings_tabs,self.preset,self.preview_button): widget.setEnabled(not busy)
+        for widget in (self.add_images_button,self.empty_start,self.add_files_button,self.add_folder_button,self.rescan_button,self.recursive,self.clear_button,self.settings_tabs,self.preset,self.preview_button): widget.setEnabled(not busy)
         self.export_button.setEnabled(not busy and bool(self.plan) and any(r['action']=='write' for r in self.plan['entries']))
         self.progress.setVisible(busy)
         if busy: self.progress.setRange(0,0)
@@ -153,8 +228,15 @@ class ExportPage(QFrame):
         if not self.window.jobs.start(title,work,finish): self.set_busy(False)
 
     def set_feedback(self,text,error=True):
-        self.feedback.setText(text); self.feedback.setStyleSheet('color: '+('#ef7777' if error else '#e4ba59')+';')
+        self.feedback.setText(text); self.feedback.setProperty('tone','error' if error else 'warning'); self.refresh_colors()
         self.feedback.setVisible(bool(text))
+
+    def refresh_colors(self):
+        tokens=visual_tokens(self.window.state['settings'])
+        self.feedback.setStyleSheet('color:'+tokens[self.feedback.property('tone') or 'error']+';')
+        for index in range(self.table.rowCount()):
+            item=self.table.item(index,2)
+            if item:item.setForeground(QColor(tokens[item.data(Qt.ItemDataRole.UserRole) or 'secondary']))
 
     def resume_pending(self):
         if self.window.closing or self.busy or self.window.jobs.active: return
@@ -172,11 +254,11 @@ class ExportPage(QFrame):
         folder=QFileDialog.getExistingDirectory(self,'選擇原圖資料夾')
         if folder: self.load_sources([folder])
 
-    def folder_menu(self):
+    def folder_menu(self,trigger):
         menu=RoundMenu(self)
         menu.addAction('媒體庫資料夾…',self.choose_album)
         menu.addAction('磁碟資料夾…',self.choose_folder)
-        menu.open_at(self.add_folder_button.mapToGlobal(self.add_folder_button.rect().bottomLeft()))
+        menu.open_for(trigger)
 
     def choose_album(self):
         albums=self.window.catalog.rows('album',limit=10000)
@@ -247,6 +329,10 @@ class ExportPage(QFrame):
 
     def render(self,*_):
         rows=self.visible_rows(); self.page=min(self.page,max(0,(len(rows)-1)//100)); shown=rows[self.page*100:(self.page+1)*100]
+        has_sources=bool(self.inputs or rows)
+        self.table.setVisible(has_sources); self.empty_start.setVisible(not has_sources)
+        self.source_tools.setVisible(has_sources); self.summary.setVisible(has_sources); self.list_footer.setVisible(has_sources)
+        self.adapt_layout()
         self.table.setRowCount(len(shown))
         for index,record in enumerate(shown):
             source=Path(record['source']); status=record.get('status','無法讀取' if record.get('error') else '已掃描')
@@ -261,11 +347,12 @@ class ExportPage(QFrame):
             for column,value in enumerate((source.name,target,status)):
                 item=QTableWidgetItem(value); item.setFlags(Qt.ItemFlag.ItemIsEnabled|Qt.ItemFlag.ItemIsSelectable)
                 if column==2:
-                    color='#75cd98' if status=='成功' else '#ef7777' if record.get('error') or status in ('失敗','無法讀取') else '#e4ba59' if status=='待匯出' else '#aaaaaa'
-                    item.setForeground(QColor(color))
+                    tone='success' if status=='成功' else 'error' if record.get('error') or status in ('失敗','無法讀取') else 'warning' if status=='待匯出' else 'secondary'
+                    item.setData(Qt.ItemDataRole.UserRole,tone); item.setForeground(QColor(visual_tokens(self.window.state['settings'])[tone]))
                 item.setToolTip(str(source) if column==0 else full_target+('\n'+record['error'] if record.get('error') else '')+('\n'+record['note'] if record.get('note') else '')); self.table.setItem(index,column,item)
             self.table.setRowHeight(index,max(44,self.table.fontMetrics().height()+20))
         self.position.setText(f'{len(rows)} 張 · 第 {self.page+1} 頁' if rows else '')
+        self.previous_page.setEnabled(self.page>0);self.next_page.setEnabled((self.page+1)*100<len(rows))
         if self.result:
             counts={value:sum(r['status']==value for r in self.result['results']) for value in ('Passed','Failed','Skipped','Cancelled')}
             self.summary.setText(f"Passed {counts['Passed']} · Failed {counts['Failed']} · 跳過 {counts['Skipped']}"+

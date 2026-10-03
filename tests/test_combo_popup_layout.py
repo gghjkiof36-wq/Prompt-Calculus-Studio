@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtCore import Qt,QTimer
+from PySide6.QtCore import Qt,QTimer,QCoreApplication,QEvent
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QStyleFactory
@@ -44,6 +44,14 @@ class ComboPopupLayoutTests(StageFixture):
             QTimer.singleShot(0,lambda:done(result,'native'))
         reader=patch.object(catalog,'read_draft',side_effect=read);reader.start();self.addCleanup(reader.stop)
 
+    def tearDown(self):
+        super().tearDown()
+        # This suite changes the application's native style. Close alone
+        # retains the full prior Window and its private popup containers;
+        # release that fixture before Qt repolishes every top-level widget.
+        self.w.deleteLater()
+        QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+
     def sheet(self):
         sheet=open_parameters(self.c,self.stage);QTest.qWait(25);sheet.jump(['35']);QTest.qWait(15)
         self.assertFalse(sheet.loading,sheet.status.text())
@@ -69,7 +77,8 @@ class ComboPopupLayoutTests(StageFixture):
         current=rects[combo.currentIndex()]
         self.assertTrue(viewport.intersects(current))
         self.assertTrue(combo.screen().availableGeometry().adjusted(-2,-2,2,2).contains(combo._popup.frameGeometry()))
-        self.assertFalse(combo._popup.mask().isEmpty())
+        self.assertTrue(combo._popup.mask().isEmpty())
+        self.assertTrue(combo._popup.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground))
         return dict(popup=[combo._popup.width(),combo._popup.height()],viewport=[viewport.width(),viewport.height()],
                     rows=[[r.x(),r.y(),r.width(),r.height()] for r in rects])
 
@@ -115,3 +124,33 @@ class ComboPopupLayoutTests(StageFixture):
         self.assertEqual(sheet.proposed()['patches'][0]['value'],'None')
         self.assertNotIn('parameters',self.c.data()['stages'][self.stage]);self.assertFalse(self.executor.submissions)
         sheet.finish()
+
+    def test_cancel_reopen_and_same_value_confirmation_never_edit_binding(self):
+        for count in (4,25):
+            with self.subTest(count=count):
+                self.choices=['sampler-'+str(i) for i in range(count)];self.selected=2
+                sheet,combo=self.sheet();changes=[];activations=[]
+                combo.currentIndexChanged.connect(changes.append);combo.activated.connect(activations.append)
+                before=copy.deepcopy(self.c.data());revision=sheet.revision
+                try:
+                    def open_choice():
+                        QTest.mouseClick(combo,Qt.MouseButton.LeftButton);QTest.qWait(15)
+                        popup=combo._choices_popup
+                        return popup.search if popup else combo.view()
+                    target=open_choice()
+                    QTest.keyClick(target,Qt.Key.Key_Down);QTest.keyClick(target,Qt.Key.Key_Escape)
+                    APP.processEvents()
+                    self.assertEqual(combo.currentData(),'sampler-2');self.assertEqual(changes,[])
+                    self.assertEqual(activations,[]);self.assertEqual(sheet.revision,revision)
+                    self.assertEqual(self.c.data(),before)
+                    # Confirming the existing item activates it once, but does
+                    # not create a parameter edit or dirty the Stage sheet.
+                    target=open_choice();QTest.keyClick(target,Qt.Key.Key_Return);APP.processEvents()
+                    self.assertEqual(changes,[]);self.assertEqual(activations,[2]);self.assertFalse(sheet.dirty())
+                    target=open_choice();QTest.keyClick(target,Qt.Key.Key_Down)
+                    QTest.keyClick(target,Qt.Key.Key_Return);APP.processEvents()
+                    self.assertEqual(changes,[3]);self.assertEqual(activations,[2,3])
+                    self.assertEqual(sheet.revision,revision+1);self.assertTrue(sheet.dirty())
+                    self.assertEqual(sheet.proposed()['patches'][0]['value'],'sampler-3')
+                    self.assertEqual(self.c.data(),before);self.assertFalse(self.executor.submissions)
+                finally:combo.hidePopup();sheet.finish();APP.processEvents()

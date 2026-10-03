@@ -33,6 +33,56 @@ function fixture({busy=false,timeout=12000,capture=false,policy=null,manual=null
     return {app,api,graph,sent,prepared,events,notices,diagnostics,adapter,command};
 }
 
+test('pending notification runs once in a hidden page with suspended interval timers',async t=>{
+    t.mock.method(globalThis,'setInterval',()=>0);
+    let command,delivered=false;
+    const f=fixture({onRequest:route=>route==='workflow/native/poll'&&!delivered?(delivered=true,{commands:[command]}):{}});
+    command=f.command;document.hidden=true;
+    const send=value=>f.api.dispatchEvent(new CustomEvent('prompt_studio_native_pending',{detail:value}));
+    const signal={id:command.id,session:'tab-session',client_id:f.api.clientId};
+    try {
+        send({...signal,session:'other'});send({...signal,client_id:'old'});
+        await new Promise(r=>setImmediate(r));assert.equal(f.sent.length,0);
+        send(signal);send(signal);
+        for(let i=0;i<10;i++)await new Promise(r=>setImmediate(r));
+        assert.equal(f.sent.length,1);assert.equal(f.adapter.busy,false);
+        assert.equal(document.hidden,true);
+        f.adapter.stop();send(signal);await new Promise(r=>setImmediate(r));assert.equal(f.sent.length,1);
+    }finally{f.adapter.stop();}
+});
+
+test('pending notification during handshake HTTP response is drained without waiting for a timer',async t=>{
+    t.mock.method(globalThis,'setInterval',()=>0);
+    let release,command,count=0;
+    const f=fixture({onRequest:route=>{
+        if(route!=='workflow/native/poll')return {};
+        count++;if(count===1)return new Promise(r=>release=r);
+        return count===2?{commands:[command]}:{};
+    }});command=f.command;
+    try {
+        const handshake=f.adapter.poll();await new Promise(r=>setImmediate(r));
+        f.api.dispatchEvent(new CustomEvent('prompt_studio_native_pending',{detail:{id:command.id,session:'tab-session',client_id:f.api.clientId}}));
+        release({commands:[]});await handshake;
+        for(let i=0;i<10;i++)await new Promise(r=>setImmediate(r));
+        assert.equal(count,2);assert.equal(f.sent.length,1);
+    }finally{release?.({});f.adapter.stop();}
+});
+
+test('finishing native input wakes a pending operation even while interval timers sleep',async t=>{
+    t.mock.method(globalThis,'setInterval',()=>0);
+    let command,delivered=false;
+    const f=fixture({onRequest:(route,value)=>route==='workflow/native/poll'&&value.ready&&!delivered?
+        (delivered=true,{commands:[command]}):{}});command=f.command;
+    try {
+        document.dispatchEvent(new Event('compositionstart'));
+        f.api.dispatchEvent(new CustomEvent('prompt_studio_native_pending',{detail:{id:command.id,session:'tab-session',client_id:f.api.clientId}}));
+        await new Promise(r=>setImmediate(r));assert.equal(f.sent.length,0);
+        document.dispatchEvent(new Event('compositionend'));
+        for(let i=0;i<10;i++)await new Promise(r=>setImmediate(r));
+        assert.equal(f.sent.length,1);
+    }finally{f.adapter.stop();}
+});
+
 test('a lost poll response expires and a late command cannot run after the next poll',async()=>{
     let release,count=0;
     const f=fixture({timeout:25,onRequest:route=>{

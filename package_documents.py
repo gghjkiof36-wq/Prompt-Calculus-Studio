@@ -41,7 +41,7 @@ def source_paths(root=ROOT):
         raise ValueError('建置來源必須是獨立 Git 根目錄。')
     blocked={'data','qa','build','dist','vendor','.builder','__pycache__','credentials','backups','local_library.json','settings.json','fault.log','error.log'}
     folders={'prompt_studio','comfyui_prompt_studio','tests','docs'}
-    suffixes={'.py','.js','.mjs','.css','.ps1','.cmd','.vbs','.md','.txt','.svg','.ico','.json'}
+    suffixes={'.py','.js','.mjs','.css','.ps1','.cmd','.vbs','.md','.txt','.svg','.ico','.png','.json'}
     paths=[]
     for name in git_output(root,'ls-files','-z','--cached').split('\0'):
         if not name:continue

@@ -38,9 +38,14 @@ for name in sys.argv[1:]:importlib.import_module('shared.'+name)
 from shared.core import initial_state,build_prompt
 from shared.snapshots import make_snapshot,restore_snapshot
 from shared.state_loading import prepare_state
+from shared.workspace_scene import create,switch
 s=initial_state(); s['draft']='exact historical text'; snapshot=make_snapshot(s)
 restored=restore_snapshot(s,snapshot); assert restored['draft']=='exact historical text'
 assert build_prompt(prepare_state(restored))==snapshot['generated_prompt']
+s=prepare_state(initial_state(),multi=True)
+workspace=create(s,'Packaged starter'); switch(s,workspace)
+assert len(s['multi_output']['schedulers'])==1 and len(s['multi_output']['stages'])==1
+assert len(s['multi_output']['connections'])==5
 """
             run=subprocess.run([sys.executable,'-c',code,*SHARED_MODULES],cwd=destination,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=30)
             self.assertEqual(run.returncode,0,run.stdout.decode('utf-8',errors='replace'))

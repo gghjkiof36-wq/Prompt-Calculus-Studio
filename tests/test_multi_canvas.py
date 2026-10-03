@@ -16,6 +16,12 @@ APP=QApplication.instance() or QApplication([])
 class MultiCanvasTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(); self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'}); self.env.start()
+        # These regressions exercise the historical direct output -> CLIP
+        # layout. A fresh 0.8.6 document now includes a scheduler and Stage;
+        # its own initialization and editing coverage is in test_canvas_starter.
+        from prompt_studio.core import Storage,initial_state
+        from prompt_studio.state_loading import prepare_state
+        store=Storage(self.tmp.name);store.save(prepare_state(initial_state(),multi=True));store.db.close()
         self.window=Window(self.tmp.name); self.w=self.window; self.w.state['settings'].update(online=False,material='solid',separate_selections=True)
         self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(30); self.canvas=self.w.canvas
         self.cid=next(iter(self.canvas.containers)); self.oid=self.canvas.data()['current_output']
@@ -75,10 +81,15 @@ class MultiCanvasTests(unittest.TestCase):
         self.canvas.commit(lambda s:clip_flow.set_binding(s,'flow',clip2,('7','text')))
         self.canvas.outputs[o2].panel.editor.setPlainText('manual negative')
         self.assertEqual(model.compile_output(self.w.state,o2)['final_prompt'],'manual negative')
-        self.assertIn('有效綁定',self.canvas.clips[clip2].panel.status.text())
+        self.assertEqual(clip_flow.selected_binding(self.w.state,clip2),dict(workflow='flow',clip=clip2,node='7',field='text'))
+        self.assertIn('#7 / text',self.canvas.clips[clip2].panel.binding.text())
+        self.assertEqual(self.canvas.clips[clip2].panel.status.text(),'')
         self.assertFalse(hasattr(self.canvas.outputs[o2].panel,'binding'))
         line=next(c for c in self.canvas.data()['connections'] if c['destination']==o2)
-        self.canvas.commit(lambda s:model.disconnect(s,line['id'])); self.assertIn('有效綁定',self.canvas.clips[clip2].panel.status.text())
+        self.canvas.commit(lambda s:model.disconnect(s,line['id']))
+        self.assertEqual(clip_flow.selected_binding(self.w.state,clip2),dict(workflow='flow',clip=clip2,node='7',field='text'))
+        self.assertIn('#7 / text',self.canvas.clips[clip2].panel.binding.text())
+        self.assertEqual(self.canvas.clips[clip2].panel.status.text(),'')
         self.assertEqual(model.compile_output(self.w.state,o2)['final_prompt'],'manual negative')
         self.canvas.undo(); self.assertEqual(model.compile_output(self.w.state,o2)['final_prompt'],'manual negative')
     def test_canvas_drag_carries_members_and_ports_connect_by_gesture(self):

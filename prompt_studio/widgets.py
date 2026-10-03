@@ -1,10 +1,11 @@
 from pathlib import Path
 from PySide6.QtCore import Qt, QSize, QPoint, QPointF, QRectF, QObject, QVariantAnimation, QEasingCurve, QEvent
-from PySide6.QtGui import QPixmap, QDesktopServices, QIcon, QPainterPath, QRegion, QPainter, QPalette, QImageReader
+from PySide6.QtGui import QPixmap, QDesktopServices, QIcon, QPainterPath, QRegion, QPainter, QPalette, QImageReader, QFont, QFontMetrics
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QFrame,
                               QDialogButtonBox, QFileDialog, QMessageBox, QDialog, QScrollArea,
-                              QLineEdit, QPlainTextEdit, QComboBox, QListView, QListWidget, QMenu, QSizePolicy, QWidget, QBoxLayout, QApplication,QStyledItemDelegate,QStyle)
+                              QLineEdit, QPlainTextEdit, QComboBox, QFontComboBox, QListView, QListWidget, QMenu, QSizePolicy, QWidget, QBoxLayout, QApplication,QStyledItemDelegate,QStyle,QStyleOptionViewItem,QStyleOptionComboBox,QStylePainter)
+from .popup_surface import POPUP_WIDTH, PopupSurface, popup_row_height, popup_width
 
 def label(text, role=None, wrap=False):
     result = QLabel(text)
@@ -70,10 +71,20 @@ class ActionHeader(QWidget):
         self.flow.addWidget(title)
         self.flow.addLayout(row(None,*actions))
 
+    def reflow(self):
+        visible=[a for a in self.actions if not a.isHidden()]
+        required=self.title.sizeHint().width()+sum(a.sizeHint().width() for a in visible)+8*(len(visible)+1)
+        direction=QBoxLayout.Direction.LeftToRight if self.width()>=required else QBoxLayout.Direction.TopToBottom
+        if self.flow.direction()!=direction:self.flow.setDirection(direction)
+
     def resizeEvent(self,event):
-        required=self.title.sizeHint().width()+sum(a.sizeHint().width() for a in self.actions)+28
-        self.flow.setDirection(QBoxLayout.Direction.LeftToRight if self.width()>=required else QBoxLayout.Direction.TopToBottom)
+        self.reflow()
         super().resizeEvent(event)
+
+    def event(self,event):
+        result=super().event(event)
+        if hasattr(self,'flow') and event.type() in (QEvent.Type.LayoutRequest,QEvent.Type.FontChange,QEvent.Type.StyleChange):self.reflow()
+        return result
 
 
 class WindowShell(QFrame):
@@ -81,6 +92,19 @@ class WindowShell(QFrame):
         super().__init__(window)
         self.setObjectName("Shell"); self.setMouseTracking(True)
         QApplication.instance().installEventFilter(self)
+
+    def paintEvent(self,event):
+        from PySide6.QtGui import QColor
+        from .theme import shell_color
+        settings=dict(self.window().state['settings'])
+        settings.update(getattr(self.window(),'appearance_preview',{}))
+        if not getattr(self.window(),'native_material',False):settings['material']='solid'
+        value=shell_color(settings)
+        if value.startswith('rgba('):
+            color=QColor(*[int(v) for v in value[5:-1].split(',')])
+        else:color=QColor(value)
+        painter=QPainter(self); painter.fillRect(self.rect(),color); painter.end()
+        super().paintEvent(event)
 
     def eventFilter(self,watched,event):
         # Only reset the shell's inherited resize cursor. Editors keep their
@@ -250,6 +274,45 @@ def rounded_mask(widget,radius=12):
     widget.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
 
+def sync_popup_appearance(popup,owner,host=None):
+    """Carry the owning window's theme into a separate native popup."""
+    host=host or QWidget.window(owner)
+    popup.setPalette(QWidget.palette(owner))
+    popup.setFont(QWidget.font(owner))
+    source=QWidget.styleSheet(host)
+    if popup.styleSheet()!=source:popup.setStyleSheet(source)
+
+
+class _PopupAppearance(QObject):
+    def __init__(self,popup,owner,host=None):
+        super().__init__(popup)
+        self.owner=owner;self.host=host
+        popup.installEventFilter(self)
+
+    def eventFilter(self,popup,event):
+        if event.type()==QEvent.Type.Show:
+            sync_popup_appearance(popup,self.owner,self.host)
+            model=popup.model()
+            text_width=max((popup.fontMetrics().horizontalAdvance(str(model.index(i,0).data() or ''))
+                            for i in range(model.rowCount())),default=0)
+            area=popup.screen().availableGeometry().adjusted(8,8,-8,-8)
+            width=popup_width(self.owner.width(),text_width,area.width())
+            popup.setFixedWidth(width)
+            popup.move(max(area.left(),min(popup.x(),area.right()+1-width)),
+                       max(area.top(),min(popup.y(),area.bottom()+1-popup.height())))
+        return False
+
+
+def style_completion(completer,owner,host=None):
+    popup=completer.popup();popup.setObjectName('CompletionPopup')
+    popup._pcs_surface=PopupSurface(popup,owner)
+    popup.setItemDelegate(ComboItemDelegate(popup))
+    popup.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    popup.setTextElideMode(Qt.TextElideMode.ElideRight)
+    popup._pcs_appearance=_PopupAppearance(popup,owner,host)
+    sync_popup_appearance(popup,owner,host)
+
+
 def widget_global_position(widget,position,view=None):
     """Map an embedded widget through its scene/view, including zoom and pan."""
     host=widget
@@ -269,48 +332,202 @@ class RoundMenu(QMenu):
     Actions already connect to their handlers; callers never need a return value.
     """
     def __init__(self,parent=None):
-        super().__init__(parent)
+        # Set the bypass flag before parenting: proxy embedding can happen
+        # during QMenu construction, before its first show event.
+        super().__init__()
         # A native opaque menu paints a rectangular palette behind the QSS
         # radius. Alpha-backed painting avoids that rim without a jagged mask.
-        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
+        # Popup children of scene widgets otherwise become child proxies. Our
+        # anchors are desktop coordinates and menus must keep their own scale.
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint | Qt.WindowType.BypassGraphicsProxyWidget)
+        if parent is not None:self.setParent(parent,self.windowFlags())
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setProperty('pcsPopupSurface',True)
+        self._appearance_owner=parent
+        self._synced_popup_style='';self._local_popup_style=''
+        self._surface=PopupSurface(self,parent,paint_in_filter=False)
+        self.aboutToShow.connect(self._prepare_show)
         # A submenu hides whenever the pointer returns to its parent. Its
         # action must live until the root popup closes, not until that hover ends.
         if not isinstance(parent,QMenu): self.aboutToHide.connect(self.deleteLater)
 
+    def addMenu(self,*args):
+        # QMenu's title/icon overloads instantiate plain QMenu internally.
+        # Build owned RoundMenu children so submenu hover uses the same surface
+        # and hiding a child does not delete its action before the root closes.
+        if len(args)==1 and isinstance(args[0],str):
+            submenu=RoundMenu(self);submenu.setTitle(args[0])
+        elif len(args)==2 and isinstance(args[0],QIcon) and isinstance(args[1],str):
+            submenu=RoundMenu(self);submenu.setIcon(args[0]);submenu.setTitle(args[1])
+        else:
+            return super().addMenu(*args)
+        super().addMenu(submenu)
+        return submenu
+
+    def _prepare_show(self):
+        # Qt opens hover submenus inside C++ and bypasses the Python popup()
+        # method. aboutToShow runs before Qt measures that popup's geometry.
+        parent=self.parentWidget()
+        position=parent.mapToGlobal(parent.rect().center()) if isinstance(parent,QMenu) else self.pos()
+        self._prepare(position)
+
+    def _prepare(self,position):
+        if self._appearance_owner is not None:
+            if self.styleSheet()!=self._synced_popup_style:
+                self._local_popup_style=self.styleSheet()
+            sync_popup_appearance(self,self._appearance_owner)
+            if self._local_popup_style:self.setStyleSheet(self.styleSheet()+'\n'+self._local_popup_style)
+            self._synced_popup_style=self.styleSheet()
+        screen=QApplication.screenAt(position) or self.screen()
+        if screen is not None:
+            available=max(1,screen.availableGeometry().width()-16)
+            self.setMinimumWidth(min(POPUP_WIDTH,available))
+            self.setMaximumWidth(available)
+        self.ensurePolished()
+
+    def popup(self,position,atAction=None):
+        self._prepare(position)
+        super().popup(position,atAction)
+
+    def paintEvent(self,event):
+        self._surface.paint()
+        super().paintEvent(event)
+
     def open_at(self,position):
         self.popup(position)
+
+    def open_for(self,control,view=None):
+        """Anchor button menus to the visible trigger, including scene widgets."""
+        top=widget_global_position(control,QPoint(0,0),view)
+        bottom=widget_global_position(control,QPoint(control.width(),control.height()),view)
+        self._prepare(top);size=self.sizeHint().expandedTo(self.minimumSize()).boundedTo(self.maximumSize())
+        # The gap is in desktop pixels, independent of canvas zoom.
+        position=QPoint(top.x(),bottom.y()+4)
+        screen=QApplication.screenAt(top) or control.screen()
+        if screen is not None:
+            area=screen.availableGeometry().adjusted(4,4,-4,-4)
+            if position.y()+size.height()>area.bottom()+1:
+                position.setY(top.y()-size.height()-4)
+            if position.x()+size.width()>area.right()+1:
+                position.setX(bottom.x()-size.width())
+            position.setX(max(area.left(),min(position.x(),area.right()+1-size.width())))
+            position.setY(max(area.top(),min(position.y(),area.bottom()+1-size.height())))
+        self.open_at(position)
 
 class ComboItemDelegate(QStyledItemDelegate):
     def initStyleOption(self,option,index):
         super().initStyleOption(option,index)
         option.state &= ~QStyle.StateFlag.State_HasFocus
-        if not option.state & QStyle.StateFlag.State_MouseOver:
-            option.state &= ~QStyle.StateFlag.State_Selected
+
+    def sizeHint(self,option,index):
+        measured=QStyleOptionViewItem(option)
+        self.initStyleOption(measured,index)
+        size=super().sizeHint(measured,index)
+        icon_height=measured.decorationSize.height() if not measured.icon.isNull() else 0
+        size.setHeight(popup_row_height(measured.fontMetrics,icon_height))
+        return size
 
 
-class ComboBox(QComboBox):
+class _FontComboItemDelegate(ComboItemDelegate):
+    """Preview the family at the UI size, not Qt's native point-size fallback."""
+    def initStyleOption(self,option,index):
+        super().initStyleOption(option,index)
+        font=QFont(option.widget.font() if option.widget is not None else option.font)
+        font.setFamily(str(index.data(Qt.ItemDataRole.DisplayRole) or font.family()))
+        option.font=font;option.fontMetrics=QFontMetrics(font)
+
+
+class _ComboPopupBehavior:
     def __init__(self,*args):
         super().__init__(*args)
-        view=QListView(); view.setSpacing(2); self.setView(view)
-        view.setItemDelegate(ComboItemDelegate(view))
-        view.setStyleSheet('QListView::item:selected { border-color:transparent; } QListView::item:hover { background:#353535; border-color:transparent; }')
+        self._auto_label_tooltip=''
+        self.currentTextChanged.connect(self._sync_label_tooltip)
+        font_picker=isinstance(self,QFontComboBox)
+        view=self.view() if font_picker else QListView()
+        if not font_picker:self.setView(view)
+        view.setObjectName('ComboPopup');view.setSpacing(0)
+        view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        view.setTextElideMode(Qt.TextElideMode.ElideRight)
+        view.setItemDelegate(_FontComboItemDelegate(view) if font_picker else ComboItemDelegate(view))
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumContentsLength(6)
         QApplication.setEffectEnabled(Qt.UIEffect.UI_AnimateCombo,False)
-        self._popup=self.view().window(); self._popup.installEventFilter(self)
+        self._popup=self.view().window(); self._popup.setObjectName('PcsComboContainer')
+        self._surface=PopupSurface(self._popup,self)
+        self._popup.installEventFilter(self)
+
+    def _label_option(self):
+        option=QStyleOptionComboBox();self.initStyleOption(option)
+        field=self.style().subControlRect(QStyle.ComplexControl.CC_ComboBox,option,QStyle.SubControl.SC_ComboBoxEditField,self)
+        width=max(0,field.width()-2)
+        if not option.currentIcon.isNull():width=max(0,width-option.iconSize.width()-4)
+        full=option.currentText
+        option.currentText=option.fontMetrics.elidedText(full,Qt.TextElideMode.ElideRight,width)
+        return option,full
+
+    def _sync_label_tooltip(self,*_):
+        if not hasattr(self,'_auto_label_tooltip'):return
+        current=self.toolTip()
+        # Help supplied by the caller remains authoritative. Only replace a
+        # tooltip which this control generated for its own shortened label.
+        if current and current!=self._auto_label_tooltip:return
+        option,full=self._label_option()
+        text=full if not self.isEditable() and option.currentText!=full else ''
+        self._auto_label_tooltip=text
+        if current!=text:QWidget.setToolTip(self,text)
+
+    def paintEvent(self,event):
+        self._sync_label_tooltip()
+        if self.isEditable() or self.currentIndex()<0:
+            return super().paintEvent(event)
+        option,_=self._label_option()
+        painter=QStylePainter(self)
+        painter.drawComplexControl(QStyle.ComplexControl.CC_ComboBox,option)
+        painter.drawControl(QStyle.ControlElement.CE_ComboBoxLabel,option)
+
+    def event(self,event):
+        if event.type()==QEvent.Type.ToolTip:self._sync_label_tooltip()
+        result=super().event(event)
+        if event.type() in (QEvent.Type.Resize,QEvent.Type.FontChange,QEvent.Type.StyleChange,QEvent.Type.Show):
+            self._sync_label_tooltip()
+        return result
 
     def eventFilter(self,watched,event):
         if watched is getattr(self,'_popup',None) and event.type() in (QEvent.Type.Resize,QEvent.Type.Show):
-            rounded_mask(watched,10)
+            # The alpha-painted surface owns the edge. A QRegion mask would
+            # cut its anti-alias coverage again at fractional display scale.
+            watched.clearMask()
         return super().eventFilter(watched,event)
 
     def showPopup(self):
         # Inherited item padding can change after the hidden view cached its
         # rows. Synchronize them before Qt measures and positions the popup.
-        self.view().ensurePolished(); self.view().doItemsLayout()
+        view=self.view();sync_popup_appearance(self._popup,self)
+        self._popup.ensurePolished(); view.ensurePolished()
+        view.style().polish(view)
+        # Share a compact short-menu width and allow bounded extra room for
+        # long names and large type. A vertical scrollbar handles long menus.
+        bounds=self.screen().availableGeometry()
+        text_width=max((view.fontMetrics().horizontalAdvance(self.itemText(i)) for i in range(self.count())),default=0)
+        width=popup_width(self.width(),text_width,bounds.width()-16)
+        view.setFixedWidth(width);self._popup.setFixedWidth(width);view.doItemsLayout()
+        # Arrow keys change the popup's tentative index without committing the
+        # combo. Escape must not leave that tentative choice armed for Enter
+        # on the next opening, including custom model roots and columns.
+        current=self.model().index(self.currentIndex(),self.modelColumn(),self.rootModelIndex())
+        view.setCurrentIndex(current)
+        if current.isValid():view.scrollTo(current)
         # Install the final outline before the first visible paint.
-        rounded_mask(self._popup,10); super().showPopup()
+        self._popup.clearMask();super().showPopup()
+
+
+class ComboBox(_ComboPopupBehavior,QComboBox):
+    pass
+
+
+class FontComboBox(_ComboPopupBehavior,QFontComboBox):
+    pass
 
 
 class SplitterFold(QObject):

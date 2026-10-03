@@ -8,7 +8,7 @@ sys.path.insert(0,str(ROOT/"vendor"))
 
 def main():
     os.environ.setdefault('PROMPT_STUDIO_V08','1')
-    if any(flag in sys.argv for flag in ('--v08-alpha','--v08-smoke-test','--v081-alpha','--v081-smoke-test','--v082-alpha','--v083-alpha','--v084-alpha','--v0.8.4-alpha','--v0.8.5-alpha')):os.environ['PROMPT_STUDIO_V08']='1'
+    if any(flag in sys.argv for flag in ('--v08-alpha','--v08-smoke-test','--v081-alpha','--v081-smoke-test','--v082-alpha','--v083-alpha','--v084-alpha','--v0.8.4-alpha','--v0.8.5-alpha','--v0.8.6-alpha')):os.environ['PROMPT_STUDIO_V08']='1'
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication, QMessageBox
@@ -37,9 +37,10 @@ def main():
             window.error("操作發生問題，已將詳細資訊保存到 data/error.log。\n"+str(exception))
         sys.excepthook=report_error
         available=app.primaryScreen().availableGeometry()
-        window.resize(min(1440,max(960,available.width()-60)),min(900,max(620,available.height()-60)))
-        window.show()
+        window.resize(min(1440,max(640,available.width()-60)),min(900,max(480,available.height()-60)))
+        # Resolve the initial route before the native window's first paint.
         if not any(arg.endswith('smoke-test') for arg in sys.argv): window.start_interface()
+        window.show()
         if '--v08-smoke-test' in sys.argv:
             from prompt_studio.v08_check import start
             start(window)

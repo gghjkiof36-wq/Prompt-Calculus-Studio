@@ -43,8 +43,19 @@ RELEASES={r.flag:r for r in (
     Release('--v085-repair3','v085-stage-repair3-20261002','v0.8.5 Stage 參數控制修復候選 3','Start-PCS-v0.8.5-Repair3','--v084-alpha'),
     Release('--v085-repair4','v085-stage-repair4-20261002','v0.8.5 Stage 種子控制修復候選 4','Start-PCS-v0.8.5-Repair4','--v084-alpha'),
     Release('--v0.8.5-alpha.1','v0.8.5-alpha.1','v0.8.5 Alpha 1','Start-PCS-v0.8.5-Alpha','--v0.8.5-alpha'),
+    Release('--v086-phase1','v086-phase1-20261002','v0.8.6 第一階段候選','Start-PCS-v0.8.6-Phase1','--v0.8.6-alpha'),
+    Release('--v086-phase1-revision2','v086-phase1-revision2-20261003','v0.8.6 介面修訂 2','Start-PCS-v0.8.6-Revision2','--v0.8.6-alpha'),
+    Release('--v086-phase1-revision3','v086-phase1-revision3-20261003','v0.8.6 介面修訂 3','Start-PCS-v0.8.6-Revision3','--v0.8.6-alpha'),
+    Release('--v086-revision4','v086-revision4-20261003','v0.8.6 介面修訂 4','Start-PCS-v0.8.6-Revision4','--v0.8.6-alpha'),
+    Release('--v086-revision5','v086-revision5-20261003','v0.8.6 相容與介面修訂 5','Start-PCS-v0.8.6-Revision5','--v0.8.6-alpha'),
+    Release('--v086-revision6','v086-revision6-20261003','v0.8.6 介面修訂 6','Start-PCS-v0.8.6-Revision6','--v0.8.6-alpha'),
+    Release('--v086-revision7','v086-revision7-20261003','v0.8.6 介面修訂 7','Start-PCS-v0.8.6-Revision7','--v0.8.6-alpha'),
+    Release('--v086-revision8','v086-revision8-20261003','v0.8.6 背景連線與排程修訂 8','Start-PCS-v0.8.6-Revision8','--v0.8.6-alpha'),
+    Release('--v086-revision9','v086-revision9-20261003','v0.8.6 擴充安裝與更新修訂 9','Start-PCS-v0.8.6-Revision9','--v0.8.6-alpha'),
+    Release('--v086-revision10','v086-revision10-20261003','v0.8.6 提示框修訂 10','Start-PCS-v0.8.6-Revision10','--v0.8.6-alpha'),
+    Release('--v0.8.6-alpha.1','v0.8.6-alpha.1','v0.8.6 Alpha 1','Start-PCS-v0.8.6-Alpha','--v0.8.6-alpha'),
 )}
-CURRENT=RELEASES['--v0.8.5-alpha.1']
+CURRENT=RELEASES['--v0.8.6-alpha.1']
 # Historical build flags remain readable; new metadata uses explicit dotted version identifiers.
 RELEASE_ALIASES={
     '--v084-alpha1':'--v0.8.4-alpha.1',
@@ -57,7 +68,7 @@ RELEASE_ALIASES={
 APP_BASENAME='PromptCalculusStudio'
 EXTENSION_FOLDER='comfyui_prompt_calculus_studio'
 SOURCE_ARCHIVE='PromptCalculusStudio-source.zip'
-SHARED_MODULES=('core','snapshots','pnginfo','exclusions','composition','generation','multi_output','clip_flow','workflow_flow','flow_data','composition_image','workflow_transfer','workflow_import','state_loading','queued_work','native_graph','workspace_scene','chain_model','chain_connections','stage_model','stage_parameters','module_contracts','result_data')
+SHARED_MODULES=('core','snapshots','pnginfo','exclusions','composition','generation','multi_output','clip_flow','workflow_flow','flow_data','composition_image','workflow_transfer','workflow_import','state_loading','queued_work','native_graph','workspace_scene','canvas_starter','chain_model','chain_connections','stage_model','stage_parameters','module_contracts','result_data')
 
 def select_release(arguments):
     # Preserve historical last-version-flag precedence in build_windows.py.

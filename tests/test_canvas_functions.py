@@ -152,7 +152,11 @@ class FunctionTests(unittest.TestCase):
         self.c.view.scale(.8,.8); transform=self.c.view.transform(); center=self.c.view.mapToScene(self.c.view.viewport().rect().center())
         self.w.show_page(self.w.recent); QTest.qWait(40); sheet=self.w.recent_sheet
         self.assertTrue(self.c.isVisible()); self.assertIs(self.w.canvas_content.currentWidget(),self.c)
-        self.assertLess(sheet.width(),self.w.width()); self.assertLess(sheet.height(),self.w.height())
+        self.assertEqual(sheet.geometry(),self.w.surface_stack.rect())
+        self.assertLess(sheet.surface.width(),sheet.width());self.assertLess(sheet.surface.height(),sheet.height())
+        self.assertGreater(sheet.surface.x(),0);self.assertGreater(sheet.surface.y(),0)
+        self.assertLess(sheet.surface.geometry().right(),sheet.width()-1)
+        self.assertLess(sheet.surface.geometry().bottom(),sheet.height()-1)
         self.assertTrue(sheet.isAncestorOf(self.w.recent)); self.assertTrue(self.w.recent.images.isVisible())
         QTest.keyClick(sheet,Qt.Key.Key_Escape); QTest.qWait(30)
         self.assertIsNone(self.w.recent_sheet); self.assertEqual(self.c.view.transform(),transform)

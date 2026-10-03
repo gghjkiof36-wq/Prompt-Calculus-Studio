@@ -39,7 +39,7 @@ export async function applyNativeBindings(app,command,guard=()=>{},wait=value=>v
 export function installNativeQueue(app,api,request,session,notice=()=>{},timeoutMs=12000,onIdle=()=>{},externalUnavailable=()=>'',seeds=null,parameterCapabilities=null) {
     const nativeQueue=app.queuePrompt;
     const cancelledApplies=new Set(),applyOperations=new Map();
-    let stopped=false,epoch=0,active=null,ordinary=0,polling=false,acknowledging=false,composing=false,loading=0,probe='';
+    let stopped=false,epoch=0,active=null,ordinary=0,polling=false,pollRequested=false,acknowledging=false,composing=false,loading=0,probe='';
     const nativeLoader=app.loadGraphData;
     // Observe native loads from their entry, before clean()/async validation.
     // Delegate unchanged; ordinary editing and undo are never refused here.
@@ -50,10 +50,10 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
             const result=await nativeLoader.apply(this,args);
             seeds?.resume?.(app.rootGraph,app.extensionManager?.workflow?.activeWorkflow);
             return result;
-        }finally{loading--;}
+        }finally{loading--;wake();}
     }:null;
     if(loaderObserver)app.loadGraphData=loaderObserver;
-    const compositionStart=()=>{composing=true;},compositionEnd=()=>{composing=false;};
+    const compositionStart=()=>{composing=true;},compositionEnd=()=>{composing=false;wake();};
     globalThis.document?.addEventListener?.('compositionstart',compositionStart,true);
     globalThis.document?.addEventListener?.('compositionend',compositionEnd,true);
     // Existing queued native operations cannot be associated after the fact.
@@ -92,7 +92,7 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
         // Only defer across our short serialization transaction, never GPU work.
         if(active)await new Promise(resolve=>nativeClicks.push(resolve));
         ordinary++;
-        try {return await nativeQueue.apply(this,args);} finally {ordinary--;}
+        try {return await nativeQueue.apply(this,args);} finally {ordinary--;wake();}
     };
     const nativeClicks=[];
     function release(operation){
@@ -387,14 +387,33 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
                 if(result.error)notice(result.error,true);
             }
         } catch(error) { /* Lost reply stays unconfirmed; a poll never repeats it. */ }
-        finally {polling=false;}
+        finally {
+            polling=false;
+            if(pollRequested&&!stopped){pollRequested=false;queueMicrotask(poll);}
+        }
     }
+    function wake() {
+        if(stopped)return;
+        // A notification can race the HTTP response of the handshake poll.
+        // Drain it once after that poll, without relying on a background timer.
+        if(polling){pollRequested=true;return;}
+        void poll();
+    }
+    const pendingListener=event=>{
+        const value=event?.detail;
+        if(value?.session!==session||value.client_id!==api.clientId||typeof value.id!=='string'||!value.id)return;
+        wake();
+    };
+    api.addEventListener?.('prompt_studio_native_pending',pendingListener);
+    const visible=()=>{if(!globalThis.document?.hidden)wake();};
+    globalThis.document?.addEventListener?.('visibilitychange',visible);
     const probeListener=async event=>{
         const value=event?.detail?.probe;
         if(typeof value!=='string'||!value||value.length>100)return;
         probe=value;
         if(stopped||!api.clientId)return;
         if(polling||active||loading||app.configuringGraph) {
+            if(polling)pollRequested=true;
             // A busy acknowledgement cannot claim or execute a command. It
             // lets the waiter distinguish a live switching browser from a
             // missing browser while the original owner keeps its transaction.
@@ -425,6 +444,8 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
         globalThis.document?.removeEventListener?.('compositionstart',compositionStart,true);
         globalThis.document?.removeEventListener?.('compositionend',compositionEnd,true);
         api.removeEventListener?.('prompt_studio_native_probe',probeListener);
+        api.removeEventListener?.('prompt_studio_native_pending',pendingListener);
+        globalThis.document?.removeEventListener?.('visibilitychange',visible);
         api.removeEventListener?.('prompt_studio_native_cancel',cancelListener);
         if(app.loadGraphData===loaderObserver)app.loadGraphData=nativeLoader;
         if(app.queuePrompt===queueGate)app.queuePrompt=nativeQueue;}};

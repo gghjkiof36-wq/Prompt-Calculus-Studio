@@ -57,7 +57,7 @@ def create(state,name,duplicate=False):
     from .workflow_flow import upgrade as workflows
     from .flow_data import upgrade as inputs
     capture(state)
-    value=scene(state)
+    value=scene(state);starter=None
     if not duplicate:
         projected=copy.deepcopy(state)
         for field in FIELDS:projected.pop(field,None)
@@ -66,8 +66,12 @@ def create(state,name,duplicate=False):
         projected=inputs(workflows(clips(migrate(projected))))
         from .stage_model import upgrade as stages
         projected=stages(projected)
+        from .canvas_starter import _populate_pristine
+        starter=_populate_pristine(projected)
         value=scene(projected)
-    ident=uid();state['workspaces'].append(dict(id=ident,name=name,fixed=[],picks={},parameters={},history=[]))
+    ident=uid();workspace=dict(id=ident,name=name,fixed=[],picks={},parameters={},history=[])
+    if starter:workspace['canvas_starter']=dict(starter,workspace=ident)
+    state['workspaces'].append(workspace)
     state['workspace_scenes']['items'][ident]=value
     return ident
 

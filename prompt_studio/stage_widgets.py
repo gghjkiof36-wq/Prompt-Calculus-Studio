@@ -1,7 +1,7 @@
 """Independent Stage cards and scoped schedule editors."""
 import copy
 import json
-from PySide6.QtCore import Qt,QTimer,QSize,QEvent,QObject
+from PySide6.QtCore import Qt,QTimer,QSize,QEvent
 from PySide6.QtGui import QIcon,QImageReader,QPixmap
 from PySide6.QtWidgets import QFrame,QVBoxLayout,QListWidget,QListWidgetItem,QPlainTextEdit,QDialog,QLineEdit
 from .widgets import label,button,row,ComboBox,StudioDialog,RoundMenu,dialog_buttons
@@ -10,7 +10,7 @@ from .output_order import OutputOrderList
 from .stage_model import choose,compile_plan
 
 NAMES=dict(waiting='等待',running='執行中',preparing='準備輸入',submitted='已提交',collecting='保存結果',
-    complete='完成',paused='已暫停',failed='失敗',unconfirmed='提交未確認',result_error='圖片尚未取得',cancelled='已取消',removed='已移除',retained='已保留',retried='已建立新嘗試')
+    complete='完成',paused='已暫停',failed='失敗',unconfirmed='提交未確認',result_error='圖片尚未取得',cancelling='取消待確認',cancelled='已取消',removed='已移除',retained='已保留',retried='已建立新嘗試')
 
 
 def entry_image(item):
@@ -20,20 +20,15 @@ def entry_image(item):
     return value or next((images[0] for images in saved.get('batches',{}).values() if images),None)
 
 
-class RecentCorner(QObject):
-    def __init__(self,canvas):
-        super().__init__(canvas);self.canvas=canvas;self.viewport=canvas.view.viewport()
-        self.button=button('最近生成',canvas.window.show_recent_sheet,'Quiet');self.button.setParent(self.viewport)
-        self.button.setToolTip('開啟右側歷史面板；不改變流程圖片來源');self.viewport.installEventFilter(self);self.place()
-    def place(self):
-        self.button.adjustSize();self.button.move(max(8,self.viewport.width()-self.button.width()-16),max(8,self.viewport.height()-self.button.height()-16));self.button.show();self.button.raise_()
-    def eventFilter(self,watched,event):
-        if event.type() in (QEvent.Type.Resize,QEvent.Type.Show):self.place()
-        return False
-
-
 class PendingList(OutputOrderList):
     def __init__(self,panel):super().__init__();self.panel=panel
+    def contextMenuEvent(self,event):
+        item=self.itemAt(event.pos())
+        if item:
+            self.setCurrentItem(item)
+            self.panel.item_menu(item.data(Qt.ItemDataRole.UserRole),event.globalPos())
+        # Never propagate an item/empty-list click to the Canvas node menu.
+        event.accept()
     def startDrag(self,actions):
         item=self.panel.selected()
         if not item or item['status']!='waiting':return
@@ -70,10 +65,14 @@ class StageDialog(WorkflowBindingDialog):
 
 class StagePanel(QFrame):
     def __init__(self,canvas,key):
-        super().__init__();self.canvas=canvas;self.key=key;self.setObjectName('InsetPanel')
-        body=QVBoxLayout(self);body.setContentsMargins(14,10,14,14)
-        body.addWidget(button('選擇工作流',self.edit,'Quiet'))
+        super().__init__();self.canvas=canvas;self.key=key;self.setObjectName('CanvasModuleBody')
+        body=QVBoxLayout(self);body.setContentsMargins(4,8,4,4);body.setSpacing(8)
+        self.edit_button=button('選擇工作流',self.edit)
+        from .ui_icons import icon
+        self.edit_button.setIcon(icon('workflow'));self.edit_button.setProperty('iconName','workflow')
+        body.addWidget(self.edit_button)
         self.status=label('','Subtle',True);body.addWidget(self.status)
+        body.addStretch()
         self.canvas.window.comfy.stateChanged.connect(self.refresh)
 
     def edit(self):
@@ -81,6 +80,9 @@ class StagePanel(QFrame):
         open_parameters(self.canvas,self.key)
 
     def refresh(self):
+        from .canvas_onboarding import setup_action
+        selected=not setup_action(self.canvas,self.edit_button,'stages',self.key,emphasize_pending=True)
+        self.edit_button.setText('調整參數' if selected else '選擇工作流')
         runner=self.canvas.window.comfy.input_flow.chain
         error=next((a.get('error','') for a in reversed(runner.store.rows('attempt',self.canvas.window.state['workspace']))
                     if a.get('stage')==self.key and a['status'] in ('failed','unconfirmed','result_error')), '')
@@ -91,17 +93,57 @@ class StagePanel(QFrame):
 
 class SchedulePanel(QFrame):
     def __init__(self,canvas,key):
-        super().__init__();self.canvas=canvas;self.key=key;self.rows=[];self.dragging=False;self.setObjectName('InsetPanel')
-        body=QVBoxLayout(self);body.setContentsMargins(14,12,14,12)
+        super().__init__();self.canvas=canvas;self.key=key;self.rows=[];self.dragging=False;self.setObjectName('CanvasModuleBody')
+        body=QVBoxLayout(self);body.setContentsMargins(4,8,4,4);body.setSpacing(10)
         self.summary=label('','Subtle',True);body.addWidget(self.summary)
         self.policy_button=button('輸入取值',self.policies,'Quiet')
-        body.addLayout(row(self.policy_button,button('增加資料接點',self.add_channel,'Quiet')))
-        self.list=PendingList(self);self.list.setIconSize(QSize(48,48));self.list.setMinimumHeight(180)
+        self.policy_button.setParent(self);self.policy_button.hide()
+        self.list=PendingList(self);self.list.setIconSize(QSize(48,48));self.list.setMinimumHeight(96)
         self.list.orderChanged.connect(self.reordered);self.list.itemDoubleClicked.connect(self.detail);body.addWidget(self.list,1)
-        body.addWidget(label('拖曳等待項目調整順序；雙擊查看完整內容。','Subtle',True))
-        body.addLayout(row(button('暫停',lambda:self.action('pause'),'Quiet'),button('繼續',lambda:self.action('resume'),'Quiet'),button('取消流程',lambda:self.action('cancel'),'Quiet')))
-        body.addLayout(row(button('移除等待項目',self.remove,'Quiet'),button('歷史',lambda:show_history(canvas.window),'Quiet')))
+        self.list.removeRequested.connect(lambda ids:self.remove(ids[0]) if ids else None)
+        self.list.setToolTip('拖曳調整順序；雙擊查看內容；右鍵處理此項')
+        self.empty=label('執行後，等待項目會顯示在這裡。','Subtle',True);self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty.setMinimumHeight(110);body.addWidget(self.empty,1)
+        self.pause_button=button('暫停',self.toggle_pause)
+        self.more=button('更多',self.more_actions,'Quiet')
+        history=button('歷史',lambda:show_history(canvas.window),'Quiet')
+        from .ui_icons import icon
+        history.setIcon(icon('history'));history.setProperty('iconName','history')
+        body.addLayout(row(self.more,history,None,self.pause_button))
         self.canvas.window.comfy.stateChanged.connect(self.refresh);self.refresh()
+
+    def toggle_pause(self):
+        paused=self.runner.store.scheduler_paused(self.canvas.window.state['workspace'],self.key)
+        self.action('resume' if paused else 'pause')
+
+    def more_actions(self):
+        menu=RoundMenu(self)
+        menu.addAction('增加資料接點',self.add_channel)
+        if self.canvas.data()['schedulers'].get(self.key,{}).get('mode')=='stage':menu.addAction('輸入取值',self.policies)
+        menu.addSeparator()
+        selected=self.selected();ident=selected['id'] if selected else None
+        remove=menu.addAction('移除選取項目',lambda:self.remove(ident));remove.setEnabled(bool(ident and self.runner.can_remove_entry(ident)))
+        cancel=menu.addAction('取消目前項目',lambda:self.cancel_current());cancel.setEnabled(bool(self.rows))
+        menu.addSeparator()
+        all_runs=menu.addAction('取消此處所有流程（含等待項目）',lambda:self.action('cancel'));all_runs.setEnabled(bool(self.rows))
+        menu.open_for(self.more,self.canvas.view)
+
+    def item_menu(self,ident,position):
+        item=self.runner.store.read(ident)
+        if not item:return
+        menu=RoundMenu(self)
+        menu.addAction('查看此項內容',lambda:entry_detail(self.canvas.window,self.runner.store.read(ident)))
+        remove=menu.addAction('移除此項',lambda:self.remove(ident));remove.setEnabled(self.runner.can_remove_entry(ident))
+        cancel=menu.addAction('取消此項',lambda:self.cancel_current(ident))
+        cancel.setEnabled(item['status']=='running')
+        menu.open_at(position)
+
+    def cancel_current(self,ident=None):
+        if ident is None:ident=next((r['id'] for r in self.entries() if r['status']=='running'),None)
+        if ident:
+            try:self.runner.cancel_current(ident)
+            except ValueError as exc:self.canvas.window.notice(str(exc))
+        else:self.action('pause')
 
     @property
     def runner(self):return self.canvas.window.comfy.input_flow.chain
@@ -126,13 +168,17 @@ class SchedulePanel(QFrame):
             source=entry_image(item);counts=[len(v) for v in item['saved'].get('batches',{}).values()]
             count=1 if item.get('source') else max(counts) if counts else 1 if source else None
             entry=self.list.item(index);entry.setText(f"{index+1} · {item['label']}\n{NAMES.get(self.runner.entry_status(item),item['status'])}"+(' · '+str(count)+' 張' if count is not None else '')+(' · '+source['name'] if source else ''))
-            entry.setToolTip('雙擊查看完整內容');entry.setFlags(entry.flags() | Qt.ItemFlag.ItemIsDragEnabled if item['status']=='waiting' else entry.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
+            entry.setToolTip('雙擊查看內容；右鍵處理此項');entry.setFlags(entry.flags() | Qt.ItemFlag.ItemIsDragEnabled if item['status']=='waiting' else entry.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
             if source:entry.setIcon(QIcon(str(self.canvas.window.store.directory/source['relative'])))
         self.list.blockSignals(False);self.rows=rows
-        self.policy_button.setVisible(value.get('mode')=='stage')
         mode='Stage 組合' if value.get('mode')=='stage' else '資料輸入'
-        if self.runner.store.scheduler_paused(self.canvas.window.state['workspace'],self.key):mode+=' · 已暫停'
-        self.summary.setText(mode+' · '+str(len(rows))+'／10 個未結束項目\n'+self.runner.progress()+'\n'+self.runner.expansion(self.key,len(rows) or self.canvas.window.state['settings'].get('comfy_count',1)))
+        paused=self.runner.store.scheduler_paused(self.canvas.window.state['workspace'],self.key)
+        self.pause_button.setText('繼續' if paused else '暫停')
+        self.pause_button.setToolTip('繼續處理等待項目' if paused else '暫停此預排程')
+        self.empty.setVisible(not rows);self.list.setVisible(bool(rows))
+        status='已暫停' if paused else str(len(rows))+' 項等待中' if rows else '尚無等待項目'
+        self.summary.setText(mode+' · '+status)
+        self.summary.setToolTip(self.runner.progress()+'\n'+self.runner.expansion(self.key,len(rows) or self.canvas.window.state['settings'].get('comfy_count',1)))
 
     def reordered(self):
         ids=[self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]
@@ -148,10 +194,10 @@ class SchedulePanel(QFrame):
         item=self.selected()
         if item:entry_detail(self.canvas.window,item)
 
-    def remove(self):
-        item=self.selected()
+    def remove(self,ident=None):
+        item=self.runner.store.read(ident) if ident else self.selected()
         try:
-            if item:self.runner.store.remove(item['id']);self.runner.later();self.refresh()
+            if item:self.runner.remove_entry(item['id']);self.refresh()
         except ValueError as exc:self.canvas.window.notice(str(exc))
 
     def action(self,method):
@@ -178,7 +224,7 @@ class SchedulePanel(QFrame):
                     channels.append(dict(id=kind+str(number),type=kind,name=TYPE_NAMES[kind]+str(number)))
                 self.canvas.commit(change)
             menu.addAction(TYPE_NAMES[kind],add)
-        menu.open_at(self.cursor().pos())
+        menu.open_for(self.more,self.canvas.view)
 
     def policies(self):
         try:plan=compile_plan(self.canvas.window.state)

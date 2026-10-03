@@ -6,6 +6,7 @@ from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QPlainTextEdit, QCompleter
 from .core import current_token, insertion, contains_chinese, format_candidate
 from .network import danbooru, google_translate, LookupError
+from .widgets import style_completion
 
 
 class Signals(QObject):
@@ -47,7 +48,7 @@ class PromptEdit(QPlainTextEdit):
         self.completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.completer.setMaxVisibleItems(10)
-        self.completer.popup().setObjectName("CompletionPopup")
+        style_completion(self.completer,self,service.window)
         self.completer.activated[str].connect(self.insert_completion)
         self.textChanged.connect(self.schedule)
         self.cursorPositionChanged.connect(self.schedule)

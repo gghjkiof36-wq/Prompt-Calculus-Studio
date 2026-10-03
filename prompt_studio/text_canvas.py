@@ -72,6 +72,7 @@ class TextCanvas(QWidget):
     def __init__(self, window):
         super().__init__(); self.window = window; self.root_id = None; self.path = []
         self.undo_stack = []; self.redo_stack = []; self.last_state = None; self.entries = {}; self.output=None; self.preview_card=None; self.cards={}
+        self._hidden_view=None; self._has_presented_view=False
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0)
         self.view = CanvasView(self); layout.addWidget(self.view, 1)
         from .canvas_functions import CanvasFunctions
@@ -96,9 +97,37 @@ class TextCanvas(QWidget):
         if self.preview_card is not None: self.preview_card.update_text()
         self.functions.layout()
 
+    def refresh_visual_theme(self):
+        """Repaint the existing graph without changing document or view state."""
+        from PySide6.QtGui import QColor
+        from PySide6.QtWidgets import QGraphicsProxyWidget
+        from .canvas_items import canvas_colors
+        colors=canvas_colors(self)
+        self.view.setBackgroundBrush(QColor(colors['base']))
+        sheet=self.window.styleSheet()
+        for item in self.view.scene().items():
+            if isinstance(item,QGraphicsProxyWidget) and item.widget() is not None:
+                panel=item.widget();panel.setPalette(self.window.palette())
+                if panel.styleSheet()!=sheet:panel.setStyleSheet(sheet)
+            item.update()
+        for port in getattr(self,'ports',{}).values():
+            from .flow_items import caption_color
+            port.caption.setBrush(caption_color(self,port.kind))
+        for card in [*getattr(self,'clips',{}).values(),*getattr(self,'flow_cards',{}).values()]:
+            if hasattr(card.panel,'refresh'):card.panel.refresh()
+        if hasattr(self,'execution_bar'):self.execution_bar.refresh_visual_theme()
+        self.view.viewport().update()
+
     def showEvent(self,event):
         super().showEvent(event)
         QTimer.singleShot(0,self.present)
+
+    def hideEvent(self,event):
+        if self._has_presented_view:
+            state=self.window.state
+            origin=self.view.viewportTransform().inverted()[0].map(QPointF(0,0))
+            self._hidden_view=(state,state.get('workspace'),self.view.transform().m11(),origin)
+        super().hideEvent(event)
 
     def present(self):
         if not self.isVisible() or self.window.closing: return
@@ -106,8 +135,24 @@ class TextCanvas(QWidget):
         # Populate only after Qt has assigned the full viewport geometry.
         if self.parentWidget() and self.parentWidget().layout(): self.parentWidget().layout().activate()
         self.layout().activate(); self.refresh(); self.restore_view(); self.view.viewport().update()
+        self._has_presented_view=True
+
+    def restore_hidden_view(self):
+        previous=self._hidden_view; self._hidden_view=None
+        if not previous or previous[0] is not self.window.state or previous[1]!=self.window.state.get('workspace'):
+            return False
+        _,_,scale,origin=previous
+        view=self.view;view.resetTransform();view.scale(scale,scale)
+        center=origin+QPointF(view.viewport().width()/scale/2,view.viewport().height()/scale/2)
+        view.centerOn(center)
+        # A second layout/show callback must restore this newly sized viewport,
+        # not the center saved before leaving for another page.
+        point=view.viewportTransform().inverted()[0].map(QPointF(view.viewport().width()/2,view.viewport().height()/2))
+        self.window.state['canvas_view']=[scale,point.x(),point.y()]
+        return True
 
     def restore_view(self):
+        if self.restore_hidden_view():return
         saved=self.window.state.get('canvas_view')
         if saved:
             self.view.resetTransform();self.view.scale(saved[0],saved[0]);self.view.centerOn(saved[1],saved[2])
@@ -291,6 +336,11 @@ class TextCanvas(QWidget):
     def zoom(self, factor):
         scale = self.view.transform().m11()
         if .3 <= scale*factor <= 2.5: self.view.scale(factor, factor)
+
+    def zoom_to(self,scale=1.):
+        center=self.view.mapToScene(self.view.viewport().rect().center())
+        self.view.resetTransform();self.view.scale(max(.3,min(2.5,scale)),max(.3,min(2.5,scale)))
+        self.view.centerOn(center)
 
     def move_cards(self, positions):
         self.commit(lambda s: s.setdefault('text_positions', {}).update(positions))

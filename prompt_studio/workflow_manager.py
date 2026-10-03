@@ -1,10 +1,45 @@
 """Saved workflow files; Canvas owns all prompt and image bindings."""
 import copy,json,sqlite3
-from PySide6.QtCore import Qt,QTimer,QSize
-from PySide6.QtWidgets import QWidget,QVBoxLayout,QListWidget,QListWidgetItem,QFileDialog,QLineEdit,QCheckBox,QDialog
-from .widgets import label,button,row,ComboBox,InputDialog,StudioDialog
+from PySide6.QtCore import Qt,QTimer,QSize,QEvent
+from PySide6.QtWidgets import QWidget,QVBoxLayout,QBoxLayout,QListWidget,QListWidgetItem,QFileDialog,QLineEdit,QCheckBox,QDialog,QSizePolicy,QStyle,QStyleOptionComboBox
+from .widgets import label,button,row,ComboBox,InputDialog,StudioDialog,RoundMenu,ActionHeader,ElidedLabel
 from .generation import active_profile,validate_profile
 from .workflow_catalog import WorkflowCatalog
+from .ui_icons import icon
+
+
+class FolderComboBox(ComboBox):
+    """Keep the default folder readable and elide unusually long paths."""
+    def __init__(self):
+        super().__init__()
+        self.fit_label()
+
+    def fit_label(self):
+        option=QStyleOptionComboBox();self.initStyleOption(option)
+        field=self.style().subControlRect(QStyle.ComplexControl.CC_ComboBox,option,QStyle.SubControl.SC_ComboBoxEditField,self)
+        chrome=max(48,self.width()-field.width())+2
+        width=max(130,self.fontMetrics().horizontalAdvance('全部資料夾')+chrome)
+        self.setMinimumWidth(width);self.setMaximumWidth(max(220,width))
+
+    def event(self,event):
+        result=super().event(event)
+        if event.type() in (QEvent.Type.FontChange,QEvent.Type.StyleChange,QEvent.Type.Show):self.fit_label()
+        return result
+
+    def sizeHint(self):
+        size=super().sizeHint();size.setWidth(max(self.minimumWidth(),min(self.maximumWidth(),size.width())))
+        return size
+
+class FolderActionHeader(ActionHeader):
+    def minimumSizeHint(self):
+        # Advertise the stacked minimum before the outer scroll area decides
+        # whether this row fits; the horizontal sum would prevent reflow.
+        size=super().minimumSizeHint()
+        actions=[action for action in self.actions if not action.isHidden()]
+        action_width=sum(action.minimumSizeHint().width() for action in actions)+8*max(0,len(actions)-1)
+        size.setWidth(max(self.title.minimumWidth(),self.title.minimumSizeHint().width(),action_width))
+        return size
+
 
 class WorkflowManager(QWidget):
     def __init__(self,window):
@@ -16,9 +51,17 @@ class WorkflowManager(QWidget):
         if saved: self.deleted=json.loads(saved[0])
         body=QVBoxLayout(self); body.setContentsMargins(0,0,0,0); body.setSpacing(12)
         self.query=QLineEdit(); self.query.setPlaceholderText('搜尋工作流名稱或資料夾'); self.query.setClearButtonEnabled(True)
+        self.query.setAccessibleName('搜尋工作流'); self.query.setMaximumWidth(680)
         self.source=ComboBox(); self.source.addItem('全部來源','all'); self.source.addItem('ComfyUI 已儲存','comfy'); self.source.addItem('桌面已連結','desktop')
-        self.folder=ComboBox(); self.folder.addItem('全部資料夾',''); self.folder.setMinimumWidth(130); self.folder.setMaximumWidth(220)
-        body.addLayout(row(self.query,self.source)); body.addLayout(row(self.folder,button('重新整理',self.reload,'Quiet'),None,button('匯入檔案…',window.generation_panel.import_workflow,'Quiet')))
+        self.source.setAccessibleName('工作流來源'); self.source.setMaximumWidth(220)
+        self.folder=FolderComboBox(); self.folder.addItem('全部資料夾','')
+        self.search_row=QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self.search_row.addWidget(self.query,1); self.search_row.addWidget(self.source); self.search_row.addStretch()
+        body.addLayout(self.search_row)
+        self.reload_button=button('重新整理',self.reload,'Quiet'); self.reload_button.setProperty('iconName','refresh')
+        self.import_button=button('匯入工作流…',window.generation_panel.import_workflow,'Primary'); self.import_button.setIcon(icon('plus',color='on-accent'))
+        self.folder_actions=FolderActionHeader(self.folder,self.reload_button,self.import_button)
+        body.addWidget(self.folder_actions)
         self.catalog_status=label('','Subtle',True); body.addWidget(self.catalog_status); self.catalog_status.hide()
         self.list=QListWidget(); self.list.setTextElideMode(Qt.TextElideMode.ElideRight); self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list.setStyleSheet('QListWidget::item { padding:7px 12px; margin:1px 0; border-radius:7px; }')
@@ -27,11 +70,27 @@ class WorkflowManager(QWidget):
         self.read_button=button('讀取節點',self.read_selected,'Quiet')
         self.rename_button=button('重新命名',self.rename,'Quiet'); self.reimport_button=button('重新匯入…',self.reimport,'Quiet')
         self.delete_button=button('刪除',self.remove,'DeleteWorkflow'); self.undo_button=button('復原刪除',self.undo_remove,'Quiet'); self.undo_button.setEnabled(bool(self.deleted))
-        body.addLayout(row(self.read_button,None,self.undo_button,self.delete_button))
-        body.addLayout(row(self.rename_button,self.reimport_button,None))
-        self.info=label('','Subtle',True); body.addWidget(self.info)
+        # Keep the original controls as the action state holders; the menu
+        # dispatches their existing signals instead of duplicating behaviour.
+        for control in (self.rename_button,self.reimport_button,self.delete_button,self.undo_button):
+            control.setParent(self); control.hide()
+        self.more_button=button('更多',self.open_actions,'Quiet'); self.more_button.setProperty('iconName','chevron-down')
+        self.info=ElidedLabel(''); self.info.setObjectName('Subtle'); self.info.setMinimumWidth(0)
+        self.info.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred)
+        body.addWidget(ActionHeader(self.info,self.read_button,self.more_button))
         window.generation_panel.importFeedback.connect(self.refresh)
         window.comfy.stateChanged.connect(self.refresh); self.refresh()
+
+    def open_actions(self):
+        menu=RoundMenu(self)
+        for control in (self.rename_button,self.reimport_button,self.delete_button,self.undo_button):
+            if control is self.delete_button:menu.addSeparator()
+            action=menu.addAction(control.text(),control.click); action.setEnabled(control.isEnabled())
+        menu.open_for(self.more_button)
+
+    def resizeEvent(self,event):
+        self.search_row.setDirection(QBoxLayout.Direction.TopToBottom if self.width()<500 else QBoxLayout.Direction.LeftToRight)
+        super().resizeEvent(event)
     def entry(self):
         item=self.list.currentItem(); return self.entries.get(item.data(Qt.ItemDataRole.UserRole)) if item else None
     def selected(self):
@@ -92,6 +151,7 @@ class WorkflowManager(QWidget):
         self.read_button.setEnabled(entry is not None and not self.loading)
         for widget in (self.rename_button,self.reimport_button): widget.setEnabled(profile is not None and not self.loading)
         self.reimport_button.setText('重新讀取' if entry and entry['kind']=='comfy' else '重新匯入…')
+        self.more_button.setEnabled(entry is not None or self.undo_button.isEnabled())
         if not profile: self.info.setText(entry['path'] if entry else ''); return
         self.info.setText(profile['name']+' · '+str(len(profile['graph']))+' 個節點')
     def read_selected(self):

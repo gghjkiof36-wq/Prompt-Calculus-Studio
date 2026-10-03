@@ -3,7 +3,7 @@ import copy
 import json
 import os
 from pathlib import Path
-from PySide6.QtCore import Qt, QTimer, QSize, QPoint, QUrl, QEvent, QVariantAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QTimer, QSize, QPoint, QPointF, QUrl, QEvent, QVariantAnimation, QEasingCurve
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut, QDesktopServices
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QComboBox,
     QSplitter, QListWidget, QListWidgetItem, QTreeWidget, QTreeWidgetItem, QPlainTextEdit,
@@ -16,7 +16,8 @@ from .widgets import label, button, row, panel, ask, preview_path, WindowShell, 
 from .views import PromptDelegate, PromptList, BuilderTree, DETAIL_ROLE
 from .dialogs import ItemDialog, SettingsDialog, WorkspaceDialog, ModuleDialog, ClearDraftDialog
 from .pages import ModelPage, GalleryPage
-from .theme import stylesheet, apply_backdrop, update_window_shape
+from .theme import stylesheet, apply_backdrop, update_window_shape, widget_palette
+from .studio_navigation import StudioNavigation, ContentStack
 from .display import DisplayRecovery
 from .comfy_client import ComfyClient
 from .recent import RecentPage
@@ -36,6 +37,10 @@ from .widgets import StudioDialog,widget_global_position
 class Window(QMainWindow):
     def __init__(self, data_dir):
         super().__init__()
+        from .tooltips import install_tooltip_styling
+        install_tooltip_styling()
+        from .button_focus import install_button_focus_styling
+        install_button_focus_styling()
         # Keep WS_CAPTION / WS_THICKFRAME. Alpha painting into a native frame
         # uses DWM redirection; FramelessWindowHint would use WS_EX_LAYERED.
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowTitleHint |
@@ -45,15 +50,20 @@ class Window(QMainWindow):
         from .releases import window_title
         self.setWindowTitle(window_title())
         self.setWindowIcon(QIcon(str(Path(__file__).parent/"assets"/"studio.ico")))
-        self.resize(1440,900); self.setMinimumSize(960,620)
-        self.fresh_install=not (Path(data_dir)/'studio.sqlite3').exists()
-        self.store=Storage(data_dir); self.state=self.store.load_current(multi=os.environ.get('PROMPT_STUDIO_V08')=='1'); self.catalog=Catalog(self.store)
+        self.resize(1440,900); self.setMinimumSize(640,480)
+        self.store=Storage(data_dir)
+        self.fresh_install=self.store.db.execute('SELECT 1 FROM document WHERE id=1').fetchone() is None
+        self.state=self.store.load_current(multi=os.environ.get('PROMPT_STUDIO_V08')=='1'); self.catalog=Catalog(self.store)
+        from .canvas_starter import initialize
+        self.state=initialize(self.state,fresh_install=self.fresh_install)
         interface=self.state['settings'].get('interface_mode','ask')
         if interface=='ask' and not self.fresh_install: self.state['settings']['interface_mode']=self.state['selection_view']
         elif interface in ('list','canvas'): activate_selection_view(self.state,interface)
         self.completion=CompletionService(self); self.jobs=Jobs(self)
         self.updating=False; self.closing=False; self.library_page=0; self.first_models=True
         self.navigation_ready=False; self.navigation_locked=False; self.navigation_history=[('home',None)]; self.navigation_index=0; self.navigation_buttons=[]
+        self.sidebar_pinned_preference=None
+        self._syncing_sidebar=False
         available={m["id"] for m in self.state["modules"]}
         self.current_module=self.state.get("current_module")
         if self.current_module not in available:
@@ -62,8 +72,19 @@ class Window(QMainWindow):
         self.changes=ChangeCoordinator(self)
         self.filter_timer=QTimer(self); self.filter_timer.setSingleShot(True); self.filter_timer.timeout.connect(self.refresh_library)
         self.host_shell=WindowShell(self); self.setCentralWidget(self.host_shell)
-        surface_layout=QVBoxLayout(self.host_shell); surface_layout.setContentsMargins(0,0,0,0)
-        self.surface_stack=QStackedWidget(); surface_layout.addWidget(self.surface_stack)
+        surface_layout=QVBoxLayout(self.host_shell); surface_layout.setContentsMargins(0,0,0,0); surface_layout.setSpacing(0)
+        self.studio_navigation=StudioNavigation(self); surface_layout.addWidget(self.studio_navigation)
+        from .window_chrome import install_expanded_chrome
+        self.window_chrome=install_expanded_chrome(self)
+        if self.window_chrome:
+            self.studio_navigation.set_caption_inset(self.window_chrome.caption_right_inset)
+            self.window_chrome.insetChanged.connect(self.studio_navigation.set_caption_inset)
+        workspace_row=QHBoxLayout();workspace_row.setContentsMargins(0,0,0,0);workspace_row.setSpacing(0)
+        from .context_rail import ContextRail
+        self.context_rail=ContextRail(self);workspace_row.addWidget(self.context_rail)
+        self.surface_stack=ContentStack(rounded=True);workspace_row.addWidget(self.surface_stack,1)
+        surface_layout.addLayout(workspace_row,1)
+        surface_layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         shell=QWidget(); self.list_shell=shell; self.surface_stack.addWidget(shell)
         outer=QVBoxLayout(shell); outer.setContentsMargins(24,8,24,8); outer.setSpacing(4)
         content=QWidget(); content.setMaximumWidth(1560)
@@ -71,11 +92,11 @@ class Window(QMainWindow):
         main=QVBoxLayout(content); main.setContentsMargins(0,12,0,0); main.setSpacing(16)
         self.workspace=QComboBox(); self.workspace.setMinimumWidth(190); self.workspace.setMaximumWidth(310); self.workspace.currentIndexChanged.connect(self.switch_workspace)
         self.tagline=label("工作區","Eyebrow")
-        workspace_menu=button("⋯",self.workspace_menu,"Quiet"); workspace_menu.setFixedWidth(38); workspace_menu.setToolTip("工作區設定、新增與刪除")
+        workspace_menu=button("",self.workspace_menu,"Quiet"); workspace_menu.setProperty('iconName','menu'); workspace_menu.setFixedWidth(38); workspace_menu.setToolTip("工作區設定、新增與刪除")
         main.addLayout(row(self.tagline,self.workspace,workspace_menu,
-            button("設定",self.settings,"Quiet"),None))
-        self.comfy_status=label('未連線時可複製 Prompt；連線並綁定後由桌面直接運行。','Subtle',True); main.addWidget(self.comfy_status)
-        self.tabs=QTabWidget(); main.addWidget(self.tabs,1)
+            button("切換畫布",lambda:self.set_interface_mode('canvas'),"Quiet"),None))
+        self.comfy_status=label('ComfyUI 尚未連線','Subtle',True); main.addWidget(self.comfy_status)
+        self.tabs=QTabWidget(); self.tabs.tabBar().hide(); main.addWidget(self.tabs,1)
         self.tabs.addTab(self.make_prompt_page(),"提示詞")
         self.models=ModelPage(self)
         self.gallery=GalleryPage(self); self.tabs.addTab(self.gallery,"媒體庫")
@@ -93,6 +114,9 @@ class Window(QMainWindow):
         self.refresh_workspaces(); self.refresh_modules(); self.refresh_library(); self.refresh_builder(); self.apply_theme()
         if self.state.get('selection_view')=='canvas': self.enter_canvas()
         self.display_recovery=DisplayRecovery(self)
+        from .sidebar_peek import SidebarPeekController
+        self.sidebar_peek=SidebarPeekController(self,self.context_sidebar_target)
+        self.sync_context_sidebar()
         self.navigation_ready=True
         for sequence,handler in [("Ctrl+F",self.focus_search),("Ctrl+Shift+C",self.copy_final),("Ctrl+,",self.settings)]:
             shortcut=QShortcut(QKeySequence(sequence),self); shortcut.activated.connect(handler)
@@ -109,6 +133,12 @@ class Window(QMainWindow):
         self.prompt_modes=QTabWidget(); layout.addWidget(self.prompt_modes,1)
         self.prompt_modes.tabBar().hide()
         list_page=QWidget(); list_layout=QVBoxLayout(list_page); list_layout.setContentsMargins(0,0,0,0)
+        self.list_compact=QWidget(); compact=row(); self.list_compact.setLayout(compact)
+        self.compact_modules=QComboBox(); self.compact_modules.currentIndexChanged.connect(self.compact_module_changed)
+        self.compact_output=QComboBox(); self.compact_output.addItems(['挑選素材','Prompt 輸出']); self.compact_output.currentIndexChanged.connect(self.adapt_prompt_layout)
+        compact.addWidget(self.compact_modules,1); compact.addWidget(self.compact_output)
+        compact.addWidget(button('編輯模組',self.edit_module,'Quiet')); list_layout.addWidget(self.list_compact)
+        self.list_compact.hide(); self.prompt_compact=False
         self.prompt_modes.addTab(list_page,'清單')
         from .quiet_splitter import QuietSplitter
         self.split=QuietSplitter(guided_handles={1}); list_layout.addWidget(self.split,1)
@@ -122,7 +152,10 @@ class Window(QMainWindow):
         self.module_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu); self.module_list.customContextMenuRequested.connect(self.module_context)
         modules.addWidget(self.module_list,1)
         modules.addWidget(button("編輯模組",self.edit_module,"Quiet"))
-        self.library_panel,library=panel(); self.split.addWidget(self.library_panel)
+        self.library_panel,library=panel()
+        self.library_scroll=QScrollArea(); self.library_scroll.setWidgetResizable(True); self.library_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.library_scroll.setWidget(self.library_panel); self.split.addWidget(self.library_scroll)
+        library.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         self.library_title=label("素材庫","Heading")
         library.setContentsMargins(8,12,14,12)
         toggle=button("☰",self.toggle_modules,"Quiet"); toggle.setToolTip("顯示／收合模組"); toggle.setFixedWidth(36)
@@ -194,36 +227,31 @@ class Window(QMainWindow):
         self.canvas.results=CanvasResults(self)
         self.canvas_shell=QWidget(); layout=QVBoxLayout(self.canvas_shell)
         layout.setContentsMargins(0,0,0,0); layout.setSpacing(0)
-        self.canvas_header=QWidget(); header=QHBoxLayout(self.canvas_header)
-        header.setContentsMargins(8,2,8,2); header.setSpacing(0)
+        self.canvas_header=QWidget();self.canvas_header.setObjectName('CanvasWorkspaceInset'); header=QHBoxLayout(self.canvas_header)
+        header.setContentsMargins(24,16,24,0); header.setSpacing(0)
         self.canvas_header.setStyleSheet('QPushButton { padding:4px 10px; } QComboBox { padding:4px 34px 4px 10px; }')
-        layout.addWidget(self.canvas_header)
-        self.canvas_workspace=QComboBox(); self.canvas_workspace.setFixedWidth(156)
+        self.canvas_header.hide()
+        from .recent_sidebar import CanvasWorkspaceCombo
+        self.canvas_workspace=CanvasWorkspaceCombo(); self.canvas_workspace.setFixedWidth(156)
         self.canvas_workspace.currentIndexChanged.connect(self.canvas_workspace_changed)
         self.canvas_status=label('','CanvasNotice',True)
-        self.canvas_status.setStyleSheet('QLabel#CanvasNotice { color:#c4ccd8; background:rgba(28,31,38,235); border-radius:6px; padding:6px 10px; }')
         self.canvas.view.set_status_widget(self.canvas_status)
         self.canvas_mode=False
         self.canvas_connect=button('連線',lambda:self.settings('workflows'),'Quiet')
         self.canvas_backup=button('資料',self.data_menu,'Quiet')
-        header.addWidget(self.canvas_workspace)
-        header.addWidget(self.navigation_button(-1)); header.addWidget(self.navigation_button(1))
-        header.addWidget(button('⋯',self.workspace_menu,'Quiet'))
-        header.addWidget(button('畫布',self.return_to_prompt,'Quiet'))
+        canvas_menu=button('',self.workspace_menu,'IconButton'); canvas_menu.setProperty('iconName','more-horizontal'); canvas_menu.setFixedSize(32,32); canvas_menu.setToolTip('工作區操作');canvas_menu.setAccessibleName('工作區操作')
         self.canvas_navigation={}
-        for title,page in [('媒體庫',self.gallery),('匯出',self.clean_export)]:
-            if title=='匯出':
-                self.canvas_settings=button('設定',self.settings,'Quiet'); header.addWidget(self.canvas_settings)
-            entry=button(title,lambda checked=False,p=page:self.show_page(p),'Quiet')
-            self.canvas_navigation[title]=entry; header.addWidget(entry)
         self.canvas_connection_status=ElidedLabel(self.comfy_status.text()); self.canvas_connection_status.setObjectName('Subtle')
         self.canvas_connection_status.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred)
         self.canvas_connection_status.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
         self.canvas_connection_status.setToolTip(self.comfy_status.text())
-        header.addWidget(self.canvas_connection_status,1)
+        self.canvas_connection_status.hide()
         self.canvas_connect.hide(); self.canvas_backup.hide()
         self.canvas_content=QStackedWidget(); self.canvas_content.addWidget(self.canvas); self.canvas_auxiliary=None
-        layout.addWidget(self.canvas_content,1); self.surface_stack.addWidget(self.canvas_shell)
+        from .recent_sidebar import CanvasWorkspaceBar
+        self.canvas_workspace_bar=CanvasWorkspaceBar(self,self.canvas_workspace,canvas_menu)
+        header.addWidget(self.canvas_workspace_bar);header.addStretch()
+        layout.addWidget(self.canvas_header);layout.addWidget(self.canvas_content,1); self.surface_stack.addWidget(self.canvas_shell)
 
     def restore_canvas_page(self):
         if self.canvas_auxiliary is None: return
@@ -232,8 +260,9 @@ class Window(QMainWindow):
         self.tabs.insertTab(index,page,title); self.tabs.blockSignals(False)
 
     def start_interface(self):
-        if self.state['settings'].get('interface_mode')=='ask': self.surface_stack.setCurrentWidget(self.welcome)
-        else: self.return_to_prompt()
+        # Startup always opens the canvas. Switching to the list remains an
+        # explicit in-session choice; both views retain their saved drafts.
+        self.set_interface_mode('canvas')
 
     def set_interface_mode(self,mode):
         if mode not in ('list','canvas'): return
@@ -248,17 +277,22 @@ class Window(QMainWindow):
 
     def enter_canvas(self):
         if not hasattr(self,'canvas_shell'): return
+        if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
         self.canvas_mode=True
+        self.close_recent_sheet();self.canvas_header.show()
         self.latest_preview.hide()
         self.activate_prompt_view('canvas')
         self.generation_panel.refresh()
         self.restore_canvas_page(); self.canvas_content.setCurrentWidget(self.canvas)
+        self.canvas_workspace_bar.refresh()
         self.surface_stack.setCurrentWidget(self.canvas_shell)
-        self.refresh_builder(); self.changed(); QTimer.singleShot(0,self.canvas.fit)
+        self.refresh_builder(); self.changed(); QTimer.singleShot(0,self.canvas.restore_view)
         self.canvas.functions.mode_changed()
         self.record_navigation('home')
 
     def leave_canvas(self,checked=False,retain_mode=False):
+        self.close_recent_sheet()
+        if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
         self.canvas_mode=retain_mode
         self.restore_canvas_page()
         self.canvas.release_output()
@@ -270,62 +304,117 @@ class Window(QMainWindow):
         self.generation_panel.refresh(); self.record_navigation('home')
 
     def show_page(self,page):
+        if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
+        if self.surface_stack.currentWidget() is self.settings_page:self.settings_page.flush()
         if page is self.models: self.settings('models'); return
         if self.canvas_mode and page is self.recent:
             self.show_recent_sheet(); return
-        if self.canvas_mode:
+        self.close_recent_sheet()
+        if page in (self.gallery,self.clean_export) or self.canvas_mode:
+            self.canvas_header.hide()
             self.restore_canvas_page(); index=self.tabs.indexOf(page)
             if index>=0:
                 title=self.tabs.tabText(index); self.tabs.blockSignals(True); self.tabs.removeTab(index); self.tabs.blockSignals(False)
                 self.canvas_auxiliary=(page,index,title); self.canvas_content.addWidget(page)
             self.surface_stack.setCurrentWidget(self.canvas_shell); self.canvas_content.setCurrentWidget(page)
-        else: self.tabs.setCurrentWidget(page)
+        else:
+            self.surface_stack.setCurrentWidget(self.list_shell); self.tabs.setCurrentWidget(page)
         if page is self.gallery: self.gallery.refresh_albums()
         if page is self.recent: self.recent.refresh_destinations(); self.recent.request_refresh()
         self.record_navigation('page',next((name for name in ('gallery','recent','clean_export') if getattr(self,name) is page),None))
 
     def show_recent_sheet(self):
-        if self.state.get('multi_output',{}).get('version',0)>=7:
-            from PySide6.QtWidgets import QDockWidget
-            if not getattr(self,'recent_dock',None):
-                self.recent_dock=QDockWidget('最近生成',self);self.recent_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
-                self.recent_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
-                self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,self.recent_dock)
-                self.recent_dock.setMinimumWidth(350)
-                def restore_recent(visible):
-                    if not visible and self.recent_dock.widget():
-                        self.recent.setParent(None);self.tabs.insertTab(self.recent_dock_index,self.recent,'最近生成')
-                self.recent_dock.visibilityChanged.connect(restore_recent)
-            if self.recent_dock.widget():self.recent_dock.hide();return
-            self.recent_dock_index=max(0,self.tabs.indexOf(self.recent));self.tabs.removeTab(self.tabs.indexOf(self.recent))
-            self.recent_dock.setWidget(self.recent);self.recent_dock.show();self.recent.show();self.recent.request_refresh();return
-        from .widgets import DismissibleSheet
-        if getattr(self,'recent_sheet',None): self.recent_sheet.raise_(); return
-        self.restore_canvas_page()
+        self.open_recent_details()
+
+    def close_recent_sheet(self):
+        if getattr(self,'recent_sheet',None):self.recent_sheet.reject()
+
+    def open_recent_details(self,ident=None):
+        from .recent_overlay import RecentOverlay
+        if getattr(self,'recent_sheet',None):
+            if ident:self.recent.show_record(ident)
+            self.recent_sheet.raise_(); return
         index=self.tabs.indexOf(self.recent); title=self.tabs.tabText(index)
         self.tabs.blockSignals(True); self.tabs.removeTab(index); self.tabs.blockSignals(False)
-        sheet=DismissibleSheet(self); self.recent_sheet=sheet; sheet.setWindowTitle('最近生成')
-        sheet.resize(round(self.width()*.86),round(self.height()*.86))
-        sheet.body.setContentsMargins(0,0,0,0); sheet.body.addWidget(self.recent)
-        self.recent.heading.hide(); self.recent.show()
+        self.recent.details_open=False
+        sheet=RecentOverlay(self.surface_stack,self.recent); self.recent_sheet=sheet
         def restore(_):
             sheet.body.removeWidget(self.recent); self.recent.setParent(None)
             self.tabs.blockSignals(True); self.tabs.insertTab(index,self.recent,title); self.tabs.blockSignals(False)
-            self.recent.heading.show()
             self.recent_sheet=None
-            self.canvas.results.refresh()
-            if self.recent.record and self.recent.record['id'] in self.canvas.results.ids:
-                self.canvas.results.images.setCurrentRow(self.canvas.results.ids.index(self.recent.record['id']))
             sheet.deleteLater()
         sheet.finished.connect(restore)
-        self.recent.refresh_destinations(); self.recent.request_refresh(); sheet.show()
+        self.recent.refresh_destinations(); self.recent.refresh()
+        if ident:self.recent.show_record(ident)
+        else:self.recent.hide_details()
+
+    def toggle_context_sidebar(self):
+        if not hasattr(self,'settings_page'):return
+        target=self.context_sidebar_target()
+        if target is None:return
+        peek=getattr(self,'sidebar_peek',None)
+        temporary=bool(peek and peek.is_open and not peek.is_pinned_overlay)
+        pinned=bool(peek and peek.is_pinned_overlay) or (target.isVisible() and not temporary)
+        self.sidebar_pinned_preference=True if temporary else not pinned
+        self.sync_context_sidebar()
+
+    def sync_context_sidebar(self):
+        if self._syncing_sidebar or not hasattr(self,'sidebar_peek') or self.closing:return
+        if not hasattr(self,'sidebar_resize'):
+            from .sidebar_resize import SidebarResizeController
+            self.sidebar_resize=SidebarResizeController(self,self.context_sidebar_target,self.sidebar_peek)
+        target=self.context_sidebar_target()
+        self.studio_navigation.sidebar.setEnabled(target is not None)
+        if target is None:
+            self.studio_navigation.set_sidebar_pinned(False);self.context_rail.refresh(None,False);self.sidebar_resize.sync();return
+        self._syncing_sidebar=True
+        try:
+            preference=self.sidebar_pinned_preference
+            narrow=self.width()<1100
+            peek=self.sidebar_peek
+            if preference is not None:
+                if preference and narrow:
+                    if not peek.is_pinned_overlay:
+                        self._set_sidebar_in_layout(target,False)
+                        peek.show_pinned()
+                    if peek.is_pinned_overlay:target.show()
+                else:
+                    if peek.is_open:peek.close()
+                    self._set_sidebar_in_layout(target,preference)
+            pinned=peek.is_pinned_overlay or (target.isVisible() and not peek.is_open)
+            self.studio_navigation.set_sidebar_pinned(pinned)
+            self.context_rail.refresh(target,pinned and not peek.is_open)
+            self.sidebar_resize.sync()
+        finally:self._syncing_sidebar=False
+
+    def _set_sidebar_in_layout(self,target,expanded):
+        if target is self.settings_page.navigation_area:
+            self.settings_page.manual_navigation=expanded;self.settings_page.adapt_navigation()
+        elif target is self.gallery.folder_panel:self.gallery.set_sidebar_expanded(expanded)
+        elif target is self.clean_export.sidebar:
+            self.clean_export.manual_sidebar=expanded;self.clean_export.adapt_layout()
+
+    def context_sidebar_target(self):
+        current=self.surface_stack.currentWidget()
+        if current is self.settings_page:return self.settings_page.navigation_area
+        if current is self.canvas_shell:
+            page=self.canvas_content.currentWidget()
+            if page is self.gallery:return self.gallery.folder_panel
+            if page is self.clean_export:return self.clean_export.sidebar
+        return None
 
     def navigation_button(self,step):
-        entry=button('‹' if step<0 else '›',self.go_back if step<0 else self.go_forward,'Quiet')
-        entry.setToolTip('上一頁 · Alt+←' if step<0 else '下一頁 · Alt+→'); entry.setFixedWidth(30)
+        entry=button('',self.go_back if step<0 else self.go_forward,'IconButton')
+        entry.setProperty('iconName','back' if step<0 else 'forward');entry.setIconSize(QSize(16,16))
+        entry.setAccessibleName('上一頁' if step<0 else '下一頁')
+        entry.setToolTip('上一頁 · Alt+←' if step<0 else '下一頁 · Alt+→'); entry.setFixedSize(30,32)
         self.navigation_buttons.append((entry,step)); return entry
 
     def record_navigation(self,kind,detail=None):
+        self.sync_context_sidebar()
+        if hasattr(self,'studio_navigation'):
+            active=('explore' if detail in ('explore','civitai','downloads','civitai_settings','comfy','workflows','workflow_manager','models','nodes') else 'settings') if kind=='settings' else ('media' if detail in ('gallery','recent') else 'export' if detail=='clean_export' else 'canvas')
+            self.studio_navigation.select(active)
         if not self.navigation_ready or self.navigation_locked: return
         route=(kind,detail)
         if self.navigation_history[self.navigation_index]!=route:
@@ -353,7 +442,11 @@ class Window(QMainWindow):
         finally: self.navigation_locked=False; self.update_navigation()
 
     def escape_page(self):
-        if getattr(self.canvas,'editor_page',None): self.canvas.editor_page.close_editor()
+        if getattr(self,'recent_sheet',None):self.recent_sheet.reject()
+        elif hasattr(self,'sidebar_peek') and self.sidebar_peek.is_open:
+            if self.sidebar_peek.is_pinned_overlay:self.sidebar_pinned_preference=False
+            self.sidebar_peek.close();self.sync_context_sidebar()
+        elif getattr(self.canvas,'editor_page',None): self.canvas.editor_page.close_editor()
         elif self.surface_stack.currentWidget() is self.settings_page: self.settings_page.cancel()
         elif self.surface_stack.currentWidget() is not self.welcome: self.return_to_prompt()
 
@@ -361,6 +454,11 @@ class Window(QMainWindow):
         if view!=self.state.get('selection_view','list') and separate_selections(self.state):
             self.canvas.undo_stack.clear(); self.canvas.redo_stack.clear(); self.canvas.last_state=None
         activate_selection_view(self.state,view)
+        if hasattr(self,'settings_page'):
+            choices=self.settings_page.interface.choices.buttons()
+            for choice in choices:choice.blockSignals(True)
+            for choice in choices:choice.setChecked(choice.property('mode')==view)
+            for choice in choices:choice.blockSignals(False)
 
     def canvas_workspace_changed(self):
         if not hasattr(self,'canvas_workspace'): return
@@ -384,8 +482,10 @@ class Window(QMainWindow):
         self.settings('workflows')
 
     def comfy_changed(self):
+        self.studio_navigation.update_connection()
         self.comfy_status.setText(self.comfy.message); self.run_controls.refresh(); self.recent.update_save_button()
-        self.comfy_status.setStyleSheet('color:#e4ba59;' if self.comfy.control_interrupted else '')
+        from .theme import visual_tokens
+        self.comfy_status.setStyleSheet('color:'+visual_tokens(self.state['settings'])['warning']+';' if self.comfy.control_interrupted else '')
         if hasattr(self.canvas,'results'): self.canvas.results.update_save()
         if hasattr(self.canvas,'execution_bar'):self.canvas.execution_bar.update_progress()
         if hasattr(self,'canvas_connection_status'):
@@ -422,13 +522,47 @@ class Window(QMainWindow):
     def apply_theme(self, preserve_layout=False, refresh_fonts=False):
         appearance=dict(self.state["settings"])
         appearance.update(getattr(self,"appearance_preview",{}))
-        self.native_material=apply_backdrop(self,appearance["material"])
+        from PySide6.QtWidgets import QApplication
+        from .theme import visual_tokens
+        app=QApplication.instance()
+        tokens=visual_tokens(appearance)
+        palette=widget_palette(appearance)
+        scheme=Qt.ColorScheme.Light if tokens['scheme']=='light' else Qt.ColorScheme.Dark
+        if app.styleHints().colorScheme()!=scheme:app.styleHints().setColorScheme(scheme)
+        if self.palette()!=palette:self.setPalette(palette)
+        if app.palette()!=palette:app.setPalette(palette)
+        # Display recovery and activation are not theme changes. Reapplying
+        # DWM attributes/styles on every activation exposes a native white edge.
+        material_key=(int(self.winId()),appearance['material'],tokens['scheme'],tokens['line'])
+        if material_key!=getattr(self,'_material_key',None):
+            self.native_material=apply_backdrop(self,appearance["material"],appearance)
+            self._material_key=material_key
+        self._applied_material=appearance['material']
+        self.host_shell.update()
         if not self.native_material: appearance["material"]="solid"
-        if refresh_fonts: self.setStyleSheet("")
-        self.setStyleSheet(stylesheet(appearance))
+        new_stylesheet=stylesheet(appearance)
+        if self.styleSheet()!=new_stylesheet:self.setStyleSheet(new_stylesheet)
+        self.studio_navigation.refresh_icons()
+        from .ui_icons import icon
+        from PySide6.QtWidgets import QPushButton
+        color=visual_tokens(appearance)['text']
+        QApplication.instance().setProperty('pcsIconOnAccent',visual_tokens(appearance)['on_accent'])
+        QApplication.instance().setProperty('pcsIconOnRun',visual_tokens(appearance)['on_run'])
+        QApplication.instance().setProperty('pcsIconOnRunDisabled',visual_tokens(appearance)['on_run_disabled'])
+        QApplication.instance().setProperty('pcsIconOnStop',visual_tokens(appearance)['on_stop'])
+        QApplication.instance().setProperty('pcsIconOnStopDisabled',visual_tokens(appearance)['on_stop_disabled'])
+        self.clean_export.refresh_colors()
+        self.comfy_status.setStyleSheet('color:'+visual_tokens(appearance)['warning']+';' if self.comfy.control_interrupted else '')
+        if hasattr(self,'canvas_connection_status'):self.canvas_connection_status.setStyleSheet(self.comfy_status.styleSheet())
+        for entry in self.findChildren(QPushButton):
+            if entry.property('iconName'):
+                ink={'Primary':'on-accent','Run':'on-run','StopRun':'on-stop'}.get(entry.objectName(),color)
+                entry.setIcon(icon(entry.property('iconName'),ink))
         self.run_controls.configure_geometry()
+        if hasattr(self.canvas,'refresh_visual_theme'):self.canvas.refresh_visual_theme()
         if hasattr(self,'settings_page'):
             self.settings_page.civitai.configure_fonts(); self.settings_page.workflow_manager.update_list_height()
+            self.settings_page.refresh_icons()
         update_window_shape(self)
         self.tagline.setVisible(appearance["ui_size"]<16)
         self.quick.setFixedHeight(max(54,int(appearance["ui_size"]*2.4+22)))
@@ -438,8 +572,18 @@ class Window(QMainWindow):
             self.builder_fold.set_expanded(False,animated=False); self.builder_hint.hide(); self.builder_toggle.setText("展開組合")
         if not preserve_layout and appearance["ui_size"]>=16 and self.width()<1160: self.module_fold.set_expanded(False,animated=False)
 
+    def update_material_preview(self):
+        appearance=dict(self.state['settings'])
+        appearance.update(getattr(self,'appearance_preview',{}))
+        if appearance['material']!=getattr(self,'_applied_material',None):
+            self.native_material=apply_backdrop(self,appearance['material'],appearance)
+            self._applied_material=appearance['material']
+            self._material_key=None
+        self.host_shell.update()
+
     def showEvent(self,event):
-        super().showEvent(event); self.apply_theme(preserve_layout=True)
+        super().showEvent(event)
+        self.host_shell.update()
         if hasattr(self,"display_recovery"): self.display_recovery.bind_window()
 
     def event(self,event):
@@ -455,6 +599,28 @@ class Window(QMainWindow):
     def resizeEvent(self,event):
         super().resizeEvent(event)
         if hasattr(self,"state"): update_window_shape(self)
+        if hasattr(self,'builder_scroll'):self.adapt_prompt_layout()
+        if hasattr(self,'sidebar_peek'):QTimer.singleShot(0,self.sync_context_sidebar)
+
+    def compact_module_changed(self):
+        if not hasattr(self,'module_list'):return
+        target=self.compact_modules.currentData()
+        for i in range(self.module_list.count()):
+            if self.module_list.item(i).data(Qt.ItemDataRole.UserRole)==target:
+                self.module_list.setCurrentRow(i); break
+
+    def adapt_prompt_layout(self,*_):
+        if not hasattr(self,'builder_scroll'):return
+        narrow=self.width()<1050
+        self.list_compact.setVisible(narrow)
+        if narrow:
+            self.module_panel.hide()
+            self.library_scroll.setVisible(self.compact_output.currentIndex()==0)
+            self.builder_scroll.setVisible(self.compact_output.currentIndex()==1)
+        elif self.prompt_compact:
+            self.module_panel.setVisible(self.module_fold.expanded); self.library_scroll.show(); self.builder_scroll.show()
+            self.split.setSizes([190,565,485])
+        self.prompt_compact=narrow
 
     def changeEvent(self,event):
         super().changeEvent(event)
@@ -484,7 +650,7 @@ class Window(QMainWindow):
 
     def remember_canvas_view(self):
         if hasattr(self,'canvas') and self.canvas.isVisible():
-            view=self.canvas.view;point=view.mapToScene(view.viewport().rect().center())
+            view=self.canvas.view;point=view.viewportTransform().inverted()[0].map(QPointF(view.viewport().width()/2,view.viewport().height()/2))
             self.state['canvas_view']=[view.transform().m11(),point.x(),point.y()]
 
     def change_workspace(self,target):
@@ -507,7 +673,7 @@ class Window(QMainWindow):
         WorkspaceDialog(self).exec()
 
     def workspace_menu(self):
-        menu=QMenu(self); menu.addAction("工作區設定",self.workspace_settings); menu.addAction("新增空白工作區…",self.new_workspace)
+        menu=QMenu(self); menu.addAction("工作區設定",self.workspace_settings); menu.addAction("新增預設流程工作區…",self.new_workspace)
         menu.addAction('複製目前工作區…',lambda:self.new_workspace(duplicate=True))
         menu.addSeparator(); menu.addAction("刪除目前工作區…",self.delete_workspace); menu.open_at(self.cursor().pos())
 
@@ -529,8 +695,11 @@ class Window(QMainWindow):
             self.refresh_workspaces();self.changed()
 
     def settings(self,section='interface'):
+        self.close_recent_sheet()
+        if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
         if not isinstance(section,str): section='interface'
         self.settings_page.open(section); self.surface_stack.setCurrentWidget(self.settings_page)
+        self.sync_context_sidebar()
 
     def refresh_modules(self):
         self.module_list.blockSignals(True); self.module_list.clear()
@@ -541,9 +710,13 @@ class Window(QMainWindow):
             item.setData(Qt.ItemDataRole.UserRole,module["id"]); self.module_list.addItem(item)
             if module["id"]==self.current_module: self.module_list.setCurrentItem(item)
         self.module_list.blockSignals(False)
+        self.compact_modules.blockSignals(True); self.compact_modules.clear()
+        for module in self.state['modules']:self.compact_modules.addItem(module['name'],module['id'])
+        self.compact_modules.setCurrentIndex(self.compact_modules.findData(self.current_module)); self.compact_modules.blockSignals(False)
 
     def select_module(self,item):
         self.current_module=item.data(Qt.ItemDataRole.UserRole) if item else None; self.library_page=0
+        self.compact_modules.blockSignals(True); self.compact_modules.setCurrentIndex(self.compact_modules.findData(self.current_module)); self.compact_modules.blockSignals(False)
         self.state["current_module"]=self.current_module; self.changed()
         self.refresh_library()
 
@@ -1019,8 +1192,14 @@ class Window(QMainWindow):
         except Exception as exc: self.error(str(exc))
 
     def closeEvent(self,event):
+        if hasattr(self,'settings_page') and self.settings_page.manager.extension.busy:
+            self.notice('配套擴充正在安裝，完成後即可關閉 PCS。');event.ignore();return
+        self.close_recent_sheet()
+        if hasattr(self,'sidebar_resize') and self.sidebar_resize.dragging:self.sidebar_resize.finish()
+        if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
         if hasattr(self,'settings_page'):
             self.settings_page.civitai.stop_images()
+            self.settings_page.manager.shutdown()
             if self.settings_page.preferences is not None:self.settings_page.flush()
         browsing=hasattr(self,'settings_page') and self.settings_page.civitai.browse_jobs.active
         if self.jobs.active or browsing or self.completion.tasks or self.gallery.importing or (hasattr(self,'recent') and self.recent.collecting):
@@ -1036,6 +1215,9 @@ class Window(QMainWindow):
         self.save_timer.stop()
         if not self.persist(): event.ignore(); return
         self.comfy.shutdown(); self.recent.refresh_timer.stop(); self.display_recovery.stop()
+        self.copy_timer.stop(); self.filter_timer.stop()
+        if hasattr(self,'sidebar_peek'):self.sidebar_peek.shutdown()
+        if hasattr(self,'sidebar_resize'):self.sidebar_resize.shutdown()
         self.draft_fade.stop(); self.module_fold.animation.stop(); self.builder_fold.animation.stop()
         from PySide6.QtWidgets import QApplication
         QApplication.instance().removeEventFilter(self.host_shell)

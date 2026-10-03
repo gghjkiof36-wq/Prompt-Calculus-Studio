@@ -12,7 +12,7 @@ ALPHA08='--v08' in sys.argv
 DEST = ROOT / 'build' / ('v08-comfyui' if ALPHA08 else 'comfyui') / EXTENSION_FOLDER
 
 
-def build(destination=None,archive=None):
+def build(destination=None,archive=None,release=None):
     destination=Path(destination) if destination is not None else DEST
     if destination.exists() and any(destination.iterdir()):raise ValueError('Use a fresh extension output directory; old versions are preserved.')
     destination.mkdir(parents=True, exist_ok=True)
@@ -30,7 +30,7 @@ def build(destination=None,archive=None):
     for name in SHARED_MODULES:
         shutil.copy2(ROOT / 'prompt_studio' / (name+'.py'), shared / (name+'.py'))
     from package_documents import bundle_documents
-    bundle_documents(destination,release=select_release([arg for arg in sys.argv if arg!='--v08']))
+    bundle_documents(destination,release=release or select_release([arg for arg in sys.argv if arg!='--v08']))
     from package_documents import package_manifest
     package_manifest(destination,'comfyui')
     archive = Path(archive) if archive is not None else ROOT / 'build' / 'v08-comfyui' / 'PromptCalculusStudio-v0.8-ComfyUI.zip' if ALPHA08 else ROOT / 'release' / 'PromptCalculusStudio-ComfyUI.zip'

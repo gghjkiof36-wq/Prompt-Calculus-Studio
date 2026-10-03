@@ -121,7 +121,16 @@ class StageParameterReadOnlyUITests(StageFixture):
         self.add_long_content();self.w.resize(1280,900);QTest.qWait(15)
         sheet=self.sheet();rect=sheet.panel.geometry()
         positions=[widget.mapTo(sheet,QPoint(0,0)) for widget in (sheet.close_button,sheet.apply_button)]
-        self.click_arrows(sheet.list.verticalScrollBar());self.click_arrows(sheet.scroll.verticalScrollBar())
+        for bar in (sheet.list.verticalScrollBar(),sheet.scroll.verticalScrollBar()):
+            self.click_arrows(bar);bar.setValue(bar.maximum()//2)
+            thumb=self.arrow_rect(bar,QStyle.SubControl.SC_ScrollBarSlider)
+            self.assertEqual(thumb.width(),12)
+            QTest.mouseMove(sheet.close_button,sheet.close_button.rect().center());QTest.qWait(15)
+            image=bar.grab().toImage();scale=image.devicePixelRatio()
+            y=round(thumb.center().y()*scale)
+            visible=[x for x in range(image.width()) if image.pixelColor(x,y).name()==sheet.tokens['scrollbar']]
+            self.assertEqual(len(visible),round(6*scale),'The local rail keeps a 6 px visible thumb inside its 12 px hit area.')
+            self.assertEqual(visible,list(range(round(3*scale),round(9*scale))))
         bar=sheet.scroll.verticalScrollBar();bar.setValue(bar.maximum()//2)
         thumb=self.arrow_rect(bar,QStyle.SubControl.SC_ScrollBarSlider)
         QTest.mouseMove(sheet.close_button,sheet.close_button.rect().center());QTest.qWait(15);idle=bar.grab().toImage()

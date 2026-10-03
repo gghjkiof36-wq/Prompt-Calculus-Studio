@@ -174,7 +174,7 @@ function importWorkflow() {
 function render() {
     if (!root?.isConnected) return;
     root.replaceChildren(); root.className='prompt-studio';
-    root.append(el('h2','Prompt Calculus Studio · v0.82 Alpha 1 Repair 5（0927-2）'),el('p','工作流傳送與執行同步','ps-subtitle'));
+    root.append(el('h2','Prompt Calculus Studio'),el('p','工作流傳送與執行同步','ps-subtitle'));
     root.append(el('div',noticeText,'ps-notice'+(noticeError?' error':'')));
     const transfer=section('工作流匯入／匯出'); const settings=transferSettings(app.graph);
     const name=el('input'); name.value=settings.name; name.setAttribute('aria-label','工作流名稱');

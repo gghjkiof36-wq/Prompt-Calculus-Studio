@@ -86,9 +86,9 @@ class BlankCanvasGestureTests(unittest.TestCase):
 
 
 class RecentSheetTests(unittest.TestCase):
-    def test_popup_hide_restores_recent_page_once_without_changing_canvas(self):
+    def test_child_overlay_hide_restores_recent_page_once_without_changing_canvas(self):
         from prompt_studio.window import Window
-        from prompt_studio.widgets import DismissibleSheet
+        from prompt_studio.recent_overlay import RecentOverlay
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(dir=root/'qa') as directory, patch('prompt_studio.comfy_client.ComfyClient.request'):
             window = Window(Path(directory)/'data')
@@ -97,22 +97,41 @@ class RecentSheetTests(unittest.TestCase):
             window.show()
             window.enter_canvas()
             APP.processEvents()
+            window.display_recovery.stop()
+            window.canvas.view.setFocus()
+            APP.processEvents()
             transform = window.canvas.view.transform()
             before = copy.deepcopy(window.state)
+            original_index = window.tabs.indexOf(window.recent)
+            original_title = window.tabs.tabText(original_index)
+            original_count = window.tabs.count()
             try:
                 window.show_recent_sheet()
                 APP.processEvents()
                 sheet = window.recent_sheet
-                self.assertIsInstance(sheet, DismissibleSheet)
-                self.assertTrue(sheet.windowFlags() & Qt.WindowType.Popup)
+                self.assertIsInstance(sheet, RecentOverlay)
+                self.assertFalse(sheet.isWindow())
+                self.assertIs(sheet.parentWidget(), window.surface_stack)
+                self.assertEqual(sheet.geometry(), window.surface_stack.rect())
+                self.assertTrue(sheet.isAncestorOf(window.recent))
+                self.assertEqual(window.tabs.indexOf(window.recent), -1)
+                surface = sheet.surface.geometry()
+                self.assertGreater(surface.left(), 0)
+                self.assertGreater(surface.top(), 0)
+                self.assertLess(surface.right(), sheet.rect().right())
+                self.assertLess(surface.bottom(), sheet.rect().bottom())
                 finished = Mock()
                 sheet.finished.connect(finished)
-                sheet.hide()  # Qt's outside-click popup dismissal path.
+                sheet.hide()  # Hiding the borrowed child also returns its page.
+                sheet.reject()  # A second dismissal cannot emit/restore twice.
                 self.assertIsNone(window.recent_sheet)
-                finished.assert_called_once()
-                self.assertGreaterEqual(window.tabs.indexOf(window.recent), 0)
+                finished.assert_called_once_with(0)
+                self.assertEqual(window.tabs.indexOf(window.recent), original_index)
+                self.assertEqual(window.tabs.tabText(original_index), original_title)
+                self.assertEqual(window.tabs.count(), original_count)
                 self.assertEqual(window.canvas.view.transform(), transform)
                 self.assertEqual(window.state, before)
+                self.assertIs(APP.focusWidget(), window.canvas.view)
             finally:
                 window.close()
                 APP.processEvents()

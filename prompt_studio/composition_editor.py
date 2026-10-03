@@ -1,6 +1,6 @@
 """Full-content composition editor. The export renderer never sees UI objects."""
 import copy,json
-from PySide6.QtCore import Qt,QPointF,QRectF,QTimer,QPropertyAnimation,QEasingCurve
+from PySide6.QtCore import Qt,QPointF,QRectF,QTimer,QPropertyAnimation,QEasingCurve,QEvent
 from PySide6.QtGui import QColor,QImage,QPixmap,QPen,QPainter,QKeySequence,QShortcut
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QFrame,QGraphicsView,QGraphicsScene,QGraphicsPixmapItem,
     QGraphicsRectItem,QFileDialog,QDialog,QFormLayout,QSpinBox,QDoubleSpinBox,QCheckBox,QListWidget,QListWidgetItem,
@@ -9,6 +9,7 @@ from .widgets import button,label,row,StudioDialog,dialog_buttons,RoundMenu
 from .text_canvas import TextCanvas
 from .composition_image import document,layer,resize_layer,validate_image,render_image,PreviewCache
 from .canvas_items import NodeCard
+from .theme import visual_tokens
 from . import composition as comp
 
 
@@ -48,12 +49,20 @@ class EditorTextCanvas:
 class ImageView(QGraphicsView):
     def __init__(self,editor):
         super().__init__(); self.editor=editor; self.setScene(QGraphicsScene(self)); self.pixmap=QGraphicsPixmapItem(); self.scene().addItem(self.pixmap)
-        self.outline=QGraphicsRectItem(); self.outline.setZValue(5); self.outline.setPen(QPen(QColor('#8fc5ff'),1,Qt.PenStyle.DashLine)); self.scene().addItem(self.outline)
+        self.outline=QGraphicsRectItem(); self.outline.setZValue(5); self.scene().addItem(self.outline)
         self.outline.hide(); self.drag=None; self.start=None; self.working=None; self.original=None; self.pan=None; self.space=False
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setRenderHints(QPainter.RenderHint.Antialiasing|QPainter.RenderHint.SmoothPixmapTransform); self.setBackgroundBrush(QColor('#171b22'))
+        self.setRenderHints(QPainter.RenderHint.Antialiasing|QPainter.RenderHint.SmoothPixmapTransform); self.refresh_visual_theme()
         self.setFrameShape(QFrame.Shape.NoFrame); self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate)
+    def refresh_visual_theme(self):
+        colors=visual_tokens(self.editor.window.state['settings'])
+        self.setBackgroundBrush(QColor(colors['base']))
+        self.outline.setPen(QPen(QColor(colors['info']),1,Qt.PenStyle.DashLine))
+    def changeEvent(self,event):
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.PaletteChange,QEvent.Type.StyleChange) and hasattr(self,'outline'):
+            self.refresh_visual_theme()
     def fit(self):
         doc=self.editor.image(); w,h=(doc['width'],doc['height']) if doc else (1024,1024)
         self.scene().setSceneRect(-100000,-100000,200000,200000)

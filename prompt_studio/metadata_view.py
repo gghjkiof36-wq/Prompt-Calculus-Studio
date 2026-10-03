@@ -35,7 +35,7 @@ def readable_metadata(record):
         for key,value in generation.get('parameters',{}).items(): lines.append('實際 '+FIELD_NAMES.get(key,key)+'：'+str(value))
         lines.append('')
     if bindings:
-        lines.extend(['Prompt Studio 模組快照', ''])
+        lines.extend(['Prompt Calculus Studio 模組快照', ''])
         for binding in bindings:
             snapshot=binding['snapshot']; state=snapshot['state']
             lines.append(f"工作區：{state['workspaces'][0]['name']} · 文字節點 {binding.get('node_id','')}")

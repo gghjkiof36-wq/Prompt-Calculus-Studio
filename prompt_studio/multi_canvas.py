@@ -21,7 +21,7 @@ from .quiet_splitter import QuietSplitter
 class OutputPanel(QFrame):
     def __init__(self,canvas,key):
         super().__init__(); self.canvas=canvas; self.key=key; self.updating=False
-        self.setObjectName('InsetPanel'); body=QVBoxLayout(self); body.setContentsMargins(14,10,14,14)
+        self.setObjectName('CanvasModuleBody'); body=QVBoxLayout(self); body.setContentsMargins(4,8,4,4);body.setSpacing(10)
         self.order=OutputOrderList(); self.order.setMinimumHeight(60)
         self.order.orderChanged.connect(self.reordered)
         self.order.removeRequested.connect(self.remove_items)
@@ -32,25 +32,36 @@ class OutputPanel(QFrame):
         self.split.setObjectName('PromptSplit')
         self.split.setToolTip('拖曳分隔線，調整組合清單與文字欄的比例。')
         listing=QWidget(); list_layout=QVBoxLayout(listing); list_layout.setContentsMargins(0,0,0,0)
-        list_layout.addWidget(label('目前組合','Subtle')); list_layout.addWidget(self.order)
-        list_layout.addWidget(button('排列文字來源',lambda:canvas.order_sources(key),'Quiet'))
+        self.source_count=label('文字來源','Subtle')
+        reorder=button('排列',lambda:canvas.order_sources(key),'Quiet');reorder.setToolTip('排列文字來源')
+        list_layout.addLayout(row(self.source_count,None,reorder)); list_layout.addWidget(self.order)
         text_panel=QWidget(); text_layout=QVBoxLayout(text_panel); text_layout.setContentsMargins(0,0,0,0)
         self.draft_status=label('自動文字','Subtle'); text_layout.addWidget(self.draft_status)
-        self.editor=QPlainTextEdit(); self.editor.setObjectName('Prompt'); self.editor.setMinimumSize(280,90)
-        self.editor.setPlaceholderText('連接文字來源後產生內容，也可編輯手動版本。'); self.editor.textChanged.connect(self.edited); text_layout.addWidget(self.editor,1)
+        self.editor=QPlainTextEdit(); self.editor.setObjectName('Prompt'); self.editor.setMinimumSize(260,135)
+        self.editor.setPlaceholderText('輸入提示詞，或從左側接入文字。'); self.editor.textChanged.connect(self.edited); text_layout.addWidget(self.editor,1)
         self.split.addWidget(listing); self.split.addWidget(text_panel); body.addWidget(self.split,1)
         self.split.splitterMoved.connect(self.save_ratio); self.loaded_ratio=None
         self.conflicts=label('','ConflictNotice',True); body.addWidget(self.conflicts)
         self.clear=button('清除手動內容',self.clear_draft,'ClearDraft')
-        body.addLayout(row(button('存入素材庫',lambda:canvas.window.new_item(self.editor.toPlainText()),'Quiet'),None,self.clear))
-        body.addWidget(button('複製完整 Prompt',lambda:canvas.window.copy_text(self.editor.toPlainText()),'Quiet'))
+        self.clear.setParent(self);self.clear.hide()
+        self.more=button('更多',self.more_actions,'Quiet');self.more.setToolTip('收藏提示詞或還原自動文字')
+        self.copy_button=button('複製 Prompt',lambda:canvas.window.copy_text(self.editor.toPlainText()))
+        from .ui_icons import icon
+        self.copy_button.setIcon(icon('copy'));self.copy_button.setProperty('iconName','copy')
+        body.addLayout(row(self.more,None,self.copy_button))
+
+    def more_actions(self):
+        menu=RoundMenu(self)
+        menu.addAction('存入素材庫',lambda:self.canvas.window.new_item(self.editor.toPlainText()))
+        clear=menu.addAction('清除手動內容',self.clear_draft);clear.setEnabled(self.clear.isEnabled())
+        menu.open_for(self.more,self.canvas.view)
     def save_ratio(self,*_):
         sizes=self.split.sizes()
         if sum(sizes):
             self.loaded_ratio=sizes[0]/sum(sizes)
             self.canvas.data()['outputs'][self.key]['panel_ratio']=self.loaded_ratio; self.canvas.window.changed('layout')
     def restore_ratio(self):
-        ratio=self.canvas.data()['outputs'][self.key].get('panel_ratio',.45)
+        ratio=self.canvas.data()['outputs'][self.key].get('panel_ratio',.3)
         if ratio!=self.loaded_ratio:
             self.split.setSizes([round(ratio*1000),round((1-ratio)*1000)]); self.loaded_ratio=ratio
     def context(self,pos):
@@ -103,6 +114,7 @@ class OutputPanel(QFrame):
             item.setText(root['name']+(f" · ×{root['weight']/10:.1f}" if root['weight']!=10 else '')+(' · 停用' if not root['enabled'] else ''))
             item.setToolTip(comp.render(root))
         manual=output['draft'] is not None
+        self.source_count.setText('文字來源'+(' · '+str(len(members)) if members else ''))
         self.order.setEnabled(not manual); self.clear.setEnabled(manual)
         self.draft_status.setText('正在使用手動版本' if manual else '自動文字' if cid else '缺少來源畫布')
         self.conflicts.setText('；'.join(', '.join(v['tags'])+' ← '+', '.join(v['by']) for v in affected.values())); self.conflicts.setVisible(bool(affected))
@@ -112,7 +124,7 @@ class OutputPanel(QFrame):
 class OutputCard(TextCard):
     default_size=(440,550)
     def __init__(self,canvas,key):
-        super().__init__(canvas); self.key=key; self.panel=OutputPanel(canvas,key); self.init_interaction()
+        super().__init__(canvas); self.key=key; self.module_icon='copy'; self.panel=OutputPanel(canvas,key); self.init_interaction()
     def attach(self):
         if self.proxy.widget() is not self.panel: self.proxy.setWidget(self.panel)
         self.panel.setStyleSheet(self.canvas.window.styleSheet()); self.panel.ensurePolished()
@@ -224,15 +236,33 @@ class MultiCanvas(TextCanvas):
     def __init__(self,window):
         super().__init__(window); self.functions=FlowFunctions(self); self.containers={}; self.outputs={}; self.ports={}; self.lines={}
         self.clips={}; self.flow_cards={}; self.order_card=None; self.execution_bar=ExecutionBar(self)
-        if window.state['multi_output']['version']>=7:
-            from .stage_widgets import RecentCorner
-            self.recent_corner=RecentCorner(self)
         self.insertion_canvas=None; self.image_previews={}; self.editor_page=None; self.z_counter=-.9; self.refreshing=False
         from .flow_items import ConnectionGesture
         self.connection_gesture=ConnectionGesture(self)
         self.output_picker=ComboBox(); self.output_picker.currentIndexChanged.connect(self.choose_current)
         self.output_picker.setToolTip('選項隔離開啟時，每份輸出分別保存清單內容；切回畫布模式使用各畫布內容。')
         window.builder_panel.layout().insertWidget(0,self.output_picker)
+        from .canvas_onboarding import CanvasOnboarding,CanvasZoomControls
+        self.onboarding=CanvasOnboarding(self);self.layout().insertWidget(0,self.onboarding)
+        self.zoom_controls=CanvasZoomControls(self)
+        from .canvas_starter import guide
+        self._starter_view_pending=bool(guide(window.state) and not window.state.get('canvas_view'))
+    def restore_view(self):
+        # Mode changes can save the empty GraphicsView before its first show.
+        # Apply the new-document starting view only after real cards and final
+        # viewport geometry exist; an early placeholder center is not a choice.
+        if self._starter_view_pending:
+            if not self.isVisible():return
+            self.layout().activate()
+            if not self.containers:self.refresh()
+            if self.onboarding.first_view():
+                self._starter_view_pending=False
+                self._hidden_view=None
+                self.window.state.pop('canvas_view',None)
+                return
+        if self.restore_hidden_view():return
+        if self.window.state.get('canvas_view') or not self.onboarding.first_view():
+            super().restore_view()
     def data(self): return self.window.state['multi_output']
     def next_z(self): self.z_counter+=.0001; return min(-.2,self.z_counter)
     def history_state(self):
@@ -333,6 +363,7 @@ class MultiCanvas(TextCanvas):
         if self.output in removed:self.output=None
     def update_output(self):
         if not hasattr(self,'outputs'): return
+        if hasattr(self,'onboarding'):self.onboarding.refresh()
         self.prune_cards()
         model.capture_current(self.window.state)
         self.output_picker.blockSignals(True); self.output_picker.clear()
@@ -353,6 +384,7 @@ class MultiCanvas(TextCanvas):
         if self.isVisible():super().refresh_layout()
     def refresh(self):
         if not hasattr(self,'outputs') or self.refreshing: return
+        if hasattr(self,'onboarding'):self.onboarding.refresh()
         self.refreshing=True
         try:
             self.connection_gesture.cancel()
@@ -493,7 +525,7 @@ class MultiCanvas(TextCanvas):
             parent=port.parentItem(); y=58+port.index*24 if port.slot else 82 if port.key in self.outputs or port.key in self.containers else 58
             if not port.slot and port.kind in ('text','execution','clip'): y=58
             if self.data()['version']>=5:y=58+port.index*24
-            if port.key in self.data().get('stages',{}):y+=24
+            if port.key in self.data().get('stages',{}) or port.key in self.clips:y+=24
             port.setPos(parent.width if port.output else 0,y)
         for line in self.lines.values():
             value=line.value; source=self.line_port(value,True); dest=self.line_port(value,False)

@@ -2,11 +2,29 @@
 import math
 import time
 
-from PySide6.QtCore import Qt, QRect, QRectF, QPointF, QTimer
-from PySide6.QtGui import QColor, QPen, QFontMetricsF, QPainter, QPainterPath, QWheelEvent
+from PySide6.QtCore import Qt, QRect, QRectF, QPointF, QSizeF, QTimer, Signal, QEvent
+from PySide6.QtGui import QColor, QPen, QFontMetricsF, QPainter, QPainterPath, QWheelEvent, QTextLayout, QTextOption, QRegion
 from PySide6.QtWidgets import (QGraphicsObject, QGraphicsItem, QGraphicsProxyWidget,
-    QGraphicsView, QGraphicsScene, QFrame, QRubberBand, QAbstractScrollArea, QApplication)
+    QGraphicsView, QGraphicsScene, QFrame, QRubberBand, QAbstractScrollArea, QApplication, QStyle, QStyleOption, QWidget)
 from . import composition as comp
+
+
+def canvas_colors(canvas):
+    from .theme import visual_tokens
+    return visual_tokens(canvas.window.state.get('settings',{}))
+
+
+def paint_module_surface(painter,outline,colors,header_bottom):
+    """Paint only the module's visual layers, keeping its existing outline."""
+    body=colors.get('canvas_body',colors['surface'])
+    header=colors.get('canvas_header',body)
+    painter.setBrush(QColor(body));painter.drawPath(outline)
+    if header!=body:
+        painter.save();painter.setClipPath(outline)
+        bounds=outline.boundingRect()
+        painter.fillRect(QRectF(bounds.left(),bounds.top(),bounds.width(),header_bottom-bounds.top()),QColor(header))
+        painter.restore()
+        painter.save();painter.setBrush(Qt.BrushStyle.NoBrush);painter.drawPath(outline);painter.restore()
 
 
 class ResizableCard(QGraphicsObject):
@@ -83,18 +101,68 @@ class ResizableCard(QGraphicsObject):
         self.update(); event.accept(); return True
 
     def draw_controls(self,painter):
-        painter.setPen(QPen(QColor('#afc2db' if self.hot=='resize' else '#687b91'),1.6))
+        colors=canvas_colors(self.canvas)
+        painter.setPen(QPen(QColor(colors['accent'] if self.hot=='resize' else colors['line']),1.4))
         for offset in (7,12):
             painter.drawLine(QPointF(self.width-offset,self.height-5),QPointF(self.width-5,self.height-offset))
-        for x,y,sx,sy in [(0,0,1,1),(self.width,0,-1,1),(0,self.height,1,-1)]:
-            painter.drawLine(QPointF(x+sx*5,y+sy*12),QPointF(x+sx*12,y+sy*5))
         for action,rect in self.actions().items():
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor('#486487' if self.pressed==action else '#35485f' if self.hot==action else '#2b333f'))
-            painter.drawRoundedRect(rect,5,5); painter.setPen(QColor('#edf3fb' if self.hot==action else '#adc0d8'))
+            painter.setBrush(QColor(colors['selected'] if self.pressed==action else colors['hover'] if self.hot==action else colors['surface']))
+            painter.drawRoundedRect(rect,7,7); painter.setPen(QColor(colors['text'] if self.hot==action else colors['secondary']))
             text={'size':'↗','minus':'−','plus':'+','add':'＋' if getattr(self,'compact',False) else '＋ 加入子元素'}.get(action)
             if action=='weight': text=f"{self.value['weight']/10:.1f}"
             painter.drawText(rect,Qt.AlignmentFlag.AlignCenter,text)
+
+
+class ModuleProxyWidget(QGraphicsProxyWidget):
+    def __init__(self,parent=None):
+        super().__init__(parent)
+        self.relayout=QTimer(self);self.relayout.setSingleShot(True)
+        self.relayout.timeout.connect(self.fit_content)
+
+    def fit_content(self):
+        owner=self.parentItem()
+        if self.widget() is not None and owner is not None:owner.layout_card()
+
+    def setWidget(self,panel):
+        previous=self.widget()
+        if previous is not None and previous is not panel:previous.setProperty('pcsCanvasBody',None)
+        if panel is not None:panel.setProperty('pcsCanvasBody',True)
+        super().setWidget(panel)
+
+    def setGeometry(self,rect):
+        # QWidget layouts use integer logical pixels. Fractional scene resize
+        # requests must not leave a mismatched strip around the embedded body.
+        rect=QRectF(rect);panel=self.widget()
+        width=math.ceil(rect.width());height=math.ceil(rect.height())
+        if panel is not None:
+            minimum=panel.minimumSizeHint();width=max(width,minimum.width())
+            height=max(height,minimum.height(),panel.heightForWidth(width))
+        rect.setSize(QSizeF(width,height))
+        super().setGeometry(rect)
+
+    def eventFilter(self,watched,event):
+        result=super().eventFilter(watched,event)
+        # Status wrapping and font changes can arrive after initial attachment.
+        # Fit once after Qt invalidates its layout, without changing saved sizes.
+        if watched is self.widget() and event.type()==QEvent.Type.LayoutRequest:
+            self.relayout.start(0)
+        return result
+
+    def paint(self,painter,option,widget=None):
+        # Keep native widget primitives independent from the surrounding
+        # card's antialiased outline when the scene has a fractional scale.
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing,False)
+        panel=self.widget()
+        if panel is not None:
+            # A proxy normally renders a top-level QWidget window background
+            # as well as its contents. The card already owns the opaque body;
+            # skip that native rectangle instead of painting over its seams.
+            region=QRegion(option.exposedRect.toAlignedRect().intersected(panel.rect()))
+            panel.render(painter,region.boundingRect().topLeft(),region,QWidget.RenderFlag.DrawChildren)
+        else:super().paint(painter,option,widget)
+        painter.restore()
 
 
 class TextCard(ResizableCard):
@@ -103,7 +171,7 @@ class TextCard(ResizableCard):
         super().__init__(); self.canvas=canvas; self.key='__text_output__'; self.start=QPointF()
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsMovable|QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
         self.panel=canvas.window.builder_panel; self.editor=canvas.window.final
-        self.proxy=QGraphicsProxyWidget(self); self.proxy.setPos(14,46)
+        self.proxy=ModuleProxyWidget(self); self.proxy.setPos(14,46)
         self.width=560; self.height=660; self.saved_sizes=None; self.init_interaction()
         self.proxy.geometryChanged.connect(self.sync_bounds)
         self.setToolTip('')
@@ -147,12 +215,22 @@ class TextCard(ResizableCard):
 
     def paint(self,painter,option,widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QColor('#22262e')); painter.setPen(QPen(QColor('#81aeee' if getattr(self,'dock_hover',False) else '#6d8eb5' if self.isSelected() else '#495563'),2 if getattr(self,'dock_hover',False) else 1.5))
-        if self.key in getattr(self.canvas,'active_keys',set()):painter.setPen(QPen(QColor('#55aaff'),2.5))
-        outline=QPainterPath(); outline.addRoundedRect(QRectF(0,0,self.width,self.height),12,12)
-        painter.drawPath(self.canvas.functions.outline(self,outline))
-        painter.setPen(QColor('#eef1f5')); painter.setFont(self.canvas.font())
-        painter.drawText(QRectF(18,7,self.width-80,32),Qt.AlignmentFlag.AlignVCenter,getattr(self,'title','目前組合與最終 Prompt 輸出'))
+        colors=canvas_colors(self.canvas)
+        selected=getattr(self,'dock_hover',False) or self.isSelected()
+        painter.setPen(QPen(QColor(colors['accent'] if selected else colors['line']),1.5 if selected else 1))
+        if self.key in getattr(self.canvas,'active_keys',set()):painter.setPen(QPen(QColor(colors['info']),2.5))
+        outline=QPainterPath(); outline.addRoundedRect(QRectF(0,0,self.width,self.height),16,16)
+        divider=66 if getattr(self,'kind',None)=='stages' or getattr(self,'header_detail',False) else 44
+        paint_module_surface(painter,self.canvas.functions.outline(self,outline),colors,divider)
+        from .ui_icons import icon
+        icon(getattr(self,'module_icon','canvas'),colors['secondary']).paint(painter,QRect(17,14,19,19))
+        painter.setPen(QColor(colors['text'])); font=self.canvas.font();font.setBold(True);painter.setFont(font)
+        title=getattr(self,'title','目前組合與最終 Prompt 輸出')
+        title=QFontMetricsF(font).elidedText(title,Qt.TextElideMode.ElideRight,int(self.width-104))
+        painter.drawText(QRectF(46,7,self.width-104,32),Qt.AlignmentFlag.AlignVCenter,title)
+        pen=QPen(QColor(colors['divider']),1);pen.setCosmetic(True);painter.setPen(pen)
+        painter.drawLine(QPointF(16,divider),QPointF(self.width-16,divider))
+        painter.setFont(self.canvas.font())
         self.draw_controls(painter)
 
     def update_text(self):
@@ -187,6 +265,7 @@ class PreviewCard(TextCard):
     default_size=(500,660)
     def __init__(self,canvas):
         super().__init__(canvas); self.key='__result_preview__'; self.title='預覽圖片'
+        self.module_icon='media'
         self.panel=canvas.results; self.init_interaction()
 
     def attach(self):
@@ -258,30 +337,31 @@ class NodeCard(ResizableCard):
 
     def paint(self,painter,option,widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor('#81aeee' if self.drop_size else '#728093' if self.isSelected() and self.muted else '#81aeee' if self.isSelected() else '#383a3e' if self.muted else '#49515f'),1.6))
-        if self.key in getattr(self.canvas,'active_keys',set()):painter.setPen(QPen(QColor('#55aaff'),2.5))
-        painter.setBrush(QColor('#1b1d20' if self.muted else '#283447' if self.isSelected() else '#202731' if self.parentItem() else '#202329'))
-        painter.drawRoundedRect(self.boundingRect(),11,11); painter.setFont(self.canvas.font())
+        colors=canvas_colors(self.canvas)
+        painter.setPen(QPen(QColor(colors['accent'] if self.drop_size or self.isSelected() else colors['line']),1.4))
+        if self.key in getattr(self.canvas,'active_keys',set()):painter.setPen(QPen(QColor(colors['info']),2.5))
+        painter.setBrush(QColor(colors['field'] if self.muted else colors['selected'] if self.isSelected() else colors['raised'] if self.parentItem() else colors.get('canvas_body',colors['surface'])))
+        painter.drawRoundedRect(self.boundingRect(),12,12); painter.setFont(self.canvas.font())
         if self.muted: painter.setOpacity(.42)
         metrics=QFontMetricsF(painter.font()); available=self.width-28
-        painter.setPen(QColor('#96999e' if self.muted else '#8eabc9'))
+        painter.setPen(QColor(colors['secondary']))
         status=self.subtitle+(' · 停用' if not self.value['enabled'] else '')
         if comp.active_overlay(self.value): status+=' · 已覆蓋'
 
         if not self.compact:
             painter.drawText(QRectF(14,8,available-142,self.line),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(status,Qt.TextElideMode.ElideRight,available-142))
-        painter.setPen(QColor('#a3a7b0' if self.muted else '#eef1f5'))
+        painter.setPen(QColor(colors['secondary'] if self.muted else colors['text']))
         title=self.value['name']
         if self.compact and (self.value['weight']!=10 or not self.value['enabled']):
             title+=f" · {self.value['weight']/10:.1f}" if self.value['enabled'] else ' · 停用'
         title_y=8 if self.compact else 10+self.line
         painter.drawText(QRectF(14,title_y,available-(30 if self.compact else 0),self.line),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(title,Qt.TextElideMode.ElideRight,available-(30 if self.compact else 0)))
         if self.own:
-            painter.setPen(QColor('#929ba9'))
+            painter.setPen(QColor(colors['secondary']))
             painter.drawText(QRectF(14,16+self.line*(1 if self.compact else 2),available,self.text_height),Qt.TextFlag.TextWordWrap,self.own)
         self.draw_controls(painter)
         if self.drop_size:
-            painter.setOpacity(1); painter.setPen(QPen(QColor('#81aeee'),1,Qt.PenStyle.DashLine)); painter.setBrush(QColor('#243446'))
+            painter.setOpacity(1); painter.setPen(QPen(QColor(colors['accent']),1,Qt.PenStyle.DashLine)); painter.setBrush(QColor(colors['selected']))
             rect=QRectF(14,self.drop_y,self.width-28,self.drop_size[1]); painter.drawRoundedRect(rect,8,8)
             painter.drawText(rect,Qt.AlignmentFlag.AlignCenter,'放開以加入')
     def mousePressEvent(self,event):
@@ -318,6 +398,17 @@ class NodeCard(ResizableCard):
 
 
 class CanvasView(QGraphicsView):
+    transformChanged=Signal()
+
+    def scale(self,sx,sy):
+        super().scale(sx,sy);self.transformChanged.emit()
+
+    def resetTransform(self):
+        super().resetTransform();self.transformChanged.emit()
+
+    def setTransform(self,matrix,combine=False):
+        super().setTransform(matrix,combine);self.transformChanged.emit()
+
     def __init__(self,canvas):
         super().__init__(canvas); self.canvas=canvas; self.pan=None; self.pan_button=None; self.box_start=None
         self.click_start=None; self.click_dragged=False; self.blank_press=False
@@ -331,8 +422,10 @@ class CanvasView(QGraphicsView):
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self.viewport().setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent,True)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
-        self.setBackgroundBrush(QColor('#17191e')); self.setMinimumSize(220,64); self.setFrameShape(QFrame.Shape.NoFrame)
+        # Resizing reveals or conceals the right/bottom of the workspace. Keep
+        # the readable starting edge (and a user's pan) in the same place.
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+        self.setBackgroundBrush(QColor(canvas_colors(canvas)['base'])); self.setMinimumSize(220,64); self.setFrameShape(QFrame.Shape.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setAcceptDrops(True); self.viewport().setAcceptDrops(True)
@@ -354,27 +447,104 @@ class CanvasView(QGraphicsView):
     def set_status_widget(self,widget):
         self.status_widget=widget; widget.setParent(self.viewport())
         widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents,True)
+        widget.installEventFilter(self)
+        self.position_status()
+
+    def set_execution_status_widget(self,widget):
+        self.execution_status_widget=widget; widget.setParent(self.viewport())
+        widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents,True)
+        widget.installEventFilter(self)
         self.position_status()
 
     def position_status(self):
-        widget=getattr(self,'status_widget',None)
-        if widget is None: return
-        if not widget.text(): widget.hide(); return
-        widget.ensurePolished(); widget.setWordWrap(False)
-        width=min(widget.sizeHint().width(),720,max(1,self.viewport().width()-16))
-        widget.setWordWrap(True)
-        height=max(widget.minimumSizeHint().height(),widget.heightForWidth(width))
-        widget.setGeometry(8,max(0,self.viewport().height()-height-8),width,height)
-        widget.show(); widget.raise_()
+        # All viewport notices share the lower-left corner. The execution bar
+        # can move independently; keep both notices outside its hit targets.
+        bar=getattr(self.canvas,'execution_bar',None)
+        widgets=[]
+        for name in ('status_widget','execution_status_widget'):
+            widget=getattr(self,name,None)
+            if widget is None:continue
+            if not widget.text() or (name=='execution_status_widget' and (bar is None or bar.isHidden())):
+                widget.hide();continue
+            widget.ensurePolished();widget.setWordWrap(False)
+            width=min(widget.sizeHint().width(),720,max(1,self.viewport().width()-24))
+            widget.setWordWrap(True)
+            margins=widget.contentsMargins();padding=margins.top()+margins.bottom()
+            lines=1 if name=='execution_status_widget' else 3
+            natural=max(widget.minimumSizeHint().height(),widget.heightForWidth(width))
+            height=min(natural,padding+widget.fontMetrics().lineSpacing()*lines)
+            widgets.append((widget,width,height,natural,padding,lines))
+        if not widgets:return
+        gap=6;total=sum(item[2] for item in widgets)+gap*(len(widgets)-1)
+        width=max(item[1] for item in widgets)
+        obstacles=[item.geometry() for item in (bar,getattr(self.canvas,'zoom_controls',None))
+                   if item is not None and not item.isHidden()]
+        intervals=[(12,max(12,self.viewport().height()-12))]
+        # Use an actual free interval, including below a bar dragged upward.
+        # Keeping a capped notice stack also protects short, high-DPI views.
+        for obstacle in obstacles:
+            rect=obstacle.adjusted(-6,-6,6,6)
+            if rect.right()<12 or rect.left()>=12+width:continue
+            remaining=[]
+            for top,bottom in intervals:
+                if rect.bottom()<top or rect.top()>=bottom:remaining.append((top,bottom));continue
+                if top<rect.top():remaining.append((top,rect.top()))
+                if rect.bottom()+1<bottom:remaining.append((rect.bottom()+1,bottom))
+            intervals=remaining
+        fitting=[span for span in intervals if span[1]-span[0]>=total]
+        top,bottom=max(fitting,key=lambda span:span[1]) if fitting else max(intervals,key=lambda span:span[1]-span[0],default=(0,0))
+        available=bottom-top
+        if total>available:
+            # Preserve the persistent execution hint before a transient notice.
+            resized=[];remaining=available
+            for widget,width,height,natural,padding,lines in reversed(widgets):
+                count=min(lines,max(0,(remaining-padding)//widget.fontMetrics().lineSpacing()))
+                if not count:widget.hide();continue
+                height=min(height,padding+count*widget.fontMetrics().lineSpacing())
+                resized.insert(0,(widget,width,height,natural,padding,count));remaining-=height+gap
+            widgets=resized;total=sum(item[2] for item in widgets)+gap*max(0,len(widgets)-1)
+        y=bottom-total
+        for widget,width,height,natural,padding,lines in widgets:
+            widget._canvas_status_lines=lines
+            widget._canvas_status_elided=height<natural or (lines==1 and widget.fontMetrics().horizontalAdvance(widget.text())>width-widget.contentsMargins().left()-widget.contentsMargins().right())
+            widget.setAccessibleName(widget.text())
+            widget.setGeometry(12,y,width,height);widget.show();widget.raise_();widget.update()
+            y+=height+gap
+
+    def eventFilter(self,watched,event):
+        if event.type()==QEvent.Type.Paint and getattr(watched,'_canvas_status_elided',False):
+            # Paint an abbreviated view only: QLabel.text() and accessibility
+            # keep the original message for subsequent resize/layout passes.
+            painter=QPainter(watched);option=QStyleOption();option.initFrom(watched)
+            watched.style().drawPrimitive(QStyle.PrimitiveElement.PE_Widget,option,painter,watched)
+            rect=watched.contentsRect();painter.setClipRect(rect)
+            painter.setPen(watched.palette().color(watched.foregroundRole()))
+            text=watched.text();layout=QTextLayout(text,watched.font())
+            wrap=QTextOption();wrap.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere);layout.setTextOption(wrap)
+            layout.beginLayout();lines=[]
+            for index in range(watched._canvas_status_lines+1):
+                line=layout.createLine()
+                if not line.isValid():break
+                line.setLineWidth(rect.width());line.setPosition(QPointF(0,index*watched.fontMetrics().lineSpacing()));lines.append(line)
+            layout.endLayout()
+            for index,line in enumerate(lines[:watched._canvas_status_lines]):
+                if index==watched._canvas_status_lines-1 and len(lines)>watched._canvas_status_lines:
+                    remainder=text[line.textStart():].replace('\n',' ')
+                    shortened=watched.fontMetrics().elidedText(remainder,Qt.TextElideMode.ElideRight,rect.width())
+                    painter.drawText(QRectF(rect.left(),rect.top()+line.y(),rect.width(),watched.fontMetrics().lineSpacing()),Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter,shortened)
+                else:line.draw(painter,QPointF(rect.topLeft()))
+            painter.end();return True
+        return super().eventFilter(watched,event)
 
     def resizeEvent(self,event):
         super().resizeEvent(event); self.position_status()
 
     def drawBackground(self,painter,rect):
         painter.save()
-        painter.fillRect(rect,QColor('#17191e'))
+        colors=canvas_colors(self.canvas);painter.fillRect(rect,QColor(colors['base']))
         painter.setRenderHint(QPainter.RenderHint.Antialiasing,False)
-        pen=QPen(QColor('#30343b'),1); pen.setCosmetic(True); painter.setPen(pen)
+        dot=QColor(colors['line']);dot.setAlpha(90)
+        pen=QPen(dot,1); pen.setCosmetic(True); painter.setPen(pen)
         spacing=28 if self.transform().m11()>=.6 else 112
         for x in range(math.floor(rect.left()/spacing)*spacing,math.ceil(rect.right()),spacing):
             for y in range(math.floor(rect.top()/spacing)*spacing,math.ceil(rect.bottom()),spacing): painter.drawPoint(QPointF(x,y))

@@ -221,10 +221,16 @@ class StageLifecycleTests(StageTests):
         self.executor.finish();self.assertIsNone(self.runner.current())
 
     def test_data_queue_hides_stage_input_policy_button(self):
+        from unittest.mock import patch
+        menus=[]
         stage,key=self.queue();panel=self.c.flow_cards[key].panel;panel.refresh()
         self.assertTrue(panel.policy_button.isHidden())
+        with patch('prompt_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):panel.more_actions()
+        self.assertNotIn('輸入取值',[a.text() for a in menus[-1].actions()])
         self.c.remove_flow_node('schedulers',key);stage,key=self.queue(stage,scope=True)
-        panel=self.c.flow_cards[key].panel;panel.refresh();self.assertFalse(panel.policy_button.isHidden())
+        panel=self.c.flow_cards[key].panel;panel.refresh()
+        with patch('prompt_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):panel.more_actions()
+        self.assertIn('輸入取值',[a.text() for a in menus[-1].actions()])
 
 # unittest discovery otherwise repeats every inherited test from StageTests.
 def load_tests(loader,tests,pattern):

@@ -10,7 +10,7 @@ class SourcePrivacyTests(unittest.TestCase):
     def test_tracked_sources_and_untracked_local_data_have_separate_boundaries(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)/'source';root.mkdir();destination=Path(directory)/'package';destination.mkdir()
-            legitimate=['run.py','docs/README.md','comfyui_prompt_studio/service.py','comfyui_prompt_studio/web/style.css','tests/fixture.json']
+            legitimate=['run.py','docs/README.md','comfyui_prompt_studio/service.py','comfyui_prompt_studio/web/style.css','tests/fixture.json','docs/images/canvas-public.png']
             private=['comfyui_prompt_studio/local_library.json','comfyui_prompt_studio/credentials/key.json',
                      'comfyui_prompt_studio/fault.log','docs/studio.sqlite3','docs/error.log']
             for name in legitimate+private:

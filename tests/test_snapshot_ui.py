@@ -74,8 +74,12 @@ class SnapshotUiTests(unittest.TestCase):
         state=initial_state(); state['draft']='history manual'
         record={'metadata':{'raw':{'prompt_studio':{'schema_version':1,'bindings':[
             {'node_id':'2','snapshot':make_snapshot(state)}]}}}}
+        original=copy.deepcopy(record)
         text=readable_metadata(record)
         self.assertTrue(text.startswith('（此為圖片的內嵌資料）'))
+        self.assertIn('Prompt Calculus Studio 模組快照',text)
+        self.assertNotIn('Prompt Studio 模組快照',text)
+        self.assertEqual(record,original)
         self.assertIn('history manual',text)
         self.assertIn('正在使用手動版本',text)
         self.assertNotIn('手動附上的工作區建議',text)

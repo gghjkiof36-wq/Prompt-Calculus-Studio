@@ -40,7 +40,7 @@ class ResultImage(QPushButton):
                 target=QRectF(0,0,size.width(),size.height()); target.moveCenter(area.center())
                 painter.drawPixmap(target,picture,QRectF(picture.rect()))
             if caption:
-                painter.setPen(QColor('#c8cdd3'))
+                painter.setPen(self.palette().color(self.foregroundRole()))
                 painter.drawText(cell.adjusted(0,cell.height()-caption,0,0),Qt.AlignmentFlag.AlignCenter,str(index+1) if not picture.isNull() else str(index+1)+' · 圖片無法讀取')
     def mouseReleaseEvent(self,event):
         if self.pictures and event.button()==Qt.MouseButton.LeftButton:
@@ -58,7 +58,7 @@ class ResultImage(QPushButton):
 class CanvasResults(QFrame):
     def __init__(self,window):
         super().__init__(); self.window=window; self.record=None; self.ids=[]; self.loading=False; self.image_key=None; self.input_active=False; self.input_record=None;self.input_signature=None; self.input_records=[]
-        self.setObjectName('InsetPanel'); layout=QVBoxLayout(self); layout.setContentsMargins(16,16,16,16); layout.setSpacing(10)
+        self.setObjectName('CanvasModuleBody'); layout=QVBoxLayout(self); layout.setContentsMargins(4,8,4,4); layout.setSpacing(10)
         self.preview=ResultImage(); self.preview.clicked.connect(self.show_image); self.preview.imageActivated.connect(self.show_image); layout.addWidget(self.preview,1)
         self.images=QListWidget(self); self.images.hide(); self.images.currentItemChanged.connect(self.select)
         self.images.setViewMode(QListWidget.ViewMode.IconMode)
@@ -233,7 +233,7 @@ class CanvasResults(QFrame):
             self.window.state['canvas_result_id']=self.record['id']
         for widget in (self.destination,self.choose_folder,self.save_button,self.reuse): widget.setVisible(bool(self.record))
         self.preview.setEnabled(bool(self.record))
-        self.preview.setStyleSheet('' if self.record else 'QPushButton#ResultPreview {background:transparent; border:0; color:#929ba9;}')
+        self.preview.setStyleSheet('' if self.record else 'QPushButton#ResultPreview {background:transparent; border:0;}')
         self.update_image(); self.update_save()
 
     def update_image(self):

@@ -23,10 +23,12 @@ class ComfyClient(QObject):
         self.url=window.state['settings'].get('comfy_url','http://127.0.0.1:8188')
         self.enabled=window.state['settings'].get('comfy_enabled',False)
         self.connected=False; self.ready=False; self.lease=''; self.target=''; self.token=''
+        self.extension_info={}
         self.native_supported=False
         self.native_inspect_supported=False
         self.native_open_supported=False;self.opening_native=False;self.native_unavailable_reason=''
         self.message='尚未連接 ComfyUI'; self.polling=False; self.stopped=False; self.replies=set()
+        self.connection_checking=False; self._connection_check_until=0.0
         self.run_id=''; self.run_started=0; self.checking_run=False; self.last_signature=''; self.last_results=0
         self.running=0; self.pending=0; self.epoch=0
         self.had_control=False; self.control_interrupted=False
@@ -118,7 +120,30 @@ class ComfyClient(QObject):
         address=local_address(address); self.reset_connection()
         self.url=address; self.enabled=True; self.token=''; self.ready=False
         self.window.state['settings'].update(comfy_url=self.url,comfy_enabled=True); self.window.changed()
+        self.connection_checking=True; self.stateChanged.emit()
         self.timer.start(); self.poll()
+
+    def recheck_connection(self):
+        """Check the saved endpoint without resetting in-flight work there."""
+        now=time.monotonic()
+        if self.stopped or self.connection_checking or now<self._connection_check_until:return False
+        self._connection_check_until=now+.75
+        try:
+            address=local_address(self.window.state['settings'].get('comfy_url',self.url))
+            current=local_address(self.url)
+        except ValueError as exc:self.window.notice(str(exc));return False
+        if address!=current:
+            # A changed endpoint must never release or abort existing work.
+            if (self.run_id or self.generation.batch or self.queue.busy() or self.input_flow.has_work()
+                    or self.polling or self.replies):
+                self.window.notice('目前仍有工作使用原連線；請待工作結束後再切換 ComfyUI 位址。');return False
+            self.connect_to(address);return True
+        if not self.enabled:
+            self.enabled=True;self.window.state['settings']['comfy_enabled']=True
+            self.window.changed('settings',refresh=False)
+        self.connection_checking=True;self.stateChanged.emit();self.timer.start()
+        # poll() already merges a manual check into an outstanding status check.
+        self.poll();return True
 
     def disconnect(self):
         self.reset_connection()
@@ -139,8 +164,8 @@ class ComfyClient(QObject):
         self.sync_timer.stop()
         self.flush_input_cancellations()
         for reply in list(self.replies): reply.abort()
-        self.polling=False; self.checking_run=False; self.connected=False; self.ready=False
-        self.lease=''; self.target=''; self.last_signature=''; self.last_results=0
+        self.polling=False; self.connection_checking=False; self.checking_run=False; self.connected=False; self.ready=False
+        self.lease=''; self.target=''; self.last_signature=''; self.last_results=0; self.extension_info={}
         self.run_id=''; self.running=0; self.pending=0
         if hasattr(self.window,'recent'):
             self.window.recent.collecting.clear(); self.window.recent.update_save_button()
@@ -149,7 +174,8 @@ class ComfyClient(QObject):
         if self.stopped or not self.enabled or self.polling: return
         self.polling=True
         def fail(message):
-            self.polling=False; self.connected=False; self.ready=False; self.token=''; self.last_signature=''
+            self.extension_info={}
+            self.polling=False; self.connection_checking=False; self.connected=False; self.ready=False; self.token=''; self.last_signature=''
             self.control_interrupted=self.had_control
             self.message=message; self.stateChanged.emit()
             self.generation.disconnected()
@@ -158,10 +184,11 @@ class ComfyClient(QObject):
             if self.run_id:
                 self.window.notice('生成提交的連線中斷，結果尚未確認；請查看 ComfyUI 紀錄，不會自動重送。'); self.run_id=''
         def received(status):
-            self.polling=False
+            self.polling=False; self.connection_checking=False
             if not self.enabled: return
             old=self.lease; self.connected=True; self.ready=bool(status.get('ready')); self.lease=status.get('lease',''); self.target=status.get('target','')
             self.had_control=self.had_control or self.ready
+            self.extension_info={key:value for key,value in status.get('extension',{}).items() if key in ('root','version','release','git_head') and isinstance(value,str)} if isinstance(status.get('extension'),dict) else {}
             self.control_interrupted=self.had_control and not self.ready
             self.running=status.get('running',0); self.pending=status.get('pending',0)
             self.direct_supported='direct_generation_v1' in status.get('capabilities',[])
@@ -267,6 +294,8 @@ class ComfyClient(QObject):
 
     def interrupt(self,clear_pending=False):
         if not self.connected: return
+        if clear_pending and self.window.state.get('multi_output',{}).get('version',1)>=7:
+            self.input_flow.chain.cancel();return
         if self.window.state.get('multi_output',{}).get('version',1)>=5:
             self.input_flow.cancel();return
         if self.queue.busy():

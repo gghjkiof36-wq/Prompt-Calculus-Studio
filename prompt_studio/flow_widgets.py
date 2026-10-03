@@ -103,9 +103,10 @@ class ImageInputDialog(WorkflowBindingDialog):
 
 class ImageInputPanel(QFrame):
     def __init__(self,canvas,key):
-        super().__init__();self.canvas=canvas;self.key=key;self.setObjectName('InsetPanel')
-        body=QVBoxLayout(self);body.setContentsMargins(14,14,14,14)
-        self.choose=button('選擇工作流與 LoadImage 節點',self.bind,'Quiet');body.addWidget(self.choose)
+        super().__init__();self.canvas=canvas;self.key=key;self.setObjectName('CanvasModuleBody')
+        body=QVBoxLayout(self);body.setContentsMargins(4,8,4,4);body.setSpacing(8)
+        self.setup_status=label('');body.addWidget(self.setup_status,0,Qt.AlignmentFlag.AlignLeft)
+        self.choose=button('綁定 LoadImage 節點',self.bind);self.choose.setProperty('iconName','media');body.addWidget(self.choose)
 
     def bind(self):
         dialog=ImageInputDialog(self.canvas,self.key)
@@ -114,7 +115,10 @@ class ImageInputPanel(QFrame):
     def refresh(self):
         value=self.canvas.data()['image_inputs'][self.key]
         profile=next((p for p in self.canvas.window.state.get('generation',{}).get('profiles',[]) if p['id']==value.get('workflow')),None)
-        self.choose.setText(profile['name']+' · LoadImage #'+str(value['node']) if profile else '選擇工作流與 LoadImage 節點')
+        from .canvas_onboarding import setup_action,setup_badge
+        pending=setup_action(self.canvas,self.choose,'image_inputs',self.key)
+        setup_badge(self.canvas,self.setup_status,pending)
+        self.choose.setText(profile['name']+' · LoadImage #'+str(value['node']) if not pending else '綁定 LoadImage 節點')
 
 
 class ScheduleList(OutputOrderList):
@@ -152,13 +156,15 @@ class SchedulePanel(QFrame):
         super().__init__();self.canvas=canvas;self.key=key;self.updating=False;self.selected=None;self.setObjectName('InsetPanel')
         body=QVBoxLayout(self);body.setContentsMargins(14,12,14,12)
         self.status=label('只保存接入資料 · 最多十項','Subtle',True);body.addWidget(self.status)
+        self.add_channel_button=button('增加端口',self.add_channel,'Quiet')
         body.addLayout(row(button('暫停',lambda:self.action('pause'),'Quiet'),button('繼續',lambda:self.action('resume'),'Quiet'),
-                           button('取消目前',lambda:self.action('cancel'),'Quiet'),button('增加端口',self.add_channel,'Quiet')))
+                           button('取消目前',lambda:self.action('cancel'),'Quiet'),self.add_channel_button))
         self.listing=ScheduleList(self);self.listing.setMinimumHeight(210);self.listing.setIconSize(QSize(52,52));self.listing.currentItemChanged.connect(self.selection_changed);body.addWidget(self.listing,1)
         self.listing.itemClicked.connect(self.open_detail)
         body.addWidget(label('拖曳等待項目調整順序；點擊查看完整內容。','Subtle',True))
+        self.failure_button=button('處理失敗項目',self.failure_menu,'Quiet')
         body.addLayout(row(button('上移',lambda:self.move('up'),'Quiet'),button('下移',lambda:self.move('down'),'Quiet'),
-                           button('移除',lambda:self.move('remove'),'Quiet'),button('處理失敗項目',self.failure_menu,'Quiet')))
+                           button('移除',lambda:self.move('remove'),'Quiet'),self.failure_button))
         self.detail_id=None;self.detail_state=None
         self.detail=InputDetailDialog(canvas.window);self.detail.setWindowTitle('預排程完整內容');self.detail.resize(720,580)
         self.destroyed.connect(self.detail.deleteLater)
@@ -280,7 +286,7 @@ class SchedulePanel(QFrame):
             self.runner.store.update(item['id'],state=state,operation=None,error='');self.refresh()
         menu.addAction('重試這項已確認失敗的輸入',lambda:change('waiting'))
         menu.addAction('略過這項',lambda:change('removed'))
-        menu.open_at(self.cursor().pos())
+        menu.open_for(self.failure_button,self.canvas.view)
 
     def add_channel(self):
         menu=RoundMenu(self.canvas.window)
@@ -292,7 +298,7 @@ class SchedulePanel(QFrame):
                     channels.append(dict(id=kind+str(number),type=kind,name=TYPE_NAMES[kind]+str(number)))
                 self.canvas.commit(change)
             menu.addAction(TYPE_NAMES[kind],add)
-        menu.open_at(self.cursor().pos())
+        menu.open_for(self.add_channel_button,self.canvas.view)
 
     def history(self):
         window=self.canvas.window
@@ -321,6 +327,7 @@ class SchedulePanel(QFrame):
 class FlowCard(TextCard):
     def __init__(self,canvas,key,kind):
         self.kind=kind;super().__init__(canvas);self.key=key
+        self.module_icon='clock' if kind=='schedulers' else 'workflow' if kind=='stages' else 'media'
         if canvas.data()['version']>=7 and kind in ('schedulers','stages'):
             from .stage_widgets import StagePanel,SchedulePanel as StageSchedule
             self.panel=StagePanel(canvas,key) if kind=='stages' else StageSchedule(canvas,key)
@@ -372,7 +379,16 @@ class FlowCard(TextCard):
         if self.kind=='stages':
             value=self.canvas.data()['stages'][self.key]
             profile=next((p for p in self.canvas.window.state.get('generation',{}).get('profiles',[]) if p['id']==value.get('workflow')),None)
-            painter.setPen(QColor('#9da5af'));painter.drawText(QRectF(18,36,self.width-36,23),Qt.AlignmentFlag.AlignVCenter,profile['name'] if profile else '尚未選擇工作流')
+            from .canvas_items import canvas_colors
+            colors=canvas_colors(self.canvas);left=18
+            if not profile:
+                painter.save();painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(QColor(colors['selected']))
+                badge=QRectF(left,37,62,24);painter.drawRoundedRect(badge,5,5)
+                font=painter.font();font.setPointSizeF(10);font.setBold(True);painter.setFont(font);painter.setPen(QColor(colors['text']))
+                painter.drawText(badge,Qt.AlignmentFlag.AlignCenter,'待設定');painter.restore();left+=72
+            painter.setPen(QColor(colors['secondary'] if profile else colors['text']))
+            caption=painter.fontMetrics().elidedText(profile['name'] if profile else '尚未選擇工作流',Qt.TextElideMode.ElideRight,int(self.width-left-18))
+            painter.drawText(QRectF(left,38,self.width-left-18,23),Qt.AlignmentFlag.AlignVCenter,caption)
     def contextMenuEvent(self,event):
         menu=RoundMenu(self.canvas.window)
         if self.kind=='stages':menu.addAction('參數',self.panel.edit)

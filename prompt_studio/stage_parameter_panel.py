@@ -4,7 +4,8 @@ import json
 import uuid
 from pathlib import Path
 from PySide6.QtCore import Qt, QEvent, QTimer, QSize, QRect, Signal
-from PySide6.QtGui import QFontMetrics,QIcon
+from PySide6.QtGui import QFontMetrics,QIcon,QColor,QPainter,QPixmap
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QFrame, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QListWidget, QListWidgetItem, QScrollArea, QLineEdit, QCheckBox, QToolButton,
     QPlainTextEdit, QSizePolicy, QApplication,QGraphicsOpacityEffect,QLayout)
@@ -15,23 +16,25 @@ from .stage_parameters import (empty, identity, key, descriptor_fields, parse,
 from .stage_parameter_terms import term
 from .stage_parameter_choices import ParameterChoices
 from .parameter_display import display_value
+from .theme import visual_tokens
+from .ui_icons import icon,stylesheet_icon_paths
 
 
-def style_parameter_scrollbar(bar):
+def style_parameter_scrollbar(bar,tokens=None):
     """A narrow local rail with understated arrows and a visible hover state."""
-    assets=(Path(__file__).parent/'assets').as_posix()
+    t=tokens or visual_tokens();assets=stylesheet_icon_paths(t)
     bar.setObjectName('StageParameterScrollBar')
-    bar.setStyleSheet('''
-        QScrollBar#StageParameterScrollBar:vertical {background:transparent;width:12px;margin:16px 0;}
-        QScrollBar#StageParameterScrollBar::handle:vertical {background:#555853;min-height:32px;border-radius:3px;margin:0 3px;}
-        QScrollBar#StageParameterScrollBar::handle:vertical:hover {background:#92968e;}
-        QScrollBar#StageParameterScrollBar::sub-line:vertical {height:16px;subcontrol-position:top;subcontrol-origin:margin;background:transparent;border:0;border-radius:3px;}
-        QScrollBar#StageParameterScrollBar::add-line:vertical {height:16px;subcontrol-position:bottom;subcontrol-origin:margin;background:transparent;border:0;border-radius:3px;}
-        QScrollBar#StageParameterScrollBar::sub-line:vertical:hover, QScrollBar#StageParameterScrollBar::add-line:vertical:hover {background:#393c39;}
-        QScrollBar#StageParameterScrollBar::up-arrow:vertical {image:url("ASSETS/chevron-up.svg");width:10px;height:10px;}
-        QScrollBar#StageParameterScrollBar::down-arrow:vertical {image:url("ASSETS/chevron-down.svg");width:10px;height:10px;}
-        QScrollBar#StageParameterScrollBar::sub-page:vertical, QScrollBar#StageParameterScrollBar::add-page:vertical {background:transparent;}
-    '''.replace('ASSETS',assets))
+    bar.setStyleSheet(f'''
+        QScrollBar#StageParameterScrollBar:vertical {{background:transparent;width:12px;margin:16px 0;}}
+        QScrollBar#StageParameterScrollBar::handle:vertical {{background:{t['scrollbar']};border:0;min-height:32px;border-radius:3px;margin:0 3px;}}
+        QScrollBar#StageParameterScrollBar::handle:vertical:hover {{background:{t['control']};}}
+        QScrollBar#StageParameterScrollBar::sub-line:vertical {{height:16px;subcontrol-position:top;subcontrol-origin:margin;background:transparent;border:0;border-radius:3px;}}
+        QScrollBar#StageParameterScrollBar::add-line:vertical {{height:16px;subcontrol-position:bottom;subcontrol-origin:margin;background:transparent;border:0;border-radius:3px;}}
+        QScrollBar#StageParameterScrollBar::sub-line:vertical:hover, QScrollBar#StageParameterScrollBar::add-line:vertical:hover {{background:{t['hover']};}}
+        QScrollBar#StageParameterScrollBar::up-arrow:vertical {{image:url("{assets['up']}");width:10px;height:10px;}}
+        QScrollBar#StageParameterScrollBar::down-arrow:vertical {{image:url("{assets['down']}");width:10px;height:10px;}}
+        QScrollBar#StageParameterScrollBar::sub-page:vertical, QScrollBar#StageParameterScrollBar::add-page:vertical {{background:transparent;}}
+    ''')
 
 
 class NodeName(QFrame):
@@ -55,13 +58,15 @@ class NodeName(QFrame):
 
 class SeedEditor(QFrame):
     changed=Signal(str,str)
-    def __init__(self,value,mode,language,editable=True,reason=''):
+    def __init__(self,value,mode,language,editable=True,reason='',tokens=None):
         super().__init__();self.mode=mode;self.language=language;self.setProperty('stageSeed',True)
+        self.tokens=tokens or visual_tokens()
         body=QHBoxLayout(self);body.setContentsMargins(0,0,5,0);body.setSpacing(0)
         self.text=QLineEdit(str(value));self.text.setFrame(False)
         self.text.setReadOnly(not editable)
         self.action=QToolButton();self.action.setFixedSize(34,30);self.action.setIconSize(QSize(16,16))
-        self.action.setStyleSheet('QToolButton {border:0;border-radius:6px;background:#393c39;padding:0;} QToolButton:hover {background:#484b47;}')
+        t=self.tokens
+        self.action.setStyleSheet(f'QToolButton {{border:0;border-radius:6px;background:{t["surface"]};padding:0;}} QToolButton:hover {{background:{t["hover"]};}} QToolButton:disabled {{background:{t["disabled_bg"]};}}')
         self.mode_icon()
         self.action.setEnabled(editable and mode in SEED_MODES)
         if reason:
@@ -72,12 +77,13 @@ class SeedEditor(QFrame):
         body.addWidget(self.text,1);body.addWidget(self.action);self.setMinimumHeight(42)
         self.focus_style()
     def focus_style(self):
-        self.setStyleSheet('QFrame[stageSeed="true"] {background:#171819;border:1px solid '+('#7d9cbf' if self.text.hasFocus() or self.action.hasFocus() else '#414342')+'; border-radius:8px;} QFrame[stageSeed="true"] QLineEdit {border:0;background:transparent;}')
+        t=self.tokens;border=t['accent'] if self.text.hasFocus() or self.action.hasFocus() else t['line']
+        self.setStyleSheet(f'QFrame[stageSeed="true"] {{background:{t["field"]};border:1px solid {border};border-radius:8px;}} QFrame[stageSeed="true"] QLineEdit {{border:0;background:transparent;color:{t["text"]};}}')
     def menu(self):
         if not self.action.isEnabled():return
         menu=RoundMenu(self);menu.setToolTipsVisible(True)
-        check=(Path(__file__).parent/'assets'/'check.svg').as_posix()
-        menu.setStyleSheet('QMenu::indicator {width:16px;height:16px;} QMenu::indicator:checked {background:#edeae5;border-radius:3px;image:url("'+check+'");}')
+        t=self.tokens;check=stylesheet_icon_paths(t)['check']
+        menu.setStyleSheet(f'QMenu::indicator {{width:16px;height:16px;}} QMenu::indicator:checked {{background:{t["accent"]};border-radius:3px;image:url("{check}");}}')
         for mode in SEED_MODES:
             action=menu.addAction(term(mode,self.language),lambda m=mode:self.select(m));action.setCheckable(True);action.setChecked(mode==self.mode)
             action.setToolTip(term(mode+'_hint',self.language))
@@ -87,7 +93,16 @@ class SeedEditor(QFrame):
     def mode_icon(self):
         name={'fixed':'fixed','increment':'increment','decrement':'decrement','randomize':'shuffle'}.get(self.mode)
         text=term(self.mode,self.language) if name else term('unknown_seed_mode',self.language)
-        if name:self.action.setIcon(QIcon(str(Path(__file__).parent/'assets'/('seed-'+name+'.svg'))))
+        if name:
+            # Preserve the seed-mode shapes while tinting their alpha mask for
+            # this surface. Render at the actual display DPR, never into assets.
+            renderer=QSvgRenderer((Path(__file__).parent/'assets'/('seed-'+name+'.svg')).read_bytes())
+            ratio=self.action.devicePixelRatioF();size=self.action.iconSize()
+            pixmap=QPixmap(round(size.width()*ratio),round(size.height()*ratio));pixmap.setDevicePixelRatio(ratio)
+            pixmap.fill(Qt.GlobalColor.transparent);painter=QPainter(pixmap);renderer.render(painter)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+            painter.fillRect(pixmap.rect(),QColor(self.tokens['text']));painter.end()
+            self.action.setIcon(QIcon(pixmap))
         else:self.action.setText('—')
         self.action.setToolTip(text);self.action.setAccessibleName(text)
     def eventFilter(self,watched,event):
@@ -104,6 +119,7 @@ class ParameterSheet(QFrame):
         self.client=window.comfy;self.catalog=window.settings_page.workflow_manager.catalog
         self.owner=(window.store,window.state['workspace'],self.client.url,self.client.epoch)
         self.language=language or window.state.get('settings',{}).get('language','zh-TW')
+        self.tokens=visual_tokens({**window.state.get('settings',{}),**getattr(window,'appearance_preview',{})})
         self.profiles=copy.deepcopy(window.state.get('generation',{}).get('profiles',[]));self.serial=0;self.revision=0;self.closed=False;self.loading=False
         self.configs={};self.raw={};self.draft_fields={};self.modes={};self.descriptions={};self.scroll_positions={};self.group_expanded={};self.selected=None;self.form_owner=None;self.seed_intents={}
         self.task_base=copy.deepcopy(item['saved']) if item else None
@@ -114,31 +130,34 @@ class ParameterSheet(QFrame):
         self.initial_workflow=config['identity']['workflow'] if config else self.stage.get('workflow')
         self.initial_config=copy.deepcopy(config)
         if config:self.configs[self.initial_workflow]=copy.deepcopy(config)
-        self.setObjectName('StageParameterMask');self.setStyleSheet('''
-            #StageParameterMask {background:rgba(0,0,0,145);}
-            #StageParameterPanel {background:#191a1b;border:1px solid #414342;border-radius:20px;}
-            #StageParameterDrawer {background:#222324;border:1px solid #414342;border-radius:14px;}
-            #StageParameterEditor {background:#222324;border:0;border-radius:14px;}
-            #StageParameterFooter {background:#222324;border:0;border-bottom-left-radius:20px;border-bottom-right-radius:20px;}
-            #StageWorkflowPicker {background:#171819;border:1px solid #414342;border-radius:10px;}
-            #StageParameterPanel QLabel[stageNodeName="true"] {font-weight:500;}
-            #StageParameterPanel QLabel[stageSecondary="true"] {color:#aaa9a4;}
-            #StageParameterPanel QLabel#DialogTitle, #StageParameterPanel QLabel#Heading {font-weight:500;}
-            #StageParameterPanel QLineEdit, #StageParameterPanel QComboBox {min-height:40px;border-radius:8px;}
-            #StageParameterPanel QComboBox {padding:0 40px 0 10px;background:#171819;border-color:#414342;}
-            #StageParameterPanel QLineEdit {padding:0 10px;background:#171819;border-color:#414342;}
-            #StageParameterPanel QLineEdit[stageReadOnly="true"] {color:#aaa9a4;border-color:#353735;}
-            #StageWorkflowPicker QComboBox {background:transparent;border:0;padding-left:0;}
-            #StageParameterClose {background:transparent;border:0;}
-            #StageParameterClose:hover, #StageParameterClose:focus {background:#303332;border-radius:8px;}
-            #StageParameterFooter QPushButton#StageParameterDiff {background:#303332;border:1px solid #414342;border-radius:8px;}
-            #StageParameterPanel QScrollArea {border:0;background:transparent;}
-            #StageParameterPanel QListWidget {background:transparent;border:0;}
-            #StageParameterPanel QListWidget::item {padding:0;margin:0;border:0;}
-            #StageParameterPanel QListWidget::item:selected {background:#393c39;border-radius:10px;}
-            #StageParameterPanel QToolButton[stageNodeGroup="true"] {text-align:left;color:#aaa9a4;background:transparent;border:0;border-radius:6px;padding:8px 10px;}
-            #StageParameterPanel QToolButton[stageNodeGroup="true"]:hover, #StageParameterPanel QToolButton[stageNodeGroup="true"]:focus {color:#edeae5;background:#303332;}
-            #StageParameterPanel QToolButton[stageNodeGroup="true"]:disabled {color:#aaa9a4;}
+        t=self.tokens;scrim=','.join(str(v) for v in QColor(t['base']).getRgb()[:3])
+        self.setObjectName('StageParameterMask');self.setStyleSheet(f'''
+            #StageParameterMask {{background:rgba({scrim},145);}}
+            #StageParameterPanel {{background:{t['base']};border:1px solid {t['line']};border-radius:20px;}}
+            #StageParameterDrawer {{background:{t['raised']};border:1px solid {t['line']};border-radius:14px;}}
+            #StageParameterEditor {{background:{t['surface']};border:0;border-radius:14px;}}
+            #StageParameterFooter {{background:{t['surface']};border:0;border-bottom-left-radius:20px;border-bottom-right-radius:20px;}}
+            #StageWorkflowPicker {{background:{t['field']};border:1px solid {t['line']};border-radius:10px;}}
+            #StageParameterPanel QLabel[stageNodeName="true"] {{font-weight:500;}}
+            #StageParameterPanel QLabel[stageSecondary="true"] {{color:{t['secondary']};}}
+            #StageParameterPanel QLabel#DialogTitle, #StageParameterPanel QLabel#Heading {{font-weight:500;}}
+            #StageParameterPanel QLineEdit, #StageParameterPanel QComboBox {{min-height:40px;border-radius:8px;}}
+            #StageParameterPanel QComboBox {{padding:0 40px 0 10px;background:{t['field']};border-color:{t['line']};}}
+            #StageParameterPanel QLineEdit {{padding:0 10px;background:{t['field']};border-color:{t['line']};}}
+            #StageParameterPanel QLineEdit[stageReadOnly="true"] {{color:{t['secondary']};border-color:{t['line']};}}
+            #StageParameterPanel QLineEdit:focus, #StageParameterPanel QComboBox:focus {{border-color:{t['accent']};}}
+            #StageWorkflowPicker QComboBox {{background:transparent;border:0;padding-left:0;}}
+            #StageParameterClose {{background:transparent;border:0;}}
+            #StageParameterClose:hover, #StageParameterClose:focus {{background:{t['hover']};border-radius:8px;}}
+            #StageParameterFooter QPushButton#StageParameterDiff {{background:{t['surface']};border:1px solid {t['line']};border-radius:8px;}}
+            #StageParameterFooter QPushButton#StageParameterDiff:hover {{background:{t['hover']};}}
+            #StageParameterPanel QScrollArea {{border:0;background:transparent;}}
+            #StageParameterPanel QListWidget {{background:transparent;border:0;}}
+            #StageParameterPanel QListWidget::item {{padding:0;margin:0;border:0;}}
+            #StageParameterPanel QListWidget::item:selected {{background:{t['selected']};border-radius:10px;}}
+            #StageParameterPanel QToolButton[stageNodeGroup="true"] {{text-align:left;color:{t['secondary']};background:transparent;border:0;border-radius:6px;padding:8px 10px;}}
+            #StageParameterPanel QToolButton[stageNodeGroup="true"]:hover, #StageParameterPanel QToolButton[stageNodeGroup="true"]:focus {{color:{t['text']};background:{t['hover']};}}
+            #StageParameterPanel QToolButton[stageNodeGroup="true"]:disabled {{color:{t['disabled_text']};}}
         ''')
         self.panel=QFrame(self);self.panel.setObjectName('StageParameterPanel')
         main=QVBoxLayout(self.panel);main.setContentsMargins(1,1,1,1);main.setSpacing(0)
@@ -152,7 +171,7 @@ class ParameterSheet(QFrame):
         heading.addWidget(self.title,1);heading.addWidget(self.close_button);main.addWidget(self.header)
         self.workflow=ComboBox();self.workflow.setMinimumWidth(0)
         self.nodes_button=button(term('nodes',self.language),self.toggle_nodes,'Quiet')
-        self.refresh_button=button('',self.reload,'Quiet');self.refresh_button.setIcon(QIcon(str(Path(__file__).parent/'assets'/'refresh.svg')))
+        self.refresh_button=button('',self.reload,'Quiet');self.refresh_button.setIcon(icon('update',color=t['text']))
         self.refresh_button.setFixedSize(32,28);self.refresh_button.setToolTip(term('refresh',self.language));self.refresh_button.setAccessibleName(term('refresh',self.language))
         self.workflow_area=QFrame();self.workflow_area.setObjectName('StageWorkflowPicker')
         workflow_body=QVBoxLayout(self.workflow_area);workflow_body.setContentsMargins(12,8,8,8);workflow_body.setSpacing(0)
@@ -164,14 +183,14 @@ class ParameterSheet(QFrame):
         left.addWidget(self.workflow_area)
         self.search=QLineEdit();self.search.setPlaceholderText(term('search',self.language));self.search.textChanged.connect(self.filter_nodes)
         self.list=QListWidget();self.list.currentItemChanged.connect(self.select_node)
-        style_parameter_scrollbar(self.list.verticalScrollBar())
+        style_parameter_scrollbar(self.list.verticalScrollBar(),t)
         left.addWidget(self.search);left.addWidget(self.list,1);content.addWidget(self.left)
         self.editor=QFrame();self.editor.setObjectName('StageParameterEditor')
         editor_body=QVBoxLayout(self.editor);editor_body.setContentsMargins(22,22,16,22)
         self.scroll=QScrollArea();self.scroll.setWidgetResizable(True);self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll.viewport().setObjectName('StageParameterViewport');self.scroll.viewport().setStyleSheet('#StageParameterViewport {background:transparent;}')
         self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        style_parameter_scrollbar(self.scroll.verticalScrollBar())
+        style_parameter_scrollbar(self.scroll.verticalScrollBar(),t)
         # A transparent idle rail reserves the same width without an extra track.
         self.rail_effect=QGraphicsOpacityEffect(self.scroll.verticalScrollBar());self.rail_effect.setOpacity(0)
         self.scroll.verticalScrollBar().setGraphicsEffect(self.rail_effect)
@@ -365,7 +384,7 @@ class ParameterSheet(QFrame):
                 native_mode=field.get('seed_mode',field.get('seed_control_mode'))
                 mode=self.modes.get(k,patch.get('seed_mode',native_mode) if patch else native_mode)
                 seed_reason=reason or field.get('seed_control_reason','')
-                editor=SeedEditor(value,mode,self.language,editable=editable and 'seed_mode' in field,reason=seed_reason)
+                editor=SeedEditor(value,mode,self.language,editable=editable and 'seed_mode' in field,reason=seed_reason,tokens=self.tokens)
                 if editable and 'seed_mode' in field:editor.changed.connect(lambda v,m,f=field:self.edits(f,v,m))
                 body.addWidget(editor)
             elif not editable:

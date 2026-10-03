@@ -1,12 +1,12 @@
 import copy
 import json
 import time
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QEvent, QTimer,QSize
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QComboBox,
-    QPlainTextEdit, QCheckBox, QSpinBox, QFontComboBox, QTabWidget, QWidget,
-    QListWidget, QListWidgetItem, QScrollArea, QSlider, QAbstractItemView)
-from .widgets import label, button, row, dialog_buttons, image_path, set_preview, ask, scrolling, panel, StudioDialog, CheckList, InputDialog as QInputDialog, ComboBox as QComboBox
+from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit,
+    QPlainTextEdit, QCheckBox, QSpinBox, QTabWidget, QWidget,
+    QListWidget, QListWidgetItem, QScrollArea, QSlider, QAbstractItemView,QStyle,QStyleOptionComboBox,QBoxLayout,QSizePolicy)
+from .widgets import label, button, row, dialog_buttons, image_path, set_preview, ask, scrolling, panel, StudioDialog, CheckList, InputDialog as QInputDialog, ComboBox as QComboBox, FontComboBox as QFontComboBox
 from .completion import PromptEdit
 from .core import uid, DEFAULT_SETTINGS, set_selection_separation
 from .media import thumbnail
@@ -113,6 +113,78 @@ class ItemDialog(StudioDialog):
         self.accept()
 
 
+class AppearanceFormPage(QWidget):
+    """Keep settings label columns aligned as inherited font and width change."""
+    def __init__(self):
+        super().__init__()
+        self.forms = []
+        self.numbers = []
+        self.text_controls = []
+        self.sizing_pending = False
+
+    def event(self, event):
+        result = super().event(event)
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange, QEvent.Type.Resize, QEvent.Type.Show):
+            if hasattr(self, 'forms') and not self.sizing_pending:
+                self.sizing_pending = True
+                QTimer.singleShot(0, self.align_fields)
+        return result
+
+    def align_fields(self):
+        self.sizing_pending = False
+        labels = [item.widget() for form in self.forms for index in range(form.rowCount())
+                  if (item := form.itemAt(index, QFormLayout.ItemRole.LabelRole)) and item.widget()]
+        if labels:
+            width = max(180, max(item.fontMetrics().horizontalAdvance(item.text()) for item in labels) + 8)
+            width = min(width, max(100, self.width() - 48))
+            for item in labels:
+                item.setWordWrap(True)
+                item.setFixedWidth(width)
+                item.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        for control, sample in self.numbers:
+            control.setFixedWidth(max(100, control.fontMetrics().horizontalAdvance(sample) + 48))
+        for control in self.text_controls:
+            # Give the editable font family its actual text width. A narrow
+            # form wraps this field below its label instead of chopping off
+            # the beginning of the selected family name.
+            available=max(120,self.width()-32)
+            option=QStyleOptionComboBox();control.initStyleOption(option)
+            field=control.style().subControlRect(QStyle.ComplexControl.CC_ComboBox,option,QStyle.SubControl.SC_ComboBoxEditField,control)
+            chrome=max(56,control.width()-field.width())+2
+            preferred=control.fontMetrics().horizontalAdvance(control.currentText())+chrome
+            control.setMaximumWidth(min(480,available))
+            control.setMinimumWidth(min(max(220,preferred),control.maximumWidth()))
+            control.setToolTip(control.currentText())
+            editor=control.lineEdit()
+            if editor is not None and not editor.hasFocus():editor.setCursorPosition(0)
+
+
+class AppearanceResetRow(QWidget):
+    """Keep reset choices together, with one button per row when necessary."""
+    def __init__(self,*buttons):
+        super().__init__();self.buttons=buttons
+        self.flow=QBoxLayout(QBoxLayout.Direction.LeftToRight,self)
+        self.flow.setContentsMargins(0,0,0,0);self.flow.setSpacing(8)
+        for action in buttons:self.flow.addWidget(action,0,Qt.AlignmentFlag.AlignLeft)
+        self.flow.addStretch();self.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Maximum)
+
+    def minimumSizeHint(self):
+        return QSize(max(action.minimumSizeHint().width() for action in self.buttons),super().minimumSizeHint().height())
+
+    def reflow(self):
+        required=sum(action.sizeHint().width() for action in self.buttons)+8*(len(self.buttons)-1)
+        direction=QBoxLayout.Direction.LeftToRight if self.width()>=required else QBoxLayout.Direction.TopToBottom
+        if self.flow.direction()!=direction:self.flow.setDirection(direction)
+
+    def resizeEvent(self,event):
+        self.reflow();super().resizeEvent(event)
+
+    def event(self,event):
+        result=super().event(event)
+        if hasattr(self,'flow') and event.type() in (QEvent.Type.LayoutRequest,QEvent.Type.FontChange,QEvent.Type.StyleChange):self.reflow()
+        return result
+
+
 class SettingsDialog(StudioDialog):
     def __init__(self, window):
         super().__init__(window)
@@ -123,20 +195,29 @@ class SettingsDialog(StudioDialog):
         layout = self.body
         tabs = QTabWidget(); self.tabs=tabs
         layout.addWidget(tabs)
-        appearance = QWidget(); appearance_layout=QVBoxLayout(appearance); appearance_layout.setContentsMargins(0,12,0,0); appearance_layout.setSpacing(18)
+        appearance = AppearanceFormPage(); appearance_layout=QVBoxLayout(appearance); appearance_layout.setContentsMargins(0,0,0,0); appearance_layout.setSpacing(12)
         appearance_layout.addWidget(label("閱讀與顯示","Heading"))
         reading,reading_layout=panel("SettingsGroup"); appearance_layout.addWidget(reading)
         form=QFormLayout(); form.setVerticalSpacing(18); form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow); form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows); reading_layout.addLayout(form)
+        reading_layout.setContentsMargins(16,16,16,16); form.setVerticalSpacing(12); form.setHorizontalSpacing(16); appearance.forms.append(form)
         self.family = QFontComboBox(); self.family.setCurrentFont(QFont(s["font_family"]))
+        appearance.text_controls.append(self.family)
+        self.family.currentFontChanged.connect(lambda *_:QTimer.singleShot(0,appearance.align_fields))
         form.addRow("介面字型",self.family)
         self.ui_size = QSpinBox(); self.ui_size.setRange(9,22); self.ui_size.setValue(s["ui_size"])
         self.prompt_size = QSpinBox(); self.prompt_size.setRange(9,22); self.prompt_size.setValue(s["prompt_size"])
+        appearance.numbers.extend(((self.ui_size,'22'),(self.prompt_size,'22')))
         form.addRow("介面字級（pt）",self.ui_size); form.addRow("提示詞字級（pt）",self.prompt_size)
         appearance_layout.addWidget(label("材質與色彩","Heading"))
         material,material_layout=panel("SettingsGroup"); appearance_layout.addWidget(material)
         form=QFormLayout(); form.setVerticalSpacing(18); form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow); form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows); material_layout.addLayout(form)
+        material_layout.setContentsMargins(16,16,16,16); form.setVerticalSpacing(12); form.setHorizontalSpacing(16); appearance.forms.append(form)
+        self.visual_palette=QComboBox()
+        for title,key in [('石墨暖沙','graphite'),('冷灰霧藍','mist'),('暖白紙感','paper')]:self.visual_palette.addItem(title,key)
+        self.visual_palette.setCurrentIndex(max(0,self.visual_palette.findData(s.get('visual_palette','graphite'))))
+        form.addRow('配色',self.visual_palette)
         self.material = QComboBox()
-        for text,value in [("純黑實色 · 最省資源","solid"),("Mica · 桌布色調","mica"),("Acrylic · 系統背景模糊","acrylic")]: self.material.addItem(text,value)
+        for text,value in [("實色","solid"),("Mica · 桌布色調","mica"),("Acrylic · 背景模糊","acrylic")]: self.material.addItem(text,value)
         self.material.setCurrentIndex(self.material.findData(s["material"]))
         form.addRow("視窗材質",self.material)
         self.material_form=form
@@ -145,25 +226,41 @@ class SettingsDialog(StudioDialog):
         self.transparency_row=QWidget(); transparency_layout=row()
         transparency_layout.setContentsMargins(0,0,0,0); self.transparency_row.setLayout(transparency_layout)
         self.transparency=QSlider(Qt.Orientation.Horizontal); self.transparency.setRange(0,100)
-        self.transparency.setAccessibleName("材質透明度")
+        self.transparency.setAccessibleName("視窗透明度")
         self.transparency_value=QSpinBox(); self.transparency_value.setRange(0,100); self.transparency_value.setSuffix(" %")
-        self.transparency_value.setAccessibleName("材質透明度百分比"); self.transparency_value.setMinimumWidth(96)
+        self.transparency_value.setAccessibleName("視窗透明度百分比"); self.transparency_value.setMinimumWidth(96)
+        appearance.numbers.append((self.transparency_value,'100 %'))
         self.transparency.setValue(self.transparency_values.get(self.transparency_material,61))
         self.transparency_value.setValue(self.transparency.value())
         transparency_layout.addWidget(self.transparency,1); transparency_layout.addWidget(self.transparency_value)
-        form.addRow("透明度",self.transparency_row)
+        form.addRow("視窗透明度",self.transparency_row)
         self.transparency.setToolTip("調整周邊底色遮罩；數值越高，材質色調越明顯，不影響文字區。")
         self.transparency.valueChanged.connect(self.transparency_value.setValue)
         self.transparency_value.valueChanged.connect(self.transparency.setValue)
         form.setRowVisible(self.transparency_row,self.material.currentData() in ('mica','acrylic'))
+        self.menu_transparency_row=QWidget();menu_transparency_layout=row()
+        menu_transparency_layout.setContentsMargins(0,0,0,0);self.menu_transparency_row.setLayout(menu_transparency_layout)
+        self.menu_transparency=QSlider(Qt.Orientation.Horizontal);self.menu_transparency.setRange(0,40)
+        self.menu_transparency.setAccessibleName('選單透明度')
+        self.menu_transparency_value=QSpinBox();self.menu_transparency_value.setRange(0,40);self.menu_transparency_value.setSuffix(' %')
+        self.menu_transparency_value.setAccessibleName('選單透明度百分比')
+        appearance.numbers.append((self.menu_transparency_value,'40 %'))
+        self.menu_transparency.setValue(s.get('menu_transparency',DEFAULT_SETTINGS['menu_transparency']))
+        self.menu_transparency_value.setValue(self.menu_transparency.value())
+        for control in (self.menu_transparency,self.menu_transparency_value):control.setToolTip('0% 為實色，數值越高越透明。')
+        self.menu_transparency.valueChanged.connect(self.menu_transparency_value.setValue)
+        self.menu_transparency_value.valueChanged.connect(self.menu_transparency.setValue)
+        menu_transparency_layout.addWidget(self.menu_transparency,1);menu_transparency_layout.addWidget(self.menu_transparency_value)
+        form.addRow('選單透明度',self.menu_transparency_row)
         self.accent = QComboBox()
-        for text,value in [("中性灰白","neutral"),("霧藍","blue"),("柔綠","green")]: self.accent.addItem(text,value)
+        for text,value in [("跟隨配色","neutral"),("霧藍","blue"),("柔綠","green")]: self.accent.addItem(text,value)
         self.accent.setCurrentIndex(self.accent.findData(s["accent"]))
         self.density = QComboBox(); self.density.addItem("舒適","comfortable"); self.density.addItem("緊湊","compact")
         self.density.setCurrentIndex(self.density.findData(s["density"]))
         form.addRow("重點色",self.accent); form.addRow("清單間距",self.density)
-        appearance_layout.addWidget(label("操作確認","Heading"))
+        appearance_layout.addWidget(label("操作行為","Heading"))
         confirmations,confirmations_layout=panel("SettingsGroup"); appearance_layout.addWidget(confirmations)
+        confirmations_layout.setContentsMargins(16,16,16,16)
         self.confirm_clear_draft=QCheckBox("清除手動內容前先詢問")
         self.confirm_clear_draft.setChecked(s.get("confirm_clear_draft",True)); confirmations_layout.addWidget(self.confirm_clear_draft)
         self.reduce_motion=QCheckBox('減少畫布展開動畫'); self.reduce_motion.setChecked(s.get('reduce_motion',False)); confirmations_layout.addWidget(self.reduce_motion)
@@ -172,11 +269,26 @@ class SettingsDialog(StudioDialog):
         self.connection_style.setCurrentIndex(self.connection_style.findData(s.get('connection_style','curve')))
         self.connection_style.setToolTip('直角線採水平、垂直、水平三段；只在中間轉折，不自動繞過模組。')
         if 'multi_output' in window.state:
-            confirmations_layout.addWidget(label('畫布連線樣式','Subtle')); confirmations_layout.addWidget(self.connection_style)
-        self.separate_selections=QCheckBox('禁止清單選項跟 Canvas 選項共用')
+            connection_form=QFormLayout();connection_form.setHorizontalSpacing(16);connection_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            self.connection_style.setMaximumWidth(280)
+            connection_form.addRow('畫布連線樣式',self.connection_style);confirmations_layout.addLayout(connection_form);appearance.forms.append(connection_form)
+        self.separate_selections=QCheckBox('分開保存畫布與清單的選擇')
         self.separate_selections.setChecked(s.get('separate_selections',True)); confirmations_layout.addWidget(self.separate_selections)
-        confirmations_layout.addWidget(label('勾選後各自保留選擇與手動稿；素材庫仍共用。取消勾選可合併使用兩邊的組合。','Subtle',True))
+        confirmations_layout.addWidget(label('各自保留選擇與手動稿，素材庫共用。','Subtle',True))
+        # Keep labels close to their controls, with one shared reading column.
+        for form in appearance.forms:
+            for index in range(form.rowCount()):
+                control=form.itemAt(index,QFormLayout.ItemRole.FieldRole).widget()
+                form.removeWidget(control)
+                holder=QWidget(); alignment=row(); alignment.setContentsMargins(0,0,0,0);holder.setLayout(alignment)
+                control.setMaximumWidth(480 if control is self.family else 380 if control in (self.transparency_row,self.menu_transparency_row) else 280)
+                alignment.addWidget(control);alignment.addStretch()
+                form.setWidget(index,QFormLayout.ItemRole.FieldRole,holder)
+                if control is self.transparency_row:self.transparency_holder=holder
+        self.material_form.setRowVisible(self.transparency_holder,self.material.currentData() in ('mica','acrylic'))
+        self.transparency_row.show()
         appearance_layout.addStretch()
+        appearance.align_fields()
         tabs.addTab(scrolling(appearance),"外觀")
         network = QWidget(); net = QFormLayout(network)
         self.online = QCheckBox("允許聯網（候選與 CivitAI 共用）"); self.online.setChecked(s["online"])
@@ -207,6 +319,7 @@ class SettingsDialog(StudioDialog):
         layout.addWidget(dialog_buttons(self,self.save))
         self.material.currentIndexChanged.connect(self.preview_material)
         self.transparency.valueChanged.connect(self.preview_material)
+        self.menu_transparency.valueChanged.connect(self.preview_material)
         self.finished.connect(self.finish_preview)
 
     def preview_material(self, *_):
@@ -217,13 +330,17 @@ class SettingsDialog(StudioDialog):
             self.transparency.blockSignals(True); self.transparency_value.blockSignals(True)
             self.transparency.setValue(self.transparency_values.get(material,61)); self.transparency_value.setValue(self.transparency.value())
             self.transparency.blockSignals(False); self.transparency_value.blockSignals(False); self.transparency_material=material
-        self.material_form.setRowVisible(self.transparency_row,material in ('mica','acrylic'))
-        self.window.appearance_preview=dict(material=material,**{k+'_transparency':v for k,v in self.transparency_values.items()})
-        self.window.apply_theme(preserve_layout=True)
+        self.material_form.setRowVisible(self.transparency_holder,material in ('mica','acrylic'))
+        self.window.appearance_preview=dict(material=material,menu_transparency=self.menu_transparency.value(),**{k+'_transparency':v for k,v in self.transparency_values.items()})
+        self.window.update_material_preview()
+        from .popup_surface import refresh_popup_surfaces
+        refresh_popup_surfaces(self.window)
 
     def finish_preview(self, *_):
         self.window.appearance_preview={}
-        self.window.apply_theme(preserve_layout=True)
+        self.window.update_material_preview()
+        from .popup_surface import refresh_popup_surfaces
+        refresh_popup_surfaces(self.window)
 
     def save(self, accept=True):
         prior=dict(self.window.state["settings"]); dictionary = {}; valid=True
@@ -237,8 +354,8 @@ class SettingsDialog(StudioDialog):
         if changed_separation:
             self.window.canvas.undo_stack.clear(); self.window.canvas.redo_stack.clear()
         self.window.state["settings"].update(ui_size=self.ui_size.value(),prompt_size=self.prompt_size.value(),
-            font_family=self.family.currentFont().family(),material=self.material.currentData(),accent=self.accent.currentData(),
-            acrylic_transparency=self.transparency_values['acrylic'],mica_transparency=self.transparency_values['mica'],confirm_clear_draft=self.confirm_clear_draft.isChecked(),reduce_motion=self.reduce_motion.isChecked(),
+            font_family=self.family.currentFont().family(),material=self.material.currentData(),visual_palette=self.visual_palette.currentData(),accent=self.accent.currentData(),
+            acrylic_transparency=self.transparency_values['acrylic'],mica_transparency=self.transparency_values['mica'],menu_transparency=self.menu_transparency.value(),confirm_clear_draft=self.confirm_clear_draft.isChecked(),reduce_motion=self.reduce_motion.isChecked(),
             connection_style=self.connection_style.currentData(),density=self.density.currentData(),online=self.online.isChecked(),translator=self.translator.currentData(),
             formatter=self.formatter.currentData(),artist_prefix=self.artist.isChecked())
         self.dictionary_feedback.setText('' if valid else '尚未套用：每行請使用「中文 = 英文」格式。輸入內容已暫存。')
@@ -251,11 +368,15 @@ class SettingsDialog(StudioDialog):
         self.window.completion.timer.stop()
         settings=self.window.state['settings']
         prompt_changed=changed_separation or any(prior.get(k)!=settings.get(k) for k in ('formatter','artist_prefix'))
-        theme_changed=any(prior.get(k)!=settings.get(k) for k in ('ui_size','prompt_size','font_family','material','accent','density','acrylic_transparency','mica_transparency','reduce_motion','connection_style'))
+        theme_changed=any(prior.get(k)!=settings.get(k) for k in ('ui_size','prompt_size','font_family','visual_palette','accent','density','reduce_motion','connection_style'))
         self.window.changed('prompt' if prompt_changed else 'settings')
         if prompt_changed:self.window.refresh_builder()
         if theme_changed:
             self.window.appearance_preview={}; self.window.apply_theme(preserve_layout=True)
+        else:
+            self.window.appearance_preview={}; self.window.update_material_preview()
+        from .popup_surface import refresh_popup_surfaces
+        refresh_popup_surfaces(self.window)
         if accept and valid:self.accept()
         return valid
 

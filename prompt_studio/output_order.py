@@ -3,7 +3,7 @@ import uuid
 from PySide6.QtCore import Qt,QMimeData,Signal,QTimer
 from PySide6.QtGui import QDrag,QPainter,QPen,QColor
 from PySide6.QtWidgets import QListWidget,QAbstractItemView
-from .views import BuilderTree
+from .views import BuilderTree,widget_colors
 
 class OutputOrderList(QListWidget):
     orderChanged=Signal()
@@ -70,4 +70,4 @@ class OutputOrderList(QListWidget):
         super().paintEvent(event)
         if self._hint is None or not self.count(): return
         y=self.visualItemRect(self.item(self._hint)).top() if self._hint<self.count() else self.visualItemRect(self.item(self.count()-1)).bottom()
-        painter=QPainter(self.viewport()); painter.setPen(QPen(QColor('#99c6ff'),2)); painter.drawLine(4,y,self.viewport().width()-4,y)
+        painter=QPainter(self.viewport()); painter.setPen(QPen(QColor(widget_colors(self)['accent']),2)); painter.drawLine(4,y,self.viewport().width()-4,y)

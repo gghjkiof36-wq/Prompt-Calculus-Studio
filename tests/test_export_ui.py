@@ -64,7 +64,8 @@ class ExportUiTests(unittest.TestCase):
         client.request=request; client.poll(); self.assertFalse(client.control_interrupted)
         payload.update(ready=True,lease='one',target='text'); client.poll(); self.assertFalse(client.control_interrupted)
         payload.update(ready=False,reason='已停止桌面控制，保留目前文字。'); client.poll()
-        self.assertTrue(client.control_interrupted); self.assertIn('#e4ba59',self.w.comfy_status.styleSheet())
+        from prompt_studio.theme import visual_tokens
+        self.assertTrue(client.control_interrupted); self.assertIn(visual_tokens(self.w.state['settings'])['warning'],self.w.comfy_status.styleSheet())
         payload.update(ready=True); client.poll(); self.assertEqual(self.w.comfy_status.styleSheet(),'')
         client.disconnect(); self.assertFalse(client.control_interrupted)
 
@@ -101,7 +102,10 @@ class ExportUiTests(unittest.TestCase):
             p.context(p.images.visualItemRect(p.images.item(0)).center())
             callback=next(c.args[1] for c in menu.return_value.addAction.call_args_list if c.args[0]=='匯出圖片…')
             p.refresh(); callback(); self.wait_job()
-        self.assertIs(self.w.tabs.currentWidget(),self.w.clean_export)
+        if self.w.canvas_mode:
+            self.assertIs(self.w.surface_stack.currentWidget(),self.w.canvas_shell)
+            self.assertIs(self.w.canvas_content.currentWidget(),self.w.clean_export)
+        else:self.assertIs(self.w.tabs.currentWidget(),self.w.clean_export)
         self.assertEqual(self.w.clean_export.rows[0]['source'],str(source))
 
     def test_media_folder_source_uses_registered_images_only(self):
@@ -130,10 +134,11 @@ class ExportUiTests(unittest.TestCase):
         with patch('prompt_studio.export_page.QFileDialog.getExistingDirectory',return_value=str(target)):
             p.preview(); self.wait_job()
         self.assertIsNotNone(p.plan); self.assertTrue(p.feedback.isHidden())
-        item=p.table.item(0,2); self.assertEqual(item.text(),'待匯出'); self.assertEqual(item.foreground().color().name(),'#e4ba59')
+        from prompt_studio.theme import visual_tokens
+        item=p.table.item(0,2); self.assertEqual(item.text(),'待匯出'); self.assertEqual(item.foreground().color().name(),visual_tokens(self.w.state['settings'])['warning'])
         self.assertFalse(item.flags() & Qt.ItemFlag.ItemIsEditable)
         p.export(); self.wait_job(); self.assertEqual(p.table.item(0,2).text(),'成功')
-        self.assertEqual(p.table.item(0,2).foreground().color().name(),'#75cd98')
+        self.assertEqual(p.table.item(0,2).foreground().color().name(),visual_tokens(self.w.state['settings'])['success'])
 
     def test_gallery_location_menu_uses_resolved_original(self):
         source=self.fixture_image(); self.w.catalog.put('album',dict(id='test',name='測試'))
@@ -157,15 +162,19 @@ class ExportUiTests(unittest.TestCase):
             self.assertFalse(shell.testAttribute(Qt.WidgetAttribute.WA_SetCursor))
         editor.deleteLater()
 
-    def test_combo_has_independent_popup_and_model_footer_is_aligned(self):
+    def test_combo_has_independent_popup_and_model_actions_remain_available(self):
         combo=self.w.workspace; self.assertIsInstance(combo,ComboBox)
         self.assertIsNot(combo._popup,self.w); self.assertIs(combo._popup,combo.view().window())
         self.assertFalse(APP.isEffectEnabled(Qt.UIEffect.UI_AnimateCombo))
-        combo.showPopup(); APP.processEvents(); self.assertFalse(combo._popup.mask().isEmpty()); combo.hidePopup()
-        self.w.tabs.setCurrentWidget(self.w.models); APP.processEvents()
+        combo.showPopup(); APP.processEvents()
+        self.assertTrue(combo._popup.mask().isEmpty())
+        self.assertTrue(combo._popup.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground));combo.hidePopup()
+        self.w.settings('models'); APP.processEvents()
         actions={b.text():b for b in self.w.models.findChildren(QPushButton)}
         self.assertEqual(actions['上一頁'].y(),actions['下一頁'].y())
-        self.assertEqual(actions['匯入檔案…'].y(),actions['管理分類'].y())
-        self.assertEqual(actions['辨識來源'].y(),actions['管理分類'].y())
+        with patch('prompt_studio.pages.QMenu') as menu:
+            self.w.models.model_menu()
+            names=[call.args[0] for call in menu.return_value.addAction.call_args_list]
+            for name in ('辨識來源','管理分類'):self.assertIn(name,names)
 
 if __name__=='__main__': unittest.main()

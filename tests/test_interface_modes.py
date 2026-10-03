@@ -73,7 +73,9 @@ class InterfaceTests(unittest.TestCase):
         w.settings('models'); self.assertIs(w.settings_page.pages.currentWidget(),w.settings_page.comfy_content)
         self.assertIs(w.settings_page.comfy_tabs.currentWidget(),w.models)
         self.assertTrue(w.settings_page.comfy_content.isAncestorOf(w.models))
-        self.assertEqual([w.settings_page.navigation.item(i).text() for i in range(w.settings_page.navigation.count())].count('ComfyUI'),1)
+        self.assertEqual([w.settings_page.navigation.item(i).text() for i in range(w.settings_page.navigation.count())],
+                         ['連線與工作流','模型資產','管理與更新'])
+        self.assertTrue(all(not w.settings_page.navigation.item(i).icon().isNull() for i in range(3)))
         for section in ('workflows','models','nodes'):
             w.settings(section); self.assertIs(w.settings_page.pages.currentWidget(),w.settings_page.comfy_content)
 

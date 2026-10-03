@@ -106,7 +106,14 @@ async def begin(queue,value,server,action,notify,timeout=7.0):
             await asyncio.sleep(.05)
         target=await handshake(queue,target,notify,value['id'],max(.01,deadline-time.monotonic()))
         if queue.read(value['id'])['state']!='awaiting_browser':return queue.status(value['id'])
-        return queue.start_inspect(value,target) if action=='inspect' else queue.start(value,server,action,admitted=True)
+        result=queue.start_inspect(value,target) if action=='inspect' else queue.start(value,server,action,admitted=True)
+        operation=queue.read(value['id'])
+        if operation['state']=='pending':
+            # The handshake poll ran BEFORE this command existed. Wake the
+            # selected frontend after persistence; hidden-tab timers may sleep.
+            # This is a read notification, never another submission or payload.
+            notify('prompt_studio_native_pending',{k:operation[k] for k in ('id','session','client_id')})
+        return result
     except (ValueError,asyncio.CancelledError) as exc:
         operation=queue.read(value['id'])
         if operation['state']=='awaiting_browser':

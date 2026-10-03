@@ -13,9 +13,10 @@ from .composition import validate_compositions, root_for, render, effective_node
 
 
 DEFAULT_SETTINGS = dict(ui_size=11, prompt_size=12, density="comfortable",
+                        context_sidebar_width=240, gallery_columns=12,
                         separate_selections=True, interface_mode='ask', connection_style='curve',reduce_motion=False,
-                        material="mica", accent="neutral", online=True, search_cache=True,
-                        acrylic_transparency=61, mica_transparency=61, confirm_clear_draft=True,
+                        material="mica", visual_palette="graphite", accent="neutral", online=True, search_cache=True,
+                        acrylic_transparency=61, mica_transparency=61, menu_transparency=6, confirm_clear_draft=True,
                         formatter="spaces", artist_prefix=True, translator="dictionary",
                         font_family="Microsoft JhengHei UI", model_root="", model_categories=["畫風", "角色", "背景", "其他"])
 DEFAULT_DICTIONARY = {
@@ -135,7 +136,7 @@ def validate_state(state):
             len(order)!=len(set(order))):
         raise ValueError("輸出群組順序無效。")
     for key, allowed in {"density":("comfortable","compact"), "material":("solid","mica","acrylic"),
-                         "accent":("neutral","blue","green"), "formatter":("spaces","original"),
+                         "accent":("neutral","blue","green"), "visual_palette":('graphite','mist','paper'), "formatter":("spaces","original"),
                          "translator":("dictionary","google"), "interface_mode":('ask','list','canvas'),
                          "connection_style":('curve','straight','orthogonal')}.items():
         if settings.get(key, DEFAULT_SETTINGS[key]) not in allowed:
@@ -144,6 +145,12 @@ def validate_state(state):
         value = settings.get(key, DEFAULT_SETTINGS[key])
         if type(value) is not int or not 9 <= value <= 22:
             raise ValueError("字體大小必須介於 9 和 22 pt。")
+    sidebar_width=settings.get('context_sidebar_width',DEFAULT_SETTINGS['context_sidebar_width'])
+    if type(sidebar_width) is not int or not 220<=sidebar_width<=480:
+        raise ValueError('側欄寬度必須介於 220 和 480。')
+    gallery_columns=settings.get('gallery_columns',DEFAULT_SETTINGS['gallery_columns'])
+    if type(gallery_columns) is not int or not 8<=gallery_columns<=20:
+        raise ValueError('圖片橫排數量必須介於 8 和 20。')
     count=settings.get('comfy_count',1)
     if 'comfy_url' in settings: local_address(settings['comfy_url'])
     if type(settings.get('comfy_enabled',False)) is not bool: raise ValueError('ComfyUI 連線設定必須是布林值。')
@@ -152,6 +159,9 @@ def validate_state(state):
         transparency=settings.get(material+'_transparency',DEFAULT_SETTINGS[material+'_transparency'])
         if type(transparency) is not int or not 0 <= transparency <= 100:
             raise ValueError("透明度必須介於 0 和 100%。")
+    menu_transparency=settings.get('menu_transparency',DEFAULT_SETTINGS['menu_transparency'])
+    if type(menu_transparency) is not int or not 0<=menu_transparency<=40:
+        raise ValueError('選單透明度必須介於 0 和 40%。')
     for key in ("online", "artist_prefix", "confirm_clear_draft", "separate_selections", "search_cache"):
         if type(settings.get(key, DEFAULT_SETTINGS[key])) is not bool:
             raise ValueError(f"設定 {key} 必須是布林值。")

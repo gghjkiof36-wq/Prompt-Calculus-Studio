@@ -4,8 +4,8 @@ from collections import OrderedDict
 from pathlib import Path
 from urllib.parse import urlsplit
 from PySide6.QtCore import Qt,QObject,QSize,QRectF,QBuffer,QByteArray,QIODevice,QUrl,QTimer,Signal,QEvent
-from PySide6.QtGui import QPainter,QColor,QPainterPath,QImage,QImageReader,QPixmap,QFont
-from PySide6.QtWidgets import QLabel,QListWidget,QStyledItemDelegate,QStyle,QSizePolicy
+from PySide6.QtGui import QPainter,QColor,QPainterPath,QImage,QImageReader,QPixmap,QFont,QFontInfo,QPalette,QPen
+from PySide6.QtWidgets import QApplication,QLabel,QListWidget,QStyledItemDelegate,QStyle,QSizePolicy
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QNetworkReply
 from .civitai import PREVIEW_HOSTS
 
@@ -80,48 +80,58 @@ class ImageLoader(QObject):
 
 class Preview(QLabel):
     def __init__(self):
-        super().__init__(); self.image=QImage(); self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed); self.setMinimumWidth(0); self.setFixedHeight(140)
+        super().__init__(); self.image=QImage(); self.height_limit=420; self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed); self.setMinimumWidth(0); self.fit_height()
     def clear(self):
-        self.image=QImage(); super().clear(); self.setFixedHeight(140); self.update()
+        self.image=QImage(); super().clear(); self.fit_height(); self.update()
     def set_image(self,image):
         self.image=image; self.setText(''); self.fit_height(); self.update()
     def fit_height(self):
-        if not self.image.isNull():self.setFixedHeight(min(420,max(150,round(self.width()*self.image.height()/self.image.width()))))
+        limit=max(1,int(self.height_limit))
+        height=220 if self.image.isNull() else max(1,round(self.width()*self.image.height()/self.image.width()))
+        self.setFixedHeight(min(limit,height))
     def resizeEvent(self,event):super().resizeEvent(event); self.fit_height()
     def paintEvent(self,event):
-        if self.image.isNull():super().paintEvent(event); return
-        painter=QPainter(self); painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        area=QRectF(self.contentsRect()); painter.fillRect(area,QColor('#171b21'))
+        painter=QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing); painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        area=QRectF(self.contentsRect()); path=QPainterPath(); path.addRoundedRect(area,12,12)
+        painter.fillPath(path,QApplication.palette().color(QPalette.ColorRole.Base))
+        if self.image.isNull():painter.end(); super().paintEvent(event); return
+        painter.setClipPath(path)
         size=self.image.size().scaled(area.size().toSize(),Qt.AspectRatioMode.KeepAspectRatio)
         target=QRectF(0,0,size.width(),size.height()); target.moveCenter(area.center()); painter.drawImage(target,self.image)
 
 class CardDelegate(QStyledItemDelegate):
     def paint(self,painter,option,index):
         painter.save(); painter.setRenderHint(QPainter.RenderHint.Antialiasing); painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        rect=QRectF(option.rect).adjusted(5,5,-5,-5); path=QPainterPath(); path.addRoundedRect(rect,12,12)
+        rect=QRectF(option.rect).adjusted(7,7,-7,-7); path=QPainterPath(); path.addRoundedRect(rect,12,12)
         selected=bool(option.state & QStyle.StateFlag.State_Selected); hover=bool(option.state & QStyle.StateFlag.State_MouseOver)
-        painter.fillPath(path,QColor('#2b3542' if selected else '#242a32' if hover else '#20252d'))
+        palette=QApplication.palette()
+        surface=palette.color(QPalette.ColorRole.AlternateBase); selection=palette.color(QPalette.ColorRole.Highlight)
+        hover_color=QColor.fromRgbF(*[(surface.getRgbF()[i]*.65+selection.getRgbF()[i]*.35) for i in range(3)])
+        painter.fillPath(path,selection if selected else hover_color if hover else surface)
         painter.setClipPath(path); art=QRectF(rect.left(),rect.top(),rect.width(),rect.height()-92)
         data=index.data(Qt.ItemDataRole.UserRole) or {}; versions=data.get('modelVersions') or [{}]
         icon=index.data(Qt.ItemDataRole.DecorationRole)
         if icon and not icon.isNull():
             pixmap=icon.pixmap(450,450); size=pixmap.size().scaled(art.size().toSize(),Qt.AspectRatioMode.KeepAspectRatioByExpanding)
-            target=QRectF(0,0,size.width(),size.height()); target.moveCenter(art.center()); painter.setClipRect(art); painter.drawPixmap(target,pixmap,QRectF(pixmap.rect())); painter.setClipping(False)
+            target=QRectF(0,0,size.width(),size.height()); target.moveCenter(art.center()); painter.save(); painter.setClipRect(art,Qt.ClipOperation.IntersectClip); painter.drawPixmap(target,pixmap,QRectF(pixmap.rect())); painter.restore()
         else:
-            painter.fillRect(art,QColor('#2a3039')); painter.setPen(QColor('#838e9e')); painter.drawText(art,Qt.AlignmentFlag.AlignCenter,'無預覽' if index.data(Qt.ItemDataRole.UserRole+1) or not versions[0].get('images') else '載入圖片…')
-        font=QFont(option.font); font.setPixelSize(max(12,min(16,font.pixelSize() if font.pixelSize()>0 else 14))); painter.setFont(font)
+            painter.fillRect(art,palette.color(QPalette.ColorRole.Base)); painter.setPen(palette.color(QPalette.ColorRole.PlaceholderText)); painter.drawText(art,Qt.AlignmentFlag.AlignCenter,'無預覽' if index.data(Qt.ItemDataRole.UserRole+1) or not versions[0].get('images') else '載入圖片…')
+        font=QFont(option.font); font.setPixelSize(max(12,QFontInfo(font).pixelSize())); font.setWeight(QFont.Weight.DemiBold); painter.setFont(font)
         x=rect.left()+12; width=rect.width()-24; y=art.bottom()+10; metrics=painter.fontMetrics()
-        painter.setPen(QColor('#f2f4f8')); painter.drawText(QRectF(x,y,width,24),Qt.AlignmentFlag.AlignLeft,metrics.elidedText(data.get('name','未命名'),Qt.TextElideMode.ElideRight,int(width)))
-        font.setPixelSize(max(11,font.pixelSize()-1)); painter.setFont(font); metrics=painter.fontMetrics(); painter.setPen(QColor('#b2bdca'))
-        rating=(data.get('stats') or {}).get('thumbsUpCount'); rating_text=f'♥ {rating:,}' if type(rating) is int else ''
-        rating_width=metrics.horizontalAdvance(rating_text)+12 if rating_text else 0
+        painter.setPen(palette.color(QPalette.ColorRole.Text)); painter.drawText(QRectF(x,y,width,24),Qt.AlignmentFlag.AlignLeft,metrics.elidedText(data.get('name','未命名'),Qt.TextElideMode.ElideRight,int(width)))
+        font.setWeight(QFont.Weight.Normal); font.setPixelSize(max(12,font.pixelSize()-1)); painter.setFont(font); metrics=painter.fontMetrics(); painter.setPen(palette.color(QPalette.ColorRole.PlaceholderText))
+        rating=(data.get('stats') or {}).get('thumbsUpCount'); rating_text=f'{rating:,}' if type(rating) is int else ''
+        rating_width=metrics.horizontalAdvance(rating_text)+22 if rating_text else 0
         creator=(data.get('creator') or {}).get('username',''); painter.drawText(QRectF(x,y+25,width-rating_width,21),Qt.AlignmentFlag.AlignLeft,metrics.elidedText(creator,Qt.TextElideMode.ElideRight,int(width-rating_width)))
         painter.drawText(QRectF(x,y+25,width,21),Qt.AlignmentFlag.AlignRight,rating_text)
+        if rating_text:
+            painter.save(); painter.translate(x+width-rating_width+2,y+29); painter.setPen(QPen(palette.color(QPalette.ColorRole.PlaceholderText),1.2)); painter.setBrush(Qt.BrushStyle.NoBrush)
+            heart=QPainterPath(); heart.moveTo(6,11); heart.cubicTo(-2,5,0,-1,6,3); heart.cubicTo(12,-1,14,5,6,11); painter.drawPath(heart); painter.restore()
         meta=data.get('type','')+' · '+versions[0].get('baseModel','未提供'); painter.drawText(QRectF(x,y+48,width,22),Qt.AlignmentFlag.AlignLeft,metrics.elidedText(meta,Qt.TextElideMode.ElideRight,int(width)))
         if '已安裝此版本' in (index.data(Qt.ItemDataRole.DisplayRole) or ''):
-            badge=QRectF(x,rect.top()+12,48,22); painter.fillRect(badge,QColor('#183f32')); painter.setPen(QColor('#beefd4')); painter.drawText(badge,Qt.AlignmentFlag.AlignCenter,'已安裝')
-        painter.setClipping(False); painter.setPen(QColor('#a8c7ef' if selected else '#39414c')); painter.drawPath(path); painter.restore()
+            badge=QRectF(x,rect.top()+12,metrics.horizontalAdvance('已安裝')+20,max(24,metrics.height()+6)); painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(palette.color(QPalette.ColorRole.ToolTipBase)); painter.drawRoundedRect(badge,7,7); painter.setBrush(Qt.BrushStyle.NoBrush); painter.setPen(palette.color(QPalette.ColorRole.ToolTipText)); painter.drawText(badge,Qt.AlignmentFlag.AlignCenter,'已安裝')
+        painter.setClipping(False); painter.setPen(QPen(palette.color(QPalette.ColorRole.Light if selected else QPalette.ColorRole.Mid),1.5 if selected else 1)); painter.drawPath(path); painter.restore()
     def sizeHint(self,option,index):return self.parent().gridSize()
 
 class Gallery(QListWidget):
@@ -138,6 +148,14 @@ class Gallery(QListWidget):
     def resizeEvent(self,event):
         super().resizeEvent(event); self.reflow()
     def reflow(self):
-        width=max(160,self.viewport().width()-4); columns=max(1,width//218); cell=min(290,width//columns)
-        size=QSize(cell,round(cell*1.15)+92)
-        if size!=self.gridSize():self.setGridSize(size); self.doItemsLayout()
+        # Fill the result area evenly; a capped cell left a conspicuous blank
+        # strip beside two-column results in half and quarter windows.
+        # Keep a small trailing gutter while the vertical scrollbar appears.
+        width=max(1,self.viewport().width()-self.verticalScrollBar().sizeHint().width()-2); columns=max(1,width//210)
+        cell=width//columns
+        size=QSize(cell,round(max(1,cell-14)*1.15)+92+14)
+        if size!=self.gridSize():
+            self.setGridSize(size)
+            # The splitter may still be applying its viewport width here.
+            # Lay out against the settled viewport when returning from details.
+            QTimer.singleShot(0,self.doItemsLayout)

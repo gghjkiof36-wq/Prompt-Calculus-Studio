@@ -3,10 +3,28 @@ from PySide6.QtCore import Qt,QRectF,QPointF,QTimer,QObject,QEvent
 from PySide6.QtGui import QColor,QPen,QPainter,QPainterPath,QPainterPathStroker
 from PySide6.QtWidgets import QGraphicsObject,QGraphicsItem,QGraphicsPathItem,QGraphicsSimpleTextItem
 from . import multi_output as model
+from .canvas_items import canvas_colors,paint_module_surface
 
 from .module_contracts import WIRES
+from .color_roles import readable,mix
+from functools import lru_cache
 COLORS={key:value.color for key,value in WIRES.items()}
 LABELS={key:value.label for key,value in WIRES.items()}
+
+
+@lru_cache(maxsize=128)
+def _wire_ink(color,backgrounds,minimum):
+    return readable(color,backgrounds,minimum)
+
+
+def wire_color(canvas,kind):
+    colors=canvas_colors(canvas)
+    return QColor(_wire_ink(COLORS[kind],(colors['base'],colors['canvas_body']),3))
+
+
+def caption_color(canvas,kind):
+    colors=canvas_colors(canvas)
+    return QColor(_wire_ink(COLORS[kind],(colors['canvas_body'],colors['canvas_header']),4.5))
 
 
 def curve(start,end,style='curve'):
@@ -33,10 +51,10 @@ class FlowLine(QGraphicsPathItem):
     def shape(self):
         stroke=QPainterPathStroker(); stroke.setWidth(16); return stroke.createStroke(self.path())
     def paint(self,painter,option,widget=None):
-        self.setPen(QPen(QColor('#ffffff' if self.isSelected() else COLORS[self.value['kind']]),3 if self.isSelected() else 2))
+        self.setPen(QPen(QColor(canvas_colors(self.canvas)['text']) if self.isSelected() else wire_color(self.canvas,self.value['kind']),3 if self.isSelected() else 2))
         super().paint(painter,option,widget)
         if self.isSelected():
-            painter.setBrush(QColor('#202731'))
+            painter.setBrush(QColor(canvas_colors(self.canvas)['surface']))
             for at in (.12,.88):painter.drawEllipse(self.path().pointAtPercent(at),7,7)
     def mousePressEvent(self,event):
         if self.isSelected() and event.button()==Qt.MouseButton.LeftButton:
@@ -73,16 +91,19 @@ class Port(QGraphicsObject):
             name=caption(canvas.window.state,key)
         if kind in ('control','flow','done') and canvas.data()['version']>=7:name='輸出' if output else '輸入'
         self.setToolTip(name+('輸出' if output else '輸入')+' · 拖曳或點擊連線')
-        self.caption=QGraphicsSimpleTextItem(name[:12],self); self.caption.setBrush(QColor(COLORS[kind])); self.caption.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
-        font=canvas.font(); font.setPixelSize(11); self.caption.setFont(font)
+        self.caption=QGraphicsSimpleTextItem(name[:12],self); self.caption.setBrush(caption_color(canvas,kind)); self.caption.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        # The default Canvas zoom remains readable without scaling the graph
+        # to fit: 15 scene pixels provide at least 12px at the initial .8 zoom.
+        font=canvas.font(); font.setPixelSize(15); self.caption.setFont(font)
         self.caption.setPos(-self.caption.boundingRect().width()-13 if output else 13,-self.caption.boundingRect().height()/2)
     def boundingRect(self): return QRectF(-11,-13,22,26)
     def paint(self,painter,option,widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor(COLORS[self.kind]),2)); painter.setBrush(QColor(COLORS[self.kind] if self.highlight else '#202731'))
+        color=wire_color(self.canvas,self.kind)
+        painter.setPen(QPen(color,2)); painter.setBrush(color if self.highlight else QColor(canvas_colors(self.canvas)['surface']))
         painter.drawEllipse(QPointF(),7,7)
         # Port captions stay within the node, above its controls.
-        painter.setPen(QColor(COLORS[self.kind]))
+        painter.setPen(color)
     def compatible(self,other):
         if self.output==other.output or self.key==other.key: return False
         source,destination=(self,other) if self.output else (other,self)
@@ -122,7 +143,7 @@ class ConnectionGesture(QObject):
             if value:
                 self.original=value['id']; self.anchor=self.canvas.line_port(value,True)
                 if self.original in self.canvas.lines: self.canvas.lines[self.original].setOpacity(0)
-        self.preview=QGraphicsPathItem(); self.preview.setZValue(30); self.preview.setPen(QPen(QColor(COLORS[port.kind]),2,Qt.PenStyle.DashLine))
+        self.preview=QGraphicsPathItem(); self.preview.setZValue(30); self.preview.setPen(QPen(wire_color(self.canvas,port.kind),2,Qt.PenStyle.DashLine))
         self.canvas.view.scene().addItem(self.preview)
         for p in self.canvas.ports.values(): p.highlight=self.anchor.compatible(p); p.update()
         self.move(position)
@@ -203,21 +224,40 @@ class CanvasContainer(QGraphicsObject):
         super().hoverMoveEvent(event)
     def paint(self,painter,option,widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(0,0,0,36)); painter.drawRoundedRect(self.rect().translated(3,4),15,15)
-        painter.setBrush(QColor(81,104,132,34)); painter.setPen(QPen(QColor('#96c4fb' if self.hovered else '#8daecf' if self.isSelected() else '#4d647d'),2 if self.hovered else 1))
-        if self.key in getattr(self.canvas,'active_keys',set()):painter.setPen(QPen(QColor('#55aaff'),2.5))
-        painter.drawRoundedRect(self.rect(),14,14)
+        colors=canvas_colors(self.canvas)
+        painter.setPen(QPen(QColor(colors['accent'] if self.hovered or self.isSelected() else colors['line']),1.5 if self.hovered else 1))
+        if self.key in getattr(self.canvas,'active_keys',set()):painter.setPen(QPen(QColor(colors['info']),2.5))
+        outline=QPainterPath();outline.addRoundedRect(self.rect(),16,16)
+        # A container recedes behind its text cards; do not reduce child
+        # opacity or reintroduce transparent proxy-widget painting.
+        container=dict(colors,canvas_body=mix(colors['canvas_body'],colors['base'],.72),
+                       canvas_header=mix(colors['canvas_header'],colors['base'],.66))
+        paint_module_surface(painter,outline,container,44)
         value=self.canvas.data()['canvases'][self.key]
-        painter.setPen(QColor('#cedbeb')); painter.setFont(self.canvas.font())
-        painter.drawText(QRectF(20,9,self.width-205,30),Qt.AlignmentFlag.AlignVCenter,value['name'])
-        painter.setPen(QColor('#9db4ce')); painter.drawText(QRectF(self.width-174,9,154,30),Qt.AlignmentFlag.AlignCenter,'展開編輯 ↗')
-        painter.setPen(QPen(QColor(170,193,219,45),1)); painter.drawLine(QPointF(18,48),QPointF(self.width-18,48))
+        from .ui_icons import icon
+        icon('canvas',colors['secondary']).paint(painter,QRectF(18,14,19,19).toRect())
+        font=self.canvas.font();font.setBold(True);painter.setFont(font);painter.setPen(QColor(colors['text']))
+        title=painter.fontMetrics().elidedText(value['name'],Qt.TextElideMode.ElideRight,int(self.width-230))
+        painter.drawText(QRectF(47,9,self.width-230,30),Qt.AlignmentFlag.AlignVCenter,title)
+        painter.setFont(self.canvas.font());painter.setPen(QColor(colors['secondary'])); painter.drawText(QRectF(self.width-174,9,154,30),Qt.AlignmentFlag.AlignCenter,'編輯文字 ↗')
+        pen=QPen(QColor(colors['divider']),1);pen.setCosmetic(True);painter.setPen(pen)
+        painter.drawLine(QPointF(18,44),QPointF(self.width-18,44))
         preview=self.canvas.image_previews.get(self.key)
         if preview is not None:
             area=QRectF(20,124,self.width-40,self.height-144); size=preview.size(); size.scale(area.size().toSize(),Qt.AspectRatioMode.KeepAspectRatio)
             target=QRectF(QPointF(),size); target.moveCenter(area.center()); painter.drawImage(target,preview)
+        elif not value['members'] and not value.get('raw_prompt'):
+            area=QRectF(32,max(132,self.height*.32),self.width-64,max(100,self.height*.4))
+            font=painter.font();heading=painter.font();heading.setBold(True)
+            line=max(24,painter.fontMetrics().height()+6)
+            painter.setFont(heading);painter.setPen(QColor(colors['text']))
+            painter.drawText(QRectF(area.left(),area.center().y()-line,area.width(),line),
+                Qt.AlignmentFlag.AlignCenter,'雙擊加入文字')
+            painter.setFont(font);painter.setPen(QColor(colors['secondary']))
+            painter.drawText(QRectF(area.left(),area.center().y()+2,area.width(),line),
+                Qt.AlignmentFlag.AlignCenter,'選擇素材，或輸入自己的提示詞')
         if self.isSelected() or self.hovered:
-            painter.setPen(QPen(QColor('#afc5dd'),2))
+            painter.setPen(QPen(QColor(colors['accent']),2))
             for x,y,sx,sy in [(0,0,1,1),(self.width,0,-1,1),(0,self.height,1,-1),(self.width,self.height,-1,-1)]:
                 painter.drawLine(QPointF(x+sx*6,y+sy*6),QPointF(x+sx*18,y+sy*6)); painter.drawLine(QPointF(x+sx*6,y+sy*6),QPointF(x+sx*6,y+sy*18))
     def mousePressEvent(self,event):

@@ -2,9 +2,10 @@
 import unittest
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtTest import QTest
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout
 from prompt_studio.stage_parameter_choices import ParameterChoices
-from prompt_studio.theme import stylesheet
+from prompt_studio.theme import stylesheet,visual_tokens,widget_palette
 from prompt_studio.core import DEFAULT_SETTINGS
 
 
@@ -52,30 +53,38 @@ class StageParameterChoicesTests(unittest.TestCase):
         QTest.qWait(15)
         self.assertIsNone(self.combo._choices_popup)
         self.assertIs(APP.activePopupWidget(), self.combo._popup)
-        self.assertFalse(self.combo._popup.mask().isEmpty())
+        self.assertTrue(self.combo._popup.mask().isEmpty())
+        self.assertTrue(self.combo._popup.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground))
         QTest.keyClick(self.combo.view(), Qt.Key.Key_Escape)
         QTest.qWait(10)
         self.assertEqual(self.combo.currentIndex(), 17)
         self.assertEqual(self.changes, [])
 
-    def test_search_popup_paints_an_opaque_surface_with_application_styles(self):
+    def test_search_popup_paints_a_tinted_surface_with_application_styles(self):
         # A top-level popup is composited over the editor on Windows. Checking
         # only selected rows misses transparent list gaps and the popup frame.
-        self.host.setStyleSheet(stylesheet(DEFAULT_SETTINGS))
         self.fill()
-        popup = self.open_mouse()
         before = self.combo.currentData()
-        for query in ('', 'not-a-model'):
-            popup.search.setText(query)
-            APP.processEvents()
-            rendered = popup.grab().toImage()
-            for point in (QPoint(5, popup.height() // 2),
-                          QPoint(popup.width() // 2, popup.height() - 5),
-                          popup.items.mapTo(popup, QPoint(popup.items.width() - 20, 3))):
-                pixel = rendered.pixelColor(point)
-                self.assertEqual(pixel.alpha(), 255, (query, point, pixel.getRgb()))
-            self.assertEqual(rendered.pixelColor(5, popup.height() // 2).name(), '#222324')
-        QTest.keyClick(popup.search, Qt.Key.Key_Escape)
+        for name in ('graphite','mist','paper'):
+            settings=dict(DEFAULT_SETTINGS,visual_palette=name);tokens=visual_tokens(settings)
+            # The desktop applies its stylesheet to Window, not QApplication.
+            self.host.setStyleSheet(stylesheet(settings));self.host.setPalette(widget_palette(settings))
+            popup = self.open_mouse()
+            for query in ('', 'not-a-model'):
+                popup.search.setText(query)
+                APP.processEvents()
+                rendered = popup.grab().toImage()
+                for point in (QPoint(5, popup.height() // 2),
+                              QPoint(popup.width() // 2, popup.height() - 5),
+                              popup.items.mapTo(popup, QPoint(popup.items.width() - 20, 3))):
+                    pixel = rendered.pixelColor(point)
+                    self.assertEqual(pixel.alpha(), 255, (name,query, point, pixel.getRgb()))
+                actual=rendered.pixelColor(5, popup.height() // 2)
+                expected=QColor(tokens['raised'])
+                # The frosted surface composites its softened in-app snapshot
+                # once. Raw content cannot shine through the native window.
+                self.assertTrue(all(abs(a-b)<=16 for a,b in zip(actual.getRgb()[:3],expected.getRgb()[:3])))
+            QTest.keyClick(popup.search, Qt.Key.Key_Escape);APP.processEvents()
         self.assertEqual(self.combo.currentData(), before)
         self.assertEqual(self.changes, [])
 

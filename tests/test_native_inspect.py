@@ -31,7 +31,33 @@ class NativeHandshakeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.queue.poll(dict(self.live,probe=value['probe']))['commands'],[])
 
     async def start(self,action='queue',request=None,notify=None,timeout=.3):
-        return await begin(self.queue,request or self.request,'http://127.0.0.1:8188',action,notify or self.acknowledge,timeout)
+        def events(event,value):
+            if event=='prompt_studio_native_pending':
+                self.assertEqual(self.queue.read(value['id'])['state'],'pending')
+                self.assertEqual(value['session'],self.live['session'])
+                return
+            (notify or self.acknowledge)(event,value)
+        return await begin(self.queue,request or self.request,'http://127.0.0.1:8188',action,events,timeout)
+
+    async def test_new_command_wakes_exact_frontend_after_handshake_without_interval_poll(self):
+        for action in ('queue','apply','inspect'):
+            with self.subTest(action=action):
+                self.queue.sessions.clear();self.queue.poll(self.live)
+                request=dict(self.request,id='wake-'+action)
+                if action=='inspect':request=dict(id=request['id'],target=self.live['identity'])
+                commands=[];events=[]
+                def notify(event,value):
+                    events.append(event)
+                    if event=='prompt_studio_native_probe':self.acknowledge(event,value)
+                    else:
+                        self.assertEqual(event,'prompt_studio_native_pending')
+                        self.assertEqual(value,dict(id=request['id'],session=self.live['session'],client_id=self.live['client_id']))
+                        commands.extend(self.queue.poll(self.live)['commands'])
+                await begin(self.queue,request,'http://127.0.0.1:8188',action,notify,.3)
+                self.queue.cancel(request['id'],None,None)
+                self.assertEqual(events,['prompt_studio_native_probe','prompt_studio_native_pending'])
+                self.assertEqual([c['id'] for c in commands],[request['id']])
+                self.assertEqual(self.queue.poll(self.live)['commands'],[])
 
     async def test_first_click_refreshes_stale_heartbeat_before_any_dispatch(self):
         self.queue.sessions['tab']['seen']-=8

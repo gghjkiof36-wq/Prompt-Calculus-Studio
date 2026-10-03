@@ -59,7 +59,14 @@ class StageTests(unittest.TestCase):
         panel.deleteLater()
 
     def setUp(self):
-        fixtures.StageFixture.setUp(self)
+        # These scenarios build their own Stage/scheduler graph on the
+        # canvas -> output -> CLIP baseline. First-install onboarding must not
+        # insert an unrelated unbound Stage into these synthetic pipelines.
+        with patch('prompt_studio.canvas_starter.initialize',side_effect=lambda state,**_:state):
+            fixtures.StageFixture.setUp(self)
+        self.assertFalse(self.c.data()['stages']);self.assertFalse(self.c.data()['schedulers'])
+        self.assertEqual({(c['source'],c['destination'],c['kind']) for c in self.c.data()['connections']},
+                         {(self.cid,self.out,'text'),(self.out,self.clip,'clip')})
         self.executor=Executor(self.w,Path(self.tmp.name)/'stages-executor');self.runner=self.w.comfy.input_flow.chain
     tearDown=fixtures.StageFixture.tearDown
     click=fixtures.StageFixture.click
@@ -523,15 +530,21 @@ class StageInterfaceTests(unittest.TestCase):
         before=copy.deepcopy(self.w.state)
         with patch.object(self.c.results,'show_image') as shown:self.c.results.select(type('Item',(),{'data':lambda self,role:dict(index=2)})())
         self.assertEqual(self.w.state,before)
-        self.w.resize(1280,800);QTest.qWait(20);corner=self.c.recent_corner.button
-        QTest.mouseClick(corner,Qt.MouseButton.LeftButton);QTest.qWait(20)
-        self.assertTrue(self.w.recent_dock.isVisible());self.assertTrue(self.c.view.isVisible())
-        self.w.recent_dock.close();QTest.qWait(15);self.assertGreaterEqual(self.w.tabs.indexOf(self.w.recent),0)
+        self.w.resize(1280,800);QTest.qWait(20);history=self.w.canvas_workspace_bar.history
+        QTest.mouseClick(history,Qt.MouseButton.LeftButton);QTest.qWait(20)
+        self.assertTrue(self.w.recent_sheet.isVisible());self.assertTrue(self.c.view.isVisible())
+        self.assertTrue(self.w.recent_sheet.isAncestorOf(self.w.recent))
+        QTest.mouseClick(self.w.recent.close_button,Qt.MouseButton.LeftButton);QTest.qWait(15)
+        self.assertIsNone(self.w.recent_sheet);self.assertGreaterEqual(self.w.tabs.indexOf(self.w.recent),0)
+        self.assertTrue(self.c.view.isVisible())
         buttons=[b.text() for b in self.controls.findChildren(QPushButton) if b.isVisible()]
         self.assertEqual(len(buttons),3,buttons)
         for width,height in ((1280,800),(1024,720)):
             self.w.resize(width,height);self.c.fit();QTest.qWait(20)
             bar=self.controls;self.assertLessEqual(bar.width(),self.w.width())
-            self.assertTrue(self.c.view.viewport().rect().contains(corner.geometry()))
+            self.assertTrue(history.isVisible())
+            self.assertTrue(self.w.canvas_workspace_bar.rect().contains(history.geometry()))
+            self.assertTrue(self.w.canvas_header.rect().contains(self.w.canvas_workspace_bar.geometry()))
+            self.assertTrue(self.controls.activity.isVisible());self.assertIn('個活動任務',self.controls.activity.text())
         target=Path(__import__('os').environ.get('PCS_TEST_ARTIFACT_DIR',self.tmp.name));target.mkdir(parents=True,exist_ok=True)
         self.w.resize(1280,800);self.c.fit();QTest.qWait(25);self.w.grab().save(str(target/'stage-layout-1280.png'))
