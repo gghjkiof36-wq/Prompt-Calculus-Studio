@@ -26,7 +26,7 @@ This release unifies navigation and themes across Canvas, media, exploration, ex
 
 ## Download and start
 
-These instructions cover: **[0.8.6 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.6-alpha.1)**.
+These instructions cover: **[0.8.6 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.6-alpha.1)**.
 
 - `PCS-v0.8.6-Alpha1-source.zip`: the PCS source edition.
 - `PCS-v0.8.6-Alpha1-ComfyUI.zip`: the matching ComfyUI extension.
@@ -62,7 +62,7 @@ For changes, downloads and important problems, see the [release notes](docs/RELE
 
 ## Support
 
-Report issues with the version and steps at [Issues](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/issues). See [CONTRIBUTING](CONTRIBUTING.md) and [SECURITY](SECURITY.md) for development and private security reports.
+Report issues with the version and steps at [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues). See [CONTRIBUTING](CONTRIBUTING.md) and [SECURITY](SECURITY.md) for development and private security reports.
 
 ## License
 

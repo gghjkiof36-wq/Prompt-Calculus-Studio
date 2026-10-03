@@ -94,4 +94,4 @@ PCS 種子編輯上限是 `1125899906842624`（2^50），也受節點自身範�
 
 ## 回報問題
 
-到 [Issues](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/issues) 附上 PCS／擴充版本、Windows 與 ComfyUI 版本、重現步驟、預期與實際結果，以及去敏錯誤訊息。安全問題依 [SECURITY](../SECURITY.md) 私下回報。不要上傳資料庫、金鑰、私人圖片或日誌中的個人路徑。
+到 [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues) 附上 PCS／擴充版本、Windows 與 ComfyUI 版本、重現步驟、預期與實際結果，以及去敏錯誤訊息。安全問題依 [SECURITY](../SECURITY.md) 私下回報。不要上傳資料庫、金鑰、私人圖片或日誌中的個人路徑。

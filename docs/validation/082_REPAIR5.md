@@ -4,7 +4,7 @@
 
 ## 對象與結論
 
-固定產品來源為 `5c621ecfdd4b30f8ade31dd6446dc9830871259a`，0927-2 批次預覽候選。公開整合保留該產品內容，GitHub 發布提交可與本機產品提交不同；以 [Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.2-alpha.1.repair.5) 的來源追溯與附件校驗為準。
+固定產品來源為 `5c621ecfdd4b30f8ade31dd6446dc9830871259a`，0927-2 批次預覽候選。公開整合保留該產品內容，GitHub 發布提交可與本機產品提交不同；以 [Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.2-alpha.1.repair.5) 的來源追溯與附件校驗為準。
 
 2026-09-27，維護者已回報人工校驗通過並決定直接發布，省略新增產品驗證。本摘要採用這項人工驗收結論。沒有提供可公開的逐項操作紀錄、確切 ComfyUI／驅動版本或實測截圖，因此不把它拆寫成每個環境、每個案例皆已通過。
 

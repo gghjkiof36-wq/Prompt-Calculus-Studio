@@ -4,7 +4,7 @@
 
 ## 回報問題
 
-請在 [GitHub Issues](https://github.com/gghjkiof36-wq/modular-prompt-manager/issues) 提供：
+請在 [GitHub Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues) 提供：
 
 - 使用的 Git 提交或下載日期、Windows 與 Python 版本。
 - 若涉及 ComfyUI，補充其版本、安裝方式與相關節點。

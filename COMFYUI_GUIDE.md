@@ -12,7 +12,7 @@
 
 ## 手動安裝方式
 
-從 [同版 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.6-alpha.1) 取得 `PCS-v0.8.6-Alpha1-ComfyUI.zip`，解壓到 ComfyUI 安裝目錄以外。完整資料夾名稱為 `comfyui_prompt_calculus_studio`；不能只複製開發原始碼中的 `comfyui_prompt_studio`，它缺少打包時加入的共用核心。
+從 [同版 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.6-alpha.1) 取得 `PCS-v0.8.6-Alpha1-ComfyUI.zip`，解壓到 ComfyUI 安裝目錄以外。完整資料夾名稱為 `comfyui_prompt_calculus_studio`；不能只複製開發原始碼中的 `comfyui_prompt_studio`，它缺少打包時加入的共用核心。
 
 先啟動一次 PCS 建立資料庫，再關閉 ComfyUI。使用完整擴充包內的安裝腳本，將範例路徑改成實際位置：
 

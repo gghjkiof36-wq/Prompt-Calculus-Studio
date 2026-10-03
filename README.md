@@ -28,7 +28,7 @@
 
 ## 下載與啟動
 
-本文件適用：**[0.8.6 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.6-alpha.1)**。
+本文件適用：**[0.8.6 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.6-alpha.1)**。
 
 | 附件 | 用途 |
 |---|---|
@@ -71,7 +71,7 @@ py -3.12 -m venv .venv
 | 綁定工作流與生成 | [ComfyUI 整合](COMFYUI_GUIDE.md) |
 | 資料位置、備份與聯網 | [資料與隱私](docs/DATA_AND_PRIVACY.md) |
 | 查看版本更新 | [發布說明](docs/RELEASE_NOTES_086.md)、[更新紀錄](CHANGELOG.md) |
-| 回報問題或參與開發 | [Issues](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/issues)、[貢獻指南](CONTRIBUTING.md)、[安全回報](SECURITY.md) |
+| 回報問題或參與開發 | [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues)、[貢獻指南](CONTRIBUTING.md)、[安全回報](SECURITY.md) |
 
 ## 授權
 

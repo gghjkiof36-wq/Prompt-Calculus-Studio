@@ -2,7 +2,7 @@
 
 固定產品來源 `a8e37b40e5abb57642975e9c1e64a3da7fe6a21f`，整輪功能差異自 0.8.5 產品 `3033acc9a9f69481dbd2a33565d4fad08f12e3f6` 起。包含共同導覽與視覺、六節點起始流程、媒體／探索／匯出／設定、Manager、背景操作通知、單筆排程及配套擴充安裝；不能只用最後提示框修復代表整版差異。
 
-公開附件為來源主程式、ComfyUI 擴充與校驗檔。來源主程式含同版離線擴充，可從程式內安裝；Windows EXE 不列附件。實際整合來源與下載內容以[Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.6-alpha.1)及[來源對照](SOURCE_PROVENANCE.md)為準。
+公開附件為來源主程式、ComfyUI 擴充與校驗檔。來源主程式含同版離線擴充，可從程式內安裝；Windows EXE 不列附件。實際整合來源與下載內容以[Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.6-alpha.1)及[來源對照](SOURCE_PROVENANCE.md)為準。
 
 本版實際 Canvas 使用前一來源 `edad2af00e7ff37051077da470da55590134d1d2` 與獨立公開範例資料擷取；後續來源僅修正安裝器安全判斷及版本資料，Canvas 介面保持相同，圖像只展示操作介面，不證明 ComfyUI 或 GPU 生成。已記錄與未驗範圍集中於[0.8.6 驗證範圍](validation/086_PUBLIC_SUMMARY.md)，操作與具體限制見[發布說明](RELEASE_NOTES_086.md)。
 
@@ -14,7 +14,7 @@
 
 固定產品來源 `3033acc9a9f69481dbd2a33565d4fad08f12e3f6`；本輪功能差異自 `8b123f77087a521c32737a73ffcc2a6ec8ba5465` 起，包含 Stage 參數面板、等待項參數保存、原生套用與種子控制，以及後續介面／欄位修復。
 
-使用者最新回饋為大致可用，沒有逐項全環境測試表。本版公開整合與下載附件以[Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.5-alpha.1)及[來源對照](SOURCE_PROVENANCE.md)為準。
+使用者最新回饋為大致可用，沒有逐項全環境測試表。本版公開整合與下載附件以[Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.5-alpha.1)及[來源對照](SOURCE_PROVENANCE.md)為準。
 
 公開附件範圍為來源主程式、配套 ComfyUI 擴充及校驗檔，來源包含 `Start.cmd`，需先安裝 Python 3.12 與 `.venv` 依賴。Windows EXE 不在本次公開附件中。操作見[Stage 參數指南](STAGE_PARAMETERS.md)，資料流與相容邊界見[資料相容](DATA_COMPATIBILITY.md)，驗證及重要未驗範圍集中於[0.8.5 驗證範圍](validation/085_STAGE_PARAMETERS.md)。
 

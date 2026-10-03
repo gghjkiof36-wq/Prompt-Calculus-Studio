@@ -11,7 +11,7 @@
 
 ## 下載與使用方式
 
-從[本次 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.5-alpha.1)下載：
+從[本次 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.5-alpha.1)下載：
 
 | 附件 | 用途 |
 |---|---|

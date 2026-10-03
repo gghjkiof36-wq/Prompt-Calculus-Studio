@@ -4,7 +4,7 @@
 
 ## 下載與安裝
 
-從[0.8.6 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.6-alpha.1)取得 `PCS-v0.8.6-Alpha1-source.zip`，完整解壓到新資料夾。內含 `run.py`、`Start.cmd`、配套擴充及安裝腳本；請保留整個資料夾。本次提供來源版，沒有 Windows EXE 下載。
+從[0.8.6 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.6-alpha.1)取得 `PCS-v0.8.6-Alpha1-source.zip`，完整解壓到新資料夾。內含 `run.py`、`Start.cmd`、配套擴充及安裝腳本；請保留整個資料夾。本次提供來源版，沒有 Windows EXE 下載。
 
 準備 Windows 64 位元版 Python 3.12（含 Python Launcher），在含 `run.py` 的資料夾開啟 PowerShell：
 

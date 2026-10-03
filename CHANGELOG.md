@@ -40,7 +40,7 @@
 - 修正種子更新、切換工作流及排程恢復問題。
 - 按「執行」才將文字送入 ComfyUI；沒有接 Stage 時只更新輸入欄位。
 
-提供原始碼版主程式、配套 ComfyUI 擴充與校驗檔。[下載與使用方式](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.4-alpha.1)。
+提供原始碼版主程式、配套 ComfyUI 擴充與校驗檔。[下載與使用方式](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.4-alpha.1)。
 
 ## 0.8.3 Alpha 1｜2026-09-28
 
@@ -49,7 +49,7 @@
 - 新增圖片來源、圖片輸入與整批圖片供應。
 - 底欄集中提供次數、執行、取消與任務數；取消只處理 PCS 提交的指定工作，ComfyUI 的 Run 可獨立使用。
 
-[下載此版本](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.3-alpha.1)。
+[下載此版本](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.3-alpha.1)。
 
 ## 0.8.2 Alpha 1 Repair 5｜2026-09-27 公開 Alpha 預覽版
 
@@ -59,15 +59,15 @@
 - 預覽拔除圖片接線後清空，最近生成紀錄獨立保留；擴充版本不相容時提示更新。
 - 改善清單操作、工作流選擇與重新連線。
 
-本版每次執行一個工作流，使用時需保持 ComfyUI 網頁開啟。[下載此版本](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.2-alpha.1.repair.5)。
+本版每次執行一個工作流，使用時需保持 ComfyUI 網頁開啟。[下載此版本](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.2-alpha.1.repair.5)。
 
 ## 0.8.1 Alpha 2 UI Repair 1｜2026-09-14 04:07:49 UTC+8
 
-[已公開預覽版](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.1-alpha.2.ui-repair.1)。提供來源 ZIP、ComfyUI ZIP、SHA256SUMS.txt，無 Windows EXE。此版含 Canvas、CivitAI 搜尋／下載及 UI Repair 1 修正；下載與啟動以該頁說明為準。
+[已公開預覽版](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.1-alpha.2.ui-repair.1)。提供來源 ZIP、ComfyUI ZIP、SHA256SUMS.txt，無 Windows EXE。此版含 Canvas、CivitAI 搜尋／下載及 UI Repair 1 修正；下載與啟動以該頁說明為準。
 
 ## 2026-09-15：公開首頁維護
 
-提交 [048a3ac](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/commit/048a3ac0a49e698db5ec85b80b31a9964e67fd10) 更新 PCS 品牌、0.8.1 下載入口並區分當時尚未公開的 Repair4。
+提交 [048a3ac](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/commit/048a3ac0a49e698db5ec85b80b31a9964e67fd10) 更新 PCS 品牌、0.8.1 下載入口並區分當時尚未公開的 Repair4。
 
 ## 早期公開紀錄
 
@@ -82,7 +82,7 @@
 
 ## 2026-09-12：首次公開原始碼
 
-對應提交 [`f170c46`](https://github.com/gghjkiof36-wq/modular-prompt-manager/commit/f170c46e75acdf8e1dbd96e8d9680b7425ec103e)。
+對應提交 [`f170c46`](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/commit/f170c46e75acdf8e1dbd96e8d9680b7425ec103e)。
 
 公開內容包含模組化 Prompt、輸出排序、手動稿、權重與排除 Tag、工作區、模型與圖片管理，以及 ComfyUI 側邊欄綁定、桌面控制、最近生成與模組快照。
 

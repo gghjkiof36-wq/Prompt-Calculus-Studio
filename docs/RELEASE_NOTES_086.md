@@ -12,13 +12,13 @@
 
 ## Canvas 畫面
 
-![PCS 0.8.6 實際 Canvas](https://raw.githubusercontent.com/gghjkiof36-wq/Prompt-Culculus-Studio/v0.8.6-alpha.1/docs/images/canvas-0.8.6.png)
+![PCS 0.8.6 實際 Canvas](https://raw.githubusercontent.com/gghjkiof36-wq/Prompt-Calculus-Studio/v0.8.6-alpha.1/docs/images/canvas-0.8.6.png)
 
 0.8.6 實際程式 Canvas，使用公開範例資料；展示文字組合、起始接線與待設定提示，尚未連接 ComfyUI。
 
 ## 下載與使用方式
 
-從[本次 Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.6-alpha.1)下載：
+從[本次 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.6-alpha.1)下載：
 
 | 附件 | 用途 |
 |---|---|

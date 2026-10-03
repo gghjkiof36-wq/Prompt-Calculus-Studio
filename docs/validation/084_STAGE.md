@@ -2,7 +2,7 @@
 
 2026-10-01：對外改採分段名稱0.8.4；本輪原稱0.831，9月30日曾改稱0.84。既有功能與驗收證據沿用，更名提交另外核對版本相容性及套件。原 EXE 證據保留實際編譯來源，本次未重建 EXE。
 
-整理：2026-09-30（Asia/Taipei）。既有功能驗收與原EXE建置提交 `ea7df89dc714fc83c7e11ca32e5c7655619ec8a0`。公開整合提交與附件由 [Release](https://github.com/gghjkiof36-wq/Prompt-Culculus-Studio/releases/tag/v0.8.4-alpha.1) 及來源追溯確認，不用文件更新冒充重新建置binary。
+整理：2026-09-30（Asia/Taipei）。既有功能驗收與原EXE建置提交 `ea7df89dc714fc83c7e11ca32e5c7655619ec8a0`。公開整合提交與附件由 [Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.4-alpha.1) 及來源追溯確認，不用文件更新冒充重新建置binary。
 
 ## 已有證據
 
