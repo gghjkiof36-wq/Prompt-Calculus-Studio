@@ -20,7 +20,7 @@ def package_manifest(destination,kind):
     for path in sorted(destination.rglob('*')):
         if path.is_symlink() or path.is_junction():raise ValueError('Package contains a redirected entry')
         relative=path.relative_to(destination)
-        if any(p.casefold() in {'data','local_library.json','credentials','__pycache__'} for p in relative.parts):raise ValueError('Package contains local data')
+        if any(p.casefold() in {'data','local_library.json','credentials','__pycache__','agents.md','agent-guides'} for p in relative.parts):raise ValueError('Package contains local data or internal instructions')
         if path.is_file() and relative.as_posix()!='PACKAGE_MANIFEST.json':
             with path.open('rb') as stream: checksum=hashlib.file_digest(stream,'sha256').hexdigest()
             files.append(dict(path=relative.as_posix(),size=path.stat().st_size,sha256=checksum))
@@ -39,7 +39,7 @@ def source_paths(root=ROOT):
     root=Path(root).resolve()
     if Path(git_output(root,'rev-parse','--show-toplevel').strip()).resolve()!=root:
         raise ValueError('建置來源必須是獨立 Git 根目錄。')
-    blocked={'data','qa','build','dist','vendor','.builder','__pycache__','credentials','backups','local_library.json','settings.json','fault.log','error.log'}
+    blocked={'data','qa','build','dist','vendor','.builder','__pycache__','credentials','backups','local_library.json','settings.json','fault.log','error.log','agents.md','agent-guides'}
     folders={'prompt_studio','comfyui_prompt_studio','tests','docs'}
     suffixes={'.py','.js','.mjs','.css','.ps1','.cmd','.vbs','.md','.txt','.svg','.ico','.png','.json'}
     paths=[]

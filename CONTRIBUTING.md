@@ -1,4 +1,4 @@
-# 參與 Prompt Studio
+# 參與 Prompt Calculus Studio（PCS）
 
 歡迎回報問題、改善文件與討論使用需求。開始前請先查看 [操作指南](docs/USER_GUIDE.md) 及 [Roadmap](ROADMAP.md)，確認是公開版本的問題，或尚未發布的功能。
 

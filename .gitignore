@@ -9,3 +9,7 @@ __pycache__/
 build/
 dist/
 qa/
+
+# Local AI instructions
+**/AGENTS.md
+/docs/agent-guides/

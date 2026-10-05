@@ -1,7 +1,0 @@
-# Verification boundaries
-
-- Run Python tests from the checkout root using `python -m unittest discover -s tests -p 'test_<area>.py'`. Some tests import sibling test modules; running them as arbitrary package modules can miss that import path. JavaScript uses `node --test tests/<area>.test.mjs`; there is no npm test setup in the audited tree.
-- Qt checks without a requested desktop session use `QT_QPA_PLATFORM=offscreen`; set `PROMPT_STUDIO_DATA` to an isolated task directory before starting application code. An independent worktree does not include ignored `vendor/` or `.builder/`; use an available compatible environment instead of a user's running installation.
-- State/migration checks protect empty manual drafts, unique bindings, ownership, original history, undo/redo and save/reopen. Recovery checks use preserved old data with the old program and a different copy with the new program; verify the originals remain unchanged.
-- Shared-core or package dependency changes need the Qt-blocked import check in `test_maintenance_package.py`; bridge changes need the affected Python and JavaScript tests. Documentation-only edits need link/diff checks, not a product rebuild or full regression run.
-- Report the tested commit, environment and relevant result. Offline, offscreen, real frontend, Windows/GPU, clean install and package checks establish different things; do not add historical counts or label mocked success as an end-to-end pass. Real services, downloads and GPU runs must be within the task's authorization.

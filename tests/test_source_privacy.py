@@ -12,7 +12,9 @@ class SourcePrivacyTests(unittest.TestCase):
             root=Path(directory)/'source';root.mkdir();destination=Path(directory)/'package';destination.mkdir()
             legitimate=['run.py','docs/README.md','comfyui_prompt_studio/service.py','comfyui_prompt_studio/web/style.css','tests/fixture.json','docs/images/canvas-public.png']
             private=['comfyui_prompt_studio/local_library.json','comfyui_prompt_studio/credentials/key.json',
-                     'comfyui_prompt_studio/fault.log','docs/studio.sqlite3','docs/error.log']
+                     'comfyui_prompt_studio/fault.log','docs/studio.sqlite3','docs/error.log',
+                     'AGENTS.md','tests/AGENTS.md','comfyui_prompt_studio/AGENTS.md',
+                     'docs/AGENTS.md','prompt_studio/AGENTS.md','docs/agent-guides/build-release.md']
             for name in legitimate+private:
                 path=root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('synthetic',encoding='utf-8')
             git=['git','-c','safe.directory='+root.as_posix(),'-C',str(root)]
@@ -28,6 +30,9 @@ class SourcePrivacyTests(unittest.TestCase):
             self.assertTrue((destination/'docs/README.md').exists())
             self.assertFalse((destination/'docs/personal-notes.md').exists())
             self.assertFalse((destination/'docs/error.log').exists())
+            self.assertFalse((destination/'AGENTS.md').exists())
+            self.assertFalse((destination/'docs/AGENTS.md').exists())
+            self.assertFalse((destination/'docs/agent-guides').exists())
 
     def test_unknown_source_root_fails_before_writing_documents(self):
         with tempfile.TemporaryDirectory() as directory:
