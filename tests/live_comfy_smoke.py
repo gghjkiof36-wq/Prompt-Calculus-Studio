@@ -8,8 +8,8 @@ import urllib.error
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from prompt_studio.pnginfo import png_metadata
-from prompt_studio.snapshots import image_snapshots
+from prompt_calculus_studio.pnginfo import png_metadata
+from prompt_calculus_studio.snapshots import image_snapshots
 
 BASE = 'http://127.0.0.1:8190'
 QA = ROOT / 'qa' / 'comfy-integration'

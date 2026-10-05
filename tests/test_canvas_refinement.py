@@ -13,12 +13,12 @@ from PySide6.QtCore import Qt, QPoint, QPointF
 from PySide6.QtGui import QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QDialog
-from prompt_studio import composition as c
-from prompt_studio.core import initial_state, validate_state, build_prompt, apply_workspace, Storage, output_groups, reorder_output
-from prompt_studio.snapshots import make_snapshot, restore_snapshot, portable_state
-from prompt_studio.metadata_view import readable_metadata
-from prompt_studio.text_canvas import CanvasPalette
-from prompt_studio.window import Window
+from prompt_calculus_studio import composition as c
+from prompt_calculus_studio.core import initial_state, validate_state, build_prompt, apply_workspace, Storage, output_groups, reorder_output
+from prompt_calculus_studio.snapshots import make_snapshot, restore_snapshot, portable_state
+from prompt_calculus_studio.metadata_view import readable_metadata
+from prompt_calculus_studio.text_canvas import CanvasPalette
+from prompt_calculus_studio.window import Window
 
 APP=QApplication.instance() or QApplication([])
 

@@ -12,10 +12,10 @@ from PySide6.QtWidgets import QApplication, QDialog, QGraphicsPathItem
 from PySide6.QtCore import Qt, QPointF, QPoint
 from PySide6.QtTest import QTest
 from PySide6.QtGui import QWheelEvent, QContextMenuEvent, QTextCursor
-from prompt_studio.window import Window
-from prompt_studio import composition as c
-from prompt_studio.core import build_prompt, validate_state, item_prompt
-from prompt_studio.text_canvas import NodeCard, NodeDialog, CanvasPalette, TextCard
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio import composition as c
+from prompt_calculus_studio.core import build_prompt, validate_state, item_prompt
+from prompt_calculus_studio.text_canvas import NodeCard, NodeDialog, CanvasPalette, TextCard
 
 APP = QApplication.instance() or QApplication([])
 
@@ -132,7 +132,7 @@ class CanvasUiTests(unittest.TestCase):
         before = build_prompt(self.w.state); originals = copy.deepcopy(self.w.state['items'])
         for card in self.canvas.view.scene().items():
             if isinstance(card, NodeCard): card.setSelected(True)
-        with patch('prompt_studio.text_canvas.InputDialog.getText', return_value=('新複合', True)):
+        with patch('prompt_calculus_studio.text_canvas.InputDialog.getText', return_value=('新複合', True)):
             self.canvas.group()
         self.assertEqual(build_prompt(self.w.state), '('+before+':1.0)')
         self.assertEqual(self.w.state['items'][:len(originals)], originals)
@@ -335,7 +335,7 @@ class CanvasUiTests(unittest.TestCase):
         self.w.enter_canvas(); APP.processEvents()
         root=self.w.state['instances'][self.ident]
         for child in root['children']: self.canvas.cards[self.ident+':'+child['id']].setSelected(True)
-        with patch('prompt_studio.text_canvas.InputDialog.getText',return_value=('動作組',True)):
+        with patch('prompt_calculus_studio.text_canvas.InputDialog.getText',return_value=('動作組',True)):
             self.canvas.group()
         root=self.w.state['instances'][self.ident]
         self.assertEqual(len(root['children']),1); self.assertEqual(len(root['children'][0]['children']),2)

@@ -11,14 +11,14 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from prompt_studio import drafts, multi_output, stage_context, stage_model, workspace_scene
-from prompt_studio.core import Storage, validate_state
-from prompt_studio.flow_data import add_scheduler
-from prompt_studio.pnginfo import png_metadata
-from prompt_studio.snapshots import image_snapshots, make_snapshot, restore_snapshot
-from prompt_studio.stage_parameters import effective
-from prompt_studio.stage_store import StageStore
-from prompt_studio.state_loading import prepare_state
+from prompt_calculus_studio import drafts, multi_output, stage_context, stage_model, workspace_scene
+from prompt_calculus_studio.core import Storage, validate_state
+from prompt_calculus_studio.flow_data import add_scheduler
+from prompt_calculus_studio.pnginfo import png_metadata
+from prompt_calculus_studio.snapshots import image_snapshots, make_snapshot, restore_snapshot
+from prompt_calculus_studio.stage_parameters import effective
+from prompt_calculus_studio.stage_store import StageStore
+from prompt_calculus_studio.state_loading import prepare_state
 from stage_parameter_fixture import add_samplers, intention
 from test_multi_output import workspace
 
@@ -222,7 +222,7 @@ class StageParameterRestartTests(unittest.TestCase):
     def test_full_window_reopen_keeps_paused_waiting_items_without_submitting(self):
         from PySide6.QtTest import QTest
         from stage_fixture import APP
-        from prompt_studio.window import Window
+        from prompt_calculus_studio.window import Window
         from test_084_stages import Executor
         profile, stage = self.configure()
         queue = add_scheduler(self.w.state)
@@ -262,7 +262,7 @@ class StageParameterRestartTests(unittest.TestCase):
     def test_png_restore_preserves_parameters_and_blank_without_copying_jobs(self):
         from PySide6.QtTest import QTest
         from test_comfy_integration import png
-        from prompt_studio.window import Window
+        from prompt_calculus_studio.window import Window
         from test_084_stages import Executor
         profile, stage = self.configure()
         self.click()

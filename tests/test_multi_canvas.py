@@ -5,10 +5,10 @@ os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QPointF,Qt
 from PySide6.QtTest import QTest
-from prompt_studio.window import Window
-from prompt_studio import multi_output as model
-from prompt_studio import clip_flow
-from prompt_studio.core import build_prompt
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio import multi_output as model
+from prompt_calculus_studio import clip_flow
+from prompt_calculus_studio.core import build_prompt
 from test_multi_output import workflow
 APP=QApplication.instance() or QApplication([])
 
@@ -19,8 +19,8 @@ class MultiCanvasTests(unittest.TestCase):
         # These regressions exercise the historical direct output -> CLIP
         # layout. A fresh 0.8.6 document now includes a scheduler and Stage;
         # its own initialization and editing coverage is in test_canvas_starter.
-        from prompt_studio.core import Storage,initial_state
-        from prompt_studio.state_loading import prepare_state
+        from prompt_calculus_studio.core import Storage,initial_state
+        from prompt_calculus_studio.state_loading import prepare_state
         store=Storage(self.tmp.name);store.save(prepare_state(initial_state(),multi=True));store.db.close()
         self.window=Window(self.tmp.name); self.w=self.window; self.w.state['settings'].update(online=False,material='solid',separate_selections=True)
         self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(30); self.canvas=self.w.canvas
@@ -114,7 +114,7 @@ class MultiCanvasTests(unittest.TestCase):
         self.w.set_interface_mode('canvas'); self.assertEqual(self.w.state['draft'],'canvas manual')
 
     def test_clip_picker_selects_workflow_then_node_without_name_input(self):
-        from prompt_studio.clip_widgets import ClipBindingDialog
+        from prompt_calculus_studio.clip_widgets import ClipBindingDialog
         first=workflow(); second=copy.deepcopy(first); second.update(id='other',name='Other workflow')
         self.w.generation_panel.save_profile(first); self.w.generation_panel.save_profile(second)
         key=next(iter(self.canvas.clips)); other=self.canvas.add_clip(QPointF(1400,300),self.oid)
@@ -164,11 +164,11 @@ class MultiCanvasTests(unittest.TestCase):
 
     def test_import_legacy_json_keeps_multi_canvas_and_original_text(self):
         import json
-        from prompt_studio.core import initial_state
-        from prompt_studio.composition import node
+        from prompt_calculus_studio.core import initial_state
+        from prompt_calculus_studio.composition import node
         old=initial_state(); old.update(version=3,uses={'old':node('old','original text')},selection_view='canvas',draft='old manual')
         path=Path(self.tmp.name)/'legacy.json'; path.write_text(json.dumps(old),encoding='utf-8')
-        with patch('prompt_studio.window.QFileDialog.getOpenFileName',return_value=(str(path),'')),patch('prompt_studio.window.ask',return_value=True): self.w.import_json()
+        with patch('prompt_calculus_studio.window.QFileDialog.getOpenFileName',return_value=(str(path),'')),patch('prompt_calculus_studio.window.ask',return_value=True): self.w.import_json()
         self.assertEqual(self.w.state['version'],4); self.assertEqual(self.w.state['draft'],'old manual')
         self.assertEqual(model.compile_output(self.w.state,self.w.state['multi_output']['current_output'])['final_prompt'],'old manual')
         self.w.canvas.refresh(); self.assertTrue(self.w.canvas.containers)

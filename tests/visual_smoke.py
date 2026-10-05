@@ -11,12 +11,12 @@ if "--native" not in sys.argv: os.environ["QT_QPA_PLATFORM"]="offscreen"
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFontDatabase,QImage,QPainter,QColor,QFont
 from PySide6.QtCore import Qt,QTimer
-from prompt_studio.window import Window
-from prompt_studio.dialogs import SettingsDialog, ModuleDialog
-from prompt_studio.widgets import RoundMenu, InputDialog
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.dialogs import SettingsDialog, ModuleDialog
+from prompt_calculus_studio.widgets import RoundMenu, InputDialog
 from PySide6.QtTest import QTest
-from prompt_studio.media import scan_models,import_image
-from prompt_studio.core import uid
+from prompt_calculus_studio.media import scan_models,import_image
+from prompt_calculus_studio.core import uid
 
 OUT=ROOT/"qa"/"screenshots"; OUT.mkdir(parents=True,exist_ok=True)
 DATA=ROOT/"qa"/("visual-"+uid())

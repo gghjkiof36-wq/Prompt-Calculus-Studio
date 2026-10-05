@@ -15,10 +15,10 @@ os.environ['QT_QPA_PLATFORM']='offscreen'
 sys.path[:0]=[str(ROOT/'vendor'),str(ROOT)]
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
-from prompt_studio.window import Window
-from prompt_studio.core import initial_state,build_prompt
-from prompt_studio.snapshots import image_snapshots
-from prompt_studio.pnginfo import png_metadata
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.core import initial_state,build_prompt
+from prompt_calculus_studio.snapshots import image_snapshots
+from prompt_calculus_studio.pnginfo import png_metadata
 
 APP=QApplication([])
 folder=ROOT/'qa'/'desktop-bridge-live'/str(time.time_ns())

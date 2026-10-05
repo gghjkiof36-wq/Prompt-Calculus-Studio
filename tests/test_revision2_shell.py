@@ -13,8 +13,8 @@ from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionSpinBox
 
-from prompt_studio.theme import visual_tokens
-from prompt_studio.window import Window
+from prompt_calculus_studio.theme import visual_tokens
+from prompt_calculus_studio.window import Window
 
 
 APP = QApplication.instance() or QApplication([])
@@ -28,7 +28,7 @@ class RevisionTwoShellTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.environment = patch.dict(os.environ, {'PROMPT_STUDIO_V08': '1', 'PROMPT_STUDIO_V081': '1'})
         self.environment.start()
-        self.transport = patch('prompt_studio.comfy_client.ComfyClient.request', return_value=None)
+        self.transport = patch('prompt_calculus_studio.comfy_client.ComfyClient.request', return_value=None)
         self.transport.start()
         self.w = Window(self.temp.name)
         self.w.state['settings'].update(online=False, material='solid', reduce_motion=True)
@@ -112,7 +112,7 @@ class RevisionTwoShellTests(unittest.TestCase):
         self.settle()
         page = self.w.settings_page
         prefs = page.preferences
-        with patch('prompt_studio.window.apply_backdrop', return_value=True):
+        with patch('prompt_calculus_studio.window.apply_backdrop', return_value=True):
             prefs.material.setCurrentIndex(prefs.material.findData('mica'))
             page.flush()
             self.settle()

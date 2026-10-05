@@ -58,7 +58,9 @@ function Read-Package([string]$Source,[string]$Kind) {
     if ((Get-FileHash -LiteralPath (Join-Path $sourcePath 'PromptCalculusStudio-source.zip')).Hash -ne $info.source_sha256) { throw 'Source archive identity differs.' }
     if ($Kind -eq 'desktop') {
         if (-not $seen.ContainsKey('PromptCalculusStudio.exe')) { throw 'Desktop executable is missing.' }
-        $runtime=Get-Content -LiteralPath (Join-Path $sourcePath '_internal/prompt_studio/assets/build-info.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        $runtimePath=Join-Path $sourcePath '_internal/prompt_calculus_studio/assets/build-info.json'
+        if (-not (Test-Path -LiteralPath $runtimePath -PathType Leaf)) { $runtimePath=Join-Path $sourcePath '_internal/prompt_studio/assets/build-info.json' }
+        $runtime=Get-Content -LiteralPath $runtimePath -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($runtime.release -ne $info.release -or $runtime.version -ne $info.version -or $info.binary_git_head -ne $info.git_head) { throw 'Desktop runtime version differs.' }
     } elseif (-not $seen.ContainsKey('__init__.py') -or -not $seen.ContainsKey('web/prompt_studio.js')) { throw 'Extension runtime is missing.' }
     return $sourcePath

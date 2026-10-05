@@ -5,7 +5,7 @@ from PySide6.QtCore import QPoint,QRect
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QStyle,QStyleOptionComboBox
-from prompt_studio.window import Window
+from prompt_calculus_studio.window import Window
 
 APP=QApplication.instance() or QApplication([])
 if APP.platformName()=='offscreen':
@@ -21,7 +21,7 @@ class SettingsLargeTextControlsTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_DATA':self.tmp.name});self.env.start()
-        self.transport=patch('prompt_studio.comfy_client.ComfyClient.request',offline_request);self.transport.start()
+        self.transport=patch('prompt_calculus_studio.comfy_client.ComfyClient.request',offline_request);self.transport.start()
         self.w=Window(self.tmp.name);self.w.display_recovery.stop();self.w.first_models=False
         self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
         self.w.show();self.w.settings('appearance')

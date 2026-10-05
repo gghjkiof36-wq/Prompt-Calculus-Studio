@@ -4,9 +4,9 @@ import unittest
 from PySide6.QtCore import Qt,QPointF
 from PySide6.QtTest import QTest
 import stage_fixture as fixture
-from prompt_studio import multi_output as model,stage_model
-from prompt_studio.flow_data import add_image_input,add_scheduler
-from prompt_studio.result_data import add_text_reader
+from prompt_calculus_studio import multi_output as model,stage_model
+from prompt_calculus_studio.flow_data import add_image_input,add_scheduler
+from prompt_calculus_studio.result_data import add_text_reader
 
 
 class CanvasDeleteKeysTests(unittest.TestCase):

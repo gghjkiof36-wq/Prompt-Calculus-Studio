@@ -3,8 +3,8 @@ import threading
 import unittest
 from types import SimpleNamespace as NS
 import test_native_queue as native_fixture
-from prompt_studio.state_loading import prepare_state
-from prompt_studio.snapshots import make_snapshot
+from prompt_calculus_studio.state_loading import prepare_state
+from prompt_calculus_studio.snapshots import make_snapshot
 
 
 class InputNativeTests(unittest.TestCase):

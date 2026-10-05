@@ -10,7 +10,7 @@ os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from prompt_studio.window import Window
+from prompt_calculus_studio.window import Window
 
 APP=QApplication.instance() or QApplication([])
 
@@ -22,7 +22,7 @@ class NavigationConnectionTests(unittest.TestCase):
         self.environment.start()
         def request(client,route,data=None,done=None,failed=None,**kwargs):
             self.calls.append(dict(route=route,data=data,done=done,failed=failed))
-        self.transport=patch('prompt_studio.comfy_client.ComfyClient.request',autospec=True,side_effect=request)
+        self.transport=patch('prompt_calculus_studio.comfy_client.ComfyClient.request',autospec=True,side_effect=request)
         self.transport.start();self.w=Window(self.temp.name)
         self.assertEqual(self.w.state['multi_output']['version'],7)
         self.w.state['settings'].update(online=False,material='solid')
@@ -126,7 +126,7 @@ class NavigationConnectionTests(unittest.TestCase):
         self.assertFalse(self.client.connected);self.assertTrue(self.nav.connection.isEnabled())
         self.assertFalse(self.client.recheck_connection())
         # Advance only the debounce clock; the transport remains a fixture.
-        with patch('prompt_studio.comfy_client.time.monotonic',return_value=time.monotonic()+1):
+        with patch('prompt_calculus_studio.comfy_client.time.monotonic',return_value=time.monotonic()+1):
             self.click()
         self.assertEqual([call['route'] for call in self.calls],['config','config'])
         self.calls[-1]['done']({'token':'retry-token'});self.finish_status()

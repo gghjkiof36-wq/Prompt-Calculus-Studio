@@ -8,11 +8,11 @@ from PySide6.QtCore import QObject, Signal, Qt, QPoint, QRect
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget, QCheckBox, QPushButton
-from prompt_studio.manager_page import ManagerPage, PackageDetailText
-from prompt_studio.manager_protocol import installed_packages
-from prompt_studio.manager_gallery import DATA_ROLE, package_status
-from prompt_studio.theme import stylesheet, widget_palette
-from prompt_studio.core import DEFAULT_SETTINGS
+from prompt_calculus_studio.manager_page import ManagerPage, PackageDetailText
+from prompt_calculus_studio.manager_protocol import installed_packages
+from prompt_calculus_studio.manager_gallery import DATA_ROLE, package_status
+from prompt_calculus_studio.theme import stylesheet, widget_palette
+from prompt_calculus_studio.core import DEFAULT_SETTINGS
 
 
 class Comfy(QObject):
@@ -300,7 +300,7 @@ class ManagerPageTests(unittest.TestCase):
         def confirmed():
             self.window.comfy.running = 1
             return 1
-        with patch('prompt_studio.manager_page.StudioDialog.exec', side_effect=confirmed):
+        with patch('prompt_calculus_studio.manager_page.StudioDialog.exec', side_effect=confirmed):
             self.page.confirm_all()
         self.assertIn('生成工作', self.window.last_notice)
         self.assertFalse(self.page.client.journal.data['operations'])

@@ -7,9 +7,9 @@ from PySide6.QtCore import QCoreApplication,QEvent,QPoint,QRect,Qt
 from PySide6.QtGui import QFontDatabase,QIcon
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from prompt_studio.color_roles import contrast
-from prompt_studio.theme import visual_tokens
-from prompt_studio.window import Window
+from prompt_calculus_studio.color_roles import contrast
+from prompt_calculus_studio.theme import visual_tokens
+from prompt_calculus_studio.window import Window
 
 APP=QApplication.instance() or QApplication([])
 for font in ('msjh.ttc','msjhbd.ttc','segoeui.ttf'):
@@ -20,7 +20,7 @@ class ExecutionBarPresentationTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_DATA':self.tmp.name});env.start();self.addCleanup(env.stop)
-        transport=patch('prompt_studio.comfy_client.ComfyClient.request',return_value=None);transport.start();self.addCleanup(transport.stop)
+        transport=patch('prompt_calculus_studio.comfy_client.ComfyClient.request',return_value=None);transport.start();self.addCleanup(transport.stop)
         run=patch.object(Window,'copy_final');self.run=run.start();self.addCleanup(run.stop)
         self.w=Window(self.tmp.name);self.w.display_recovery.stop();self.w.comfy.timer.stop()
         self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
@@ -98,7 +98,7 @@ class ExecutionBarPresentationTests(unittest.TestCase):
             self.assertEqual(self.controls.count.suffix(),' 次')
             self.assertIn('取消目前項目',self.controls.stop.toolTip())
             menus=[]
-            with patch('prompt_studio.widgets.RoundMenu.open_at',lambda menu,*_:menus.append(menu)):
+            with patch('prompt_calculus_studio.widgets.RoundMenu.open_at',lambda menu,*_:menus.append(menu)):
                 self.controls.stop_menu(QPoint())
             next(a for a in menus[0].actions() if a.text().startswith('取消此工作區全部流程')).trigger()
             self.assertEqual(stop.call_args.args,(True,))
@@ -107,7 +107,7 @@ class ExecutionBarPresentationTests(unittest.TestCase):
             next(action for action in menu.actions() if action.text().startswith('任務紀錄')).trigger()
             self.assertEqual(history.call_count,2)
             self.assertIn('3 個活動任務',self.controls.activity.accessibleName())
-        from prompt_studio import stage_model
+        from prompt_calculus_studio import stage_model
         stage_model.add(self.w.state);self.controls.refresh()
         self.assertEqual(self.controls.count.suffix(),' 輪')
         self.assertEqual(self.controls.count.value(),100)

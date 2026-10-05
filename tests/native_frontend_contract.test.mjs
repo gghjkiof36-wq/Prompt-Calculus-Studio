@@ -6,8 +6,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import * as nodeModule from 'node:module';
 import {isDeepStrictEqual} from 'node:util';
-import {installNativeQueue} from '../comfyui_prompt_studio/web/native_queue.js';
-import {nativeIdentity} from '../comfyui_prompt_studio/web/native_open.js';
+import {installNativeQueue} from '../comfyui_prompt_calculus_studio/web/native_queue.js';
+import {nativeIdentity} from '../comfyui_prompt_calculus_studio/web/native_open.js';
 
 const sourceMap=process.env.PCS_FRONTEND_SOURCE_MAP;
 test('installed native ChangeTracker survives inspect A to B, unsaved edits, switch back, undo and next native submission',

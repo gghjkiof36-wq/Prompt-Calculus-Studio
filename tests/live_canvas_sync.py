@@ -7,8 +7,8 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]; sys.path[:0]=[str(ROOT/'vendor'),str(ROOT)]
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtWidgets import QApplication
-from prompt_studio.window import Window
-from prompt_studio.core import build_prompt
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.core import build_prompt
 APP=QApplication([]); BASE='http://127.0.0.1:8190/prompt_studio/'; token=''
 def api(route,data=None):
     request=urllib.request.Request(BASE+route,data=json.dumps(data).encode() if data is not None else None,

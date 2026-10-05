@@ -5,8 +5,8 @@ import unittest
 from types import SimpleNamespace
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from prompt_studio import multi_output as model
-from prompt_studio.flow_data import add_scheduler,endpoint
+from prompt_calculus_studio import multi_output as model
+from prompt_calculus_studio.flow_data import add_scheduler,endpoint
 import test_083_runtime_repair as runtime_tests
 
 

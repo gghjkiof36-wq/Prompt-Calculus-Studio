@@ -9,8 +9,8 @@ os.environ.setdefault("QT_QPA_PLATFORM","windows")
 faulthandler.enable()
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMenu
-from prompt_studio.widgets import RoundMenu
-from prompt_studio.window import Window
+from prompt_calculus_studio.widgets import RoundMenu
+from prompt_calculus_studio.window import Window
 
 app=QApplication([])
 window=Window(ROOT/"qa"/f"menu-probe-{os.getpid()}")

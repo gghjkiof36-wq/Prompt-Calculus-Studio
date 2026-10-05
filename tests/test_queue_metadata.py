@@ -3,10 +3,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from test_comfy_integration import png
-from prompt_studio.core import initial_state
-from prompt_studio.pnginfo import png_metadata
-from prompt_studio.snapshots import make_snapshot,image_snapshots
-from prompt_studio.snapshot_assets import missing_images
+from prompt_calculus_studio.core import initial_state
+from prompt_calculus_studio.pnginfo import png_metadata
+from prompt_calculus_studio.snapshots import make_snapshot,image_snapshots
+from prompt_calculus_studio.snapshot_assets import missing_images
 
 
 class QueueMetadataTests(unittest.TestCase):

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createBackgroundWorkflow} from '../comfyui_prompt_studio/web/background_workflow.js';
+import {createBackgroundWorkflow} from '../comfyui_prompt_calculus_studio/web/background_workflow.js';
 
 function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};}
 function fixture(){

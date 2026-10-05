@@ -7,7 +7,7 @@ from PySide6.QtCore import QPoint,QPointF,Qt,QEvent
 from PySide6.QtGui import QFontDatabase,QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from prompt_studio.window import Window
+from prompt_calculus_studio.window import Window
 
 APP=QApplication.instance() or QApplication([])
 if APP.platformName()=='offscreen':
@@ -19,7 +19,7 @@ class CanvasStatusLayoutTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_DATA':self.tmp.name});self.env.start()
-        self.transport=patch('prompt_studio.comfy_client.ComfyClient.request',return_value=None);self.transport.start()
+        self.transport=patch('prompt_calculus_studio.comfy_client.ComfyClient.request',return_value=None);self.transport.start()
         self.w=Window(self.tmp.name);self.w.display_recovery.stop();self.w.comfy.timer.stop()
         self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
         self.w.show();self.w.enter_canvas()

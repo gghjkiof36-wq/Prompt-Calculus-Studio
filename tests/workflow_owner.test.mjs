@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {captureFields,applyLiveState} from '../comfyui_prompt_studio/web/workflow_sync.js';
+import {captureFields,applyLiveState} from '../comfyui_prompt_calculus_studio/web/workflow_sync.js';
 
 function fixture() {
     const widget={name:'text',type:'text',value:'original'};

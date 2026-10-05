@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
-import {registerBackgroundJob} from '../comfyui_prompt_studio/web/background_registration.js';
+import {registerBackgroundJob} from '../comfyui_prompt_calculus_studio/web/background_registration.js';
 
 const SHA = '1d870df50815a0faad3645f65a008e384337e67757364fb423dbb74c0b066ff7';
 const ASSET = 'http://localhost:9000/assets/dialogService-DSBgqcNn.js';

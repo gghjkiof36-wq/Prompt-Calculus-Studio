@@ -4,11 +4,11 @@ from PySide6.QtCore import Qt,QTimer,QPoint,QPointF
 from PySide6.QtGui import QContextMenuEvent,QImage,QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QDialog,QCheckBox
-from prompt_studio.window import Window
-from prompt_studio import multi_output as model
-from prompt_studio.widgets import RoundMenu
-from prompt_studio.workflow_catalog import workflow_path
-from prompt_studio.core import validate_state
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio import multi_output as model
+from prompt_calculus_studio.widgets import RoundMenu
+from prompt_calculus_studio.workflow_catalog import workflow_path
+from prompt_calculus_studio.core import validate_state
 from test_multi_output import workflow,workspace
 APP=QApplication.instance() or QApplication([])
 
@@ -102,7 +102,7 @@ class Alpha3Tests(unittest.TestCase):
         for bad in ['/outside.json','../outside.json','foo/../../outside.json','C:/x.json','bad\\file.json']:
             with self.assertRaises(ValueError): workflow_path(bad)
     def test_catalog_empty_directory_and_reconnection_release_stale_operation(self):
-        from prompt_studio.comfy_client import RequestFailure
+        from prompt_calculus_studio.comfy_client import RequestFailure
         m=self.w.settings_page.workflow_manager
         with patch.object(self.w.comfy,'request',lambda route,done,failed:failed(RequestFailure('missing',True,404))): m.catalog.refresh()
         self.assertTrue(m.catalog.loaded); self.assertFalse(m.catalog.busy); self.assertEqual(m.catalog.files,[])

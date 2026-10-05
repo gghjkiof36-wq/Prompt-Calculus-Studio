@@ -6,9 +6,9 @@ from PySide6.QtCore import Qt,QPoint,QPointF,QMimeData
 from PySide6.QtGui import QWheelEvent,QDragEnterEvent,QDragMoveEvent,QDropEvent
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
-from prompt_studio import composition as comp
-from prompt_studio.core import build_prompt
-from prompt_studio.window import Window
+from prompt_calculus_studio import composition as comp
+from prompt_calculus_studio.core import build_prompt
+from prompt_calculus_studio.window import Window
 APP=QApplication.instance() or QApplication([])
 
 

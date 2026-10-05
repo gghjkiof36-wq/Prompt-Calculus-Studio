@@ -2,8 +2,8 @@
 // its clean-before-await gap and reset of initialState; not real frontend QA.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {installNativeQueue} from '../comfyui_prompt_studio/web/native_queue.js';
-import {nativeIdentity} from '../comfyui_prompt_studio/web/native_open.js';
+import {installNativeQueue} from '../comfyui_prompt_calculus_studio/web/native_queue.js';
+import {nativeIdentity} from '../comfyui_prompt_calculus_studio/web/native_open.js';
 const copy=value=>JSON.parse(JSON.stringify(value));
 
 function fixture(timeout=12000) {

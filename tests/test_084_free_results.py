@@ -3,8 +3,8 @@ import unittest
 from PySide6.QtTest import QTest
 import stage_fixture as fixture
 import test_084_stages as stages
-from prompt_studio import multi_output as model
-from prompt_studio.flow_data import add_image_input
+from prompt_calculus_studio import multi_output as model
+from prompt_calculus_studio.flow_data import add_image_input
 
 
 class FreeResultTests(unittest.TestCase):

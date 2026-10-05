@@ -8,10 +8,10 @@ os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtWidgets import QApplication,QDialog
 from PySide6.QtCore import QPointF
 from PySide6.QtTest import QTest
-from prompt_studio.window import Window
-from prompt_studio import multi_output as model,clip_flow
-from prompt_studio.flow_data import endpoint,capture_inputs
-from prompt_studio.flow_widgets import ImageInputDialog
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio import multi_output as model,clip_flow
+from prompt_calculus_studio.flow_data import endpoint,capture_inputs
+from prompt_calculus_studio.flow_widgets import ImageInputDialog
 from test_multi_output import workflow
 from test_comfy_integration import png
 APP=QApplication.instance() or QApplication([])
@@ -77,12 +77,12 @@ class InputCanvasTests(unittest.TestCase):
         self.profile();clip=next(iter(self.c.data()['clip_inputs']));self.c.commit(lambda s:clip_flow.set_binding(s,'flow',clip,('6','text')))
         client=self.w.comfy;client.connected=True;client.native_supported=True;client.flow_supported=True;client.snapshot_versions=[1,2,3,4]
         client.running=1;client.run_id='old-run';client.stateChanged.emit()
-        from prompt_studio.run_controls import RunControls
+        from prompt_calculus_studio.run_controls import RunControls
         controls=self.c.execution_bar.controls
         controls.refresh();self.assertTrue(controls.run_button.isEnabled());self.assertEqual(controls.run_button.text(),'執行')
 
     def test_retained_inputs_can_restore_removed_panel_without_submission(self):
-        from prompt_studio.flow_widgets import retained_records
+        from prompt_calculus_studio.flow_widgets import retained_records
         from PySide6.QtWidgets import QPushButton
         self.profile();self.scheduler();port=endpoint(self.sid,'clip1')
         self.c.commit(lambda s:model.connect(s,self.out,port,'clip'))
@@ -93,26 +93,26 @@ class InputCanvasTests(unittest.TestCase):
         def display(dialog):
             next(b for b in dialog.findChildren(QPushButton) if b.text()=='顯示／恢復這份預排程').click()
             return QDialog.DialogCode.Accepted
-        with patch('prompt_studio.flow_widgets.StudioDialog.exec',display):retained_records(self.w)
+        with patch('prompt_calculus_studio.flow_widgets.StudioDialog.exec',display):retained_records(self.w)
         self.assertIn(self.sid,self.c.data()['schedulers']);self.assertIsNone(self.w.comfy.input_flow.current)
         self.assertTrue(self.w.comfy.input_flow.store.control(self.sid)['paused'])
         self.assertEqual(len(self.w.comfy.input_flow.store.rows(self.sid)),1)
 
     def test_completed_result_view_rejects_foreign_result_and_displays_whole_own_batch(self):
-        from prompt_studio.flow_widgets import show_job_images
+        from prompt_calculus_studio.flow_widgets import show_job_images
         path=Path(self.tmp.name)/'result.png';png(path,{})
         images=[dict(filename='a.png'),dict(filename='b.png')]
         record=dict(route=dict(server=self.w.comfy.url),prompt_id='actual',outputs={'9':dict(images=images)})
         calls=[]
         def request(route,done,failed):calls.append(route);done([dict(prompt_id='foreign',path=str(path),node_id='9',image=images[0])])
-        with patch.object(self.w.comfy,'request',request),patch('prompt_studio.flow_widgets.StudioDialog.exec') as shown:
+        with patch.object(self.w.comfy,'request',request),patch('prompt_calculus_studio.flow_widgets.StudioDialog.exec') as shown:
             show_job_images(self.w,record);shown.assert_not_called()
         self.assertEqual(calls,['desktop/results?prompt_id=actual']);self.assertIn('沒有改用其他圖片',self.notices[-1])
         from PySide6.QtWidgets import QLabel
         captions=[]
         def display(dialog):captions.extend(w.text() for w in dialog.findChildren(QLabel));return QDialog.DialogCode.Accepted
         def own_request(route,done,failed):done([dict(prompt_id='actual',path=str(path),node_id='9',image=image) for image in images])
-        with patch.object(self.w.comfy,'request',own_request),patch('prompt_studio.flow_widgets.StudioDialog.exec',display):show_job_images(self.w,record)
+        with patch.object(self.w.comfy,'request',own_request),patch('prompt_calculus_studio.flow_widgets.StudioDialog.exec',display):show_job_images(self.w,record)
         self.assertTrue(any('a.png' in t for t in captions));self.assertTrue(any('b.png' in t for t in captions))
 
 

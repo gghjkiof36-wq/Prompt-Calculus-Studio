@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from build_comfyui import build, DEST
-from prompt_studio.core import Storage, initial_state
+from prompt_calculus_studio.core import Storage, initial_state
 from test_comfy_integration import png
 
 qa = ROOT / 'qa' / 'comfy-integration'

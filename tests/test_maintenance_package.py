@@ -1,6 +1,6 @@
 import json,sys,subprocess,tempfile,unittest,zipfile,hashlib
 from pathlib import Path
-from prompt_studio.releases import RELEASES,select_release,write_launchers,SHARED_MODULES,APP_BASENAME,EXTENSION_FOLDER,SOURCE_ARCHIVE
+from prompt_calculus_studio.releases import RELEASES,select_release,write_launchers,SHARED_MODULES,APP_BASENAME,EXTENSION_FOLDER,SOURCE_ARCHIVE
 from package_documents import bundle_documents
 from build_comfyui import build
 ROOT=Path(__file__).resolve().parents[1]

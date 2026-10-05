@@ -1,6 +1,6 @@
 import json,sqlite3,tempfile,time,unittest
 from pathlib import Path
-from prompt_studio.core import Storage,initial_state
+from prompt_calculus_studio.core import Storage,initial_state
 
 
 class SearchCacheTests(unittest.TestCase):

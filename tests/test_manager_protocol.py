@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from prompt_studio.manager_protocol import Journal, installed_packages, make_plan, queue_busy
+from prompt_calculus_studio.manager_protocol import Journal, installed_packages, make_plan, queue_busy
 
 
 class ManagerProtocolTests(unittest.TestCase):

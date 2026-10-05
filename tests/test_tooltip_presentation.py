@@ -6,9 +6,9 @@ from PySide6.QtCore import QElapsedTimer,QEvent,QPoint,Qt
 from PySide6.QtGui import QFontDatabase,QHelpEvent,QColor,QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QFrame,QListWidget,QListWidgetItem,QPushButton,QStyleFactory,QToolTip,QVBoxLayout
-from prompt_studio.core import DEFAULT_SETTINGS
-from prompt_studio.theme import stylesheet,widget_palette,visual_tokens
-from prompt_studio.tooltips import install_tooltip_styling,redundant_hint
+from prompt_calculus_studio.core import DEFAULT_SETTINGS
+from prompt_calculus_studio.theme import stylesheet,widget_palette,visual_tokens
+from prompt_calculus_studio.tooltips import install_tooltip_styling,redundant_hint
 
 APP=QApplication.instance() or QApplication([])
 if APP.platformName()=='offscreen':

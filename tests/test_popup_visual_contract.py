@@ -6,10 +6,10 @@ from PySide6.QtGui import QColor, QFontDatabase, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCompleter, QLineEdit, QVBoxLayout, QWidget
 
-from prompt_studio.core import DEFAULT_SETTINGS
-from prompt_studio.stage_parameter_choices import ParameterChoices
-from prompt_studio.theme import stylesheet, visual_tokens, widget_palette
-from prompt_studio.widgets import ComboBox, RoundMenu, style_completion
+from prompt_calculus_studio.core import DEFAULT_SETTINGS
+from prompt_calculus_studio.stage_parameter_choices import ParameterChoices
+from prompt_calculus_studio.theme import stylesheet, visual_tokens, widget_palette
+from prompt_calculus_studio.widgets import ComboBox, RoundMenu, style_completion
 
 
 APP = QApplication.instance() or QApplication([])

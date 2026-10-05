@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {workflowIdentity,captureFields,applyRunState,watchWorkflowRuns} from '../comfyui_prompt_studio/web/workflow_sync.js';
+import {workflowIdentity,captureFields,applyRunState,watchWorkflowRuns} from '../comfyui_prompt_calculus_studio/web/workflow_sync.js';
 
 function fixture() {
     const app={nodeOutputs:{untouched:{images:[]}},extensionManager:{workflow:{activeWorkflow:{path:'workflows/folder/A.json',activeState:{id:'native'}}}},graph:{_nodes:[

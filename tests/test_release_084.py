@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from prompt_studio import releases
+from prompt_calculus_studio import releases
 
 
 class Release084Tests(unittest.TestCase):

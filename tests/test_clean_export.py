@@ -15,8 +15,8 @@ sys.path[:0]=[str(ROOT/'vendor'),str(ROOT)]
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QImage,QColor,QColorSpace,QImageWriter
-from prompt_studio import clean_metadata as metadata,clean_export as export
-from prompt_studio.core import Storage
+from prompt_calculus_studio import clean_metadata as metadata,clean_export as export
+from prompt_calculus_studio.core import Storage
 APP=QApplication.instance() or QApplication([])
 
 def pngchunk(kind,data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data)&0xffffffff)

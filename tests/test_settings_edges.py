@@ -9,8 +9,8 @@ from PySide6.QtCore import QPoint,Qt
 from PySide6.QtGui import QFont,QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QListWidgetItem,QScrollArea,QPushButton,QStyle,QStyleOptionComboBox
-from prompt_studio.window import Window
-from prompt_studio.theme import visual_tokens
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.theme import visual_tokens
 
 APP=QApplication.instance() or QApplication([])
 if APP.platformName()=='offscreen':
@@ -25,7 +25,7 @@ class SettingsEdgesTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_V081':'1'}); self.env.start()
-        self.transport=patch('prompt_studio.comfy_client.ComfyClient.request',offline_request); self.transport.start()
+        self.transport=patch('prompt_calculus_studio.comfy_client.ComfyClient.request',offline_request); self.transport.start()
         self.w=Window(self.temp.name); self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
         self.w.resize(1440,920); self.w.apply_theme(); self.w.show(); self.p=self.w.settings_page
     def tearDown(self):
@@ -157,7 +157,7 @@ class SettingsEdgesTests(unittest.TestCase):
                 self.assertEqual(row.height(),len(row.rows)*models.kind.height()+(len(row.rows)-1)*row.box.spacing())
     def test_material_transparency_changes_header_while_sidebar_stays_opaque(self):
         self.w.settings('appearance'); self.settle(); prefs=self.p.preferences
-        with patch('prompt_studio.window.apply_backdrop',return_value=True) as backdrop:
+        with patch('prompt_calculus_studio.window.apply_backdrop',return_value=True) as backdrop:
             observed=[]
             for material,opacity in (('mica',20),('mica',80),('acrylic',35),('acrylic',90),('solid',0)):
                 prefs.material.setCurrentIndex(prefs.material.findData(material))
@@ -183,7 +183,7 @@ class SettingsEdgesTests(unittest.TestCase):
         self.w.settings('workflows'); self.settle(); manager=self.p.workflow_manager
         self.assertIsNotNone(manager.entry())
         self.assertFalse(manager.rename_button.isVisible()); self.assertFalse(manager.delete_button.isVisible())
-        with patch('prompt_studio.workflow_manager.RoundMenu.open_at',autospec=True) as opened:
+        with patch('prompt_calculus_studio.workflow_manager.RoundMenu.open_at',autospec=True) as opened:
             manager.more_button.click()
         menu=opened.call_args.args[0]
         actions={action.text():action for action in menu.actions() if not action.isSeparator()}

@@ -16,9 +16,9 @@ os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
-from prompt_studio.window import Window
-from prompt_studio.pnginfo import png_metadata
-from prompt_studio.snapshots import image_snapshots
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.pnginfo import png_metadata
+from prompt_calculus_studio.snapshots import image_snapshots
 
 APP=QApplication.instance() or QApplication([])
 

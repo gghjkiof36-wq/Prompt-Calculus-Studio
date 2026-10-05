@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, QPoint, QRect
 from PySide6.QtGui import QFontDatabase, QImage, QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton
-from prompt_studio.window import Window
+from prompt_calculus_studio.window import Window
 
 APP=QApplication.instance() or QApplication([])
 if APP.platformName()=='offscreen':
@@ -21,7 +21,7 @@ class ExploreModelLayoutTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
         self.environment=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'}); self.environment.start()
-        self.requests=patch('prompt_studio.comfy_client.ComfyClient.request'); self.requests.start()
+        self.requests=patch('prompt_calculus_studio.comfy_client.ComfyClient.request'); self.requests.start()
         self.w=Window(self.temp.name); self.w.first_models=False; self.w.display_recovery.stop()
         self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
         self.w.apply_theme(); self.w.resize(1440,900); self.w.show()
@@ -85,7 +85,7 @@ class ExploreModelLayoutTests(unittest.TestCase):
             self.assertGreater(model.root_summary.width(),0)
 
     def test_model_columns_and_detail_groups_preserve_source_and_personal_fields(self):
-        from prompt_studio.model_library import model_row_columns
+        from prompt_calculus_studio.model_library import model_row_columns
         self.w.resize(1680,1000); self.w.settings('models'); record=self.add_model(); model=self.w.models
         record.update(name='超長名稱_保留完整模型識別_'+('範例_'*12),civitai_status='matched',creator='Example author',
             civitai={'model_type':'LORA','version_name':'Version one','trained_words':['source trigger'],'url':'https://civitai.com/models/1'},
@@ -116,7 +116,7 @@ class ExploreModelLayoutTests(unittest.TestCase):
     def test_short_windows_keep_filter_values_and_first_edit_field_visible(self):
         self.w.settings('models'); record=self.add_model(); model=self.w.models
         record['name']='00 柔光人像工作室_長名稱與來源版本辨識_保留完整檔案名稱測試'
-        from prompt_studio.media import thumbnail
+        from prompt_calculus_studio.media import thumbnail
         picture=QImage(100,200,QImage.Format.Format_RGB32); picture.fill(QColor('#526f74'))
         preview=Path(self.temp.name)/'preview.png'; picture.save(str(preview))
         record['thumb']=thumbnail(preview,self.temp.name)

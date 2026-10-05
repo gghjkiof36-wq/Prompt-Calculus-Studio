@@ -8,9 +8,9 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLineEdit, QLabel, QWidget, QStyle, QStyleOptionSlider
 from stage_fixture import StageFixture
 from stage_parameter_fixture import add_samplers, inspection
-from prompt_studio import stage_model, multi_output as model
-from prompt_studio.stage_parameters import empty
-from prompt_studio.stage_parameter_panel import open_parameters,SeedEditor
+from prompt_calculus_studio import stage_model, multi_output as model
+from prompt_calculus_studio.stage_parameters import empty
+from prompt_calculus_studio.stage_parameter_panel import open_parameters,SeedEditor
 
 
 for filename in ('msjh.ttc','consola.ttf','segoeui.ttf'):

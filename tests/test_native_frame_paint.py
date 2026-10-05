@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget
 
-from prompt_studio.window_chrome import _WindowsCaptionApi, install_expanded_chrome
+from prompt_calculus_studio.window_chrome import _WindowsCaptionApi, install_expanded_chrome
 
 
 APP = QApplication.instance() or QApplication([])
@@ -75,7 +75,7 @@ class NativeFramePaintTests(unittest.TestCase):
     def test_ncpaint_does_not_repaint_over_custom_frame_and_other_windows_are_untouched(self):
         window = QMainWindow()
         window.setCentralWidget(QWidget())
-        with patch('prompt_studio.window_chrome.supported', return_value=True):
+        with patch('prompt_calculus_studio.window_chrome.supported', return_value=True):
             controller = install_expanded_chrome(window)
         controller.hwnd = 123
         controller.caption_replaced = True
@@ -112,7 +112,7 @@ class NativeFramePaintTests(unittest.TestCase):
 
     def test_only_matching_window_full_nccalcsize_is_handled(self):
         window=QMainWindow();window.setCentralWidget(QWidget())
-        with patch('prompt_studio.window_chrome.supported',return_value=True):
+        with patch('prompt_calculus_studio.window_chrome.supported',return_value=True):
             controller=install_expanded_chrome(window)
         controller.hwnd=123;controller.native_api=Mock()
         controller.native_api.calculate_client_rect.return_value=True

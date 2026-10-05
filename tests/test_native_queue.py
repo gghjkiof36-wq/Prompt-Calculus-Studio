@@ -8,8 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 from test_comfy_integration import Service
 from test_multi_output import workspace
-from prompt_studio.snapshots import make_snapshot
-from prompt_studio.job_details import describe
+from prompt_calculus_studio.snapshots import make_snapshot
+from prompt_calculus_studio.job_details import describe
 
 
 class NativeQueueTests(unittest.TestCase):
@@ -263,7 +263,7 @@ class NativeDesktopTests(unittest.TestCase):
 
     def test_native_open_api_is_separate_from_clip_card_and_ignores_late_workspace_reply(self):
         from test_multi_output import workflow
-        from prompt_studio import clip_flow
+        from prompt_calculus_studio import clip_flow
         p=workflow('A');p.update(origin=dict(server='http://127.0.0.1:8188',path='A.json'),frontend_id='native-A')
         self.w.generation_panel.save_profile(p);self.add('PCS original')
         clip=next(iter(self.canvas.clips));self.canvas.commit(lambda s:clip_flow.set_binding(s,'A',clip,('6','text')))
@@ -271,9 +271,9 @@ class NativeDesktopTests(unittest.TestCase):
         calls=[];timers=[]
         def request(route,data=None,done=None,**kwargs):
             calls.append((route,data));done(dict(id=data['id'],state='pending'))
-        with patch.object(client,'request',request),patch('prompt_studio.native_workflow.QTimer.singleShot',lambda delay,fn:timers.append(fn)):
+        with patch.object(client,'request',request),patch('prompt_calculus_studio.native_workflow.QTimer.singleShot',lambda delay,fn:timers.append(fn)):
             self.assertFalse(hasattr(self.canvas.clips[clip].panel,'open_native'))
-            from prompt_studio.native_workflow import open_bound_workflow
+            from prompt_calculus_studio.native_workflow import open_bound_workflow
             open_bound_workflow(self.w,'A')
             self.assertEqual([route for route,_ in calls],['workflow/native/open'])
             self.assertEqual(calls[0][1]['workflow'],'A');self.assertTrue(client.opening_native)
@@ -286,11 +286,11 @@ class NativeDesktopTests(unittest.TestCase):
     def test_pcs_run_only_dispatches_native_command_then_tracks_real_receipt(self):
         from unittest.mock import patch
         from test_multi_output import workflow
-        from prompt_studio import clip_flow
+        from prompt_calculus_studio import clip_flow
         p=workflow('A');p.update(origin=dict(server='http://127.0.0.1:8188',path='A.json'),frontend_id='native-A')
         self.w.generation_panel.save_profile(p);self.add('PCS original')
         clip=next(iter(self.canvas.clips));self.canvas.commit(lambda s:clip_flow.set_binding(s,'A',clip,('6','text')))
-        from prompt_studio import stage_model,multi_output
+        from prompt_calculus_studio import stage_model,multi_output
         def add_stage(s):
             key=stage_model.add(s,workflow='A');s['multi_output']['stages'][key]['output']=None
             multi_output.connect(s,clip,key,'control')

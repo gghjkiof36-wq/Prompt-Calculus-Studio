@@ -6,8 +6,8 @@ os.environ['QT_QPA_PLATFORM']='offscreen'
 sys.path[:0]=[str(ROOT/'vendor'),str(ROOT)]
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFontDatabase
-from prompt_studio.window import Window
-from prompt_studio.dialogs import ItemDialog,WorkspaceDialog,CategoryDialog
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.dialogs import ItemDialog,WorkspaceDialog,CategoryDialog
 APP=QApplication([])
 for font in ('msjh.ttc','msjhbd.ttc','segoeui.ttf','consola.ttf'):
     QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+font)

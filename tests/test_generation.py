@@ -12,11 +12,11 @@ ROOT=Path(__file__).resolve().parents[1]; sys.path[:0]=[str(ROOT/'vendor'),str(R
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QImage
-from prompt_studio.core import initial_state,validate_state
-from prompt_studio.generation import api_graph,validate_profile,submission,uploaded_image,suggested_text
-from prompt_studio.snapshots import make_snapshot,validate_snapshot
-from prompt_studio.window import Window
-from prompt_studio.generation_panel import WorkflowDialog,ParametersDialog
+from prompt_calculus_studio.core import initial_state,validate_state
+from prompt_calculus_studio.generation import api_graph,validate_profile,submission,uploaded_image,suggested_text
+from prompt_calculus_studio.snapshots import make_snapshot,validate_snapshot
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.generation_panel import WorkflowDialog,ParametersDialog
 from test_comfy_integration import Service,png
 APP=QApplication.instance() or QApplication([])
 
@@ -51,7 +51,7 @@ class GenerationCoreTests(unittest.TestCase):
         profile['seed_mode']='increment'; result=submission(profile,snap,index=4)
         self.assertEqual(result['prompt']['6']['inputs']['seed'],2**63+127)
         profile['seed_mode']='random'
-        with patch('prompt_studio.generation.secrets.randbits',return_value=987): self.assertEqual(submission(profile,snap)['prompt']['6']['inputs']['seed'],987)
+        with patch('prompt_calculus_studio.generation.secrets.randbits',return_value=987): self.assertEqual(submission(profile,snap)['prompt']['6']['inputs']['seed'],987)
         profile['graph']['6']['inputs']['denoise']=['9',0]
         with self.assertRaises(ValueError): validate_profile(profile)
 
@@ -148,7 +148,7 @@ class GenerationUiTests(unittest.TestCase):
             self.assertEqual(self.w.comfy.generation.batch['token'],token)
 
     def test_pending_job_recovers_and_cached_completion_does_not_claim_a_new_image(self):
-        from prompt_studio.generation_runner import GenerationRunner
+        from prompt_calculus_studio.generation_runner import GenerationRunner
         self.configure(); runner=self.w.comfy.generation; calls=[]
         with patch.object(self.w.comfy,'request',side_effect=lambda *args,**kwargs:calls.append((args,kwargs))):
             self.w.comfy.run(1); calls[0][1]['done'](dict(name='test.png',subfolder='',type='input'))
@@ -162,8 +162,8 @@ class GenerationUiTests(unittest.TestCase):
             self.assertIn('未回傳新圖片',restored.message)
 
     def test_zip_backup_contains_source_profiles_and_exact_job_payload(self):
-        from prompt_studio.backup import archive_data
-        from prompt_studio.core import Storage
+        from prompt_calculus_studio.backup import archive_data
+        from prompt_calculus_studio.core import Storage
         self.configure(); calls=[]
         with patch.object(self.w.comfy,'request',side_effect=lambda *args,**kwargs:calls.append((args,kwargs))):
             self.w.comfy.run(1); calls[0][1]['done'](dict(name='test.png',subfolder='',type='input'))

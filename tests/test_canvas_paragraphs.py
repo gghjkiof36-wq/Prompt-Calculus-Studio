@@ -12,12 +12,12 @@ from PySide6.QtCore import Qt, QPoint, QPointF, QObject, QEvent
 from PySide6.QtGui import QImage, QPainter, QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from prompt_studio.core import (initial_state, build_prompt, validate_state, output_groups,
+from prompt_calculus_studio.core import (initial_state, build_prompt, validate_state, output_groups,
     activate_selection_view, set_selection_separation, reorder_output)
-from prompt_studio import composition as c
-from prompt_studio.snapshots import make_snapshot, restore_snapshot, validate_snapshot, portable_state
-from prompt_studio.window import Window
-from prompt_studio.dialogs import SettingsDialog
+from prompt_calculus_studio import composition as c
+from prompt_calculus_studio.snapshots import make_snapshot, restore_snapshot, validate_snapshot, portable_state
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.dialogs import SettingsDialog
 
 APP=QApplication.instance() or QApplication([])
 

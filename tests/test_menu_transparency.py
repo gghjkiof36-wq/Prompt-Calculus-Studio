@@ -5,11 +5,11 @@ from PySide6.QtCore import QPoint,Qt
 from PySide6.QtGui import QColor,QFontDatabase,QPalette,QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QWidget,QVBoxLayout
-from prompt_studio.core import DEFAULT_SETTINGS,Storage,initial_state,validate_state
-from prompt_studio.state_loading import prepare_state
-from prompt_studio.popup_surface import PopupSurface,refresh_popup_surfaces
-from prompt_studio.theme import stylesheet,visual_tokens,widget_palette
-from prompt_studio.widgets import ComboBox
+from prompt_calculus_studio.core import DEFAULT_SETTINGS,Storage,initial_state,validate_state
+from prompt_calculus_studio.state_loading import prepare_state
+from prompt_calculus_studio.popup_surface import PopupSurface,refresh_popup_surfaces
+from prompt_calculus_studio.theme import stylesheet,visual_tokens,widget_palette
+from prompt_calculus_studio.widgets import ComboBox
 
 APP=QApplication.instance() or QApplication([])
 if APP.platformName()=='offscreen':
@@ -88,10 +88,10 @@ class MenuTransparencySurfaceTests(unittest.TestCase):
 
 class MenuTransparencySettingsTests(unittest.TestCase):
     def setUp(self):
-        from prompt_studio.window import Window
+        from prompt_calculus_studio.window import Window
         self.tmp=tempfile.TemporaryDirectory()
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_DATA':self.tmp.name});self.env.start()
-        self.network=patch('prompt_studio.comfy_client.ComfyClient.request');self.network.start()
+        self.network=patch('prompt_calculus_studio.comfy_client.ComfyClient.request');self.network.start()
         self.w=Window(self.tmp.name);self.w.display_recovery.stop();self.w.first_models=False
         self.w.state['settings'].update(online=False,material='solid');self.w.apply_theme();self.w.show();self.w.settings('appearance')
 

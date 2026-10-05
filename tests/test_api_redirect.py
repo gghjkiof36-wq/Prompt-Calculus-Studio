@@ -6,7 +6,7 @@ from urllib.request import Request
 from urllib.response import addinfourl
 from email.message import Message
 import urllib.request as transport
-from prompt_studio import civitai
+from prompt_calculus_studio import civitai
 
 
 class ApiRedirectTests(unittest.TestCase):

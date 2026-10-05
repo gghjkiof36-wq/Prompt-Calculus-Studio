@@ -9,11 +9,11 @@ from unittest.mock import patch
 from test_input_flow import canvas_state
 from test_multi_output import workflow
 from test_comfy_integration import png
-from prompt_studio.flow_data import add_scheduler,add_image_input,endpoint,capture_inputs
-from prompt_studio.image_source import set_items
-from prompt_studio.multi_output import connect,disconnect
-from prompt_studio.clip_flow import set_binding,bound_texts
-from prompt_studio.input_runner import InputRunner
+from prompt_calculus_studio.flow_data import add_scheduler,add_image_input,endpoint,capture_inputs
+from prompt_calculus_studio.image_source import set_items
+from prompt_calculus_studio.multi_output import connect,disconnect
+from prompt_calculus_studio.clip_flow import set_binding,bound_texts
+from prompt_calculus_studio.input_runner import InputRunner
 
 
 class InputRunnerTests(unittest.TestCase):
@@ -37,7 +37,7 @@ class InputRunnerTests(unittest.TestCase):
             record=lambda i:self.records.get(i),save=lambda j:self.records.update({j['id']:j}))
         self.client.queue=NS(upload=lambda image,done,failed:done('input/'+image['name']))
         self.runner=InputRunner(self.client);self.client.input_flow=self.runner
-        timer=patch('prompt_studio.input_runner.QTimer.singleShot',lambda _,fn:self.timers.append(fn));timer.start();self.addCleanup(timer.stop)
+        timer=patch('prompt_calculus_studio.input_runner.QTimer.singleShot',lambda _,fn:self.timers.append(fn));timer.start();self.addCleanup(timer.stop)
 
     def schedule(self):
         self.sid=add_scheduler(self.state);self.port=endpoint(self.sid,'clip1')
@@ -132,8 +132,8 @@ class InputRunnerTests(unittest.TestCase):
         self.assertEqual(len(self.runner.store.rows(self.sid)),1);self.assertTrue(self.runner.store.control(self.sid)['paused'])
 
     def test_unconnected_prompt_remains_live(self):
-        from prompt_studio.clip_flow import add
-        from prompt_studio.multi_output import new_output
+        from prompt_calculus_studio.clip_flow import add
+        from prompt_calculus_studio.multi_output import new_output
         self.schedule();other='negative';self.state['multi_output']['outputs'][other]=new_output('Negative')
         connect(self.state,'b',other,'text');clip=add(self.state);connect(self.state,other,clip,'clip');set_binding(self.state,'flow',clip,('7','text'))
         self.runner.execute(2);self.state['uses']['b']['prompt']='changed negative';self.finish()

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {installNativeQueue,applyNativeBindings} from '../comfyui_prompt_studio/web/native_queue.js';
-import {graphFingerprint} from '../comfyui_prompt_studio/web/graph_fingerprint.js';
-import {captureManual} from '../comfyui_prompt_studio/web/state.js';
+import {installNativeQueue,applyNativeBindings} from '../comfyui_prompt_calculus_studio/web/native_queue.js';
+import {graphFingerprint} from '../comfyui_prompt_calculus_studio/web/graph_fingerprint.js';
+import {captureManual} from '../comfyui_prompt_calculus_studio/web/state.js';
 
 function fixture({busy=false,timeout=12000,capture=false,policy=null,manual=null,onRequest=null}={}) {
     globalThis.document=new EventTarget();

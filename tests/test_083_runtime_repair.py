@@ -11,10 +11,10 @@ from unittest.mock import patch
 from PySide6.QtCore import Qt,QPointF
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from prompt_studio.window import Window
-from prompt_studio import multi_output as model,clip_flow
-from prompt_studio.composition import node
-from prompt_studio.flow_data import add_scheduler,endpoint
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio import multi_output as model,clip_flow
+from prompt_calculus_studio.composition import node
+from prompt_calculus_studio.flow_data import add_scheduler,endpoint
 from test_comfy_integration import Service
 from test_multi_output import workflow
 
@@ -161,7 +161,7 @@ class RuntimeRepairTests(unittest.TestCase):
     def test_workspace_switch_preserves_already_submitted_native_jobs(self):
         first=self.w.state['workspace'];self.click();self.click()
         self.assertEqual(len(self.executor.submissions),2)
-        with patch('prompt_studio.window.QInputDialog.getText',return_value=('empty',True)):self.w.new_workspace()
+        with patch('prompt_calculus_studio.window.QInputDialog.getText',return_value=('empty',True)):self.w.new_workspace()
         self.executor.finish();self.executor.finish()
         self.assertTrue(all(j['workspace']==first and j['state']=='complete' for j in self.w.comfy.generation.records()))
         self.w.workspace.setCurrentIndex(self.w.workspace.findData(first));QTest.qWait(10)
@@ -184,8 +184,8 @@ class RuntimeRepairTests(unittest.TestCase):
 
     def image_batch(self,count,schedule):
         from test_comfy_integration import png
-        from prompt_studio.flow_data import add_image_input
-        from prompt_studio.image_source import set_items
+        from prompt_calculus_studio.flow_data import add_image_input
+        from prompt_calculus_studio.image_source import set_items
         files=[]
         for i in range(count):
             path=Path(self.tmp.name)/f'image{i+1}.png'

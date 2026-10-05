@@ -10,8 +10,8 @@ from PySide6.QtGui import QDragEnterEvent,QDragMoveEvent,QDropEvent,QFontDatabas
 from PySide6.QtWidgets import QApplication,QPushButton,QPlainTextEdit
 from PySide6.QtTest import QTest
 import stage_fixture as fixtures
-from prompt_studio import multi_output as model,stage_model
-from prompt_studio.flow_data import add_image_input,add_scheduler
+from prompt_calculus_studio import multi_output as model,stage_model
+from prompt_calculus_studio.flow_data import add_image_input,add_scheduler
 
 if not QFontDatabase.families():
     for filename in ('msjh.ttc','consola.ttf','segoeui.ttf'):QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+filename)
@@ -53,7 +53,7 @@ class StageTests(unittest.TestCase):
         self.runner.store.update(attempt['id'],status='unconfirmed',error='fixture lost reply')
         self.assertEqual(self.runner.entry_status(entry),'unconfirmed')
         self.assertEqual(self.runner.store.read(entry['id'])['status'],'running')
-        from prompt_studio.stage_widgets import SchedulePanel
+        from prompt_calculus_studio.stage_widgets import SchedulePanel
         panel=SchedulePanel(self.c,schedule[0]);panel.refresh()
         self.assertIn('提交未確認',panel.list.item(0).text());self.assertNotIn('執行中',panel.list.item(0).text())
         panel.deleteLater()
@@ -62,7 +62,7 @@ class StageTests(unittest.TestCase):
         # These scenarios build their own Stage/scheduler graph on the
         # canvas -> output -> CLIP baseline. First-install onboarding must not
         # insert an unrelated unbound Stage into these synthetic pipelines.
-        with patch('prompt_studio.canvas_starter.initialize',side_effect=lambda state,**_:state):
+        with patch('prompt_calculus_studio.canvas_starter.initialize',side_effect=lambda state,**_:state):
             fixtures.StageFixture.setUp(self)
         self.assertFalse(self.c.data()['stages']);self.assertFalse(self.c.data()['schedulers'])
         self.assertEqual({(c['source'],c['destination'],c['kind']) for c in self.c.data()['connections']},
@@ -114,7 +114,7 @@ class StageTests(unittest.TestCase):
 
     def test_control_mixed_workflows_applies_b_but_runs_only_a(self):
         key=self.stages()[0]
-        from prompt_studio.clip_flow import add,set_binding
+        from prompt_calculus_studio.clip_flow import add,set_binding
         other=[]
         def setup(s):
             # Use another native text workflow, independently bound.
@@ -147,8 +147,8 @@ class StageTests(unittest.TestCase):
 
     def image_batch(self,count=3,auto=True,outer=False):
         from test_comfy_integration import png
-        from prompt_studio.image_source import set_items
-        from prompt_studio.image_bindings import import_source
+        from prompt_calculus_studio.image_source import set_items
+        from prompt_calculus_studio.image_bindings import import_source
         from test_multi_output import workflow
         items=[]
         for i in range(count):
@@ -210,7 +210,7 @@ class StageTests(unittest.TestCase):
         self.assertFalse(self.runner.store.rows('entry',active=True))
 
     def test_data_only_freezes_connected_text_but_negative_live(self):
-        from prompt_studio import clip_flow
+        from prompt_calculus_studio import clip_flow
         key=self.stages()[0];refs={}
         def setup(s):
             sched=add_scheduler(s);refs['s']=sched;model.connect(s,self.out,sched+'::clip1','clip');model.connect(s,sched+'::clip1',self.clip,'clip')
@@ -243,7 +243,7 @@ class StageTests(unittest.TestCase):
         self.assertEqual(len(self.executor.submissions),2,self.notices);self.assertIsNone(self.runner.current())
 
     def test_stage_group_fixed_and_live_policies(self):
-        from prompt_studio import clip_flow
+        from prompt_calculus_studio import clip_flow
         stage=self.stages()[0];refs={}
         def setup(s):
             out=model.ident('out_');s['multi_output']['outputs'][out]=dict(model.new_output('negative'),canvases=[],text_sources=[],draft='negative first');refs['out']=out
@@ -265,11 +265,11 @@ class StageTests(unittest.TestCase):
         self.assertEqual(self.workflows(),['flow','B']);self.executor.finish();self.assertIsNone(self.runner.current())
 
     def test_reopen_and_workspace_results_do_not_restart(self):
-        from prompt_studio.stage_runner import StageRunner
+        from prompt_calculus_studio.stage_runner import StageRunner
         self.stages(('flow','B'));self.click();run=self.runner.current();first=self.w.state['workspace']
         self.runner.close();self.w.comfy.input_flow.chain=self.runner=StageRunner(self.w.comfy.input_flow)
         self.executor.finish();self.assertEqual(self.runner.current()['status'],'paused');self.assertEqual(len(self.executor.submissions),1)
-        with patch('prompt_studio.window.QInputDialog.getText',return_value=('other',True)):self.w.new_workspace()
+        with patch('prompt_calculus_studio.window.QInputDialog.getText',return_value=('other',True)):self.w.new_workspace()
         self.assertFalse(self.runner.results);self.w.workspace.setCurrentIndex(self.w.workspace.findData(first));QTest.qWait(20)
         self.assertTrue(self.runner.results);self.runner.resume(run['id']);QTest.qWait(30);self.executor.finish()
         self.assertEqual(self.workflows(),['flow','B'])
@@ -308,7 +308,7 @@ class StageTests(unittest.TestCase):
         self.click();self.executor.finish();self.assertEqual(self.workflows(),['flow']);self.assertIn('不存在',self.runner.current()['message'])
 
     def test_result_source_text_matches_each_image(self):
-        from prompt_studio import clip_flow
+        from prompt_calculus_studio import clip_flow
         source,items,refs=self.image_batch(count=3);down={}
         def setup(s):
             for name in ('B','C'):
@@ -384,7 +384,7 @@ class StageTests(unittest.TestCase):
         self.assertEqual(len(self.runner.runs(True)),1);self.assertTrue(any('十項' in n for n in self.notices))
 
     def test_generated_metadata_restores_modules_and_manual_blank(self):
-        from prompt_studio.image_source import read_content
+        from prompt_calculus_studio.image_source import read_content
         key=self.stages()[0];self.click();self.executor.finish()
         source=self.runner.results[key]['images'][0];content=read_content(self.w.store.directory/source['relative'])
         self.assertEqual(content['kind'],'modules');self.assertEqual(content['roots'][0]['prompt'],'white shirt')
@@ -416,7 +416,7 @@ class StageInterfaceTests(unittest.TestCase):
     image_batch=StageTests.image_batch
 
     def test_waiting_outer_item_lists_and_replaces_one_saved_batch_image(self):
-        from prompt_studio.widgets import ComboBox
+        from prompt_calculus_studio.widgets import ComboBox
         source,images,config=self.image_batch(outer=True);self.click();self.click()
         panel=self.c.flow_cards[config['outer']].panel;panel.refresh();panel.list.setCurrentRow(1)
         item=panel.selected();seen=[]
@@ -437,13 +437,13 @@ class StageInterfaceTests(unittest.TestCase):
 
     def test_visible_ports_follow_shared_module_contracts(self):
         self.image_batch(outer=True)
-        from prompt_studio.module_contracts import port_types
+        from prompt_calculus_studio.module_contracts import port_types
         for port in self.c.ports.values():
             self.assertIn(port.kind,port_types(self.w.state,port.key,port.output),(port.key,port.kind,port.output))
 
     def test_simple_loader_reads_metadata_and_selects_stage_batch_input(self):
         from test_comfy_integration import png
-        from prompt_studio.flow_data import resolve,image_list
+        from prompt_calculus_studio.flow_data import resolve,image_list
         path=Path(self.tmp.name)/'simple.png';graph=copy.deepcopy(self.executor.graphs['flow']);graph['6']['inputs']['text']='raw original text';png(path,{'prompt':graph})
         source=self.c.functions.add_image(path,enhanced=False)
         self.assertEqual(resolve(self.w.state,source,'clip')['value'],'raw original text')
@@ -464,7 +464,7 @@ class StageInterfaceTests(unittest.TestCase):
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a);QTest.mouseMove(view.viewport(),b,20);QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b);QTest.qWait(20)
         self.assertEqual(self.c.data()['stages'][stage]['workflow'],'flow',self.notices)
         self.w.settings_page.workflow_manager.catalog.loaded=True
-        from prompt_studio.stage_parameter_panel import ParameterSheet
+        from prompt_calculus_studio.stage_parameter_panel import ParameterSheet
         from stage_parameter_fixture import inspection
         catalog=self.w.settings_page.workflow_manager.catalog
         for p in self.w.state['generation']['profiles']:p['origin']=dict(server=self.w.comfy.url,path=p['id']+'.json')
@@ -478,7 +478,7 @@ class StageInterfaceTests(unittest.TestCase):
             QTest.mouseClick(dialog.apply_button,Qt.MouseButton.LeftButton);QTest.qWait(30)
         self.assertEqual(self.c.data()['stages'][stage]['workflow'],'B',self.notices)
         self.c.view.setFocus();QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=view.mapFromScene(self.c.flow_cards[stage].scenePos()+QPointF(80,15)))
-        from prompt_studio.stage_widgets import StageDialog
+        from prompt_calculus_studio.stage_widgets import StageDialog
         self.c.commit(lambda s:s['multi_output']['stages'][stage].update(output=None))
         dialog=StageDialog(self.c,stage);self.assertIsNone(dialog.target.currentData());dialog.deleteLater()
         self.c.commit(lambda s:s['multi_output']['stages'][stage].update(output='9'))

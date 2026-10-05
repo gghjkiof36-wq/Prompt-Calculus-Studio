@@ -13,10 +13,10 @@ from PySide6.QtCore import Qt,QModelIndex,QEvent
 from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QPushButton,QLineEdit
-from prompt_studio.window import Window
-from prompt_studio import clean_metadata
-from prompt_studio.media import import_image
-from prompt_studio.widgets import ComboBox
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio import clean_metadata
+from prompt_calculus_studio.media import import_image
+from prompt_calculus_studio.widgets import ComboBox
 APP=QApplication.instance() or QApplication([])
 
 class ExportUiTests(unittest.TestCase):
@@ -64,7 +64,7 @@ class ExportUiTests(unittest.TestCase):
         client.request=request; client.poll(); self.assertFalse(client.control_interrupted)
         payload.update(ready=True,lease='one',target='text'); client.poll(); self.assertFalse(client.control_interrupted)
         payload.update(ready=False,reason='已停止桌面控制，保留目前文字。'); client.poll()
-        from prompt_studio.theme import visual_tokens
+        from prompt_calculus_studio.theme import visual_tokens
         self.assertTrue(client.control_interrupted); self.assertIn(visual_tokens(self.w.state['settings'])['warning'],self.w.comfy_status.styleSheet())
         payload.update(ready=True); client.poll(); self.assertEqual(self.w.comfy_status.styleSheet(),'')
         client.disconnect(); self.assertFalse(client.control_interrupted)
@@ -83,7 +83,7 @@ class ExportUiTests(unittest.TestCase):
 
     def test_album_context_exposes_actions_and_preserves_image_multiselection(self):
         w=self.w; w.catalog.put('album',dict(id='a',name='資料夾')); w.gallery.refresh_albums(); self.w.tabs.setCurrentWidget(w.gallery); APP.processEvents()
-        with patch('prompt_studio.pages.QMenu') as menu:
+        with patch('prompt_calculus_studio.pages.QMenu') as menu:
             w.gallery.album_context(w.gallery.albums.visualItemRect(w.gallery.albums.item(0)).center())
             names=[c.args[0] for c in menu.return_value.addAction.call_args_list]
             self.assertIn('移除資料夾…',names); self.assertIn('重新命名',names); self.assertIn('匯出資料夾圖片…',names)
@@ -98,7 +98,7 @@ class ExportUiTests(unittest.TestCase):
         record['id']='recent-test'; self.w.catalog.put('recent',record)
         p=self.w.recent; p.refresh(); self.w.tabs.setCurrentWidget(p); APP.processEvents()
         self.assertIsInstance(p.images.item(0).data(Qt.ItemDataRole.UserRole),str)
-        with patch('prompt_studio.recent.RoundMenu') as menu:
+        with patch('prompt_calculus_studio.recent.RoundMenu') as menu:
             p.context(p.images.visualItemRect(p.images.item(0)).center())
             callback=next(c.args[1] for c in menu.return_value.addAction.call_args_list if c.args[0]=='匯出圖片…')
             p.refresh(); callback(); self.wait_job()
@@ -112,7 +112,7 @@ class ExportUiTests(unittest.TestCase):
         source=self.fixture_image(); self.w.catalog.put('album',dict(id='test',name='測試'))
         record=import_image(source,self.w.store.directory,'test'); self.w.catalog.put('image',record,'test')
         p=self.w.clean_export
-        with patch('prompt_studio.export_page.InputDialog.getItem',return_value=('測試 (1)',True)):
+        with patch('prompt_calculus_studio.export_page.InputDialog.getItem',return_value=('測試 (1)',True)):
             p.choose_album(); self.wait_job()
         self.assertEqual(p.inputs,[str(source)]); self.assertEqual(len(p.rows),1)
         self.assertEqual(self.w.catalog.count('image'),1)
@@ -128,13 +128,13 @@ class ExportUiTests(unittest.TestCase):
         p=self.w.clean_export; self.w.tabs.setCurrentWidget(p)
         p.preview(); self.assertEqual(p.feedback.text(),'請先選擇圖片或資料夾。')
         self.w.open_export([str(self.fixture_image())]); self.wait_job()
-        with patch('prompt_studio.export_page.QFileDialog.getExistingDirectory',return_value=''):
+        with patch('prompt_calculus_studio.export_page.QFileDialog.getExistingDirectory',return_value=''):
             p.preview(); self.assertEqual(p.feedback.text(),'請選擇輸出資料夾。')
         target=self.root/'share'; target.mkdir()
-        with patch('prompt_studio.export_page.QFileDialog.getExistingDirectory',return_value=str(target)):
+        with patch('prompt_calculus_studio.export_page.QFileDialog.getExistingDirectory',return_value=str(target)):
             p.preview(); self.wait_job()
         self.assertIsNotNone(p.plan); self.assertTrue(p.feedback.isHidden())
-        from prompt_studio.theme import visual_tokens
+        from prompt_calculus_studio.theme import visual_tokens
         item=p.table.item(0,2); self.assertEqual(item.text(),'待匯出'); self.assertEqual(item.foreground().color().name(),visual_tokens(self.w.state['settings'])['warning'])
         self.assertFalse(item.flags() & Qt.ItemFlag.ItemIsEditable)
         p.export(); self.wait_job(); self.assertEqual(p.table.item(0,2).text(),'成功')
@@ -144,7 +144,7 @@ class ExportUiTests(unittest.TestCase):
         source=self.fixture_image(); self.w.catalog.put('album',dict(id='test',name='測試'))
         record=import_image(source,self.w.store.directory,'test'); self.w.catalog.put('image',record,'test')
         p=self.w.gallery; p.refresh_albums(); self.w.tabs.setCurrentWidget(p); APP.processEvents()
-        with patch('prompt_studio.pages.QMenu') as menu, patch('prompt_studio.pages.reveal_file') as reveal:
+        with patch('prompt_calculus_studio.pages.QMenu') as menu, patch('prompt_calculus_studio.pages.reveal_file') as reveal:
             p.context(p.images.visualItemRect(p.images.item(0)).center())
             callback=next(c.args[1] for c in menu.return_value.addAction.call_args_list if c.args[0]=='顯示檔案位置')
             callback(); reveal.assert_called_once_with(p,str(source))
@@ -172,7 +172,7 @@ class ExportUiTests(unittest.TestCase):
         self.w.settings('models'); APP.processEvents()
         actions={b.text():b for b in self.w.models.findChildren(QPushButton)}
         self.assertEqual(actions['上一頁'].y(),actions['下一頁'].y())
-        with patch('prompt_studio.pages.QMenu') as menu:
+        with patch('prompt_calculus_studio.pages.QMenu') as menu:
             self.w.models.model_menu()
             names=[call.args[0] for call in menu.return_value.addAction.call_args_list]
             for name in ('辨識來源','管理分類'):self.assertIn(name,names)

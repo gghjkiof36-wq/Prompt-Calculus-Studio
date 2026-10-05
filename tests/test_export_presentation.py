@@ -13,9 +13,9 @@ from PySide6.QtCore import Qt,QPoint,QRect
 from PySide6.QtGui import QColor,QPalette
 from PySide6.QtWidgets import QApplication,QScrollArea
 from PySide6.QtTest import QTest
-from prompt_studio.widgets import RoundMenu
-from prompt_studio.theme import visual_tokens
-from prompt_studio.window import Window
+from prompt_calculus_studio.widgets import RoundMenu
+from prompt_calculus_studio.theme import visual_tokens
+from prompt_calculus_studio.window import Window
 
 APP=QApplication.instance() or QApplication([])
 

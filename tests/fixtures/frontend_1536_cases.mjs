@@ -4,14 +4,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { createRuntime, sourceEvidence, vue, assets } from './frontend_1536_runtime.mjs';
-const productPath = fileURLToPath(new URL('../../comfyui_prompt_studio/web/native_parameter_capabilities.js', import.meta.url));
+const productPath = fileURLToPath(new URL('../../comfyui_prompt_calculus_studio/web/native_parameter_capabilities.js', import.meta.url));
 const checkout = fileURLToPath(new URL('../../', import.meta.url)).replace(/[\\/]$/, '');
 const baselineRef = process.argv.find(arg => arg.startsWith('--baseline-ref='))?.slice('--baseline-ref='.length);
 const baseline = !!baselineRef;
 const productSource = baseline ? execFileSync('git', ['-c', `safe.directory=${checkout}`, 'show', `${baselineRef}:comfyui_prompt_studio/web/native_parameter_capabilities.js`], { cwd: checkout, encoding: 'utf8' }) : readFileSync(productPath, 'utf8');
 const { createParameterCapabilities } = await import(baseline ? `data:text/javascript;base64,${Buffer.from(productSource).toString('base64')}` : pathToFileURL(productPath));
-const { createSeedObserver } = await import('../../comfyui_prompt_studio/web/native_seed.js');
-const { describeParameters, parameterTransaction } = await import('../../comfyui_prompt_studio/web/native_parameters.js');
+const { createSeedObserver } = await import('../../comfyui_prompt_calculus_studio/web/native_seed.js');
+const { describeParameters, parameterTransaction } = await import('../../comfyui_prompt_calculus_studio/web/native_parameters.js');
 
 const cases = [];
 for (const primed of [false, true]) {
@@ -156,7 +156,7 @@ const result = { frontend: '1.53.6', assets, mode: baseline ? 'baseline-reproduc
     boundaries: 'Offline only. Node shell/graph serializer wrapper are adapters; addToGraph invokes native setNodeId directly. Native serialiseWidgetValues executes, not full graphToPrompt/LGraph.serialize/add/configure. DOM creation/registration and unrelated settings/menu infrastructure are adapters. INT control hooks are actual factory closures, but nextValueForLinkedTarget is fail-fast unavailable and no seed policy hook executes. No API prompt, network, submission or GPU.',
     product_sha256: createHash('sha256').update(productSource).digest('hex'), product_source: baseline ? `git ${baselineRef} native_parameter_capabilities.js` : 'working-tree native_parameter_capabilities.js',
     additional_product_hashes: baseline ? [] : ['native_seed.js', 'native_parameters.js'].map(name => ({ name,
-        sha256: createHash('sha256').update(readFileSync(new URL(`../../comfyui_prompt_studio/web/${name}`, import.meta.url))).digest('hex') })),
+        sha256: createHash('sha256').update(readFileSync(new URL(`../../comfyui_prompt_calculus_studio/web/${name}`, import.meta.url))).digest('hex') })),
     vue_bundle_sha256: createHash('sha256').update(readFileSync(`${assets}/vendor-vue-core-DwKKv_Jy.js`)).digest('hex'), sources: sourceEvidence(), cases };
 const output = process.argv.find(arg => arg.startsWith('--evidence='))?.slice('--evidence='.length);
 if (output) writeFileSync(output, JSON.stringify(result, null, 2));

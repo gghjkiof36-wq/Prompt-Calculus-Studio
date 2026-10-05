@@ -5,7 +5,7 @@ from PySide6.QtCore import QElapsedTimer, QEvent, QPoint, Qt
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QSplitter, QVBoxLayout, QWidget
 
-from prompt_studio.sidebar_peek import SidebarPeekController
+from prompt_calculus_studio.sidebar_peek import SidebarPeekController
 
 APP=QApplication.instance() or QApplication([])
 
@@ -143,7 +143,7 @@ class SidebarPeekTests(unittest.TestCase):
         self.peek.close(); self.assertFalse(self.peek.is_pinned_overlay); self.assertTrue(self.side.isHidden())
 
     def test_hover_can_be_pinned_as_overlay_and_uses_opaque_sidebar_color(self):
-        from prompt_studio.theme import visual_tokens
+        from prompt_calculus_studio.theme import visual_tokens
         self.open(); original=self.side.parentWidget(); self.peek.show_pinned()
         self.assertTrue(self.peek.is_pinned_overlay); self.assertIs(self.side.parentWidget(),original)
         pixel=self.peek.overlay.grab().toImage().pixelColor(4,self.peek.overlay.height()//2)

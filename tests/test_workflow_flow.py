@@ -9,8 +9,8 @@ import test_multi_canvas as canvas_tests
 from test_multi_canvas import APP
 from test_multi_output import workflow
 from test_comfy_integration import png
-from prompt_studio import multi_output as model,clip_flow,workflow_flow
-from prompt_studio.core import validate_state
+from prompt_calculus_studio import multi_output as model,clip_flow,workflow_flow
+from prompt_calculus_studio.core import validate_state
 
 
 class WorkflowTests(unittest.TestCase):
@@ -120,7 +120,7 @@ class WorkflowTests(unittest.TestCase):
         self.canvas.undo(); self.assertEqual(workflow_flow.workflow_ids(self.w.state),['A','B'])
         self.canvas.redo(); expected=copy.deepcopy(self.canvas.data()); self.w.persist()
         self.w.close(); APP.processEvents()
-        from prompt_studio.window import Window
+        from prompt_calculus_studio.window import Window
         self.w=Window(self.tmp.name); self.assertEqual(self.w.state['multi_output'],expected)
 
     def test_image_binding_is_optional_display_switch_keeps_preview_and_manual_source(self):

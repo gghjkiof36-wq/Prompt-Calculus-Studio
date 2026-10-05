@@ -12,9 +12,9 @@ from PySide6.QtCore import QProcess
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QBoxLayout
 from package_documents import package_manifest
-from prompt_studio.extension_install import comfy_root, update_state, build_info, InstallPreferences
-from prompt_studio.extension_page import ExtensionPage
-from prompt_studio.releases import CURRENT, EXTENSION_FOLDER
+from prompt_calculus_studio.extension_install import comfy_root, update_state, build_info, InstallPreferences
+from prompt_calculus_studio.extension_page import ExtensionPage
+from prompt_calculus_studio.releases import CURRENT, EXTENSION_FOLDER
 from test_manager_page import Window
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,7 +46,7 @@ class ExtensionPageTests(unittest.TestCase):
         self.page=self.make_page()
 
     def make_page(self):
-        with patch('prompt_studio.extension_page.available_package', return_value=(self.base,self.source)):
+        with patch('prompt_calculus_studio.extension_page.available_package', return_value=(self.base,self.source)):
             return ExtensionPage(self.window)
 
     def tearDown(self):
@@ -63,7 +63,7 @@ class ExtensionPageTests(unittest.TestCase):
         self.fail('Synthetic installer did not finish')
 
     def select(self, path=None):
-        with patch('prompt_studio.extension_page.QFileDialog.getExistingDirectory',return_value=str(path or self.comfy)):
+        with patch('prompt_calculus_studio.extension_page.QFileDialog.getExistingDirectory',return_value=str(path or self.comfy)):
             self.page.choose.click()
 
     def test_choose_folder_installs_without_connection_workflow_or_manager(self):
@@ -147,7 +147,7 @@ class ExtensionPageTests(unittest.TestCase):
         self.assertIn('無法確認',self.page.status.text())
 
     def test_path_selection_cancellation_and_invalid_folder_write_nothing(self):
-        with patch('prompt_studio.extension_page.QFileDialog.getExistingDirectory',return_value=''):
+        with patch('prompt_calculus_studio.extension_page.QFileDialog.getExistingDirectory',return_value=''):
             self.page.choose.click()
         self.assertFalse(self.page.preferences.path.exists())
         with self.assertRaises(ValueError):comfy_root(self.data)
@@ -160,7 +160,7 @@ class ExtensionPageTests(unittest.TestCase):
         self.assertTrue(self.page.choose.isVisible())
 
     def test_main_window_cannot_close_halfway_through_replacement(self):
-        from prompt_studio.window import Window as MainWindow
+        from prompt_calculus_studio.window import Window as MainWindow
         from unittest.mock import Mock
         fake=SimpleNamespace(settings_page=SimpleNamespace(manager=SimpleNamespace(extension=SimpleNamespace(busy=True))),notice=Mock())
         event=Mock(); MainWindow.closeEvent(fake,event)
@@ -168,7 +168,7 @@ class ExtensionPageTests(unittest.TestCase):
 
     def test_loaded_build_identity_does_not_change_with_files_on_disk(self):
         module_path=self.root/'build_identity.py'
-        shutil.copyfile(ROOT/'comfyui_prompt_studio/build_identity.py',module_path)
+        shutil.copyfile(ROOT/'comfyui_prompt_calculus_studio/build_identity.py',module_path)
         info=self.root/'BUILD_INFO.json'; info.write_text(json.dumps(self.info))
         spec=importlib.util.spec_from_file_location('isolated_build_identity',module_path)
         module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)

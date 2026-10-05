@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QListWidgetItem
-from prompt_studio.window import Window
+from prompt_calculus_studio.window import Window
 
 APP=QApplication.instance() or QApplication([])
 if APP.platformName()=='offscreen':
@@ -20,7 +20,7 @@ class VisualNavigationTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'});self.env.start()
-        self.request=patch('prompt_studio.comfy_client.ComfyClient.request',side_effect=AssertionError('No service in UI test'));self.request.start()
+        self.request=patch('prompt_calculus_studio.comfy_client.ComfyClient.request',side_effect=AssertionError('No service in UI test'));self.request.start()
         self.w=Window(self.temp.name);self.w.state['settings'].update(online=False,material='solid')
         self.w.show();self.w.apply_theme()
 
@@ -49,7 +49,7 @@ class VisualNavigationTests(unittest.TestCase):
             self.w.settings('civitai');browse.assert_called();thumbnails.assert_called()
 
     def test_palette_save_preserves_manual_empty_draft(self):
-        from prompt_studio.drafts import edit
+        from prompt_calculus_studio.drafts import edit
         edit(self.w.state,'');before=copy.deepcopy(self.w.state['multi_output'])
         self.w.settings('appearance');self.settle();prefs=self.w.settings_page.preferences
         for name in ('mist','paper','graphite'):
@@ -80,7 +80,7 @@ class VisualNavigationTests(unittest.TestCase):
         self.assertEqual(self.w.store.load()['selection_view'],'list')
 
     def test_export_feedback_changes_palette_without_losing_selection(self):
-        from prompt_studio.theme import visual_tokens
+        from prompt_calculus_studio.theme import visual_tokens
         e=self.w.clean_export
         e.rows=[dict(source='synthetic.png',width=64,height=64,format='png',error='合成錯誤')]
         e.render();e.table.selectRow(0);e.set_feedback('合成錯誤')

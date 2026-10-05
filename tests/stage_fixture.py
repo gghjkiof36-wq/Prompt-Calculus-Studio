@@ -12,9 +12,9 @@ from unittest.mock import patch
 from PySide6.QtCore import Qt,QTimer,QPoint,QPointF
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QPushButton
-from prompt_studio.window import Window
-from prompt_studio import multi_output as model,clip_flow
-from prompt_studio.composition import node
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio import multi_output as model,clip_flow
+from prompt_calculus_studio.composition import node
 from test_multi_output import workflow
 from test_083_runtime_repair import ReceiptExecutor
 from test_comfy_integration import png

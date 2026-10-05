@@ -7,9 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from prompt_studio import composition as c
-from prompt_studio.core import initial_state, build_prompt, compose_details, validate_state, apply_workspace
-from prompt_studio.snapshots import make_snapshot, restore_snapshot, validate_snapshot, portable_state
+from prompt_calculus_studio import composition as c
+from prompt_calculus_studio.core import initial_state, build_prompt, compose_details, validate_state, apply_workspace
+from prompt_calculus_studio.snapshots import make_snapshot, restore_snapshot, validate_snapshot, portable_state
 
 
 def example():

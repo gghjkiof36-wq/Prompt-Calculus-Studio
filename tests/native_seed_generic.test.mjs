@@ -2,9 +2,9 @@
 // lifecycle/serializer evidence is verified separately, without a service/GPU.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createSeedObserver} from '../comfyui_prompt_studio/web/native_seed.js';
-import {createParameterCapabilities} from '../comfyui_prompt_studio/web/native_parameter_capabilities.js';
-import {describeParameters,parameterTransaction} from '../comfyui_prompt_studio/web/native_parameters.js';
+import {createSeedObserver} from '../comfyui_prompt_calculus_studio/web/native_seed.js';
+import {createParameterCapabilities} from '../comfyui_prompt_calculus_studio/web/native_parameter_capabilities.js';
+import {describeParameters,parameterTransaction} from '../comfyui_prompt_calculus_studio/web/native_parameters.js';
 
 const liveSeed=370680149938299;
 function fixture({type='UltimateSDUpscale',field='seed',timing='after',install=true,observe=true}={}){

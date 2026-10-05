@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication, QEvent
-from prompt_studio.manager_client import ManagerClient
+from prompt_calculus_studio.manager_client import ManagerClient
 
 
 class FakeManager(BaseHTTPRequestHandler):

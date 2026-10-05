@@ -7,8 +7,8 @@ from PySide6.QtGui import QContextMenuEvent
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
 from test_084_stages import StageTests
-from prompt_studio import multi_output as model
-from prompt_studio.flow_data import add_scheduler
+from prompt_calculus_studio import multi_output as model
+from prompt_calculus_studio.flow_data import add_scheduler
 
 
 class ScheduleItemActionsTests(StageTests):
@@ -26,7 +26,7 @@ class ScheduleItemActionsTests(StageTests):
         self.assertEqual(self.runner.entry_status(entries[0]),'failed')
         saved=copy.deepcopy(entries[1:]);connections=copy.deepcopy(self.c.data()['connections']);menus=[]
         point=panel.list.visualItemRect(panel.list.item(0)).center()
-        with patch('prompt_studio.widgets.RoundMenu.open_at',lambda menu,*_:menus.append(menu)):
+        with patch('prompt_calculus_studio.widgets.RoundMenu.open_at',lambda menu,*_:menus.append(menu)):
             event=QContextMenuEvent(QContextMenuEvent.Reason.Mouse,point,panel.list.viewport().mapToGlobal(point))
             QApplication.sendEvent(panel.list.viewport(),event)
         self.assertEqual(len(menus),1)
@@ -71,7 +71,7 @@ class ScheduleItemActionsTests(StageTests):
         with self.assertRaises(ValueError):self.runner.remove_entry(entries[0]['id'])
         with self.assertRaises(ValueError):self.runner.resume(entries[0]['run'])
         with self.assertRaises(ValueError):self.runner.retry(attempt['id'])
-        from prompt_studio.stage_store import StageStore
+        from prompt_calculus_studio.stage_store import StageStore
         self.assertTrue(StageStore(self.w.store.db).read(attempt['id'])['cancel_requested'])
         self.executor.finish(error=True);QTest.qWait(30)
         self.assertEqual(self.runner.store.read(entries[0]['id'])['status'],'cancelled')
@@ -84,7 +84,7 @@ class ScheduleItemActionsTests(StageTests):
 
     def test_more_menu_cancel_uses_current_item_in_this_scheduler(self):
         key,entries=self.queue();panel=self.c.flow_cards[key].panel;panel.refresh();menus=[]
-        with patch('prompt_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):panel.more_actions()
+        with patch('prompt_calculus_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):panel.more_actions()
         next(a for a in menus[0].actions() if a.text()=='取消目前項目').trigger();QTest.qWait(30)
         self.assertEqual(self.runner.store.read(entries[0]['id'])['status'],'cancelled')
         self.assertEqual([self.runner.store.read(e['id']) for e in entries[1:]],entries[1:])
@@ -95,7 +95,7 @@ class ScheduleItemActionsTests(StageTests):
         self.runner.pause(attempt['owner']);before=copy.deepcopy(self.runner.store.rows('entry'))
         self.assertFalse(self.runner.can_remove_entry(entries[0]['id']))
         with self.assertRaises(ValueError):self.runner.remove_entry(entries[0]['id'])
-        from prompt_studio.stage_store import StageStore
+        from prompt_calculus_studio.stage_store import StageStore
         reopened=StageStore(self.w.store.db)
         self.assertEqual(reopened.rows('entry'),before)
         self.assertEqual(reopened.read(attempt['id'])['status'],'unconfirmed')

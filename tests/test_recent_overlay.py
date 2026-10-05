@@ -9,8 +9,8 @@ from PySide6.QtCore import QPoint,Qt
 from PySide6.QtGui import QFontDatabase,QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QPushButton
-from prompt_studio.window import Window
-from prompt_studio.media import import_image
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.media import import_image
 
 APP=QApplication.instance() or QApplication([])
 for font in ('msjh.ttc','msjhbd.ttc','segoeui.ttf'):QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+font)
@@ -20,7 +20,7 @@ class RecentOverlayTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'});self.env.start()
-        self.network=patch('prompt_studio.comfy_client.ComfyClient.request',side_effect=AssertionError('No network'));self.network.start()
+        self.network=patch('prompt_calculus_studio.comfy_client.ComfyClient.request',side_effect=AssertionError('No network'));self.network.start()
         self.w=Window(self.temp.name);self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
         self.w.resize(1440,900);self.w.apply_theme();self.w.show();self.w.enter_canvas();QTest.qWait(100)
         self.w.display_recovery.stop();self.r=self.w.recent
@@ -36,7 +36,7 @@ class RecentOverlayTests(unittest.TestCase):
 
     def test_overlay_outside_escape_preserve_canvas_and_data(self):
         canvas=self.w.canvas
-        from prompt_studio.drafts import edit
+        from prompt_calculus_studio.drafts import edit
         key=next(iter(canvas.data()['outputs']));canvas.commit(lambda state:edit(state,'',key));QTest.qWait(500)
         canvas.view.setFocus();canvas.view.resetTransform();canvas.view.scale(.9,.9);canvas.view.centerOn(800,300)
         self.w.persist();self.w.save_timer.stop()
@@ -113,7 +113,7 @@ class RecentOverlayTests(unittest.TestCase):
         self.assertFalse(self.r.save_button.isEnabled())
         self.assertFalse(any('圖生圖' in button.text() for button in self.r.findChildren(QPushButton)))
         menus=[]
-        with patch('prompt_studio.recent.RoundMenu.open_at',autospec=True,side_effect=lambda menu,_:menus.append(menu)):
+        with patch('prompt_calculus_studio.recent.RoundMenu.open_at',autospec=True,side_effect=lambda menu,_:menus.append(menu)):
             self.r.context(self.r.images.visualItemRect(self.r.images.currentItem()).center())
         self.assertTrue(menus)
         self.assertFalse(any('圖生圖' in action.text() for action in menus[0].actions()))
@@ -142,7 +142,7 @@ class RecentOverlayTests(unittest.TestCase):
         self.w.resize(640,480);QTest.qWait(30);self.assertEqual(self.w.canvas_workspace_bar.list_mode.text(),'')
         self.w.resize(1440,900);QTest.qWait(30);self.assertEqual(self.w.canvas_workspace_bar.list_mode.text(),'切換清單')
         state=self.w.state
-        from prompt_studio.drafts import edit
+        from prompt_calculus_studio.drafts import edit
         key=next(iter(self.w.canvas.data()['outputs']));self.w.canvas.commit(lambda current:edit(current,'',key));QTest.qWait(40)
         expected=copy.deepcopy(self.w.canvas.data())
         self.w.canvas_workspace_bar.list_mode.click();QTest.qWait(40)

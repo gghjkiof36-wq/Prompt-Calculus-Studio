@@ -4,8 +4,8 @@ ROOT=Path(__file__).resolve().parents[1]; sys.path[:0]=[str(ROOT/'vendor'),str(R
 os.environ['QT_QPA_PLATFORM']='offscreen'
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QImage,QColor
-from prompt_studio.core import Storage
-from prompt_studio.media import Catalog,import_image
+from prompt_calculus_studio.core import Storage
+from prompt_calculus_studio.media import Catalog,import_image
 app=QApplication([]); root=ROOT/'qa'/'packaged-070'
 if (root/'data'/'studio.sqlite3').exists(): raise RuntimeError('QA database already exists')
 store=Storage(root/'data'); state=store.load(); first=state['items'][0]

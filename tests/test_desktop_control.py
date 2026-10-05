@@ -20,16 +20,16 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt,QPoint,QMimeData,QUrl,QTimer
 from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
-from prompt_studio.core import initial_state,build_prompt,compose_details,item_prompt,validate_state,apply_workspace
-from prompt_studio.exclusions import filter_tags
-from prompt_studio.snapshots import make_snapshot,restore_snapshot
-from prompt_studio.window import Window
-from prompt_studio.dialogs import WorkspaceDialog,CategoryDialog,ItemDialog
-from prompt_studio.image_drop import dropped_source,ImageDropLabel
-from prompt_studio.views import weight_buttons,DETAIL_ROLE
-from prompt_studio.recent import album_directory,result_id
-from prompt_studio.comfy_client import local_address
-from prompt_studio.backup import archive_data
+from prompt_calculus_studio.core import initial_state,build_prompt,compose_details,item_prompt,validate_state,apply_workspace
+from prompt_calculus_studio.exclusions import filter_tags
+from prompt_calculus_studio.snapshots import make_snapshot,restore_snapshot
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.dialogs import WorkspaceDialog,CategoryDialog,ItemDialog
+from prompt_calculus_studio.image_drop import dropped_source,ImageDropLabel
+from prompt_calculus_studio.views import weight_buttons,DETAIL_ROLE
+from prompt_calculus_studio.recent import album_directory,result_id
+from prompt_calculus_studio.comfy_client import local_address
+from prompt_calculus_studio.backup import archive_data
 from test_comfy_integration import Service,png
 Bridge=importlib.import_module('integration_test.bridge').DesktopBridge
 APP=QApplication.instance() or QApplication([])

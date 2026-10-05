@@ -3,18 +3,18 @@ import json,os,subprocess,tempfile,unittest,zipfile
 from pathlib import Path
 from unittest.mock import patch
 import package_documents as package
-from prompt_studio.releases import SOURCE_ARCHIVE
+from prompt_calculus_studio.releases import SOURCE_ARCHIVE
 
 
 class SourcePrivacyTests(unittest.TestCase):
     def test_tracked_sources_and_untracked_local_data_have_separate_boundaries(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)/'source';root.mkdir();destination=Path(directory)/'package';destination.mkdir()
-            legitimate=['run.py','docs/README.md','comfyui_prompt_studio/service.py','comfyui_prompt_studio/web/style.css','tests/fixture.json','docs/images/canvas-public.png']
-            private=['comfyui_prompt_studio/local_library.json','comfyui_prompt_studio/credentials/key.json',
-                     'comfyui_prompt_studio/fault.log','docs/studio.sqlite3','docs/error.log',
-                     'AGENTS.md','tests/AGENTS.md','comfyui_prompt_studio/AGENTS.md',
-                     'docs/AGENTS.md','prompt_studio/AGENTS.md','docs/agent-guides/build-release.md']
+            legitimate=['run.py','docs/README.md','comfyui_prompt_calculus_studio/service.py','comfyui_prompt_calculus_studio/web/style.css','tests/fixture.json','docs/images/canvas-public.png']
+            private=['comfyui_prompt_calculus_studio/local_library.json','comfyui_prompt_calculus_studio/credentials/key.json',
+                     'comfyui_prompt_calculus_studio/fault.log','docs/studio.sqlite3','docs/error.log',
+                     'AGENTS.md','tests/AGENTS.md','comfyui_prompt_calculus_studio/AGENTS.md',
+                     'docs/AGENTS.md','prompt_calculus_studio/AGENTS.md','docs/agent-guides/build-release.md']
             for name in legitimate+private:
                 path=root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('synthetic',encoding='utf-8')
             git=['git','-c','safe.directory='+root.as_posix(),'-C',str(root)]

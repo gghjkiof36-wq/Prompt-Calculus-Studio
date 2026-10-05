@@ -642,7 +642,7 @@ class StageRunner(QObject):
             # A result-dependent free input belongs to the new run. It is
             # applied after that run ends, never from a previous preview here.
             if upstream(state,[source]) & data.get('stages',{}).keys():continue
-            try:value=__import__('prompt_studio.flow_data',fromlist=['resolve']).resolve(state,source,kind)
+            try:value=__import__('prompt_calculus_studio.flow_data',fromlist=['resolve']).resolve(state,source,kind)
             except ValueError as exc:self.notify(str(exc));continue
             from .clip_flow import selected_binding
             binding=selected_binding(state,key) if kind=='clip' else target

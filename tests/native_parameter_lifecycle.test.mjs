@@ -3,10 +3,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {createParameterCapabilities} from '../comfyui_prompt_studio/web/native_parameter_capabilities.js';
-import {createSeedObserver} from '../comfyui_prompt_studio/web/native_seed.js';
+import {createParameterCapabilities} from '../comfyui_prompt_calculus_studio/web/native_parameter_capabilities.js';
+import {createSeedObserver} from '../comfyui_prompt_calculus_studio/web/native_seed.js';
 
-const source=readFileSync(new URL('../comfyui_prompt_studio/web/prompt_studio.js',import.meta.url),'utf8');
+const source=readFileSync(new URL('../comfyui_prompt_calculus_studio/web/prompt_studio.js',import.meta.url),'utf8');
 function fixture({cached=false}={}){
     let callbackCalls=0,changes=0;
     const widgets=Object.fromEntries(['INT','FLOAT','BOOLEAN','COMBO','STRING'].map(type=>[type,(node,name,value)=>{

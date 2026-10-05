@@ -4,10 +4,10 @@ import unittest
 from pathlib import Path
 from test_input_flow import canvas_state
 from test_comfy_integration import png
-from prompt_studio.image_source import read_content
-from prompt_studio.flow_data import capture_inputs,add_scheduler,endpoint,materialize
-from prompt_studio.multi_output import connect,compile_output
-from prompt_studio.snapshots import make_snapshot
+from prompt_calculus_studio.image_source import read_content
+from prompt_calculus_studio.flow_data import capture_inputs,add_scheduler,endpoint,materialize
+from prompt_calculus_studio.multi_output import connect,compile_output
+from prompt_calculus_studio.snapshots import make_snapshot
 
 
 class InputMetadataTests(unittest.TestCase):
@@ -59,7 +59,7 @@ class InputMetadataTests(unittest.TestCase):
             with self.assertRaises(ValueError):read_content(path)
 
     def test_snapshot_restore_keeps_source_root_ownership_on_next_image(self):
-        from prompt_studio.snapshots import restore_snapshot
+        from prompt_calculus_studio.snapshots import restore_snapshot
         state,canvas,out=canvas_state();root=copy.deepcopy(state['uses']['b'])
         source=dict(relative='originals/generation/a.png',sha256='a'*64,width=1,height=1,name='A')
         state.setdefault('canvas_functions',dict(images={}))['images']['__source_test']=dict(source=source,attached=False,

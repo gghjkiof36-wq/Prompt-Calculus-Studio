@@ -2,9 +2,9 @@
 // the instance type. Source-backed concrete factory verification is separate.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createSeedObserver} from '../comfyui_prompt_studio/web/native_seed.js';
-import {createParameterCapabilities} from '../comfyui_prompt_studio/web/native_parameter_capabilities.js';
-import {describeParameters} from '../comfyui_prompt_studio/web/native_parameters.js';
+import {createSeedObserver} from '../comfyui_prompt_calculus_studio/web/native_seed.js';
+import {createParameterCapabilities} from '../comfyui_prompt_calculus_studio/web/native_parameter_capabilities.js';
+import {describeParameters} from '../comfyui_prompt_calculus_studio/web/native_parameters.js';
 
 function fixture({type='KSampler',timing='after',observe=true,proven=true}={}){
     const seedName=type==='KSampler'?'seed':'noise_seed';let before=0,after=0,draws=0,seenType;

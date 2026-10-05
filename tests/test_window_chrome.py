@@ -6,8 +6,8 @@ from unittest.mock import patch
 from PySide6.QtCore import QMargins, Qt
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget
 
-from prompt_studio.window_chrome import caption_inset, install_expanded_chrome
-from prompt_studio.theme import apply_backdrop
+from prompt_calculus_studio.window_chrome import caption_inset, install_expanded_chrome
+from prompt_calculus_studio.theme import apply_backdrop
 
 
 APP = QApplication.instance() or QApplication([])
@@ -21,7 +21,7 @@ class WindowChromeTests(unittest.TestCase):
         window.setWindowTitle('Prompt Calculus Studio')
         window.setGeometry(40, 50, 900, 600)
         original = window.windowFlags()
-        with patch('prompt_studio.window_chrome.supported', return_value=True):
+        with patch('prompt_calculus_studio.window_chrome.supported', return_value=True):
             controller = install_expanded_chrome(window)
             self.assertIs(install_expanded_chrome(window), controller)
         flags = window.windowHandle().flags()
@@ -44,7 +44,7 @@ class WindowChromeTests(unittest.TestCase):
     def test_recreated_native_window_keeps_expanded_decoration_flags(self):
         window=QMainWindow();window.setCentralWidget(QWidget())
         window.setGeometry(40,50,900,600)
-        with patch('prompt_studio.window_chrome.supported',return_value=True):
+        with patch('prompt_calculus_studio.window_chrome.supported',return_value=True):
             controller=install_expanded_chrome(window)
         expected=window.windowFlags()
         expected_geometry=window.geometry()
@@ -63,9 +63,9 @@ class WindowChromeTests(unittest.TestCase):
         self.assertTrue(expected & Qt.WindowType.WindowMinMaxButtonsHint)
         insets=[]
         controller.insetChanged.connect(insets.append)
-        with patch('prompt_studio.window_chrome.caption_inset',return_value=224):
+        with patch('prompt_calculus_studio.window_chrome.caption_inset',return_value=224):
             window.windowHandle().safeAreaMarginsChanged.emit(QMargins(0,48,0,0))
-        with patch('prompt_studio.window_chrome.caption_inset',return_value=188):
+        with patch('prompt_calculus_studio.window_chrome.caption_inset',return_value=188):
             window.windowHandle().screenChanged.emit(window.screen())
         self.assertEqual(insets,[224,188])
         window.close()
@@ -79,12 +79,12 @@ class WindowChromeTests(unittest.TestCase):
                             DwmExtendFrameIntoClientArea=extend)
         window=QMainWindow();window.winId()
         with patch('PySide6.QtGui.QGuiApplication.platformName',return_value='windows'), \
-                patch('prompt_studio.theme.ctypes.windll',SimpleNamespace(dwmapi=dwm),create=True), \
-                patch('prompt_studio.theme.sys.platform','win32'), \
-                patch('prompt_studio.theme.sys.getwindowsversion',return_value=SimpleNamespace(build=22621),create=True):
+                patch('prompt_calculus_studio.theme.ctypes.windll',SimpleNamespace(dwmapi=dwm),create=True), \
+                patch('prompt_calculus_studio.theme.sys.platform','win32'), \
+                patch('prompt_calculus_studio.theme.sys.getwindowsversion',return_value=SimpleNamespace(build=22621),create=True):
             self.assertTrue(apply_backdrop(window,'solid',{}))
             self.assertEqual(margins[-1],(0,0,0,0))
-            with patch('prompt_studio.window_chrome.supported',return_value=True):
+            with patch('prompt_calculus_studio.window_chrome.supported',return_value=True):
                 install_expanded_chrome(window)
             for material in ('solid','mica','acrylic','solid'):
                 self.assertTrue(apply_backdrop(window,material,{}))
@@ -93,7 +93,7 @@ class WindowChromeTests(unittest.TestCase):
 
     def test_unsupported_platform_does_not_create_native_window(self):
         window = QMainWindow()
-        with patch('prompt_studio.window_chrome.supported', return_value=False):
+        with patch('prompt_calculus_studio.window_chrome.supported', return_value=False):
             self.assertIsNone(install_expanded_chrome(window))
         self.assertIsNone(window.windowHandle())
         window.close()
@@ -102,7 +102,7 @@ class WindowChromeTests(unittest.TestCase):
         window = QMainWindow()
         window.show()
         flags = window.windowHandle().flags()
-        with patch('prompt_studio.window_chrome.supported', return_value=True):
+        with patch('prompt_calculus_studio.window_chrome.supported', return_value=True):
             with self.assertRaises(RuntimeError):
                 install_expanded_chrome(window)
         self.assertEqual(window.windowHandle().flags(), flags)

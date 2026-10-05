@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 import test_084_free_results as free
-from prompt_studio import workspace_scene
+from prompt_calculus_studio import workspace_scene
 
 
 class StageApplyBoundaryTests(unittest.TestCase):
@@ -87,7 +87,7 @@ class StageApplyBoundaryTests(unittest.TestCase):
         self.assertFalse(self.executor.applied)
 
     def test_legacy_chain_without_apply_tracking_still_shuts_down(self):
-        from prompt_studio.comfy_client import ComfyClient
+        from prompt_calculus_studio.comfy_client import ComfyClient
         events=[]
         client=SimpleNamespace(input_flow=SimpleNamespace(chain=SimpleNamespace(),disconnected=lambda:events.append('flow')),
             queue=SimpleNamespace(disconnected=lambda:events.append('queue')),

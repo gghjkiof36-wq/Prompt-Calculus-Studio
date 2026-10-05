@@ -5,10 +5,10 @@ from PySide6.QtCore import Qt,QEvent
 from PySide6.QtWidgets import QPushButton
 from PySide6.QtTest import QTest
 from shiboken6 import isValid
-from prompt_studio.clip_widgets import ClipBindingDialog
-from prompt_studio.image_binding_dialog import ImageBindingDialog
-from prompt_studio.generation import active_profile
-from prompt_studio.core import validate_state
+from prompt_calculus_studio.clip_widgets import ClipBindingDialog
+from prompt_calculus_studio.image_binding_dialog import ImageBindingDialog
+from prompt_calculus_studio.generation import active_profile
+from prompt_calculus_studio.core import validate_state
 import test_multi_canvas as canvas_tests
 from test_multi_canvas import APP
 from test_multi_output import workflow
@@ -16,7 +16,7 @@ from test_multi_output import workflow
 
 class PickerTests(unittest.TestCase):
     def setUp(self):
-        self.transport=patch('prompt_studio.comfy_client.ComfyClient.request'); self.transport.start(); self.addCleanup(self.transport.stop)
+        self.transport=patch('prompt_calculus_studio.comfy_client.ComfyClient.request'); self.transport.start(); self.addCleanup(self.transport.stop)
         canvas_tests.MultiCanvasTests.setUp(self)
     tearDown=canvas_tests.MultiCanvasTests.tearDown
 

@@ -6,7 +6,7 @@ ROOT=Path(__file__).resolve().parents[1]
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from prompt_studio.window import Window
+from prompt_calculus_studio.window import Window
 
 APP=QApplication.instance() or QApplication([])
 
@@ -41,7 +41,7 @@ class CivitAIUiTests(unittest.TestCase):
         enriched=[{**rows[0],'sha256':'A'*64,'hash_size':1,'hash_mtime':model.stat().st_mtime_ns,
             'civitai_status':'matched','civitai_model_id':11,'civitai_version_id':22,'base_model':'Illustrious',
             'creator':'maker','civitai':{'provider':'civitai','model_id':11,'version_id':22,'sha256':'A'*64}}]
-        with patch('prompt_studio.pages.load_token',return_value=''),patch('prompt_studio.pages.identify_models',return_value=enriched):
+        with patch('prompt_calculus_studio.pages.load_token',return_value=''),patch('prompt_calculus_studio.pages.identify_models',return_value=enriched):
             self.w.models.identify_civitai()
             while self.w.jobs.active: QTest.qWait(10)
         saved=self.w.catalog.get(rows[0]['id']); self.assertEqual(saved['civitai_version_id'],22)

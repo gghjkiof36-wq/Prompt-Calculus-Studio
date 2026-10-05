@@ -6,9 +6,9 @@ from PySide6.QtCore import Qt,QPointF
 from PySide6.QtGui import QImage,QColor
 from PySide6.QtTest import QTest
 import test_multi_canvas as canvas_tests
-from prompt_studio import multi_output
-from prompt_studio.widgets import RoundMenu
-from prompt_studio.image_bindings import import_source
+from prompt_calculus_studio import multi_output
+from prompt_calculus_studio.widgets import RoundMenu
+from prompt_calculus_studio.image_bindings import import_source
 
 
 class ListInteractionTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class ListInteractionTests(unittest.TestCase):
     add=canvas_tests.MultiCanvasTests.add
     def test_batch_grid_paints_all_images_in_order_and_click_only_opens_view(self):
         from PySide6.QtGui import QPixmap
-        from prompt_studio.canvas_results import ResultImage
+        from prompt_calculus_studio.canvas_results import ResultImage
         widget=ResultImage();widget.resize(480,360)
         colors=('red','blue','green','yellow');pictures=[]
         for color in colors:
@@ -65,7 +65,7 @@ class ListInteractionTests(unittest.TestCase):
 
     def test_two_bound_images_arrive_through_input_and_selection_survives_refresh(self):
         from test_multi_output import workflow
-        from prompt_studio.workflow_flow import bind_image
+        from prompt_calculus_studio.workflow_flow import bind_image
         profile=workflow(); profile['graph']['9']=dict(class_type='PreviewImage',inputs={})
         key=self.canvas.functions.add_image()
         def bind(state):
@@ -96,7 +96,7 @@ class ListInteractionTests(unittest.TestCase):
 
     def test_clip_picker_saves_explicit_image_input_for_same_workflow(self):
         from test_multi_output import workflow
-        from prompt_studio.clip_widgets import ClipBindingDialog
+        from prompt_calculus_studio.clip_widgets import ClipBindingDialog
         profile=workflow()
         for key in ('20','21'):profile['graph'][key]=dict(class_type='LoadImage',inputs=dict(image='existing.png'))
         self.w.generation_panel.save_profile(profile)

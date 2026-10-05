@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontDatabase, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QListWidgetItem
-from prompt_studio.window import Window
+from prompt_calculus_studio.window import Window
 
 APP = QApplication.instance() or QApplication([])
 if APP.platformName() == 'offscreen':
@@ -19,7 +19,7 @@ if APP.platformName() == 'offscreen':
 class CivitAIRevisionLayoutTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.request = patch('prompt_studio.comfy_client.ComfyClient.request', side_effect=AssertionError('No service in UI test'))
+        self.request = patch('prompt_calculus_studio.comfy_client.ComfyClient.request', side_effect=AssertionError('No service in UI test'))
         self.request.start()
         self.w = Window(self.temp.name)
         self.w.state['settings'].update(online=False, material='solid')

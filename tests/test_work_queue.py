@@ -7,10 +7,10 @@ import unittest
 from unittest.mock import patch
 import test_binding_submission as bindings_tests
 from test_comfy_integration import png, Service
-from prompt_studio.work_queue import WorkQueue
-from prompt_studio.queued_work import validate
-from prompt_studio.snapshots import image_snapshots, restore_snapshot, make_snapshot
-from prompt_studio.pnginfo import png_metadata
+from prompt_calculus_studio.work_queue import WorkQueue
+from prompt_calculus_studio.queued_work import validate
+from prompt_calculus_studio.snapshots import image_snapshots, restore_snapshot, make_snapshot
+from prompt_calculus_studio.pnginfo import png_metadata
 
 
 class QueueTests(unittest.TestCase):
@@ -279,7 +279,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(len(set(hashes)),3)
 
     def test_explicit_metadata_mapping_missing_value_stops_and_empty_fixed_is_valid(self):
-        from prompt_studio.image_iteration import plan_inputs
+        from prompt_calculus_studio.image_iteration import plan_inputs
         png(self.root/'has.png',dict(prompt_studio=dict(schema_version=1,texts=[dict(node='6',field='text',text='from first')],bindings=[])))
         png(self.root/'missing.png',{})
         sources=[dict(relative='has.png'),dict(relative='missing.png')]

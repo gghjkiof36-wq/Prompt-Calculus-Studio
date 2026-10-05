@@ -5,12 +5,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
-from prompt_studio.core import Storage,validate_state
-from prompt_studio.media import Catalog,scan_models
-from prompt_studio.civitai import normalize_version,download_version,CivitAIError
-from prompt_studio.civitai_assets import (make_plan,DownloadReceipts,perform_download,check_download,register_download,installed_version,categories,apply_categories,suggested_target)
-from prompt_studio.civitai_controls import details,DownloadDialog,FilterRow
-from prompt_studio.window import Window
+from prompt_calculus_studio.core import Storage,validate_state
+from prompt_calculus_studio.media import Catalog,scan_models
+from prompt_calculus_studio.civitai import normalize_version,download_version,CivitAIError
+from prompt_calculus_studio.civitai_assets import (make_plan,DownloadReceipts,perform_download,check_download,register_download,installed_version,categories,apply_categories,suggested_target)
+from prompt_calculus_studio.civitai_controls import details,DownloadDialog,FilterRow
+from prompt_calculus_studio.window import Window
 from test_civitai import version,parent,Response
 
 APP=QApplication.instance() or QApplication([])
@@ -24,7 +24,7 @@ class InstallTests(unittest.TestCase):
         self.plan=make_plan(self.parent,self.version,self.version['files'][0],self.target,'hero.safetensors','角色',self.target.parent)
     def tearDown(self):self.store.close(); self.tmp.cleanup()
     def downloaded(self):
-        with patch('prompt_studio.civitai._open_download',return_value=Response(self.payload,{'Content-Length':str(len(self.payload))})):
+        with patch('prompt_calculus_studio.civitai._open_download',return_value=Response(self.payload,{'Content-Length':str(len(self.payload))})):
             return perform_download(self.receipts,self.plan,'',threading.Event())
     def test_exact_file_installs_once_preserving_personal_fields(self):
         record=self.downloaded(); check_download(record); row=register_download(self.catalog,record)
@@ -43,7 +43,7 @@ class InstallTests(unittest.TestCase):
         record=self.downloaded(); self.assertEqual(self.receipts.get(record['id'])['state'],'downloaded')
         with patch.object(self.catalog,'get',side_effect=RuntimeError('database busy')):self.assertRaises(RuntimeError,register_download,self.catalog,record)
         self.receipts.recover(); record=self.receipts.get(record['id']); self.assertEqual(record['state'],'downloaded')
-        with patch('prompt_studio.civitai._open_download') as network:
+        with patch('prompt_calculus_studio.civitai._open_download') as network:
             register_download(self.catalog,check_download(record)); network.assert_not_called()
     def test_restart_does_not_resubmit_interrupted_work(self):
         self.receipts.save(self.plan); self.receipts.recover(); self.assertEqual(self.receipts.get(self.plan['id'])['state'],'interrupted')
@@ -61,12 +61,12 @@ class InstallTests(unittest.TestCase):
     def test_select_non_primary_file_uses_its_hash_name_and_download_url(self):
         alternate={**self.version['files'][0],'id':34,'name':'alternate.safetensors','primary':False,'downloadUrl':'https://civitai.com/api/download/models/22?fileId=34'}
         self.version['files'].append(alternate)
-        with patch('prompt_studio.civitai._open_download',return_value=Response(self.payload)) as request:
+        with patch('prompt_calculus_studio.civitai._open_download',return_value=Response(self.payload)) as request:
             result=download_version(self.version,self.target,file_id=34)
         self.assertIn('fileId=34',request.call_args.args[0].full_url); self.assertEqual(result['source']['file_id'],34)
         self.assertEqual(Path(result['path']).name,'alternate.safetensors')
     def test_html_response_is_not_a_model(self):
-        with patch('prompt_studio.civitai._open_download',return_value=Response(b'<html/>',{'Content-Type':'text/html'})):
+        with patch('prompt_calculus_studio.civitai._open_download',return_value=Response(b'<html/>',{'Content-Type':'text/html'})):
             self.assertRaises(CivitAIError,download_version,self.version,self.target)
         self.assertEqual(list(self.target.iterdir()),[])
     def test_source_details_do_not_invent_missing_values(self):
@@ -82,18 +82,18 @@ class InstallTests(unittest.TestCase):
         apply_categories(self.catalog,settings,['舊分類'],{}, {'角色':'未分類'})
         self.assertEqual(self.catalog.get(row['id'])['category'],'未分類'); self.assertTrue(Path(row['path']).is_file())
     def test_backup_contains_receipts_not_token_or_downloaded_models(self):
-        from prompt_studio.backup import archive_data
+        from prompt_calculus_studio.backup import archive_data
         record=self.downloaded(); register_download(self.catalog,record)
         archive=self.root/'backup.zip'; archive_data(self.store.directory,self.store.backup(),archive)
         with zipfile.ZipFile(archive) as bundle:
             self.assertIn('data/civitai/downloads/'+record['id']+'.json',bundle.namelist())
             self.assertFalse(any(n.endswith('.safetensors') or 'credentials' in n for n in bundle.namelist()))
     def test_new_local_types_roundtrip_through_json_resource_validation(self):
-        from prompt_studio.validation import validate_resources
+        from prompt_calculus_studio.validation import validate_resources
         record=self.downloaded(); record['kind']='Embedding'; row=register_download(self.catalog,record)
         validate_resources([dict(id=row['id'],name=row['name'],parent=row['root'],kind='model',body=row)])
     def test_visible_thumbnail_url_never_requests_original(self):
-        from prompt_studio.civitai import preview_url
+        from prompt_calculus_studio.civitai import preview_url
         small=preview_url('https://image.civitai.com/account/id/original=true/name.jpeg',96)
         self.assertIn('width=96',small); self.assertNotIn('original=true',small)
 
@@ -118,11 +118,11 @@ class UiTests(unittest.TestCase):
     def test_download_registration_failure_retry_stays_on_search_and_avoids_network(self):
         self.w.settings('civitai'); plan=make_plan(self.parent,self.v,self.v['files'][0],self.target,'hero.safetensors','角色',self.target.parent)
         self.p.receipts.save(plan); self.p.pending_download=plan; self.w.state['settings']['online']=True
-        with patch('prompt_studio.civitai._open_download',return_value=Response(self.payload)),patch('prompt_studio.civitai_ui.register_download',side_effect=RuntimeError('busy')):
+        with patch('prompt_calculus_studio.civitai._open_download',return_value=Response(self.payload)),patch('prompt_calculus_studio.civitai_ui.register_download',side_effect=RuntimeError('busy')):
             self.p.start_download(); self.wait()
         record=self.p.receipts.get(plan['id']); self.assertEqual(record['state'],'registration_failed',self.p.install_state.text()); self.assertTrue(Path(record['result']['path']).is_file())
         self.w.state['settings']['online']=False
-        with patch('prompt_studio.civitai._open_download') as request:
+        with patch('prompt_calculus_studio.civitai._open_download') as request:
             self.p.retry_register(); self.wait(); request.assert_not_called()
         self.assertEqual(self.p.receipts.get(plan['id'])['state'],'completed'); self.assertEqual(self.p.tabs.currentIndex(),0)
         self.assertEqual(self.w.catalog.count('model'),1); self.assertEqual(self.errors,[])
@@ -143,7 +143,7 @@ class UiTests(unittest.TestCase):
     def test_cursor_search_loads_more_without_duplicates_and_keeps_selection(self):
         self.w.state['settings']['online']=True
         other={**copy.deepcopy(self.parent),'id':12,'name':'Second'}
-        with patch('prompt_studio.civitai_ui.CivitAIClient') as client:
+        with patch('prompt_calculus_studio.civitai_ui.CivitAIClient') as client:
             client.return_value.search_models.side_effect=[{'items':[self.parent],'metadata':{'nextCursor':'next'}},{'items':[self.parent,other],'metadata':{}}]
             self.p.query.setText('light'); self.p.search(); self.wait(); self.p.list.setCurrentRow(0)
             self.p.load_more(); self.wait()
@@ -152,7 +152,7 @@ class UiTests(unittest.TestCase):
     def test_selected_version_details_replace_search_snapshot_and_missing_tips(self):
         self.w.state['settings']['online']=True; self.v.pop('_details_loaded',None)
         self.p.current=self.parent; full={**self.v,'air':'urn:air:test','publishedAt':'2026-09-01T00:00:00Z','stats':{'thumbsUpCount':7}}
-        with patch('prompt_studio.civitai_ui.CivitAIClient') as client:
+        with patch('prompt_calculus_studio.civitai_ui.CivitAIClient') as client:
             client.return_value.version.return_value=full
             self.p.version.addItem('v2',self.v); self.wait()
         self.assertEqual(self.p.fields['AIR'].text(),'urn:air:test'); self.assertEqual(self.p.fields['Stats'].text(),'未提供')

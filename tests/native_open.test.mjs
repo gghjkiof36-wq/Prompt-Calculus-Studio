@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {installNativeQueue} from '../comfyui_prompt_studio/web/native_queue.js';
-import {nativeCatalog,nativeIdentity} from '../comfyui_prompt_studio/web/native_open.js';
+import {installNativeQueue} from '../comfyui_prompt_calculus_studio/web/native_queue.js';
+import {nativeCatalog,nativeIdentity} from '../comfyui_prompt_calculus_studio/web/native_open.js';
 
 function fixture() {
     globalThis.document=new EventTarget();

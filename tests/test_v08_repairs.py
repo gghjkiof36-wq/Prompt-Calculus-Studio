@@ -5,11 +5,11 @@ from PySide6.QtCore import Qt,QPointF,QPoint,QMimeData
 from PySide6.QtGui import QImage,QColor,QDragEnterEvent,QDragMoveEvent,QDropEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from prompt_studio.window import Window
-from prompt_studio import multi_output as model
-from prompt_studio.composition_image import freeze_source,canvas_document,render_image
-from prompt_studio.core import validate_state,Storage
-from prompt_studio.workflow_transfer import apply_transfer
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio import multi_output as model
+from prompt_calculus_studio.composition_image import freeze_source,canvas_document,render_image
+from prompt_calculus_studio.core import validate_state,Storage
+from prompt_calculus_studio.workflow_transfer import apply_transfer
 from test_multi_output import workspace,workflow
 from test_comfy_integration import Service
 APP=QApplication.instance() or QApplication([])
@@ -122,8 +122,8 @@ class FlowUITests(unittest.TestCase):
         self.assertEqual(self.c.data()['bindings'][0]['node'],'7'); self.w.settings_page.open('workflow_manager'); self.assertEqual(self.w.settings_page.comfy_tabs.currentIndex(),0)
 
     def test_preview_disconnect_gates_history_and_legacy_result_keeps_its_output(self):
-        from prompt_studio.core import initial_state
-        from prompt_studio.snapshots import make_snapshot
+        from prompt_calculus_studio.core import initial_state
+        from prompt_calculus_studio.snapshots import make_snapshot
         path=Path(self.temp.name)/'old-result.png'; image=QImage(20,20,QImage.Format.Format_RGB32); image.fill(QColor('blue')); image.save(str(path))
         envelope=dict(schema_version=1,bindings=[dict(snapshot=make_snapshot(initial_state()))])
         self.w.catalog.put('recent',dict(id='old',name='old',path=str(path),created=1,metadata=dict(raw=dict(prompt_studio=envelope))))

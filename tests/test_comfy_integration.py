@@ -13,14 +13,14 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from prompt_studio.core import initial_state, build_prompt, Storage, reorder_output, output_groups
-from prompt_studio.snapshots import make_snapshot, validate_snapshot, restore_snapshot, image_snapshots
-from prompt_studio.pnginfo import png_metadata
+from prompt_calculus_studio.core import initial_state, build_prompt, Storage, reorder_output, output_groups
+from prompt_calculus_studio.snapshots import make_snapshot, validate_snapshot, restore_snapshot, image_snapshots
+from prompt_calculus_studio.pnginfo import png_metadata
 
 # Load the service without importing ComfyUI or mutating its user directory.
-package = types.ModuleType('integration_test'); package.__path__ = [str(ROOT / 'comfyui_prompt_studio')]
+package = types.ModuleType('integration_test'); package.__path__ = [str(ROOT / 'comfyui_prompt_calculus_studio')]
 sys.modules['integration_test'] = package
-shared = types.ModuleType('integration_test.shared'); shared.__path__ = [str(ROOT / 'prompt_studio')]
+shared = types.ModuleType('integration_test.shared'); shared.__path__ = [str(ROOT / 'prompt_calculus_studio')]
 sys.modules['integration_test.shared'] = shared
 Service = importlib.import_module('integration_test.service').Service
 

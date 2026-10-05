@@ -3,10 +3,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from PySide6.QtWidgets import QApplication
-from prompt_studio.civitai import identify_models,normalize_version,download_version,CivitAIError,download_preview,CivitAIClient
-from prompt_studio.core import Storage
-from prompt_studio.media import Catalog,scan_models
-from prompt_studio.window import Window
+from prompt_calculus_studio.civitai import identify_models,normalize_version,download_version,CivitAIError,download_preview,CivitAIClient
+from prompt_calculus_studio.core import Storage
+from prompt_calculus_studio.media import Catalog,scan_models
+from prompt_calculus_studio.window import Window
 from test_civitai import version,parent,Response
 
 APP=QApplication.instance() or QApplication([])
@@ -56,7 +56,7 @@ class SourceIntegrityTests(unittest.TestCase):
 
 class DownloadVerificationTests(unittest.TestCase):
     def test_cancelled_worker_cannot_deliver_a_successful_late_result(self):
-        from prompt_studio.jobs import Job
+        from prompt_calculus_studio.jobs import Job
         seen=[]; job=Job(lambda cancel:(cancel.set(),{'would_write':True})[1])
         job.signals.finished.connect(lambda result,error:seen.append((result,error)))
         job.run(); self.assertEqual(len(seen),1); self.assertIsNone(seen[0][0]); self.assertIn('已取消',seen[0][1])
@@ -64,7 +64,7 @@ class DownloadVerificationTests(unittest.TestCase):
         content=b'tiny mock model'; digest=hashlib.sha256(content).hexdigest().upper()
         for expected,status in [(digest,'verified'),('','unavailable'),('0'*64,'failed')]:
             value=version(expected)
-            with tempfile.TemporaryDirectory() as directory,patch('prompt_studio.civitai._open_download',return_value=Response(content)):
+            with tempfile.TemporaryDirectory() as directory,patch('prompt_calculus_studio.civitai._open_download',return_value=Response(content)):
                 if status=='failed':
                     with self.assertRaises(CivitAIError) as error: download_version(value,directory)
                     self.assertEqual(error.exception.kind,'checksum'); self.assertEqual(list(Path(directory).iterdir()),[])
@@ -73,7 +73,7 @@ class DownloadVerificationTests(unittest.TestCase):
                     self.assertEqual(result['official_sha256'],expected); self.assertEqual(result['sha256'],digest)
     def test_cancelled_network_operations_never_open_a_connection(self):
         cancel=threading.Event(); cancel.set()
-        with tempfile.TemporaryDirectory() as directory,patch('prompt_studio.civitai._open_api') as request,patch('prompt_studio.civitai._open_download') as download:
+        with tempfile.TemporaryDirectory() as directory,patch('prompt_calculus_studio.civitai._open_api') as request,patch('prompt_calculus_studio.civitai._open_download') as download:
             for action in (lambda:download_version(version(),directory,cancel=cancel),lambda:download_preview('https://image.civitai.com/p.jpg',directory,cancel),lambda:CivitAIClient(cancel=cancel).test_connection()):
                 with self.assertRaisesRegex(ValueError,'已取消'): action()
             request.assert_not_called(); download.assert_not_called()
@@ -109,7 +109,7 @@ class DeferredUiTests(unittest.TestCase):
     def test_token_change_and_clear_invalidate_late_save(self):
         for clear in (False,True):
             self.page.token.setText('old-token'); self.page.test_connection()
-            with patch('prompt_studio.civitai_ui.save_token') as save,patch('prompt_studio.civitai_ui.clear_token'):
+            with patch('prompt_calculus_studio.civitai_ui.save_token') as save,patch('prompt_calculus_studio.civitai_ui.clear_token'):
                 if clear:self.page.clear_token()
                 else:self.page.token.setText('new-token')
                 self.finish(dict(authenticated=True)); save.assert_not_called()
@@ -118,7 +118,7 @@ class DeferredUiTests(unittest.TestCase):
         self.page.token.setText('before'); self.page.query.setText('first'); self.page.search()
         self.page.token.setText('after'); self.page.query.setText('second'); self.page.nsfw.setChecked(True)
         task,done,failed,job=self.pending.pop(0); results=[]
-        with patch('prompt_studio.civitai_ui.CivitAIClient') as client,patch.object(self.page.sort,'currentText',side_effect=AssertionError('worker read UI')):
+        with patch('prompt_calculus_studio.civitai_ui.CivitAIClient') as client,patch.object(self.page.sort,'currentText',side_effect=AssertionError('worker read UI')):
             client.return_value.search_models.return_value={'items':[]}
             thread=threading.Thread(target=lambda:results.append(task(job.cancel))); thread.start(); thread.join(5)
             self.assertFalse(thread.is_alive()); self.assertEqual(len(results),1)
@@ -140,7 +140,7 @@ class DeferredUiTests(unittest.TestCase):
     def test_all_network_entrypoints_respect_offline_and_cancel_inflight(self):
         self.page.token.setText('token'); self.page.test_connection(); job=self.page.browse_jobs.active
         self.w.state['settings']['online']=False; self.w.changed(); self.assertTrue(job.cancel.is_set())
-        with patch('prompt_studio.civitai_ui.save_token') as save: self.finish(dict(authenticated=True)); save.assert_not_called()
+        with patch('prompt_calculus_studio.civitai_ui.save_token') as save: self.finish(dict(authenticated=True)); save.assert_not_called()
         count=len(self.started)
         models=Path(self.tmp.name)/'models'; models.mkdir(); self.w.models.root.setText(str(models))
         self.page.test_connection(); self.page.search(); self.page.download_selected(); self.select_preview('offline'); self.w.models.identify_civitai()

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {watchWorkflowRuns} from '../comfyui_prompt_studio/web/workflow_sync.js';
+import {watchWorkflowRuns} from '../comfyui_prompt_calculus_studio/web/workflow_sync.js';
 
 const A='a'.repeat(64),B='b'.repeat(64);
 const clone=value=>structuredClone(value);

@@ -6,12 +6,12 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt,QPointF
 from PySide6.QtGui import QImage,QColor
 from PySide6.QtTest import QTest
-from prompt_studio.composition_image import document,layer,render_image,freeze_source,PreviewCache,validate_image
-from prompt_studio.window import Window
-from prompt_studio import multi_output as model
-from prompt_studio.snapshots import make_snapshot,restore_snapshot
-from prompt_studio.backup import archive_data
-from prompt_studio.pnginfo import png_metadata
+from prompt_calculus_studio.composition_image import document,layer,render_image,freeze_source,PreviewCache,validate_image
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio import multi_output as model
+from prompt_calculus_studio.snapshots import make_snapshot,restore_snapshot
+from prompt_calculus_studio.backup import archive_data
+from prompt_calculus_studio.pnginfo import png_metadata
 APP=QApplication.instance() or QApplication([])
 
 
@@ -23,7 +23,7 @@ class CompositionImageTests(unittest.TestCase):
         self.canvas=self.w.canvas; self.cid=next(iter(self.canvas.containers)); self.doc=document(120,80)
         from test_multi_output import workflow
         self.oid=self.canvas.data()['current_output']; self.w.generation_panel.save_profile(workflow())
-        from prompt_studio.clip_flow import set_binding,source
+        from prompt_calculus_studio.clip_flow import set_binding,source
         clip=next(k for k in self.canvas.data()['clip_inputs'] if source(self.w.state,k)==self.oid)
         set_binding(self.w.state,'flow',clip,('6','text'))
     def tearDown(self): self.w.close(); APP.processEvents(); self.env.stop(); self.temp.cleanup()
@@ -60,7 +60,7 @@ class CompositionImageTests(unittest.TestCase):
         with zipfile.ZipFile(target) as archive:
             self.assertIn('data/'+stored['relative'],archive.namelist()); self.assertIn('data/'+frozen['relative'],archive.namelist())
             archive.extractall(self.root/'restored')
-        from prompt_studio.core import Storage,build_prompt
+        from prompt_calculus_studio.core import Storage,build_prompt
         restored_store=Storage(self.root/'restored/data'); loaded=restored_store.load(); restored_store.close()
         self.assertEqual(build_prompt(loaded),build_prompt(self.w.state))
         self.assertEqual(loaded['multi_output'],self.w.state['multi_output'])

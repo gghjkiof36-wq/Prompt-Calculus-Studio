@@ -3,15 +3,15 @@ import copy
 import unittest
 import test_native_queue as native_tests
 from stage_parameter_fixture import add_samplers,intention
-from prompt_studio import stage_model
-from prompt_studio.snapshots import make_snapshot
+from prompt_calculus_studio import stage_model
+from prompt_calculus_studio.snapshots import make_snapshot
 
 
 class NativeParameterTests(unittest.TestCase):
     setUp=native_tests.NativeQueueTests.setUp
 
     def configured(self,field='cfg',value=3):
-        from prompt_studio.state_loading import prepare_state
+        from prompt_calculus_studio.state_loading import prepare_state
         state=prepare_state(copy.deepcopy(self.snapshot['state']),multi=True);profile=add_samplers(state['generation']['profiles'][0])
         stage=stage_model.add(state,workflow=profile['id'])
         config=intention(profile,field=field,value=value)

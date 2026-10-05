@@ -7,11 +7,11 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QImage
-from prompt_studio.window import Window
-from prompt_studio import multi_output as model
-from prompt_studio.composition_image import document,layer,render_image
-from prompt_studio.snapshots import image_snapshots,restore_snapshot,validate_snapshot
-from prompt_studio.pnginfo import png_metadata
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio import multi_output as model
+from prompt_calculus_studio.composition_image import document,layer,render_image
+from prompt_calculus_studio.snapshots import image_snapshots,restore_snapshot,validate_snapshot
+from prompt_calculus_studio.pnginfo import png_metadata
 APP=QApplication([])
 
 def wait(predicate,seconds=30):

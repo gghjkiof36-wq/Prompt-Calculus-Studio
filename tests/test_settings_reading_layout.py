@@ -9,8 +9,8 @@ from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QLineEdit, QComboBox, QPlainTextEdit, QWidget
 
-from prompt_studio.settings_page import ReadingPage, SETTINGS_READING_WIDTH
-from prompt_studio.window import Window
+from prompt_calculus_studio.settings_page import ReadingPage, SETTINGS_READING_WIDTH
+from prompt_calculus_studio.window import Window
 
 APP=QApplication.instance() or QApplication([])
 if APP.platformName()=='offscreen':
@@ -24,7 +24,7 @@ class SettingsReadingLayoutTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_DATA':self.temp.name}); self.env.start()
-        self.requests=patch('prompt_studio.comfy_client.ComfyClient.request'); self.requests.start()
+        self.requests=patch('prompt_calculus_studio.comfy_client.ComfyClient.request'); self.requests.start()
         self.w=Window(self.temp.name); self.w.display_recovery.stop(); self.w.first_models=False
         self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
         self.w.apply_theme(); self.w.show()

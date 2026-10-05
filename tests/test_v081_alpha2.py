@@ -6,10 +6,10 @@ from PySide6.QtCore import Qt,QByteArray,QBuffer,QIODevice
 from PySide6.QtGui import QImage,QColor
 from PySide6.QtWidgets import QApplication,QListWidgetItem,QPushButton
 from PySide6.QtTest import QTest
-from prompt_studio.window import Window
-from prompt_studio.core import Storage
-from prompt_studio.civitai import API_BASE,filter_content,visible_images,preview_url,site_url
-from prompt_studio.civitai_gallery import Preview,read_image
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.core import Storage
+from prompt_calculus_studio.civitai import API_BASE,filter_content,visible_images,preview_url,site_url
+from prompt_calculus_studio.civitai_gallery import Preview,read_image
 APP=QApplication.instance() or QApplication([])
 
 def record(ident=1):
@@ -66,7 +66,7 @@ class SettingsTests(unittest.TestCase):
         self.w.settings('dictionary'); self.p.preferences.dictionary.setPlainText('old = old')
         imported=copy.deepcopy(self.w.state); imported['dictionary']={'new':'imported'}; imported['settings']['ui_size']=15
         path=Path(self.tmp.name)/'import.json'; path.write_text(json.dumps(imported),encoding='utf-8')
-        with patch('prompt_studio.window.QFileDialog.getOpenFileName',return_value=(str(path),'')),patch('prompt_studio.window.ask',return_value=True):self.w.import_json()
+        with patch('prompt_calculus_studio.window.QFileDialog.getOpenFileName',return_value=(str(path),'')),patch('prompt_calculus_studio.window.ask',return_value=True):self.w.import_json()
         self.p.flush()
         self.assertEqual(self.w.state['dictionary'],{'new':'imported'}); self.assertEqual(self.w.state['settings']['ui_size'],15)
     def test_sidebars_and_detail_visibility_preserve_selected_version(self):
@@ -79,7 +79,7 @@ class SettingsTests(unittest.TestCase):
         self.c.list.clear(); self.assertTrue(self.c.detail_pane.isHidden())
     def test_empty_search_browses_once_and_cache_avoids_duplicate_request(self):
         self.w.state['settings']['online']=True
-        with patch('prompt_studio.civitai_ui.CivitAIClient') as client:
+        with patch('prompt_calculus_studio.civitai_ui.CivitAIClient') as client:
             client.return_value.search_models.return_value={'items':[record()]}
             self.w.settings('civitai'); self.wait(); self.c.search(); self.wait()
             self.assertEqual(client.return_value.search_models.call_count,1)
@@ -88,7 +88,7 @@ class SettingsTests(unittest.TestCase):
             self.assertTrue(self.c.filter_minor.isChecked()); self.assertFalse(self.c.nsfw.isVisible())
     def test_typing_search_debounces_and_supplies_candidates(self):
         self.w.settings('civitai'); APP.processEvents(); self.w.state['settings']['online']=True
-        with patch('prompt_studio.civitai_ui.CivitAIClient') as client:
+        with patch('prompt_calculus_studio.civitai_ui.CivitAIClient') as client:
             client.return_value.search_models.return_value={'items':[record()]}
             QTest.keyClicks(self.c.query,'land'); QTest.qWait(520); self.wait()
             self.assertEqual(client.return_value.search_models.call_count,1)

@@ -7,8 +7,8 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QMenu,QLineEdit,QDialogButtonBox
 import stage_fixture as fixture
 import test_084_stages as stages
-from prompt_studio import multi_output as model
-from prompt_studio.flow_data import image_list
+from prompt_calculus_studio import multi_output as model
+from prompt_calculus_studio.flow_data import image_list
 
 
 class ResultSelectionTests(unittest.TestCase):
@@ -122,7 +122,7 @@ class ResultSelectionTests(unittest.TestCase):
         self.assertEqual(len(self.items(key)),3)
 
     def test_text_selection_materializes_canvas_and_undo_without_changing_tasks(self):
-        from prompt_studio.result_data import add_text_reader
+        from prompt_calculus_studio.result_data import add_text_reader
         stage=self.stages()[0];keys=[];canvas=self.c.add_canvas(QPointF(2400,100))
         def setup(state):
             key=add_text_reader(state,(1800,100));keys.append(key)

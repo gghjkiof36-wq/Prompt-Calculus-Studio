@@ -7,8 +7,8 @@ from PySide6.QtCore import Qt,QPoint,QPointF,QRect,QCoreApplication,QEvent
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QStyleFactory,QStyle,QStyleOptionComboBox
-from prompt_studio.canvas_starter import guide
-from prompt_studio.theme import visual_tokens
+from prompt_calculus_studio.canvas_starter import guide
+from prompt_calculus_studio.theme import visual_tokens
 
 
 class CanvasProxyEdgeTests(unittest.TestCase):
@@ -18,7 +18,7 @@ class CanvasProxyEdgeTests(unittest.TestCase):
         for font in ('msjh.ttc','msjhbd.ttc','segoeui.ttf'):QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+font)
 
     def setUp(self):
-        from prompt_studio.window import Window
+        from prompt_calculus_studio.window import Window
         self.original_style=self.app.style().objectName()
         styles={name.lower():name for name in QStyleFactory.keys()}
         if 'windows11' not in styles:self.skipTest('Windows 11 Qt style is not available')
@@ -72,7 +72,7 @@ class CanvasProxyEdgeTests(unittest.TestCase):
         # Include image/text source panels with legacy Panel/InsetPanel roles.
         self.c.functions.add_image()
         self.c.add_flow_node('image_inputs',QPointF(0,0));QTest.qWait(20)
-        from prompt_studio.canvas_items import ModuleProxyWidget
+        from prompt_calculus_studio.canvas_items import ModuleProxyWidget
         cards=list({item.parentItem() for item in self.c.view.scene().items() if isinstance(item,ModuleProxyWidget)})
         graph=copy.deepcopy(self.c.data());sizes=copy.deepcopy(self.w.state['text_sizes']);undo=copy.deepcopy(self.c.undo_stack)
         saved=Path(os.environ.get('PCS_TEST_ARTIFACT_DIR',self.tmp.name));saved.mkdir(parents=True,exist_ok=True)

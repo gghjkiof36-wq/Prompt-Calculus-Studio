@@ -12,9 +12,9 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QStyleFactory
 from stage_fixture import StageFixture,APP
 from stage_parameter_fixture import add_samplers,inspection
-from prompt_studio import stage_model
-from prompt_studio.stage_parameter_choices import ParameterChoices
-from prompt_studio.stage_parameter_panel import open_parameters
+from prompt_calculus_studio import stage_model
+from prompt_calculus_studio.stage_parameter_choices import ParameterChoices
+from prompt_calculus_studio.stage_parameter_panel import open_parameters
 
 
 for filename in ('msjh.ttc','consola.ttf','segoeui.ttf'):

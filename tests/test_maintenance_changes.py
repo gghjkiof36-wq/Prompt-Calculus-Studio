@@ -4,9 +4,9 @@ from pathlib import Path
 from unittest.mock import patch
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
-from prompt_studio.window import Window
-from prompt_studio.multi_output import compiled_outputs
-from prompt_studio.media import scan_models
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.multi_output import compiled_outputs
+from prompt_calculus_studio.media import scan_models
 APP=QApplication.instance() or QApplication([])
 
 class ChangeTests(unittest.TestCase):

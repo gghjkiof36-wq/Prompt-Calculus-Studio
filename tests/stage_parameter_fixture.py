@@ -1,6 +1,6 @@
 """Named field descriptors for isolated Qt and native receipt tests."""
 import copy
-from prompt_studio.stage_parameters import empty, identity
+from prompt_calculus_studio.stage_parameters import empty, identity
 
 
 def profile_fields(profile):

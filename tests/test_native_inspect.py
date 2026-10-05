@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 from urllib.parse import urlsplit
 import test_native_queue as fixtures
-from prompt_studio.workflow_import import read_profile
+from prompt_calculus_studio.workflow_import import read_profile
 
 begin=importlib.import_module('integration_test.native_handshake').begin
 cancel_operation=importlib.import_module('integration_test.native_handshake').cancel_operation
@@ -240,7 +240,7 @@ class NativeRouteBoundaryTests(unittest.IsolatedAsyncioTestCase):
     async def test_new_inspect_keeps_actual_local_route_origin_peer_host_and_token_checks(self):
         # Compile the actual decorator without importing ComfyUI, registering
         # routes, creating user directories or starting an HTTP service.
-        tree=ast.parse((Path(__file__).resolve().parents[1]/'comfyui_prompt_studio/__init__.py').read_text(encoding='utf8'))
+        tree=ast.parse((Path(__file__).resolve().parents[1]/'comfyui_prompt_calculus_studio/__init__.py').read_text(encoding='utf8'))
         route=next(n for n in tree.body if isinstance(n,ast.AsyncFunctionDef) and n.name=='native_inspect')
         self.assertIn('local_route',[n.id for n in route.decorator_list if isinstance(n,ast.Name)])
         class Forbidden(Exception):

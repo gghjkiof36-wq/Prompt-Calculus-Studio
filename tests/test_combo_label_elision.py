@@ -5,11 +5,11 @@ from PySide6.QtGui import QFontDatabase, QHelpEvent, QIcon, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QComboBox, QStyle, QStyleOptionComboBox, QToolTip, QWidget
 
-from prompt_studio.core import DEFAULT_SETTINGS
-from prompt_studio.theme import stylesheet,widget_palette
-from prompt_studio.widgets import ComboBox,FontComboBox
-from prompt_studio.recent_sidebar import CanvasWorkspaceCombo
-from prompt_studio.workflow_manager import FolderComboBox
+from prompt_calculus_studio.core import DEFAULT_SETTINGS
+from prompt_calculus_studio.theme import stylesheet,widget_palette
+from prompt_calculus_studio.widgets import ComboBox,FontComboBox
+from prompt_calculus_studio.recent_sidebar import CanvasWorkspaceCombo
+from prompt_calculus_studio.workflow_manager import FolderComboBox
 
 
 APP=QApplication.instance() or QApplication([])

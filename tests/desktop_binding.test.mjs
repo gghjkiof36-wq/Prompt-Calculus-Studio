@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DesktopHandoff,workflowTarget} from '../comfyui_prompt_studio/web/desktop_binding.js';
-import {KEY} from '../comfyui_prompt_studio/web/state.js';
+import {DesktopHandoff,workflowTarget} from '../comfyui_prompt_calculus_studio/web/desktop_binding.js';
+import {KEY} from '../comfyui_prompt_calculus_studio/web/state.js';
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const node=id=>({id,widgets:[{name:'text',value:'existing'}],inputs:[],properties:{[KEY]:{}}});

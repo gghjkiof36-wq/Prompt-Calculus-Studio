@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-spec=importlib.util.spec_from_file_location('pcs_node_images',Path(__file__).parents[1]/'comfyui_prompt_studio/node_images.py')
+spec=importlib.util.spec_from_file_location('pcs_node_images',Path(__file__).parents[1]/'comfyui_prompt_calculus_studio/node_images.py')
 module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
 
 
@@ -57,8 +57,8 @@ class NodeImageTests(unittest.TestCase):
     def test_actual_service_envelope_and_queue_tuple_resolve_without_browser(self):
         from test_comfy_integration import Service
         from test_multi_output import workspace
-        from prompt_studio.snapshots import make_snapshot
-        from prompt_studio.generation import submission
+        from prompt_calculus_studio.snapshots import make_snapshot
+        from prompt_calculus_studio.generation import submission
         # Pass through the real submission hook: it consumes the request marker.
         state,_,_=workspace(); p=state['generation']['profiles'][0]
         payload=submission(p,make_snapshot(state,'test','test'))

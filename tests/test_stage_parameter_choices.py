@@ -4,9 +4,9 @@ from PySide6.QtCore import Qt, QPoint
 from PySide6.QtTest import QTest
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout
-from prompt_studio.stage_parameter_choices import ParameterChoices
-from prompt_studio.theme import stylesheet,visual_tokens,widget_palette
-from prompt_studio.core import DEFAULT_SETTINGS
+from prompt_calculus_studio.stage_parameter_choices import ParameterChoices
+from prompt_calculus_studio.theme import stylesheet,visual_tokens,widget_palette
+from prompt_calculus_studio.core import DEFAULT_SETTINGS
 
 
 APP = QApplication.instance() or QApplication([])

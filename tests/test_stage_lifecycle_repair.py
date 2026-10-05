@@ -5,8 +5,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QPushButton
 from test_084_stages import StageTests
-from prompt_studio import multi_output as model,stage_model
-from prompt_studio.flow_data import add_scheduler
+from prompt_calculus_studio import multi_output as model,stage_model
+from prompt_calculus_studio.flow_data import add_scheduler
 
 class StageLifecycleTests(StageTests):
     # Reuse the formal native fixture, but do not rerun the inherited suite here.
@@ -60,8 +60,8 @@ class StageLifecycleTests(StageTests):
 
     def test_removing_waiting_free_input_keeps_stage_foreign_apply_owned(self):
         import copy
-        from prompt_studio.clip_flow import add,set_binding
-        from prompt_studio.flow_data import add_image_input
+        from prompt_calculus_studio.clip_flow import add,set_binding
+        from prompt_calculus_studio.flow_data import add_image_input
         stage=self.stages()[0];reader=self.c.functions.add_image(enhanced=False);targets=[]
         def setup(state):
             data=state['multi_output']
@@ -110,9 +110,9 @@ class StageLifecycleTests(StageTests):
 
     def test_png_restore_undo_redo_cancels_pending_free_apply_without_regenerating(self):
         import copy
-        from prompt_studio.flow_data import add_image_input
-        from prompt_studio.snapshot_history import capture
-        from prompt_studio.snapshots import make_snapshot,restore_snapshot
+        from prompt_calculus_studio.flow_data import add_image_input
+        from prompt_calculus_studio.snapshot_history import capture
+        from prompt_calculus_studio.snapshots import make_snapshot,restore_snapshot
         stage=self.stages()[0];original=copy.deepcopy(self.w.state);before=capture(self.c)
         targets=[]
         def connect(state):
@@ -198,7 +198,7 @@ class StageLifecycleTests(StageTests):
         self.executor.finish();self.assertIsNone(self.runner.current(),self.notices)
 
     def test_reopen_old_completed_tail_closes_without_resubmitting(self):
-        from prompt_studio.stage_runner import StageRunner
+        from prompt_calculus_studio.stage_runner import StageRunner
         stage,key=self.queue();self.click();old=self.runner.current()['id']
         self.runner.pause(old,reason='restart')
         # Reproduce the previous release's missing frame cleanup while the
@@ -225,11 +225,11 @@ class StageLifecycleTests(StageTests):
         menus=[]
         stage,key=self.queue();panel=self.c.flow_cards[key].panel;panel.refresh()
         self.assertTrue(panel.policy_button.isHidden())
-        with patch('prompt_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):panel.more_actions()
+        with patch('prompt_calculus_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):panel.more_actions()
         self.assertNotIn('輸入取值',[a.text() for a in menus[-1].actions()])
         self.c.remove_flow_node('schedulers',key);stage,key=self.queue(stage,scope=True)
         panel=self.c.flow_cards[key].panel;panel.refresh()
-        with patch('prompt_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):panel.more_actions()
+        with patch('prompt_calculus_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):panel.more_actions()
         self.assertIn('輸入取值',[a.text() for a in menus[-1].actions()])
 
 # unittest discovery otherwise repeats every inherited test from StageTests.

@@ -6,8 +6,8 @@ from PySide6.QtCore import Qt,QRect
 from PySide6.QtGui import QImage,QPainter,QStandardItem,QStandardItemModel,QFontDatabase
 from PySide6.QtWidgets import QApplication,QStyle,QStyleOptionViewItem,QFrame,QVBoxLayout
 from PySide6.QtTest import QTest
-from prompt_studio.theme import visual_tokens
-from prompt_studio.views import PromptDelegate,BuilderDelegate,BuilderTree,DETAIL_ROLE,widget_colors
+from prompt_calculus_studio.theme import visual_tokens
+from prompt_calculus_studio.views import PromptDelegate,BuilderDelegate,BuilderTree,DETAIL_ROLE,widget_colors
 
 APP=QApplication.instance() or QApplication([])
 for name in ('msjh.ttc','msjhbd.ttc','segoeui.ttf'):QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+name)
@@ -15,10 +15,10 @@ for name in ('msjh.ttc','msjhbd.ttc','segoeui.ttf'):QFontDatabase.addApplication
 
 class LegacyColorRoleTests(unittest.TestCase):
     def setUp(self):
-        from prompt_studio.window import Window
+        from prompt_calculus_studio.window import Window
         self.temp=tempfile.TemporaryDirectory()
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_DATA':self.temp.name});self.env.start()
-        self.transport=patch('prompt_studio.comfy_client.ComfyClient.request',return_value=None);self.transport.start()
+        self.transport=patch('prompt_calculus_studio.comfy_client.ComfyClient.request',return_value=None);self.transport.start()
         self.w=Window(self.temp.name);self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
         self.w.resize(1200,800);self.w.show();self.w.enter_canvas();QTest.qWait(30)
 
@@ -54,7 +54,7 @@ class LegacyColorRoleTests(unittest.TestCase):
             scene.removeItem(proxy);proxy.setWidget(None);proxy_panel.deleteLater()
 
     def test_image_editor_theme_changes_leave_brush_and_layer_colors_intact(self):
-        from prompt_studio.composition_image import document,layer,render_image
+        from prompt_calculus_studio.composition_image import document,layer,render_image
         cid=next(iter(self.w.canvas.containers));drawing=document(120,80)
         shape=layer('rect',10,10,60,45);shape.update(fill='#bc412d',stroke='#124b88');drawing['layers'].append(shape)
         self.w.canvas.commit(lambda state:state['multi_output']['canvases'][cid].update(image=drawing))

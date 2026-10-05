@@ -1,10 +1,10 @@
 import copy,tempfile,unittest
 from pathlib import Path
-from prompt_studio import clip_flow,multi_output as model
-from prompt_studio.core import Storage,validate_state
-from prompt_studio.snapshots import make_snapshot,validate_snapshot,restore_snapshot
-from prompt_studio.generation import submission
-from prompt_studio.workflow_transfer import apply_transfer
+from prompt_calculus_studio import clip_flow,multi_output as model
+from prompt_calculus_studio.core import Storage,validate_state
+from prompt_calculus_studio.snapshots import make_snapshot,validate_snapshot,restore_snapshot
+from prompt_calculus_studio.generation import submission
+from prompt_calculus_studio.workflow_transfer import apply_transfer
 from test_multi_output import workspace
 
 

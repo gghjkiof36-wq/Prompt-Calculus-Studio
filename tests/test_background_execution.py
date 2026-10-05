@@ -7,8 +7,8 @@ from pathlib import Path
 from test_comfy_integration import Service
 from test_background_state import graphs,module
 from test_multi_output import workspace
-from prompt_studio.multi_output import bind,bound_texts
-from prompt_studio.snapshots import make_snapshot
+from prompt_calculus_studio.multi_output import bind,bound_texts
+from prompt_calculus_studio.snapshots import make_snapshot
 
 BackgroundExecution=importlib.import_module('integration_test.background_execution').BackgroundExecution
 BackgroundEvents=importlib.import_module('integration_test.background_events').BackgroundEvents

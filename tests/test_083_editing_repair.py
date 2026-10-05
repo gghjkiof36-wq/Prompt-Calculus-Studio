@@ -7,10 +7,10 @@ from PySide6.QtGui import QDragEnterEvent,QDragMoveEvent,QDropEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 import test_083_runtime_repair as runtime
-from prompt_studio import multi_output as model
-from prompt_studio.core import validate_state
-from prompt_studio.snapshots import make_snapshot
-from prompt_studio.window import Window
+from prompt_calculus_studio import multi_output as model
+from prompt_calculus_studio.core import validate_state
+from prompt_calculus_studio.snapshots import make_snapshot
+from prompt_calculus_studio.window import Window
 
 APP=QApplication.instance() or QApplication([])
 
@@ -25,7 +25,7 @@ class EditingRepairTests(unittest.TestCase):
     def test_empty_new_duplicate_edit_switch_reopen_and_snapshot_scope(self):
         first=self.w.state['workspace'];first_graph=copy.deepcopy(self.c.data())
         self.c.outputs[self.out].panel.editor.setPlainText('')
-        with patch('prompt_studio.window.QInputDialog.getText',return_value=('01',True)):self.w.new_workspace()
+        with patch('prompt_calculus_studio.window.QInputDialog.getText',return_value=('01',True)):self.w.new_workspace()
         second=self.w.state['workspace'];self.assertNotEqual(first,second)
         self.assertFalse(self.w.state.get('uses'));self.assertFalse(self.c.data()['bindings'])
         self.assertNotEqual(set(first_graph['canvases']),set(self.c.data()['canvases']))
@@ -37,7 +37,7 @@ class EditingRepairTests(unittest.TestCase):
         snapshot=make_snapshot(self.w.state);self.assertNotIn('workspace_scenes',snapshot['state'])
         self.assertEqual(len(snapshot['state']['workspaces']),1)
         self.switch(second);self.assertEqual(self.w.state['uses'],second_uses)
-        with patch('prompt_studio.window.QInputDialog.getText',return_value=('copy',True)):self.w.new_workspace(duplicate=True)
+        with patch('prompt_calculus_studio.window.QInputDialog.getText',return_value=('copy',True)):self.w.new_workspace(duplicate=True)
         self.assertEqual(self.w.state['uses'],second_uses)
         self.assertEqual(len(self.w.comfy.generation.records()),0)
         self.w.persist();self.w.close();APP.processEvents();self.w=Window(self.tmp.name);self.c=self.w.canvas
@@ -98,7 +98,7 @@ class EditingRepairTests(unittest.TestCase):
         self.assertEqual(model.compile_output(self.w.state,self.out)['final_prompt'],'opaque, full sentence\nA')
 
     def test_schedule_drop_selection_and_full_item_editor(self):
-        from prompt_studio.flow_data import add_scheduler,endpoint
+        from prompt_calculus_studio.flow_data import add_scheduler,endpoint
         keys=[]
         def connect(state):
             sid=add_scheduler(state);keys.append(sid);port=endpoint(sid,'clip1')
@@ -155,7 +155,7 @@ class EditingRepairTests(unittest.TestCase):
     def test_png_restore_undo_keeps_workspace_scenes_and_async_catalog(self):
         first=self.w.state['workspace'];snapshot=make_snapshot(self.w.state)
         self.w.gallery.record={'metadata':{'raw':{'prompt_studio':{'schema_version':1,'bindings':[{'node_id':'6','snapshot':snapshot}]}}}}
-        with patch('prompt_studio.pages.ask',return_value=True):self.w.gallery.restore_combination()
+        with patch('prompt_calculus_studio.pages.ask',return_value=True):self.w.gallery.restore_combination()
         restored=self.w.state['workspace'];self.assertNotEqual(first,restored)
         self.w.state['generation']['profiles'][0]['graph']['3']['inputs']['seed']=987
         self.c.view.setFocus();QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier)
@@ -166,9 +166,9 @@ class EditingRepairTests(unittest.TestCase):
         self.assertEqual(self.w.state['workspace'],restored,self.notices);validate_state(self.w.state)
 
     def test_shared_workflow_removal_and_restore_updates_all_workspace_bindings(self):
-        from prompt_studio.workflow_deletion import prepare_remove,prepare_restore
+        from prompt_calculus_studio.workflow_deletion import prepare_remove,prepare_restore
         first=self.w.state['workspace']
-        with patch('prompt_studio.window.QInputDialog.getText',return_value=('copy',True)):self.w.new_workspace(duplicate=True)
+        with patch('prompt_calculus_studio.window.QInputDialog.getText',return_value=('copy',True)):self.w.new_workspace(duplicate=True)
         second=self.w.state['workspace'];state,record=prepare_remove(self.w.state,'flow')
         self.assertFalse(state['multi_output']['bindings'])
         self.assertFalse(state['workspace_scenes']['items'][first]['multi_output']['bindings'])

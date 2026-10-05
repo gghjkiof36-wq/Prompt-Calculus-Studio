@@ -12,9 +12,9 @@ from PySide6.QtWidgets import (
     QListWidget, QPushButton, QSpinBox, QVBoxLayout,
 )
 
-from prompt_studio.core import DEFAULT_SETTINGS
-from prompt_studio.theme import font_pixels, stylesheet, visual_tokens, widget_palette, shell_color
-from prompt_studio.ui_icons import ALIASES, ICON_NAMES, icon, stylesheet_icon_paths
+from prompt_calculus_studio.core import DEFAULT_SETTINGS
+from prompt_calculus_studio.theme import font_pixels, stylesheet, visual_tokens, widget_palette, shell_color
+from prompt_calculus_studio.ui_icons import ALIASES, ICON_NAMES, icon, stylesheet_icon_paths
 
 
 APP=QApplication.instance() or QApplication([])

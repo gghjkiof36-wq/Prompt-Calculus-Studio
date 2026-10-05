@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {describeParameters,parameterTransaction} from '../comfyui_prompt_studio/web/native_parameters.js';
-import {createParameterCapabilities} from '../comfyui_prompt_studio/web/native_parameter_capabilities.js';
+import {describeParameters,parameterTransaction} from '../comfyui_prompt_calculus_studio/web/native_parameters.js';
+import {createParameterCapabilities} from '../comfyui_prompt_calculus_studio/web/native_parameter_capabilities.js';
 
 const models=['4xNomos8kDAT.pth','other.pth'];
 function fixture({type='UpscaleModelLoader',name='model_name',spec=['COMBO',{options:models,multiselect:false}],value=models[0]}={}){

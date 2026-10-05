@@ -2,12 +2,12 @@ import copy,os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
-from prompt_studio.core import Storage,initial_state,validate_state
-from prompt_studio.state_loading import prepare_state
-from prompt_studio.canvas_starter import initialize,guide
-from prompt_studio.multi_output import PREVIEW,compile_output
-from prompt_studio.flow_data import incoming
-from prompt_studio.stage_model import compile_plan
+from prompt_calculus_studio.core import Storage,initial_state,validate_state
+from prompt_calculus_studio.state_loading import prepare_state
+from prompt_calculus_studio.canvas_starter import initialize,guide
+from prompt_calculus_studio.multi_output import PREVIEW,compile_output
+from prompt_calculus_studio.flow_data import incoming
+from prompt_calculus_studio.stage_model import compile_plan
 
 
 def fresh():return prepare_state(initial_state(),multi=True)
@@ -44,7 +44,7 @@ class CanvasStarterDataTests(unittest.TestCase):
         self.assertIs(initialize(disconnected,fresh_install=True),disconnected)
 
     def test_save_reopen_scene_and_dismissal_preserve_graph_and_layout(self):
-        from prompt_studio.workspace_scene import capture,switch,create
+        from prompt_calculus_studio.workspace_scene import capture,switch,create
         state=initialize(fresh(),fresh_install=True);refs=guide(state)
         state['text_positions'][refs['stage']]=[2800,110]
         state['multi_output']['outputs'][refs['output']]['draft']=''
@@ -58,11 +58,11 @@ class CanvasStarterDataTests(unittest.TestCase):
         self.assertTrue(guide(restored)['dismissed']);self.assertEqual(restored['draft'],'')
 
     def test_new_workspace_has_six_nodes_without_changing_existing_edits_or_bindings(self):
-        from prompt_studio.workspace_scene import capture,switch,create,scene
-        from prompt_studio.generation import store_profile
-        from prompt_studio.clip_flow import set_binding
-        from prompt_studio.stage_model import choose
-        from prompt_studio.drafts import edit
+        from prompt_calculus_studio.workspace_scene import capture,switch,create,scene
+        from prompt_calculus_studio.generation import store_profile
+        from prompt_calculus_studio.clip_flow import set_binding
+        from prompt_calculus_studio.stage_model import choose
+        from prompt_calculus_studio.drafts import edit
         from test_multi_output import workflow
         state=initialize(fresh(),fresh_install=True);refs=guide(state);old=state['workspace']
         store_profile(state,workflow());set_binding(state,'flow',refs['clip'],('6','text'))
@@ -90,7 +90,7 @@ class CanvasStarterDataTests(unittest.TestCase):
         self.assertEqual(scene(restored),original);self.assertEqual(guide(restored),refs)
 
     def test_legacy_document_and_duplicate_keep_their_original_layout(self):
-        from prompt_studio.workspace_scene import capture,switch,create,scene
+        from prompt_calculus_studio.workspace_scene import capture,switch,create,scene
         legacy=fresh();legacy['generation']=dict(mode='txt2img',profiles=[],chosen={},source=None)
         capture(legacy);original=scene(legacy)
         self.assertIs(initialize(legacy,fresh_install=False),legacy)
@@ -110,7 +110,7 @@ class CanvasStarterUiTests(unittest.TestCase):
                 QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+font)
 
     def setUp(self):
-        from prompt_studio.window import Window
+        from prompt_calculus_studio.window import Window
         self.tmp=tempfile.TemporaryDirectory();self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_DATA':self.tmp.name})
         self.env.start();state=initialize(fresh(),fresh_install=True);state['settings'].update(online=False,material='solid')
         store=Storage(self.tmp.name);store.save(state);store.db.close()
@@ -155,7 +155,7 @@ class CanvasStarterUiTests(unittest.TestCase):
         self.assertEqual(bar.actions[1].accessibleDescription(),'目前步驟')
 
     def test_first_canvas_after_settings_overrides_unpresented_view_saved_by_mode_change(self):
-        from prompt_studio.window import Window
+        from prompt_calculus_studio.window import Window
         with tempfile.TemporaryDirectory() as folder:
             window=Window(folder)
             window.state['settings'].update(online=False,material='solid')
@@ -169,7 +169,7 @@ class CanvasStarterUiTests(unittest.TestCase):
             window.close();self.app.processEvents()
 
     def test_database_without_a_saved_document_still_gets_the_six_node_starter(self):
-        from prompt_studio.window import Window
+        from prompt_calculus_studio.window import Window
         with tempfile.TemporaryDirectory() as folder:
             store=Storage(folder);store.db.close()
             window=Window(folder)
@@ -181,8 +181,8 @@ class CanvasStarterUiTests(unittest.TestCase):
             finally:window.close();self.app.processEvents()
 
     def test_saved_legacy_default_is_preserved_until_user_creates_a_new_workspace(self):
-        from prompt_studio.window import Window
-        from prompt_studio.workspace_scene import scene
+        from prompt_calculus_studio.window import Window
+        from prompt_calculus_studio.workspace_scene import scene
         with tempfile.TemporaryDirectory() as folder:
             state=fresh();state['generation']=dict(mode='txt2img',profiles=[],chosen={},source=None);state['output_order']=[]
             store=Storage(folder);store.save(state);before=scene(state);store.db.close()
@@ -214,7 +214,7 @@ class CanvasStarterUiTests(unittest.TestCase):
             bar.connection();settings.assert_called_once_with('comfy')
         with patch.object(self.canvas,'bind_dialog') as bind:
             bar.bind_clip();bind.assert_called_once_with(self.refs['clip'])
-        with patch('prompt_studio.stage_parameter_panel.open_parameters') as stage:
+        with patch('prompt_calculus_studio.stage_parameter_panel.open_parameters') as stage:
             bar.stage();stage.assert_called_once_with(self.canvas,self.refs['stage'])
         with patch.object(self.canvas,'palette') as palette:
             bar.add_text();self.assertEqual(palette.call_count,1)
@@ -272,7 +272,7 @@ class CanvasStarterUiTests(unittest.TestCase):
         self.assertEqual(self.canvas.data()['canvases'][self.refs['canvas']]['display_size'],original)
 
     def test_run_controls_keep_count_and_cancel_scope_with_clear_labels(self):
-        from prompt_studio.stage_model import add as add_stage
+        from prompt_calculus_studio.stage_model import add as add_stage
         controls=self.canvas.execution_bar.controls;client=self.window.comfy
         self.assertEqual(controls.count.suffix(),' 次');self.assertEqual(controls.count.accessibleName(),'執行次數')
         controls.count.setValue(3);self.assertEqual(self.window.state['settings']['comfy_count'],3)
@@ -295,7 +295,7 @@ class CanvasStarterUiTests(unittest.TestCase):
         self.canvas.undo();self.wait();self.assertFalse(self.window.state['uses'])
         self.assertEqual(self.canvas.data()['connections'],original)
         self.canvas.redo();self.wait();self.assertTrue(self.window.state['uses'])
-        from prompt_studio.drafts import edit
+        from prompt_calculus_studio.drafts import edit
         self.canvas.commit(lambda state:edit(state,'',self.refs['output']));self.wait()
         self.assertEqual(self.canvas.data()['outputs'][self.refs['output']]['draft'],'')
         self.canvas.onboarding.dismiss();self.window.persist()

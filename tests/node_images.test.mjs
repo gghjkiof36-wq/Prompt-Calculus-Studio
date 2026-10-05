@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {imageNodeState,watchImageNodes} from '../comfyui_prompt_studio/web/node_images.js';
+import {imageNodeState,watchImageNodes} from '../comfyui_prompt_calculus_studio/web/node_images.js';
 
 test('only named workflow image nodes publish; current selection and relative filenames survive',()=>{
     globalThis.location=new URL('http://127.0.0.1:8188/');

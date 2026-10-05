@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
-_spec = importlib.util.spec_from_file_location('pcs_background_state', Path(__file__).resolve().parents[1] / 'comfyui_prompt_studio/background_state.py')
+_spec = importlib.util.spec_from_file_location('pcs_background_state', Path(__file__).resolve().parents[1] / 'comfyui_prompt_calculus_studio/background_state.py')
 module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(module)
 BackgroundState, prepare_seed = module.BackgroundState, module.prepare_seed

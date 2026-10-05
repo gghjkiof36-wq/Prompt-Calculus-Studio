@@ -12,11 +12,11 @@ from urllib.error import HTTPError, URLError
 from urllib.response import addinfourl
 import urllib.request as transport
 
-from prompt_studio import civitai
-from prompt_studio.credentials import save_token, load_token, token_path, clear_token
-from prompt_studio.civitai_assets import make_plan, DownloadReceipts, perform_download, register_download
-from prompt_studio.core import Storage
-from prompt_studio.media import Catalog
+from prompt_calculus_studio import civitai
+from prompt_calculus_studio.credentials import save_token, load_token, token_path, clear_token
+from prompt_calculus_studio.civitai_assets import make_plan, DownloadReceipts, perform_download, register_download
+from prompt_calculus_studio.core import Storage
+from prompt_calculus_studio.media import Catalog
 
 
 TOKEN = 'synthetic-reinstall-secret'

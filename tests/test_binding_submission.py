@@ -2,8 +2,8 @@
 import copy
 import unittest
 import test_native_queue as native
-from prompt_studio import clip_flow, workflow_flow
-from prompt_studio.snapshots import make_snapshot
+from prompt_calculus_studio import clip_flow, workflow_flow
+from prompt_calculus_studio.snapshots import make_snapshot
 
 
 class BindingSubmissionTests(unittest.TestCase):

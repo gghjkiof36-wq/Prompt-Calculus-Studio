@@ -6,11 +6,11 @@ os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtCore import QTimer,Qt
 from PySide6.QtWidgets import QApplication,QFileDialog
 from PySide6.QtTest import QTest
-from prompt_studio.window import Window
-from prompt_studio.core import Storage,initial_state,build_prompt
-from prompt_studio.composition import node
-from prompt_studio.generation_panel import WorkflowDialog
-from prompt_studio.media import import_image
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.core import Storage,initial_state,build_prompt
+from prompt_calculus_studio.composition import node
+from prompt_calculus_studio.generation_panel import WorkflowDialog
+from prompt_calculus_studio.media import import_image
 from test_comfy_integration import png
 from test_generation import workflow
 APP=QApplication.instance() or QApplication([])

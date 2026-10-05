@@ -8,13 +8,13 @@ from PySide6.QtGui import QImage,QImageReader
 from PySide6.QtWidgets import QApplication,QFrame,QScrollArea,QPushButton
 from PySide6.QtTest import QTest
 from shiboken6 import isValid
-from prompt_studio.core import Storage
-from prompt_studio.media import Catalog,import_image
-from prompt_studio.media_paths import recover_owned_files,original_path,preview_file
-from prompt_studio.widgets import RoundMenu,record_icon
-from prompt_studio.image_preview import SourcePreview
-from prompt_studio.error_dialog import ImportErrorToast,error_message,import_error
-from prompt_studio.window import Window
+from prompt_calculus_studio.core import Storage
+from prompt_calculus_studio.media import Catalog,import_image
+from prompt_calculus_studio.media_paths import recover_owned_files,original_path,preview_file
+from prompt_calculus_studio.widgets import RoundMenu,record_icon
+from prompt_calculus_studio.image_preview import SourcePreview
+from prompt_calculus_studio.error_dialog import ImportErrorToast,error_message,import_error
+from prompt_calculus_studio.window import Window
 APP=QApplication.instance() or QApplication([])
 
 
@@ -100,7 +100,7 @@ class InterfaceRepairTests(unittest.TestCase):
     def test_source_keeps_pixels_through_resize_zoom_and_repeated_refresh(self):
         path=self.root/'detail.png'; image=QImage(832,1216,QImage.Format.Format_RGB32); image.fill(Qt.GlobalColor.blue); image.save(str(path))
         c=self.window.canvas
-        with patch('prompt_studio.image_preview.QImageReader',wraps=QImageReader) as reader:
+        with patch('prompt_calculus_studio.image_preview.QImageReader',wraps=QImageReader) as reader:
             key=c.functions.add_image(path=path); card=c.functions.cards[key]; source=card.panel.preview
             self.assertEqual(source.image.size(),image.size()); self.assertGreater(source.image.width(),source.width())
             for index in range(30):

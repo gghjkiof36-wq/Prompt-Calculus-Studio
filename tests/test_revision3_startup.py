@@ -6,9 +6,9 @@ import unittest
 from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
-from prompt_studio.core import Storage, initial_state
-from prompt_studio.state_loading import prepare_state
-from prompt_studio.window import Window
+from prompt_calculus_studio.core import Storage, initial_state
+from prompt_calculus_studio.state_loading import prepare_state
+from prompt_calculus_studio.window import Window
 
 APP = QApplication.instance() or QApplication([])
 
@@ -18,7 +18,7 @@ class RevisionThreeStartupTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.env = patch.dict(os.environ, {'PROMPT_STUDIO_V08': '1', 'PROMPT_STUDIO_DATA': self.tmp.name})
         self.env.start()
-        self.transport = patch('prompt_studio.comfy_client.ComfyClient.request', return_value=None)
+        self.transport = patch('prompt_calculus_studio.comfy_client.ComfyClient.request', return_value=None)
         self.transport.start()
         state = prepare_state(initial_state(), multi=True)
         state['settings'].update(online=False, material='solid', interface_mode='list', separate_selections=True)
@@ -52,7 +52,7 @@ class RevisionThreeStartupTests(unittest.TestCase):
     def test_recovery_does_not_clear_styles_or_repeat_native_backdrop(self):
         self.w.apply_theme()
         with patch.object(self.w, 'setStyleSheet', wraps=self.w.setStyleSheet) as style, \
-                patch('prompt_studio.window.apply_backdrop', return_value=False) as backdrop:
+                patch('prompt_calculus_studio.window.apply_backdrop', return_value=False) as backdrop:
             self.w.apply_theme(preserve_layout=True, refresh_fonts=True)
             style.assert_not_called()
             backdrop.assert_not_called()
@@ -64,7 +64,7 @@ class RevisionThreeStartupTests(unittest.TestCase):
 
     def test_material_preview_invalidates_backdrop_cache_on_cancel(self):
         self.w.apply_theme()
-        with patch('prompt_studio.window.apply_backdrop', return_value=True) as backdrop:
+        with patch('prompt_calculus_studio.window.apply_backdrop', return_value=True) as backdrop:
             self.w.appearance_preview = {'material': 'mica'}
             self.w.update_material_preview()
             self.w.appearance_preview = {}

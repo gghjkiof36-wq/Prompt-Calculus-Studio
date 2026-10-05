@@ -1,8 +1,8 @@
 import copy,json,sqlite3,tempfile,unittest
 from pathlib import Path
-from prompt_studio.core import Storage,build_prompt
-from prompt_studio.state_loading import prepare_state
-from prompt_studio.multi_output import compiled_outputs
+from prompt_calculus_studio.core import Storage,build_prompt
+from prompt_calculus_studio.state_loading import prepare_state
+from prompt_calculus_studio.multi_output import compiled_outputs
 from test_canvas_refinement import legacy
 from test_multi_output import workspace
 
@@ -25,7 +25,7 @@ class LoadingTests(unittest.TestCase):
             store=Storage(folder); store.save(state); prepared=prepare_state(state,multi=True); store.save(prepared); saved=store.load_current(multi=True)
             self.assertEqual(saved,prepared); self.assertEqual(compiled_outputs(saved),compiled_outputs(state))
             for field in ('uses','output_order','settings'):self.assertEqual(saved.get(field),original.get(field))
-            from prompt_studio.clip_flow import source
+            from prompt_calculus_studio.clip_flow import source
             bindings=[dict(workflow=b['workflow'],output=source(saved,b['clip']),node=b['node'],field=b['field']) for b in saved['multi_output']['bindings']]
             self.assertEqual(bindings,original['multi_output']['bindings']); store.close()
     def test_unsupported_version_does_not_replace_document_or_create_migration_backup(self):

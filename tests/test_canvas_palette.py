@@ -11,9 +11,9 @@ from PySide6.QtCore import Qt, QPoint, QPointF, QSize
 from PySide6.QtGui import QTextCursor, QInputMethodEvent, QFontDatabase
 from PySide6.QtWidgets import QApplication, QPushButton
 from PySide6.QtTest import QTest
-from prompt_studio.window import Window
-from prompt_studio.canvas_palette import CanvasPalette
-from prompt_studio.core import uid
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.canvas_palette import CanvasPalette
+from prompt_calculus_studio.core import uid
 
 APP=QApplication.instance() or QApplication([])
 if APP.platformName()=='offscreen':
@@ -25,7 +25,7 @@ class PaletteTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_V081':'1'}); self.env.start()
-        self.transport=patch('prompt_studio.comfy_client.ComfyClient.request'); self.transport.start()
+        self.transport=patch('prompt_calculus_studio.comfy_client.ComfyClient.request'); self.transport.start()
         self.w=Window(self.temp.name); self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
         self.w.resize(1280,860); self.w.apply_theme(); self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(30)
         self.c=self.w.canvas; self.service=self.w.completion
@@ -198,7 +198,7 @@ class PaletteTests(unittest.TestCase):
         self.p=CanvasPalette(self.c,None); self.p.show(); QTest.qWait(10)
         self.assertEqual(self.p.sheet_size,QSize(*saved['size']))
         self.assertEqual(self.p.split.sizes(),saved['columns'])
-        from prompt_studio.core import Storage
+        from prompt_calculus_studio.core import Storage
         store=Storage(self.temp.name)
         try: self.assertEqual(store.load()['settings']['canvas_palette'],saved)
         finally: store.close()
@@ -241,7 +241,7 @@ class PaletteTests(unittest.TestCase):
         self.w.state['workspace']=workspace
 
     def test_canvas_ownership_and_saved_reopen_after_palette_insert(self):
-        from prompt_studio import multi_output as model
+        from prompt_calculus_studio import multi_output as model
         self.p.reject()
         cid=self.c.add_canvas(QPointF(1500,800))
         point=self.c.containers[cid].pos()+QPointF(60,150)
@@ -253,7 +253,7 @@ class PaletteTests(unittest.TestCase):
         after=self.c.history_state(); self.c.undo(); self.assertEqual(self.c.history_state(),before)
         self.c.redo(); self.assertEqual(self.c.history_state(),after)
         self.w.persist()
-        from prompt_studio.core import Storage
+        from prompt_calculus_studio.core import Storage
         reopened=Storage(self.temp.name)
         try:
             state=reopened.load(); self.assertEqual(model.owner(state,ident),cid)

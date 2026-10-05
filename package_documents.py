@@ -40,7 +40,7 @@ def source_paths(root=ROOT):
     if Path(git_output(root,'rev-parse','--show-toplevel').strip()).resolve()!=root:
         raise ValueError('建置來源必須是獨立 Git 根目錄。')
     blocked={'data','qa','build','dist','vendor','.builder','__pycache__','credentials','backups','local_library.json','settings.json','fault.log','error.log','agents.md','agent-guides'}
-    folders={'prompt_studio','comfyui_prompt_studio','tests','docs'}
+    folders={'prompt_calculus_studio','comfyui_prompt_calculus_studio','tests','docs'}
     suffixes={'.py','.js','.mjs','.css','.ps1','.cmd','.vbs','.md','.txt','.svg','.ico','.png','.json'}
     paths=[]
     for name in git_output(root,'ls-files','-z','--cached').split('\0'):
@@ -59,7 +59,7 @@ def source_paths(root=ROOT):
 
 
 def bundle_documents(destination, desktop=False, release=None):
-    from prompt_studio.releases import CURRENT,SOURCE_ARCHIVE
+    from prompt_calculus_studio.releases import CURRENT,SOURCE_ARCHIVE
     release=release or CURRENT
     destination = Path(destination)
     paths=source_paths(ROOT)

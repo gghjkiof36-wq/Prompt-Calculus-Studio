@@ -2,11 +2,11 @@ import io,json,tempfile,threading,unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from prompt_studio.civitai import (CivitAIClient,CivitAIError,download_version,identify_models,
+from prompt_calculus_studio.civitai import (CivitAIClient,CivitAIError,download_version,identify_models,
     normalize_version,safe_filename,sha256_file)
-from prompt_studio.core import Storage
-from prompt_studio.media import Catalog
-from prompt_studio.credentials import save_token,load_token,clear_token,token_path
+from prompt_calculus_studio.core import Storage
+from prompt_calculus_studio.media import Catalog
+from prompt_calculus_studio.credentials import save_token,load_token,clear_token,token_path
 
 
 HASH='A'*64
@@ -39,7 +39,7 @@ class CivitAITests(unittest.TestCase):
         seen=[]
         def open_(request,timeout):
             seen.append(request); return Response(json.dumps({'items':[],'metadata':{}}).encode())
-        with patch('prompt_studio.civitai._open_api',open_):
+        with patch('prompt_calculus_studio.civitai._open_api',open_):
             CivitAIClient('secret').search_models('hero',types=('LORA',),base_models=('Illustrious',),limit=5)
         request=seen[0]
         self.assertIn('types=LORA',request.full_url); self.assertIn('baseModels=Illustrious',request.full_url)
@@ -48,7 +48,7 @@ class CivitAITests(unittest.TestCase):
     def test_public_hash_lookup_never_sends_token(self):
         seen=[]
         def open_(request,timeout): seen.append(request); return Response(json.dumps(version()).encode())
-        with patch('prompt_studio.civitai._open_api',open_): CivitAIClient('secret').version_by_hash(HASH)
+        with patch('prompt_calculus_studio.civitai._open_api',open_): CivitAIClient('secret').version_by_hash(HASH)
         self.assertIsNone(seen[0].get_header('Authorization'))
 
     def test_hash_rejects_changed_scan_and_cancel(self):
@@ -89,7 +89,7 @@ class CivitAITests(unittest.TestCase):
         digest=hashlib.sha256(payload).hexdigest().upper(); nested=version(digest); nested.pop('modelId'); seen=[]
         nested['files'][0]['sizeKB']=len(payload)/1024
         def open_(request,timeout): seen.append(request); return Response(payload,{'Content-Length':str(len(payload))})
-        with tempfile.TemporaryDirectory() as directory,patch('prompt_studio.civitai._open_download',open_):
+        with tempfile.TemporaryDirectory() as directory,patch('prompt_calculus_studio.civitai._open_download',open_):
             result=download_version(nested,directory,'secret',parent=parent())
             self.assertEqual(Path(result['path']).read_bytes(),payload)
             self.assertEqual(result['source']['model_id'],11); self.assertEqual(seen[0].get_header('Authorization'),'Bearer secret')
@@ -104,7 +104,7 @@ class CivitAITests(unittest.TestCase):
 
     def test_http_errors_are_actionable(self):
         def denied(*_,**__): raise __import__('urllib.error').error.HTTPError('u',401,'',{},None)
-        with patch('prompt_studio.civitai._open_api',denied):
+        with patch('prompt_calculus_studio.civitai._open_api',denied):
             with self.assertRaisesRegex(CivitAIError,'Token'): CivitAIClient('bad').test_connection()
 
 

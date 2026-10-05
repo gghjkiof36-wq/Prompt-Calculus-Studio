@@ -12,7 +12,7 @@ from PySide6.QtGui import QFontDatabase
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from prompt_studio.window import Window
+from prompt_calculus_studio.window import Window
 
 APP=QApplication.instance() or QApplication([])
 for font in ('msjh.ttc','msjhbd.ttc','segoeui.ttf'):
@@ -22,7 +22,7 @@ for font in ('msjh.ttc','msjhbd.ttc','segoeui.ttf'):
 class StudioNavigationLayoutTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'qa')
-        self.transport=patch('prompt_studio.comfy_client.ComfyClient.request',return_value=None)
+        self.transport=patch('prompt_calculus_studio.comfy_client.ComfyClient.request',return_value=None)
         self.transport.start()
         self.w=Window(Path(self.tmp.name)/'data')
         self.w.state['settings'].update(online=False,material='solid')

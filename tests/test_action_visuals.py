@@ -7,10 +7,10 @@ from PySide6.QtGui import QColor, QFontDatabase, QIcon, QPainter, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QGridLayout, QLabel, QPushButton, QStyle, QStyleOptionButton, QWidget
 
-from prompt_studio.color_roles import contrast
-from prompt_studio.core import DEFAULT_SETTINGS
-from prompt_studio.theme import stylesheet, visual_tokens, widget_palette
-from prompt_studio.ui_icons import icon
+from prompt_calculus_studio.color_roles import contrast
+from prompt_calculus_studio.core import DEFAULT_SETTINGS
+from prompt_calculus_studio.theme import stylesheet, visual_tokens, widget_palette
+from prompt_calculus_studio.ui_icons import icon
 
 
 APP = QApplication.instance() or QApplication([])
@@ -73,7 +73,7 @@ class ActionPanel(QWidget):
         # Custom colors have a validated token API, but intentionally no saved
         # editor yet. Inject only that API result into the production QSS and
         # QPalette builders; do not duplicate any action style declarations.
-        with patch('prompt_studio.theme.visual_tokens', return_value=self.tokens):
+        with patch('prompt_calculus_studio.theme.visual_tokens', return_value=self.tokens):
             self.setStyleSheet(stylesheet(self.settings))
             palette = widget_palette(self.settings)
         self.setPalette(palette)

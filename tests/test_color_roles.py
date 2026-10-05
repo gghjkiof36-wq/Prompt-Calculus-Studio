@@ -2,8 +2,8 @@
 import copy
 import unittest
 
-from prompt_studio.color_roles import color, contrast, derive_roles, luminance, readable
-from prompt_studio.theme import visual_tokens
+from prompt_calculus_studio.color_roles import color, contrast, derive_roles, luminance, readable
+from prompt_calculus_studio.theme import visual_tokens
 
 
 FOUNDATIONS = {

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {describeParameters} from '../comfyui_prompt_studio/web/native_parameters.js';
-import {installNativeQueue} from '../comfyui_prompt_studio/web/native_queue.js';
-import {createSeedObserver} from '../comfyui_prompt_studio/web/native_seed.js';
-import {createParameterCapabilities} from '../comfyui_prompt_studio/web/native_parameter_capabilities.js';
+import {describeParameters} from '../comfyui_prompt_calculus_studio/web/native_parameters.js';
+import {installNativeQueue} from '../comfyui_prompt_calculus_studio/web/native_queue.js';
+import {createSeedObserver} from '../comfyui_prompt_calculus_studio/web/native_seed.js';
+import {createParameterCapabilities} from '../comfyui_prompt_calculus_studio/web/native_parameter_capabilities.js';
 
 const defs={KSampler:{python_module:'nodes',input:{required:{seed:['INT',{min:0,max:2**64-1}],steps:['INT',{min:1,max:10000,step:1}],cfg:['FLOAT',{min:0,max:100}],sampler_name:[['euler','dpmpp_2m']],scheduler:[['normal','karras']],denoise:['FLOAT',{min:0,max:1}]} }},
     EmptyLatentImage:{python_module:'nodes',input:{required:{width:['INT',{min:16,max:4096,step:8}],height:['INT',{min:16,max:4096,step:8}],batch_size:['INT',{min:1,max:4096,step:1}]}}}};

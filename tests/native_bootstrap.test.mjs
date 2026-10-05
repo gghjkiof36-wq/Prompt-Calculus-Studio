@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createNativeBootstrap} from '../comfyui_prompt_studio/web/native_bootstrap.js';
+import {createNativeBootstrap} from '../comfyui_prompt_calculus_studio/web/native_bootstrap.js';
 
 function clock() {
     let next = 0;

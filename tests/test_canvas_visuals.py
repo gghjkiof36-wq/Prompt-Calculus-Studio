@@ -6,9 +6,9 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFontDatabase,QFontMetricsF,QImage,QPainter,QColor
 from PySide6.QtCore import QPoint,QPointF,QRect,Qt
 from PySide6.QtTest import QTest
-from prompt_studio.core import Storage
-from prompt_studio.canvas_starter import guide
-from prompt_studio.theme import visual_tokens
+from prompt_calculus_studio.core import Storage
+from prompt_calculus_studio.canvas_starter import guide
+from prompt_calculus_studio.theme import visual_tokens
 
 
 class CanvasVisualTests(unittest.TestCase):
@@ -18,7 +18,7 @@ class CanvasVisualTests(unittest.TestCase):
         for font in ('msjh.ttc','msjhbd.ttc','segoeui.ttf'):QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+font)
 
     def setUp(self):
-        from prompt_studio.window import Window
+        from prompt_calculus_studio.window import Window
         self.tmp=tempfile.TemporaryDirectory();self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_DATA':self.tmp.name})
         self.env.start();self.w=Window(self.tmp.name);self.w.state['settings'].update(online=False,material='solid')
         self.w.apply_theme();self.w.resize(1280,800);self.w.show();self.w.enter_canvas();QTest.qWait(60)
@@ -28,7 +28,7 @@ class CanvasVisualTests(unittest.TestCase):
         self.w.close();self.app.processEvents();self.env.stop();self.tmp.cleanup()
 
     def test_live_light_dark_theme_preserves_items_draft_selection_and_view(self):
-        from prompt_studio.drafts import edit
+        from prompt_calculus_studio.drafts import edit
         key=self.refs['output'];self.canvas.commit(lambda state:edit(state,'',key));QTest.qWait(30)
         card=self.canvas.outputs[key];card.setSelected(True);self.canvas.onboarding.focus(key)
         graph=copy.deepcopy(self.canvas.data());positions=copy.deepcopy(self.w.state['text_positions'])
@@ -87,10 +87,10 @@ class CanvasVisualTests(unittest.TestCase):
         panel.pause_button.click();self.assertFalse(store.scheduler_paused(workspace,key));self.assertEqual(panel.pause_button.text(),'暫停')
 
     def test_setup_emphasis_follows_binding_then_stage_without_mutating_document(self):
-        from prompt_studio import clip_flow
-        from prompt_studio.stage_model import choose
-        from prompt_studio.generation import store_profile
-        from prompt_studio.drafts import edit
+        from prompt_calculus_studio import clip_flow
+        from prompt_calculus_studio.stage_model import choose
+        from prompt_calculus_studio.generation import store_profile
+        from prompt_calculus_studio.drafts import edit
         from test_multi_output import workflow
         self.canvas.onboarding.dismiss()
         clip=self.canvas.clips[self.refs['clip']].panel;stage=self.canvas.flow_cards[self.refs['stage']].panel
@@ -109,7 +109,7 @@ class CanvasVisualTests(unittest.TestCase):
         self.assertEqual(clip.setup_status.text(),'已綁定')
         self.assertFalse(clip.binding.property('setupCurrent'))
         self.assertTrue(stage.edit_button.property('setupCurrent'))
-        with patch('prompt_studio.stage_parameter_panel.open_parameters') as params:
+        with patch('prompt_calculus_studio.stage_parameter_panel.open_parameters') as params:
             stage.edit_button.click();params.assert_called_once_with(self.canvas,self.refs['stage'])
         self.assertTrue(self.canvas.commit(lambda s:choose(s,self.refs['stage'],'flow')));QTest.qWait(20)
         self.assertFalse(stage.edit_button.property('setupPending'))
@@ -128,9 +128,9 @@ class CanvasVisualTests(unittest.TestCase):
         self.assertEqual(self.canvas.data()['outputs'][self.refs['output']]['draft'],'')
 
     def test_stale_binding_is_pending_and_does_not_silently_repair_it(self):
-        from prompt_studio.canvas_onboarding import pending_setup
-        from prompt_studio import clip_flow
-        from prompt_studio.generation import store_profile
+        from prompt_calculus_studio.canvas_onboarding import pending_setup
+        from prompt_calculus_studio import clip_flow
+        from prompt_calculus_studio.generation import store_profile
         from test_multi_output import workflow
         def bind(state):
             store_profile(state,workflow());clip_flow.set_binding(state,'flow',self.refs['clip'],('6','text'))
@@ -143,7 +143,7 @@ class CanvasVisualTests(unittest.TestCase):
         self.assertEqual(self.w.state,document)
 
     def test_light_port_captions_are_deeper_without_recoloring_wires(self):
-        from prompt_studio.flow_items import wire_color,caption_color
+        from prompt_calculus_studio.flow_items import wire_color,caption_color
         def light(color):
             values=[color.redF(),color.greenF(),color.blueF()]
             return sum(c*w for c,w in zip([v/12.92 if v<=.04045 else ((v+.055)/1.055)**2.4 for v in values],(.2126,.7152,.0722)))
@@ -164,9 +164,9 @@ class CanvasVisualTests(unittest.TestCase):
         for port in ports:self.assertEqual(port.caption.brush().color(),wire_color(self.canvas,'image'))
 
     def test_execution_hint_explains_setup_without_changing_run_eligibility(self):
-        from prompt_studio import clip_flow
-        from prompt_studio.generation import store_profile
-        from prompt_studio.stage_model import choose
+        from prompt_calculus_studio import clip_flow
+        from prompt_calculus_studio.generation import store_profile
+        from prompt_calculus_studio.stage_model import choose
         from test_multi_output import workflow
         bar=self.canvas.execution_bar;client=self.w.comfy
         self.assertTrue(bar.status.isVisible())
@@ -245,7 +245,7 @@ class CanvasVisualTests(unittest.TestCase):
             recent.assert_not_called()
             menu.deleteLater()
         self.assertEqual(self.canvas.data(),graph);self.assertEqual(self.canvas.undo_stack,history)
-        with patch('prompt_studio.clip_widgets.RoundMenu.open_at') as open_menu:
+        with patch('prompt_calculus_studio.clip_widgets.RoundMenu.open_at') as open_menu:
             bar.more.click();open_menu.assert_called_once()
 
     def test_setup_badges_fit_when_interface_font_is_large(self):

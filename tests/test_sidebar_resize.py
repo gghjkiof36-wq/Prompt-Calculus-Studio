@@ -7,7 +7,7 @@ from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtTest import QTest
 
-from prompt_studio.core import initial_state, validate_state
+from prompt_calculus_studio.core import initial_state, validate_state
 import test_media_layout as media_fixture
 APP=media_fixture.APP
 
@@ -56,7 +56,7 @@ class SidebarResizeTests(unittest.TestCase):
     def test_width_survives_storage_reopen(self):
         self.pinned();self.drag(370);self.assertTrue(self.w.persist())
         self.w.close();APP.processEvents()
-        from prompt_studio.window import Window
+        from prompt_calculus_studio.window import Window
         self.w=Window(self.temp.name);self.g=self.w.gallery
         self.w.resize(1440,900);self.w.show();self.w.settings('appearance');self.pinned()
         self.assertEqual(self.w.state['settings']['context_sidebar_width'],370)
@@ -81,7 +81,7 @@ class SidebarResizeTests(unittest.TestCase):
         self.assertTrue(controller.dragging)
         self.assertEqual(self.w.state['settings']['context_sidebar_width'],240)
         self.assertTrue(self.w.close());self.assertTrue(controller._stopped)
-        from prompt_studio.core import Storage
+        from prompt_calculus_studio.core import Storage
         store=Storage(self.temp.name)
         try:self.assertEqual(store.load()['settings']['context_sidebar_width'],410)
         finally:store.close()
@@ -128,7 +128,7 @@ class SidebarResizeTests(unittest.TestCase):
 
     def test_canvas_overlay_keeps_zoom_position_blank_draft_history_and_bindings(self):
         self.w.set_interface_mode('canvas');self.pinned();canvas=self.w.canvas;view=canvas.view
-        from prompt_studio.drafts import edit
+        from prompt_calculus_studio.drafts import edit
         output=next(iter(canvas.data()['outputs']));canvas.commit(lambda state:edit(state,'',output));self.settle()
         view.resetTransform();view.scale(.9,.9);view.centerOn(1100,400);self.settle()
         center=view.mapToScene(view.viewport().rect().center());transform=view.transform()

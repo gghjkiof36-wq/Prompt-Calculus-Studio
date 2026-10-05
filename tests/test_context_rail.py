@@ -5,7 +5,7 @@ import unittest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 
-from prompt_studio.theme import visual_tokens
+from prompt_calculus_studio.theme import visual_tokens
 import test_media_layout as fixture
 APP=fixture.APP
 
@@ -70,7 +70,7 @@ class ContextRailTests(unittest.TestCase):
         self.w.set_interface_mode('canvas');self.w.sidebar_pinned_preference=False;self.w.sync_context_sidebar();self.settle()
         self.w.display_recovery.stop()
         canvas=self.w.canvas;view=canvas.view
-        from prompt_studio.drafts import edit
+        from prompt_calculus_studio.drafts import edit
         key=next(iter(canvas.data()['outputs']));canvas.commit(lambda state:edit(state,'',key));self.settle()
         view.resetTransform();view.scale(.9,.9);view.centerOn(800,300)
         geometry=self.w.canvas_content.geometry();transform=view.transform()

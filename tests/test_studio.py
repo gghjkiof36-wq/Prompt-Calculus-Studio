@@ -17,11 +17,11 @@ os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFontDatabase, QImage, QTextCursor, QInputMethodEvent
 from PySide6.QtCore import Qt, QTimer, QModelIndex
-from prompt_studio.core import initial_state, build_prompt, apply_workspace, validate_state, current_token, insertion, Storage, reorder_output, output_groups, TEMPORARY_GROUP
-from prompt_studio.media import checked_model, scan_models, copy_model, png_metadata, import_image, Catalog
-from prompt_studio.validation import validate_resources
-from prompt_studio.window import Window
-from prompt_studio.dialogs import WorkspaceDialog, SettingsDialog, ClearDraftDialog
+from prompt_calculus_studio.core import initial_state, build_prompt, apply_workspace, validate_state, current_token, insertion, Storage, reorder_output, output_groups, TEMPORARY_GROUP
+from prompt_calculus_studio.media import checked_model, scan_models, copy_model, png_metadata, import_image, Catalog
+from prompt_calculus_studio.validation import validate_resources
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.dialogs import WorkspaceDialog, SettingsDialog, ClearDraftDialog
 
 APP=QApplication.instance() or QApplication([])
 QFontDatabase.addApplicationFont("C:/Windows/Fonts/msjh.ttc")
@@ -99,7 +99,7 @@ class FileTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"已取消"): scan_models(root,cancel)
 
     def test_zip_backup_and_owned_original_relocation(self):
-        from prompt_studio.backup import archive_data
+        from prompt_calculus_studio.backup import archive_data
         with tempfile.TemporaryDirectory(dir=ROOT/"qa") as directory:
             root=Path(directory); path=root/"image.png"; image=QImage(64,64,QImage.Format.Format_RGB32); image.fill(Qt.GlobalColor.red); image.save(str(path))
             store=Storage(root/"data"); store.save(initial_state()); catalog=Catalog(store)
@@ -162,12 +162,12 @@ class UiTests(unittest.TestCase):
         w.final.setPlainText("hand edited"); w.add_temporary("white wall")
         self.assertEqual(w.final.toPlainText(),"hand edited")
         w.copy_module(w.current_module); self.assertEqual(APP.clipboard().text(),"1girl, red dress")
-        with patch("prompt_studio.window.ClearDraftDialog.exec",return_value=1): w.regenerate()
+        with patch("prompt_calculus_studio.window.ClearDraftDialog.exec",return_value=1): w.regenerate()
         self.assertIn("white wall",w.final.toPlainText()); self.assertIsNone(w.state["draft"])
 
     def test_display_refresh_preserves_draft_cursor_preferences_and_collapsed_panels(self):
         from PySide6.QtTest import QTest
-        from prompt_studio.theme import font_pixels
+        from prompt_calculus_studio.theme import font_pixels
         w=self.window; w.add_temporary("retained"); w.final.setPlainText("manual prompt")
         cursor=w.final.textCursor(); cursor.setPosition(4); w.final.setTextCursor(cursor)
         w.module_fold.set_expanded(False,animated=False)
@@ -190,9 +190,9 @@ class UiTests(unittest.TestCase):
         self.assertAlmostEqual(w.selected.activity,0.42,places=2)
         self.assertIn("正在使用手動版本",w.draft_status.text())
         selections=copy.deepcopy(w.state["selections"])
-        with patch("prompt_studio.window.ClearDraftDialog.exec",return_value=0): w.clear_draft.click()
+        with patch("prompt_calculus_studio.window.ClearDraftDialog.exec",return_value=0): w.clear_draft.click()
         self.assertEqual(w.state["draft"],""); self.assertEqual(w.final.toPlainText(),"")
-        with patch("prompt_studio.window.ClearDraftDialog.exec",return_value=1): w.clear_draft.click()
+        with patch("prompt_calculus_studio.window.ClearDraftDialog.exec",return_value=1): w.clear_draft.click()
         QTest.qWait(220)
         self.assertIsNone(w.state["draft"]); self.assertEqual(w.final.toPlainText(),"white wall")
         self.assertEqual(w.state["selections"],selections); self.assertEqual(w.state["temporary"],["white wall"])
@@ -211,12 +211,12 @@ class UiTests(unittest.TestCase):
         self.assertEqual(w.final.toPlainText(),"white wall"); self.assertFalse(w.state["settings"]["confirm_clear_draft"])
         w.persist(); self.assertFalse(w.store.load()["settings"]["confirm_clear_draft"])
         w.final.setPlainText("another draft")
-        with patch("prompt_studio.window.ClearDraftDialog",side_effect=AssertionError("Unexpected confirmation")):
+        with patch("prompt_calculus_studio.window.ClearDraftDialog",side_effect=AssertionError("Unexpected confirmation")):
             w.regenerate()
         self.assertEqual(w.final.toPlainText(),"white wall"); self.assertEqual(w.state["temporary"],["white wall"])
         settings=SettingsDialog(w); settings.confirm_clear_draft.setChecked(True); settings.save()
         w.final.setPlainText("ask again")
-        with patch("prompt_studio.window.ClearDraftDialog.exec",return_value=0) as ask_again: w.regenerate()
+        with patch("prompt_calculus_studio.window.ClearDraftDialog.exec",return_value=0) as ask_again: w.regenerate()
         ask_again.assert_called_once(); self.assertEqual(w.state["draft"],"ask again")
         settings.deleteLater()
 
@@ -224,7 +224,7 @@ class UiTests(unittest.TestCase):
         w=self.window; before=copy.deepcopy(w.state["settings"])
         # Native compositing is unavailable in offscreen tests; this checks the
         # same application stylesheet and controls with a supported backdrop.
-        with patch("prompt_studio.window.apply_backdrop",return_value=True):
+        with patch("prompt_calculus_studio.window.apply_backdrop",return_value=True):
             w.apply_theme(); original=w.styleSheet()
             dialog=SettingsDialog(w); dialog.show(); APP.processEvents()
             self.assertTrue(dialog.material_form.isRowVisible(dialog.transparency_row))
@@ -313,7 +313,7 @@ class UiTests(unittest.TestCase):
             with self.assertRaises(ValueError): validate_state(s)
 
     def test_custom_name_dialog_returns_text_before_cleanup(self):
-        from prompt_studio.widgets import InputDialog
+        from prompt_calculus_studio.widgets import InputDialog
         from PySide6.QtWidgets import QLineEdit
         def accept():
             dialog=APP.activeModalWidget(); dialog.findChild(QLineEdit).setText("Anima 版本 2"); dialog.accept()
@@ -379,7 +379,7 @@ class UiTests(unittest.TestCase):
         file=directory/"loras"/"test.safetensors"; file.write_bytes(b"only-fixture")
         rows=scan_models(directory); self.window.catalog.merge_models(rows,directory)
         page=self.window.models; page.root.setText(str(directory)); page.refresh(); page.list.setCurrentRow(0)
-        with patch("prompt_studio.pages.ask",return_value=False),patch("prompt_studio.pages.QFile.moveToTrash") as recycle:
+        with patch("prompt_calculus_studio.pages.ask",return_value=False),patch("prompt_calculus_studio.pages.QFile.moveToTrash") as recycle:
             page.recycle(); recycle.assert_not_called()
         self.assertTrue(file.exists()); self.assertFalse(self.errors)
 
@@ -388,7 +388,7 @@ class UiTests(unittest.TestCase):
         file=directory/"loras"/"test.safetensors"; file.write_bytes(b"only-fixture")
         self.window.catalog.merge_models(scan_models(directory),directory)
         page=self.window.models; page.root.setText(str(directory)); page.refresh(); page.list.setCurrentRow(0)
-        with patch("prompt_studio.pages.ask",return_value=True),patch("prompt_studio.pages.QFile.moveToTrash",return_value=(False,"")):
+        with patch("prompt_calculus_studio.pages.ask",return_value=True),patch("prompt_calculus_studio.pages.QFile.moveToTrash",return_value=(False,"")):
             page.recycle()
         self.assertTrue(file.exists()); self.assertEqual(len(self.errors),1)
 

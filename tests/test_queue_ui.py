@@ -8,10 +8,10 @@ from unittest.mock import patch
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
 import test_work_queue as core_tests
-from prompt_studio.window import Window
-from prompt_studio.queue_panel import QueueDialog
-from prompt_studio.image_iteration_panel import ImageIterationDialog
-from prompt_studio.image_bindings import import_source
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.queue_panel import QueueDialog
+from prompt_calculus_studio.image_iteration_panel import ImageIterationDialog
+from prompt_calculus_studio.image_bindings import import_source
 from test_comfy_integration import png
 
 APP=QApplication.instance() or QApplication([])
@@ -47,7 +47,7 @@ class QueueUiTests(unittest.TestCase):
         self.runner.start();self.runner.observe()
         self.assertEqual(len([c for c in self.calls if c['route']=='workflow/queue/submit']),1)
         self.assertEqual(self.window.state,original)
-        from prompt_studio.queue_runner import QueueRunner
+        from prompt_calculus_studio.queue_runner import QueueRunner
         reopened=QueueRunner(self.client)
         self.assertFalse(reopened.dispatching)
         self.assertEqual(reopened.store.read(first['id'])['state'],'unconfirmed')

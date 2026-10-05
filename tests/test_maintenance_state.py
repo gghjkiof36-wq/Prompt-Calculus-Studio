@@ -1,6 +1,6 @@
 import copy,unittest
-from prompt_studio import drafts,multi_output as model
-from prompt_studio.core import activate_selection_view
+from prompt_calculus_studio import drafts,multi_output as model
+from prompt_calculus_studio.core import activate_selection_view
 from test_multi_output import workspace,workflow
 
 

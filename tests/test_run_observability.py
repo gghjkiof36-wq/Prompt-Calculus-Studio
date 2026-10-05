@@ -6,10 +6,10 @@ import test_workflow_picker as picker_tests
 from test_multi_output import workspace
 from test_comfy_integration import Service
 import test_node_images as image_tests
-from prompt_studio.generation import submission
-from prompt_studio.snapshots import make_snapshot
-from prompt_studio.job_details import describe
-from prompt_studio.workflow_transfer import apply_transfer
+from prompt_calculus_studio.generation import submission
+from prompt_calculus_studio.snapshots import make_snapshot
+from prompt_calculus_studio.job_details import describe
+from prompt_calculus_studio.workflow_transfer import apply_transfer
 
 sync=importlib.import_module('integration_test.workflow_state')
 
@@ -93,7 +93,7 @@ class ConnectionRepairTests(unittest.TestCase):
     def test_completed_backend_result_reaches_canvas_preview_without_browser(self):
         from test_multi_output import workflow
         from test_comfy_integration import png
-        from prompt_studio import workflow_flow,multi_output
+        from prompt_calculus_studio import workflow_flow,multi_output
         from pathlib import Path
         p=workflow('flow'); p['graph']['9']=dict(class_type='PreviewImage',inputs={})
         self.w.generation_panel.save_profile(p)
@@ -117,7 +117,7 @@ class ConnectionRepairTests(unittest.TestCase):
         self.assertEqual(self.canvas.results.input_record['path'],str(root/source['relative']))
 
     def test_running_node_and_error_survive_in_existing_journal(self):
-        from prompt_studio.generation_runner import GenerationRunner
+        from prompt_calculus_studio.generation_runner import GenerationRunner
         state,_,_=workspace(); payload=submission(state['generation']['profiles'][0],make_snapshot(state))
         client=self.w.comfy; runner=client.generation; pending=[]
         def request(route,data=None,done=None,failed=None,**_):pending.append((route,done))

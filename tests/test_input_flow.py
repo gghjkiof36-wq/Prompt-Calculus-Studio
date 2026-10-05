@@ -1,14 +1,14 @@
 import copy
 import sqlite3
 import unittest
-from prompt_studio.core import initial_state, validate_state
-from prompt_studio.state_loading import prepare_state
-from prompt_studio.composition import node
-from prompt_studio.multi_output import new_canvas, connect, disconnect, compile_output
-from prompt_studio.flow_data import (add_scheduler,endpoint,capture_inputs,resolve,value,materialize)
-from prompt_studio.input_queue import InputQueue
-from prompt_studio.image_source import positive_fields,natural_key
-from prompt_studio.snapshots import make_snapshot,validate_snapshot
+from prompt_calculus_studio.core import initial_state, validate_state
+from prompt_calculus_studio.state_loading import prepare_state
+from prompt_calculus_studio.composition import node
+from prompt_calculus_studio.multi_output import new_canvas, connect, disconnect, compile_output
+from prompt_calculus_studio.flow_data import (add_scheduler,endpoint,capture_inputs,resolve,value,materialize)
+from prompt_calculus_studio.input_queue import InputQueue
+from prompt_calculus_studio.image_source import positive_fields,natural_key
+from prompt_calculus_studio.snapshots import make_snapshot,validate_snapshot
 
 
 def canvas_state():

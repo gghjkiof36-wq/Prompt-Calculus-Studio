@@ -12,10 +12,10 @@ def main():
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication, QMessageBox
-    from prompt_studio.window import Window
+    from prompt_calculus_studio.window import Window
     app=QApplication(sys.argv)
     app.setApplicationName("Prompt Calculus Studio"); app.setOrganizationName("Local Tools")
-    from prompt_studio import __file__ as package_file
+    from prompt_calculus_studio import __file__ as package_file
     app.setWindowIcon(QIcon(str(Path(package_file).parent/"assets"/"studio.ico")))
     data=Path(os.environ.get("PROMPT_STUDIO_DATA",str(ROOT/"data"))).resolve(); data.mkdir(parents=True,exist_ok=True)
     if any(flag in sys.argv for flag in ("--menu-smoke-test","--frame-smoke-test","--export-smoke-test","--canvas-smoke-test","--img2img-smoke-test","--interface-smoke-test","--repair-smoke-test","--v08-smoke-test","--v081-smoke-test")) and (data/"studio.sqlite3").exists():
@@ -42,31 +42,31 @@ def main():
         if not any(arg.endswith('smoke-test') for arg in sys.argv): window.start_interface()
         window.show()
         if '--v08-smoke-test' in sys.argv:
-            from prompt_studio.v08_check import start
+            from prompt_calculus_studio.v08_check import start
             start(window)
         if '--v081-smoke-test' in sys.argv:
-            from prompt_studio.v081_check import start
+            from prompt_calculus_studio.v081_check import start
             start(window)
         if '--interface-smoke-test' in sys.argv:
-            from prompt_studio.interface_check import start
+            from prompt_calculus_studio.interface_check import start
             start(window)
         if '--repair-smoke-test' in sys.argv:
-            from prompt_studio.repair_check import start
+            from prompt_calculus_studio.repair_check import start
             start(window)
         if '--img2img-smoke-test' in sys.argv:
-            from prompt_studio.generation_check import start
+            from prompt_calculus_studio.generation_check import start
             start(window)
         if '--canvas-smoke-test' in sys.argv:
-            from prompt_studio.canvas_check import start
+            from prompt_calculus_studio.canvas_check import start
             start(window)
         if '--export-smoke-test' in sys.argv:
-            from prompt_studio.export_check import start
+            from prompt_calculus_studio.export_check import start
             start(window)
         if "--frame-smoke-test" in sys.argv:
-            from prompt_studio.frame_check import start
+            from prompt_calculus_studio.frame_check import start
             start(window)
         if "--menu-smoke-test" in sys.argv:
-            from prompt_studio.menu_check import start
+            from prompt_calculus_studio.menu_check import start
             start(window)
         if "--smoke-test" in sys.argv:
             from PySide6.QtCore import QTimer

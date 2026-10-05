@@ -1,6 +1,6 @@
 import math
 import unittest
-from prompt_studio.parameter_display import display_value
+from prompt_calculus_studio.parameter_display import display_value
 
 
 class ParameterDisplayTests(unittest.TestCase):

@@ -7,8 +7,8 @@ sys.path[:0]=[str(ROOT/'vendor'),str(ROOT)]
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt,QTimer
 from PySide6.QtGui import QFontDatabase,QImage,QColor
-from prompt_studio.window import Window
-from prompt_studio.clean_export import scan,prepare
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.clean_export import scan,prepare
 APP=QApplication([])
 for font in ('msjh.ttc','msjhbd.ttc','segoeui.ttf','consola.ttf'): QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+font)
 base=ROOT/'qa'/'visual-070'/str(time.time_ns()); base.mkdir(parents=True)

@@ -19,6 +19,10 @@ ComfyUI 擴充由 `build_comfyui.build(destination=..., archive=...)` 建立，�
 
 重新散布自行建立的 Windows 包前，應按實際包含的第三方元件完成授權、通知、對應來源與替換重建材料；本版既有候選的檢查見 [THIRD_PARTY_086](THIRD_PARTY_086.md)。
 
+## 主分支的來源目錄
+
+主分支使用 `prompt_calculus_studio/releases.py` 與 `comfyui_prompt_calculus_studio/`。重建歷史標籤時，依該標籤的原始目錄與建置腳本操作。
+
 ## 來源版隨附擴充
 
 公開的來源版下載包包含專案檔案、`extensions/comfyui_prompt_calculus_studio` 已備妥的同版擴充，以及 `extensions/PromptCalculusStudio-ComfyUI.zip`。程式從自身資料夾尋找該配套，呼叫根目錄 `install_comfyui.ps1` 安裝；不需要先連線或使用 Manager。

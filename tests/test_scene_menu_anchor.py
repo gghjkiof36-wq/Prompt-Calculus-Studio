@@ -3,7 +3,7 @@ import unittest
 from shiboken6 import isValid
 from PySide6.QtCore import QPoint,QPointF,Qt
 from PySide6.QtWidgets import QApplication,QWidget,QPushButton,QGraphicsScene,QGraphicsView,QVBoxLayout,QHBoxLayout
-from prompt_studio.widgets import RoundMenu
+from prompt_calculus_studio.widgets import RoundMenu
 
 APP=QApplication.instance() or QApplication([])
 

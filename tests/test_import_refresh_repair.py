@@ -9,9 +9,9 @@ from unittest.mock import patch
 
 from PySide6.QtTest import QTest
 
-from prompt_studio import clip_flow, drafts, stage_model, workspace_scene
-from prompt_studio.core import validate_state
-from prompt_studio.state_loading import prepare_state
+from prompt_calculus_studio import clip_flow, drafts, stage_model, workspace_scene
+from prompt_calculus_studio.core import validate_state
+from prompt_calculus_studio.state_loading import prepare_state
 from stage_fixture import APP, StageFixture
 from test_multi_output import workspace
 
@@ -28,8 +28,8 @@ class ImportRefreshRepairTests(StageFixture):
 
     def import_file(self, path):
         errors = []
-        with patch('prompt_studio.window.QFileDialog.getOpenFileName', return_value=(str(path), 'JSON')), \
-                patch('prompt_studio.window.ask', return_value=True), patch.object(self.w, 'error', side_effect=errors.append):
+        with patch('prompt_calculus_studio.window.QFileDialog.getOpenFileName', return_value=(str(path), 'JSON')), \
+                patch('prompt_calculus_studio.window.ask', return_value=True), patch.object(self.w, 'error', side_effect=errors.append):
             self.w.import_json()
             self.w.changes.flush()
             QTest.qWait(20)

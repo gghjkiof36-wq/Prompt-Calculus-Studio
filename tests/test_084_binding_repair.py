@@ -6,9 +6,9 @@ from PySide6.QtWidgets import QPushButton
 from PySide6.QtTest import QTest
 import stage_fixture as fixture
 import test_084_stages as stages
-from prompt_studio import clip_flow,multi_output as model,stage_model
-from prompt_studio.flow_data import resolve,image_list
-from prompt_studio.result_data import add_text_reader
+from prompt_calculus_studio import clip_flow,multi_output as model,stage_model
+from prompt_calculus_studio.flow_data import resolve,image_list
+from prompt_calculus_studio.result_data import add_text_reader
 
 
 class BindingRepairTests(unittest.TestCase):
@@ -65,7 +65,7 @@ class BindingRepairTests(unittest.TestCase):
         for port in self.c.ports.values():
             self.assertNotEqual(port.kind,'done')
             if port.kind in ('control','flow'):self.assertEqual(port.caption.text(),'輸出' if port.output else '輸入')
-        from prompt_studio.stage_widgets import StageDialog
+        from prompt_calculus_studio.stage_widgets import StageDialog
         self.w.settings_page.workflow_manager.catalog.loaded=True
         dialog=StageDialog(self.c,key)
         try:
@@ -142,7 +142,7 @@ class BindingRepairTests(unittest.TestCase):
         self.assertEqual(self.workflows(),['flow','B','B']);self.assertIsNone(self.runner.current(),self.notices)
 
     def test_queued_future_result_retains_reader_selection_while_ui_changes(self):
-        from prompt_studio.flow_data import add_scheduler
+        from prompt_calculus_studio.flow_data import add_scheduler
         a,b=self.stages(('flow','B'));source=self.c.functions.add_image(enhanced=False)
         def setup(s):
             profile=next(p for p in s['generation']['profiles'] if p['id']=='flow')

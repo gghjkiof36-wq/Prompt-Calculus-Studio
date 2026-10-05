@@ -3,10 +3,10 @@ from pathlib import Path
 from unittest.mock import patch
 from test_multi_output import workspace
 from test_comfy_integration import Service
-from prompt_studio.core import Storage
-from prompt_studio import clip_flow,workflow_flow,multi_output,composition
-from prompt_studio.generation import submission
-from prompt_studio.snapshots import make_snapshot
+from prompt_calculus_studio.core import Storage
+from prompt_calculus_studio import clip_flow,workflow_flow,multi_output,composition
+from prompt_calculus_studio.generation import submission
+from prompt_calculus_studio.snapshots import make_snapshot
 
 sync=importlib.import_module('integration_test.workflow_state')
 SERVER='http://127.0.0.1:8188'

@@ -6,8 +6,8 @@ import unittest
 import uuid
 from pathlib import Path
 
-from prompt_studio.core import Storage, initial_state
-from prompt_studio.generation import (initialize_effective_profile,
+from prompt_calculus_studio.core import Storage, initial_state
+from prompt_calculus_studio.generation import (initialize_effective_profile,
     accept_effective_profile, validate_profile)
 
 
@@ -133,7 +133,7 @@ class EffectiveStorageTests(unittest.TestCase):
 class EffectiveSubmissionTests(unittest.TestCase):
     def setUp(self):
         from test_multi_output import workspace
-        from prompt_studio import clip_flow, multi_output
+        from prompt_calculus_studio import clip_flow, multi_output
         old,_,output=workspace(); self.state=clip_flow.upgrade(old)
         clip=next(b['clip'] for b in self.state['multi_output']['bindings'] if b['node']=='7')
         multi_output.connect(self.state,output,clip,'clip')
@@ -149,8 +149,8 @@ class EffectiveSubmissionTests(unittest.TestCase):
         self.state['generation']['profiles'][0]=self.profile
 
     def payload(self):
-        from prompt_studio.snapshots import make_snapshot
-        from prompt_studio.generation import submission
+        from prompt_calculus_studio.snapshots import make_snapshot
+        from prompt_calculus_studio.generation import submission
         return submission(self.profile,make_snapshot(self.state,'fixture-library'))
 
     def test_actual_payload_and_service_preserve_two_manual_destinations_and_original(self):
@@ -170,7 +170,7 @@ class EffectiveSubmissionTests(unittest.TestCase):
         self.assertEqual(result['generation']['effective']['revision'],2)
 
     def test_validator_rejects_tampered_parameters_or_effective_revision(self):
-        from prompt_studio.generation import validate_effective_submission
+        from prompt_calculus_studio.generation import validate_effective_submission
         for tamper in ('graph','revision','source'):
             payload=self.payload(); direct=payload['extra_data']['extra_pnginfo']['prompt_studio_request']
             if tamper=='graph': payload['prompt']['3']['inputs']['steps']=20

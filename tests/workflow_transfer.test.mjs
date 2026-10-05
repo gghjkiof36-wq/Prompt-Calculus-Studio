@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {editableFields,transferSettings,assignOutput,exportTransfer} from '../comfyui_prompt_studio/web/workflow_transfer.js';
+import {editableFields,transferSettings,assignOutput,exportTransfer} from '../comfyui_prompt_calculus_studio/web/workflow_transfer.js';
 const graph=()=>({_nodes:[{id:6,type:'Positive',widgets:[{name:'text',value:'original'}],inputs:[]},
     {id:7,type:'Negative',widgets:[{name:'text',value:''},{name:'text_g',value:'a'},{name:'text_l',value:'linked'}],inputs:[{name:'text_l',link:1}]}]});
 test('all editable text fields are listed; linked text is excluded',()=>assert.equal(editableFields(graph()._nodes).length,3));

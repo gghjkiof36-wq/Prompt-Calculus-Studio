@@ -5,12 +5,12 @@ from PySide6.QtCore import QObject,QEvent,QPointF
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
-from prompt_studio.window import Window
-from prompt_studio import multi_output as model
-from prompt_studio.generation import active_profile,submission,validate_profile
-from prompt_studio.workflow_import import infer_profile
-from prompt_studio.workflow_transfer import import_transfer
-from prompt_studio.snapshots import make_snapshot
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio import multi_output as model
+from prompt_calculus_studio.generation import active_profile,submission,validate_profile
+from prompt_calculus_studio.workflow_import import infer_profile
+from prompt_calculus_studio.workflow_transfer import import_transfer
+from prompt_calculus_studio.snapshots import make_snapshot
 from test_generation import workflow
 
 APP=QApplication.instance() or QApplication([])
@@ -115,7 +115,7 @@ class ImportedSeedTests(unittest.TestCase):
         from test_multi_output import workspace
         state,cid,oid=workspace(); profile=state['generation']['profiles'][0]; snap=make_snapshot(state)
         profile['seed_mode']='random'
-        with patch('prompt_studio.generation.secrets.randbits',side_effect=[111,222]):
+        with patch('prompt_calculus_studio.generation.secrets.randbits',side_effect=[111,222]):
             self.assertEqual([submission(profile,snap)['prompt']['3']['inputs']['seed'] for _ in range(2)],[111,222])
         profile['seed_mode']='fixed'; self.assertEqual(submission(profile,snap)['prompt']['3']['inputs']['seed'],2)
 

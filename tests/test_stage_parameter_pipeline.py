@@ -4,10 +4,10 @@ import unittest
 from PySide6.QtTest import QTest
 import test_084_stages as stage_tests
 from stage_parameter_fixture import add_samplers,intention
-from prompt_studio import multi_output as model
-from prompt_studio.flow_data import add_scheduler
-from prompt_studio.stage_parameters import effective
-from prompt_studio.pnginfo import png_metadata
+from prompt_calculus_studio import multi_output as model
+from prompt_calculus_studio.flow_data import add_scheduler
+from prompt_calculus_studio.stage_parameters import effective
+from prompt_calculus_studio.pnginfo import png_metadata
 
 
 class StageParameterPipelineTests(unittest.TestCase):

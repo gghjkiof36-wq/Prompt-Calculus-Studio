@@ -2,8 +2,8 @@
 import copy
 import sqlite3
 import unittest
-from prompt_studio import stage_parameters as p
-from prompt_studio.stage_store import StageStore
+from prompt_calculus_studio import stage_parameters as p
+from prompt_calculus_studio.stage_store import StageStore
 
 
 def config(value=3):

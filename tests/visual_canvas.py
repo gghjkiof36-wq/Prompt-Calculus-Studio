@@ -8,9 +8,9 @@ os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
-from prompt_studio.window import Window
-from prompt_studio import composition as c
-from prompt_studio.text_canvas import CanvasPalette
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio import composition as c
+from prompt_calculus_studio.text_canvas import CanvasPalette
 
 app = QApplication([])
 for font in ('msjh.ttc', 'msjhbd.ttc', 'segoeui.ttf'): QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+font)

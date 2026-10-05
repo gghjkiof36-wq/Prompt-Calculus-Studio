@@ -5,10 +5,10 @@ import tempfile
 import unittest
 from types import SimpleNamespace,MethodType
 from test_multi_output import workspace,workflow
-from prompt_studio import clip_flow,workflow_flow,multi_output
-from prompt_studio.core import Storage,validate_state
-from prompt_studio.workflow_manager import WorkflowManager
-from prompt_studio.workflow_deletion import prepare_remove,prepare_restore,commit_change
+from prompt_calculus_studio import clip_flow,workflow_flow,multi_output
+from prompt_calculus_studio.core import Storage,validate_state
+from prompt_calculus_studio.workflow_manager import WorkflowManager
+from prompt_calculus_studio.workflow_deletion import prepare_remove,prepare_restore,commit_change
 
 
 class WorkflowDeletionTests(unittest.TestCase):

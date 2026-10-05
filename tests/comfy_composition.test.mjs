@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseItem, changeWorkspace } from '../comfyui_prompt_studio/web/state.js';
+import { chooseItem, changeWorkspace } from '../comfyui_prompt_calculus_studio/web/state.js';
 
 const node = (name, prompt) => ({id: name, name, prompt, enabled: true, weight: 10, children: [], overlays: [], excludes: []});
 const module = {id:'m', name:'自訂', mode:'multiple'};

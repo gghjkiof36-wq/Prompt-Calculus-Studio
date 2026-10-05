@@ -8,8 +8,8 @@ from unittest.mock import Mock, patch
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
-from prompt_studio import composition
-from prompt_studio.canvas_items import CanvasView
+from prompt_calculus_studio import composition
+from prompt_calculus_studio.canvas_items import CanvasView
 
 APP = QApplication.instance() or QApplication([])
 LEFT = Qt.MouseButton.LeftButton
@@ -87,10 +87,10 @@ class BlankCanvasGestureTests(unittest.TestCase):
 
 class RecentSheetTests(unittest.TestCase):
     def test_child_overlay_hide_restores_recent_page_once_without_changing_canvas(self):
-        from prompt_studio.window import Window
-        from prompt_studio.recent_overlay import RecentOverlay
+        from prompt_calculus_studio.window import Window
+        from prompt_calculus_studio.recent_overlay import RecentOverlay
         root = Path(__file__).resolve().parents[1]
-        with tempfile.TemporaryDirectory(dir=root/'qa') as directory, patch('prompt_studio.comfy_client.ComfyClient.request'):
+        with tempfile.TemporaryDirectory(dir=root/'qa') as directory, patch('prompt_calculus_studio.comfy_client.ComfyClient.request'):
             window = Window(Path(directory)/'data')
             window.state['settings']['online'] = False
             window.resize(1000, 700)
@@ -139,8 +139,8 @@ class RecentSheetTests(unittest.TestCase):
 
 class ModelLibraryTests(unittest.TestCase):
     def test_category_root_import_scan_and_reversible_missing_cleanup(self):
-        from prompt_studio.core import Storage
-        from prompt_studio.media import Catalog, model_root, copy_model, scan_models
+        from prompt_calculus_studio.core import Storage
+        from prompt_calculus_studio.media import Catalog, model_root, copy_model, scan_models
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(dir=root/'qa') as directory:
             base = Path(directory)
@@ -192,8 +192,8 @@ class ResultSelectionTests(unittest.TestCase):
 
     def test_unbound_preview_does_not_take_images_from_recent_records(self):
         from PySide6.QtGui import QImage, QColor
-        from prompt_studio import multi_output
-        from prompt_studio.media import import_image
+        from prompt_calculus_studio import multi_output
+        from prompt_calculus_studio.media import import_image
         records=[]
         for color in ('red','blue'):
             path=Path(self.tmp.name)/f'{color}.png'

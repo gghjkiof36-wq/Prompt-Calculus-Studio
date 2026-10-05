@@ -3,7 +3,7 @@ import copy
 import threading
 import unittest
 from types import SimpleNamespace
-from prompt_studio.native_graph import graph_matches,input_schema
+from prompt_calculus_studio.native_graph import graph_matches,input_schema
 import test_native_queue as native_tests
 
 

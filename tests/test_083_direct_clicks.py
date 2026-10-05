@@ -7,9 +7,9 @@ from unittest.mock import patch
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QPushButton
-from prompt_studio import multi_output as model
-from prompt_studio.flow_data import add_scheduler,endpoint
-from prompt_studio.input_runner import InputRunner
+from prompt_calculus_studio import multi_output as model
+from prompt_calculus_studio.flow_data import add_scheduler,endpoint
+from prompt_calculus_studio.input_runner import InputRunner
 import test_083_runtime_repair as runtime
 from test_083_recovery import RecoveryExecutor
 

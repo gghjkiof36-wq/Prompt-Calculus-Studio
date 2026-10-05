@@ -94,6 +94,14 @@ class DeploymentTests(unittest.TestCase):
         self.call('update_desktop.ps1',['-Source',source,'-Destination',destination]);self.assertEqual(self.tree(source),self.tree(destination))
         before=self.tree(destination);self.call('update_desktop.ps1',['-Source',source,'-Destination',destination],success=False);self.assertEqual(self.tree(destination),before)
 
+    def test_desktop_package_accepts_renamed_runtime_directory(self):
+        source=self.root/'renamed-desktop';source.mkdir();self.make_package(source,'desktop')
+        old=source/'_internal/prompt_studio';new=source/'_internal/prompt_calculus_studio'
+        old.rename(new);package_manifest(source,'desktop')
+        destination=self.root/'renamed-install'
+        self.call('update_desktop.ps1',['-Source',source,'-Destination',destination])
+        self.assertEqual(self.tree(source),self.tree(destination))
+
     def test_junction_target_refused_before_any_write(self):
         other=self.root/'redirected';other.mkdir();(other/'marker').write_text('preserve')
         subprocess.run([SHELL,'-NoProfile','-NonInteractive','-Command',"New-Item -ItemType Junction -Path '"+str(self.target)+"' -Target '"+str(other)+"' | Out-Null"],check=True,capture_output=True)

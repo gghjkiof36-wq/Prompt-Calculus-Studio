@@ -7,8 +7,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget
 
-from prompt_studio.window_chrome import CaptionPaintSurface, _WindowsCaptionApi, install_expanded_chrome
-from prompt_studio.theme import visual_tokens
+from prompt_calculus_studio.window_chrome import CaptionPaintSurface, _WindowsCaptionApi, install_expanded_chrome
+from prompt_calculus_studio.theme import visual_tokens
 
 
 APP = QApplication.instance() or QApplication([])
@@ -52,7 +52,7 @@ class CaptionPaintTests(unittest.TestCase):
     def test_native_commands_and_hit_tests_are_never_consumed(self):
         window = QMainWindow()
         window.setCentralWidget(QWidget())
-        with patch('prompt_studio.window_chrome.supported', return_value=True):
+        with patch('prompt_calculus_studio.window_chrome.supported', return_value=True):
             controller = install_expanded_chrome(window)
         controller.caption_replaced = True
         controller.hwnd = 123
@@ -79,7 +79,7 @@ class CaptionPaintTests(unittest.TestCase):
     def test_missing_qt_decoration_falls_back_without_duplicate_controls(self):
         window = QMainWindow()
         window.setCentralWidget(QWidget())
-        with patch('prompt_studio.window_chrome.supported', return_value=True):
+        with patch('prompt_calculus_studio.window_chrome.supported', return_value=True):
             controller = install_expanded_chrome(window)
         surface = CaptionPaintSurface(window)
         controller.caption_surface = surface

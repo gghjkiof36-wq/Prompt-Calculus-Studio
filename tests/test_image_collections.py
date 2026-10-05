@@ -100,7 +100,7 @@ class BoundCollectionUITests(unittest.TestCase):
         from PySide6.QtTest import QTest
         from test_multi_canvas import APP
         from test_multi_output import workflow
-        from prompt_studio import multi_output,workflow_flow
+        from prompt_calculus_studio import multi_output,workflow_flow
         p=workflow('A');p.update(frontend_id='native-A',origin=dict(path='A.json'));p['graph']['9']=dict(class_type='PreviewImage',inputs=dict(images=['3',0]));self.w.generation_panel.save_profile(p)
         key=self.canvas.functions.add_image()
         self.canvas.commit(lambda state:workflow_flow.bind_image(state,key,'A','9'))

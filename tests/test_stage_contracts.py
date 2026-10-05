@@ -1,8 +1,8 @@
 """Port-direction/type boundaries and one-way historical state conversion."""
 import copy
 import unittest
-from prompt_studio.module_contracts import DATA_TYPES,MODULES,can_connect,port_types
-from prompt_studio.stage_model import upgrade
+from prompt_calculus_studio.module_contracts import DATA_TYPES,MODULES,can_connect,port_types
+from prompt_calculus_studio.stage_model import upgrade
 
 
 def state():

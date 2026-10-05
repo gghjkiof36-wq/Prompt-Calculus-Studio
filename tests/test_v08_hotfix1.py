@@ -2,8 +2,8 @@ import copy,os,tempfile,unittest
 from unittest.mock import patch
 from PySide6.QtWidgets import QApplication,QLabel
 from PySide6.QtTest import QTest
-from prompt_studio.window import Window
-from prompt_studio import multi_output as model
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio import multi_output as model
 from test_multi_output import workflow
 
 APP=QApplication.instance() or QApplication([])
@@ -30,7 +30,7 @@ class WorkflowWindowTests(unittest.TestCase):
         self.w.persist(); self.w.close(); APP.processEvents(); self.w=Window(self.temp.name); self.w.show(); QTest.qWait(20)
         self.w.settings('workflows'); self.assert_main_window_only()
     def test_denoise_stays_in_parameter_editor_and_summary_is_attached(self):
-        from prompt_studio.generation_panel import ParametersDialog
+        from prompt_calculus_studio.generation_panel import ParametersDialog
         profile=workflow(); self.w.generation_panel.save_profile(profile)
         self.assertIn('Denoise',self.w.generation_panel.parameters.toolTip())
         self.assertIsNotNone(self.w.generation_panel.workflow.parentWidget())

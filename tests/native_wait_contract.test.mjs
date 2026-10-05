@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {stripTypeScriptTypes} from 'node:module';
-import {installNativeQueue} from '../comfyui_prompt_studio/web/native_queue.js';
+import {installNativeQueue} from '../comfyui_prompt_calculus_studio/web/native_queue.js';
 const mapPath=process.env.PCS_FRONTEND_SOURCE_MAP;
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 

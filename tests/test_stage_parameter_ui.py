@@ -14,9 +14,9 @@ from PySide6.QtWidgets import QLineEdit,QWidget,QPushButton,QLabel,QFrame,QCombo
 from PySide6.QtTest import QTest
 from stage_fixture import StageFixture,APP
 from stage_parameter_fixture import add_samplers,inspection,intention
-from prompt_studio import stage_model,multi_output as model
-from prompt_studio.stage_parameter_panel import open_parameters,SeedEditor,ParameterSheet,NodeName
-from prompt_studio.stage_parameter_choices import ParameterChoices
+from prompt_calculus_studio import stage_model,multi_output as model
+from prompt_calculus_studio.stage_parameter_panel import open_parameters,SeedEditor,ParameterSheet,NodeName
+from prompt_calculus_studio.stage_parameter_choices import ParameterChoices
 
 for filename in ('msjh.ttc','consola.ttf','segoeui.ttf'):
     QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+filename)
@@ -77,7 +77,7 @@ class StageParameterUITests(StageFixture):
         self.assertEqual(self.c.data()['stages'][self.stage]['parameters'],cfg)
         sheet=self.sheet();self.edit(sheet,'35','cfg','-')
         self.assertFalse(sheet.apply_button.isEnabled());self.assertEqual(sheet.findChild(QLineEdit,'parameter_35_cfg').text(),'-')
-        with patch('prompt_studio.stage_parameter_panel.ask',return_value=True):QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton)
+        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=True):QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton)
         QTest.qWait(10);self.assertEqual(self.c.data()['stages'][self.stage]['parameters'],cfg);self.assertFalse(self.executor.submissions)
 
     def test_compact_float_does_not_create_or_round_intentions(self):
@@ -300,13 +300,13 @@ class StageParameterUITests(StageFixture):
         self.assertIn('此節點沒有可調整的參數',[item.text() for item in sheet.form.findChildren(QLabel)])
         self.assertFalse([w for w in sheet.form.findChildren(QWidget) if w.objectName().startswith('parameter_')])
         before=copy.deepcopy(self.c.data());self.edit(sheet,'35','cfg','3')
-        with patch('prompt_studio.stage_parameter_panel.ask',return_value=False) as ask:
+        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=False) as ask:
             QTest.mouseClick(sheet,Qt.MouseButton.LeftButton,pos=QPoint(2,2));self.assertTrue(ask.called)
         self.assertFalse(sheet.closed);self.assertEqual(self.c.data(),before)
         style=self.w.styleSheet();self.w.setStyleSheet(re.sub(r'font-size:(\d+)px',lambda m:'font-size:'+str(int(m[1])*2)+'px',style));QTest.qWait(50)
         self.assert_contained_fields(sheet);self.assertEqual(sheet.findChild(QLineEdit,'parameter_35_cfg').text(),'3')
         self.assertTrue(sheet.parentWidget().rect().contains(sheet.panel.geometry()))
-        with patch('prompt_studio.stage_parameter_panel.ask',return_value=True):
+        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=True):
             QTest.mouseClick(sheet,Qt.MouseButton.LeftButton,pos=QPoint(2,2))
         QTest.qWait(10);self.assertFalse(self.w.findChildren(ParameterSheet));self.assertEqual(self.c.data(),before)
         self.assertFalse(self.executor.submissions)
@@ -370,16 +370,16 @@ class StageParameterUITests(StageFixture):
         sheet=self.sheet();original=sheet.workflow.currentData()
         sheet.workflow.setCurrentIndex(sheet.workflow.findData(other['id']));QTest.qWait(30);self.edit(sheet,'35','cfg','4')
         sheet.workflow.setCurrentIndex(sheet.workflow.findData(original));QTest.qWait(30);self.assertFalse(sheet.dirty())
-        with patch('prompt_studio.stage_parameter_panel.ask',return_value=False) as ask:
+        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=False) as ask:
             QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton);self.assertTrue(ask.called)
         self.assertFalse(sheet.closed)
         self.edit(sheet,'35','cfg','3')
-        with patch('prompt_studio.stage_parameter_panel.ask',return_value=False) as ask:
+        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=False) as ask:
             QTest.mouseClick(sheet.apply_button,Qt.MouseButton.LeftButton);self.assertTrue(ask.called)
         self.assertNotIn('parameters',self.c.data()['stages'][self.stage]);self.assertFalse(sheet.closed)
         sheet.workflow.setCurrentIndex(sheet.workflow.findData(other['id']));QTest.qWait(30);sheet.jump(['35']);QTest.qWait(15)
         self.assertEqual(sheet.findChild(QLineEdit,'parameter_35_cfg').text(),'4')
-        with patch('prompt_studio.stage_parameter_panel.ask',return_value=True):QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton)
+        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=True):QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton)
         self.assertEqual(self.c.data()['stages'][self.stage]['workflow'],original);self.assertFalse(self.executor.submissions)
 
     def test_refresh_preserves_draft_baseline_and_removed_field_can_be_discarded(self):
@@ -390,10 +390,10 @@ class StageParameterUITests(StageFixture):
         self.assertIn('同一欄位',sheet.status.text());self.assertFalse(sheet.closed);self.assertNotIn('parameters',self.c.data()['stages'][self.stage])
         self.profile['graph']['35']['inputs'].pop('cfg');sheet.reload();QTest.qWait(30)
         self.assertFalse(sheet.apply_button.isEnabled())
-        with patch('prompt_studio.stage_parameter_panel.ask',return_value=False) as ask:
+        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=False) as ask:
             QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton);self.assertTrue(ask.called)
         self.assertFalse(sheet.closed)
-        with patch('prompt_studio.stage_parameter_panel.ask',return_value=True):QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton)
+        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=True):QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton)
         self.assertFalse(self.executor.submissions)
 
     def test_search_while_refresh_pending_and_late_reply_after_close(self):

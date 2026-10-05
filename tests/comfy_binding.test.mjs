@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {KEY, bind, captureManual, textWidget, writeSnapshot, chooseItem, mergeLibrary} from '../comfyui_prompt_studio/web/state.js';
+import {KEY, bind, captureManual, textWidget, writeSnapshot, chooseItem, mergeLibrary} from '../comfyui_prompt_calculus_studio/web/state.js';
 
 const snapshot = () => ({final_prompt: 'auto', generated_prompt: 'auto', manual_draft: false, state: {draft: null, draft_base: ''}});
 const node = (text = '') => ({id: 4, widgets: [{name: 'text', value: text}], inputs: [], properties: {}});

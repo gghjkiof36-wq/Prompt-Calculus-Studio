@@ -6,14 +6,14 @@ from PySide6.QtCore import Qt,QPoint,QPointF,QMimeData,QUrl
 from PySide6.QtGui import QImage,QDragEnterEvent,QDropEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from prompt_studio.window import Window
-from prompt_studio.core import build_prompt,validate_state
-from prompt_studio.generation import active_profile,submission,validate_profile
-from prompt_studio.workflow_import import import_graph,infer_profile,WIDGETS
-from prompt_studio.snapshots import make_snapshot
-from prompt_studio.text_canvas import CanvasPalette
-from prompt_studio.media import import_image
-from prompt_studio import composition as comp
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.core import build_prompt,validate_state
+from prompt_calculus_studio.generation import active_profile,submission,validate_profile
+from prompt_calculus_studio.workflow_import import import_graph,infer_profile,WIDGETS
+from prompt_calculus_studio.snapshots import make_snapshot
+from prompt_calculus_studio.text_canvas import CanvasPalette
+from prompt_calculus_studio.media import import_image
+from prompt_calculus_studio import composition as comp
 from test_generation import workflow
 APP=QApplication.instance() or QApplication([])
 

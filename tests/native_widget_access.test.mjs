@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {captureWidgetAccess,matchesWidgetAccess} from '../comfyui_prompt_studio/web/native_parameter_capabilities.js';
+import {captureWidgetAccess,matchesWidgetAccess} from '../comfyui_prompt_calculus_studio/web/native_parameter_capabilities.js';
 
 // A focused forwarding fixture; actual Vue/Pinia + BaseWidget sources are
 // exercised separately by the source-backed frontend compatibility harness.

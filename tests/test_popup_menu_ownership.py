@@ -6,9 +6,9 @@ from PySide6.QtGui import QColor, QFontDatabase, QIcon, QMouseEvent, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QMenu, QPlainTextEdit, QVBoxLayout, QWidget
 
-from prompt_studio.core import DEFAULT_SETTINGS
-from prompt_studio.theme import stylesheet, visual_tokens, widget_palette
-from prompt_studio.widgets import RoundMenu
+from prompt_calculus_studio.core import DEFAULT_SETTINGS
+from prompt_calculus_studio.theme import stylesheet, visual_tokens, widget_palette
+from prompt_calculus_studio.widgets import RoundMenu
 
 
 APP=QApplication.instance() or QApplication([])

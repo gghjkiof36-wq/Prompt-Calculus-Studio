@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createSeedObserver} from '../comfyui_prompt_studio/web/native_seed.js';
+import {createSeedObserver} from '../comfyui_prompt_calculus_studio/web/native_seed.js';
 
 function fixture(timing='before',provided=null) {
     const seed={name:'seed',value:10,options:{min:0,max:100,step2:1}};

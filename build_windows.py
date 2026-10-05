@@ -21,7 +21,7 @@ os.chdir(ROOT)
 from PySide6.QtCore import QByteArray, QBuffer, QIODevice
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtSvg import QSvgRenderer
-icon_path=ROOT/"prompt_studio"/"assets"/"studio.ico"
+icon_path=ROOT/"prompt_calculus_studio"/"assets"/"studio.ico"
 renderer=QSvgRenderer(str(icon_path.with_suffix(".svg")))
 if not renderer.isValid(): raise RuntimeError("Invalid application icon")
 images=[]
@@ -40,7 +40,7 @@ import PyInstaller.__main__
 diagnostic="--diagnostic" in sys.argv
 stage_only="--stage-only" in sys.argv
 output_name="diagnostic" if diagnostic else ("package-icon" if "--icon-refresh" in sys.argv else "package")
-from prompt_studio.releases import select_release,CURRENT,write_launchers,APP_BASENAME
+from prompt_calculus_studio.releases import select_release,CURRENT,write_launchers,APP_BASENAME
 release=select_release(sys.argv)
 if release:
     output_name=release.folder; stage_only=True
@@ -63,15 +63,15 @@ PyInstaller.__main__.run([
     "--noconfirm","--clean","--console" if diagnostic else "--windowed","--onedir","--name",APP_BASENAME,
     "--paths",str(ROOT/"vendor"),"--paths",str(ROOT),
     "--icon",str(icon_path),
-    "--add-data",str(ROOT/"prompt_studio"/"assets")+os.pathsep+"prompt_studio/assets",
-    "--add-data",str(build_info)+os.pathsep+"prompt_studio/assets",
+    "--add-data",str(ROOT/"prompt_calculus_studio"/"assets")+os.pathsep+"prompt_calculus_studio/assets",
+    "--add-data",str(build_info)+os.pathsep+"prompt_calculus_studio/assets",
     "--distpath",str(package.parent),"--workpath",str(ROOT/"build"),
     "--exclude-module","numpy","--exclude-module","matplotlib",
     "--exclude-module","PIL","--exclude-module","tkinter",
     str(ROOT/"run.py")])
 from package_documents import bundle_documents
 from build_comfyui import build as build_companion
-from prompt_studio.releases import EXTENSION_FOLDER
+from prompt_calculus_studio.releases import EXTENSION_FOLDER
 build_companion(package/'extensions'/EXTENSION_FOLDER,
                 package/'extensions'/'PromptCalculusStudio-ComfyUI.zip',release=release)
 bundle_documents(package, desktop=True,release=release)

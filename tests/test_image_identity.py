@@ -44,7 +44,7 @@ class ImageIdentityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'伺服器'):self.service.resolve(query,{},'http://127.0.0.1:8189')
 
     def desktop_query(self,kind='PreviewImage',completed=None):
-        from prompt_studio.image_bindings import queries
+        from prompt_calculus_studio.image_bindings import queries
         state=dict(generation=dict(profiles=[dict(id='shared',graph={'9':dict(class_type=kind,inputs=dict(image='A.png'))})]),
                    canvas_functions=dict(images={'image':dict(binding=dict(workflow='shared',node='9'))}))
         return json.loads(json.dumps(queries(state,['image'],completed)))[0]

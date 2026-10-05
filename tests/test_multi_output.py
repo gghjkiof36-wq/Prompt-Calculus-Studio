@@ -1,11 +1,11 @@
 import copy,json,sqlite3,tempfile,unittest
 from pathlib import Path
-from prompt_studio.core import initial_state,build_prompt,validate_state,Storage,activate_selection_view
-from prompt_studio.composition import node
-from prompt_studio.multi_output import (migrate,new_canvas,new_output,ident,assign,connect,disconnect,
+from prompt_calculus_studio.core import initial_state,build_prompt,validate_state,Storage,activate_selection_view
+from prompt_calculus_studio.composition import node
+from prompt_calculus_studio.multi_output import (migrate,new_canvas,new_output,ident,assign,connect,disconnect,
     bind,bound_texts,compile_output,select_output,GENERATOR)
-from prompt_studio.generation import submission,validate_profile
-from prompt_studio.snapshots import make_snapshot,validate_snapshot,restore_snapshot
+from prompt_calculus_studio.generation import submission,validate_profile
+from prompt_calculus_studio.snapshots import make_snapshot,validate_snapshot,restore_snapshot
 
 
 def workflow(name='flow'):
@@ -115,7 +115,7 @@ class MultiOutputTests(unittest.TestCase):
         activate_selection_view(new,'canvas'); self.assertEqual(new['draft'],'canvas manual'); self.assertEqual(build_prompt(new),'canvas original')
 
     def test_fixed_workspace_restores_canvas_ownership_without_stale_roots(self):
-        from prompt_studio.core import apply_workspace
+        from prompt_calculus_studio.core import apply_workspace
         s,c,o=workspace(); fixed=s['workspaces'][0]; fixed.update(fixed_uses=['one','restored'],uses={'restored':node('restored','restored content')},canvas_owners={'restored':c})
         apply_workspace(s,fixed['id']); validate_state(s)
         self.assertNotIn('one',s['multi_output']['canvases'][c]['members'])

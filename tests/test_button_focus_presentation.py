@@ -7,10 +7,10 @@ from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QHBoxLayout,
                               QPushButton, QRadioButton, QToolButton, QVBoxLayout, QWidget)
 
-from prompt_studio.button_focus import install_button_focus_styling
-from prompt_studio.core import DEFAULT_SETTINGS
-from prompt_studio.recent_overlay import RecentOverlay
-from prompt_studio.theme import stylesheet, visual_tokens, widget_palette
+from prompt_calculus_studio.button_focus import install_button_focus_styling
+from prompt_calculus_studio.core import DEFAULT_SETTINGS
+from prompt_calculus_studio.recent_overlay import RecentOverlay
+from prompt_calculus_studio.theme import stylesheet, visual_tokens, widget_palette
 
 
 APP = QApplication.instance() or QApplication([])

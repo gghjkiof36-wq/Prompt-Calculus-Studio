@@ -12,7 +12,7 @@ from PySide6.QtGui import QFontDatabase, QHelpEvent, QImage, QPainter, QWheelEve
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QListWidget, QPushButton, QStyleOptionViewItem
 
-from prompt_studio.window import Window
+from prompt_calculus_studio.window import Window
 
 APP=QApplication.instance() or QApplication([])
 if APP.platformName()=='offscreen':
@@ -24,7 +24,7 @@ class MediaLayoutTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
         self.environment=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'}); self.environment.start()
-        self.transport=patch('prompt_studio.comfy_client.ComfyClient.request',side_effect=AssertionError('No service in media UI tests')); self.transport.start()
+        self.transport=patch('prompt_calculus_studio.comfy_client.ComfyClient.request',side_effect=AssertionError('No service in media UI tests')); self.transport.start()
         self.w=Window(self.temp.name); self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
         self.w.resize(1440,900); self.w.apply_theme(); self.w.show(); self.w.show_page(self.w.gallery)
         self.g=self.w.gallery; self.settle()
@@ -68,14 +68,14 @@ class MediaLayoutTests(unittest.TestCase):
         current=copy.deepcopy(self.g.record)
         selected={item.data(Qt.ItemDataRole.UserRole)['id'] for item in self.g.images.selectedItems()}
         before=list(self.w.catalog.db.execute('SELECT * FROM resources ORDER BY id'))
-        with patch('prompt_studio.pages.ask',return_value=False) as confirmation:
+        with patch('prompt_calculus_studio.pages.ask',return_value=False) as confirmation:
             self.g.delete_album()
             self.assertIn('65 張圖片紀錄',confirmation.call_args.args[2])
             self.assertIn('磁碟原圖、應用內副本與縮圖都會保留',confirmation.call_args.args[2])
         self.assertEqual(list(self.w.catalog.db.execute('SELECT * FROM resources ORDER BY id')),before)
         self.assertEqual(self.g.record,current); self.assertTrue(self.g.detail_scroll.isVisible())
         self.assertEqual({item.data(Qt.ItemDataRole.UserRole)['id'] for item in self.g.images.selectedItems()},selected)
-        with patch('prompt_studio.pages.ask',return_value=True):self.g.delete_album()
+        with patch('prompt_calculus_studio.pages.ask',return_value=True):self.g.delete_album()
         self.settle()
         self.assertIsNone(self.w.catalog.get('album')); self.assertEqual(self.w.catalog.count('image','album'),0)
         self.assertEqual(self.w.catalog.get('other-image'),other); self.assertEqual(self.w.catalog.get('recent-entry'),recent)
@@ -88,7 +88,7 @@ class MediaLayoutTests(unittest.TestCase):
         self.assertEqual(self.w.recent.destination_picker.findData('album:album'),-1)
         # Removing the remaining populated folder reaches the real empty state.
         self.g.images.setCurrentRow(0); self.settle()
-        with patch('prompt_studio.pages.ask',return_value=True):self.g.delete_album()
+        with patch('prompt_calculus_studio.pages.ask',return_value=True):self.g.delete_album()
         self.settle()
         self.assertEqual(self.w.catalog.count('album'),0); self.assertEqual(self.w.catalog.count('image'),0)
         self.assertEqual(self.g.albums.count(),0); self.assertEqual(self.g.images.count(),0)
@@ -107,18 +107,18 @@ class MediaLayoutTests(unittest.TestCase):
             self.assertTrue(rail.buttons[key].isVisible()); self.assertEqual(rail.buttons[key].accessibleName(),title)
             self.assertFalse(rail.buttons[key].isCheckable())
         self.assertEqual(rail.buttons['folder-more'].property('iconName'),'more-horizontal')
-        with patch('prompt_studio.pages.QInputDialog.getText',return_value=('新資料夾',True)):
+        with patch('prompt_calculus_studio.pages.QInputDialog.getText',return_value=('新資料夾',True)):
             rail.buttons['add-folder'].click()
         self.settle()
         self.assertEqual(self.w.catalog.count('album'),1); self.assertEqual(self.g.albums.currentItem().text(),'新資料夾')
         self.assertFalse(self.g.sidebar_expanded)
         menus=[]
-        with patch('prompt_studio.pages.QMenu.open_at',autospec=True,side_effect=lambda menu,position:menus.append((menu,position))):
+        with patch('prompt_calculus_studio.pages.QMenu.open_at',autospec=True,side_effect=lambda menu,position:menus.append((menu,position))):
             rail.buttons['folder-more'].click()
         menu,position=menus[0]; trigger=rail.buttons['folder-more']
         self.assertEqual(position,trigger.mapToGlobal(trigger.rect().bottomLeft()))
         removal=next(action for action in menu.actions() if action.text()=='移除資料夾…')
-        with patch('prompt_studio.pages.ask',return_value=True):removal.trigger()
+        with patch('prompt_calculus_studio.pages.ask',return_value=True):removal.trigger()
         self.settle(); self.assertEqual(self.w.catalog.count('album'),0)
         self.assertEqual(self.g.empty_action.text(),'新增資料夾')
 
@@ -139,7 +139,7 @@ class MediaLayoutTests(unittest.TestCase):
         import threading
         self.add_images(1); record,request,result=self.held_collection(); recent=self.w.recent
         jobs=Mock(active=None); jobs.start.return_value=True
-        with patch.object(self.w,'jobs',jobs),patch('prompt_studio.recent.QTimer.singleShot'):
+        with patch.object(self.w,'jobs',jobs),patch('prompt_calculus_studio.recent.QTimer.singleShot'):
             for phase in ('network','queued','active'):
                 if phase=='queued':
                     jobs.active=object(); request.call_args.args[2](result)
@@ -147,7 +147,7 @@ class MediaLayoutTests(unittest.TestCase):
                 elif phase=='active':
                     jobs.active=None; recent.pump()
                     self.assertFalse(recent.saves); self.assertTrue(recent.processing)
-                with self.subTest(phase=phase),patch('prompt_studio.pages.ask') as confirm,patch.object(self.w,'notice') as notice:
+                with self.subTest(phase=phase),patch('prompt_calculus_studio.pages.ask') as confirm,patch.object(self.w,'notice') as notice:
                     self.g.delete_album(); confirm.assert_not_called()
                     self.assertIsNotNone(self.w.catalog.get('album')); self.assertIn('等待圖片收藏',notice.call_args.args[0])
             work,done=jobs.start.call_args.args[1:3]; done(work(threading.Event()))
@@ -158,7 +158,7 @@ class MediaLayoutTests(unittest.TestCase):
             recent.collect(record); return True
         request=Mock()
         try:
-            with patch.object(self.w.comfy,'connected',True),patch.object(self.w.comfy,'request',request),patch('prompt_studio.pages.ask',side_effect=start_during_confirmation):self.g.delete_album()
+            with patch.object(self.w.comfy,'connected',True),patch.object(self.w.comfy,'request',request),patch('prompt_calculus_studio.pages.ask',side_effect=start_during_confirmation):self.g.delete_album()
             request.assert_called_once(); self.assertIn(record['id'],recent.collecting)
             self.assertEqual(list(self.w.catalog.db.execute('SELECT * FROM resources ORDER BY id')),before)
         finally:
@@ -171,7 +171,7 @@ class MediaLayoutTests(unittest.TestCase):
                 self.add_images(1); record,request,result=self.held_collection(); recent=self.w.recent
                 downloaded=Path(result['path']); original_bytes=downloaded.read_bytes()
                 jobs=Mock(active=None); jobs.start.return_value=True
-                with patch.object(self.w,'jobs',jobs),patch('prompt_studio.recent.QTimer.singleShot'),patch.object(self.w,'notice') as notice:
+                with patch.object(self.w,'jobs',jobs),patch('prompt_calculus_studio.recent.QTimer.singleShot'),patch.object(self.w,'notice') as notice:
                     if removed_at=='active':
                         request.call_args.args[2](result)
                         value=jobs.start.call_args.args[1](threading.Event())
@@ -198,13 +198,13 @@ class MediaLayoutTests(unittest.TestCase):
         self.add_images(1); record,request,result=self.held_collection(); recent=self.w.recent
         downloaded=Path(result['path']); original_bytes=downloaded.read_bytes()
         jobs=Mock(active=None); jobs.start.return_value=True
-        with patch.object(self.w,'jobs',jobs),patch('prompt_studio.recent.QTimer.singleShot'):
+        with patch.object(self.w,'jobs',jobs),patch('prompt_calculus_studio.recent.QTimer.singleShot'):
             request.call_args.args[2](result)
             self.assertTrue(recent.processing); self.assertIn(record['id'],recent.collecting)
             jobs.start.call_args.args[3]('已取消操作。')
             self.assertFalse(recent.processing); self.assertFalse(recent.collecting)
             self.assertFalse(self.w.catalog.get(record['id']).get('collected'))
-            with patch('prompt_studio.pages.ask',return_value=True) as confirm:self.g.delete_album()
+            with patch('prompt_calculus_studio.pages.ask',return_value=True) as confirm:self.g.delete_album()
             confirm.assert_called_once(); self.assertIsNone(self.w.catalog.get('album'))
             self.assertEqual(downloaded.read_bytes(),original_bytes)
 
@@ -452,18 +452,18 @@ class MediaLayoutTests(unittest.TestCase):
                 bounds=QRect(self.g.detail_more.mapTo(scroll.viewport(),QPoint()),self.g.detail_more.size())
                 self.assertTrue(scroll.viewport().rect().contains(bounds))
                 menus=[]
-                with patch('prompt_studio.pages.QMenu.open_at',lambda menu,position:menus.append(menu)):
+                with patch('prompt_calculus_studio.pages.QMenu.open_at',lambda menu,position:menus.append(menu)):
                     self.g.detail_more.click()
                 choices={action.text():action for action in menus[0].actions() if not action.isSeparator()}
                 self.assertEqual(set(choices),{'恢復模組組合（無快照）','重新連結原圖','附上目前工作區資料','編輯備註','移至其它資料夾','移除圖片紀錄…'})
                 self.assertFalse(choices['恢復模組組合（無快照）'].isEnabled())
                 self.assertIn('未保存',choices['恢復模組組合（無快照）'].toolTip())
-                with patch('prompt_studio.pages.ask',return_value=False) as confirmation, patch.object(self.w.catalog,'delete') as deleted:
+                with patch('prompt_calculus_studio.pages.ask',return_value=False) as confirmation, patch.object(self.w.catalog,'delete') as deleted:
                     choices['移除圖片紀錄…'].trigger()
                     confirmation.assert_called_once(); deleted.assert_not_called()
 
     def test_viewed_image_is_distinct_from_multi_selection_and_action_scope_is_preserved(self):
-        from prompt_studio.theme import visual_tokens
+        from prompt_calculus_studio.theme import visual_tokens
         self.add_images(3); self.g.images.setCurrentRow(0); self.g.images.item(2).setSelected(True); self.settle()
         viewed=self.g.images.item(0); other=self.g.images.item(2)
         selected=[i.data(Qt.ItemDataRole.UserRole)['id'] for i in self.g.images.selectedItems()]
@@ -478,7 +478,7 @@ class MediaLayoutTests(unittest.TestCase):
                 image=rendered.copy(self.g.images.visualItemRect(item))
                 return sum(image.pixelColor(x,y).name()==accent for y in range(image.height()) for x in range(image.width()))
             self.assertGreater(accent_pixels(viewed),0); self.assertEqual(accent_pixels(other),0)
-        with patch('prompt_studio.pages.open_file') as opened, patch.object(self.w,'open_export') as exported:
+        with patch('prompt_calculus_studio.pages.open_file') as opened, patch.object(self.w,'open_export') as exported:
             self.g.open_original(); opened.assert_called_once_with(self.g,viewed.data(Qt.ItemDataRole.UserRole)['path'])
             self.g.export_selected(); self.assertEqual(len(exported.call_args.args[0]),2)
         # The existing context menu can inspect an already selected item without
@@ -508,7 +508,7 @@ class MediaLayoutTests(unittest.TestCase):
                         self.assertLess(self.g.detail_card.height(),self.g.detail_scroll.viewport().height()-60)
                         # The transparent area belongs to the surrounding workspace,
                         # rather than stretching the bordered detail card.
-                        from prompt_studio.theme import visual_tokens
+                        from prompt_calculus_studio.theme import visual_tokens
                         point=self.g.detail_scroll.viewport().mapTo(self.w,QPoint(60,self.g.detail_card.geometry().bottom()+30))
                         pixel=self.w.grab().toImage().pixelColor(point)
                         self.assertEqual(pixel.name(),visual_tokens(self.w.state['settings'])['base'])
@@ -525,7 +525,7 @@ class MediaLayoutTests(unittest.TestCase):
                     self.assertEqual(self.w.catalog.get(record['id']),before)
 
     def test_image_data_dialog_preserves_notes_manual_and_complete_raw_data(self):
-        from prompt_studio.media_gallery import ImageMetadataDialog
+        from prompt_calculus_studio.media_gallery import ImageMetadataDialog
         self.add_images(1); item=self.g.images.item(0); self.g.images.setCurrentRow(0)
         record=self.w.catalog.get(item.data(Qt.ItemDataRole.UserRole)['id'])
         record['metadata']={'source':'none','raw':{'parameters':'Long prompt\n'*1400+'LAST-PARAMETER'}}
@@ -556,14 +556,14 @@ class MediaLayoutTests(unittest.TestCase):
                 self.assertTrue(dialog.rect().contains(QRect(dialog.copy_button.mapTo(dialog,QPoint()),dialog.copy_button.size())))
             finally:dialog.reject(); dialog.deleteLater(); APP.processEvents()
         self.assertEqual(self.w.catalog.get(record['id']),before)
-        with patch('prompt_studio.media_gallery.ImageMetadataDialog.exec',return_value=0) as opened:
+        with patch('prompt_calculus_studio.media_gallery.ImageMetadataDialog.exec',return_value=0) as opened:
             self.g.metadata_button.click(); opened.assert_called_once()
 
     def test_image_data_typography_keeps_plain_content_and_inherited_size(self):
         from PySide6.QtGui import QFont
-        from prompt_studio.media_gallery import ImageMetadataDialog
-        from prompt_studio.metadata_view import readable_metadata
-        from prompt_studio.theme import visual_tokens
+        from prompt_calculus_studio.media_gallery import ImageMetadataDialog
+        from prompt_calculus_studio.metadata_view import readable_metadata
+        from prompt_calculus_studio.theme import visual_tokens
         self.add_images(1)
         record=self.w.catalog.get(self.g.images.item(0).data(Qt.ItemDataRole.UserRole)['id'])
         record['metadata']={'source':'none','nodes':[
@@ -602,7 +602,7 @@ class MediaLayoutTests(unittest.TestCase):
 
     def test_image_tiles_hide_captions_but_keep_names_and_viewing_badges(self):
         from PySide6.QtCore import QEvent
-        from prompt_studio.theme import visual_tokens
+        from prompt_calculus_studio.theme import visual_tokens
         self.add_images(1); self.g.images.setCurrentRow(0); self.settle()
         item=self.g.images.item(0)
         delegate=self.g.images.itemDelegate(); index=self.g.images.model().index(0,0)
@@ -627,7 +627,7 @@ class MediaLayoutTests(unittest.TestCase):
             self.assertTrue(any(active.pixelColor(x,y).name()==colors['accent'] for y in range(8,120) for x in range(8,width-8)))
         self.g.record=current
         event=QHelpEvent(QEvent.Type.ToolTip,QPoint(15,15),QPoint(15,15))
-        with patch('prompt_studio.media_gallery.QToolTip.showText') as tooltip:
+        with patch('prompt_calculus_studio.media_gallery.QToolTip.showText') as tooltip:
             self.assertTrue(delegate.helpEvent(event,self.g.images,QStyleOptionViewItem(),index))
             self.assertIn(current['name'],tooltip.call_args.args[1])
         self.g.set_view_mode('list'); self.settle()
@@ -705,11 +705,11 @@ class MediaLayoutTests(unittest.TestCase):
             self.g.detail_export_selection.click(); self.assertEqual(len(exported.call_args.args[0]),2)
 
     def test_preview_resizes_cached_image_and_keeps_missing_source_hint(self):
-        from prompt_studio.widgets import set_record_preview
+        from prompt_calculus_studio.widgets import set_record_preview
         self.add_images(1); item=self.g.images.item(0); self.g.images.setCurrentRow(0); self.settle()
         pixmap=self.g.preview.pixmap()
         self.assertAlmostEqual(pixmap.width()/pixmap.height(),96/144,delta=.01)
-        with patch('prompt_studio.widgets.record_pixmap',side_effect=AssertionError('Resizing must use cached pixels')):
+        with patch('prompt_calculus_studio.widgets.record_pixmap',side_effect=AssertionError('Resizing must use cached pixels')):
             for width in (1280,1920,800):self.w.resize(width,640); self.settle()
         missing=dict(self.g.record,path=str(Path(self.temp.name)/'missing.png'),thumb='')
         set_record_preview(self.g.preview,self.w.store,missing,512)

@@ -9,10 +9,10 @@ from PySide6.QtWidgets import QApplication, QWidget, QDialogButtonBox
 from PySide6.QtGui import QPainter, QColor, QLinearGradient
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtTest import QTest
-from prompt_studio.window import Window
-from prompt_studio.widgets import RoundMenu
-from prompt_studio.dialogs import ModuleDialog
-from prompt_studio.core import uid
+from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.widgets import RoundMenu
+from prompt_calculus_studio.dialogs import ModuleDialog
+from prompt_calculus_studio.core import uid
 
 app=QApplication([])
 OUT=ROOT/'qa'/'ui-v041'; OUT.mkdir(exist_ok=True)
