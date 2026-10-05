@@ -1,5 +1,7 @@
 # Prompt Calculus Studio（PCS）
 
+[完整文件目錄：使用指南、版本、測試與歷史紀錄](docs/DOCUMENTS.md)
+
 把常用提示詞整理成模組，選取素材、調整順序與權重，再送入 ComfyUI 工作流。PCS 是 Windows 桌面工具，提供清單與 Canvas 兩種編輯方式，角色、風格、場景與工作區都保存在本機。
 
 **化繁為簡，從混亂中找出秩序。**
