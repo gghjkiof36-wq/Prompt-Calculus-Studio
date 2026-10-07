@@ -1,5 +1,7 @@
 # 版本對照
 
+目前開發中的本機測試候選為 **0.8.6 啟動與回復修訂 12**；沿用 0.8.6 格式，包含已配置文件啟動、排程卡布局與安裝回復修正，見[候選說明](PCS_086_REVISION12.md)。下列已公開版本與下載保持不變。
+
 PCS 使用「主版.次版.修訂」三段版本號；本次版本為 **0.8.6 Alpha 1**，下載入口為[本次 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.6-alpha.1)。0.8.5 的來源與操作保留於[舊版 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.5-alpha.1)。
 
 | 舊名稱 | 現行名稱／下載 |

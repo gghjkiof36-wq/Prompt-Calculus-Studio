@@ -9,10 +9,12 @@ from prompt_calculus_studio import releases
 class Release084Tests(unittest.TestCase):
     def test_current_and_legacy_selection(self):
         historical = releases.RELEASES['--v0.8.4-alpha.1']
-        self.assertEqual(releases.CURRENT.version, 'v0.8.6 Alpha 1')
-        self.assertEqual(releases.CURRENT.flag, '--v0.8.6-alpha.1')
+        self.assertEqual(releases.CURRENT.version, 'v0.8.6 啟動與回復修訂 12')
+        self.assertEqual(releases.CURRENT.flag, '--v086-revision12')
+        self.assertIs(releases.select_release(['--v086-revision12','--v086-startup-fix1','--v0.8.6-alpha.1']),releases.CURRENT)
+        self.assertEqual(releases.select_release(['--v086-startup-fix1']).version,'v0.8.6 啟動修復 1')
         self.assertIs(releases.select_release(['--v086-revision10', '--v086-revision9']), releases.RELEASES['--v086-revision10'])
-        self.assertIs(releases.select_release(['--v0.8.6-alpha.1', '--v086-revision11']), releases.CURRENT)
+        self.assertIs(releases.select_release(['--v0.8.6-alpha.1', '--v086-revision11']), releases.RELEASES['--v0.8.6-alpha.1'])
         self.assertIs(releases.select_release(['--v086-phase1-revision3', '--v086-phase1-revision2']), releases.RELEASES['--v086-phase1-revision3'])
         self.assertIs(releases.select_release(['--v086-phase1-revision2', '--v086-phase1']), releases.RELEASES['--v086-phase1-revision2'])
         self.assertIs(releases.select_release(['--v086-phase1', '--v0.8.5-alpha.1']), releases.RELEASES['--v086-phase1'])
