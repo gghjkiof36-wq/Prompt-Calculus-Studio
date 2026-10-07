@@ -1,0 +1,28 @@
+Prompt Calculus Studio — 快速使用說明
+
+封裝版：完整解壓後開啟 PromptCalculusStudio.exe，保留旁邊的 _internal。
+原始碼版：先安裝 Python 3.12，再在專案目錄依序執行：
+  py -3.12 setup_dependencies.py
+  py -3.12 run.py
+
+第一次使用：
+1. 左側選模組，中間新增或選擇素材。
+2. 右側查看完整 Prompt，按「複製完整 Prompt」。
+3. 拖曳右側群組可調整輸出順序，素材的 −／＋可調整權重。
+4. 手動編輯文字後，按「清除內容」可回到原本組合。
+
+連接 ComfyUI：
+先依 COMFYUI_GUIDE.md 安裝擴充。
+在 ComfyUI 網頁綁定 text 欄位並按「啟動桌面版控制」，
+再於 Prompt Calculus Studio 連接，並在「最近生成」指定收藏位置。
+0.7.1 需保持 ComfyUI 網頁開啟。工作區參數目前是建議值。
+
+分享圖片：
+在「匯出」選擇圖片、清理方式與目的地，先預覽再開始。
+詳細格式與限制見 CLEAN_EXPORT_GUIDE.md。
+
+資料保存在程式使用的 data 資料夾。更新前先建立 ZIP 備份。
+外部圖片與模型需另行備份。
+完整文件見 README.md 與 docs/README.md。
+
+本專案採 AGPL-3.0-only，全文見 LICENSE。

@@ -1,12 +1,12 @@
 # Prompt Calculus Studio（PCS）
 
-[完整文件目錄：使用指南、版本、測試與歷史紀錄](docs/DOCUMENTS.md)
+[完整文件目錄：使用指南、版本、測試與歷史紀錄](docs/README.md)
 
 把常用提示詞整理成模組，選取素材、調整順序與權重，再送入 ComfyUI 工作流。PCS 是 Windows 桌面工具，提供清單與 Canvas 兩種編輯方式，角色、風格、場景與工作區都保存在本機。
 
 **化繁為簡，從混亂中找出秩序。**
 
-[English](README.en.md) · [開始使用](docs/GETTING_STARTED.md) · [操作指南](docs/USER_GUIDE.md) · [ComfyUI 整合](COMFYUI_GUIDE.md)
+[English](README.en.md) · [開始使用](docs/guide/getting-started.md) · [操作指南](docs/guide/README.md) · [ComfyUI 整合](docs/guide/comfyui.md)
 
 ## 能做什麼
 
@@ -50,29 +50,29 @@ py -3.12 -m venv .venv
 
 來源包已包含同版配套擴充。開啟 PCS，在「探索 → ComfyUI → 連線與工作流」按「安裝／更新 PCS 擴充」，選 ComfyUI 資料夾；安裝時先關閉 ComfyUI，完成後重啟並重新整理網頁。再依畫布提示綁定 CLIP、選擇 Stage 工作流並執行。生成時保持 PCS、ComfyUI 及工作流網頁開啟。
 
-更新前備份資料，將新版放入新資料夾並使用資料副本。請搭配同版 PCS 與擴充；舊版下載與名稱見[版本對照](docs/VERSIONING.md)。
+更新前備份資料，將新版放入新資料夾並使用資料副本。請搭配同版 PCS 與擴充；舊版下載與名稱見[版本對照](docs/releases/README.md)。
 
 ## 第一次設定 Stage
 
-雙擊 Canvas 的 Stage 卡片，選工作流和要修改的節點，再按「檢視變更」確認數值並「套用」。套用只保存設定，按「執行」才生成。要比較兩組參數，可在等待項目中分別保存 CFG 3 和 4；後續修改一般 Stage 不會改掉這兩筆設定。完整操作見[Stage 參數指南](docs/STAGE_PARAMETERS.md)。
+雙擊 Canvas 的 Stage 卡片，選工作流和要修改的節點，再按「檢視變更」確認數值並「套用」。套用只保存設定，按「執行」才生成。要比較兩組參數，可在等待項目中分別保存 CFG 3 和 4；後續修改一般 Stage 不會改掉這兩筆設定。完整操作見[Stage 參數指南](docs/guide/stage-parameters.md)。
 
 ## 使用提示
 
 - PCS 的文字會在按「執行」時送入 ComfyUI；只有文字輸入、沒有接 Stage 時，只會更新欄位。
 - 欄位顯示唯讀時，查看提示原因；更新同版擴充並重啟 ComfyUI、重新整理網頁。已接線或尚不支援的控制可在 ComfyUI 內設定；PCS 可編輯種子上限為 `1125899906842624`。
 - 底部叉號取消目前項目，其他等待項保留並暫停。要全部取消，使用叉號右鍵或預排程「更多」中的明確選項。
-- 切換工作流後若卡在載入中，先查看 ComfyUI 是否已有任務、保存工作流，再重新整理網頁。處理方式見[疑難排解](docs/TROUBLESHOOTING.md)。
+- 切換工作流後若卡在載入中，先查看 ComfyUI 是否已有任務、保存工作流，再重新整理網頁。處理方式見[疑難排解](docs/guide/troubleshooting.md)。
 
 ## 文件與支援
 
 | 想做的事 | 文件 |
 |---|---|
-| 安裝、啟動與建立捷徑 | [開始使用](docs/GETTING_STARTED.md) |
-| Stage 與每筆任務參數 | [Stage 參數指南](docs/STAGE_PARAMETERS.md) |
-| 模組、工作區與圖片操作 | [操作指南](docs/USER_GUIDE.md) |
-| 綁定工作流與生成 | [ComfyUI 整合](COMFYUI_GUIDE.md) |
-| 資料位置、備份與聯網 | [資料與隱私](docs/DATA_AND_PRIVACY.md) |
-| 查看版本更新 | [發布說明](docs/RELEASE_NOTES_086.md)、[更新紀錄](CHANGELOG.md) |
+| 安裝、啟動與建立捷徑 | [開始使用](docs/guide/getting-started.md) |
+| Stage 與每筆任務參數 | [Stage 參數指南](docs/guide/stage-parameters.md) |
+| 模組、工作區與圖片操作 | [操作指南](docs/guide/README.md) |
+| 綁定工作流與生成 | [ComfyUI 整合](docs/guide/comfyui.md) |
+| 資料位置、備份與聯網 | [資料與隱私](docs/guide/data-backup-privacy.md) |
+| 查看版本更新 | [發布說明](docs/releases/0.8.6/alpha.1.md)、[更新紀錄](CHANGELOG.md) |
 | 回報問題或參與開發 | [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues)、[貢獻指南](CONTRIBUTING.md)、[安全回報](SECURITY.md) |
 
 ## 授權

@@ -58,11 +58,32 @@ def source_paths(root=ROOT):
     return sorted(set(paths))
 
 
+def validation_reference(release, paths):
+    """Use evidence for the exact build flag; other builds link to the index."""
+    reports={
+        '--v081-maintenance':'docs/releases/0.8.1/validation/maintenance.md',
+        '--v081-ui-repair1':'docs/releases/0.8.1/validation/ui-repair-1.md',
+        '--v082-alpha1-repair5':'docs/releases/0.8.2/validation/repair-5.md',
+        '--v083-direct':'docs/releases/0.8.3/validation/alpha.1.md',
+        '--v0.8.4-alpha.1':'docs/releases/0.8.4/validation/alpha.1.md',
+        '--v0.8.5-alpha.1':'docs/releases/0.8.5/validation/alpha.1.md',
+        '--v0.8.6-alpha.1':'docs/releases/0.8.6/validation/alpha.1.md',
+    }
+    available={path.relative_to(ROOT).as_posix() for path in paths}
+    report=reports.get(release.flag)
+    if report in available:return dict(validation=report)
+    index='docs/releases/README.md'
+    if index not in available:raise ValueError('來源缺少版本索引，已停止打包。')
+    # Candidate flags must not inherit a later release's verification results.
+    return dict(validation=index,validation_note='此建置未附獨立驗證紀錄；連結為版本索引，不代表測試通過。')
+
+
 def bundle_documents(destination, desktop=False, release=None):
     from prompt_calculus_studio.releases import CURRENT,SOURCE_ARCHIVE
     release=release or CURRENT
     destination = Path(destination)
     paths=source_paths(ROOT)
+    validation=validation_reference(release,paths)
     for path in paths:
         relative=path.relative_to(ROOT)
         if relative.parts[0]=='docs' or (len(relative.parts)==1 and (path.suffix in ('.md','.txt') or path.name in ('LICENSE','deploy_common.ps1','install_comfyui.ps1','update_desktop.ps1'))):
@@ -89,12 +110,12 @@ def bundle_documents(destination, desktop=False, release=None):
             return value.stdout.decode('utf-8',errors='replace').strip() if value.returncode==0 else None
         except (OSError,subprocess.TimeoutExpired):return None
     previous=json.loads((destination/'BUILD_INFO.json').read_text(encoding='utf-8')) if (destination/'BUILD_INFO.json').exists() else {}
-    info=dict(version=release.version,release=release.flag,built_utc=datetime.now(timezone.utc).isoformat(),git_head=git('rev-parse','HEAD'),working_changes=git('status','--porcelain'),source_sha256=hashlib.sha256((destination/SOURCE_ARCHIVE).read_bytes()).hexdigest(),validation='docs/DEVELOPMENT_STATUS.md')
+    info=dict(version=release.version,release=release.flag,built_utc=datetime.now(timezone.utc).isoformat(),git_head=git('rev-parse','HEAD'),working_changes=git('status','--porcelain'),source_sha256=hashlib.sha256((destination/SOURCE_ARCHIVE).read_bytes()).hexdigest(),**validation)
     if desktop:info['binary_git_head']=previous.get('binary_git_head',info['git_head'])
     (destination/'BUILD_INFO.json').write_text(json.dumps(info,ensure_ascii=False,indent=2),encoding='utf-8')
     (destination/'BUILD_NOTICE.txt').write_text(
         'Prompt Calculus Studio '+release.version+'\n'
-        '操作與安裝：docs/GETTING_STARTED.md；版本對照：docs/VERSIONING.md。\n'
+        '操作與安裝：docs/guide/getting-started.md；版本對照：docs/releases/README.md。\n'
         '來源與逐檔校驗：BUILD_INFO.json、SOURCE_MANIFEST.json、PACKAGE_MANIFEST.json。\n'+
         SOURCE_ARCHIVE+' 包含對應專案原始碼與建置腳本。\n'
-        '專案授權：AGPL-3.0-only，完整條款見 LICENSE；第三方套件見 docs/LICENSING.md。\n', encoding='utf-8')
+        '專案授權：AGPL-3.0-only，完整條款見 LICENSE；第三方套件見 docs/guide/licensing.md。\n', encoding='utf-8')

@@ -10,7 +10,9 @@ class SourcePrivacyTests(unittest.TestCase):
     def test_tracked_sources_and_untracked_local_data_have_separate_boundaries(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)/'source';root.mkdir();destination=Path(directory)/'package';destination.mkdir()
-            legitimate=['run.py','docs/README.md','comfyui_prompt_calculus_studio/service.py','comfyui_prompt_calculus_studio/web/style.css','tests/fixture.json','docs/images/canvas-public.png']
+            legitimate=['run.py','docs/README.md','comfyui_prompt_calculus_studio/service.py','comfyui_prompt_calculus_studio/web/style.css','tests/fixture.json','docs/images/canvas-public.png',
+                        'docs/guide/getting-started.md','docs/releases/README.md','docs/releases/0.8.6/validation/alpha.1.md',
+                        'docs/development/architecture.md','docs/archive/0.7.1/getting-started.txt']
             private=['comfyui_prompt_calculus_studio/local_library.json','comfyui_prompt_calculus_studio/credentials/key.json',
                      'comfyui_prompt_calculus_studio/fault.log','docs/studio.sqlite3','docs/error.log',
                      'AGENTS.md','tests/AGENTS.md','comfyui_prompt_calculus_studio/AGENTS.md',

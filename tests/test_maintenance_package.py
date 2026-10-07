@@ -1,7 +1,7 @@
 import json,sys,subprocess,tempfile,unittest,zipfile,hashlib
 from pathlib import Path
 from prompt_calculus_studio.releases import RELEASES,select_release,write_launchers,SHARED_MODULES,APP_BASENAME,EXTENSION_FOLDER,SOURCE_ARCHIVE
-from package_documents import bundle_documents
+from package_documents import bundle_documents,source_paths,validation_reference
 from build_comfyui import build
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -23,6 +23,31 @@ class PackagingTests(unittest.TestCase):
                 for entry in manifest:self.assertEqual(hashlib.sha256(z.read(entry['path'])).hexdigest(),entry['sha256'])
                 for name in z.namelist():
                     self.assertFalse(name.startswith(('data/','qa/','.git/','vendor/','.builder/'))); self.assertFalse(name.endswith(('.sqlite3','.token')))
+            info=json.loads((folder/'BUILD_INFO.json').read_text(encoding='utf-8'))
+            self.assertEqual(info['validation'],'docs/releases/0.8.6/validation/alpha.1.md')
+            self.assertTrue((folder/info['validation']).is_file())
+            notice=(folder/'BUILD_NOTICE.txt').read_text(encoding='utf-8')
+            for name in ('docs/guide/getting-started.md','docs/releases/README.md','docs/guide/licensing.md'):
+                self.assertIn(name,notice);self.assertTrue((folder/name).is_file())
+    def test_validation_reference_does_not_assign_new_release_results_to_old_builds(self):
+        paths=source_paths(ROOT)
+        examples={
+            '--v081-maintenance':'docs/releases/0.8.1/validation/maintenance.md',
+            '--v082-alpha1-repair5':'docs/releases/0.8.2/validation/repair-5.md',
+            '--v083-direct':'docs/releases/0.8.3/validation/alpha.1.md',
+            '--v0.8.4-alpha.1':'docs/releases/0.8.4/validation/alpha.1.md',
+            '--v0.8.5-alpha.1':'docs/releases/0.8.5/validation/alpha.1.md',
+        }
+        for flag,path in examples.items():
+            self.assertEqual(validation_reference(RELEASES[flag],paths),dict(validation=path))
+        for release in RELEASES.values():
+            value=validation_reference(release,paths)
+            self.assertTrue((ROOT/value['validation']).is_file())
+            if release.flag!='--v0.8.6-alpha.1':
+                self.assertNotEqual(value['validation'],'docs/releases/0.8.6/validation/alpha.1.md')
+            if value['validation']=='docs/releases/README.md':self.assertIn('validation_note',value)
+        without_current_report=[path for path in paths if path.relative_to(ROOT).as_posix()!='docs/releases/0.8.6/validation/alpha.1.md']
+        self.assertEqual(validation_reference(RELEASES['--v0.8.6-alpha.1'],without_current_report)['validation'],'docs/releases/README.md')
     def test_packaged_shared_core_restores_old_snapshot_without_qt(self):
         with tempfile.TemporaryDirectory() as folder:
             folder=Path(folder); destination=folder/EXTENSION_FOLDER; archive=folder/'extension.zip'; build(destination,archive)

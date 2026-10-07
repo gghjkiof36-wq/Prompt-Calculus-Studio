@@ -98,6 +98,4 @@ if not diagnostic and not stage_only:
         # Only generated runtime files are replaced; portable data stays intact.
         shutil.rmtree(runtime)
     shutil.copytree(package,ROOT/"release"/APP_BASENAME,dirs_exist_ok=True)
-    for document in ("README.md","IMPLEMENTATION_NOTES.md","使用說明.txt","NEXT_UI.md","COMFYUI_GUIDE.md","CLEAN_EXPORT_GUIDE.md"):
-        shutil.copy2(ROOT/document,ROOT/"release"/APP_BASENAME/document)
     print("Ready:",ROOT/"release"/APP_BASENAME/(APP_BASENAME+".exe"))

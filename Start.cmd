@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 if not exist "%~dp0.venv\Scripts\python.exe" (
   echo PCS needs its local Python environment.
-  echo Follow docs\GETTING_STARTED.md to install Python 3.12 and create .venv.
+  echo Follow docs\guide\getting-started.md to install Python 3.12 and create .venv.
   pause
   exit /b 1
 )
