@@ -32,6 +32,8 @@ def reset_editors(window):
     """Drop old-document forms after the caller has confirmed and replaced it."""
     serial = getattr(window, '_material_editor_session', {}).get('serial', 0) + 1
     window._material_editor_session = dict(serial=serial, active=None, drafts={})
+    from .material_editor_documents import reset_documents
+    reset_documents(window)
     for editor in _live_editors(window):
         editor.timer.stop()
         window.completion.cancel(editor.prompt)
@@ -51,9 +53,11 @@ def reset_editors(window):
         editor.status.clear()
         editor.show_preview()
         editor.detail.setEnabled(False)
-        if editor.narrow: editor.stack.setCurrentIndex(0)
+        if editor.compact and editor.narrow: editor.stack.setCurrentIndex(0)
+        if not editor.compact: editor._library_page = False
         editor.loading = False
         editor.refresh()
+        if not editor.compact: editor.new_material()
     canvas = getattr(window, 'canvas', None)
     if canvas is not None and hasattr(canvas, 'view'): canvas.view.viewport().update()
 
@@ -240,6 +244,12 @@ class PromptEditor(QWidget):
         self.timer.setSingleShot(True)
         self.timer.setInterval(350)
         self.timer.timeout.connect(self.flush_canvas)
+        if not compact:
+            from .material_editor_page import build_page
+            build_page(self)
+            self.refresh()
+            if self.base is None: self.new_material()
+            return
         body = QVBoxLayout(self)
         body.setContentsMargins(12, 12, 12, 12)
         body.setSpacing(10)
@@ -298,7 +308,8 @@ class PromptEditor(QWidget):
         self.lookup_hint = label('輸入標籤並選擇候選；採用後才加入文字。', 'Subtle', True)
         self.lookup_hint.hide()
         detail.addWidget(self.lookup_hint)
-        self.prompt = MaterialText(self)
+        from .material_editor_page import PagePromptText
+        self.prompt = PagePromptText(self)
         self.prompt.setObjectName('Prompt')
         self.prompt.setPlaceholderText('輸入文字內容')
         self.prompt.setMinimumHeight(150)
@@ -370,6 +381,7 @@ class PromptEditor(QWidget):
         self.refresh()
 
     def _set_narrow(self, narrow):
+        if not self.compact: return
         showing_detail = self.stack.currentIndex() == 1 if self.narrow else self.base is not None
         self.narrow = narrow
         if narrow:
@@ -385,8 +397,15 @@ class PromptEditor(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if not self.compact:
+            from .material_editor_page import resize_page
+            resize_page(self)
+            return
         narrow = self.compact or event.size().width() < 850
         if narrow != self.narrow: self._set_narrow(narrow)
+        if hasattr(self, 'prompt'):
+            from .material_editor_page import sync_prompt_style
+            sync_prompt_style(self)
 
     def lookup_changed(self, enabled):
         self.lookup_hint.setVisible(enabled)
@@ -404,9 +423,14 @@ class PromptEditor(QWidget):
                 selected = combo.currentData()
                 combo.blockSignals(True)
                 combo.clear()
-                if all_categories: combo.addItem('所有分類', None)
+                if all_categories:
+                    combo.addItem('全部素材' if self.compact else '所有分類', None)
+                    if not self.compact:
+                        combo.addItem('未分類', '__uncategorized__')
                 else: combo.addItem('未分類', None)
-                for value in self.window.state['modules']: combo.addItem(value['name'], value['id'])
+                for value in self.window.state['modules']:
+                    if all_categories and not self.compact and value['name'] == '未分類': continue
+                    combo.addItem(value['name'], value['id'])
                 combo.setCurrentIndex(max(0, combo.findData(selected)))
                 combo.blockSignals(False)
             destination = self.destination_id
@@ -446,25 +470,46 @@ class PromptEditor(QWidget):
                 self.target = None
                 self.detail.setEnabled(False)
                 self.status.setText('原項目已移除。')
+        if not self.compact:
+            from .material_editor_page import update_page, resize_page
+            update_page(self); resize_page(self)
+        else:
+            from .material_editor_page import sync_prompt_style
+            sync_prompt_style(self)
 
     def refresh_list(self, *_):
         selected = self.listing.currentItem()
         ident = selected.data(Qt.ItemDataRole.UserRole) if selected else None
+        if not self.compact and self.target and self.target[0] == 'material': ident = self.target[1]
+        scroll = self.listing.verticalScrollBar().value()
+        self.listing.blockSignals(True)
         self.listing.clear()
-        rows = materials.search(self.window.state, self.search.text(), self.category.currentData(),
-                                pinned=self.pins.isChecked(), order=self.order.currentData())
+        category = self.category.currentData()
+        rows = materials.search(self.window.state, self.search.text(), None if category in ('__pinned__', '__uncategorized__') else category,
+                                pinned=self.pins.isChecked() or category == '__pinned__', order=self.order.currentData())
+        if category == '__uncategorized__':
+            uncategorized = {v['id'] for v in self.window.state['modules'] if v['name'] == '未分類'}
+            rows = [v for v in rows if v['module'] in uncategorized]
         for value in rows:
-            text = ('◆ ' if value.get('pinned') else '') + value['name'] + '\n' + value['prompt'].replace('\n', ' ')[:100]
+            text = ('◆ ' if self.compact and value.get('pinned') else '') + value['name'] + '\n' + value['prompt'].replace('\n', ' ')[:180]
             entry = QListWidgetItem(thumb_icon(self.window.store, value.get('preview'), 64), text)
             entry.setData(Qt.ItemDataRole.UserRole, value['id'])
             entry.setToolTip(value['name'] + '\n' + value['prompt'])
             self.listing.addItem(entry)
             if value['id'] == ident: self.listing.setCurrentItem(entry)
+        self.listing.blockSignals(False)
+        self.listing.verticalScrollBar().setValue(scroll)
         self.count.setText(f'{len(rows)} 個素材')
+        if not self.compact:
+            self.empty_results.setVisible(not rows)
+            (self.pin_filter if self.pins.isChecked() else self.all_filter).setChecked(True)
 
-    def material_clicked(self, _):
-        if self.compact and self.listing.pressed_button == Qt.MouseButton.LeftButton:
-            self.add_selected()
+    def material_clicked(self, entry):
+        if self.listing.pressed_button != Qt.MouseButton.LeftButton: return
+        if self.compact: self.add_selected()
+        else:
+            self.open_material(entry.data(Qt.ItemDataRole.UserRole))
+            if self.narrow: self.hide_library()
 
     def material_menu(self, position):
         entry = self.listing.itemAt(position)
@@ -479,10 +524,30 @@ class PromptEditor(QWidget):
         menu.open_at(self.listing.viewport().mapToGlobal(position))
 
     def show_library(self):
+        if not self.compact:
+            if not self.can_leave(): return
+            self._library_collapsed = False; self._library_page = True
+            from .material_editor_page import resize_page
+            resize_page(self); self.refresh_list(); self.search.setFocus()
+            return
         self.flush_canvas()
         if self.narrow: self.stack.setCurrentIndex(0)
         self.refresh_list()
         self._publish()
+
+    def hide_library(self):
+        if self.compact:
+            if self.base is not None: self.stack.setCurrentIndex(1)
+        else:
+            if self.narrow: self._library_page = False
+            else: self._library_collapsed = True
+            from .material_editor_page import resize_page
+            resize_page(self)
+        self.prompt.setFocus()
+
+    def toggle_library(self):
+        if self.browser.isVisible(): self.hide_library()
+        else: self.show_library()
 
     def set_destination(self, canvas_id):
         self.destination_id = canvas_id
@@ -503,7 +568,8 @@ class PromptEditor(QWidget):
                     fields=self.form_values(), aliases=self.aliases.text(), notes=self.notes.toPlainText(),
                     category=self.edit_category.currentData(), destination=self.destination_id,
                     workspace=self.edit_workspace, extras=self.more.isChecked(),
-                    cursor=self.prompt.textCursor().position())
+                    cursor=self.prompt.textCursor().position(), anchor=self.prompt.textCursor().anchor(),
+                    scroll=self.prompt.verticalScrollBar().value(), horizontal_scroll=self.prompt.horizontalScrollBar().value())
 
     def _publish(self, force=False):
         if self.loading or self.importing_session: return
@@ -525,10 +591,10 @@ class PromptEditor(QWidget):
         self.target = value['target']
         self.edit_workspace = value['workspace']
         mode = self.target[0] if self.target else 'new'
-        self.load_value(value['base'], mode)
+        self.load_value(value['base'], mode, prompt_text=value['fields']['prompt'])
         self.loading = True
         fields = value['fields']
-        self.name.setText(fields['name']); self.prompt.setPlainText(fields['prompt'])
+        self.name.setText(fields['name'])
         self.kind.setCurrentIndex(max(0, self.kind.findData(fields['content_kind'])))
         self.excludes.setPlainText('\n'.join(fields['excludes']))
         self.preview_path = fields['preview']; self.show_preview()
@@ -536,9 +602,18 @@ class PromptEditor(QWidget):
         self.edit_category.setCurrentIndex(max(0, self.edit_category.findData(value['category'])))
         self.set_destination(value['destination'])
         self.more.setChecked(value['extras'])
-        cursor = self.prompt.textCursor(); cursor.setPosition(min(value['cursor'], self.prompt.document().characterCount() - 1)); self.prompt.setTextCursor(cursor)
+        cursor = self.prompt.textCursor(); limit = self.prompt.document().characterCount() - 1
+        cursor.setPosition(min(value.get('anchor', value['cursor']), limit))
+        from PySide6.QtGui import QTextCursor
+        cursor.setPosition(min(value['cursor'], limit), QTextCursor.MoveMode.KeepAnchor)
+        self.prompt.setTextCursor(cursor)
+        self.prompt.verticalScrollBar().setValue(value.get('scroll', 0))
+        self.prompt.horizontalScrollBar().setValue(value.get('horizontal_scroll', 0))
         self.dirty = value['dirty']
         self.status.setText('尚未保存' if self.dirty and mode != 'canvas' else '')
+        if not self.compact:
+            from .material_editor_page import update_page
+            update_page(self)
         self.loading = False
         self.importing_session = False
         if serial is not None: self.session_serial = serial
@@ -570,13 +645,15 @@ class PromptEditor(QWidget):
         if saved and saved['dirty'] and not text:
             self._restore_session(saved)
             self._publish(force=True)
+            if not self.compact and self.narrow: self.hide_library()
             return
         self.target = None
         value = dict(id=uid(), name='', prompt=text, aliases=[], notes='', excludes=[], preview='',
                      module=self.category.currentData(), content_kind='tags')
         self.load_value(value, 'new')
         self.status.setText('完成後可直接保存並加入文字畫布。')
-        self.name.setFocus()
+        if not self.compact and self.narrow: self.hide_library()
+        (self.name if self.compact else self.prompt).setFocus()
 
     def open_selected(self):
         ident = self.selected_id()
@@ -586,13 +663,21 @@ class PromptEditor(QWidget):
         if not self.can_leave(): return
         try: value = materials.item(self.window.state, ident)
         except ValueError as exc: self.window.notice(str(exc)); return
+        for index in range(self.listing.count()):
+            entry = self.listing.item(index)
+            if entry.data(Qt.ItemDataRole.UserRole) == ident:
+                if entry is not self.listing.currentItem():
+                    self.listing.setCurrentItem(entry); self.listing.scrollToItem(entry)
+                break
         self.target = ('material', ident)
         saved = self.window._material_editor_session['drafts'].get(self.target)
-        if saved and saved['dirty']:
+        if saved and (saved['dirty'] or saved['base'] == value):
             self._restore_session(saved)
             self._publish(force=True)
+            if not self.compact and self.narrow: self.hide_library()
             return
         self.load_value(value, 'material')
+        if not self.compact and self.narrow: self.hide_library()
 
     def edit_canvas(self, key):
         if not self.can_leave(): return
@@ -605,13 +690,14 @@ class PromptEditor(QWidget):
         if destination: self.set_destination(destination)
         self.load_value(value, 'canvas')
 
-    def load_value(self, value, mode):
+    def load_value(self, value, mode, prompt_text=None):
         self.loading = True
         self.timer.stop()
         self.base = copy.deepcopy(value)
         root = value.get('composition', value)
         self.name.setText(value.get('name', ''))
-        self.prompt.setPlainText(root.get('prompt', ''))
+        from .material_editor_documents import activate_document
+        activate_document(self, root.get('prompt', '') if prompt_text is None else prompt_text)
         self.kind.setCurrentIndex(max(0, self.kind.findData(value.get('content_kind', root.get('content_kind', 'tags')))))
         self.aliases.setText('、'.join(value.get('aliases', [])))
         self.notes.setPlainText(value.get('notes', ''))
@@ -631,16 +717,20 @@ class PromptEditor(QWidget):
         self.notes.setEnabled(not is_canvas)
         self.edit_category.setEnabled(not is_canvas)
         self.save_button.setVisible(not is_canvas)
-        self.use_button.setVisible(not is_canvas)
-        self.edit_destination.setVisible(not is_canvas)
-        self.variant_button.setVisible(mode != 'new')
-        self.delete_button.setVisible(mode == 'material')
-        self.history_button.setVisible(mode != 'new')
+        self.use_button.setVisible(self.compact and not is_canvas)
+        self.edit_destination.setVisible(self.compact and not is_canvas)
+        self.variant_button.setVisible(self.compact and mode != 'new')
+        self.delete_button.setVisible(self.compact and mode == 'material')
+        self.history_button.setVisible(self.compact and mode != 'new')
         self.status.setText('')
         self.detail.setEnabled(True)
         self.dirty = False
         self.loading = False
-        if self.narrow: self.stack.setCurrentIndex(1)
+        if self.compact:
+            if self.narrow: self.stack.setCurrentIndex(1)
+        else:
+            from .material_editor_page import update_page
+            update_page(self)
         self._publish(force=True)
 
     def form_values(self):
@@ -656,6 +746,9 @@ class PromptEditor(QWidget):
             self.status.setText('正在編輯畫布副本…')
         else: self.status.setText('尚未保存')
         self._publish(force=True)
+        if not self.compact:
+            from .material_editor_page import update_page
+            update_page(self)
 
     def flush_canvas(self):
         self.timer.stop()
@@ -685,6 +778,9 @@ class PromptEditor(QWidget):
             self.dirty = False
             self.status.setText('已同步畫布')
             self._publish()
+            if not self.compact:
+                from .material_editor_page import update_page
+                update_page(self)
             return True
         self.status.setText('尚未套用，原內容保留。')
         return False
@@ -726,6 +822,11 @@ class PromptEditor(QWidget):
             self.load_value(materials.item(self.window.state, ident), 'material')
             self.refresh_list()
             self.status.setText('已保存並加入畫布' if add_to_canvas else '素材已保存')
+        else:
+            self.status.setText('未能儲存，編輯內容已保留；請檢查名稱與正文。')
+        if not self.compact:
+            from .material_editor_page import update_page
+            update_page(self)
 
     def add_selected(self):
         ident, target = self.selected_id(), self.destination.currentData()
@@ -787,8 +888,10 @@ class PromptEditor(QWidget):
         if self.window.canvas.commit(lambda state: materials.remove(state, ident), label='刪除文字素材'):
             self.target = None
             self.dirty = False
+            self.base = None
             self.detail.setEnabled(False)
-            self.show_library()
+            if self.compact: self.show_library()
+            else: self.new_material()
 
     def history(self):
         if self.target: show_history(self.window, self.target[1].partition(':')[0])
@@ -842,6 +945,10 @@ class PromptEditor(QWidget):
         set_preview(self.preview, self.window.store, self.preview_path, 130)
         self.preview.setVisible(bool(self.preview_path))
         if not self.preview_path: self.preview.setText('')
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self.compact and self.target is None: self.prompt.setFocus()
 
     def hideEvent(self, event):
         self.flush_canvas()

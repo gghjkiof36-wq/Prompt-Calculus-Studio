@@ -321,12 +321,10 @@ class MaterialEditorTests(unittest.TestCase):
                     editor.set_destination(destination)
                     ident = self.w.state['items'][1]['id']; before = copy.deepcopy(self.w.state['uses'])
                     self.click_material(editor, ident)
-                    edit = next(b for b in editor.browser.findChildren(QPushButton) if b.text() == '編輯素材')
-                    QTest.mouseClick(edit, Qt.MouseButton.LeftButton); self.app.processEvents()
+                    self.assertTrue(editor.browser.isVisible())
                     self.assertEqual(editor.target, ('material', ident))
-                    pin = next(b for b in editor.browser.findChildren(QPushButton) if b.text() == '釘選／取消')
                     old_pin = materials.item(self.w.state, ident).get('pinned', False)
-                    QTest.mouseClick(pin, Qt.MouseButton.LeftButton); self.app.processEvents()
+                    self.context_action(editor, ident, '取消釘選' if old_pin else '釘選素材')
                     self.assertEqual(materials.item(self.w.state, ident)['pinned'], not old_pin)
                     self.assertEqual(self.w.state['uses'], before); self.assertEqual(requests, [])
         finally:
@@ -363,7 +361,7 @@ class MaterialEditorTests(unittest.TestCase):
         self.assertEqual(self.w.state['uses'][added.pop()]['source_id'], ident)
         self.assertEqual(requests, [ident])
 
-    def test_full_page_explicit_add_and_save_add_buttons_still_take_material(self):
+    def test_full_page_saves_original_without_canvas_insertion_controls(self):
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QPushButton
         from PySide6.QtTest import QTest
@@ -372,13 +370,13 @@ class MaterialEditorTests(unittest.TestCase):
         try:
             editor.set_destination(self.canvas); ident = self.w.state['items'][1]['id']
             before = set(self.w.state['uses']); self.click_material(editor, ident)
-            add = next(b for b in editor.browser.findChildren(QPushButton) if b.text() == '加入畫布')
-            QTest.mouseClick(add, Qt.MouseButton.LeftButton); self.app.processEvents()
-            self.assertEqual(len(set(self.w.state['uses']) - before), 1)
+            self.assertTrue(editor.destination.isHidden()); self.assertTrue(editor.use_button.isHidden())
+            self.assertEqual(set(self.w.state['uses']), before)
             editor.new_material(); editor.name.setText('Reusable new'); editor.prompt.setPlainText('smile')
-            QTest.mouseClick(editor.use_button, Qt.MouseButton.LeftButton); self.app.processEvents()
+            QTest.mouseClick(editor.save_button, Qt.MouseButton.LeftButton); self.app.processEvents()
             saved = next(v for v in self.w.state['items'] if v['name'] == 'Reusable new')
-            self.assertTrue(any(v.get('source_id') == saved['id'] for v in self.w.state['uses'].values()))
+            self.assertEqual(saved['prompt'], 'smile')
+            self.assertEqual(set(self.w.state['uses']), before)
         finally:
             editor.close(); editor.deleteLater()
 
@@ -471,10 +469,11 @@ class MaterialEditorTests(unittest.TestCase):
             self.w.state = replacement; reset_editors(self.w)
             self.assertTrue(flush_editors(self.w))
             self.assertEqual(self.w.state['uses'][key]['prompt'], 'imported')
-            self.assertEqual(self.w._material_editor_session['drafts'], {})
+            self.assertTrue(all(v['target'] is None and not v['dirty'] for v in self.w._material_editor_session['drafts'].values()))
             for editor in (self.editor, other):
-                self.assertIsNone(editor.target); self.assertIsNone(editor.base)
-                self.assertFalse(editor.timer.isActive()); self.assertFalse(editor.detail.isEnabled())
+                self.assertIsNone(editor.target); self.assertEqual(editor.prompt.toPlainText(), '')
+                self.assertFalse(editor.timer.isActive())
+            self.assertTrue(other.detail.isEnabled())
         finally:
             other.close(); other.deleteLater()
 
@@ -520,6 +519,8 @@ class MaterialEditorTests(unittest.TestCase):
 
     def test_responsive_editor_keeps_target_and_collapsed_optional_fields(self):
         from prompt_calculus_studio.prompt_editor import PromptEditor
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
         other = PromptEditor(self.w)
         try:
             other.resize(1100, 800); other.show(); self.app.processEvents()
@@ -527,14 +528,156 @@ class MaterialEditorTests(unittest.TestCase):
             self.assertFalse(other.more.isChecked()); self.assertTrue(other.preview.isHidden())
             target = other.target; text = other.prompt.toPlainText()
             other.resize(640, 760); self.app.processEvents()
-            self.assertTrue(other.narrow); self.assertEqual(other.stack.currentIndex(), 1)
+            self.assertTrue(other.narrow); self.assertTrue(other.browser.isHidden())
             self.assertEqual(other.target, target); self.assertEqual(other.prompt.toPlainText(), text)
-            self.assertLessEqual(other.detail.minimumSizeHint().width(), other.scroll.viewport().width())
-            other.show_library(); self.assertEqual(other.stack.currentIndex(), 0)
+            self.assertLessEqual(other.page.width(), other.width())
+            other.show_library(); self.assertFalse(other.browser.isHidden())
+            self.assertTrue(other.detail.isHidden())
+            QTest.mouseClick(other.new_button, Qt.MouseButton.LeftButton); self.app.processEvents()
+            self.assertTrue(other.browser.isHidden()); self.assertTrue(other.prompt.hasFocus())
+            other.open_material(target[1])
             other.resize(1100, 800); self.app.processEvents()
             self.assertFalse(other.narrow); self.assertEqual(other.target, target)
         finally:
             other.close(); other.deleteLater()
+
+    def test_full_drawer_preserves_material_drafts_cursor_selection_and_scroll(self):
+        from prompt_calculus_studio.prompt_editor import PromptEditor
+        from PySide6.QtGui import QTextCursor
+        full = PromptEditor(self.w)
+        try:
+            full.resize(1100, 700); full.show(); self.app.processEvents()
+            first, second = [v['id'] for v in self.w.state['items'][:2]]
+            self.click_material(full, first)
+            text = '\n'.join('line ' + str(i) for i in range(80))
+            full.prompt.setPlainText(text)
+            cursor = full.prompt.textCursor(); cursor.setPosition(12); cursor.setPosition(28, QTextCursor.MoveMode.KeepAnchor)
+            full.prompt.setTextCursor(cursor)
+            full.prompt.verticalScrollBar().setValue(140)
+            expected_scroll = full.prompt.verticalScrollBar().value()
+            self.click_material(full, second); self.click_material(full, first)
+            self.assertEqual(full.prompt.toPlainText(), text); self.assertTrue(full.dirty)
+            self.assertEqual((full.prompt.textCursor().position(), full.prompt.textCursor().anchor()), (28, 12))
+            self.assertEqual(full.prompt.verticalScrollBar().value(), expected_scroll)
+            self.assertNotEqual(materials.item(self.w.state, first)['prompt'], text)
+            full.new_material(); full.name.setText('unsaved new'); full.prompt.setPlainText('new body')
+            self.click_material(full, second); full.new_material()
+            self.assertEqual(full.name.text(), 'unsaved new'); self.assertEqual(full.prompt.toPlainText(), 'new body')
+        finally:
+            full.close(); full.deleteLater()
+
+    def test_draft_undo_redo_survives_switch_resize_and_full_compact_transfer(self):
+        from prompt_calculus_studio.prompt_editor import PromptEditor, flush_editors
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QTextCursor
+        from PySide6.QtTest import QTest
+        full = PromptEditor(self.w)
+        def key(editor, letter):
+            editor.prompt.setFocus()
+            QTest.keyClick(editor.prompt, letter, Qt.KeyboardModifier.ControlModifier)
+            self.app.processEvents()
+        try:
+            full.resize(1100, 800); full.show(); self.app.processEvents()
+            a, b = [v['id'] for v in self.w.state['items'][:2]]
+            full.open_material(a); original = full.prompt.toPlainText()
+            full.prompt.moveCursor(QTextCursor.MoveOperation.End)
+            QTest.keyClicks(full.prompt, ' tail'); self.app.processEvents()
+            full.open_material(b); full.open_material(a)
+            key(full, Qt.Key.Key_Z); self.assertEqual(full.prompt.toPlainText(), original)
+            key(full, Qt.Key.Key_Y); self.assertEqual(full.prompt.toPlainText(), original + ' tail')
+            full.resize(640, 480); self.app.processEvents()
+            key(full, Qt.Key.Key_Z); self.assertEqual(full.prompt.toPlainText(), original)
+            key(full, Qt.Key.Key_Y); self.assertEqual(full.prompt.toPlainText(), original + ' tail')
+            self.editor.transfer_from(full); self.editor.show(); self.app.processEvents()
+            self.assertIs(self.editor.prompt.document().parent(), self.w)
+            self.assertIsNot(self.editor.prompt.document(), full.prompt.document())
+            self.editor.prompt.moveCursor(QTextCursor.MoveOperation.End)
+            # Explicit cursor movement breaks the previous native typing edit block.
+            cursor = self.editor.prompt.textCursor(); cursor.beginEditBlock()
+            cursor.insertText(' rail'); cursor.endEditBlock()
+            self.app.processEvents()
+            full.transfer_from(self.editor)
+            self.assertEqual(full.prompt.toPlainText(), original + ' tail rail')
+            self.assertTrue(flush_editors(self.w))
+            key(full, Qt.Key.Key_Z); self.assertEqual(full.prompt.toPlainText(), original + ' tail')
+            self.editor.transfer_from(full)
+            key(self.editor, Qt.Key.Key_Y)
+            self.assertEqual(self.editor.prompt.toPlainText(), original + ' tail rail')
+            self.assertEqual(materials.item(self.w.state, a)['prompt'], original)
+            json.dumps(list(self.w._material_editor_session['drafts'].values()))
+        finally:
+            full.close(); full.deleteLater()
+
+    def test_draft_history_survives_original_editor_destruction(self):
+        from prompt_calculus_studio.prompt_editor import PromptEditor
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QTextCursor
+        from PySide6.QtTest import QTest
+        from shiboken6 import delete
+        full = PromptEditor(self.w)
+        full.resize(1100, 800); full.show(); self.app.processEvents()
+        ident = self.w.state['items'][0]['id']; full.open_material(ident)
+        original = full.prompt.toPlainText()
+        full.prompt.moveCursor(QTextCursor.MoveOperation.End); QTest.keyClicks(full.prompt, ' tail')
+        full.can_leave(); delete(full)
+        self.editor.refresh(); self.editor.show(); self.app.processEvents()
+        self.editor.prompt.setFocus()
+        QTest.keyClick(self.editor.prompt, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(self.editor.prompt.toPlainText(), original)
+        QTest.keyClick(self.editor.prompt, Qt.Key.Key_Y, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(self.editor.prompt.toPlainText(), original + ' tail')
+
+    def test_full_text_line_spacing_plain_paste_undo_and_completion(self):
+        from prompt_calculus_studio.prompt_editor import PromptEditor
+        from PySide6.QtCore import Qt, QMimeData
+        from PySide6.QtGui import QTextCursor, QInputMethodEvent
+        from PySide6.QtTest import QTest
+        full = PromptEditor(self.w)
+        try:
+            full.resize(1100, 700); full.show(); self.app.processEvents()
+            full.prompt.setPlainText('one\ntwo\nthree')
+            self.app.processEvents()
+            y = [full.prompt.cursorRect(QTextCursor(full.prompt.document().findBlockByNumber(i))).y() for i in range(3)]
+            ratio = (y[1] - y[0]) / full.prompt.fontMetrics().lineSpacing()
+            self.assertGreater(ratio, 1.5); self.assertLess(ratio, 1.8)
+            self.assertFalse(full.prompt.acceptRichText())
+            full.prompt.setPlainText('base')
+            full.prompt.moveCursor(QTextCursor.MoveOperation.End); full.prompt.setFocus()
+            QTest.keyClicks(full.prompt, 'X')
+            full.prompt.undo(); self.assertEqual(full.prompt.toPlainText(), 'base')
+            full.prompt.redo(); self.assertEqual(full.prompt.toPlainText(), 'baseX')
+            mime = QMimeData(); mime.setText('<literal>'); mime.setHtml('<b>wrong</b>')
+            full.prompt.insertFromMimeData(mime)
+            self.assertEqual(full.prompt.toPlainText(), 'baseX<literal>')
+            full.prompt.setPlainText('中文😀, sm'); full.prompt.moveCursor(QTextCursor.MoveOperation.End)
+            full.lookup.setChecked(True); self.app.processEvents()
+            token = full.prompt.context()
+            full.prompt.display(token, [dict(value='smile', source='自訂字典', count=1)])
+            self.assertTrue(full.prompt.candidates)
+            full.prompt.insert_completion(next(iter(full.prompt.candidates)))
+            self.assertTrue(full.prompt.toPlainText().startswith('中文😀, '))
+            self.assertIn('smile', full.prompt.toPlainText())
+            event = QInputMethodEvent('中', [])
+            self.app.sendEvent(full.prompt, event)
+            self.assertTrue(full.prompt.composing); self.assertFalse(full.prompt.completer.popup().isVisible())
+            commit = QInputMethodEvent(); commit.setCommitString('中文')
+            self.app.sendEvent(full.prompt, commit)
+            self.assertFalse(full.prompt.composing); self.assertIn('中文', full.prompt.toPlainText())
+        finally:
+            full.close(); full.deleteLater()
+
+    def test_full_save_failure_keeps_draft_and_visible_error(self):
+        from prompt_calculus_studio.prompt_editor import PromptEditor
+        full = PromptEditor(self.w)
+        try:
+            full.name.setText('must survive'); full.prompt.setPlainText('pending body')
+            before = copy.deepcopy(self.w.state)
+            with patch.object(self.w.canvas, 'commit', return_value=False): full.save_material()
+            self.assertTrue(full.dirty); self.assertEqual(full.prompt.toPlainText(), 'pending body')
+            self.assertFalse(full.status.isHidden()); self.assertIn('保留', full.status.text())
+            self.assertEqual(self.w.state, before)
+        finally:
+            full.close(); full.deleteLater()
 
 
 if __name__ == '__main__': unittest.main()
