@@ -1,21 +1,30 @@
-# 文件索引
+# PCS 文件
 
-[版本命名與歷史對照](VERSIONING.md) · [完整文件目錄：依用途與版本查找](DOCUMENTS.md)
+## 使用指南
 
-本入口適用0.8.6 Alpha 1；舊版歷史文件不能取代本版操作與限制。
+[安裝與啟動](guide/getting-started.md) · [完整使用指南](guide/README.md) · [ComfyUI 整合](guide/comfyui.md) · [疑難排解](guide/troubleshooting.md)
 
-- [首頁與版本下載](../README.md) · [English](../README.en.md)
-- [安裝、啟動與更新](GETTING_STARTED.md)
-- [使用手冊](USER_GUIDE.md)
-- [Stage 與每筆任務參數](STAGE_PARAMETERS.md)
-- [ComfyUI綁定、生成與圖片](../COMFYUI_GUIDE.md)
-- [圖片匯出](../CLEAN_EXPORT_GUIDE.md)
-- [資料、備份與隱私](DATA_AND_PRIVACY.md)
-- [疑難排解](TROUBLESHOOTING.md)
-- [更新紀錄](../CHANGELOG.md) · [Roadmap](../ROADMAP.md)
-- [0.8.6發布說明](RELEASE_NOTES_086.md)
-- [0.8.5歷史發布說明](RELEASE_NOTES_085.md)
-- [0.8.4歷史發布說明](RELEASE_NOTES_084.md)
-- [0.8.6 驗證範圍](validation/086_PUBLIC_SUMMARY.md) · [維護證據](MAINTENANCE_EVIDENCE.md)
-- [參與貢獻](../CONTRIBUTING.md) · [開發指南](DEVELOPMENT.md)
-- [授權](LICENSING.md) · [安全回報](../SECURITY.md)
+現行指南適用 0.8.6 Alpha 1，按操作主題更新。
+
+## 版本與發布
+
+[版本總覽與舊名稱對照](releases/README.md) · [更新紀錄](../CHANGELOG.md)
+
+每版主頁集中列出各次發布、修復、測試與來源資料：
+
+- [0.8.6](releases/0.8.6/README.md)
+- [0.8.5](releases/0.8.5/README.md)
+- [0.8.4](releases/0.8.4/README.md)
+- [0.8.3](releases/0.8.3/README.md)
+- [0.8.2：Repair 1～5](releases/0.8.2/README.md)
+- [0.8.1：Alpha 與 UI Repair](releases/0.8.1/README.md)
+
+更早的開發與驗證資料也由[版本總覽](releases/README.md#早期開發版本)查找。
+
+## 開發與歷史
+
+- [開發、架構、相容性及建置](development/README.md)
+- [歷史設計、實驗與舊操作](archive/README.md)
+- [參與貢獻](../CONTRIBUTING.md) · [安全回報](../SECURITY.md) · [授權](guide/licensing.md)
+
+`tests/` 保存可執行回歸與測試素材；給人閱讀的驗證結果放在各版的 `validation/`。測試可以由後續版本沿用，不依檔名推定產品版本。

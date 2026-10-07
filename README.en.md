@@ -42,13 +42,13 @@ py -3.12 -m venv .venv
 
 The first installation downloads dependencies. Once installed, double-click `Start.cmd` from the source archive to start PCS. This release provides the source edition and requires Python; no Windows executable download is included.
 
-The source archive includes the matching extension. In Explore → ComfyUI → Connection and workflows, choose Install/update PCS extension and select your ComfyUI folder. Close ComfyUI for installation, then restart it and refresh its browser page. Follow the Canvas setup prompts to bind CLIP and select the Stage workflow, then press Run. Keep PCS, ComfyUI and the workflow browser page open. See [installation](docs/GETTING_STARTED.md) and the [ComfyUI guide](COMFYUI_GUIDE.md) (Chinese).
+The source archive includes the matching extension. In Explore → ComfyUI → Connection and workflows, choose Install/update PCS extension and select your ComfyUI folder. Close ComfyUI for installation, then restart it and refresh its browser page. Follow the Canvas setup prompts to bind CLIP and select the Stage workflow, then press Run. Keep PCS, ComfyUI and the workflow browser page open. See [installation](docs/guide/getting-started.md) and the [ComfyUI guide](docs/guide/comfyui.md) (Chinese).
 
-Back up your data before updating. Extract the new version into a separate folder and use a copy of your data. Use matching PCS and extension versions; see the [version table](docs/VERSIONING.md) for older names and downloads.
+Back up your data before updating. Extract the new version into a separate folder and use a copy of your data. Use matching PCS and extension versions; see the [version table](docs/releases/README.md) for older names and downloads.
 
 ## Stage parameters
 
-Double-click a Stage, select its workflow and node, edit the fields, then review the changes and Apply. Apply saves settings; Run starts generation. Individual waiting tasks can capture different values, such as CFG 3 and 4, and later edits to the Stage do not change those captured settings. See the [Stage guide](docs/STAGE_PARAMETERS.md) (Chinese).
+Double-click a Stage, select its workflow and node, edit the fields, then review the changes and Apply. Apply saves settings; Run starts generation. Individual waiting tasks can capture different values, such as CFG 3 and 4, and later edits to the Stage do not change those captured settings. See the [Stage guide](docs/guide/stage-parameters.md) (Chinese).
 
 ## Usage notes
 
@@ -56,9 +56,9 @@ PCS sends edited text to ComfyUI when you press Run. Without a Stage connection,
 
 For read-only fields, check the displayed reason. After updating the matching extension, restart ComfyUI and refresh its browser page. Configure connected or unsupported fields in ComfyUI. Editable seeds are limited to `1125899906842624` and the node’s own range.
 
-If switching workflows gets stuck, check ComfyUI for running jobs, save the workflow, then refresh the browser page. See [troubleshooting](docs/TROUBLESHOOTING.md).
+If switching workflows gets stuck, check ComfyUI for running jobs, save the workflow, then refresh the browser page. See [troubleshooting](docs/guide/troubleshooting.md).
 
-For changes, downloads and important problems, see the [release notes](docs/RELEASE_NOTES_086.md) (Chinese).
+For changes, downloads and important problems, see the [release notes](docs/releases/0.8.6/alpha.1.md) (Chinese).
 
 ## Support
 
