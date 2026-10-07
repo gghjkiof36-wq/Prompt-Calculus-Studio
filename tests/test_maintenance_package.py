@@ -39,6 +39,7 @@ class PackagingTests(unittest.TestCase):
             '--v0.8.5-alpha.1':'docs/releases/0.8.5/validation/alpha.1.md',
             '--v086-revision12':'docs/releases/0.8.6/validation/revision12.md',
             '--v087-candidate1':'docs/releases/0.8.7/validation.md',
+            '--v087-candidate2':'docs/releases/0.8.7/validation.md',
         }
         for flag,path in examples.items():
             self.assertEqual(validation_reference(RELEASES[flag],paths),dict(validation=path))

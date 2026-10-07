@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, Q
 from . import materials, composition, content_history
 from .core import uid
 from .completion import PromptEdit
-from .widgets import label, button, row, ComboBox, StudioDialog, ask, image_path, set_preview, thumb_icon, InputDialog
+from .widgets import label, button, row, ComboBox, StudioDialog, RoundMenu, ask, image_path, set_preview, thumb_icon, InputDialog
 from .image_drop import ImageDropLabel
 from .media import thumbnail
 
@@ -99,6 +99,11 @@ class MaterialList(QListWidget):
         self.setWordWrap(False)
         self.setIconSize(QSize(64, 64))
         self.setSpacing(4)
+        self.pressed_button = Qt.MouseButton.NoButton
+
+    def mousePressEvent(self, event):
+        self.pressed_button = event.button()
+        super().mousePressEvent(event)
 
     def startDrag(self, actions):
         current = self.currentItem()
@@ -254,7 +259,12 @@ class PromptEditor(QWidget):
         library.addLayout(row(self.category, self.order))
         self.pins = QCheckBox('只看釘選')
         library.addWidget(self.pins)
+        self.list_hint = label('點選加入畫布；右鍵可直接編輯或釘選。' if compact else
+                               '點選素材後編輯或釘選；取用請按「加入畫布」。', 'Subtle', True)
+        library.addWidget(self.list_hint)
         self.listing = MaterialList()
+        self.listing.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.listing.customContextMenuRequested.connect(self.material_menu)
         library.addWidget(self.listing, 1)
         self.count = label('', 'Subtle')
         library.addWidget(self.count)
@@ -349,7 +359,7 @@ class PromptEditor(QWidget):
         self.category.currentIndexChanged.connect(self.refresh_list)
         self.order.currentIndexChanged.connect(self.refresh_list)
         self.pins.toggled.connect(self.refresh_list)
-        self.listing.itemClicked.connect(lambda _: self.add_selected())
+        self.listing.itemClicked.connect(self.material_clicked)
         self.destination.currentIndexChanged.connect(lambda: self.destination_changed(self.destination))
         self.edit_destination.currentIndexChanged.connect(lambda: self.destination_changed(self.edit_destination))
         for field in (self.name, self.aliases): field.textChanged.connect(self.edited)
@@ -451,6 +461,22 @@ class PromptEditor(QWidget):
             self.listing.addItem(entry)
             if value['id'] == ident: self.listing.setCurrentItem(entry)
         self.count.setText(f'{len(rows)} 個素材')
+
+    def material_clicked(self, _):
+        if self.compact and self.listing.pressed_button == Qt.MouseButton.LeftButton:
+            self.add_selected()
+
+    def material_menu(self, position):
+        entry = self.listing.itemAt(position)
+        if entry is None: return
+        ident = entry.data(Qt.ItemDataRole.UserRole)
+        try: value = materials.item(self.window.state, ident)
+        except ValueError: return
+        self.listing.setCurrentItem(entry)
+        menu = RoundMenu(self)
+        menu.addAction('編輯素材', lambda: self.open_material(ident))
+        menu.addAction('取消釘選' if value.get('pinned') else '釘選素材', lambda: self.pin_material(ident))
+        menu.open_at(self.listing.viewport().mapToGlobal(position))
 
     def show_library(self):
         self.flush_canvas()
@@ -716,7 +742,9 @@ class PromptEditor(QWidget):
 
     def toggle_pin(self):
         ident = self.selected_id()
-        if not ident: return
+        if ident: self.pin_material(ident)
+
+    def pin_material(self, ident):
         def apply(state):
             value = materials.item(state, ident)
             value['pinned'] = not value.get('pinned', False)

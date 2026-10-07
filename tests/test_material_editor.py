@@ -274,6 +274,114 @@ class MaterialEditorTests(unittest.TestCase):
         self.w.completion.timer.stop(); self.w.closing = True; self.w.close(); self.app.processEvents()
         self.w.store.close(); self.folder.cleanup()
 
+    def click_material(self, editor, ident, button=None):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        editor.show_library(); editor.resize(1100 if not editor.compact else 420, 800)
+        editor.show(); self.app.processEvents()
+        entry = next(editor.listing.item(i) for i in range(editor.listing.count())
+                     if editor.listing.item(i).data(Qt.ItemDataRole.UserRole) == ident)
+        editor.listing.scrollToItem(entry); self.app.processEvents()
+        position = editor.listing.visualItemRect(entry).center()
+        QTest.mouseClick(editor.listing.viewport(), button or Qt.MouseButton.LeftButton, pos=position)
+        self.app.processEvents()
+        return position
+
+    def context_action(self, editor, ident, title):
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QContextMenuEvent
+        from PySide6.QtTest import QTest
+        from prompt_calculus_studio.widgets import RoundMenu
+        other = next(editor.listing.item(i) for i in range(editor.listing.count())
+                     if editor.listing.item(i).data(Qt.ItemDataRole.UserRole) != ident)
+        editor.listing.setCurrentItem(other)
+        self.assertNotEqual(editor.selected_id(), ident)
+        position = self.click_material(editor, ident, Qt.MouseButton.RightButton)
+        if not isinstance(self.app.activePopupWidget(), RoundMenu):
+            # Offscreen QPA does not synthesize a platform context-menu event.
+            event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, position,
+                                      editor.listing.viewport().mapToGlobal(position))
+            self.app.sendEvent(editor.listing.viewport(), event); self.app.processEvents()
+        menu = self.app.activePopupWidget()
+        self.assertIsInstance(menu, RoundMenu)
+        action = next(action for action in menu.actions() if action.text() == title)
+        QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(action).center())
+        self.app.processEvents()
+
+    def test_full_page_mouse_selection_edit_and_pin_never_add_material(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QPushButton
+        from PySide6.QtTest import QTest
+        from prompt_calculus_studio.prompt_editor import PromptEditor
+        requests = []; self.w.add_material_to_canvas = requests.append
+        editor = PromptEditor(self.w)
+        try:
+            for destination in (None, self.canvas):
+                with self.subTest(destination=destination):
+                    editor.set_destination(destination)
+                    ident = self.w.state['items'][1]['id']; before = copy.deepcopy(self.w.state['uses'])
+                    self.click_material(editor, ident)
+                    edit = next(b for b in editor.browser.findChildren(QPushButton) if b.text() == '編輯素材')
+                    QTest.mouseClick(edit, Qt.MouseButton.LeftButton); self.app.processEvents()
+                    self.assertEqual(editor.target, ('material', ident))
+                    pin = next(b for b in editor.browser.findChildren(QPushButton) if b.text() == '釘選／取消')
+                    old_pin = materials.item(self.w.state, ident).get('pinned', False)
+                    QTest.mouseClick(pin, Qt.MouseButton.LeftButton); self.app.processEvents()
+                    self.assertEqual(materials.item(self.w.state, ident)['pinned'], not old_pin)
+                    self.assertEqual(self.w.state['uses'], before); self.assertEqual(requests, [])
+        finally:
+            editor.close(); editor.deleteLater()
+
+    def test_context_menu_edits_and_pins_unselected_material_without_add_or_destination(self):
+        from prompt_calculus_studio.prompt_editor import PromptEditor
+        requests = []; self.w.add_material_to_canvas = requests.append
+        full = PromptEditor(self.w)
+        try:
+            for editor in (self.editor, full):
+                for destination in (None, self.canvas):
+                    with self.subTest(compact=editor.compact, destination=destination):
+                        editor.set_destination(destination)
+                        ident = self.w.state['items'][2]['id']; before = copy.deepcopy(self.w.state['uses'])
+                        self.context_action(editor, ident, '編輯素材')
+                        self.assertEqual(editor.target, ('material', ident))
+                        old_pin = materials.item(self.w.state, ident).get('pinned', False)
+                        self.context_action(editor, ident, '取消釘選' if old_pin else '釘選素材')
+                        self.assertEqual(materials.item(self.w.state, ident)['pinned'], not old_pin)
+                        self.assertEqual(self.w.state['uses'], before); self.assertEqual(requests, [])
+        finally:
+            full.close(); full.deleteLater()
+
+    def test_sidebar_click_still_takes_material_and_requests_missing_destination(self):
+        requests = []; self.w.add_material_to_canvas = requests.append
+        ident = self.w.state['items'][1]['id']
+        self.editor.set_destination(None); before = copy.deepcopy(self.w.state['uses'])
+        self.click_material(self.editor, ident)
+        self.assertEqual(requests, [ident]); self.assertEqual(self.w.state['uses'], before)
+        self.editor.set_destination(self.canvas); self.click_material(self.editor, ident)
+        added = set(self.w.state['uses']) - set(before)
+        self.assertEqual(len(added), 1)
+        self.assertEqual(self.w.state['uses'][added.pop()]['source_id'], ident)
+        self.assertEqual(requests, [ident])
+
+    def test_full_page_explicit_add_and_save_add_buttons_still_take_material(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QPushButton
+        from PySide6.QtTest import QTest
+        from prompt_calculus_studio.prompt_editor import PromptEditor
+        editor = PromptEditor(self.w)
+        try:
+            editor.set_destination(self.canvas); ident = self.w.state['items'][1]['id']
+            before = set(self.w.state['uses']); self.click_material(editor, ident)
+            add = next(b for b in editor.browser.findChildren(QPushButton) if b.text() == '加入畫布')
+            QTest.mouseClick(add, Qt.MouseButton.LeftButton); self.app.processEvents()
+            self.assertEqual(len(set(self.w.state['uses']) - before), 1)
+            editor.new_material(); editor.name.setText('Reusable new'); editor.prompt.setPlainText('smile')
+            QTest.mouseClick(editor.use_button, Qt.MouseButton.LeftButton); self.app.processEvents()
+            saved = next(v for v in self.w.state['items'] if v['name'] == 'Reusable new')
+            self.assertTrue(any(v.get('source_id') == saved['id'] for v in self.w.state['uses'].values()))
+        finally:
+            editor.close(); editor.deleteLater()
+
     def test_new_material_then_canvas_partial_edit_in_shared_editor(self):
         self.editor.new_material()
         self.editor.name.setText('New material'); self.editor.prompt.setPlainText('1girl, red dress,')
