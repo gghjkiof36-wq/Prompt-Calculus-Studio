@@ -121,8 +121,20 @@ class ModuleProxyWidget(QGraphicsProxyWidget):
         self.relayout.timeout.connect(self.fit_content)
 
     def fit_content(self):
+        owner=self.layout_owner()
+        if owner is not None:owner.layout_card()
+
+    def layout_owner(self):
         owner=self.parentItem()
-        if self.widget() is not None and owner is not None:owner.layout_card()
+        if self.widget() is None or owner is None or self.scene() is None:return None
+        current=getattr(owner,'layout_is_current',None)
+        return owner if current is None or current() else None
+
+    def itemChange(self,change,value):
+        result=super().itemChange(change,value)
+        if change==QGraphicsItem.GraphicsItemChange.ItemSceneHasChanged and self.scene() is None:
+            self.relayout.stop()
+        return result
 
     def setWidget(self,panel):
         previous=self.widget()
@@ -145,7 +157,7 @@ class ModuleProxyWidget(QGraphicsProxyWidget):
         result=super().eventFilter(watched,event)
         # Status wrapping and font changes can arrive after initial attachment.
         # Fit once after Qt invalidates its layout, without changing saved sizes.
-        if watched is self.widget() and event.type()==QEvent.Type.LayoutRequest:
+        if watched is self.widget() and event.type()==QEvent.Type.LayoutRequest and self.layout_owner() is not None:
             self.relayout.start(0)
         return result
 

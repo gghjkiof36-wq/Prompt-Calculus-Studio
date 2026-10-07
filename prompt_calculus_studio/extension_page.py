@@ -201,6 +201,8 @@ class ExtensionPage(QWidget):
     def finished(self, code, status):
         self.read_output()
         self.busy = False
+        self.waiting = False
+        self.retry_timer.stop()
         if code == 20 and status == QProcess.ExitStatus.NormalExit:
             self.message = '請先關閉 ComfyUI；關閉後會自動接續安裝。' if self.preferences.value['automatic'] else '請先關閉 ComfyUI，再按安裝／更新。'
             self.waiting = self.preferences.value['automatic']
@@ -209,7 +211,7 @@ class ExtensionPage(QWidget):
         elif code == 0 and status == QProcess.ExitStatus.NormalExit:
             self.message = '配套擴充已安裝；請啟動 ComfyUI 並重新整理頁面。'
         elif code == 21:
-            self.message = '上次安裝結果尚未確認，請檢視安裝紀錄與備份；已停止自動更新。'
+            self.message = '安裝或回復結果尚未確認；請保留備份與現有擴充，檢視安裝紀錄後再處理。已停止自動更新。'
         else:
             self.message = '安裝未完成，請查看安裝紀錄；不會自動重試。'
         try:

@@ -336,6 +336,8 @@ class FlowCard(TextCard):
         if self.kind=='stages':self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable,True)
     @property
     def default_size(self):return (500,550) if self.kind=='schedulers' else (360,245) if self.kind=='stages' else (360,160)
+    def layout_is_current(self):
+        return self.canvas.flow_cards.get(self.key) is self and self.key in self.canvas.data().get(self.kind,{})
     def attach(self):
         if self.proxy.widget() is not self.panel:self.proxy.setWidget(self.panel)
         self.title=self.canvas.data()[self.kind][self.key]['name'];self.panel.setStyleSheet(self.canvas.window.styleSheet())
