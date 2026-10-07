@@ -183,13 +183,28 @@ class CanvasStarterUiTests(unittest.TestCase):
     def test_saved_legacy_default_is_preserved_until_user_creates_a_new_workspace(self):
         from prompt_calculus_studio.window import Window
         from prompt_calculus_studio.workspace_scene import scene
-        with tempfile.TemporaryDirectory() as folder:
+        from prompt_calculus_studio.core import activate_selection_view
+        from prompt_calculus_studio.drafts import edit
+        from prompt_calculus_studio.editor_legacy import documents
+        from prompt_calculus_studio.composition import instance
+        for manual in ('retained legacy draft',''):
+          with self.subTest(manual=manual),tempfile.TemporaryDirectory() as folder:
             state=fresh();state['generation']=dict(mode='txt2img',profiles=[],chosen={},source=None);state['output_order']=[]
-            store=Storage(folder);store.save(state);before=scene(state);store.db.close()
+            item=state['items'][0];state['selections']={item['module']:[item['id']]}
+            instance(state,item['id'])
+            state['output_order']=[item['module']]
+            edit(state,manual)
+            legacy=copy.deepcopy(documents(state));expected=copy.deepcopy(state)
+            activate_selection_view(expected,'canvas')
+            store=Storage(folder);store.save(state);store.db.close()
             window=Window(folder)
             try:
                 self.assertFalse(window.fresh_install);self.assertIsNone(guide(window.state))
-                self.assertEqual(scene(window.state),before)
+                self.assertEqual(window.state['selection_view'],'canvas')
+                self.assertEqual(scene(window.state),scene(expected))
+                self.assertEqual(documents(window.state),legacy)
+                self.assertEqual(legacy[0]['manual'],manual)
+                self.assertTrue(legacy[0]['generated'])
                 self.assertFalse(window.state['multi_output']['stages'])
                 self.assertFalse(window.state['multi_output']['schedulers'])
             finally:window.close();self.app.processEvents()

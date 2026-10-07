@@ -1,5 +1,6 @@
 """A light Graphics View over the same selected compositions as the list."""
 import copy
+import time
 from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit, QFormLayout,
     QDoubleSpinBox, QCheckBox, QDialog, QListWidget, QListWidgetItem)
@@ -116,6 +117,7 @@ class TextCanvas(QWidget):
         for card in [*getattr(self,'clips',{}).values(),*getattr(self,'flow_cards',{}).values()]:
             if hasattr(card.panel,'refresh'):card.panel.refresh()
         if hasattr(self,'execution_bar'):self.execution_bar.refresh_visual_theme()
+        if hasattr(self,'update_lines'):self.update_lines()
         self.view.viewport().update()
 
     def showEvent(self,event):
@@ -159,9 +161,12 @@ class TextCanvas(QWidget):
         else:self.fit()
 
     def history_state(self):
-        return {k: copy.deepcopy(self.window.state[k]) for k in HISTORY_FIELDS if k in self.window.state}
+        return self.history_projection(self.window.state)
 
-    def commit(self, operation):
+    def history_projection(self, state):
+        return {k: copy.deepcopy(state[k]) for k in HISTORY_FIELDS if k in state}
+
+    def commit(self, operation, label='編輯', merge_key=None):
         before = self.history_state(); value = copy.deepcopy(self.window.state)
         try:
             operation(value); comp.prune_instances(value)
@@ -171,8 +176,17 @@ class TextCanvas(QWidget):
             if value['version'] > self.window.state['version']:
                 self.window.store.save(self.window.state)
                 self.window.store.backup()
+            after = self.history_projection(value)
+            previous=getattr(self,'_last_edit',None);now=time.monotonic()
+            coalesce=bool(merge_key and previous and previous[0]==merge_key and now-previous[1]<.65 and self.undo_stack and isinstance(self.undo_stack[-1],tuple) and self.undo_stack[-1][1]==before)
+            from .content_history import record
+            record(value,before,after,label=label,merge_key=merge_key,coalesce=coalesce)
+            validate_state(value)
             self.window.state = value
-            after = self.history_state(); self.undo_stack.append((before, after)); self.undo_stack = self.undo_stack[-30:]
+            if coalesce:self.undo_stack[-1]=(self.undo_stack[-1][0],after)
+            else:self.undo_stack.append((before,after))
+            self.trim_history()
+            self._last_edit=(merge_key,now)
             self.redo_stack.clear(); self.last_state = after
             from .changes import layout_only
             self.sync('layout' if layout_only(before,after) else 'prompt')
@@ -181,16 +195,33 @@ class TextCanvas(QWidget):
             self.window.notice(str(exc))
             return False
 
+    def trim_history(self):
+        # Entries are immutable snapshots. Cache only still-retained identities
+        # so each keystroke/drag does not serialize the whole 100-step stack.
+        import json
+        self.undo_stack=self.undo_stack[-100:]
+        cached=getattr(self,'_undo_sizes',{});sizes=[];retained={}
+        for entry in self.undo_stack:
+            prior=cached.get(id(entry))
+            size=prior[1] if prior and prior[0] is entry else len(json.dumps(entry,ensure_ascii=False,default=str).encode('utf-8'))
+            sizes.append(size);retained[id(entry)]=(entry,size)
+        total=sum(sizes)
+        while len(self.undo_stack)>1 and total>32_000_000:
+            removed=self.undo_stack.pop(0);total-=sizes.pop(0);retained.pop(id(removed),None)
+        self._undo_sizes=retained
+
     def sync(self,scope='prompt'):
         if scope=='layout':self.refresh_layout(); self.window.changed('layout',refresh=False); return
         self.window.generation_panel.refresh()
         self.window.refresh_modules(); self.window.refresh_library(); self.window.refresh_builder(); self.window.changed('prompt',refresh=False)
+        if hasattr(self.window,'refresh_prompt_editors'):self.window.refresh_prompt_editors()
 
     def refresh_layout(self):
         """Apply only saved geometry; do not rebuild text or alter output resolution."""
         state=self.window.state
         for item in getattr(self,'containers',{}).values():item.refresh()
         cards=list(self.cards.values())+list(self.functions.cards.values())+list(getattr(self,'outputs',{}).values())+list(getattr(self,'clips',{}).values())
+        cards.extend(getattr(self,'flow_cards',{}).values())
         cards.extend(c for c in (self.output,self.preview_card,getattr(self,'generator',None),getattr(self,'order_card',None)) if c is not None)
         for card in set(cards):
             key=card.key; card.restore_size(); card.layout_card()
@@ -498,6 +529,14 @@ class TextCanvas(QWidget):
         value['grouped'] = True
         self.append_value(value,position)
 
+    def add_temporary(self,position=None):
+        """Fast local text entry; saving a reusable material is a separate action."""
+        text,ok=InputDialog.getMultiLineText(self.window,'新增臨時文字','文字內容')
+        if not ok or not text.strip():return
+        value=comp.node(text.strip().splitlines()[0][:48],text)
+        value['grouped']=True
+        self.append_value(value,position)
+
     def add_asset(self):
         dialog = AssetDialog(self.window)
         if dialog.exec() != QDialog.DialogCode.Accepted: return
@@ -516,6 +555,8 @@ class TextCanvas(QWidget):
         return ident, root, part
 
     def edit(self, key):
+        if hasattr(self.window,'edit_canvas_material'):
+            self.window.edit_canvas_material(key);return
         ident, node_id = self.entries[key]
         if ident is None: return
         root = comp.usage_root(self.window.state, ident)

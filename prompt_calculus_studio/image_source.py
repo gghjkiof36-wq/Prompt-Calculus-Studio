@@ -1,4 +1,4 @@
-"""Finite image sources and conservative positive-prompt metadata reading."""
+"""Finite image sources and explicit, provenance-preserving prompt reading."""
 import copy
 import hashlib
 import re
@@ -18,13 +18,13 @@ def folder_files(folder):
     return sorted((p for p in Path(folder).iterdir() if p.is_file() and p.suffix.lower() in EXTENSIONS), key=natural_key)
 
 
-def positive_fields(graph):
-    """Trace actual positive conditioning; never concatenate negative text."""
+def conditioning_fields(graph, polarity='positive'):
+    """Trace conditioning links; labels and node titles never determine polarity."""
     if not isinstance(graph,dict):return []
     starts = []
     for node in graph.values():
         inputs=node.get('inputs',{}) if isinstance(node,dict) else {}
-        link = inputs.get('positive') if isinstance(inputs,dict) else None
+        link = inputs.get(polarity) if isinstance(inputs,dict) else None
         if isinstance(link,list) and len(link)==2:
             starts.append(str(link[0]))
     found, seen = [], set()
@@ -44,12 +44,55 @@ def positive_fields(graph):
     return sorted(set(found))
 
 
+def positive_fields(graph):
+    return conditioning_fields(graph, 'positive')
+
+
+def metadata_sources(metadata):
+    """Return selectable raw values without combining or cleaning their text.
+
+    Choice is persisted in the existing prompt_choice field. Older [node, field]
+    choices continue to mean positive conditioning only.
+    """
+    raw=metadata.get('raw',{});graph=raw.get('prompt',{})
+    rows=[];known=set()
+    for role in ('positive','negative'):
+        for node,field,text in conditioning_fields(graph,role):
+            rows.append(dict(choice=[role,node,field],role=role,node=node,field=field,text=text))
+            known.add((node,field))
+    if isinstance(graph,dict):
+        for node,entry in graph.items():
+            inputs=entry.get('inputs',{}) if isinstance(entry,dict) else {}
+            if not isinstance(inputs,dict):continue
+            for field,text in inputs.items():
+                if isinstance(text,str) and (str(node),field) not in known:
+                    rows.append(dict(choice=['unknown',str(node),field],role='unknown',node=str(node),field=field,text=text))
+    parameters=raw.get('parameters')
+    if isinstance(parameters,str):
+        body=re.split(r'\nSteps:',parameters,maxsplit=1)[0]
+        split=body.split('\nNegative prompt:',1)
+        rows.append(dict(choice=['positive','__parameters__','positive'],role='positive',node='__parameters__',field='positive',text=split[0]))
+        if len(split)==2:
+            # The one conventional separator space is formatting, not prompt.
+            text=split[1][1:] if split[1].startswith(' ') else split[1]
+            rows.append(dict(choice=['negative','__parameters__','negative'],role='negative',node='__parameters__',field='negative',text=text))
+    return rows
+
+
 def read_content(path, choice=None):
     metadata = png_metadata(path)
     raw = metadata.get('raw',{})
     fields = positive_fields(raw.get('prompt',{}))
+    explicit=None
+    if isinstance(choice,(list,tuple)) and len(choice)==3:
+        explicit=next((row for row in metadata_sources(metadata) if row['choice']==list(choice)),None)
+        if explicit is None:raise ValueError('圖片缺少指定的提示詞來源；請重新選擇，不會改用其他欄位。')
+        if explicit['role']!='positive' or explicit['node']=='__parameters__':
+            return dict(kind='raw',text=explicit['text'])
+        choice=[explicit['node'],explicit['field']]
     if choice:
         fields = [f for f in fields if list(f[:2])==list(choice)]
+        if not fields:raise ValueError('圖片缺少指定的正面提示詞來源；請重新選擇。')
     texts = list(dict.fromkeys(f[2] for f in fields))
     if len(texts)>1:
         raise ValueError('圖片有多個正面提示詞來源，請在圖片來源選擇要使用的欄位。')
@@ -99,7 +142,7 @@ def read_content(path, choice=None):
         parameters=raw['parameters']
         positive=re.split(r'\nNegative prompt:|\nSteps:',parameters,maxsplit=1)[0]
     if positive is None:
-        raise ValueError('這張圖片沒有可辨識的正面提示詞或 PCS 文字模塊；請選擇提示詞來源或使用其他畫布。')
+        raise ValueError('這張圖片沒有可辨識的正面提示詞或 PCS 文字模塊；請選擇正面、負面或未判定的原始文字來源。')
     return dict(kind='raw',text=positive)
 
 

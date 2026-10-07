@@ -178,10 +178,10 @@ def bind(state,workflow,output,node,field):
     if state['multi_output']['version']>=3:
         from .clip_flow import set_binding as bind_clip
         return bind_clip(state,workflow,output,(node,field))
-    from .generation import text_fields
+    from .generation import profile_text_fields
     data=state['multi_output']
     profile=next((p for p in state.get('generation',{}).get('profiles',[]) if p['id']==workflow),None)
-    if profile is None or output not in data['outputs'] or (node,field) not in text_fields(profile['graph']):
+    if profile is None or output not in data['outputs'] or (node,field) not in profile_text_fields(profile):
         raise ValueError('綁定目標不存在或已由上游接線供值。')
     for b in data['bindings']:
         if (b['workflow'],b['node'],b['field'])==(workflow,node,field) and b['output']!=output:
@@ -286,8 +286,8 @@ def bound_texts(state,profile):
     if state['multi_output']['version']>=3:
         from .clip_flow import bound_texts as clip_texts
         return clip_texts(state,profile)
-    from .generation import text_fields
-    data=state['multi_output']; available=text_fields(profile['graph']); result=[]
+    from .generation import profile_text_fields
+    data=state['multi_output']; available=profile_text_fields(profile); result=[]
     active=connected_outputs(state) if data['version']>=2 else set(data['outputs'])
     for b in data['bindings']:
         if b['workflow']!=profile['id'] or b['output'] not in active: continue

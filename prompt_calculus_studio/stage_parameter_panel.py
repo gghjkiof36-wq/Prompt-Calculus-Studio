@@ -1,6 +1,7 @@
 """Responsive Stage/task sheet. Drafts never dispatch or edit a native graph."""
 import copy
 import json
+import sqlite3
 import uuid
 from pathlib import Path
 from PySide6.QtCore import Qt, QEvent, QTimer, QSize, QRect, Signal
@@ -8,9 +9,9 @@ from PySide6.QtGui import QFontMetrics,QIcon,QColor,QPainter,QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QFrame, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QListWidget, QListWidgetItem, QScrollArea, QLineEdit, QCheckBox, QToolButton,
-    QPlainTextEdit, QSizePolicy, QApplication,QGraphicsOpacityEffect,QLayout)
+    QPlainTextEdit, QSizePolicy, QApplication,QGraphicsOpacityEffect,QLayout,QDialog)
 from shiboken6 import isValid
-from .widgets import label, button, row, ComboBox, RoundMenu, ask
+from .widgets import label, button, row, ComboBox, RoundMenu, ask, StudioDialog
 from .stage_parameters import (empty, identity, key, descriptor_fields, parse,
     validate, verify, effective, SEED_MODES)
 from .stage_parameter_terms import term
@@ -130,6 +131,9 @@ class ParameterSheet(QFrame):
         self.initial_workflow=config['identity']['workflow'] if config else self.stage.get('workflow')
         self.initial_config=copy.deepcopy(config)
         if config:self.configs[self.initial_workflow]=copy.deepcopy(config)
+        from . import stage_editor_drafts as drafts
+        self.draft_key=drafts.scope(self.owner[1],self.owner[2],stage_id,item['id'] if item else None)
+        self.restored_draft=drafts.restore(self,drafts.read(self.owner[0],self.draft_key))
         t=self.tokens;scrim=','.join(str(v) for v in QColor(t['base']).getRgb()[:3])
         self.setObjectName('StageParameterMask');self.setStyleSheet(f'''
             #StageParameterMask {{background:rgba({scrim},145);}}
@@ -212,6 +216,8 @@ class ParameterSheet(QFrame):
         self.diff_title=label(term('diff',self.language));drawer.addLayout(row(self.diff_title,None,button('×',self.drawer.hide,'Quiet')))
         self.diff=QPlainTextEdit();self.diff.setReadOnly(True);drawer.addWidget(self.diff,1);self.drawer.hide()
         self.layout_watch=QTimer(self);self.layout_watch.setSingleShot(True);self.layout_watch.timeout.connect(self.refresh_metrics)
+        self.draft_timer=QTimer(self);self.draft_timer.setSingleShot(True);self.draft_timer.setInterval(500)
+        self.draft_timer.timeout.connect(self.save_draft)
         self.font_signature=None
         self.parentWidget().installEventFilter(self);self.catalog.changed.connect(self.catalog_changed)
         QApplication.instance().installEventFilter(self)
@@ -230,13 +236,13 @@ class ParameterSheet(QFrame):
         self.font_signature=signature;self.place();self.build_nodes()
 
     def check_owner(self):
-        if not self.current():self.finish();return
+        if not self.current():self.save_draft();self.finish();return
         if self.item:
             item=self.window.comfy.input_flow.chain.store.read(self.item['id'])
             if not item or item['status']!='waiting':self.apply_button.setEnabled(False);self.status.setText('此項已開始準備，僅供查看；尚未套用草稿仍保留。')
 
     def fill_workflows(self):
-        selected=self.workflow.currentData() if self.workflow.count() else self.initial_workflow
+        selected=self.workflow.currentData() if self.workflow.count() else getattr(self,'restored_workflow',self.initial_workflow)
         if selected is None:
             from .stage_model import controls,terminals
             sources={terminals(self.window.state).get(k,{}).get('workflow') for k in controls(self.window.state,self.stage_id)}-{None}
@@ -263,7 +269,7 @@ class ParameterSheet(QFrame):
 
     def choose_workflow(self):
         self.save_position()
-        self.revision+=1;self.selected=None;self.reload()
+        self.revision+=1;self.selected=None;self.reload();self.draft_timer.start()
 
     def read(self,done,failed):
         flow=self.workflow.currentData();entry=self.entries.get(flow)
@@ -359,7 +365,7 @@ class ParameterSheet(QFrame):
         self.draft_fields.setdefault(self.field_key(field),copy.deepcopy(field))
         self.raw[self.field_key(field)]=value
         if mode is not None:self.modes[self.field_key(field)]=mode
-        self.revision+=1;self.update_actions()
+        self.revision+=1;self.update_actions();self.draft_timer.start()
 
     def fields(self,node,container):
         grid=QGridLayout(container);grid.setContentsMargins(0,0,0,0);grid.setHorizontalSpacing(18);grid.setVerticalSpacing(16)
@@ -529,7 +535,7 @@ class ParameterSheet(QFrame):
         if config:config['patches']=[]
         self.raw={k:v for k,v in self.raw.items() if k[0]!=flow};self.modes={k:v for k,v in self.modes.items() if k[0]!=flow}
         self.draft_fields={k:v for k,v in self.draft_fields.items() if k[0]!=flow}
-        self.revision+=1;self.select_node();self.update_actions()
+        self.revision+=1;self.select_node();self.update_actions();self.draft_timer.start()
 
     def show_diff(self):
         try:
@@ -563,7 +569,9 @@ class ParameterSheet(QFrame):
                 owned={(b['node'],b['field']) for b in self.window.state['multi_output']['bindings'] if b['workflow']==profile['id']}
                 verify(config,desc,owned=owned)
                 if self.item:
-                    self.window.comfy.input_flow.chain.store.edit_parameters(self.item['id'],self.stage_id,config,self.task_base,profile)
+                    from .queue_history import perform
+                    perform(self.canvas,[self.item['id']],lambda:self.window.comfy.input_flow.chain.store.edit_parameters(
+                        self.item['id'],self.stage_id,config,self.task_base,profile),'修改等待項目參數')
                 else:
                     if self.canvas.data()['stages'].get(self.stage_id)!=self.initial_stage:raise ValueError('Stage 已被修改，草稿保留，請重新比較。')
                     from .generation import store_profile
@@ -573,18 +581,41 @@ class ParameterSheet(QFrame):
                         if state['multi_output']['stages'][self.stage_id].get('workflow')!=profile['id']:choose(state,self.stage_id,profile['id'])
                         state['multi_output']['stages'][self.stage_id]['parameters']=copy.deepcopy(config)
                     if not self.canvas.commit(change):raise ValueError('套用未保存，草稿已保留。')
+                from .stage_editor_drafts import write
+                self.draft_timer.stop()
+                write(self.owner[0],self.draft_key,None)
                 self.applied.emit(config);self.finish()
             except (ValueError,KeyError) as exc:failed(str(exc))
         self.read(received,failed)
 
+    def confirm_close(self):
+        from .stage_editor_drafts import write
+        dialog=StudioDialog(self);dialog.setWindowTitle('保留未套用的草稿');dialog.resize(530,290)
+        dialog.body.addWidget(label('這些變更尚未套用。關閉後保留草稿，下次開啟可繼續編輯；執行仍使用已套用的設定。',None,True))
+        reminder=QCheckBox('不再提醒');dialog.body.addWidget(reminder)
+        dialog.body.addLayout(row(None,button('繼續編輯',dialog.reject),button('保留並關閉',dialog.accept,'Primary')))
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return False
+        if reminder.isChecked():write(self.owner[0],'skip-close-reminder',True)
+        return True
+
     def request_close(self):
         pending=self.dirty() or self.other_drafts()
-        if pending and not ask(self,'放棄未套用的變更','關閉並放棄這次草稿？取消可繼續編輯。'):return
+        from .stage_editor_drafts import read
+        if pending and not read(self.owner[0],'skip-close-reminder') and not self.confirm_close():return
+        if not self.save_draft():return
         self.finish()
+
+    def save_draft(self):
+        if self.closed:return True
+        from .stage_editor_drafts import write,capture
+        try:write(self.owner[0],self.draft_key,capture(self) if self.dirty() or self.other_drafts() else None)
+        except (OSError,ValueError,sqlite3.Error) as exc:
+            self.set_status('草稿保存失敗，請保留此頁：'+str(exc));return False
+        return True
 
     def finish(self):
         if self.closed:return
-        self.closed=True;self.serial+=1;self.watch.stop();self.catalog.changed.disconnect(self.catalog_changed)
+        self.closed=True;self.serial+=1;self.watch.stop();self.draft_timer.stop();self.catalog.changed.disconnect(self.catalog_changed)
         QApplication.instance().removeEventFilter(self)
         self.parentWidget().removeEventFilter(self);self.hide();self.deleteLater()
 

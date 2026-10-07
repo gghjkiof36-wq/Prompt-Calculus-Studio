@@ -13,7 +13,7 @@ def project(state,directory,results=None,source_values=None,readers=None):
     images=state.get('canvas_functions',{}).get('images',{})
     for key,settings in (readers or {}).items():
         if key in images:
-            for name in ('output_node','text_field','input_index','stage_reference'):images[key].pop(name,None)
+            for name in ('output_node','text_field','input_index','stage_reference','prompt_choice'):images[key].pop(name,None)
             images[key].update(copy.deepcopy(settings))
     visiting=set();done=set()
     def load(key):
@@ -78,11 +78,9 @@ def capture(state,plan,keys,directory,policies=None):
             for node in nodes:
                 ref=state.get('canvas_functions',{}).get('images',{}).get(node,{}).get('stage_reference')
                 if ref:future.add(ref)
-            if future:
-                for node in nodes:
-                    image=state.get('canvas_functions',{}).get('images',{}).get(node)
-                    if image is not None:saved['readers'][node]={k:copy.deepcopy(image[k]) for k in ('output_node','text_field','input_index','stage_reference') if k in image}
-                continue
+                image=state.get('canvas_functions',{}).get('images',{}).get(node)
+                if image is not None:saved['readers'][node]={k:copy.deepcopy(image[k]) for k in ('output_node','text_field','input_index','stage_reference','prompt_choice') if k in image}
+            if future:continue
             from .composition_image import freeze_image_source
             if binding['kind']=='image' and source in state['multi_output']['canvases']:
                 from .flow_data import value

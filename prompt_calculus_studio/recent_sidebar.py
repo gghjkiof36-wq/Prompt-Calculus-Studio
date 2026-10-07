@@ -14,8 +14,9 @@ class CanvasWorkspaceBar(QFrame):
         super().__init__();self.window=window;self.workspace=workspace;self.setObjectName('CanvasWorkspaceCapsule')
         body=QHBoxLayout(self);body.setContentsMargins(8,6,8,6);body.setSpacing(4)
         body.addWidget(workspace);body.addWidget(menu)
-        self.list_mode=button('切換清單',lambda:window.set_interface_mode('list'),'Quiet')
-        self.list_mode.setProperty('iconName','list');self.list_mode.setIcon(icon('list'));self.list_mode.setToolTip('切換清單');self.list_mode.setAccessibleName('切換清單');body.addWidget(self.list_mode)
+        self.list_mode=button('Prompt Editor',lambda:window.set_interface_mode('list'),'Quiet')
+        self.list_mode.setProperty('iconName','list');self.list_mode.setIcon(icon('list'));self.list_mode.setToolTip('Prompt Editor');self.list_mode.setAccessibleName('Prompt Editor');body.addWidget(self.list_mode)
+        self.materials=button('素材',window.toggle_materials,'Quiet');body.addWidget(self.materials)
         self.history=button('',window.show_recent_sheet,'IconButton')
         self.history.setProperty('iconName','history');self.history.setIcon(icon('history'))
         self.history.setFixedSize(32,32);self.history.setToolTip('最近生成');self.history.setAccessibleName('最近生成')
@@ -24,7 +25,7 @@ class CanvasWorkspaceBar(QFrame):
 
     def refresh(self):
         if self.window.isVisible() and not self.window.closing:self.history.setToolTip(f'最近生成 · {self.window.catalog.count("recent")} 張')
-        self.list_mode.setText('' if self.window.width()<800 else '切換清單')
+        self.list_mode.setText('' if self.window.width()<800 else 'Prompt Editor')
         option=QStyleOptionComboBox();self.workspace.initStyleOption(option)
         field=self.workspace.style().subControlRect(QStyle.ComplexControl.CC_ComboBox,option,QStyle.SubControl.SC_ComboBoxEditField,self.workspace)
         chrome=self.workspace.width()-field.width()

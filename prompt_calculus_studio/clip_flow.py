@@ -15,8 +15,8 @@ def selected_binding(state, key):
 def add(state, position=(600,-350)):
     from .multi_output import ident
     data=state['multi_output']; names={v['name'] for v in data['clip_inputs'].values()}; number=1
-    while 'CLIP 輸入'+str(number) in names: number+=1
-    key=ident('clip_'); data['clip_inputs'][key]=dict(name='CLIP 輸入'+str(number))
+    while '文字輸入'+str(number) in names: number+=1
+    key=ident('clip_'); data['clip_inputs'][key]=dict(name='文字輸入'+str(number))
     state.setdefault('text_positions',{})[key]=list(position)
     return key
 
@@ -43,12 +43,12 @@ def upgrade(state):
 
 
 def set_binding(state, workflow, key, target):
-    from .generation import text_fields
+    from .generation import profile_text_fields
     data=state['multi_output']
     if key not in data['clip_inputs']: raise ValueError('CLIP 輸入不存在。')
     if target is not None:
         profile=next((p for p in state.get('generation',{}).get('profiles',[]) if p['id']==workflow),None)
-        if profile is None or tuple(target) not in text_fields(profile['graph']): raise ValueError('綁定目標不存在或已由上游接線供值。')
+        if profile is None or tuple(target) not in profile_text_fields(profile): raise ValueError('綁定目標不存在或已由上游接線供值。')
         node,field=target
         for b in data['bindings']:
             if (b['workflow'],b['node'],b['field'])==(workflow,node,field) and b['clip']!=key:
@@ -64,9 +64,9 @@ def set_binding(state, workflow, key, target):
 
 
 def bound_texts(state, profile):
-    from .generation import text_fields
+    from .generation import profile_text_fields
     from .multi_output import compile_output
-    data=state['multi_output']; available=text_fields(profile['graph']); result=[]
+    data=state['multi_output']; available=profile_text_fields(profile); result=[]
     for b in data['bindings']:
         if b['workflow']!=profile['id']: continue
         if data['version']>=4 and data['clip_inputs'][b['clip']].get('workflow')!=profile['id']:continue

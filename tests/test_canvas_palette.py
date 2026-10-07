@@ -1,4 +1,4 @@
-"""Rev 6 insertion behavior, focus paths, and asynchronous result ownership.
+"""Text-only insertion, opt-in lookup, focus paths, and result ownership.
 
 All service requests are held locally; no public service or daily data is used.
 """
@@ -37,6 +37,7 @@ class PaletteTests(unittest.TestCase):
             self.items.append(a)
         self.w.state['items'].extend(self.items)
         self.p=CanvasPalette(self.c,QPointF(840,460)); self.p.show(); self.p.activateWindow(); QTest.qWait(20)
+        self.p.toggle_lookup()
         self.search('sm'); self.suggest()
 
     def tearDown(self):
@@ -54,16 +55,12 @@ class PaletteTests(unittest.TestCase):
     def key(self,key,widget=None,modifiers=Qt.KeyboardModifier.NoModifier):
         QTest.keyClick(widget or APP.focusWidget(),key,modifiers); APP.processEvents()
 
-    def test_function_category_adds_at_invocation_point_and_undoes(self):
-        self.search(''); self.p.restore_selection(self.p.modules,'@functions')
-        names=[self.p.assets.item(i).text() for i in range(self.p.assets.count())]
-        self.assertEqual(names,['畫布','Prompt 控制','CLIP 輸入','圖片來源','加載圖片（單張）','讀取文字',
-                                'ComfyUI 圖片輸入','預排程','Stage／執行階段','依現有綁定補建 Stage','預覽圖片'])
-        before=copy.deepcopy(self.c.data()); self.p.restore_selection(self.p.assets,'CLIP 輸入'); self.p.insert()
-        added=set(self.c.data()['clip_inputs'])-set(before['clip_inputs'])
-        self.assertEqual(len(added),1); key=added.pop()
-        self.assertEqual(self.w.state['text_positions'][key],[840,460]); self.assertFalse(self.p.isVisible())
-        self.c.undo(); self.assertEqual(self.c.data(),before)
+    def test_text_only_categories_and_opt_in_lookup(self):
+        self.assertNotIn('@functions', [self.p.modules.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.p.modules.count())])
+        self.p.reject(); self.p=CanvasPalette(self.c,QPointF(840,460)); self.p.show()
+        self.assertTrue(self.p.lookup_pane.isHidden())
+        self.assertFalse(self.p.query.lookup_active())
+        self.p.toggle_lookup(); self.assertTrue(self.p.query.lookup_active())
 
     def test_search_right_fifth_left_restores_search_cursor(self):
         cursor=self.p.query.textCursor().position()
@@ -177,8 +174,8 @@ class PaletteTests(unittest.TestCase):
                 self.assertTrue(self.p.surface.rect().contains(listing.mapTo(self.p.surface,listing.rect().bottomRight())))
             self.assertGreaterEqual(self.p.query.viewport().height(),self.p.query.fontMetrics().height())
             actions={b.text():b for b in self.p.findChildren(QPushButton)}
-            category=actions['新增分類']; blank=actions['新增空白模組']
-            self.assertEqual(category.mapTo(self.p,QPoint()).y(),blank.mapTo(self.p,QPoint()).y())
+            self.assertIn('新增分類',actions); self.assertIn('新增臨時文字',actions)
+            self.assertIn('新建可重用素材',actions)
         before=self.p.surface.size(); grip=self.p.grip
         QTest.mousePress(grip,Qt.MouseButton.LeftButton,pos=QPoint(9,9))
         QTest.mouseMove(grip,QPoint(-70,-40)); QTest.mouseRelease(grip,Qt.MouseButton.LeftButton,pos=QPoint(9,9))
@@ -196,6 +193,7 @@ class PaletteTests(unittest.TestCase):
         self.p.sheet_size=QSize(1100,740); self.p.place_sheet(); self.p.split.setSizes([210,450,400]); self.p.save_layout()
         saved=copy.deepcopy(self.w.state['settings']['canvas_palette']); self.p.reject(); self.w.persist()
         self.p=CanvasPalette(self.c,None); self.p.show(); QTest.qWait(10)
+        self.p.toggle_lookup(); APP.processEvents()
         self.assertEqual(self.p.sheet_size,QSize(*saved['size']))
         self.assertEqual(self.p.split.sizes(),saved['columns'])
         from prompt_calculus_studio.core import Storage
@@ -272,9 +270,11 @@ class PaletteTests(unittest.TestCase):
                 elif change=='store': self.w.store=object()
                 self.service.finished(request.serial,self.rows,'')
                 self.w.store=store; self.w.state['workspace']=workspace
-                self.assertIsNone(store.cached(key))
+                if change in ('query','close'): self.assertEqual(store.cached(key), self.rows)
+                else: self.assertIsNone(store.cached(key))
                 if change=='close':
                     self.p=CanvasPalette(self.c,None); self.p.show(); self.p.activateWindow(); QTest.qWait(20)
+                    self.p.toggle_lookup()
 
 
 if __name__=='__main__': unittest.main()

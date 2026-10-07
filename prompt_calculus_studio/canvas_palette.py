@@ -39,7 +39,8 @@ class CanvasTagEdit(PromptEdit):
         self.setAccessibleName('搜尋素材或輸入 Tag')
 
     def lookup_active(self):
-        return self.palette.isVisible() and not self.palette.closed and not self.composing
+        pane=getattr(self.palette,'lookup_pane',None)
+        return self.palette.isVisible() and pane is not None and not pane.isHidden() and not self.palette.closed and not self.composing
 
     def lookup_notice(self, text):
         if not self.palette.closed: self.palette.suggestions.setToolTip(text)
@@ -103,7 +104,7 @@ class CanvasPalette(QDialog):
         self.assets=QListWidget(); self.assets.setAccessibleName('本地模塊')
         self.assets.setObjectName('PaletteAssets'); self.assets.setSpacing(4)
         self.suggestions=QListWidget(); self.suggestions.setAccessibleName('聯網查詢建議')
-        for title,listing in (('類別',self.modules),('本地模塊',self.assets),('聯網查詢',self.suggestions)):
+        for title,listing in (('分類',self.modules),('文字素材',self.assets),('標籤查詢',self.suggestions)):
             pane=QWidget(); pane.setMinimumWidth(104)
             layout=QVBoxLayout(pane); layout.setContentsMargins(0 if listing is self.modules else 12,0,0 if listing is self.suggestions else 12,0); layout.setSpacing(8)
             heading=label(title,'Subtle'); layout.addWidget(heading); layout.addWidget(listing,1)
@@ -114,8 +115,13 @@ class CanvasPalette(QDialog):
             if listing is self.modules:
                 layout.addWidget(button('新增分類',self.manage,'Quiet'))
             if listing is self.assets:
-                layout.addWidget(button('新增空白模組',self.new_module,'Quiet'))
+                layout.addWidget(button('新增臨時文字',self.new_module,'Quiet'))
+                layout.addWidget(button('新建可重用素材',self.new_material,'Quiet'))
+            if listing is self.suggestions: self.lookup_pane=pane
             self.split.addWidget(pane)
+        self.lookup_toggle=button('展開標籤查詢',self.toggle_lookup,'Quiet')
+        self.body.addWidget(self.lookup_toggle)
+        self.lookup_pane.hide()
         self.grip=PaletteGrip(self)
         self.layout_owner=(canvas.window.store,canvas.window.state['workspace'])
         saved=canvas.window.state['settings'].get('canvas_palette',{})
@@ -124,7 +130,6 @@ class CanvasPalette(QDialog):
         self.split.splitterMoved.connect(self.save_layout)
         self.modules.addItem(self.entry('全部模組',None))
         for module in canvas.window.state['modules']: self.modules.addItem(self.entry(module['name'],module['id']))
-        self.modules.addItem(self.entry('功能模組','@functions'))
         self.function_actions=dict(canvas.functions.insertion_actions(self.position))
         self.modules.currentRowChanged.connect(self.refresh)
         self.query.textChanged.connect(self.refresh); self.query.textChanged.connect(self.resize_query)
@@ -269,6 +274,19 @@ class CanvasPalette(QDialog):
         self.inserted=True; self.accept(); self.canvas.insert_asset(copy.deepcopy(asset),self.position)
 
     def new_module(self): self.accept(); self.canvas.add_new(self.position)
+    def new_material(self):
+        destination=getattr(self.canvas,'insertion_canvas',None)
+        self.accept()
+        editor=self.canvas.window.show_materials(destination)
+        if editor is not None:editor.new_material()
+
+    def toggle_lookup(self):
+        visible=self.lookup_pane.isHidden()
+        self.lookup_pane.setVisible(visible)
+        self.lookup_toggle.setText('收合標籤查詢' if visible else '展開標籤查詢')
+        if visible:self.query.setFocus();self.query.schedule()
+        else:self.canvas.window.completion.cancel(self.query)
+
     def manage(self): self.accept(); self.canvas.window.new_module()
 
     def asset_menu(self,pos):

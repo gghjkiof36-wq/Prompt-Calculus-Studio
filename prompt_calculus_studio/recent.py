@@ -2,7 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
-from PySide6.QtCore import Qt,QSize,QTimer,QRectF
+from PySide6.QtCore import Qt,QSize,QTimer,QRectF,Signal
 from PySide6.QtGui import QColor,QPainter,QPainterPath,QPen
 from PySide6.QtWidgets import QFrame,QVBoxLayout,QHBoxLayout,QBoxLayout,QWidget,QListWidget,QListWidgetItem,QFileDialog,QScrollArea,QSizePolicy,QStyledItemDelegate,QStyle
 from .widgets import label,button,row,ComboBox,RoundMenu,record_icon,set_record_preview,open_file,reveal_file,ElidedLabel
@@ -38,7 +38,13 @@ class RecentImageDelegate(QStyledItemDelegate):
 
 
 class RecentPreview(GalleryPreview):
+    activated=Signal()
     def keyPressEvent(self,event):QFrame.keyPressEvent(self,event)
+
+    def mouseReleaseEvent(self,event):
+        if event.button()==Qt.MouseButton.LeftButton and self._source is not None and not self._source.isNull():
+            self.activated.emit();event.accept();return
+        super().mouseReleaseEvent(event)
 
     def fit_preview(self):
         if self._fitting:return
@@ -94,7 +100,7 @@ class RecentPage(QFrame):
         self.images=QListWidget(); self.images.setViewMode(QListWidget.ViewMode.IconMode); self.images.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.images.setMovement(QListWidget.Movement.Static); self.images.setIconSize(QSize(176,176)); self.images.setGridSize(QSize(194,194));self.images.setSpacing(0);self.images.setWordWrap(False)
         self.images.setItemDelegate(RecentImageDelegate(self));self.images.setMouseTracking(True);self.images.setAccessibleName('最近生成圖片');self.images.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.images.currentItemChanged.connect(self.select); self.images.itemDoubleClicked.connect(lambda _:self.open_original())
+        self.images.currentItemChanged.connect(self.select); self.images.itemDoubleClicked.connect(lambda _:self.view_image())
         self.images.itemClicked.connect(lambda item:self.show_details(item));self.images.itemActivated.connect(self.show_details)
         self.images.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu); self.images.customContextMenuRequested.connect(self.context)
         content.addWidget(self.images,1);self.empty=label('生成的圖片會顯示在這裡。','Subtle',True);self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter);content.addWidget(self.empty,1)
@@ -108,6 +114,7 @@ class RecentPage(QFrame):
         title_row=QHBoxLayout();title_row.addWidget(self.detail_name,1);title_row.addWidget(self.detail_close);right.addLayout(title_row)
         self.detail_body=QBoxLayout(QBoxLayout.Direction.TopToBottom);self.detail_body.setSpacing(20);right.addLayout(self.detail_body)
         self.preview=RecentPreview(window.store);self.preview.setAcceptDrops(False);self.preview.setToolTip('完整圖片預覽');self.preview.setFocusPolicy(Qt.FocusPolicy.NoFocus);self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter);self.detail_body.addWidget(self.preview,0,Qt.AlignmentFlag.AlignTop)
+        self.preview.activated.connect(self.view_image)
         self.operations=QWidget();actions=QVBoxLayout(self.operations);actions.setContentsMargins(0,0,0,0);actions.setSpacing(12);self.detail_body.addWidget(self.operations)
         self.save_button=button('儲存圖片',self.collect,'Primary');self.save_button.setEnabled(False);actions.addWidget(self.save_button)
         self.info=label('','Subtle',True);actions.addWidget(self.info)
@@ -361,5 +368,10 @@ class RecentPage(QFrame):
 
     def open_original(self):
         if self.record: open_file(self,self.record['path'])
+
+    def view_image(self):
+        if self.record:
+            from .image_viewer import show_image
+            show_image(self.window,self.record['path'],self.record.get('name',''))
 
     def turn(self,delta): self.page=max(0,self.page+delta); self.refresh()

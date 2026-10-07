@@ -24,8 +24,8 @@ class ResultSelector(ComboBox):
                 node=image.get('reference',{}).get('node')
                 if node and not any(k==node for k,_ in choices):choices.append((node,'圖片 · #'+node))
         else:
-            from .generation import text_fields
-            choices=[([node,field],graph[node].get('_meta',{}).get('title',graph[node]['class_type'])+' · #'+node+' / '+field) for node,field in text_fields(graph)]
+            from .generation import profile_text_fields
+            choices=[([node,field],graph[node].get('_meta',{}).get('title',graph[node]['class_type'])+' · #'+node+' / '+field) for node,field in profile_text_fields(profile or {'graph':{}})]
             for text in results.get('texts',[]):
                 key=[text['node'],text['field']]
                 if not any(k==key for k,_ in choices):choices.append((key,'#'+key[0]+' / '+key[1]))

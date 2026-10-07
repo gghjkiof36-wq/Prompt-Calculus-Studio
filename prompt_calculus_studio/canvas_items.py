@@ -18,11 +18,14 @@ def paint_module_surface(painter,outline,colors,header_bottom):
     """Paint only the module's visual layers, keeping its existing outline."""
     body=colors.get('canvas_body',colors['surface'])
     header=colors.get('canvas_header',body)
-    painter.setBrush(QColor(body));painter.drawPath(outline)
+    painter.save();painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(QColor(0,0,0,38));painter.drawPath(outline.translated(2,4));painter.restore()
+    fill=QColor(body);fill.setAlpha(colors.get('canvas_alpha',255))
+    painter.setBrush(fill);painter.drawPath(outline)
     if header!=body:
         painter.save();painter.setClipPath(outline)
         bounds=outline.boundingRect()
-        painter.fillRect(QRectF(bounds.left(),bounds.top(),bounds.width(),header_bottom-bounds.top()),QColor(header))
+        fill=QColor(header);fill.setAlpha(colors.get('canvas_alpha',255))
+        painter.fillRect(QRectF(bounds.left(),bounds.top(),bounds.width(),header_bottom-bounds.top()),fill)
         painter.restore()
         painter.save();painter.setBrush(Qt.BrushStyle.NoBrush);painter.drawPath(outline);painter.restore()
 
@@ -95,6 +98,7 @@ class ResizableCard(QGraphicsObject):
             if action=='size': QTimer.singleShot(0,lambda:canvas.size_dialog(key))
             elif action=='add': QTimer.singleShot(0,lambda:canvas.palette(target=key))
             elif action=='weight': QTimer.singleShot(0,lambda:canvas.weight_dialog(key))
+            elif action=='collapse':QTimer.singleShot(0,lambda:canvas.toggle_collapsed(key))
             elif action in ('minus','plus'):
                 delta=-1 if action=='minus' else 1
                 QTimer.singleShot(0,lambda:canvas.change_weight(key,delta=delta))
@@ -109,7 +113,7 @@ class ResizableCard(QGraphicsObject):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(colors['selected'] if self.pressed==action else colors['hover'] if self.hot==action else colors['surface']))
             painter.drawRoundedRect(rect,7,7); painter.setPen(QColor(colors['text'] if self.hot==action else colors['secondary']))
-            text={'size':'↗','minus':'−','plus':'+','add':'＋' if getattr(self,'compact',False) else '＋ 加入子元素'}.get(action)
+            text={'size':'↗','minus':'−','plus':'+','collapse':'▸' if getattr(self,'collapsed',False) else '▾','add':'＋' if getattr(self,'compact',False) else '＋ 加入子元素'}.get(action)
             if action=='weight': text=f"{self.value['weight']/10:.1f}"
             painter.drawText(rect,Qt.AlignmentFlag.AlignCenter,text)
 
@@ -223,7 +227,9 @@ class TextCard(ResizableCard):
         self.panel.show()
         if self.saved_sizes: self.canvas.window.split.setSizes(self.saved_sizes)
 
-    def boundingRect(self): return QRectF(0,0,self.width,self.height)
+    def boundingRect(self): return QRectF(-1,-1,self.width+6,self.height+8)
+    def shape(self):
+        path=QPainterPath();path.addRoundedRect(QRectF(0,0,self.width,self.height),16,16);return path
 
     def paint(self,painter,option,widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -301,6 +307,7 @@ class NodeCard(ResizableCard):
     def __init__(self,canvas,key,value,subtitle,muted=False,parent=None):
         super().__init__(parent); self.canvas=canvas; self.key=key; self.value=value
         self.subtitle=subtitle; self.muted=muted; self.start=QPointF(); self.parts=[]; self.drop_size=None; self.init_interaction()
+        self.collapsed=value.get('collapsed',False)
         self.line=max(23,math.ceil(QFontMetricsF(canvas.font()).height())+3)
         flags=QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
         flags|=QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -308,7 +315,7 @@ class NodeCard(ResizableCard):
         canvas.cards[key]=self
         ident=canvas.entries[key][0]
         active=comp.active_overlay(value)
-        if ident is not None:
+        if ident is not None and not self.collapsed:
             for index,part in enumerate(value['children']+value['overlays']):
                 overlay=part in value['overlays']
                 inactive=muted or not value['enabled'] or not part['enabled'] or (part is not active if overlay else bool(active))
@@ -316,7 +323,7 @@ class NodeCard(ResizableCard):
                 if inactive: title+=' · 未生效'
                 child=NodeCard(canvas,ident+':'+part['id'],part,title,inactive,self); self.parts.append(child)
         self.compact=parent is not None and not self.parts
-        self.own=value['prompt'] if value['prompt'].strip()!=value['name'].strip() else ''
+        self.own=value['prompt'] if not self.collapsed and value['prompt'].strip()!=value['name'].strip() else ''
         self.layout_card(propagate=False)
 
     def layout_card(self,propagate=True):
@@ -330,7 +337,7 @@ class NodeCard(ResizableCard):
         self.drop_y=y
         if self.drop_size: y+=self.drop_size[1]+12
         ident=self.canvas.entries[self.key][0]
-        self.height=max(requested_h,y+(44 if ident is not None else 24))
+        self.height=y+18 if self.collapsed else max(requested_h,y+(44 if ident is not None else 24))
         self.add_rect=QRectF(12,self.height-42,self.width-44,28) if ident is not None else QRectF()
         if self.compact: self.add_rect=QRectF(self.width-44,5,30,28)
         weight_y=self.height-42 if self.compact else 6
@@ -342,18 +349,33 @@ class NodeCard(ResizableCard):
 
     def actions(self):
         if self.canvas.entries[self.key][0] is None: return {}
-        return dict(add=self.add_rect,minus=self.minus_rect,weight=self.weight_rect,plus=self.plus_rect)
+        result=dict(minus=self.minus_rect,weight=self.weight_rect,plus=self.plus_rect,collapse=QRectF(self.width-30,6,24,26))
+        if not self.collapsed:result['add']=self.add_rect
+        return result
 
-    def boundingRect(self): return QRectF(0,0,self.width,self.height)
+    def boundingRect(self): return QRectF(-1,-1,self.width+6,self.height+8)
+    def shape(self):
+        path=QPainterPath();path.addRoundedRect(QRectF(0,0,self.width,self.height),12,12);return path
     def selectionRect(self): return QRectF(0,0,self.width,self.header_height)
 
     def paint(self,painter,option,widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         colors=canvas_colors(self.canvas)
-        painter.setPen(QPen(QColor(colors['accent'] if self.drop_size or self.isSelected() else colors['line']),1.4))
+        affected=getattr(self.canvas,'affected_nodes',{}).get(self.key,{})
+        border=colors['secondary'] if self.muted or affected.get('all') else '#d4ac51' if affected else colors['line']
+        painter.setPen(QPen(QColor(border),2 if affected or self.muted else 1.4))
         if self.key in getattr(self.canvas,'active_keys',set()):painter.setPen(QPen(QColor(colors['info']),2.5))
         painter.setBrush(QColor(colors['field'] if self.muted else colors['selected'] if self.isSelected() else colors['raised'] if self.parentItem() else colors.get('canvas_body',colors['surface'])))
-        painter.drawRoundedRect(self.boundingRect(),12,12); painter.setFont(self.canvas.font())
+        surface=QRectF(0,0,self.width,self.height)
+        painter.save();painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(QColor(0,0,0,38));painter.drawRoundedRect(surface.translated(2,4),12,12);painter.restore()
+        painter.drawRoundedRect(surface,12,12); painter.setFont(self.canvas.font())
+        if self.isSelected():
+            painter.save();pen=QPen(QColor(colors['accent']),2);pen.setCosmetic(True);painter.setPen(pen);painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(surface.adjusted(4,4,-4,-4),9,9);painter.restore()
+        active=getattr(self.canvas.window,'_material_editor_session',{}).get('active')
+        if active==('canvas',self.key,self.canvas.window.state.get('workspace')):
+            painter.save();pen=QPen(QColor(colors['info']),1.5,Qt.PenStyle.DashLine);pen.setCosmetic(True)
+            painter.setPen(pen);painter.setBrush(Qt.BrushStyle.NoBrush);painter.drawRoundedRect(surface.adjusted(7,7,-7,-7),7,7);painter.restore()
         if self.muted: painter.setOpacity(.42)
         metrics=QFontMetricsF(painter.font()); available=self.width-28
         painter.setPen(QColor(colors['secondary']))
@@ -401,11 +423,11 @@ class NodeCard(ResizableCard):
     def mouseDoubleClickEvent(self,event):
         if self.press_control(event): return
         canvas=self.canvas; key=self.key
-        QTimer.singleShot(0,lambda:canvas.palette(target=key)); event.accept()
+        QTimer.singleShot(0,lambda:canvas.edit(key)); event.accept()
 
     def contextMenuEvent(self,event):
         self.canvas.view.setFocus(); self.scene().clearFocus()
-        if not self.isSelected(): self.scene().clearSelection(); self.setSelected(True)
+        self.scene().clearSelection(); self.setSelected(True)
         self.canvas.context(self.key,event.screenPos()); event.accept()
 
 
@@ -426,6 +448,8 @@ class CanvasView(QGraphicsView):
         self.click_start=None; self.click_dragged=False; self.blank_press=False
         self.last_blank_click=None; self.pending_palette=None
         self.rubber=QRubberBand(QRubberBand.Shape.Rectangle,self.viewport()); self.box_selection=set()
+        from .canvas_interaction import CanvasInteraction
+        self.interaction=CanvasInteraction(self);self.pointer_scene=None
         self.setScene(QGraphicsScene(self)); self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         # The top-level window is translucent. Partial repaint/scroll blits can
@@ -443,14 +467,19 @@ class CanvasView(QGraphicsView):
         self.setAcceptDrops(True); self.viewport().setAcceptDrops(True)
 
     def dragEnterEvent(self,event):
+        if event.mimeData().hasFormat('application/x-pcs-material'):event.acceptProposedAction();return
         from .image_drop import dropped_source
         if dropped_source(event.mimeData())[0]: event.acceptProposedAction(); return
         super().dragEnterEvent(event)
     def dragMoveEvent(self,event):
+        if event.mimeData().hasFormat('application/x-pcs-material'):event.acceptProposedAction();return
         from .image_drop import dropped_source
         if dropped_source(event.mimeData())[0]: event.acceptProposedAction(); return
         super().dragMoveEvent(event)
     def dropEvent(self,event):
+        if event.mimeData().hasFormat('application/x-pcs-material'):
+            key=bytes(event.mimeData().data('application/x-pcs-material')).decode('utf-8')
+            self.canvas.window.add_material_to_canvas(key,self.mapToScene(event.position().toPoint()));event.acceptProposedAction();return
         from .image_drop import dropped_source
         if not dropped_source(event.mimeData())[0]: super().dropEvent(event); return
         self.canvas.drop_position=self.mapToScene(event.position().toPoint())
@@ -580,9 +609,19 @@ class CanvasView(QGraphicsView):
                         event.accept(); return
                 if child is root: break
                 child=child.parentWidget()
-        self.canvas.zoom(1.15**(event.angleDelta().y()/120)); event.accept()
+        # Anchor to this event, not QGraphicsView's previous mouse/context menu.
+        point=event.position().toPoint();before=self.mapToScene(point)
+        anchor=self.transformationAnchor();self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+        factor=1.15**(event.angleDelta().y()/120);scale=self.transform().m11();target=max(.12,min(3.,scale*factor))
+        self.scale(target/scale,target/scale)
+        after=self.mapToScene(point);delta=after-before
+        self.translate(delta.x(),delta.y());self.setTransformationAnchor(anchor)
+        self.pointer_scene=before
+        if hasattr(self.canvas,'save_view'):self.canvas.save_view()
+        event.accept()
 
     def mousePressEvent(self,event):
+        if hasattr(self.canvas,'data') and self.interaction.press(event):return
         item=self.itemAt(event.position().toPoint())
         if event.button()==Qt.MouseButton.LeftButton:
             self.click_start=event.position().toPoint(); self.click_dragged=False
@@ -599,6 +638,7 @@ class CanvasView(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self,event):
+        if hasattr(self.canvas,'data') and self.interaction.move(event):return
         if self.click_start is not None and (event.position().toPoint()-self.click_start).manhattanLength()>=QApplication.startDragDistance():
             self.click_dragged=True; self.last_blank_click=None; self.pending_palette=None
         if self.box_start is not None:
@@ -611,6 +651,7 @@ class CanvasView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self,event):
+        if hasattr(self.canvas,'data') and self.interaction.release(event):return
         if event.button()==Qt.MouseButton.LeftButton:
             point=event.position().toPoint()
             still=self.click_start is not None and not self.click_dragged and (point-self.click_start).manhattanLength()<QApplication.startDragDistance()
@@ -630,6 +671,7 @@ class CanvasView(QGraphicsView):
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self,event):
+        if hasattr(self.canvas,'data') and self.interaction.double(event):return
         if event.button()==Qt.MouseButton.LeftButton and self.itemAt(event.position().toPoint()) is None:
             prior=self.last_blank_click
             valid=prior is not None and not self.click_dragged and event.modifiers()==Qt.KeyboardModifier.NoModifier and (event.position().toPoint()-prior[0]).manhattanLength()<QApplication.startDragDistance() and time.monotonic()-prior[1]<=QApplication.doubleClickInterval()/1000
@@ -639,6 +681,7 @@ class CanvasView(QGraphicsView):
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self,event):
+        if hasattr(self.canvas,'data') and self.interaction.key(event):return
         # Editors and the shared builder receive their own text/navigation shortcuts.
         if self.scene().focusItem() is not None:
             super().keyPressEvent(event); return
@@ -650,6 +693,8 @@ class CanvasView(QGraphicsView):
         super().keyPressEvent(event)
 
     def contextMenuEvent(self,event):
+        card=self.interaction.card_at(event.pos())
+        if card is not None:self.scene().clearSelection();card.setSelected(True)
         if self.itemAt(event.pos()) is None:
             self.canvas.tools_menu(event.globalPos()); event.accept(); return
         super().contextMenuEvent(event)

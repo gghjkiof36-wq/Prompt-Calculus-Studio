@@ -167,6 +167,20 @@ class StudioDialog(QDialog):
         self.reveal=QVariantAnimation(self); self.reveal.setDuration(140)
         self.reveal.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.reveal.valueChanged.connect(self.setWindowOpacity)
+        self._outside_dismiss=False
+
+    def set_outside_dismiss(self,enabled=True):
+        self._outside_dismiss=bool(enabled)
+        app=QApplication.instance()
+        if enabled:app.installEventFilter(self)
+        else:app.removeEventFilter(self)
+
+    def eventFilter(self,watched,event):
+        if (self._outside_dismiss and self.isVisible() and event.type()==QEvent.Type.MouseButtonPress
+                and QApplication.activeModalWidget() is self and QApplication.activePopupWidget() is None
+                and not self.frameGeometry().contains(event.globalPosition().toPoint())):
+            self.reject();return True
+        return super().eventFilter(watched,event)
 
     def exec(self):
         result=super().exec()

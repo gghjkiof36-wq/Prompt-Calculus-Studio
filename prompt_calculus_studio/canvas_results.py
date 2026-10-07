@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QFrame,QVBoxLayout,QListWidget,QListWidgetItem,QPl
 from .widgets import label,button,row,ComboBox,StudioDialog,dialog_buttons,thumb_icon,ElidedLabel
 from .metadata_view import readable_metadata
 from .snapshots import image_snapshots
+from .preview_scope import current_iteration
 
 
 class ResultImage(QPushButton):
@@ -186,10 +187,16 @@ class CanvasResults(QFrame):
         for widget in (self.images,self.destination,self.choose_folder,self.save_button,self.reuse,self.feedback):widget.hide()
         line=next((c for c in data['connections'] if c['destination']=='__result_preview__' and c['kind']=='image'),None)
         self.input_active=True;self.input_records=[];self.input_record=None
-        if not line:self.preview.set_picture(QPixmap());self.preview.setText('請連接圖片來源或 Stage 結果');self.preview.setEnabled(False);self.image_key=None;return True
+        if not line:self.preview.set_picture(QPixmap());self.preview.setText('');self.preview.setEnabled(False);self.image_key=None;return True
         key=line['source'];images=self.window.comfy.images
-        collection=images.collection(key);source=images.source(key)
-        items=collection['items'] if collection else [source] if source else []
+        runner=getattr(getattr(self.window.comfy,'input_flow',None),'chain',None)
+        if runner is not None:
+            from .preview_scope import preview_images
+            collection=dict(items=preview_images(self.window.state,runner.preview_results,key));source=None
+        else:collection=images.collection(key);source=images.source(key)
+        # Filter before creating image readers. Historical and downstream
+        # collections remain complete; only this display uses the latest scope.
+        items=current_iteration(collection['items'] if collection else [source] if source else [])
         self.input_records=[dict(path=str(self.window.store.directory/i['relative']),name=i['name']) for i in items]
         signature=tuple((i['sha256'],str(i.get('reference'))) for i in items)
         if items:
@@ -205,7 +212,7 @@ class CanvasResults(QFrame):
         else:
             canvas=getattr(self.window,'canvas',None);picture=canvas.image_previews.get(key) if canvas else None
             self.image_key=None;self.preview.set_picture(QPixmap.fromImage(picture) if picture is not None and not picture.isNull() else QPixmap())
-            self.preview.setText('等待本次 Stage 結果' if key in data['stages'] else '尚未載入圖片');self.preview.setEnabled(False)
+            self.preview.setText('');self.preview.setEnabled(False)
         return True
 
     def refresh_destination(self):
@@ -284,12 +291,8 @@ class CanvasResults(QFrame):
     def show_image(self,index=None):
         record=self.input_records[index] if type(index) is int and 0<=index<len(self.input_records) else self.input_record if self.input_active else self.record
         if not record: return
-        dialog=StudioDialog(self.window); dialog.setWindowTitle(record['name']); dialog.resize(980,780)
-        display=label(''); display.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        reader=QImageReader(record['path']); reader.setAutoTransform(True); size=reader.size()
-        if not size.isValid(): self.window.notice('原圖已移動或暫存已清除。'); return
-        size.scale(900,620,Qt.AspectRatioMode.KeepAspectRatio); reader.setScaledSize(size); display.setPixmap(QPixmap.fromImage(reader.read()))
-        dialog.body.addWidget(display,1); dialog.body.addWidget(dialog_buttons(dialog)); dialog.exec()
+        from .image_viewer import show_image
+        show_image(self.window,record['path'],record['name'])
 
     def show_metadata(self):
         if not self.record: return

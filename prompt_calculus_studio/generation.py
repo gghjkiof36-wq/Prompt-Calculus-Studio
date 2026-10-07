@@ -62,6 +62,35 @@ def text_fields(graph):
             if field in ('text','text_g','text_l') and isinstance(value,str)]
 
 
+def profile_text_fields(profile):
+    """Legacy text targets plus native-inspected writable STRING controls.
+
+    API string values alone do not distinguish text from model names or enums.
+    Keep old bindings readable and require positive capability for new fields.
+    """
+    graph=profile['graph'];result=text_fields(graph)
+    description=profile.get('parameter_description') or {}
+    if not isinstance(description,dict):return result
+    from .stage_parameters import identity
+    if (not profile.get('id') or description.get('version')!=1 or description.get('projection_reason')
+            or description.get('identity')!=identity(profile)):return result
+    nodes=description.get('nodes',[])
+    if not isinstance(nodes,list):return result
+    for node in nodes:
+        if not isinstance(node,dict):continue
+        key=node.get('id');actual=graph.get(key,{})
+        if node.get('path')!=[key] or node.get('class_type')!=actual.get('class_type') or node.get('mode') in (2,4):continue
+        fields=node.get('fields',[])
+        if not isinstance(fields,list):continue
+        for field in fields:
+            if not isinstance(field,dict):continue
+            name=field.get('field');target=(key,name)
+            if (field.get('type')=='STRING' and field.get('editable') is True
+                    and isinstance(actual.get('inputs',{}).get(name),str) and target not in result):
+                result.append(target)
+    return result
+
+
 def ancestors(graph,ident):
     found=set(); pending=[ident]
     while pending:
@@ -101,7 +130,7 @@ def validate_profile(profile):
     if not isinstance(profile.get('name'),str) or not profile['name'].strip(): raise ValueError('工作流名稱不能空白。')
     graph=api_graph(profile.get('graph'))
     target=profile.get('prompt')
-    if not profile.get('multi_text') and (not isinstance(target,(list,tuple)) or tuple(target) not in text_fields(graph)): raise ValueError('請選擇接收最終 Prompt 的文字欄位；已接線的文字不能覆寫。')
+    if not profile.get('multi_text') and (not isinstance(target,(list,tuple)) or tuple(target) not in profile_text_fields(profile)): raise ValueError('請選擇接收最終 Prompt 的文字欄位；已接線的文字不能覆寫。')
     if profile.get('image') or (profile['mode']=='img2img' and not profile.get('multi_text')):
         image=profile.get('image'); node=graph.get(image,{})
         if node.get('class_type')!='LoadImage' or not isinstance(node.get('inputs',{}).get('image'),str):
@@ -163,7 +192,7 @@ def validate_effective_profile(profile):
                 or not isinstance(item.get('node'),str) or not isinstance(item.get('field'),str)
                 or item.get('source') not in ('pcs','web')): raise ValueError('有效文字來源無效。')
         target=(item['node'],item['field'])
-        if target not in text_fields(profile['graph']) or target in targets: raise ValueError('有效文字欄位不存在或重複。')
+        if target not in profile_text_fields(profile) or target in targets: raise ValueError('有效文字欄位不存在或重複。')
         targets.add(target)
     bindings=parameter_bindings(profile)
     derived={key:profile['graph'][node]['inputs'][field] for key,(node,field) in bindings.items()}
@@ -198,7 +227,7 @@ def initialize_effective_profile(profile,scope,texts=()):
     sources=[]
     for text in texts:
         node,field=text['node'],text['field']
-        if (node,field) not in text_fields(candidate['graph']) or not isinstance(text.get('text'),str):
+        if (node,field) not in profile_text_fields(candidate) or not isinstance(text.get('text'),str):
             raise ValueError('初始有效文字映射無效。')
         candidate['graph'][node]['inputs'][field]=text['text']
         sources.append(dict(node=node,field=field,source='pcs'))
@@ -240,13 +269,13 @@ def accept_effective_profile(profile,operation):
     checked=set()
     for target in edits:
         if (not isinstance(target,list) or len(target)!=2 or any(not isinstance(v,str) for v in target)
-                or tuple(target) not in text_fields(candidate['graph']) or tuple(target) in checked):
+                or tuple(target) not in profile_text_fields(candidate) or tuple(target) in checked):
             raise ValueError('文字編輯欄位不存在或重複。')
         checked.add(tuple(target))
     sources={(v['node'],v['field']):copy.deepcopy(v) for v in current['texts']}
     for target,item in sources.items():
         node,field=target
-        if target not in text_fields(candidate['graph']): raise ValueError('已綁文字欄位遭移除，請先處理綁定。')
+        if target not in profile_text_fields(candidate): raise ValueError('已綁文字欄位遭移除，請先處理綁定。')
         if candidate['graph'][node]['inputs'][field]!=profile['graph'][node]['inputs'][field] and target not in checked:
             raise ValueError('文字內容改動缺少明確編輯來源。')
     for node,field in checked: sources[node,field]=dict(node=node,field=field,source=operation['source'])

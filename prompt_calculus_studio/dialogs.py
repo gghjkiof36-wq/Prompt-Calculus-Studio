@@ -63,6 +63,11 @@ class ItemDialog(StudioDialog):
         form.addRow("顯示名稱", self.name)
         form.addRow("所屬模組", self.module)
         form.addRow("中文別名", self.aliases)
+        self.content_kind = QComboBox()
+        for title, key in (('標籤', 'tags'), ('純文字', 'text'), ('Markdown', 'markdown')):
+            self.content_kind.addItem(title, key)
+        self.content_kind.setCurrentIndex(max(0, self.content_kind.findData(self.item.get('content_kind', 'tags'))))
+        form.addRow('內容格式', self.content_kind)
         layout.addLayout(form)
         self.prompt = PromptEdit(window.completion)
         self.prompt.setObjectName("Prompt")
@@ -82,6 +87,7 @@ class ItemDialog(StudioDialog):
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview.setMinimumHeight(100)
         set_preview(self.preview,window.store,self.item.get("preview"),120)
+        if not self.item.get('preview'): self.preview.setText('')
         layout.addWidget(self.preview)
         layout.addLayout(row(button("選擇預覽圖",self.choose_image),button("移除預覽",self.clear_image),None))
         layout.addWidget(dialog_buttons(self,self.save))
@@ -99,6 +105,7 @@ class ItemDialog(StudioDialog):
     def clear_image(self):
         self.item["preview"] = ""
         set_preview(self.preview,self.window.store,"",120)
+        self.preview.setText('')
 
     def save(self):
         if not self.name.text().strip() or not self.prompt.toPlainText().strip() or not self.module.currentData():
@@ -106,7 +113,7 @@ class ItemDialog(StudioDialog):
             return
         aliases = self.aliases.text().replace("，","、").replace(",","、").split("、")
         self.item.update(name=self.name.text().strip(),module=self.module.currentData(),
-                         prompt=self.prompt.toPlainText().strip().strip(", "),
+                         prompt=self.prompt.toPlainText(), content_kind=self.content_kind.currentData(),
                          aliases=list(dict.fromkeys(a.strip() for a in aliases if a.strip())),notes=self.notes.toPlainText())
         import re
         self.item['excludes']=list(dict.fromkeys(t.strip() for t in re.split(r'[,，\n]+',self.excludes.toPlainText()) if t.strip()))
@@ -268,6 +275,8 @@ class SettingsDialog(StudioDialog):
         for title,value in [('曲線','curve'),('直線','straight'),('直角 · 中段一次轉折','orthogonal')]: self.connection_style.addItem(title,value)
         self.connection_style.setCurrentIndex(self.connection_style.findData(s.get('connection_style','curve')))
         self.connection_style.setToolTip('直角線採水平、垂直、水平三段；只在中間轉折，不自動繞過模組。')
+        self.hide_connections=QCheckBox('隱藏畫布連線（保留連接與執行）')
+        self.hide_connections.setChecked(s.get('hide_connections',False));confirmations_layout.addWidget(self.hide_connections)
         if 'multi_output' in window.state:
             connection_form=QFormLayout();connection_form.setHorizontalSpacing(16);connection_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
             self.connection_style.setMaximumWidth(280)
@@ -356,7 +365,7 @@ class SettingsDialog(StudioDialog):
         self.window.state["settings"].update(ui_size=self.ui_size.value(),prompt_size=self.prompt_size.value(),
             font_family=self.family.currentFont().family(),material=self.material.currentData(),visual_palette=self.visual_palette.currentData(),accent=self.accent.currentData(),
             acrylic_transparency=self.transparency_values['acrylic'],mica_transparency=self.transparency_values['mica'],menu_transparency=self.menu_transparency.value(),confirm_clear_draft=self.confirm_clear_draft.isChecked(),reduce_motion=self.reduce_motion.isChecked(),
-            connection_style=self.connection_style.currentData(),density=self.density.currentData(),online=self.online.isChecked(),translator=self.translator.currentData(),
+            connection_style=self.connection_style.currentData(),hide_connections=self.hide_connections.isChecked(),density=self.density.currentData(),online=self.online.isChecked(),translator=self.translator.currentData(),
             formatter=self.formatter.currentData(),artist_prefix=self.artist.isChecked())
         self.dictionary_feedback.setText('' if valid else '尚未套用：每行請使用「中文 = 英文」格式。輸入內容已暫存。')
         if valid:
@@ -368,7 +377,7 @@ class SettingsDialog(StudioDialog):
         self.window.completion.timer.stop()
         settings=self.window.state['settings']
         prompt_changed=changed_separation or any(prior.get(k)!=settings.get(k) for k in ('formatter','artist_prefix'))
-        theme_changed=any(prior.get(k)!=settings.get(k) for k in ('ui_size','prompt_size','font_family','visual_palette','accent','density','reduce_motion','connection_style'))
+        theme_changed=any(prior.get(k)!=settings.get(k) for k in ('ui_size','prompt_size','font_family','visual_palette','accent','density','reduce_motion','connection_style','hide_connections'))
         self.window.changed('prompt' if prompt_changed else 'settings')
         if prompt_changed:self.window.refresh_builder()
         if theme_changed:

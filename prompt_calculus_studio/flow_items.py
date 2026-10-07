@@ -230,7 +230,7 @@ class CanvasContainer(QGraphicsObject):
         outline=QPainterPath();outline.addRoundedRect(self.rect(),16,16)
         # A container recedes behind its text cards; do not reduce child
         # opacity or reintroduce transparent proxy-widget painting.
-        container=dict(colors,canvas_body=mix(colors['canvas_body'],colors['base'],.72),
+        container=dict(colors,canvas_alpha=205,canvas_body=mix(colors['canvas_body'],colors['base'],.80),
                        canvas_header=mix(colors['canvas_header'],colors['base'],.66))
         paint_module_surface(painter,outline,container,44)
         value=self.canvas.data()['canvases'][self.key]
@@ -291,5 +291,5 @@ class CanvasContainer(QGraphicsObject):
             s['multi_output']['canvases'][key].update(position=pos,display_size=size); s.setdefault('text_positions',{}).update(moved)
         QTimer.singleShot(0,lambda:canvas.commit(apply))
     def mouseDoubleClickEvent(self,event):
-        pos=QPointF(event.scenePos()); QTimer.singleShot(0,lambda:self.canvas.palette(pos)); event.accept()
+        pos=QPointF(event.scenePos());key=self.key;QTimer.singleShot(0,lambda:self.canvas.quick_text(key,pos)); event.accept()
     def contextMenuEvent(self,event): self.canvas.container_menu(self.key,event.screenPos()); event.accept()

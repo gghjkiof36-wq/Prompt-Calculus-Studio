@@ -23,10 +23,28 @@ def prepare_state(state, *, multi=False):
         result=upgrade_dataflow(result)
         from .stage_model import upgrade as upgrade_stages
         result=upgrade_stages(result)
-        for scene in result.get('workspace_scenes',{}).get('items',{}).values():
-            projected=upgrade_stages(dict(result,**scene))
-            scene['multi_output']=projected['multi_output']
-            scene['canvas_functions']=projected['canvas_functions']
+        from .workspace_scene import load as load_scene,scene as scene_value
+        for key,saved in result.get('workspace_scenes',{}).get('items',{}).items():
+            # A saved workspace can predate the active workspace schema. Load
+            # it independently and run each prerequisite before Stage marks
+            # it current; otherwise old scenes lose schedulers/input fields.
+            projected=copy.deepcopy(result)
+            projected.pop('workspace_scenes',None)
+            load_scene(projected,saved);projected['workspace']=key
+            projected=migrate(projected)
+            projected=upgrade(projected)
+            projected=upgrade_workflow_flow(projected)
+            projected=upgrade_dataflow(projected)
+            projected=upgrade_stages(projected)
+            projected.pop('_execution_inputs',None)
+            projected.pop('_stage_results',None)
+            materialize(projected)
+            validate_state(projected)
+            converted=scene_value(projected)
+            # load_scene provides runtime defaults; they are not a document
+            # migration and must not cause a second backup on the next load.
+            converted['generation_local']=copy.deepcopy(saved.get('generation_local',{}))
+            saved.clear();saved.update(converted)
         result.pop('_execution_inputs',None)
         result.pop('_stage_results',None)
         materialize(result)

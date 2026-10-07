@@ -4,7 +4,7 @@ import json
 from PySide6.QtCore import Qt,QTimer,QSize,QEvent
 from PySide6.QtGui import QIcon,QImageReader,QPixmap
 from PySide6.QtWidgets import QFrame,QVBoxLayout,QListWidget,QListWidgetItem,QPlainTextEdit,QDialog,QLineEdit
-from .widgets import label,button,row,ComboBox,StudioDialog,RoundMenu,dialog_buttons
+from .widgets import label,button,row,ComboBox,StudioDialog,RoundMenu,dialog_buttons,widget_global_position
 from .workflow_binding import WorkflowBindingDialog
 from .output_order import OutputOrderList
 from .stage_model import choose,compile_plan
@@ -26,7 +26,8 @@ class PendingList(OutputOrderList):
         item=self.itemAt(event.pos())
         if item:
             self.setCurrentItem(item)
-            self.panel.item_menu(item.data(Qt.ItemDataRole.UserRole),event.globalPos())
+            self.panel.item_menu(item.data(Qt.ItemDataRole.UserRole),
+                widget_global_position(self.viewport(),event.pos(),self.panel.canvas.view))
         # Never propagate an item/empty-list click to the Canvas node menu.
         event.accept()
     def startDrag(self,actions):
@@ -94,8 +95,8 @@ class StagePanel(QFrame):
 class SchedulePanel(QFrame):
     def __init__(self,canvas,key):
         super().__init__();self.canvas=canvas;self.key=key;self.rows=[];self.dragging=False;self.setObjectName('CanvasModuleBody')
-        body=QVBoxLayout(self);body.setContentsMargins(4,8,4,4);body.setSpacing(10)
-        self.summary=label('','Subtle',True);body.addWidget(self.summary)
+        body=QVBoxLayout(self);body.setContentsMargins(4,4,4,4);body.setSpacing(6)
+        self.summary=label('','Subtle',True)
         self.policy_button=button('輸入取值',self.policies,'Quiet')
         self.policy_button.setParent(self);self.policy_button.hide()
         self.list=PendingList(self);self.list.setIconSize(QSize(48,48));self.list.setMinimumHeight(96)
@@ -103,13 +104,16 @@ class SchedulePanel(QFrame):
         self.list.removeRequested.connect(lambda ids:self.remove(ids[0]) if ids else None)
         self.list.setToolTip('拖曳調整順序；雙擊查看內容；右鍵處理此項')
         self.empty=label('執行後，等待項目會顯示在這裡。','Subtle',True);self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty.setMinimumHeight(110);body.addWidget(self.empty,1)
+        self.empty.setMinimumHeight(56);body.addWidget(self.empty,1)
         self.pause_button=button('暫停',self.toggle_pause)
-        self.more=button('更多',self.more_actions,'Quiet')
+        self.more=button('',self.more_actions,'Quiet')
+        self.more.setAccessibleName('預排程選項');self.more.setToolTip('預排程選項')
         history=button('歷史',lambda:show_history(canvas.window),'Quiet')
         from .ui_icons import icon
+        self.more.setIcon(icon('more-horizontal'));self.more.setProperty('iconName','more-horizontal')
         history.setIcon(icon('history'));history.setProperty('iconName','history')
-        body.addLayout(row(self.more,history,None,self.pause_button))
+        body.insertLayout(0,row(self.summary,None,self.more))
+        body.addLayout(row(history,None,self.pause_button))
         self.canvas.window.comfy.stateChanged.connect(self.refresh);self.refresh()
 
     def toggle_pause(self):
@@ -176,7 +180,11 @@ class SchedulePanel(QFrame):
         self.pause_button.setText('繼續' if paused else '暫停')
         self.pause_button.setToolTip('繼續處理等待項目' if paused else '暫停此預排程')
         self.empty.setVisible(not rows);self.list.setVisible(bool(rows))
-        status='已暫停' if paused else str(len(rows))+' 項等待中' if rows else '尚無等待項目'
+        counts={}
+        for item in rows:
+            status=self.runner.entry_status(item);counts[status]=counts.get(status,0)+1
+        status=' · '.join(str(count)+' 項'+NAMES.get(status,status) for status,count in counts.items()) or '尚無等待項目'
+        if paused:status='已暫停 · '+status
         self.summary.setText(mode+' · '+status)
         self.summary.setToolTip(self.runner.progress()+'\n'+self.runner.expansion(self.key,len(rows) or self.canvas.window.state['settings'].get('comfy_count',1)))
 
@@ -186,7 +194,10 @@ class SchedulePanel(QFrame):
         try:
             owners={entries[k]['owner'] for k in ids if k in entries}
             if len(owners)>1:raise ValueError('不同外層項目請在各自清單內調整。')
-            if owners:self.runner.store.reorder(next(iter(owners)),[k for k in ids if entries[k]['status']=='waiting'])
+            if owners:
+                from .queue_history import perform
+                waiting=[k for k in ids if entries[k]['status']=='waiting']
+                perform(self.canvas,waiting,lambda:self.runner.store.reorder(next(iter(owners)),waiting),'排列等待項目')
         except ValueError as exc:self.canvas.window.notice(str(exc))
         self.refresh()
 
@@ -197,7 +208,9 @@ class SchedulePanel(QFrame):
     def remove(self,ident=None):
         item=self.runner.store.read(ident) if ident else self.selected()
         try:
-            if item:self.runner.remove_entry(item['id']);self.refresh()
+            if item:
+                from .queue_history import perform
+                perform(self.canvas,[item['id']],lambda:self.runner.remove_entry(item['id']),'移除等待項目');self.refresh()
         except ValueError as exc:self.canvas.window.notice(str(exc))
 
     def action(self,method):
@@ -250,7 +263,9 @@ def entry_detail(window,item):
     def parameters(stage_id):
         persist()
         if saved!=item['saved']:
-            try:runner.store.edit(item['id'],saved,item['saved'])
+            try:
+                from .queue_history import perform
+                perform(window.canvas,[item['id']],lambda:runner.store.edit(item['id'],saved,item['saved']),'修改等待項目')
             except ValueError as exc:window.notice(str(exc));return
         dialog.accept()
         from .stage_parameter_panel import open_parameters
@@ -312,7 +327,9 @@ def entry_detail(window,item):
     def save():
         persist()
         for key,(source,index) in batch_refs.items():saved['batches'][source][index]=values[key]['value']
-        try:runner.store.edit(item['id'],saved,item['saved']);dialog.accept()
+        try:
+            from .queue_history import perform
+            perform(window.canvas,[item['id']],lambda:runner.store.edit(item['id'],saved,item['saved']),'修改等待項目');dialog.accept()
         except ValueError as exc:window.notice(str(exc))
     save_button=button('保存此項',save,'Primary')
     def image_change():
@@ -328,8 +345,9 @@ def entry_detail(window,item):
     def duplicate():
         try:
             persist()
-            if saved!=item['saved']:runner.store.edit(item['id'],saved,item['saved'])
-            copied=runner.store.copy_entry(item['id']);dialog.accept();runner.notify('已複製這一項。')
+            from .queue_history import perform,created
+            if saved!=item['saved']:perform(window.canvas,[item['id']],lambda:runner.store.edit(item['id'],saved,item['saved']),'修改等待項目')
+            copied=runner.store.copy_entry(item['id']);created(window.canvas,copied['id']);dialog.accept();runner.notify('已複製這一項。')
             QTimer.singleShot(0,window,lambda:entry_detail(window,copied))
         except ValueError as exc:window.notice(str(exc))
     copy_button=button('複製此項',duplicate,'Quiet')

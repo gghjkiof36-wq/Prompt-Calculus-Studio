@@ -22,7 +22,7 @@ class OutputPanel(QFrame):
     def __init__(self,canvas,key):
         super().__init__(); self.canvas=canvas; self.key=key; self.updating=False
         self.setObjectName('CanvasModuleBody'); body=QVBoxLayout(self); body.setContentsMargins(4,8,4,4);body.setSpacing(10)
-        self.order=OutputOrderList(); self.order.setMinimumHeight(60)
+        self.order=OutputOrderList(); self.order.setMinimumHeight(96)
         self.order.orderChanged.connect(self.reordered)
         self.order.removeRequested.connect(self.remove_items)
         self.order.itemDoubleClicked.connect(lambda item:canvas.focus_node(item.data(Qt.ItemDataRole.UserRole)))
@@ -35,33 +35,50 @@ class OutputPanel(QFrame):
         self.source_count=label('文字來源','Subtle')
         reorder=button('排列',lambda:canvas.order_sources(key),'Quiet');reorder.setToolTip('排列文字來源')
         list_layout.addLayout(row(self.source_count,None,reorder)); list_layout.addWidget(self.order)
-        text_panel=QWidget(); text_layout=QVBoxLayout(text_panel); text_layout.setContentsMargins(0,0,0,0)
-        self.draft_status=label('自動文字','Subtle'); text_layout.addWidget(self.draft_status)
-        self.editor=QPlainTextEdit(); self.editor.setObjectName('Prompt'); self.editor.setMinimumSize(260,135)
+        text_panel=QWidget();self.text_panel=text_panel; text_layout=QVBoxLayout(text_panel); text_layout.setContentsMargins(0,0,0,0)
+        self.draft_status=label('自動文字','Subtle')
+        self.preview_toggle=button('收合預覽',self.toggle_preview,'Quiet')
+        self.copy_button=button('',lambda:canvas.window.copy_text(self.editor.toPlainText()),'Quiet')
+        self.copy_button.setAccessibleName('複製 Prompt');self.copy_button.setToolTip('複製 Prompt')
+        from .ui_icons import icon
+        self.copy_button.setIcon(icon('copy'));self.copy_button.setProperty('iconName','copy')
+        text_layout.addLayout(row(self.draft_status,None,self.preview_toggle,self.copy_button))
+        self.editor=QPlainTextEdit(); self.editor.setObjectName('Prompt'); self.editor.setMinimumSize(260,80)
+        self.editor.setMaximumHeight(190)
         self.editor.setPlaceholderText('輸入提示詞，或從左側接入文字。'); self.editor.textChanged.connect(self.edited); text_layout.addWidget(self.editor,1)
         self.split.addWidget(listing); self.split.addWidget(text_panel); body.addWidget(self.split,1)
         self.split.splitterMoved.connect(self.save_ratio); self.loaded_ratio=None
         self.conflicts=label('','ConflictNotice',True); body.addWidget(self.conflicts)
         self.clear=button('清除手動內容',self.clear_draft,'ClearDraft')
-        self.clear.setParent(self);self.clear.hide()
-        self.more=button('更多',self.more_actions,'Quiet');self.more.setToolTip('收藏提示詞或還原自動文字')
-        self.copy_button=button('複製 Prompt',lambda:canvas.window.copy_text(self.editor.toPlainText()))
-        from .ui_icons import icon
-        self.copy_button.setIcon(icon('copy'));self.copy_button.setProperty('iconName','copy')
-        body.addLayout(row(self.more,None,self.copy_button))
+        self.clear.setText('還原自動');self.clear.setToolTip('清除手動內容，使用文字來源重新組合')
+        self.save_material=button('存入素材庫',lambda:canvas.window.new_item(self.editor.toPlainText()),'Quiet')
+        list_layout.insertLayout(0,row(self.save_material,None,self.clear))
+
+    def toggle_preview(self):
+        output=self.canvas.data()['outputs'][self.key]
+        output['preview_collapsed']=not output.get('preview_collapsed',False)
+        self.apply_preview_visibility();self.canvas.window.changed('layout')
+
+    def apply_preview_visibility(self):
+        collapsed=self.canvas.data()['outputs'][self.key].get('preview_collapsed',False)
+        self.editor.setVisible(not collapsed);self.preview_toggle.setText('展開預覽' if collapsed else '收合預覽')
+        self.text_panel.setMaximumHeight(self.preview_toggle.sizeHint().height()+8 if collapsed else 240)
+        self.preview_toggle.setAccessibleName(self.preview_toggle.text())
+        card=self.canvas.outputs.get(self.key)
+        if card:card.layout_card()
 
     def more_actions(self):
         menu=RoundMenu(self)
         menu.addAction('存入素材庫',lambda:self.canvas.window.new_item(self.editor.toPlainText()))
         clear=menu.addAction('清除手動內容',self.clear_draft);clear.setEnabled(self.clear.isEnabled())
-        menu.open_for(self.more,self.canvas.view)
+        menu.open_for(self.save_material,self.canvas.view)
     def save_ratio(self,*_):
         sizes=self.split.sizes()
         if sum(sizes):
             self.loaded_ratio=sizes[0]/sum(sizes)
             self.canvas.data()['outputs'][self.key]['panel_ratio']=self.loaded_ratio; self.canvas.window.changed('layout')
     def restore_ratio(self):
-        ratio=self.canvas.data()['outputs'][self.key].get('panel_ratio',.3)
+        ratio=self.canvas.data()['outputs'][self.key].get('panel_ratio',.62)
         if ratio!=self.loaded_ratio:
             self.split.setSizes([round(ratio*1000),round((1-ratio)*1000)]); self.loaded_ratio=ratio
     def context(self,pos):
@@ -89,11 +106,8 @@ class OutputPanel(QFrame):
     def edited(self):
         if self.updating: return
         from .drafts import edit
-        state=self.canvas.window.state; output=state['multi_output']['outputs'][self.key]
-        edit(state,self.editor.toPlainText(),self.key)
-        if state['multi_output']['current_output']==self.key:
-            self.canvas.window.updating=True; self.canvas.window.final.setPlainText(output['draft']); self.canvas.window.updating=False
-        self.canvas.window.changed()
+        self.canvas.commit(lambda state:edit(state,self.editor.toPlainText(),self.key),
+                           label='修改手動 Prompt',merge_key='output:'+self.key)
     def clear_draft(self):
         from .drafts import clear
         self.canvas.commit(lambda s:clear(s,self.key))
@@ -118,11 +132,12 @@ class OutputPanel(QFrame):
         self.order.setEnabled(not manual); self.clear.setEnabled(manual)
         self.draft_status.setText('正在使用手動版本' if manual else '自動文字' if cid else '缺少來源畫布')
         self.conflicts.setText('；'.join(', '.join(v['tags'])+' ← '+', '.join(v['by']) for v in affected.values())); self.conflicts.setVisible(bool(affected))
+        self.apply_preview_visibility()
         self.updating=False
 
 
 class OutputCard(TextCard):
-    default_size=(440,550)
+    default_size=(440,410)
     def __init__(self,canvas,key):
         super().__init__(canvas); self.key=key; self.module_icon='copy'; self.panel=OutputPanel(canvas,key); self.init_interaction()
     def attach(self):
@@ -133,7 +148,7 @@ class OutputCard(TextCard):
         width,height=self.requested_size; minimum=self.panel.minimumSizeHint()
         from .flow_data import text_sources
         top=max(102,90+24*len(text_sources(self.canvas.data()['outputs'][self.key])))
-        self.proxy.setGeometry(QRectF(14,top,max(350,minimum.width(),width-28),max(300,minimum.height(),height-top-14))); self.sync_bounds()
+        self.proxy.setGeometry(QRectF(14,top,max(350,minimum.width(),width-28),max(210,minimum.height(),height-top-14))); self.sync_bounds()
     def update_text(self):
         self.title=self.canvas.data()['outputs'][self.key]['name']; self.panel.refresh(); super().update_text()
     def contextMenuEvent(self,event): self.canvas.output_menu(self.key,event.screenPos()); event.accept()
@@ -267,7 +282,7 @@ class MultiCanvas(TextCanvas):
     def next_z(self): self.z_counter+=.0001; return min(-.2,self.z_counter)
     def history_state(self):
         return {k:copy.deepcopy(self.window.state[k]) for k in HISTORY_FIELDS+('multi_output','draft','draft_base') if k in self.window.state}
-    def commit(self,operation):
+    def commit(self,operation,label='編輯',merge_key=None):
         old_connections=copy.deepcopy(self.data()['connections'])
         def apply(s):
             operation(s)
@@ -279,7 +294,7 @@ class MultiCanvas(TextCanvas):
                 from .flow_data import materialize
                 materialize(s)
             model.reconcile(s)
-        result=super().commit(apply)
+        result=super().commit(apply,label=label,merge_key=merge_key)
         client=getattr(self.window,'comfy',None)
         if result and client and self.data()['version']>=7:
             client.input_flow.chain.route_changed()
@@ -293,6 +308,8 @@ class MultiCanvas(TextCanvas):
             before,_=self.undo_stack[-1]; after=self.history_state(); self.undo_stack[-1]=(before,after); self.last_state=after
         return result
     def restore_history(self,source,destination,after):
+        from .queue_history import restore as restore_queue
+        if restore_queue(self,source,destination,after):return
         from .snapshot_history import restore as restore_import
         previous=self.window.state
         canvas_focus=self.view.hasFocus() and self.view.scene().focusItem() is None
@@ -314,18 +331,25 @@ class MultiCanvas(TextCanvas):
         try:
             merged=merge(self.history_state(),expected,target)
             for key in HISTORY_FIELDS+('multi_output','draft','draft_base'):value.pop(key,None)
-            value.update(merged);validate_state(value)
+            value.update(merged)
+            from .content_history import record
+            record(value,self.history_projection(previous),self.history_projection(value),label='重做' if after else '復原')
+            validate_state(value)
         except ValueError as exc:self.window.notice(str(exc));return
         old_images=self.window.state.get('canvas_functions',{}).get('images',{})
         new_images=value.get('canvas_functions',{}).get('images',{})
         reader_changed=any(old_images.get(key,{}).get(field)!=new_images.get(key,{}).get(field)
-            for key in old_images.keys()|new_images.keys() for field in ('output_node','text_field','input_index','stage_reference'))
+            for key in old_images.keys()|new_images.keys() for field in ('output_node','text_field','input_index','stage_reference','prompt_choice'))
         source.pop(); destination.append((before,later)); self.window.state=value; self.last_state=self.history_state()
+        self._last_edit=None
         from .changes import layout_only
         self.sync('layout' if layout_only(expected,target) else 'prompt')
         if reader_changed and self.data()['version']>=7:self.window.comfy.input_flow.chain.refresh_results()
         if self.data()['version']>=7:self.window.comfy.input_flow.chain.route_changed()
         if canvas_focus:self.view.setFocus();self.view.scene().clearFocus()
+
+    def history_projection(self,state):
+        return {k:copy.deepcopy(state[k]) for k in HISTORY_FIELDS+('multi_output','draft','draft_base') if k in state}
     def choose_current(self):
         key=self.output_picker.currentData()
         if key and key!=self.data()['current_output']:
@@ -362,6 +386,9 @@ class MultiCanvas(TextCanvas):
                 self.view.scene().removeItem(item);item.deleteLater()
         if self.output in removed:self.output=None
     def update_output(self):
+        from .canvas_exclusions import affected_nodes
+        self.affected_nodes=affected_nodes(self.window.state)
+        for node in self.cards.values():node.update()
         if not hasattr(self,'outputs'): return
         if hasattr(self,'onboarding'):self.onboarding.refresh()
         self.prune_cards()
@@ -528,6 +555,7 @@ class MultiCanvas(TextCanvas):
             if port.key in self.data().get('stages',{}) or port.key in self.clips:y+=24
             port.setPos(parent.width if port.output else 0,y)
         for line in self.lines.values():
+            line.setVisible(not self.window.state['settings'].get('hide_connections',False))
             value=line.value; source=self.line_port(value,True); dest=self.line_port(value,False)
             if source and dest: line.setPath(curve(source.scenePos(),dest.scenePos(),self.window.state['settings'].get('connection_style','curve')))
     def minimum_canvas(self,key):
@@ -550,6 +578,84 @@ class MultiCanvas(TextCanvas):
         self.insertion_canvas=self.canvas_at(position) if isinstance(position,QPointF) else model.owner(self.window.state,target.split(':')[0]) if target else None
         try: return super().palette(position,target)
         finally: self.insertion_canvas=None
+
+    def function_palette(self,position=None):
+        menu=RoundMenu(self.window)
+        for title,callback in self.functions.insertion_actions(position):menu.addAction(title,callback)
+        menu.open_at(self.view.viewport().mapToGlobal(self.view.mapFromScene(position)) if position is not None else self.view.viewport().mapToGlobal(self.view.viewport().rect().center()))
+
+    def quick_text(self,key,position):
+        previous=(self.root_id,list(self.path),self.insertion_canvas)
+        self.root_id=None;self.path=[];self.insertion_canvas=key
+        try:self.add_temporary(position)
+        finally:self.root_id,self.path,self.insertion_canvas=previous
+
+    def toggle_collapsed(self,key):
+        self.commit(lambda s:self.selected_node(s,key)[2].update(collapsed=not self.selected_node(s,key)[2].get('collapsed',False)),label='收合／展開文字')
+
+    def selection_keys(self):
+        return [item.key for item in self.view.scene().selectedItems() if hasattr(item,'key') and not isinstance(item,Port)]
+
+    def copy_selected(self):
+        from .canvas_operations import capture,MIME
+        from PySide6.QtCore import QMimeData
+        from PySide6.QtWidgets import QApplication
+        import json
+        payload=capture(self.window.state,self.selection_keys())
+        if not payload['positions']:return
+        mime=QMimeData();mime.setData(MIME,json.dumps(payload,ensure_ascii=False).encode('utf-8'));QApplication.clipboard().setMimeData(mime)
+        from .content_history import record_action
+        owners=set(payload['collections'].get('canvases',{}))
+        owners.update(model.owner(self.window.state,key.split(':')[0]) for key in self.selection_keys())
+        record_action(self.window.state,'複製模組',canvas_ids=owners-{None})
+        self.window.changed('settings',refresh=False)
+        self.window.notice('已複製所選模組與內部接線。')
+
+    def paste_selected(self,position=None):
+        from .canvas_operations import paste,MIME
+        from PySide6.QtWidgets import QApplication
+        import json
+        mime=QApplication.clipboard().mimeData()
+        if not mime.hasFormat(MIME):return
+        position=position or getattr(self.view,'pointer_scene',None) or self.view.mapToScene(self.view.viewport().rect().center())
+        try:
+            raw=bytes(mime.data(MIME))
+            if len(raw)>8_000_000:raise ValueError('剪貼簿模組超過大小限制。')
+            payload=json.loads(raw);added=[]
+            if not self.commit(lambda s:added.extend(paste(s,payload,(position.x(),position.y()),self.canvas_at(position))),label='貼上模組'):return
+        except (ValueError,TypeError,KeyError) as exc:self.window.notice(str(exc));return
+        self.view.scene().clearSelection()
+        for item in self.view.scene().items():
+            if getattr(item,'key',None) in added and item.flags()&QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:item.setSelected(True)
+
+    def move_selection(self,positions):
+        nested={key:self.cards[key] for key in positions if key in self.cards and self.cards[key].parentItem() is not None}
+        extracted={key for key,item in nested.items() if not item.parentItem().sceneBoundingRect().contains(QPointF(*positions[key]))}
+        def apply(s):
+            for key,pos in positions.items():
+                if key in nested:
+                    if key not in extracted:continue
+                    from .core import uid
+                    ident,root,part=self.selected_node(s,key)
+                    comp.container(root,part['id']).remove(part)
+                    new=uid();s['uses'][new]=part
+                    target=self.canvas_at(QPointF(*pos))
+                    model.assign(s,new,target)
+                    s.setdefault('text_positions',{})[new]=list(pos)
+                    for child in comp.walk(part):
+                        old=ident+':'+child['id'];replacement=new if child is part else new+':'+child['id']
+                        if old in s.get('text_sizes',{}):s['text_sizes'][replacement]=s['text_sizes'].pop(old)
+                    continue
+                if key in s['multi_output']['canvases']:s['multi_output']['canvases'][key]['position']=list(pos)
+                else:s.setdefault('text_positions',{})[key]=list(pos)
+        result=self.commit(apply,label='移動模組')
+        if not result:self.refresh_layout()
+        return result
+        # Nested child layout is structured; a move inside its parent snaps back,
+        # just like a single-card drag. Outside moves detach once in this transaction.
+        for key in set(nested)-extracted:
+            item=self.cards.get(key)
+            if item is not None and item.parentItem():item.parentItem().layout_card()
     def add_root(self,state,root,module_id=None):
         key=super().add_root(state,root,module_id)
         if self.insertion_canvas: model.assign(state,key,self.insertion_canvas)
@@ -641,6 +747,8 @@ class MultiCanvas(TextCanvas):
         menu.addAction('移除 CLIP 輸入',lambda:self.commit(lambda s:clip_flow.remove(s,key))); menu.open_at(position)
     def container_menu(self,key,position):
         menu=RoundMenu(self.window); menu.addAction('展開編輯',lambda:self.open_editor(key))
+        menu.addAction('搜尋／新建文字素材',lambda:self.window.show_materials(key))
+        menu.addAction('畫布歷史',lambda:self.window.show_content_history(key))
         def rename():
             text,ok=InputDialog.getText(self.window,'畫布名稱','名稱',text=self.data()['canvases'][key]['name'])
             if ok and text.strip(): self.commit(lambda s:s['multi_output']['canvases'][key].update(name=text.strip()))
@@ -677,16 +785,12 @@ class MultiCanvas(TextCanvas):
                 output=s['multi_output']['outputs'].get(other,{}); s.update(draft=output.get('draft'),draft_base=output.get('draft_base',''))
         self.commit(apply)
     def delete_selected(self):
-        from .flow_widgets import FlowCard
-        items=list(self.view.scene().selectedItems()); keys=[i.key for i in items if isinstance(i,NodeCard)]
-        self.remove_keys(keys)
-        for item in items:
-            if isinstance(item,FlowLine): self.commit(lambda s,k=item.key:model.disconnect(s,k))
-            elif isinstance(item,CanvasContainer): self.remove_container(item.key)
-            elif isinstance(item,OutputCard): self.remove_output(item.key)
-            elif isinstance(item,ClipCard): self.commit(lambda s,k=item.key:clip_flow.remove(s,k))
-            elif isinstance(item,FlowCard):self.remove_flow_node(item.kind,item.key)
-            elif isinstance(item,TextCard) and (item.key in self.functions.cards or item is self.preview_card): self.functions.remove(item.key)
+        from .canvas_operations import remove
+        keys=self.selection_keys()
+        if not keys:return
+        schedulers=[key for key in keys if key in self.data().get('schedulers',{})]
+        if self.commit(lambda s:remove(s,keys),label='刪除模組'):
+            for key in schedulers:self.window.comfy.input_flow.detach(key)
     def release_output(self):
         self.execution_bar.detach()
     def open_editor(self,key):

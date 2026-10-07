@@ -11,7 +11,7 @@ class WorkflowBindingDialog(StudioDialog):
     empty_choice='不綁定 · 手動圖片'
 
     def __init__(self,canvas,key):
-        super().__init__(canvas.window); self.setWindowTitle('綁定 CLIP 輸入')
+        super().__init__(canvas.window); self.setWindowTitle('綁定文字輸入'); self.set_outside_dismiss()
         self.canvas=canvas; self.key=key; self.owner=(canvas.window.store,canvas.window.state['workspace'])
         self.profiles=copy.deepcopy(options(canvas.window.state)['profiles'])
         self.originals={p['id']:copy.deepcopy(p) for p in self.profiles}
@@ -23,7 +23,7 @@ class WorkflowBindingDialog(StudioDialog):
         self.target=ComboBox(); self.target.setMinimumWidth(400)
         self.body.addLayout(row(label('工作流','Subtle'),None,button('重新整理',self.reload_workflows,'Quiet')))
         self.body.addWidget(self.workflow)
-        self.nodes_label=label('CLIP 節點','Subtle'); self.body.addWidget(self.nodes_label); self.body.addWidget(self.target)
+        self.nodes_label=label('可寫入的文字欄位','Subtle'); self.body.addWidget(self.nodes_label); self.body.addWidget(self.target)
         self.hint=label('','Subtle',True); self.body.addWidget(self.hint)
         self.source_hint=label('','Subtle',True); self.source_hint.hide(); self.body.addWidget(self.source_hint)
         selected=canvas.data().get('clip_inputs',{}).get(key,{}).get('workflow')

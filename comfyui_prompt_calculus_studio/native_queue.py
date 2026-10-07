@@ -6,7 +6,7 @@ import json
 import time
 import uuid
 from .workflow_state import matches, server_identity
-from .shared.generation import api_graph, parameter_bindings, image_target, text_fields
+from .shared.generation import api_graph, parameter_bindings, image_target, profile_text_fields
 from .shared.multi_output import bound_texts
 from .shared.snapshots import validate_snapshot
 from .shared.native_graph import graph_matches, input_schema
@@ -189,11 +189,11 @@ class NativeQueue:
         if action!='open':
             if action=='capture' and 'queue_texts' in value:
                 for binding in value['queue_texts']:
-                    if (not isinstance(binding,dict) or (binding.get('node'),binding.get('field')) not in text_fields(profile['graph'])
+                    if (not isinstance(binding,dict) or (binding.get('node'),binding.get('field')) not in profile_text_fields(profile)
                             or not isinstance(binding.get('text'),str) or binding.get('text_source') not in ('pcs','web')):
                         raise ValueError('Queue 明確文字對應無效。')
                     texts.append(copy.deepcopy(binding))
-            elif action=='capture' and not text_fields(profile['graph']):texts=[]
+            elif action=='capture' and not profile_text_fields(profile):texts=[]
             elif (snapshot.get('chain') or action=='apply') and not any(b['workflow']==workflow for b in snapshot['state']['multi_output']['bindings']):texts=[]
             else:texts=bound_texts(snapshot['state'],profile)
         images=[]; uploaded=value.get('image','')

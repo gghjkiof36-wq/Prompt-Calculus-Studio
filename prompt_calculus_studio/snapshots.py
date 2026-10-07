@@ -9,6 +9,20 @@ SCHEMA_VERSION = 1
 MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
 
 
+def _portable_tree(value):
+    result = copy.deepcopy(value)
+    for part in walk(result):
+        # Library presentation/preferences are not generation provenance.
+        # A local thumbnail path is not a portable image asset.
+        for key in ('preview', 'pinned', 'last_used'):
+            part.pop(key, None)
+    return result
+
+
+def _portable_uses(values):
+    return {key: _portable_tree(value) for key, value in values.items()}
+
+
 def portable_state(state, selected_only=False):
     validate_state(state)
     if selected_only and separate_selections(state) and 'multi_output' not in state:
@@ -24,7 +38,8 @@ def portable_state(state, selected_only=False):
     chosen.update(n.get('source_id') for owner in [state,*state['workspaces']] for root in owner.get('uses',{}).values() for n in walk(root))
     items = [dict(id=i['id'], module=i['module'], name=i['name'], prompt=i['prompt'],
                   aliases=list(i['aliases']), notes=i['notes'], excludes=list(i.get('excludes',[])),
-                  **({'composition':copy.deepcopy(i['composition'])} if 'composition' in i else {})) for i in state['items']
+                  **({'content_kind':i['content_kind']} if 'content_kind' in i else {}),
+                  **({'composition':_portable_tree(i['composition'])} if 'composition' in i else {})) for i in state['items']
              if not selected_only or 'multi_output' in state or i['id'] in chosen]
     allowed = {i['id'] for i in items}
     workspaces = []
@@ -34,8 +49,8 @@ def portable_state(state, selected_only=False):
         workspaces.append(dict(id=w['id'], name=w['name'], fixed=list(w['fixed']),
             picks={m: [i for i in values if i in allowed] for m, values in w['picks'].items()},
             weights={k:v for k,v in w.get('weights',{}).items() if k in allowed},
-            **({'instances':{k:copy.deepcopy(v) for k,v in w['instances'].items() if k in allowed}} if 'instances' in w else {}),
-            uses=copy.deepcopy(w.get('uses',{})),
+            **({'instances':{k:_portable_tree(v) for k,v in w['instances'].items() if k in allowed}} if 'instances' in w else {}),
+            uses=_portable_uses(w.get('uses',{})),
             fixed_uses=list(w.get('fixed_uses',[])),
             **({'canvas_owners':copy.deepcopy(w['canvas_owners'])} if 'canvas_owners' in w else {}),
             parameters=copy.deepcopy(w.get('parameters', {}))))
@@ -44,8 +59,8 @@ def portable_state(state, selected_only=False):
         items=items, workspaces=workspaces, workspace=state['workspace'],
         selections=copy.deepcopy(state['selections']), temporary=list(state.get('temporary', [])),
         weights={k: v for k, v in state.get('weights', {}).items() if k in allowed},
-        **({'instances':{k:copy.deepcopy(v) for k,v in state['instances'].items() if k in allowed}} if 'instances' in state else {}),
-        uses=copy.deepcopy(state.get('uses',{})),
+        **({'instances':{k:_portable_tree(v) for k,v in state['instances'].items() if k in allowed}} if 'instances' in state else {}),
+        uses=_portable_uses(state.get('uses',{})),
         **({'prompt_layout':state['prompt_layout']} if 'prompt_layout' in state else {}),
         output_order=output_groups(state,include_hidden=not selected_only),
         temporary_before=state.get('temporary_before'), draft=state['draft'],
@@ -58,17 +73,23 @@ def portable_state(state, selected_only=False):
         for key in ('multi_output','text_positions','text_sizes','generation','canvas_functions','_execution_inputs'):
             if key in state: result[key]=copy.deepcopy(state[key])
         capture_current(result)
+        for output in result['multi_output']['outputs'].values():
+            saved=output.get('list_state',{})
+            if 'instances' in saved:saved['instances']=_portable_uses(saved['instances'])
         result['output_order']=output_groups(state,include_hidden=True)
     if not selected_only and 'workspace_scenes' in state:
         from .workspace_scene import capture
         result['workspace_scenes']=copy.deepcopy(state['workspace_scenes']);capture(result)
+        for entry in result['workspace_scenes']['items'].values():
+            for key in ('uses','instances'):
+                if key in entry:entry[key]=_portable_uses(entry[key])
     return result
 
 
 def make_snapshot(state, library_id='', library_revision=''):
     clean = portable_state(state, selected_only=True)
     generated = build_prompt(clean)
-    result = dict(schema_version=clean['version'], library_id=str(library_id),
+    result = dict(schema_version=clean['version'], formatter_version=2, library_id=str(library_id),
         library_revision=str(library_revision), state=clean, generated_prompt=generated,
         final_prompt=clean['draft'] if clean['draft'] is not None else generated,
         manual_draft=clean['draft'] is not None)
@@ -88,15 +109,22 @@ def validate_snapshot(snapshot):
     validate_state(state)
     if snapshot['schema_version'] != state['version']:
         raise ValueError('快照與組合資料版本不一致。')
-    generated = build_prompt(state)
-    final = state['draft'] if state['draft'] is not None else generated
+    formatter = snapshot.get('formatter_version', 1)
+    if type(formatter) is not int or formatter not in (1, 2):
+        raise ValueError('不支援的文字組合格式版本。')
+    from .composition import legacy_format
+    with legacy_format(formatter == 1):
+        generated = build_prompt(state)
+        final = state['draft'] if state['draft'] is not None else generated
+        if 'multi_output' in state:
+            from .multi_output import compiled_outputs
+            outputs = compiled_outputs(state)
     if (snapshot.get('generated_prompt') != generated or snapshot.get('final_prompt') != final
             or type(snapshot.get('manual_draft')) is not bool
             or snapshot['manual_draft'] != (state['draft'] is not None)):
         raise ValueError('模組快照與實際文字不一致。')
     if 'multi_output' in state:
-        from .multi_output import compiled_outputs
-        if snapshot.get('outputs')!=compiled_outputs(state): raise ValueError('多輸出快照與實際文字不一致。')
+        if snapshot.get('outputs')!=outputs: raise ValueError('多輸出快照與實際文字不一致。')
     return snapshot
 
 
@@ -150,7 +178,7 @@ def restore_snapshot(current, snapshot):
     for i in source['items']:
         target = items.get(i['id'])
         mid = module_map[i['module']]
-        if target is None or target['prompt'] != i['prompt'] or target['module'] != mid or target.get('excludes',[]) != i.get('excludes',[]) or target.get('composition') != i.get('composition'):
+        if target is None or target['prompt'] != i['prompt'] or target['module'] != mid or target.get('excludes',[]) != i.get('excludes',[]) or target.get('content_kind','tags') != i.get('content_kind','tags') or ( _portable_tree(target['composition']) if 'composition' in target else None) != i.get('composition'):
             target = dict(i, id=uid(), module=mid, name=i['name'] + ' · 歷史快照')
             result['items'].append(target)
         item_map[i['id']] = target['id']
@@ -215,6 +243,29 @@ def restore_snapshot(current, snapshot):
     from .state_loading import prepare_state
     if 'workspace_scenes' in result:result['workspace_scenes']['items'][workspace['id']]=scene(result)
     result=prepare_state(result,multi='multi_output' in current)
-    if build_prompt(result) != snapshot['generated_prompt']:
+    if snapshot.get('formatter_version', 1) == 1:
+        # Old snapshots are first recomputed using the exact old formatter.
+        # Keep their frozen output as a draft if canonical joins now differ.
+        # An explicit empty draft is a value and must never be replaced.
+        if 'multi_output' in result:
+            from .multi_output import compiled_outputs, capture_current
+            current_outputs = compiled_outputs(result)
+            isolated_list = result.get('selection_view') == 'list' and separate_selections(result)
+            for key, frozen in snapshot.get('outputs', {}).items():
+                if key not in current_outputs or 'error' in frozen: continue
+                if current_outputs[key]['generated_prompt'] == frozen['generated_prompt']: continue
+                output = result['multi_output']['outputs'][key]
+                destination = output.setdefault('list_draft', {}) if isolated_list else output
+                if destination.get('draft') is None:
+                    destination.update(draft=frozen['final_prompt'], draft_base=frozen['generated_prompt'])
+                if key == result['multi_output']['current_output'] and result.get('draft') is None:
+                    result.update(draft=frozen['final_prompt'], draft_base=frozen['generated_prompt'])
+            capture_current(result)
+        elif build_prompt(result) != snapshot['generated_prompt'] and result.get('draft') is None:
+            result.update(draft=snapshot['final_prompt'], draft_base=snapshot['generated_prompt'])
+        from .workspace_scene import capture
+        capture(result)
+        validate_state(result)
+    elif build_prompt(result) != snapshot['generated_prompt']:
         raise ValueError('恢復後的組合不一致，原狀態未變更。')
     return result

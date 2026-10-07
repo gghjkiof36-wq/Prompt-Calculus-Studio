@@ -1,10 +1,10 @@
 """Full-content composition editor. The export renderer never sees UI objects."""
-import copy,json
+import copy,json,math
 from PySide6.QtCore import Qt,QPointF,QRectF,QTimer,QPropertyAnimation,QEasingCurve,QEvent
-from PySide6.QtGui import QColor,QImage,QPixmap,QPen,QPainter,QKeySequence,QShortcut
+from PySide6.QtGui import QColor,QImage,QPixmap,QPen,QPainter,QKeySequence,QTransform
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QFrame,QGraphicsView,QGraphicsScene,QGraphicsPixmapItem,
     QGraphicsRectItem,QFileDialog,QDialog,QFormLayout,QSpinBox,QDoubleSpinBox,QCheckBox,QListWidget,QListWidgetItem,
-    QColorDialog,QScrollArea,QLabel,QAbstractItemView)
+    QColorDialog,QScrollArea,QLabel,QAbstractItemView,QGraphicsProxyWidget)
 from .widgets import button,label,row,StudioDialog,dialog_buttons,RoundMenu
 from .text_canvas import TextCanvas
 from .composition_image import document,layer,resize_layer,validate_image,render_image,PreviewCache
@@ -20,7 +20,7 @@ class EditorTextCanvas:
         self.root_id=None; self.path=[]; self.drop_target=None
     def font(self): return self.outer.font()
     def move_cards(self,moves): self.commit(lambda s:s['multi_output']['canvases'][self.editor.key].setdefault('edit_positions',{}).update(moves))
-    def commit(self,operation):
+    def commit(self,operation,label='編輯',merge_key=None):
         def apply(state):
             before=copy.deepcopy(state.get('text_positions',{})); operation(state)
             data=state['multi_output']['canvases'][self.editor.key]
@@ -29,7 +29,7 @@ class EditorTextCanvas:
                 if value is not None and value!=before.get(key):
                     data.setdefault('edit_positions',{})[key]=value
                     state['text_positions'][key]=before.get(key,[data['position'][0]+24,data['position'][1]+108])
-        return self.outer.commit(apply)
+        return self.outer.commit(apply,label=label,merge_key=merge_key)
     def add_root(self,state,root,module_id=None):
         from . import multi_output as model
         key=TextCanvas.add_root(self,state,root,module_id); model.assign(state,key,self.editor.key); return key
@@ -37,6 +37,7 @@ class EditorTextCanvas:
         position=position or self.view.mapToScene(self.view.viewport().rect().center())
         return TextCanvas.append_value(self,value,position)
     def palette(self,position=None,target=None): return TextCanvas.palette(self,position,target)
+    def edit(self,key): self.editor.edit_text(key)
     def preview_node_drop(self,*args): pass
     def finish_node_drop(self,*args): return False
     def __getattr__(self,name):
@@ -53,6 +54,7 @@ class ImageView(QGraphicsView):
         self.outline.hide(); self.drag=None; self.start=None; self.working=None; self.original=None; self.pan=None; self.space=False
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setRenderHints(QPainter.RenderHint.Antialiasing|QPainter.RenderHint.SmoothPixmapTransform); self.refresh_visual_theme()
         self.setFrameShape(QFrame.Shape.NoFrame); self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate)
     def refresh_visual_theme(self):
@@ -71,9 +73,13 @@ class ImageView(QGraphicsView):
             for card in self.editor.text_canvas.cards.values():
                 if card.parentItem() is None: bounds=bounds.united(card.sceneBoundingRect().adjusted(-30,-30,30,30))
         self.fitInView(bounds,Qt.AspectRatioMode.KeepAspectRatio)
+        self.editor.save_view()
     def wheelEvent(self,event):
         scale=self.transform().m11(); factor=1.15**(event.angleDelta().y()/120)
-        if .04<scale*factor<8: self.scale(factor,factor)
+        if .04<scale*factor<8:
+            anchor=self.mapToScene(event.position().toPoint()); self.scale(factor,factor)
+            after=self.mapToScene(event.position().toPoint()); center=self.mapToScene(self.viewport().rect().center())
+            self.centerOn(center+anchor-after); self.editor.save_view()
         event.accept()
     def text_at(self,point):
         item=self.itemAt(point)
@@ -129,7 +135,7 @@ class ImageView(QGraphicsView):
         e.paint_document(self.working); self.show_selection(self.working); event.accept()
     def mouseReleaseEvent(self,event):
         if self.pan is not None:
-            self.pan=None; self.setCursor(Qt.CursorShape.ArrowCursor if self.editor.tool=='select' else Qt.CursorShape.CrossCursor); event.accept(); return
+            self.pan=None; self.editor.save_view(); self.setCursor(Qt.CursorShape.ArrowCursor if self.editor.tool=='select' else Qt.CursorShape.CrossCursor); event.accept(); return
         if event.button()!=Qt.MouseButton.LeftButton: super().mouseReleaseEvent(event); return
         if self.drag is None: super().mouseReleaseEvent(event); return
         if self.drag=='stroke':
@@ -142,6 +148,12 @@ class ImageView(QGraphicsView):
             self.outline.setRect(item['x'],item['y'],item['width'],item['height']); self.outline.show()
         else: self.outline.hide()
     def keyPressEvent(self,event):
+        focus=self.scene().focusItem()
+        while focus is not None:
+            if isinstance(focus,QGraphicsProxyWidget): super().keyPressEvent(event); return
+            focus=focus.parentItem()
+        if event.matches(QKeySequence.StandardKey.Undo): self.editor.undo(); event.accept(); return
+        if event.matches(QKeySequence.StandardKey.Redo): self.editor.redo(); event.accept(); return
         if event.key()==Qt.Key.Key_Space: self.space=True; event.accept(); return
         if event.key() in (Qt.Key.Key_Delete,Qt.Key.Key_Backspace):
             cards=[v for v in self.scene().selectedItems() if isinstance(v,NodeCard)]
@@ -157,13 +169,14 @@ class ImageView(QGraphicsView):
         self.pan=event.position().toPoint(); self.setCursor(Qt.CursorShape.ClosedHandCursor); event.accept()
     def mouseDoubleClickEvent(self,event):
         if event.button()==Qt.MouseButton.LeftButton and not self.text_at(event.position().toPoint()):
-            self.pan=None; self.editor.text_canvas.palette(self.mapToScene(event.position().toPoint())); event.accept(); return
+            self.pan=None; position=self.mapToScene(event.position().toPoint())
+            QTimer.singleShot(0,lambda:self.editor.text_canvas.add_temporary(position)); event.accept(); return
         super().mouseDoubleClickEvent(event)
     def contextMenuEvent(self,event):
         if self.text_at(event.pos()): super().contextMenuEvent(event); return
         self.pan=None; position=self.mapToScene(event.pos()); e=self.editor; menu=RoundMenu(e.window)
         menu.addAction('加入 Tag 與素材',lambda:e.text_canvas.palette(position))
-        menu.addAction('新增文字模組',lambda:e.text_canvas.add_new(position))
+        menu.addAction('新增臨時文字',lambda:e.text_canvas.add_temporary(position))
         menu.addAction('匯入圖片…',e.import_images); menu.addSeparator()
         menu.addAction('置中顯示',self.fit); menu.addAction('復原',e.undo).setEnabled(bool(e.canvas.undo_stack))
         menu.addAction('重做',e.redo).setEnabled(bool(e.canvas.redo_stack)); menu.open_at(event.globalPos()); event.accept()
@@ -172,13 +185,17 @@ class ImageView(QGraphicsView):
 class CompositionEditor(QWidget):
     def __init__(self,canvas,key):
         super().__init__(); self.canvas=canvas; self.window=canvas.window; self.key=key; self.selected=None; self.tool='select'; self.color='#718caa'
-        self.cache=PreviewCache(); self.signature=None; self.refreshing=False; self.properties_updating=False
+        self.cache=PreviewCache(); self.signature=None; self.refreshing=False; self.properties_updating=False; self.view_ready=False
+        self.prompt_editor=None; self.text_sidebar=None
         self.outer_transform=canvas.view.transform(); self.outer_center=canvas.view.mapToScene(canvas.view.viewport().rect().center())
         self.setObjectName('WorkspaceSurface'); body=QVBoxLayout(self); body.setContentsMargins(14,12,14,12)
         self.title=label(self.data()['name'],'Heading'); self.size_button=button('啟用底圖',self.dimensions,'Quiet')
         self.undo_button=button('復原',self.undo,'Quiet'); self.redo_button=button('重做',self.redo,'Quiet')
         body.addLayout(row(button('‹ 返回工作區',self.close_editor,'Quiet'),self.title,None,self.size_button))
-        body.addLayout(row(self.undo_button,self.redo_button,None,button('背景',self.background,'Quiet'),button('輸出預覽',self.preview,'Quiet'),button('匯出底圖',self.export,'Quiet')))
+        self.identity=label('文字畫布內的獨立副本 · 修改會同步至目前流程','Subtle')
+        body.addWidget(self.identity)
+        self.history_button=button('畫布歷史',self.history,'Quiet')
+        body.addLayout(row(self.undo_button,self.redo_button,self.history_button,None,button('背景',self.background,'Quiet'),button('輸出預覽',self.preview,'Quiet'),button('匯出底圖',self.export,'Quiet')))
         tools=QVBoxLayout(); tools.setSpacing(8); self.tool_buttons={}
         for key,title in [('select','選取／移動'),('brush','筆刷'),('erase','橡皮擦'),('rect','矩形'),('ellipse','橢圓')]:
             b=button(title,lambda checked=False,k=key:self.set_tool(k),'Quiet'); b.setCheckable(True); self.tool_buttons[key]=b; tools.addWidget(b)
@@ -187,7 +204,7 @@ class CompositionEditor(QWidget):
         self.outline_only=QCheckBox('只畫外框'); tools.addWidget(self.outline_only)
         self.show_text=QCheckBox('顯示文字模組'); self.show_text.setChecked(True); self.show_text.toggled.connect(self.refresh_text); tools.addWidget(self.show_text)
         self.layer_toggle=QCheckBox('圖層與屬性'); self.layer_toggle.setChecked(True); tools.addWidget(self.layer_toggle); tools.addStretch()
-        center=QHBoxLayout(); body.addLayout(center,1)
+        center=QHBoxLayout(); self.center=center; body.addLayout(center,1)
         tools_body=QWidget(); tools_body.setObjectName('ScrollContent'); tools_body.setLayout(tools); tools_scroll=QScrollArea(); tools_scroll.viewport().setObjectName('ScrollViewport'); tools_scroll.setWidgetResizable(True); tools_scroll.setWidget(tools_body); tools_scroll.setFrameShape(QFrame.Shape.NoFrame)
         tools_scroll.setMinimumWidth(155); tools_scroll.setMaximumWidth(230); center.addWidget(tools_scroll)
         self.view=ImageView(self); center.addWidget(self.view,1); self.text_canvas=EditorTextCanvas(self)
@@ -205,10 +222,40 @@ class CompositionEditor(QWidget):
         self.stroke_width=QSpinBox(); self.stroke_width.setRange(0,300); self.stroke_width.editingFinished.connect(lambda:self.property_change('stroke_width',self.stroke_width.value())); form.addRow('外框／筆寬',self.stroke_width)
         self.crop_button=button('裁切圖片',self.crop,'Quiet'); form.addRow(self.crop_button); side.addWidget(self.properties)
         self.message=label('','Subtle',True); body.addWidget(self.message)
-        self.animation=None; self.closing=False; self.tool_buttons['select'].setChecked(True); self.refresh(); QTimer.singleShot(0,self.view.fit)
-        for shortcut,callback in [('Ctrl+Z',self.undo),('Ctrl+Y',self.redo)]:
-            command=QShortcut(QKeySequence(shortcut),self); command.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut); command.activated.connect(callback)
+        self.animation=None; self.closing=False; self.tool_buttons['select'].setChecked(True); self.refresh(); QTimer.singleShot(0,self.restore_view)
     def data(self): return self.canvas.data()['canvases'][self.key]
+    def save_view(self):
+        if not self.view_ready or self.closing or self.key not in self.canvas.data()['canvases']: return
+        center=self.view.mapToScene(self.view.viewport().rect().center())
+        value=[self.view.transform().m11(),center.x(),center.y()]
+        if self.data().get('edit_view')!=value:
+            self.data()['edit_view']=value; self.window.changed('layout',refresh=False)
+    def restore_view(self):
+        if self.closing: return
+        value=self.data().get('edit_view'); self.view.scene().setSceneRect(-100000,-100000,200000,200000)
+        if (isinstance(value,(list,tuple)) and len(value)==3 and all(type(v) in (int,float) and math.isfinite(v) for v in value) and .04<=value[0]<=8):
+            self.view.setTransform(QTransform().scale(value[0],value[0])); self.view.centerOn(value[1],value[2])
+        else: self.view.fit()
+        self.view_ready=True; self.save_view()
+    def edit_text(self,key):
+        if self.prompt_editor is None:
+            from .prompt_editor import PromptEditor
+            self.text_sidebar=QFrame(); side=QVBoxLayout(self.text_sidebar); side.setContentsMargins(0,0,0,0)
+            side.addLayout(row(label('文字編輯','Heading'),None,button('收合',self.close_text_editor,'Quiet')))
+            self.prompt_editor=PromptEditor(self.window,compact=True); side.addWidget(self.prompt_editor,1)
+            self.text_sidebar.setMinimumWidth(340); self.text_sidebar.setMaximumWidth(440); self.center.addWidget(self.text_sidebar)
+        self.prompt_editor.edit_canvas(key)
+        self.text_sidebar.show(); self.layer_toggle.setChecked(False)
+    def close_text_editor(self):
+        if self.prompt_editor is not None and not self.prompt_editor.can_leave(): return
+        self.text_sidebar.hide(); self.view.setFocus()
+    def can_leave(self):
+        if self.prompt_editor is not None and not self.prompt_editor.can_leave(): return False
+        self.save_view(); return True
+    def history(self):
+        if not self.can_leave(): return
+        from .prompt_editor import show_history
+        show_history(self.window,self.key)
     def image(self):
         from .composition_image import canvas_document
         try: return canvas_document(self.window.state,self.key)
@@ -219,7 +266,7 @@ class CompositionEditor(QWidget):
         rect=self.canvas.view.mapFromScene(container.sceneBoundingRect()).boundingRect(); rect.moveTopLeft(self.window.surface_stack.mapFromGlobal(viewport.mapToGlobal(rect.topLeft())))
         self.animation=QPropertyAnimation(self,b'geometry',self); self.animation.setDuration(180); self.animation.setStartValue(rect); self.animation.setEndValue(self.window.surface_stack.rect()); self.animation.setEasingCurve(QEasingCurve.Type.OutCubic); self.animation.start()
     def close_editor(self):
-        if self.closing: return
+        if self.closing or not self.can_leave(): return
         self.closing=True
         if self.animation: self.animation.stop()
         if self.window.state['settings'].get('reduce_motion',False): self.finish_close(); return
@@ -300,9 +347,11 @@ class CompositionEditor(QWidget):
                 entry=QListWidgetItem(('🔒 ' if item['locked'] else '')+item['name']+(' · 隱藏' if not item['visible'] else '')); entry.setData(Qt.ItemDataRole.UserRole,item['id']); self.layers.addItem(entry)
                 if item['id']==self.selected: self.layers.setCurrentItem(entry)
             self.layers.blockSignals(False); self.refresh_properties(); self.refresh_text()
+            if self.prompt_editor is not None: self.prompt_editor.refresh()
             self.undo_button.setEnabled(bool(self.canvas.undo_stack)); self.redo_button.setEnabled(bool(self.canvas.redo_stack))
         finally: self.refreshing=False
     def refresh_text(self):
+        selected={card.key for card in self.view.scene().selectedItems() if isinstance(card,NodeCard)}
         for card in list(self.text_canvas.cards.values()):
             if card.parentItem() is None: self.view.scene().removeItem(card); card.deleteLater()
         self.text_canvas.cards={}; self.text_canvas.entries={}
@@ -315,6 +364,8 @@ class CompositionEditor(QWidget):
             card=NodeCard(self.text_canvas,key,copy.deepcopy(root),'文字模組',not root['enabled']); self.view.scene().addItem(card); card.setZValue(10)
             outer=state.get('text_positions',{}).get(key,data['position']); default=[outer[0]-data['position'][0],outer[1]-data['position'][1]]
             card.setPos(*data.get('edit_positions',{}).get(key,default))
+        for key in selected:
+            if key in self.text_canvas.cards: self.text_canvas.cards[key].setSelected(True)
     def selected_layer(self): return next((v for v in (self.image() or {}).get('layers',[]) if v['id']==self.selected),None)
     def selected_changed(self,item,*args):
         self.selected=item.data(Qt.ItemDataRole.UserRole) if item else None; self.refresh_properties()

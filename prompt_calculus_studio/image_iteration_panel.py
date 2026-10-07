@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QImageReader, QPixmap
 from PySide6.QtWidgets import QFileDialog, QListWidget, QPlainTextEdit, QFormLayout, QLabel, QWidget, QVBoxLayout
 from .widgets import StudioDialog, ComboBox, button, row, label, scrolling
-from .generation import text_fields, image_target
+from .generation import profile_text_fields, image_target
 from .image_bindings import import_source
 from .image_iteration import prompt_choices
 from .pnginfo import png_metadata
@@ -65,7 +65,7 @@ class ImageIterationDialog(StudioDialog):
         if not profile:return
         for key,node in profile['graph'].items():
             if node['class_type']=='LoadImage' and isinstance(node['inputs'].get('image'),str):self.input.addItem('#'+key,key)
-        for node,field in text_fields(profile['graph']):self.target.addItem('#'+node+' / '+field,[node,field])
+        for node,field in profile_text_fields(profile):self.target.addItem('#'+node+' / '+field,[node,field])
         index=self.input.findData(image_target(profile));self.input.setCurrentIndex(max(0,index))
         self.mode.setCurrentIndex(1 if self.target.count() else 0)
         self.controls()

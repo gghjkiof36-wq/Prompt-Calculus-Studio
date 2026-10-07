@@ -2,9 +2,9 @@
 import copy
 from pathlib import Path
 from PySide6.QtCore import Qt,QSize
-from PySide6.QtWidgets import QFileDialog,QListWidget,QListWidgetItem,QAbstractItemView,QDialog,QLineEdit
+from PySide6.QtWidgets import QFileDialog,QListWidget,QListWidgetItem,QAbstractItemView,QDialog,QLineEdit,QPlainTextEdit
 from .widgets import StudioDialog,label,button,row,dialog_buttons,record_icon
-from .image_source import folder_files,natural_key,set_items,select,positive_fields
+from .image_source import folder_files,natural_key,set_items,select,metadata_sources
 
 
 def load_many(panel, paths, iterate=True):
@@ -93,15 +93,28 @@ def step(panel,delta):
 def choose_prompt(panel):
     from .pnginfo import png_metadata
     from .widgets import ComboBox
-    source=panel.owner.data()['images'][panel.key].get('source')
+    source=panel.owner.current_source(panel.key)
     if not source:return
-    try:fields=positive_fields(png_metadata(panel.owner.window.store.directory/source['relative']).get('raw',{}).get('prompt',{}))
+    try:fields=metadata_sources(png_metadata(panel.owner.window.store.directory/source['relative']))
     except (ValueError,OSError) as exc:panel.owner.window.notice(str(exc));return
-    if not fields:panel.owner.window.notice('這張圖片沒有可辨識的正面文字欄位。可以改接其他畫布或在 Prompt 控制手動輸入。');return
-    dialog=StudioDialog(panel.owner.window);dialog.setWindowTitle('圖片正面提示詞來源');picker=ComboBox()
-    for node,field,text in fields:picker.addItem('#'+node+' / '+field+' · '+text[:80],[node,field])
-    dialog.body.addWidget(picker);dialog.body.addWidget(dialog_buttons(dialog))
+    if not fields:panel.owner.window.notice('這張圖片沒有可讀取的提示詞來源。');return
+    dialog=StudioDialog(panel.owner.window);dialog.setWindowTitle('圖片提示詞來源');dialog.resize(650,480)
+    picker=ComboBox();roles={'positive':'正面','negative':'負面','unknown':'未判定'}
+    for entry in fields:
+        name=('parameters' if entry['node']=='__parameters__' else '#'+entry['node'])+' / '+entry['field']
+        picker.addItem(roles[entry['role']]+' · '+name,entry['choice'])
+    selected=panel.owner.data()['images'][panel.key].get('prompt_choice')
+    if isinstance(selected,list) and len(selected)==2:selected=['positive',*selected]
+    picker.setCurrentIndex(next((i for i,e in enumerate(fields) if e['choice']==selected),0))
+    preview=QPlainTextEdit();preview.setReadOnly(True)
+    def show_source():preview.setPlainText(fields[picker.currentIndex()]['text'])
+    picker.currentIndexChanged.connect(show_source);show_source()
+    dialog.body.addWidget(picker);dialog.body.addWidget(preview,1)
+    dialog.body.addWidget(label('依實際接線區分正負；未判定來源由你選擇，保留原始文字。','Subtle',True))
+    dialog.body.addWidget(dialog_buttons(dialog))
     if dialog.exec()!=QDialog.DialogCode.Accepted:return
+    if panel.owner.current_source(panel.key)!=source:
+        panel.owner.window.notice('圖片來源已更新，請重新選擇提示詞。');return
     def change(state):
         value=state['canvas_functions']['images'][panel.key];value['prompt_choice']=picker.currentData()
         from .flow_data import incoming,materialize

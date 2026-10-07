@@ -335,7 +335,7 @@ class FlowCard(TextCard):
         self.init_interaction()
         if self.kind=='stages':self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable,True)
     @property
-    def default_size(self):return (500,550) if self.kind=='schedulers' else (360,245) if self.kind=='stages' else (360,160)
+    def default_size(self):return (440,400) if self.kind=='schedulers' else (360,245) if self.kind=='stages' else (360,160)
     def layout_is_current(self):
         return self.canvas.flow_cards.get(self.key) is self and self.key in self.canvas.data().get(self.kind,{})
     def attach(self):
@@ -348,7 +348,7 @@ class FlowCard(TextCard):
             from .stage_model import controls
             dependencies=sum(c['kind']=='done' and c['destination']==self.key for c in self.canvas.data()['connections'])
             top=max(160,106+24*(len(controls(self.canvas.window.state,self.key))+dependencies+1))
-        if self.kind=='schedulers':top=70+24*len(self.canvas.data()[self.kind][self.key]['channels'])
+        if self.kind=='schedulers':top=60+24*len(self.canvas.data()[self.kind][self.key]['channels'])
         if self.kind=='schedulers' and self.canvas.data()['version']>=7:top+=24
         w,h=self.requested_size;minimum=self.panel.minimumSizeHint()
         self.proxy.setGeometry(QRectF(14,top,max(290,w-28,minimum.width()),max(h-top-14,minimum.height())));self.sync_bounds()

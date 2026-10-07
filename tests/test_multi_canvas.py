@@ -2,7 +2,7 @@ import copy,os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication,QDialog,QPlainTextEdit,QPushButton,QLabel
 from PySide6.QtCore import QPointF,Qt
 from PySide6.QtTest import QTest
 from prompt_calculus_studio.window import Window
@@ -104,14 +104,52 @@ class MultiCanvasTests(unittest.TestCase):
         expected=copy.deepcopy(self.canvas.data()); self.w.close(); APP.processEvents(); self.w=Window(self.tmp.name); self.window=self.w
         self.assertEqual(self.w.state['multi_output'],expected); self.assertEqual(self.w.state['draft'],'kept draft')
 
-    def test_default_canvas_and_later_list_preference_keep_controls_and_drafts(self):
+    def test_editor_entry_preserves_and_exposes_legacy_list_drafts(self):
+        from prompt_calculus_studio.core import activate_selection_view
+        from prompt_calculus_studio.drafts import edit
+        from prompt_calculus_studio.editor_legacy import documents
+        from prompt_calculus_studio.composition import instance
+        from prompt_calculus_studio.widgets import StudioDialog,ComboBox
         self.assertEqual(self.w.state['selection_view'],'canvas')
-        self.canvas.outputs[self.oid].panel.editor.setPlainText('canvas manual')
-        self.w.set_interface_mode('list'); self.w.final.setPlainText('list manual'); self.w.persist()
-        self.w.close(); APP.processEvents(); self.w=Window(self.tmp.name); self.window=self.w; self.w.show(); QTest.qWait(20)
-        self.assertEqual(self.w.state['selection_view'],'list'); self.assertEqual(self.w.state['draft'],'list manual')
-        self.assertTrue(self.w.run_controls.isVisible())
-        self.w.set_interface_mode('canvas'); self.assertEqual(self.w.state['draft'],'canvas manual')
+        self.canvas.outputs[self.oid].panel.editor.setPlainText('canvas manual');APP.processEvents()
+        for manual in ('list manual',''):
+          with self.subTest(manual=manual):
+            # Build the pre-0.8.7 saved list state independently from the new UI.
+            activate_selection_view(self.w.state,'list')
+            item=self.w.state['items'][0];self.w.state['selections']={item['module']:[item['id']]}
+            instance(self.w.state,item['id'])
+            edit(self.w.state,manual)
+            saved=copy.deepcopy(self.w.state['multi_output']['outputs'][self.oid])
+            self.w.persist();self.w.close();APP.processEvents()
+            self.w=Window(self.tmp.name);self.window=self.w;self.canvas=self.w.canvas;self.w.show();QTest.qWait(20)
+            self.assertEqual(self.w.state['selection_view'],'canvas');self.assertEqual(self.w.state['draft'],'canvas manual')
+            self.w.set_interface_mode('list');QTest.qWait(10)
+            self.assertIs(self.w.surface_stack.currentWidget(),self.w.prompt_editor)
+            self.assertEqual(self.w.state['selection_view'],'canvas');self.assertEqual(self.w.state['draft'],'canvas manual')
+            before=copy.deepcopy(self.w.state);recovered=[];clipboard_before=QApplication.clipboard().text()
+            def inspect(dialog):
+                mode=next(combo for combo in dialog.findChildren(ComboBox) if combo.findData('manual')>=0)
+                mode.setCurrentIndex(mode.findData('manual'))
+                recovered.append(dialog.findChild(QPlainTextEdit).toPlainText())
+                if manual=='':
+                    self.assertTrue(any('保留的空手動草稿' in label.text() for label in dialog.findChildren(QLabel)))
+                button=next(button for button in dialog.findChildren(QPushButton) if button.text()=='複製內容')
+                QTest.mouseClick(button,Qt.MouseButton.LeftButton)
+                return QDialog.DialogCode.Accepted
+            with patch.object(StudioDialog,'exec',inspect),patch.object(self.w,'copy_text',wraps=self.w.copy_text) as copied:
+                self.w.prompt_editor.legacy_content()
+            self.assertEqual(recovered,[manual]);copied.assert_called_once_with(manual)
+            # Empty manual text remains distinct from the generated text;
+            # the common copy action intentionally leaves the clipboard alone.
+            self.assertEqual(QApplication.clipboard().text(),manual if manual else clipboard_before)
+            self.assertEqual(self.w.state,before)
+            output=self.w.state['multi_output']['outputs'][self.oid]
+            for field in ('list_state','list_draft'):self.assertEqual(output[field],saved[field])
+            self.assertEqual(next(value for value in documents(self.w.state) if value['id']==self.oid)['final'],manual)
+            self.w.set_interface_mode('canvas');QTest.qWait(10)
+            self.assertEqual(self.w.state['draft'],'canvas manual')
+            self.assertTrue(self.canvas.execution_bar.controls.isVisible())
+        QApplication.clipboard().clear()
 
     def test_clip_picker_selects_workflow_then_node_without_name_input(self):
         from prompt_calculus_studio.clip_widgets import ClipBindingDialog

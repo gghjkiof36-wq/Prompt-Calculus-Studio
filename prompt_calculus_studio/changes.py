@@ -17,8 +17,9 @@ def layout_only(before,after):
         for key in ('text_positions','text_sizes'):value.pop(key,None)
         multi=value.get('multi_output',{})
         for canvas in multi.get('canvases',{}).values():
-            for key in ('position','display_size'):canvas.pop(key,None)
-        for output in multi.get('outputs',{}).values():output.pop('panel_ratio',None)
+            for key in ('position','display_size','edit_view'):canvas.pop(key,None)
+        for output in multi.get('outputs',{}).values():
+            output.pop('panel_ratio',None);output.pop('preview_collapsed',None)
         return value
     return content(before)==content(after)
 
