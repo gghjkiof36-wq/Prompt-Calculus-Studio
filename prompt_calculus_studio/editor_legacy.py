@@ -17,10 +17,9 @@ def documents(state):
         if not saved and not draft: continue
         projection = copy.deepcopy(state)
         projection.pop('multi_output', None)
-        projection.update(uses={}, selections={}, weights={}, instances={}, temporary=[], output_order=[],
+        projection.update(uses={}, selections={}, weights={}, instances={}, temporary=[],
                           settings=dict(state['settings'], separate_selections=False))
         projection.update(saved)
-        projection.pop('output_order', None)
         generated, _ = compose_details(projection)
         manual = draft.get('draft')
         result.append(dict(id=key, name=output['name'], generated=generated, manual=manual,

@@ -737,11 +737,17 @@ class PromptEditor(QWidget):
             value = materials.from_canvas(self.window.state, self.target[1], self.edit_category.currentData())
         else:
             value = copy.deepcopy(self.base)
+            fields = self.form_values()
+            if 'composition' in value:
+                value['composition'].update(fields)
+            value.update(fields, module=self.edit_category.currentData(), notes=self.notes.toPlainText(),
+                         aliases=list(dict.fromkeys(v.strip() for v in self.aliases.text().replace(',', '、').replace('，', '、').split('、') if v.strip())))
             value['id'] = uid()
             value.pop('last_used', None)
             value['pinned'] = False
         self.target = None
         self.load_value(value, 'new')
+        self.edited()
         self.name.selectAll()
         self.name.setFocus()
         self.status.setText('為變體命名後保存；原件保持原樣。')

@@ -24,7 +24,7 @@ class PackagingTests(unittest.TestCase):
                 for name in z.namelist():
                     self.assertFalse(name.startswith(('data/','qa/','.git/','vendor/','.builder/'))); self.assertFalse(name.endswith(('.sqlite3','.token')))
             info=json.loads((folder/'BUILD_INFO.json').read_text(encoding='utf-8'))
-            self.assertEqual(info['validation'],'docs/releases/0.8.6/validation/alpha.1.md')
+            self.assertEqual(info['validation'],'docs/releases/0.8.7/validation.md')
             self.assertTrue((folder/info['validation']).is_file())
             notice=(folder/'BUILD_NOTICE.txt').read_text(encoding='utf-8')
             for name in ('docs/guide/getting-started.md','docs/releases/README.md','docs/guide/licensing.md'):
@@ -37,6 +37,8 @@ class PackagingTests(unittest.TestCase):
             '--v083-direct':'docs/releases/0.8.3/validation/alpha.1.md',
             '--v0.8.4-alpha.1':'docs/releases/0.8.4/validation/alpha.1.md',
             '--v0.8.5-alpha.1':'docs/releases/0.8.5/validation/alpha.1.md',
+            '--v086-revision12':'docs/releases/0.8.6/validation/revision12.md',
+            '--v087-candidate1':'docs/releases/0.8.7/validation.md',
         }
         for flag,path in examples.items():
             self.assertEqual(validation_reference(RELEASES[flag],paths),dict(validation=path))

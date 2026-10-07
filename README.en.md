@@ -1,5 +1,7 @@
 # Prompt Calculus Studio (PCS)
 
+This branch includes the local [0.8.7 Prompt Editor candidate](docs/releases/0.8.7/README.md), which is not a public release. Downloads and screenshots below still refer to the published 0.8.6 release.
+
 [繁體中文](README.md)
 
 PCS is a Windows desktop tool for organizing reusable prompts and running ComfyUI workflows. Save characters, styles and scenes as modules, edit them in a list or Canvas, and keep your workspaces locally.

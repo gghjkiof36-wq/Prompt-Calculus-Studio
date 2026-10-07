@@ -6,6 +6,8 @@
 
 現行指南適用 0.8.6 Alpha 1，按操作主題更新。
 
+正在測試 0.8.7 候選時，請使用[Prompt Editor 與新操作說明](releases/0.8.7/README.md)。候選尚未公開，與下列已發布版本分開。
+
 ## 版本與發布
 
 [版本總覽與舊名稱對照](releases/README.md) · [更新紀錄](../CHANGELOG.md)

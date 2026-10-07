@@ -68,6 +68,8 @@ def validation_reference(release, paths):
         '--v0.8.4-alpha.1':'docs/releases/0.8.4/validation/alpha.1.md',
         '--v0.8.5-alpha.1':'docs/releases/0.8.5/validation/alpha.1.md',
         '--v0.8.6-alpha.1':'docs/releases/0.8.6/validation/alpha.1.md',
+        '--v086-revision12':'docs/releases/0.8.6/validation/revision12.md',
+        '--v087-candidate1':'docs/releases/0.8.7/validation.md',
     }
     available={path.relative_to(ROOT).as_posix() for path in paths}
     report=reports.get(release.flag)

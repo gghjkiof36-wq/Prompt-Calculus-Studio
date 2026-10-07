@@ -17,16 +17,24 @@ APP=QApplication.instance() or QApplication([])
 
 class CompositionImageTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory(); self.root=Path(self.temp.name)
-        self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'}); self.env.start(); self.w=Window(self.root/'data')
+        self.temp=tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup); self.root=Path(self.temp.name)
+        self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'}); self.env.start(); self.addCleanup(self.env.stop)
+        self.w=Window(self.root/'data');self.addCleanup(self.close_window,self.w)
+        self.w.comfy.enabled=False;self.w.comfy.timer.stop()
         self.w.state['settings'].update(online=False,material='solid',reduce_motion=True); self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(15)
         self.canvas=self.w.canvas; self.cid=next(iter(self.canvas.containers)); self.doc=document(120,80)
         from test_multi_output import workflow
-        self.oid=self.canvas.data()['current_output']; self.w.generation_panel.save_profile(workflow())
-        from prompt_calculus_studio.clip_flow import set_binding,source
-        clip=next(k for k in self.canvas.data()['clip_inputs'] if source(self.w.state,k)==self.oid)
-        set_binding(self.w.state,'flow',clip,('6','text'))
-    def tearDown(self): self.w.close(); APP.processEvents(); self.env.stop(); self.temp.cleanup()
+        self.oid=self.canvas.data()['current_output'];profile=workflow();profile['frontend_id']='native-A';self.w.generation_panel.save_profile(profile)
+        from prompt_calculus_studio.canvas_starter import guide
+        from prompt_calculus_studio.clip_flow import set_binding
+        from prompt_calculus_studio.stage_model import choose
+        starter=guide(self.w.state)
+        self.assertIsNotNone(starter)
+        self.assertTrue(self.canvas.commit(lambda s:(set_binding(s,'flow',starter['clip'],('6','text')),choose(s,starter['stage'],'flow'))))
+
+    def close_window(self,window):
+        try:window.close();APP.processEvents()
+        finally:window.store.close()
     def test_clean_render_contains_shapes_strokes_and_erasure_only(self):
         rect=layer('rect',10,10,80,60); rect['fill']='#ff0000'; self.doc['layers'].append(rect)
         stroke=layer('stroke',0,0,120,80,points=[[20,30],[90,30]]); stroke.update(stroke='#0000ff',stroke_width=8); self.doc['layers'].append(stroke)

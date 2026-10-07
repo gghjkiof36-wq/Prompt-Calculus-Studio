@@ -8,7 +8,7 @@ import uuid
 
 LIMIT = 200
 BYTE_LIMIT = 4 * 1024 * 1024
-CONTENT_FIELDS = ('name', 'prompt', 'content_kind', 'children', 'overlays', 'enabled', 'weight',
+CONTENT_FIELDS = ('name', 'prompt', 'content_kind', 'children', 'overlays', 'enabled', 'weight', 'grouped',
                   'excludes', 'composition', 'aliases', 'notes', 'module', 'preview')
 
 

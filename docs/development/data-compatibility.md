@@ -1,8 +1,20 @@
 # 資料與相容性
 
-適用：0.8.6 Alpha 1。Stage 參數沿用 0.8.5 的保存與覆寫規則。
+適用：0.8.7 Prompt Editor 候選，沿用修訂 12 的啟動及回復修正。Stage 執行參數仍使用既有明確覆寫規則。
 
-## 導覽、起始流程與更新設定
+## 素材、文字草稿與內容歷史
+
+- `items` 保存素材原件，`uses` 是每份畫布的獨立內容樹。新增 `content_kind`（tags/text/markdown）、`pinned`、`last_used`、`source_revision` 與 `collapsed` 為可選欄位；既有內容缺欄不強制改写收合狀態。未知內容格式拒絕，不回退成 tags 清理。
+- `multi_output.outputs` 的 Canvas 與 list 草稿保留分隔，`None` 與 `""` 不可互換。Editor 切頁、切工作區及退出前同步目前副本，素材原件仍需明確保存；舊 list 的內容與次序可透過取回入口查看，不自動生成新流程。
+- `content_history.version=1` 保存最多 200 筆／4 MiB 的內容及操作紀錄。素材、文字樹與 output 草稿的 before/after 分開記錄，output 帶 canvas/list scope。還原內容經 Canvas transaction 產生新的歷史；不改外部提交、圖片歷史或非目標輸出。
+- Stage 未套用草稿放同資料庫的附加 `stage_editor_local` 表，按工作區、server、Stage、等待項目分隔。這不是 Stage 執行參數；提醒偏好與草稿保存不會套用或提交生成。
+- Undo 為工作階段內 100 步／約 32 MB 的有界快照。未提交等待項目採紀錄身分與完整值比對，已嘗試／已提交／外部修改不復原成 waiting；成功復原保持原 run 暫停。
+- 新 PNG 快照使用 `formatter_version=2`。無標記的舊快照以舊分隔規則精確重算驗證；新規則不同時，還原保留歷史 final 為手動稿，不拿新版輸出覆寫。portable 快照排除本機預覽路徑、釘選、使用時間及內容歷史。
+- 舊 `workspace_scenes` 在載入副本內依完整 multi-output→CLIP→flow→Stage 次序升級，原件先備份；再次載入不得製造相同轉換備份。場景遷移不保留 runtime execution-input 或 Stage-result 暫存。
+
+新增資料仍保留既有 `prompt_studio` 儲存與協定名稱。回退使用相容舊程式和原資料副本，不將新版編輯直接交回舊程式。具體已驗條件見[0.8.7 驗證範圍](../releases/0.8.7/validation.md)。
+
+## 沿用 0.8.6 的導覽、起始流程與更新設定
 
 修訂 12 不修改文件或 SQLite 格式。與本次修复直接相關的持久化界線如下；既有 Stage 相容表及較早格式說明保留。
 
