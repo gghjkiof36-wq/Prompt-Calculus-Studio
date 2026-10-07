@@ -679,5 +679,47 @@ class MaterialEditorTests(unittest.TestCase):
         finally:
             full.close(); full.deleteLater()
 
+    def test_material_cards_wrap_words_and_use_actual_preview_line_count(self):
+        from prompt_calculus_studio.material_editor_page import MaterialCardDelegate
+        from PySide6.QtGui import QFontMetrics, QIcon, QPixmap
+        from PySide6.QtWidgets import QListWidget, QListWidgetItem, QStyleOptionViewItem
+        listing = QListWidget(); listing.resize(360, 600); listing.show(); self.app.processEvents()
+        delegate = MaterialCardDelegate(listing); option = QStyleOptionViewItem(); option.font = listing.font()
+        metrics = QFontMetrics(option.font)
+        try:
+            lines = delegate.preview_lines('soft morning light', option.font, metrics.horizontalAdvance('soft morning l'))
+            self.assertEqual(lines, ['soft morning', 'light'])
+            chinese = delegate.preview_lines('文字換行，保留中文與😀符號。', option.font, metrics.horizontalAdvance('文字換行，'))
+            self.assertEqual(chinese[0], '文字換行，'); self.assertLessEqual(len(chinese), 2)
+            for text in ('One\nsmile', 'Two\n' + 'soft morning light ' * 8): listing.addItem(text)
+            heights = [delegate.sizeHint(option, listing.model().index(i, 0)).height() for i in range(2)]
+            self.assertEqual(heights[1] - heights[0], metrics.height())
+            pixmap = QPixmap(52, 52); pixmap.fill()
+            listing.addItem(QListWidgetItem(QIcon(pixmap), 'Image\n'))
+            self.assertGreaterEqual(delegate.sizeHint(option, listing.model().index(2, 0)).height(), 82)
+        finally: listing.close(); listing.deleteLater()
+
+    def test_information_disclosure_keeps_outer_origin_and_document_scroll(self):
+        from prompt_calculus_studio.prompt_editor import PromptEditor
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        full = PromptEditor(self.w)
+        try:
+            full.resize(1100, 800); full.show(); self.app.processEvents()
+            full.prompt.setPlainText('\n'.join('Line ' + str(i) for i in range(80)))
+            full.prompt.verticalScrollBar().setValue(120); self.app.processEvents()
+            inner = full.prompt.verticalScrollBar().value(); origin = full.scroll.verticalScrollBar().value()
+            QTest.mouseClick(full.more, Qt.MouseButton.LeftButton); self.app.processEvents()
+            self.assertTrue(full.more.isChecked())
+            self.assertEqual(full.scroll.verticalScrollBar().value(), origin)
+            self.assertEqual(full.prompt.verticalScrollBar().value(), inner)
+            full.scroll.verticalScrollBar().setValue(full.scroll.verticalScrollBar().maximum())
+            full.scroll.ensureWidgetVisible(full.more); self.app.processEvents()
+            QTest.mouseClick(full.more, Qt.MouseButton.LeftButton); self.app.processEvents()
+            self.assertFalse(full.more.isChecked())
+            self.assertEqual(full.scroll.verticalScrollBar().value(), min(origin, full.scroll.verticalScrollBar().maximum()))
+            self.assertEqual(full.prompt.verticalScrollBar().value(), inner)
+        finally: full.close(); full.deleteLater()
+
 
 if __name__ == '__main__': unittest.main()

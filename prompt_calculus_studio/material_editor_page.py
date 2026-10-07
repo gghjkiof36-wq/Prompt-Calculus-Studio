@@ -1,6 +1,6 @@
 """Focused Prompt Editor presentation with a persistent material browser."""
 from PySide6.QtCore import Qt, QSize, QRectF, QTimer, QSignalBlocker, Signal, QStringListModel
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPen, QPainter, QShortcut, QKeySequence, QTextCursor, QTextBlockFormat
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPen, QPainter, QShortcut, QKeySequence, QTextCursor, QTextBlockFormat, QTextLayout, QTextOption
 from PySide6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QPlainTextEdit, QListWidget, QCheckBox, QScrollArea, QStyledItemDelegate,
     QStyle, QSizePolicy, QPushButton, QTextEdit, QCompleter, QButtonGroup, QStackedWidget)
@@ -87,9 +87,30 @@ class PagePromptText(QTextEdit):
 
 
 class MaterialCardDelegate(QStyledItemDelegate):
+    @staticmethod
+    def preview_lines(text, font, width):
+        """Native word/Chinese wrapping, with at most two Unicode-safe lines."""
+        if not text: return []
+        layout = QTextLayout(text, font)
+        option = QTextOption(); option.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        layout.setTextOption(option); layout.beginLayout()
+        first = layout.createLine(); first.setLineWidth(max(20, width))
+        end = first.textStart() + first.textLength()
+        layout.endLayout()
+        encoded = text.encode('utf-16-le')
+        result = [encoded[:end * 2].decode('utf-16-le').rstrip()]
+        remaining = encoded[end * 2:].decode('utf-16-le').lstrip()
+        if remaining: result.append(QFontMetrics(font).elidedText(remaining, Qt.TextElideMode.ElideRight, max(20, width)))
+        return result
+
     def sizeHint(self, option, index):
         line = QFontMetrics(option.font).height()
-        return QSize(150, line * 3 + 32)
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        has_image = icon and not icon.isNull()
+        width = self.parent().viewport().width() - 27 - (62 if has_image else 0)
+        text = str(index.data(Qt.ItemDataRole.DisplayRole) or '').partition('\n')[2]
+        count = len(self.preview_lines(text, option.font, width))
+        return QSize(150, max(line * (count + 1) + 32, 82 if has_image else 0))
 
     def paint(self, painter, option, index):
         colors = widget_colors(self.parent())
@@ -116,10 +137,7 @@ class MaterialCardDelegate(QStyledItemDelegate):
         font.setWeight(QFont.Weight.Normal); painter.setFont(font); metrics = QFontMetrics(font)
         painter.setPen(QColor(colors['secondary']))
         text = lines[1] if len(lines) > 1 else ''
-        first = ''
-        while text and metrics.horizontalAdvance(first + text[0]) <= width:
-            first += text[0]; text = text[1:]
-        for i, part in enumerate((first, metrics.elidedText(text.lstrip(), Qt.TextElideMode.ElideRight, width))):
+        for i, part in enumerate(self.preview_lines(text, font, width)):
             painter.drawText(QRectF(left, rect.top() + 16 + height * (i + 1), width, height + 2), Qt.AlignmentFlag.AlignVCenter, part)
         painter.restore()
 
@@ -236,10 +254,8 @@ def build_page(e):
     e.variant_button = button('另存為新素材', e.save_variant, 'Quiet')
     e.history_button = button('內容歷史', e.history, 'Quiet'); e.delete_button = button('刪除素材', e.delete_material, 'Quiet')
     for widget in (e.heading, e.scope_hint, e.back_button, e.destination, e.edit_destination, e.use_button, e.variant_button, e.history_button, e.delete_button): widget.setParent(e); widget.hide()
-    e.more.toggled.connect(e.extras.setVisible); e.more.toggled.connect(lambda _: e._publish(force=True))
-    e.more.toggled.connect(lambda opened: QTimer.singleShot(0, lambda: e.scroll.ensureWidgetVisible(e.kind, 0, 16)) if opened else None)
-    e.preview_toggle.toggled.connect(lambda opened: QTimer.singleShot(0, lambda: e.scroll.ensureWidgetVisible(e.preview_section, 0, 16)) if opened else None)
-    e.advanced_toggle.toggled.connect(lambda opened: QTimer.singleShot(0, lambda: e.scroll.ensureWidgetVisible(e.lookup, 0, 16)) if opened else None)
+    e.more.toggled.connect(lambda opened: toggle_information(e, opened))
+    e.more.toggled.connect(lambda _: e._publish(force=True))
     e.lookup.toggled.connect(e.lookup_changed)
     e.search.textChanged.connect(e.refresh_list); e.category.currentIndexChanged.connect(e.refresh_list)
     e.order.currentIndexChanged.connect(e.refresh_list); e.pins.toggled.connect(e.refresh_list)
@@ -251,6 +267,17 @@ def build_page(e):
     e.kind.currentIndexChanged.connect(e.edited); e.edit_category.currentIndexChanged.connect(e.edited)
     e.prompt.textChanged.connect(lambda: apply_line_spacing(e))
     resize_page(e)
+
+
+def toggle_information(e, opened):
+    outer = e.scroll.verticalScrollBar()
+    if opened: e._information_origin = outer.value()
+    e.extras.setVisible(opened)
+    if not opened:
+        # Return to the pre-disclosure reading position. The document's own
+        # scroll remains untouched; only the shorter outer range is clamped.
+        origin = getattr(e, '_information_origin', outer.value())
+        QTimer.singleShot(0, lambda: outer.setValue(min(origin, outer.maximum())))
 
 
 def select_current(e):
