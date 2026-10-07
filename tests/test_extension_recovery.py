@@ -15,18 +15,14 @@ class RecoveryTests(ExtensionDeploymentTests):
         before=self.tree(original);data=self.tree(self.data)
         foreign=original if occupy_previous else self.target
         escaped=str(foreign).replace("'","''")
-        prefix="""function Get-CimInstance { @() }
-function Move-Item { param($LiteralPath,$Destination)
- Microsoft.PowerShell.Management\\Move-Item -LiteralPath $LiteralPath -Destination $Destination
- if ([IO.Path]::GetFileName($Destination).StartsWith('previous-')) {
-  $foreign='FOREIGN'
-  [IO.Directory]::CreateDirectory($foreign) | Out-Null
-  [IO.File]::WriteAllText((Join-Path $foreign 'foreign.txt'),'concurrent owner')
- }
-}""".replace('FOREIGN',escaped)
+        action="""$foreign='FOREIGN'
+ [IO.Directory]::CreateDirectory($foreign) | Out-Null
+ [IO.File]::WriteAllText((Join-Path $foreign 'foreign.txt'),'concurrent owner')
+""".replace('FOREIGN',escaped)
         # Occupying a legacy previous name alone only matters after replacement fails.
         if occupy_previous and not same_name:
-            prefix+=self.replacement_probe("throw 'replace failed'")
+            action+="throw 'replace failed'"
+        prefix='function Get-CimInstance { @() }\n'+self.replacement_probe(action,lookup=1)
         result=self.wrapper(prefix,21)
         self.assertIn(b'PCS_ROLLBACK_UNCONFIRMED',result.stdout)
         receipt=self.receipt();self.assertEqual(receipt['state'],'rollback_unconfirmed')
@@ -49,13 +45,9 @@ function Move-Item { param($LiteralPath,$Destination)
 
     def test_changed_backup_cannot_be_reported_as_restored(self):
         self.old_install();before=self.tree(self.old)
-        self.wrapper("""function Get-CimInstance { @() }
-function Move-Item { param($LiteralPath,$Destination)
- Microsoft.PowerShell.Management\\Move-Item -LiteralPath $LiteralPath -Destination $Destination
- if ([IO.Path]::GetFileName($Destination).StartsWith('previous-')) {
-  [IO.File]::WriteAllText((Join-Path $Destination 'extra.txt'),'changed backup')
- }
-}"""+self.replacement_probe("throw 'replace failed'"),21)
+        receipt=str(self.comfy/'.pcs-program-backups/install-state.json').replace("'","''")
+        action="[IO.File]::WriteAllText((Join-Path (([IO.File]::ReadAllText('"+receipt+"') | ConvertFrom-Json).backup) 'extra.txt'),'changed backup'); throw 'replace failed'"
+        self.wrapper('function Get-CimInstance { @() }\n'+self.replacement_probe(action,lookup=1),21)
         from pathlib import Path
         record=self.receipt();self.assertEqual(record['state'],'rollback_unconfirmed')
         self.assertEqual(self.tree(Path(record['backup'])),dict(before,**{'extra.txt':b'changed backup'}))

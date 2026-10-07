@@ -91,7 +91,7 @@ if ($existing.Count) {
 }
 Write-InstallState 'replacing'
 try {
-    if ($existing.Count) { Move-Item -LiteralPath $previous -Destination $backup }
+    if ($existing.Count) { [IO.Directory]::Move($previous,$backup) }
     $null=Assert-PlainPath $target
     if (Test-Path -LiteralPath $target) { throw 'Target appeared during staging.' }
     # Directory.Move refuses a destination created after the final lookup;

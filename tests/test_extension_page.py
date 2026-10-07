@@ -83,14 +83,19 @@ class ExtensionPageTests(unittest.TestCase):
         (target/'local_library.json').write_text(json.dumps(dict(library=str(self.data/'studio.sqlite3'))))
         original={p.relative_to(target).as_posix():p.read_bytes() for p in target.rglob('*') if p.is_file()}
         wrapper=self.base/'install_comfyui.ps1'
-        prefix="""function Move-Item { param($LiteralPath,$Destination)
- Microsoft.PowerShell.Management\\Move-Item -LiteralPath $LiteralPath -Destination $Destination
- if ([IO.Path]::GetFileName($Destination).StartsWith('previous-')) {
+        receipt=str(self.comfy/'.pcs-program-backups/install-state.json').replace("'","''")
+        prefix="""$global:pcsInjected=$false
+function Test-Path { param($LiteralPath,$PathType)
+ $answer=Microsoft.PowerShell.Management\\Test-Path @PSBoundParameters
+ if (-not $global:pcsInjected -and $LiteralPath -eq 'TARGET' -and [IO.File]::Exists('RECEIPT') -and
+     (([IO.File]::ReadAllText('RECEIPT') | ConvertFrom-Json).state -eq 'replacing')) {
+  $global:pcsInjected=$true
   [IO.Directory]::CreateDirectory($LiteralPath) | Out-Null
   [IO.File]::WriteAllText((Join-Path $LiteralPath 'foreign.txt'),'concurrent tree')
  }
+ return $answer
 }
-"""
+""".replace('TARGET',str(target).replace("'","''")).replace('RECEIPT',receipt)
         wrapper.write_text(prefix+wrapper.read_text(encoding='utf-8-sig'),encoding='utf-8-sig')
         self.page.preferences.value['root']=str(self.comfy);self.page.preferences.save()
         self.page.startup();self.wait_install()

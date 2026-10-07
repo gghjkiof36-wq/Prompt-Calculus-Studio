@@ -7,7 +7,7 @@ from test_deployment import DeploymentTests, ROOT, SHELL
 
 
 class ExtensionDeploymentTests(DeploymentTests):
-    def replacement_probe(self, action):
+    def replacement_probe(self, action, lookup=2):
         # Race/fault injection only after the final destination lookup. The
         # product's actual filesystem move and recovery checks still run.
         target=str(self.target).replace("'","''")
@@ -18,11 +18,11 @@ function Test-Path { param($LiteralPath,$PathType)
  if ($LiteralPath -eq 'TARGET' -and [IO.File]::Exists('RECEIPT') -and
      (([IO.File]::ReadAllText('RECEIPT') | ConvertFrom-Json).state -eq 'replacing')) {
   $global:pcsTargetLookups++
-  if ($global:pcsTargetLookups -eq 2) { ACTION }
+  if ($global:pcsTargetLookups -eq LOOKUP) { ACTION }
  }
  return $answer
 }
-""".replace('TARGET',target).replace('RECEIPT',receipt).replace('ACTION',action)
+""".replace('TARGET',target).replace('RECEIPT',receipt).replace('LOOKUP',str(lookup)).replace('ACTION',action)
 
     def wrapper(self, prefix, expected):
         script = self.root / 'automatic-install.ps1'
