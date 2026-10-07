@@ -26,7 +26,7 @@ function Move-Item { param($LiteralPath,$Destination)
 }""".replace('FOREIGN',escaped)
         # Occupying a legacy previous name alone only matters after replacement fails.
         if occupy_previous and not same_name:
-            prefix=prefix.replace(' Microsoft.PowerShell.Management'," if ([IO.Path]::GetFileName($LiteralPath).StartsWith('stage-')) { throw 'replace failed' }\n Microsoft.PowerShell.Management")
+            prefix+=self.replacement_probe("throw 'replace failed'")
         result=self.wrapper(prefix,21)
         self.assertIn(b'PCS_ROLLBACK_UNCONFIRMED',result.stdout)
         receipt=self.receipt();self.assertEqual(receipt['state'],'rollback_unconfirmed')
@@ -51,12 +51,11 @@ function Move-Item { param($LiteralPath,$Destination)
         self.old_install();before=self.tree(self.old)
         self.wrapper("""function Get-CimInstance { @() }
 function Move-Item { param($LiteralPath,$Destination)
- if ([IO.Path]::GetFileName($LiteralPath).StartsWith('stage-')) { throw 'replace failed' }
  Microsoft.PowerShell.Management\\Move-Item -LiteralPath $LiteralPath -Destination $Destination
  if ([IO.Path]::GetFileName($Destination).StartsWith('previous-')) {
   [IO.File]::WriteAllText((Join-Path $Destination 'extra.txt'),'changed backup')
  }
-}""",21)
+}"""+self.replacement_probe("throw 'replace failed'"),21)
         from pathlib import Path
         record=self.receipt();self.assertEqual(record['state'],'rollback_unconfirmed')
         self.assertEqual(self.tree(Path(record['backup'])),dict(before,**{'extra.txt':b'changed backup'}))
@@ -64,19 +63,24 @@ function Move-Item { param($LiteralPath,$Destination)
 
     def test_same_name_normal_recovery_is_verified(self):
         self.old_install();self.old.rename(self.target);before=self.tree(self.target)
-        self.wrapper("""function Get-CimInstance { @() }
-function Move-Item { param($LiteralPath,$Destination)
- if ([IO.Path]::GetFileName($LiteralPath).StartsWith('stage-')) { throw 'replace failed' }
- Microsoft.PowerShell.Management\\Move-Item -LiteralPath $LiteralPath -Destination $Destination
-}""",1)
+        self.wrapper('function Get-CimInstance { @() }\n'+self.replacement_probe("throw 'replace failed'"),1)
         self.assertEqual(self.receipt()['state'],'rolled_back')
         self.assertEqual(self.tree(self.target),before)
 
     def test_first_install_failure_without_target_is_verified(self):
-        self.wrapper("""function Get-CimInstance { @() }
-function Move-Item { param($LiteralPath,$Destination) throw 'replace failed' }""",1)
+        self.wrapper('function Get-CimInstance { @() }\n'+self.replacement_probe("throw 'replace failed'"),1)
         self.assertEqual(self.receipt()['state'],'rolled_back')
         self.assertFalse(self.target.exists())
+
+    def test_target_appearing_after_final_check_is_not_modified_or_reported_complete(self):
+        from pathlib import Path
+        self.old_install();self.old.rename(self.target);before=self.tree(self.target)
+        action="[IO.Directory]::CreateDirectory($LiteralPath) | Out-Null; [IO.File]::WriteAllText((Join-Path $LiteralPath 'foreign.txt'),'late owner')"
+        self.wrapper('function Get-CimInstance { @() }\n'+self.replacement_probe(action),21)
+        receipt=self.receipt();self.assertEqual(receipt['state'],'rollback_unconfirmed')
+        self.assertEqual(self.tree(Path(receipt['backup'])),before)
+        self.assertEqual(self.tree(self.target),{'foreign.txt':b'late owner'})
+        self.assertTrue(Path(receipt['stage']).is_dir())
 
 
 def load_tests(loader, tests, pattern):

@@ -94,7 +94,9 @@ try {
     if ($existing.Count) { Move-Item -LiteralPath $previous -Destination $backup }
     $null=Assert-PlainPath $target
     if (Test-Path -LiteralPath $target) { throw 'Target appeared during staging.' }
-    Move-Item -LiteralPath $stage -Destination $target
+    # Directory.Move refuses a destination created after the final lookup;
+    # Move-Item would nest the stage inside that unrelated directory.
+    [IO.Directory]::Move($stage,$target)
 } catch {
     $installError=$_
     $recoveryState='rollback_unconfirmed'

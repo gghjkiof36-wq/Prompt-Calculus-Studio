@@ -7,6 +7,23 @@ from test_deployment import DeploymentTests, ROOT, SHELL
 
 
 class ExtensionDeploymentTests(DeploymentTests):
+    def replacement_probe(self, action):
+        # Race/fault injection only after the final destination lookup. The
+        # product's actual filesystem move and recovery checks still run.
+        target=str(self.target).replace("'","''")
+        receipt=str(self.comfy/'.pcs-program-backups/install-state.json').replace("'","''")
+        return """$global:pcsTargetLookups=0
+function Test-Path { param($LiteralPath,$PathType)
+ $answer=Microsoft.PowerShell.Management\\Test-Path @PSBoundParameters
+ if ($LiteralPath -eq 'TARGET' -and [IO.File]::Exists('RECEIPT') -and
+     (([IO.File]::ReadAllText('RECEIPT') | ConvertFrom-Json).state -eq 'replacing')) {
+  $global:pcsTargetLookups++
+  if ($global:pcsTargetLookups -eq 2) { ACTION }
+ }
+ return $answer
+}
+""".replace('TARGET',target).replace('RECEIPT',receipt).replace('ACTION',action)
+
     def wrapper(self, prefix, expected):
         script = self.root / 'automatic-install.ps1'
         quote = lambda path: "'" + str(path).replace("'", "''") + "'"
@@ -74,11 +91,7 @@ class ExtensionDeploymentTests(DeploymentTests):
 
     def test_final_replace_failure_restores_original_folder(self):
         self.old_install(); before = self.tree(self.old)
-        self.wrapper(r"""function Get-CimInstance { @() }
-function Move-Item { param($LiteralPath,$Destination)
- if ([IO.Path]::GetFileName($LiteralPath).StartsWith('stage-')) { throw 'synthetic replacement failure' }
- Microsoft.PowerShell.Management\Move-Item -LiteralPath $LiteralPath -Destination $Destination
-}""", 1)
+        self.wrapper('function Get-CimInstance { @() }\n'+self.replacement_probe("throw 'synthetic replacement failure'"), 1)
         self.assertEqual(self.tree(self.old), before)
         self.assertFalse(self.target.exists())
         self.assertEqual(json.loads((self.comfy/'.pcs-program-backups/install-state.json').read_text())['state'],'rolled_back')
