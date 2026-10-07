@@ -3,7 +3,7 @@ import math
 import time
 
 from PySide6.QtCore import Qt, QRect, QRectF, QPointF, QSizeF, QTimer, Signal, QEvent
-from PySide6.QtGui import QColor, QPen, QFontMetricsF, QPainter, QPainterPath, QWheelEvent, QTextLayout, QTextOption, QRegion
+from PySide6.QtGui import QColor, QPen, QFontMetricsF, QPainter, QPainterPath, QWheelEvent, QTextLayout, QTextOption, QRegion, QContextMenuEvent
 from PySide6.QtWidgets import (QGraphicsObject, QGraphicsItem, QGraphicsProxyWidget,
     QGraphicsView, QGraphicsScene, QFrame, QRubberBand, QAbstractScrollArea, QApplication, QStyle, QStyleOption, QWidget)
 from . import composition as comp
@@ -621,18 +621,21 @@ class CanvasView(QGraphicsView):
         event.accept()
 
     def mousePressEvent(self,event):
-        if hasattr(self.canvas,'data') and self.interaction.press(event):return
+        workspace=hasattr(self.canvas,'data')
+        if workspace and self.interaction.press(event):return
         item=self.itemAt(event.position().toPoint())
         if event.button()==Qt.MouseButton.LeftButton:
             self.click_start=event.position().toPoint(); self.click_dragged=False
             self.blank_press=item is None and event.modifiers()==Qt.KeyboardModifier.NoModifier
             self.pending_palette=None
-        if event.button()==Qt.MouseButton.LeftButton and event.modifiers()&Qt.KeyboardModifier.ControlModifier and not isinstance(item,QGraphicsProxyWidget):
+        if not workspace and event.button()==Qt.MouseButton.LeftButton and event.modifiers()&Qt.KeyboardModifier.ControlModifier and not isinstance(item,QGraphicsProxyWidget):
             self.setFocus(); self.scene().clearFocus(); self.box_start=event.position().toPoint()
             self.box_selection={i.key for i in self.scene().selectedItems() if isinstance(i,NodeCard)}
             self.rubber.setGeometry(QRect(self.box_start,self.box_start)); self.rubber.show(); event.accept(); return
-        if event.button()==Qt.MouseButton.MiddleButton or (event.button()==Qt.MouseButton.LeftButton and item is None):
-            self.setFocus(); self.scene().clearFocus(); self.scene().clearSelection()
+        background=self.interaction.background_at(event.position().toPoint())[0] if workspace else item is None
+        if event.button()==Qt.MouseButton.MiddleButton or (event.button()==Qt.MouseButton.LeftButton and background):
+            self.setFocus(); self.scene().clearFocus()
+            if not event.modifiers()&Qt.KeyboardModifier.ControlModifier:self.scene().clearSelection()
             self.pan=event.position(); self.pan_button=event.button(); self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept(); return
         super().mousePressEvent(event)
@@ -693,6 +696,8 @@ class CanvasView(QGraphicsView):
         super().keyPressEvent(event)
 
     def contextMenuEvent(self,event):
+        if event.reason()==QContextMenuEvent.Reason.Mouse and self.interaction.suppress_context_menu:
+            self.interaction.suppress_context_menu=False;event.accept();return
         card=self.interaction.card_at(event.pos())
         if card is not None:self.scene().clearSelection();card.setSelected(True)
         if self.itemAt(event.pos()) is None:

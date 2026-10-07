@@ -26,9 +26,9 @@ class CanvasRegressionTests(StageFixture):
         view=self.c.view;view.centerOn(rect.center());QTest.qWait(10)
         a=view.mapFromScene(rect.topLeft());b=view.mapFromScene(rect.bottomRight())
         self.assertTrue(view.viewport().rect().contains(a));self.assertTrue(view.viewport().rect().contains(b))
-        QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a)
+        QTest.mousePress(view.viewport(),Qt.MouseButton.RightButton,pos=a)
         QTest.mouseMove(view.viewport(),b,10)
-        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b);QTest.qWait(20)
+        QTest.mouseRelease(view.viewport(),Qt.MouseButton.RightButton,pos=b);QTest.qWait(20)
 
     def test_rubber_selects_function_cards_and_container_scope_selects_members(self):
         stage=next(iter(self.c.data()['stages']))

@@ -1,36 +1,62 @@
 """Selection and clipboard gestures, independent from embedded text editors."""
-from PySide6.QtCore import Qt,QPointF,QRect,QTimer
+from PySide6.QtCore import Qt,QPointF,QRect,QRectF,QTimer
 from PySide6.QtWidgets import QGraphicsItem,QGraphicsProxyWidget,QApplication
 
 
 class CanvasInteraction:
     def __init__(self,view):
         self.view=view;self.canvas=view.canvas;self.box=None;self.group=None
+        self.box_dragged=False;self.suppress_context_menu=False
 
     def card_at(self,point):
+        from .flow_items import Port
         item=self.view.itemAt(point)
         while item is not None:
-            if isinstance(item,QGraphicsProxyWidget):return None
+            if isinstance(item,(QGraphicsProxyWidget,Port)):return None
             if hasattr(item,'key') and item.flags()&QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:return item
             item=item.parentItem()
+
+    def background_at(self,point):
+        """Container bodies are workspace; their headers and controls are not."""
+        from .flow_items import CanvasContainer
+        item=self.view.itemAt(point)
+        if item is None:return True,None
+        if isinstance(item,CanvasContainer):
+            local=item.mapFromScene(self.view.mapToScene(point))
+            if local.y()>44 and not item.corner_at(local):return True,item.key
+        return False,None
 
     def pointer(self,event):
         self.view.pointer_scene=self.view.mapToScene(event.position().toPoint())
 
     def press(self,event):
         self.pointer(event);view=self.view;point=event.position().toPoint();card=self.card_at(point)
+        self.suppress_context_menu=False
+        ctrl=bool(event.modifiers()&Qt.KeyboardModifier.ControlModifier)
+        background,scope=self.background_at(point)
         if event.button()==Qt.MouseButton.RightButton:
+            if background:
+                # A short right click still belongs to the original context menu.
+                self.box=(point,{i.key for i in view.scene().selectedItems() if hasattr(i,'key')} if ctrl else set(),scope)
+                self.box_dragged=False
+                view.setFocus();view.scene().clearFocus();event.accept();return True
             if card is not None:view.scene().clearSelection();card.setSelected(True)
             return False
         if event.button()!=Qt.MouseButton.LeftButton:return False
-        ctrl=bool(event.modifiers()&Qt.KeyboardModifier.ControlModifier)
+        # Let CanvasView pan before selecting a container or starting a group drag.
+        if background:return False
+        action=corner=None
+        if card is not None:
+            local=card.mapFromScene(view.pointer_scene)
+            action=getattr(card,'action_at',lambda p:None)(local)
+            corner=getattr(card,'corner_at',lambda p:None)(local)
+            from .flow_items import CanvasContainer
+            if isinstance(card,CanvasContainer) and QRectF(card.width-178,6,158,36).contains(local):action='editor'
+            if action or corner:return False
         if card is not None and ctrl:
             card.setSelected(not card.isSelected());view.setFocus();view.scene().clearFocus();event.accept();return True
         if card is not None:
             if not card.isSelected():view.scene().clearSelection();card.setSelected(True)
-            local=card.mapFromScene(view.pointer_scene)
-            action=getattr(card,'action_at',lambda p:None)(local)
-            corner=getattr(card,'corner_at',lambda p:None)(local)
             selected=[i for i in view.scene().selectedItems() if hasattr(i,'key') and i.flags()&QGraphicsItem.GraphicsItemFlag.ItemIsMovable]
             if len(selected)>1 and not action and not corner:
                 moving={i.key:i for i in selected if not any(other.isAncestorOf(i) for other in selected if other is not i)}
@@ -42,14 +68,6 @@ class CanvasInteraction:
                 moving={key:item for key,item in moving.items() if not any(other.isAncestorOf(item) for other in moving.values() if other is not item)}
                 self.group=(QPointF(view.pointer_scene),{k:(i,QPointF(i.scenePos())) for k,i in moving.items()})
                 event.accept();return True
-        from .flow_items import CanvasContainer
-        inside=card is not None and isinstance(card,CanvasContainer) and card.mapFromScene(view.pointer_scene).y()>106 and not card.corner_at(card.mapFromScene(view.pointer_scene))
-        blank=view.itemAt(point) is None
-        if blank or inside:
-            self.box=(point,{i.key for i in view.scene().selectedItems() if hasattr(i,'key')} if ctrl else set(),card.key if inside else None)
-            view.setFocus();view.scene().clearFocus()
-            if not ctrl:view.scene().clearSelection()
-            view.rubber.setGeometry(QRect(point,point));view.rubber.show();event.accept();return True
         return False
 
     def move(self,event):
@@ -61,17 +79,24 @@ class CanvasInteraction:
                 item.setPos(item.parentItem().mapFromScene(point) if item.parentItem() else point)
             self.canvas.update_lines();event.accept();return True
         if self.box:
-            self.view.rubber.setGeometry(QRect(self.box[0],event.position().toPoint()).normalized());event.accept();return True
+            point=event.position().toPoint()
+            if not self.box_dragged and (point-self.box[0]).manhattanLength()>=QApplication.startDragDistance():
+                # Windows delivers its context-menu event after button release.
+                self.box_dragged=True;self.suppress_context_menu=True
+                self.view.scene().clearSelection();self.view.rubber.show()
+            if self.box_dragged:self.view.rubber.setGeometry(QRect(self.box[0],point).normalized())
+            event.accept();return True
         return False
 
     def release(self,event):
-        if event.button()!=Qt.MouseButton.LeftButton:return False
-        if self.group:
+        if event.button()==Qt.MouseButton.LeftButton and self.group:
             _,moving=self.group;self.group=None
             positions={k:[item.scenePos().x(),item.scenePos().y()] for k,(item,_) in moving.items()}
             QTimer.singleShot(0,lambda:self.canvas.move_selection(positions));event.accept();return True
-        if not self.box:return False
+        if event.button()!=Qt.MouseButton.RightButton or not self.box:return False
         start,previous,scope=self.box;self.box=None;self.view.rubber.hide()
+        if not self.box_dragged:event.accept();return True
+        self.box_dragged=False
         rect=self.view.mapToScene(QRect(start,event.position().toPoint()).normalized()).boundingRect()
         from .canvas_items import NodeCard
         from .flow_items import CanvasContainer,FlowLine,Port
