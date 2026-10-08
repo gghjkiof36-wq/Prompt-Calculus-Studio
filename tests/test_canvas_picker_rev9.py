@@ -27,7 +27,9 @@ class PickerRev9Tests(unittest.TestCase):
         self.errors = []
         self.hook = patch.object(sys, 'excepthook', lambda *error: self.errors.append(error)); self.hook.start()
         self.env = patch.dict(os.environ, {'PROMPT_STUDIO_V08': '1', 'PROMPT_STUDIO_V081': '1'}); self.env.start()
-        self.network = patch('prompt_calculus_studio.comfy_client.ComfyClient.request'); self.network.start()
+        self.network = patch('prompt_calculus_studio.comfy_client.ComfyClient.request',
+                             side_effect=AssertionError('Picker tests must not request ComfyUI'))
+        self.requests = self.network.start()
         self.w = Window(self.temp.name)
         self.w.state['settings'].update(online=False, material='solid', reduce_motion=True)
         self.w.resize(1280,860); self.w.apply_theme(); self.w.show(); self.w.enter_canvas(); APP.processEvents()
@@ -56,6 +58,7 @@ class PickerRev9Tests(unittest.TestCase):
         self.w.completion.timer.stop(); self.w.completion.tasks.clear(); self.w.completion.active = None
         self.pool.stop(); self.w.close(); APP.processEvents(); APP.clipboard().clear()
         self.network.stop(); self.env.stop(); self.hook.stop(); self.temp.cleanup()
+        self.requests.assert_not_called()
         self.assertEqual(self.errors, [], 'Qt callback exceptions were captured')
 
     def open(self, **kwargs):
