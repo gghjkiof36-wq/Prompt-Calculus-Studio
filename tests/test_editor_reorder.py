@@ -35,6 +35,7 @@ class EditorReorderTests(unittest.TestCase):
         use(patch.object(ExtensionPage, 'startup'))
         use(patch.object(sys, 'excepthook', lambda *error: self.errors.append(error)))
         use(patch('prompt_calculus_studio.comfy_client.ComfyClient.request', side_effect=AssertionError('No service calls')))
+        use(patch('prompt_calculus_studio.extension_page.ExtensionPage.check_now', side_effect=AssertionError('No installation probes')))
         for method in ('get', 'post', 'put', 'sendCustomRequest'):
             use(patch.object(QNetworkAccessManager, method, side_effect=AssertionError('No network')))
         self.w = Window(self.folder.name); self.w.resize(1440, 900); self.w.show(); self.w.enter_canvas()
