@@ -11,6 +11,7 @@ from .core import uid
 from .widgets import label, button, row, ComboBox, StudioDialog, RoundMenu, preview_path, set_preview, InputDialog, ask
 from .views import widget_colors
 from .material_editor_page import Disclosure, sync_prompt_style, apply_line_spacing
+from .management_reading import PREFERRED_CONTENT_WIDTH
 
 
 class LibraryDelegate(QStyledItemDelegate):
@@ -120,7 +121,7 @@ class PromptEditor(QWidget):
         self.preview_card = QFrame(self.shell); self.preview_card.setObjectName('InsetPanel')
         preview = QVBoxLayout(self.preview_card); preview.setContentsMargins(18, 18, 18, 18); preview.setSpacing(12)
         preview.addLayout(row(label('素材預覽', 'Subtle'), None, button('×', self.close_preview, 'Quiet')))
-        self.preview_name = label('', 'Heading', True); preview.addWidget(self.preview_name)
+        self.preview_name = label('', '', True); preview.addWidget(self.preview_name)
         self.preview_text = QTextEdit(); self.preview_text.setReadOnly(True); self.preview_text.setAcceptRichText(False)
         self.preview_text.setObjectName('MaterialPreviewPrompt'); self.preview_text.setUndoRedoEnabled(False)
         self.preview_text.setFrameShape(QTextEdit.Shape.NoFrame)
@@ -129,7 +130,7 @@ class PromptEditor(QWidget):
         self.preview_image = PreviewImage(); self.preview_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_image.setCursor(Qt.CursorShape.PointingHandCursor); self.preview_image.clicked.connect(self.enlarge_preview)
         preview.addWidget(self.preview_image)
-        self.edit_button = button('編輯素材', lambda: self.edit_material(self.preview_id), 'Primary'); preview.addWidget(self.edit_button)
+        self.edit_button = button('編輯素材', lambda: self.edit_material(self.preview_id)); preview.addWidget(self.edit_button)
         self.preview_card.hide()
         self.preview_timer = QTimer(self); self.preview_timer.setTimerType(Qt.TimerType.PreciseTimer); self.preview_timer.setSingleShot(True); self.preview_timer.timeout.connect(self._show_selected_preview)
         self.listing.itemClicked.connect(self._mouse_preview)
@@ -157,9 +158,8 @@ class PromptEditor(QWidget):
         viewport_width = self.scroll.viewport().width(); height = self.scroll.viewport().height()
         minimum_browser = max(520, self.browser.minimumSizeHint().width())
         self.narrow = viewport_width < max(800, 264+minimum_browser+24)
-        # Match the library/management shell: fixed category navigation, a
-        # flexible main list, and a supporting detail column. A scrollbar or
-        # preview toggle must never move the list's left edge.
+        # Use the established management content column. Detail is additional:
+        # opening it must not change the main list's bounds.
         width = viewport_width if self.narrow else self.scroll.width()-2*self.scroll.frameWidth()
         self.workspace_name.setVisible(width >= 600)
         if self.narrow:
@@ -185,8 +185,8 @@ class PromptEditor(QWidget):
             start = 24; area_x = 264; area_width = max(0, width-area_x-24)
         has_preview = bool(self.preview_id and self.preview_card.isVisible())
         detail_width = min(380, max(340, round(area_width*.22)))
-        below = area_width < max(900, minimum_browser+24+detail_width)
-        central = area_width-24-detail_width if has_preview and not below else area_width
+        central = min(PREFERRED_CONTENT_WIDTH, area_width)
+        below = area_width < central+24+detail_width
         x = area_x
         row_height = self.listing.fontMetrics().height()*2 + 40
         list_height = max(110, min(580, self.listing.count()*row_height + 12))
