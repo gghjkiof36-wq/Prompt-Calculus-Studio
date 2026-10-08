@@ -153,6 +153,7 @@ class EditorRev9Tests(unittest.TestCase):
         self.assertFalse(self.page.listing.isVisible());self.assertTrue(self.page.empty_results.isVisible())
         dialog=self.page.new_material();self.assertEqual(dialog.form.edit_category.currentData(),category);dialog.reject()
         self.page.set_browser_category(None);self.page.resize(2048,1152);self.app.processEvents();self.app.processEvents()
+        self.page.close_preview()
         before=self.page.browser.geometry();self.page.preview_material(self.ident);self.app.processEvents()
         self.assertEqual(self.page.browser.geometry().x(),before.x())
         self.assertEqual(before.x(),self.page.category_panel.geometry().right()+25)
