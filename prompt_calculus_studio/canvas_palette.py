@@ -243,6 +243,8 @@ class CanvasPalette(QDialog):
         selected=(self.selected_id(self.modules) if self.modules.count() else
                   getattr(self.canvas.window,'_material_browser_category',None))
         state=self.canvas.window.state
+        if selected==self.UNCATEGORIZED:
+            selected=next((m['id'] for m in state['modules'] if m['name']=='未分類'),selected)
         blocked=QSignalBlocker(self.modules); combo_blocked=QSignalBlocker(self.category)
         self.modules.clear(); self.category.clear()
         categories=[('全部',None)]+[(m['name'],m['id']) for m in state['modules']]
@@ -253,6 +255,7 @@ class CanvasPalette(QDialog):
         if not self.restore_selection(self.modules,selected): self.modules.setCurrentRow(0)
         self.category.setCurrentIndex(max(0,self.category.findData(self.selected_id(self.modules))))
         del blocked,combo_blocked
+        self.canvas.window._material_browser_category=self.get_browser_category()
 
     def in_category(self,item,ident):
         if ident is None: return True
@@ -275,10 +278,11 @@ class CanvasPalette(QDialog):
         self.refresh()
 
     def get_browser_category(self):
-        value=self.selected_id(self.modules)
-        return None if value==self.UNCATEGORIZED else value
+        return self.selected_id(self.modules)
 
     def set_browser_category(self,ident):
+        if ident==self.UNCATEGORIZED:
+            ident=next((m['id'] for m in self.canvas.window.state['modules'] if m['name']=='未分類'),ident)
         if not self.restore_selection(self.modules,ident): self.modules.setCurrentRow(0)
 
     def combo_category_changed(self):

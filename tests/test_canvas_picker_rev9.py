@@ -202,6 +202,26 @@ class PickerRev9Tests(unittest.TestCase):
     def test_shared_category_and_workspace_identity_protect_invocation(self):
         self.select(self.cat); self.assertEqual(self.w._material_browser_category,self.cat)
         self.open(); self.assertEqual(self.p.get_browser_category(),self.cat)
+        original_modules=copy.deepcopy(self.w.state['modules']); original_items=copy.deepcopy(self.w.state['items'])
+        try:
+            unclassified={m['id'] for m in original_modules if m['name']=='未分類'}
+            self.w.state['modules']=[m for m in original_modules if m['id'] not in unclassified]
+            self.w.state['items']=[item for item in original_items if item['module'] not in unclassified]
+            before=copy.deepcopy((self.w.state['modules'],self.w.state['items']))
+            self.p.populate_categories(); self.p.set_browser_category('@uncategorized')
+            self.assertEqual(self.p.get_browser_category(),'@uncategorized')
+            self.assertEqual(self.w._material_browser_category,'@uncategorized')
+            self.assertEqual(self.p.assets.count(),0)
+            self.assertEqual((self.w.state['modules'],self.w.state['items']),before)
+            actual=materials.add_category(self.w.state,'未分類')
+            self.p.populate_categories()
+            self.assertEqual(self.p.get_browser_category(),actual)
+            self.assertEqual(self.w._material_browser_category,actual)
+            self.p.set_browser_category(None); self.assertIsNone(self.p.get_browser_category())
+            self.p.set_browser_category('@uncategorized'); self.assertEqual(self.p.get_browser_category(),actual)
+        finally:
+            self.w.state['modules']=original_modules; self.w.state['items']=original_items
+            self.p.populate_categories(); self.p.set_browser_category(self.cat)
         before=self.w.state['workspace']
         try:
             self.w.state['workspace']='changed'; self.p.insert()
