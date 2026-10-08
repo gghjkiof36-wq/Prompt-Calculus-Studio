@@ -268,12 +268,13 @@ class ManagerPage(QWidget):
         self.gallery.viewport().update()
 
     def make_auto(self):
-        from .management_reading import ReadingPanel,ReadingText,PageHeadingRole,readable_control
+        from .management_reading import PREFERRED_CONTENT_WIDTH,ReadingPanel,ReadingText,PageHeadingRole,readable_control
         self.reading_heading=PageHeadingRole(self.heading,self.window,lambda:self.view)
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         frame = ReadingPanel(self.window);body = frame.body
+        frame.setMaximumWidth(PREFERRED_CONTENT_WIDTH)
         body.addWidget(ReadingText(self.window,'其他節點套件','panel'))
         body.addSpacing(8)
         body.addWidget(ReadingText(self.window,'排程尚未提供',subtle=True))
@@ -288,12 +289,12 @@ class ManagerPage(QWidget):
         return scrolling(content)
 
     def make_tools(self):
-        from .management_reading import ReadingPanel,ReadingText,readable_control
+        from .management_reading import PREFERRED_CONTENT_WIDTH,ReadingPanel,ReadingText,readable_control
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         frame = ReadingPanel(self.window);body = frame.body
-        frame.setMaximumWidth(920)
+        frame.setMaximumWidth(PREFERRED_CONTENT_WIDTH)
         body.addWidget(ReadingText(self.window,'在 ComfyUI 管理環境','panel'))
         for title, description in (
             ('安裝與修復', '缺少節點 · Git 套件 · Python 套件'),

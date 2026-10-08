@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QBoxLayout, QFileDialog
 
 from .extension_install import InstallPreferences, available_package, build_info, comfy_root, installed, update_state
 from .widgets import button, row
-from .management_reading import ReadingText,ReadingPanel,ReadingPath,ReadingCheckBox,readable_control
+from .management_reading import PREFERRED_CONTENT_WIDTH,ReadingText,ReadingPanel,ReadingPath,ReadingCheckBox,readable_control
 
 
 class ExtensionPage(QWidget):
@@ -35,7 +35,7 @@ class ExtensionPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         frame = ReadingPanel(window)
         body = frame.body
-        frame.setMaximumWidth(920)
+        frame.setMaximumWidth(PREFERRED_CONTENT_WIDTH)
         body.addWidget(ReadingText(window,'PCS 配套擴充','panel'))
         body.addSpacing(8)
         body.addWidget(ReadingText(window,'選擇 ComfyUI 資料夾後，自動安裝到 custom_nodes。不需要先連線或綁定工作流。',subtle=True))

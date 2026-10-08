@@ -6,6 +6,9 @@ from PySide6.QtWidgets import QLabel,QFrame,QVBoxLayout,QSizePolicy,QCheckBox,QS
 from .theme import font_pixels,visual_tokens
 
 
+PREFERRED_CONTENT_WIDTH = 920
+
+
 def text_layout(text,font,width,spacing=1.6):
     layout=QTextLayout(text.replace('\n','\u2028'),font)
     option=QTextOption();option.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
