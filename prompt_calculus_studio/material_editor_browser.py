@@ -11,7 +11,7 @@ from .core import uid
 from .widgets import label, button, row, ComboBox, StudioDialog, RoundMenu, preview_path, set_preview, InputDialog, ask
 from .views import widget_colors
 from .material_editor_page import Disclosure, sync_prompt_style, apply_line_spacing
-from .management_reading import PREFERRED_CONTENT_WIDTH
+from .management_reading import READING_CONTENT_WIDTH, READING_MARGIN, READING_NARROW_MARGIN
 
 
 class LibraryDelegate(QStyledItemDelegate):
@@ -83,16 +83,19 @@ class PromptEditor(QWidget):
         self.workspace_name = label('', 'Subtle'); self.workspace_name.setMaximumWidth(180)
         workbar.addWidget(self.workspace_name); workbar.addWidget(self.workspace_switch); workbar.addStretch(); outer.addLayout(workbar)
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True)
+        self.scroll.setProperty('pcsReadingPage', True)
         # Match the settings reading pages: reserve the scroll track so opening
         # longer content does not move the centered column sideways.
         self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.scroll.setFrameShape(QScrollArea.Shape.NoFrame); outer.addWidget(self.scroll)
         self.scroll.viewport().installEventFilter(self)
         self.shell = QWidget(); self.scroll.setWidget(self.shell)
-        self.category_panel = QWidget(self.shell); category_layout = QVBoxLayout(self.category_panel)
-        category_layout.setContentsMargins(16, 24, 16, 16); category_layout.setSpacing(12)
-        self.category_heading = label('內容分類', 'Subtle'); category_layout.addWidget(self.category_heading)
-        self.categories = QListWidget(); self.categories.setObjectName('CategoryList')
+        self.category_panel = QWidget(self.shell); self.category_panel.setObjectName('ContextSidebar')
+        self.category_panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        category_layout = QVBoxLayout(self.category_panel)
+        category_layout.setContentsMargins(12, 24, 12, 12); category_layout.setSpacing(8)
+        self.category_heading = label('內容分類', 'SidebarHeading'); category_layout.addWidget(self.category_heading)
+        self.categories = QListWidget(); self.categories.setObjectName('SidebarNavigation')
         self.categories.setFrameShape(QListWidget.Shape.NoFrame); self.categories.setSpacing(3)
         self.categories.setResizeMode(QListWidget.ResizeMode.Adjust); category_layout.addWidget(self.categories, 1)
         self.category = ComboBox(self); self.category.hide()
@@ -103,7 +106,7 @@ class PromptEditor(QWidget):
         self.manage_button = button('管理分類', self.manage_categories, 'Quiet'); category_layout.addWidget(self.manage_button)
         self.browser = QWidget(self.shell); content = QVBoxLayout(self.browser)
         content.setContentsMargins(0, 0, 0, 0); content.setSpacing(14)
-        self.title = label('全部模組', 'Heading'); self.count = label('', 'Subtle')
+        self.title = label('全部模組', 'DialogTitle'); self.count = label('', 'Subtle')
         self.new_button = button('新增模組', self.new_material, 'Primary')
         from .ui_icons import icon
         self.new_button.setIcon(icon('plus'))
@@ -173,7 +176,8 @@ class PromptEditor(QWidget):
             self.category_panel.setGeometry(0, 0, width, 100)
             panel_height = self.category_panel.layout().sizeHint().height()
             self.category_panel.setFixedHeight(panel_height)
-            start = panel_height+16; area_x = 16; area_width = max(0, width-32)
+            start = panel_height+READING_NARROW_MARGIN
+            area_x = READING_NARROW_MARGIN; area_width = max(0, width-2*READING_NARROW_MARGIN)
         else:
             self.category_heading.show(); self.categories.show()
             self.category.hide(); self.category_controls.hide()
@@ -185,10 +189,11 @@ class PromptEditor(QWidget):
             for i in range(self.categories.count()): self.categories.item(i).setSizeHint(QSize())
             self.category_panel.setFixedHeight(height)
             self.category_panel.setGeometry(0, 0, 240, height)
-            start = 24; area_x = 264; area_width = max(0, width-area_x-24)
+            start = READING_MARGIN; area_x = 240+READING_MARGIN
+            area_width = max(0, width-area_x-READING_MARGIN)
         has_preview = bool(self.preview_id and self.preview_card.isVisible())
         detail_width = min(380, max(340, round(area_width*.22)))
-        central = min(PREFERRED_CONTENT_WIDTH, area_width)
+        central = min(READING_CONTENT_WIDTH, area_width)
         x = area_x + (area_width-central)//2
         # Detail supports the centered list without shifting it on selection.
         # Use the right gutter only when the complete card fits there.
@@ -227,8 +232,6 @@ class PromptEditor(QWidget):
     def _sync_type(self):
         from .theme import font_pixels
         settings = dict(self.window.state['settings']); settings.update(getattr(self.window, 'appearance_preview', {}))
-        title_style = 'font-size:%dpx; font-weight:600;' % font_pixels(settings['ui_size']+5)
-        if self.title.styleSheet() != title_style: self.title.setStyleSheet(title_style)
         colors = widget_colors(self)
         preview_style = ("QTextEdit#MaterialPreviewPrompt { font-family:'Cascadia Mono','Consolas','Microsoft JhengHei'; "
                          "font-size:%dpx; color:%s; background:%s; border:0; padding:4px; }") % (

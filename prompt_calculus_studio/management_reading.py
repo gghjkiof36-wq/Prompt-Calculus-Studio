@@ -7,6 +7,9 @@ from .theme import font_pixels,visual_tokens
 
 
 PREFERRED_CONTENT_WIDTH = 920
+READING_CONTENT_WIDTH = 740
+READING_MARGIN = 24
+READING_NARROW_MARGIN = 16
 
 
 def text_layout(text,font,width,spacing=1.6):

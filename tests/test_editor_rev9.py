@@ -8,6 +8,7 @@ from PySide6.QtTest import QTest
 import test_material_editor as fixture_module
 from prompt_calculus_studio.prompt_editor import PromptEditor
 from prompt_calculus_studio import materials
+from prompt_calculus_studio.settings_page import SETTINGS_READING_WIDTH
 
 
 class EditorRev9Tests(unittest.TestCase):
@@ -273,7 +274,7 @@ class EditorRev9Tests(unittest.TestCase):
         for width,height in ((1360,900),(2048,1152)):
             self.page.close_preview();self.page.resize(width,height);self.app.processEvents();self.app.processEvents()
             before=self.page.browser.geometry();self.page.preview_material(self.ident);self.app.processEvents()
-            self.assertEqual(before.width(),920)
+            self.assertEqual(before.width(),SETTINGS_READING_WIDTH)
             workspace_left=self.page.category_panel.geometry().right()+1
             left_gap=before.x()-workspace_left
             right_gap=self.page.scroll.viewport().width()-(before.x()+before.width())
@@ -294,7 +295,7 @@ class EditorRev9Tests(unittest.TestCase):
         for width in (1100,640,360):
             self.page.close_preview();self.page.resize(width,640);self.app.processEvents();self.app.processEvents()
             self.page.preview_material(self.ident);self.app.processEvents();self.app.processEvents()
-            self.assertLess(self.page.browser.width(),920)
+            self.assertLessEqual(self.page.browser.width(),SETTINGS_READING_WIDTH)
             self.assertLessEqual(self.page.browser.geometry().right(),self.page.scroll.viewport().width())
             workspace_left=0 if self.page.narrow else self.page.category_panel.geometry().right()+1
             left_gap=self.page.browser.x()-workspace_left

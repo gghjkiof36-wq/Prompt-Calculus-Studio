@@ -177,9 +177,9 @@ def stylesheet(settings):
     QListWidget#PaletteAssets::item:selected, QListWidget#PaletteAssets::item:selected:hover {{ background:{t['selected']}; border-color:{t['control']}; }}
     QLabel#Heading {{ font-size:{font_pixels(settings['ui_size']+2)}px; font-weight:600; }}
     QLabel#DialogTitle {{ font-size:{font_pixels(settings['ui_size']+4)}px; font-weight:600; }}
-    QScrollArea#SettingsReadingPage QLabel#DialogTitle {{ font-size:{font_pixels(settings['ui_size']+7)}px; font-weight:600; }}
-    QScrollArea#SettingsReadingPage QLabel#Heading {{ font-size:{font_pixels(settings['ui_size'])}px; font-weight:600; }}
-    QScrollArea#SettingsReadingPage QLabel#Subtle {{ font-size:{font_pixels(max(10,settings['ui_size']-1))}px; font-weight:400; color:{t['muted']}; }}
+    QScrollArea#SettingsReadingPage QLabel#DialogTitle, QScrollArea[pcsReadingPage="true"] QLabel#DialogTitle {{ font-size:{font_pixels(settings['ui_size']+7)}px; font-weight:600; }}
+    QScrollArea#SettingsReadingPage QLabel#Heading, QScrollArea[pcsReadingPage="true"] QLabel#Heading {{ font-size:{font_pixels(settings['ui_size'])}px; font-weight:600; }}
+    QScrollArea#SettingsReadingPage QLabel#Subtle, QScrollArea[pcsReadingPage="true"] QLabel#Subtle {{ font-size:{font_pixels(max(10,settings['ui_size']-1))}px; font-weight:400; color:{t['muted']}; }}
     QLabel#Brand {{ font-size:{font_pixels(settings['ui_size']+3)}px; font-weight:600; }}
     QLabel#BrandMark {{ color:{accent}; font-size:31px; }}
     QLabel#Eyebrow {{ color:{t['muted']}; font-size:{font_pixels(max(9,settings['ui_size']-1))}px; }}
