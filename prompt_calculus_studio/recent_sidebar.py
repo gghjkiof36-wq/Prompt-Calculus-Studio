@@ -14,11 +14,13 @@ class CanvasWorkspaceCombo(ComboBox):
 
 
 class CanvasWorkspaceBar(QFrame):
-    def __init__(self,window,workspace,menu=None,active='canvas',header=None):
-        super().__init__();self.window=window;self.workspace=workspace;self.setObjectName('CanvasWorkspaceCapsule')
+    def __init__(self,window,workspace,menu=None,active='canvas',header=None,embedded=False):
+        super().__init__();self.window=window;self.workspace=workspace;self.embedded=embedded
+        self.setObjectName('EditorWorkspaceControls' if embedded else 'CanvasWorkspaceCapsule')
+        if embedded:self.setStyleSheet('QFrame#EditorWorkspaceControls { background:transparent; border:0; border-radius:0; }')
         self.header=header if header is not None else getattr(window,'canvas_header',None)
         if self.header is not None:
-            self.header.setStyleSheet('QPushButton { padding:4px 10px; } QComboBox { padding:4px 34px 4px 10px; }')
+            self.header.setStyleSheet(('' if embedded else 'QPushButton { padding:4px 10px; } ')+'QComboBox { padding:4px 34px 4px 10px; }')
         body=QBoxLayout(QBoxLayout.Direction.LeftToRight,self);body.setContentsMargins(8,6,8,6);body.setSpacing(4)
         self.workspace_group=QWidget(); workspace_row=QHBoxLayout(self.workspace_group)
         workspace_row.setContentsMargins(0,0,0,0);workspace_row.setSpacing(4)
@@ -42,6 +44,7 @@ class CanvasWorkspaceBar(QFrame):
         self.history.setProperty('iconName','history');self.history.setIcon(icon('history'))
         self.history.setFixedSize(32,32);self.history.setToolTip('最近生成');self.history.setAccessibleName('最近生成')
         actions.addWidget(self.history)
+        if embedded:self.menu_button.hide();self.history.hide()
         window.installEventFilter(self)
 
     def refresh(self):
@@ -53,11 +56,16 @@ class CanvasWorkspaceBar(QFrame):
         chrome=self.workspace.width()-field.width()
         width=max(156,min(260,self.workspace.fontMetrics().horizontalAdvance('預設工作區')+chrome+4))
         if self.workspace.width()!=width:self.workspace.setFixedWidth(width)
-        self.layout().setDirection(QBoxLayout.Direction.TopToBottom if self.window.width()<900 else QBoxLayout.Direction.LeftToRight)
+        required=self.workspace_group.minimumSizeHint().width()+self.action_group.minimumSizeHint().width()+self.layout().spacing()
+        stacked=required>self.window.width()-48 if self.embedded else self.window.width()<900
+        self.layout().setDirection(QBoxLayout.Direction.TopToBottom if stacked else QBoxLayout.Direction.LeftToRight)
         short=self.window.height()<=640
-        self.layout().setContentsMargins(8,2 if short else 6,8,2 if short else 6)
-        if self.header is not None:
-            self.header.layout().setContentsMargins(12 if short else 24,8 if short else 16,12 if short else 24,0)
+        if self.embedded:
+            self.layout().setContentsMargins(0,0,0,0)
+        else:
+            self.layout().setContentsMargins(8,2 if short else 6,8,2 if short else 6)
+            if self.header is not None:
+                self.header.layout().setContentsMargins(12 if short else 24,8 if short else 16,12 if short else 24,0)
 
     def resizeEvent(self,event):
         super().resizeEvent(event)

@@ -45,15 +45,14 @@ class WorkspaceBarRev9Tests(unittest.TestCase):
         w = self.w; page = self.page
         self.assertIsInstance(page.workspace_bar, CanvasWorkspaceBar)
         self.assertIsInstance(page.workspace_combo, CanvasWorkspaceCombo)
-        self.assertEqual(page.workspace_header.objectName(), w.canvas_header.objectName())
-        self.assertEqual(page.workspace_header.styleSheet(), w.canvas_header.styleSheet())
-        self.assertEqual(page.workspace_bar.objectName(), w.canvas_workspace_bar.objectName())
+        self.assertEqual(page.workspace_header.objectName(), 'EditorWorkspaceHeader')
+        self.assertNotIn('QPushButton', page.workspace_header.styleSheet())
+        self.assertNotEqual(page.workspace_bar.objectName(), w.canvas_workspace_bar.objectName())
         self.assertEqual(page.workspace_combo.currentData(), w.state['workspace'])
         self.assertEqual(page.workspace_combo.currentText(), w.canvas_workspace.currentText())
         self.assertTrue(page.workspace_combo.isEnabled())
-        self.assertTrue(page.workspace_bar.menu_button.isEnabled())
-        self.assertFalse(page.workspace_bar.menu_button.icon().isNull())
-        self.assertTrue(page.workspace_bar.history.isEnabled())
+        self.assertFalse(page.workspace_bar.menu_button.isVisible())
+        self.assertFalse(page.workspace_bar.history.isVisible())
         for bar in (page.workspace_bar, w.canvas_workspace_bar):
             self.assertNotIn('素材', [control.text() for control in bar.findChildren(QPushButton)])
         self.assertTrue(page.workspace_switch.editor_button.isChecked())
@@ -115,14 +114,15 @@ class WorkspaceBarRev9Tests(unittest.TestCase):
             self.assertEqual(combo.currentData(), before['workspace'])
 
     def test_workspace_actions_use_existing_menu_and_recent_overlay(self):
+        self.w.set_interface_mode('canvas'); APP.processEvents()
         with patch('prompt_calculus_studio.window.WorkspaceDialog.exec', return_value=0) as settings:
-            QTest.mouseClick(self.page.workspace_bar.menu_button, Qt.MouseButton.LeftButton)
+            QTest.mouseClick(self.w.canvas_workspace_bar.menu_button, Qt.MouseButton.LeftButton)
             APP.processEvents(); menu = APP.activePopupWidget()
             self.assertIsNotNone(menu)
             self.assertEqual([action.text() for action in menu.actions() if not action.isSeparator()],
                              ['工作區設定', '新增預設流程工作區…', '複製目前工作區…', '刪除目前工作區…'])
             menu.close(); menu.actions()[0].trigger(); settings.assert_called_once_with()
-        QTest.mouseClick(self.page.workspace_bar.history, Qt.MouseButton.LeftButton)
+        QTest.mouseClick(self.w.canvas_workspace_bar.history, Qt.MouseButton.LeftButton)
         APP.processEvents()
         self.assertIsNotNone(self.w.recent_sheet)
         self.assertTrue(self.w.recent_sheet.isVisible())

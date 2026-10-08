@@ -344,12 +344,13 @@ class NodeCard(ResizableCard):
         self.weight_rect=QRectF(self.width-114,weight_y,50,28)
         self.minus_rect=QRectF(self.width-146,weight_y,28,28)
         self.plus_rect=QRectF(self.width-60,weight_y,28,28)
+        self.collapse_rect=QRectF(20,6,24,26)
         if propagate and self.parentItem(): self.parentItem().layout_card()
         self.update()
 
     def actions(self):
         if self.canvas.entries[self.key][0] is None: return {}
-        result=dict(minus=self.minus_rect,weight=self.weight_rect,plus=self.plus_rect,collapse=QRectF(self.width-30,6,24,26))
+        result=dict(minus=self.minus_rect,weight=self.weight_rect,plus=self.plus_rect,collapse=self.collapse_rect)
         if not self.collapsed:result['add']=self.add_rect
         return result
 
@@ -382,14 +383,18 @@ class NodeCard(ResizableCard):
         status=self.subtitle+(' · 停用' if not self.value['enabled'] else '')
         if comp.active_overlay(self.value): status+=' · 已覆蓋'
 
+        header_left=self.collapse_rect.right()+8 if self.canvas.entries[self.key][0] is not None else 14
         if not self.compact:
-            painter.drawText(QRectF(14,8,available-142,self.line),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(status,Qt.TextElideMode.ElideRight,available-142))
+            status_width=max(0,self.minus_rect.left()-8-header_left)
+            painter.drawText(QRectF(header_left,8,status_width,self.line),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(status,Qt.TextElideMode.ElideRight,status_width))
         painter.setPen(QColor(colors['secondary'] if self.muted else colors['text']))
         title=self.value['name']
         if self.compact and (self.value['weight']!=10 or not self.value['enabled']):
             title+=f" · {self.value['weight']/10:.1f}" if self.value['enabled'] else ' · 停用'
         title_y=8 if self.compact else 10+self.line
-        painter.drawText(QRectF(14,title_y,available-(30 if self.compact else 0),self.line),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(title,Qt.TextElideMode.ElideRight,available-(30 if self.compact else 0)))
+        title_left=header_left if self.compact else 14
+        title_width=max(0,(self.add_rect.left()-8 if self.compact else self.width-14)-title_left)
+        painter.drawText(QRectF(title_left,title_y,title_width,self.line),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(title,Qt.TextElideMode.ElideRight,title_width))
         if self.own:
             painter.setPen(QColor(colors['secondary']))
             painter.drawText(QRectF(14,16+self.line*(1 if self.compact else 2),available,self.text_height),Qt.TextFlag.TextWordWrap,self.own)

@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, QTimer, QSize, QRectF, QPoint, Signal, QEvent
 from PySide6.QtGui import QFont, QColor, QPen, QFontMetrics, QTextCursor, QTextBlockFormat, QPixmap, QShortcut, QKeySequence
 from PySide6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit,
     QListWidget, QListWidgetItem, QCheckBox, QScrollArea, QTextEdit, QLabel,
-    QStyledItemDelegate, QStyle, QApplication, QDialog, QSizePolicy)
+    QStyledItemDelegate, QStyleOptionViewItem, QStyle, QApplication, QDialog, QSizePolicy)
 from . import materials
 from .core import uid, output_groups
 from .widgets import label, button, row, ComboBox, StudioDialog, RoundMenu, preview_path, set_preview, InputDialog, ask
@@ -54,6 +54,24 @@ class LibraryDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+class CategoryNavigationDelegate(QStyledItemDelegate):
+    """Separate the fixed all-items shortcut without changing reorder IDs."""
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        if index.data(Qt.ItemDataRole.UserRole) is None: size.setHeight(size.height()+16)
+        return size
+
+    def paint(self, painter, option, index):
+        if index.data(Qt.ItemDataRole.UserRole) is not None:
+            return super().paint(painter, option, index)
+        entry = QStyleOptionViewItem(option); entry.rect.adjust(0, 0, 0, -16)
+        super().paint(painter, entry, index)
+        colors = widget_colors(self.parent())
+        painter.save(); painter.setPen(QPen(QColor(colors.get('divider', colors['line'])), 1))
+        painter.drawLine(option.rect.left()+12, option.rect.bottom()-8, option.rect.right()-12, option.rect.bottom()-8)
+        painter.restore()
+
+
 class StatusLabel(QLabel):
     def __init__(self):
         super().__init__(); self.setObjectName('Subtle'); self.setWordWrap(True); self.hide()
@@ -85,12 +103,12 @@ class PromptEditor(QWidget):
             window._material_editor_session = dict(serial=0, active=None, drafts={})
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0); outer.setSpacing(0)
         from .recent_sidebar import CanvasWorkspaceCombo, CanvasWorkspaceBar
-        self.workspace_header = QWidget(); self.workspace_header.setObjectName('CanvasWorkspaceInset')
-        workbar = QHBoxLayout(self.workspace_header); workbar.setContentsMargins(24, 16, 24, 0); workbar.setSpacing(0)
+        self.workspace_header = QWidget(); self.workspace_header.setObjectName('EditorWorkspaceHeader')
+        workbar = QHBoxLayout(self.workspace_header); workbar.setContentsMargins(24, 16, 24, 8); workbar.setSpacing(0)
         self.workspace_combo = CanvasWorkspaceCombo(); self.workspace_combo.setFixedWidth(156)
         self.workspace_combo.setEnabled(callable(getattr(window, 'change_workspace', None)))
         self.workspace_combo.currentIndexChanged.connect(self._workspace_changed)
-        self.workspace_bar = CanvasWorkspaceBar(window, self.workspace_combo, active='list', header=self.workspace_header)
+        self.workspace_bar = CanvasWorkspaceBar(window, self.workspace_combo, active='list', header=self.workspace_header, embedded=True)
         self.workspace_switch = self.workspace_bar.workspace_switch
         workbar.addWidget(self.workspace_bar); workbar.addStretch(); outer.addWidget(self.workspace_header)
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True)
@@ -106,6 +124,7 @@ class PromptEditor(QWidget):
         self.category_heading = label('內容分類', 'SidebarHeading'); category_layout.addWidget(self.category_heading)
         from .prompt_editor import ReorderableList
         self.categories = ReorderableList(); self.categories.setObjectName('SidebarNavigation')
+        self.categories.setItemDelegate(CategoryNavigationDelegate(self.categories))
         self.categories.enable_reordering(); self.categories.reorderRequested.connect(self._reorder_categories)
         self.categories.setFrameShape(QListWidget.Shape.NoFrame); self.categories.setSpacing(3)
         self.categories.setResizeMode(QListWidget.ResizeMode.Adjust); category_layout.addWidget(self.categories, 1)
