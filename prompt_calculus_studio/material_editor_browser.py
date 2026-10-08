@@ -2,7 +2,7 @@
 import copy
 import json
 from PySide6.QtCore import Qt, QTimer, QSize, QRectF, Signal, QEvent
-from PySide6.QtGui import QFont, QColor, QPen, QFontMetrics, QTextCursor, QPixmap, QShortcut, QKeySequence
+from PySide6.QtGui import QFont, QColor, QPen, QFontMetrics, QTextCursor, QTextBlockFormat, QPixmap, QShortcut, QKeySequence
 from PySide6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit,
     QListWidget, QListWidgetItem, QCheckBox, QScrollArea, QTextEdit, QLabel,
     QStyledItemDelegate, QStyle, QApplication, QDialog, QSizePolicy)
@@ -87,12 +87,16 @@ class PromptEditor(QWidget):
         self.shell = QWidget(); self.scroll.setWidget(self.shell)
         self.category_panel = QWidget(self.shell); category_layout = QVBoxLayout(self.category_panel)
         category_layout.setContentsMargins(16, 24, 16, 16); category_layout.setSpacing(12)
-        category_layout.addWidget(label('內容分類', 'Subtle'))
+        self.category_heading = label('內容分類', 'Subtle'); category_layout.addWidget(self.category_heading)
         self.categories = QListWidget(); self.categories.setObjectName('CategoryList')
         self.categories.setFrameShape(QListWidget.Shape.NoFrame); self.categories.setSpacing(3)
         self.categories.setResizeMode(QListWidget.ResizeMode.Adjust); category_layout.addWidget(self.categories, 1)
         self.category = ComboBox(self); self.category.hide()
-        category_layout.addWidget(button('管理分類', self.manage_categories, 'Quiet'))
+        self.category_controls = QWidget(); self.category_controls.hide()
+        controls = QHBoxLayout(self.category_controls); controls.setContentsMargins(0, 0, 0, 0); controls.setSpacing(12)
+        controls.addWidget(self.category, 1)
+        category_layout.addWidget(self.category_controls)
+        self.manage_button = button('管理分類', self.manage_categories, 'Quiet'); category_layout.addWidget(self.manage_button)
         self.browser = QWidget(self.shell); content = QVBoxLayout(self.browser)
         content.setContentsMargins(0, 0, 0, 0); content.setSpacing(14)
         self.title = label('全部模組', 'Heading'); self.count = label('', 'Subtle')
@@ -118,6 +122,7 @@ class PromptEditor(QWidget):
         preview.addLayout(row(label('素材預覽', 'Subtle'), None, button('×', self.close_preview, 'Quiet')))
         self.preview_name = label('', 'Heading', True); preview.addWidget(self.preview_name)
         self.preview_text = QTextEdit(); self.preview_text.setReadOnly(True); self.preview_text.setAcceptRichText(False)
+        self.preview_text.setObjectName('MaterialPreviewPrompt'); self.preview_text.setUndoRedoEnabled(False)
         self.preview_text.setFrameShape(QTextEdit.Shape.NoFrame)
         self.preview_text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         preview.addWidget(self.preview_text)
@@ -148,32 +153,34 @@ class PromptEditor(QWidget):
 
     def _layout(self):
         if not hasattr(self, 'browser'): return
-        width = self.scroll.viewport().width(); height = self.scroll.viewport().height()
+        self._sync_type()
+        viewport_width = self.scroll.viewport().width(); height = self.scroll.viewport().height()
+        self.narrow = viewport_width < 800
+        # Wide-page centering is measured against the shell, not the viewport's
+        # temporary scrollbar gutter, so a long preview cannot shift the list.
+        width = viewport_width if self.narrow else self.scroll.width()-2*self.scroll.frameWidth()
         self.workspace_name.setVisible(width >= 600)
-        self.narrow = width < 800
         if self.narrow:
-            self.categories.setFlow(QListWidget.Flow.LeftToRight); self.categories.setWrapping(True)
-            line = self.categories.fontMetrics().height()+20; available = max(1, width-40)
-            rows, used = 1, 0
-            for i in range(self.categories.count()):
-                entry = self.categories.item(i); tile = min(available, self.categories.fontMetrics().horizontalAdvance(entry.text())+52)
-                entry.setSizeHint(QSize(tile, line))
-                if used and used+tile+6 > available: rows += 1; used = 0
-                used += tile+6
-            category_height = rows*(line+6)+8
-            self.categories.setFixedHeight(category_height)
-            panel_height = category_height + self.categories.fontMetrics().height() + 108
-            self.category_panel.setGeometry(0, 0, width, panel_height)
-            self.categories.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            self.categories.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.category_heading.hide(); self.categories.hide()
+            self.category.show(); self.category_controls.show()
+            if self.manage_button.parentWidget() is not self.category_controls:
+                self.category_controls.layout().addWidget(self.manage_button)
+            self.category_panel.setGeometry(0, 0, width, 100)
+            panel_height = self.category_panel.layout().sizeHint().height()
+            self.category_panel.setFixedHeight(panel_height)
             start = panel_height+16; area_x = 16; area_width = max(0, width-32)
         else:
+            self.category_heading.show(); self.categories.show()
+            self.category.hide(); self.category_controls.hide()
+            if self.manage_button.parentWidget() is not self.category_panel:
+                self.category_panel.layout().addWidget(self.manage_button)
             self.categories.setFlow(QListWidget.Flow.TopToBottom); self.categories.setWrapping(False)
             self.categories.setMinimumHeight(0); self.categories.setMaximumHeight(16777215)
             self.categories.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             for i in range(self.categories.count()): self.categories.item(i).setSizeHint(QSize())
-            self.category_panel.setGeometry(0, 0, 224, height)
-            start = 28; area_x = 248; area_width = max(0, width-area_x-24)
+            self.category_panel.setFixedHeight(height)
+            self.category_panel.setGeometry(0, 0, 240, height)
+            start = 28; area_x = 264; area_width = max(0, width-area_x-24)
         central = min(740, area_width)
         if area_width >= 1388: x = area_x + (area_width-central)//2
         elif area_width >= 1064: x = area_x + (area_width-1064)//2
@@ -187,17 +194,46 @@ class PromptEditor(QWidget):
         bottom = start + browser_height + 24
         if self.preview_id and self.preview_card.isVisible():
             card_width = min(300, area_width) if not below else central
-            self.preview_card.setFixedWidth(card_width)
-            available = max(100, card_width-36)
+            self.preview_card.ensurePolished(); self.preview_card.setFixedWidth(card_width)
+            layout = self.preview_card.layout(); margins = layout.contentsMargins()
+            frame = self.preview_card.contentsMargins()
+            available = max(1, card_width-margins.left()-margins.right()-frame.left()-frame.right())
+            # QLabel's unconstrained sizeHint describes fewer wrapped lines.
+            # Fix its actual height at this card width before asking the layout
+            # for its minimum/height-for-width; fixed text and image then cannot
+            # be squeezed into each other's geometry by a too-short card.
+            self.preview_name.setMinimumHeight(0); self.preview_name.setMaximumHeight(16777215)
+            name_height = max(1, self.preview_name.heightForWidth(available))
+            self.preview_name.setFixedHeight(name_height)
             self.preview_text.setFixedWidth(available)
             text_height = int(self.preview_text.document().size().height())+16
             self.preview_text.setFixedHeight(max(70, min(300, text_height)))
-            self.preview_card.adjustSize(); card_height = self.preview_card.sizeHint().height()
+            layout.invalidate()
+            card_height = max(layout.totalMinimumSize().height(), layout.totalHeightForWidth(card_width))
             px, py = (x, bottom) if below else (x+central+24, start)
             self.preview_card.setGeometry(px, py, card_width, card_height)
+            layout.activate()
             bottom = max(bottom, py+card_height+24)
         self.shell.setMinimumHeight(max(height, bottom))
         self.shell.setMinimumWidth(0)
+
+    def _sync_type(self):
+        from .theme import font_pixels
+        settings = dict(self.window.state['settings']); settings.update(getattr(self.window, 'appearance_preview', {}))
+        title_style = 'font-size:%dpx; font-weight:600;' % font_pixels(settings['ui_size']+5)
+        if self.title.styleSheet() != title_style: self.title.setStyleSheet(title_style)
+        colors = widget_colors(self)
+        preview_style = ("QTextEdit#MaterialPreviewPrompt { font-family:'Cascadia Mono','Consolas','Microsoft JhengHei'; "
+                         "font-size:%dpx; color:%s; background:%s; border:0; padding:4px; }") % (
+                             font_pixels(settings['prompt_size']), colors['text'], colors['field'])
+        if self.preview_text.styleSheet() != preview_style: self.preview_text.setStyleSheet(preview_style)
+        self.preview_text.ensurePolished(); self.title.ensurePolished()
+        self.preview_text.document().setDefaultFont(self.preview_text.font())
+        block = self.preview_text.document().begin()
+        if block.isValid() and block.blockFormat().lineHeight() != 160:
+            cursor = QTextCursor(self.preview_text.document()); cursor.select(QTextCursor.SelectionType.Document)
+            fmt = QTextBlockFormat(); fmt.setLineHeight(160, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
+            cursor.mergeBlockFormat(fmt)
 
     def get_browser_category(self): return self.category.currentData()
 
