@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication
 from prompt_calculus_studio.core import Storage, initial_state
 from prompt_calculus_studio.state_loading import prepare_state
 from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.editor_legacy import documents
 
 APP = QApplication.instance() or QApplication([])
 
@@ -36,7 +37,7 @@ class RevisionThreeStartupTests(unittest.TestCase):
         self.env.stop()
         self.tmp.cleanup()
 
-    def test_saved_list_and_export_start_on_canvas_without_losing_manual_draft(self):
+    def test_saved_list_and_export_start_on_canvas_with_legacy_draft_recoverable(self):
         before = copy.deepcopy(self.w.state['text_positions'])
         self.w.show_page(self.w.clean_export)
         self.w.start_interface()
@@ -45,9 +46,29 @@ class RevisionThreeStartupTests(unittest.TestCase):
         self.assertIs(self.w.canvas_content.currentWidget(), self.w.canvas)
         self.assertEqual(self.w.state['text_positions'], before)
         self.w.set_interface_mode('list')
-        self.assertEqual(self.w.state['draft'], '我的清單手動草稿')
-        self.w.persist()
-        self.assertEqual(self.w.store.load()['draft'], '我的清單手動草稿')
+        self.assertIs(self.w.surface_stack.currentWidget(), self.w.prompt_editor)
+        self.assertEqual(self.w.state['selection_view'], 'canvas')
+        # The Editor keeps the current Canvas output active. Historical list
+        # text remains recoverable without becoming the generation draft.
+        def check_saved_legacy(state):
+            self.assertIsNone(state['draft'])
+            current = state['multi_output']['current_output']
+            saved = state['multi_output']['outputs'][current]['list_draft']
+            self.assertEqual(saved['draft'], '我的清單手動草稿')
+            recovered = next(value for value in documents(state) if value['id'] == current)
+            self.assertEqual(recovered['manual'], '我的清單手動草稿')
+            self.assertEqual(recovered['final'], '我的清單手動草稿')
+        check_saved_legacy(self.w.state)
+        self.assertTrue(self.w.persist())
+        check_saved_legacy(self.w.store.load())
+        self.w.close()
+        APP.processEvents()
+        self.w = Window(self.tmp.name)
+        self.w.start_interface()
+        self.w.set_interface_mode('list')
+        self.assertIs(self.w.surface_stack.currentWidget(), self.w.prompt_editor)
+        check_saved_legacy(self.w.state)
+        check_saved_legacy(self.w.store.load())
 
     def test_recovery_does_not_clear_styles_or_repeat_native_backdrop(self):
         self.w.apply_theme()
