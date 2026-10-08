@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QFormL
     QStyledItemDelegate, QStyle, QApplication, QDialog, QSizePolicy)
 from . import materials
 from .core import uid
-from .widgets import label, button, row, ComboBox, StudioDialog, RoundMenu, preview_path, set_preview, thumb_icon, InputDialog, ask
+from .widgets import label, button, row, ComboBox, StudioDialog, RoundMenu, preview_path, set_preview, InputDialog, ask
 from .views import widget_colors
 from .material_editor_page import Disclosure, sync_prompt_style, apply_line_spacing
 
@@ -26,11 +26,11 @@ class LibraryDelegate(QStyledItemDelegate):
         painter.setPen(QPen(QColor(colors['accent' if selected else 'line']), 1))
         painter.setBrush(QColor(colors['selected' if selected else 'hover' if hover else 'surface']))
         painter.drawRoundedRect(rect, 9, 9)
+        if option.state & QStyle.StateFlag.State_HasFocus:
+            painter.setPen(QPen(QColor(colors['text']), 1, Qt.PenStyle.DotLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(rect.adjusted(3, 3, -3, -3), 6, 6)
         left = rect.left() + 16
-        icon = index.data(Qt.ItemDataRole.DecorationRole)
-        if icon and not icon.isNull():
-            side = min(46, int(rect.height()) - 20)
-            icon.paint(painter, QRectF(left, rect.top()+10, side, side).toRect()); left += side + 12
         width = max(10, int(rect.right()-left-32))
         name, _, prompt = str(index.data(Qt.ItemDataRole.DisplayRole)).partition('\n')
         font = QFont(option.font); font.setWeight(QFont.Weight.DemiBold)
@@ -155,9 +155,11 @@ class PromptEditor(QWidget):
         if not hasattr(self, 'browser'): return
         self._sync_type()
         viewport_width = self.scroll.viewport().width(); height = self.scroll.viewport().height()
-        self.narrow = viewport_width < 800
-        # Wide-page centering is measured against the shell, not the viewport's
-        # temporary scrollbar gutter, so a long preview cannot shift the list.
+        minimum_browser = max(520, self.browser.minimumSizeHint().width())
+        self.narrow = viewport_width < max(800, 264+minimum_browser+24)
+        # Match the library/management shell: fixed category navigation, a
+        # flexible main list, and a supporting detail column. A scrollbar or
+        # preview toggle must never move the list's left edge.
         width = viewport_width if self.narrow else self.scroll.width()-2*self.scroll.frameWidth()
         self.workspace_name.setVisible(width >= 600)
         if self.narrow:
@@ -180,20 +182,20 @@ class PromptEditor(QWidget):
             for i in range(self.categories.count()): self.categories.item(i).setSizeHint(QSize())
             self.category_panel.setFixedHeight(height)
             self.category_panel.setGeometry(0, 0, 240, height)
-            start = 28; area_x = 264; area_width = max(0, width-area_x-24)
-        central = min(740, area_width)
-        if area_width >= 1388: x = area_x + (area_width-central)//2
-        elif area_width >= 1064: x = area_x + (area_width-1064)//2
-        else: x = area_x + (area_width-central)//2
-        below = area_width < 1064
+            start = 24; area_x = 264; area_width = max(0, width-area_x-24)
+        has_preview = bool(self.preview_id and self.preview_card.isVisible())
+        detail_width = min(380, max(340, round(area_width*.22)))
+        below = area_width < max(900, minimum_browser+24+detail_width)
+        central = area_width-24-detail_width if has_preview and not below else area_width
+        x = area_x
         row_height = self.listing.fontMetrics().height()*2 + 40
         list_height = max(110, min(580, self.listing.count()*row_height + 12))
         self.listing.setMinimumHeight(list_height); self.listing.setMaximumHeight(list_height)
         browser_height = self.browser.sizeHint().height()
         self.browser.setGeometry(x, start, central, browser_height)
         bottom = start + browser_height + 24
-        if self.preview_id and self.preview_card.isVisible():
-            card_width = min(300, area_width) if not below else central
+        if has_preview:
+            card_width = detail_width if not below else central
             self.preview_card.ensurePolished(); self.preview_card.setFixedWidth(card_width)
             layout = self.preview_card.layout(); margins = layout.contentsMargins()
             frame = self.preview_card.contentsMargins()
@@ -282,10 +284,11 @@ class PromptEditor(QWidget):
         category = self.get_browser_category()
         rows = [] if category == '@uncategorized' else materials.search(self.window.state, self.search.text(), category, pinned=self.pins.isChecked(), order=self.order.currentData())
         for value in rows:
-            entry = QListWidgetItem(thumb_icon(self.window.store, value.get('preview'), 64), value['name']+'\n'+value['prompt'].replace('\n', ' '))
+            entry = QListWidgetItem(value['name']+'\n'+value['prompt'].replace('\n', ' '))
             entry.setData(Qt.ItemDataRole.UserRole, value['id']); self.listing.addItem(entry)
             if value['id'] == selected: self.listing.setCurrentItem(entry)
         self.listing.blockSignals(False); self.listing.verticalScrollBar().setValue(scroll)
+        self.listing.setVisible(bool(rows))
         self.count.setText(f'{len(rows)} 個模組'); self.empty_results.setVisible(not rows)
         self.empty_results.setText('找不到符合搜尋的模組。' if self.search.text() else '這個分類還沒有模組，可按「新增模組」開始。')
         self._layout()
