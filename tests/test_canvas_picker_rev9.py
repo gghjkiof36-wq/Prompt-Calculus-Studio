@@ -93,7 +93,7 @@ class PickerRev9Tests(unittest.TestCase):
 
     def test_only_category_text_choices_and_blank_action_exist(self):
         self.assertEqual(self.p.findChildren(QPlainTextEdit),[])
-        self.assertEqual(self.p.findChildren(QLineEdit),[])
+        self.assertEqual(self.p.findChildren(QLineEdit),[self.p.search])
         self.assertEqual(self.p.findChildren(QScrollArea),[])
         self.assertEqual(set(self.p.findChildren(QPushButton)),{self.p.close_button,self.p.new_button})
         for removed in ('query','scope','lookup_toggle','lookup_pane','lookup_status','suggestions',
@@ -109,7 +109,7 @@ class PickerRev9Tests(unittest.TestCase):
         with patch.object(self.w.completion,'schedule') as schedule, \
              patch.object(self.w.completion,'lookup') as lookup, \
              patch.object(self.w.completion,'cancel') as cancel:
-            self.open(); self.select(self.cat)
+            self.open(); self.select(self.cat); self.p.search.setText('rev9唯一別名')
             QTest.keyClick(self.p.modules,Qt.Key.Key_Right)
             QTest.keyClick(self.p.assets,Qt.Key.Key_Tab)
             self.select(self.empty_cat); self.p.reject(); QTest.qWait(30)
@@ -121,14 +121,63 @@ class PickerRev9Tests(unittest.TestCase):
         QTest.keyClick(self.p.modules,Qt.Key.Key_Right)
         self.assertTrue(self.p.assets.hasFocus()); self.assertEqual(self.p.assets.currentRow(),0)
         QTest.keyClick(self.p.assets,Qt.Key.Key_Left); self.assertTrue(self.p.modules.hasFocus())
-        QTest.keyClick(self.p.modules,Qt.Key.Key_Tab); self.assertTrue(self.p.assets.hasFocus())
+        QTest.keyClick(self.p.modules,Qt.Key.Key_Tab); self.assertTrue(self.p.search.hasFocus())
+        QTest.keyClick(self.p.search,Qt.Key.Key_Tab); self.assertTrue(self.p.assets.hasFocus())
         QTest.keyClick(self.p.assets,Qt.Key.Key_Tab); self.assertTrue(self.p.new_button.hasFocus())
         QTest.keyClick(self.p.new_button,Qt.Key.Key_Tab); self.assertTrue(self.p.close_button.hasFocus())
         QTest.keyClick(self.p.close_button,Qt.Key.Key_Tab); self.assertTrue(self.p.modules.hasFocus())
         QTest.keyClick(self.p.modules,Qt.Key.Key_Backtab); self.assertTrue(self.p.close_button.hasFocus())
         self.select(self.empty_cat); self.p.modules.setFocus()
-        QTest.keyClick(self.p.modules,Qt.Key.Key_Tab); self.assertTrue(self.p.new_button.hasFocus())
+        QTest.keyClick(self.p.modules,Qt.Key.Key_Tab); self.assertTrue(self.p.search.hasFocus())
+        QTest.keyClick(self.p.search,Qt.Key.Key_Tab); self.assertTrue(self.p.new_button.hasFocus())
         self.assertEqual(self.asset_api.call_count,0); self.c.add_new_with_destination.assert_not_called()
+
+    def test_search_name_alias_content_scopes_to_category_and_clear_recovers(self):
+        before=self.c.history_state(); self.select(self.cat)
+        original=[self.p.assets.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.p.assets.count())]
+        self.p.assets.setCurrentRow(0)
+        for query in ('紅色洋裝','rev9唯一別名',' RED DRESS '):
+            self.p.search.setText(query); APP.processEvents()
+            self.assertEqual(self.p.assets.count(),1)
+            self.assertEqual(self.p.selected_id(self.p.assets),self.ident)
+            self.assertIn('服裝 · 1 個模組',self.p.assets_heading.text())
+        self.p.search.setText('plain text'); APP.processEvents()
+        self.assertEqual(self.p.assets.count(),0); self.assertTrue(self.p.empty.isVisible())
+        self.assertIn('清除搜尋',self.p.empty.text()); self.assertTrue(self.p.new_button.isVisible())
+        self.assertEqual(self.p.get_browser_category(),self.cat)
+        self.select(None)
+        self.assertEqual(self.p.assets.count(),1)
+        self.assertEqual(self.p.assets.item(0).data(Qt.ItemDataRole.UserRole),self.unclassified)
+        self.assertEqual(self.p.search.text(),'plain text')
+        self.select(self.cat); self.p.search.clear(); APP.processEvents()
+        self.assertEqual([self.p.assets.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.p.assets.count())],original)
+        self.assertFalse(self.p.empty.isVisible()); self.assertEqual(self.w._material_browser_category,self.cat)
+        self.assertEqual(self.c.history_state(),before); self.asset_api.assert_not_called()
+        self.p.search.setFocus(); QTest.keyClick(self.p.search,Qt.Key.Key_Return)
+        self.assertTrue(self.p.assets.hasFocus()); self.asset_api.assert_not_called(); self.assertTrue(self.p.isVisible())
+
+    def test_search_heading_and_painted_cards_align_through_resize_and_scroll_gutter(self):
+        for i in range(18):
+            materials.save(self.w.state,dict(id=uid(),name='search geometry '+str(i),prompt='geometry content',module=self.cat))
+        self.p.populate_categories(); self.select(self.cat)
+        for width,height,font in ((1280,860,11),(640,480,18),(1280,860,11)):
+            self.w.state['settings']['ui_size']=font; self.w.apply_theme(preserve_layout=True)
+            self.w.resize(width,height); self.p.fit_window(); APP.processEvents(); APP.processEvents()
+            for query in ('','紅色洋裝'):
+                self.p.search.setText(query); APP.processEvents(); APP.processEvents()
+                viewport=self.p.assets.viewport(); item=self.p.assets.visualItemRect(self.p.assets.item(0))
+                card_left=viewport.mapTo(self.p.surface,QPoint(item.x()+1,0)).x()
+                card_right=viewport.mapTo(self.p.surface,QPoint(item.x()+item.width()-2,0)).x()
+                for widget in (self.p.assets_heading,self.p.search):
+                    origin=widget.mapTo(self.p.surface,QPoint())
+                    self.assertEqual(origin.x(),card_left)
+                    self.assertEqual(origin.x()+widget.width(),card_right)
+                    self.assertTrue(self.p.surface.rect().contains(widget.mapTo(self.p.surface,widget.rect().bottomRight())))
+                self.assertLess(self.p.assets_heading.mapTo(self.p.surface,QPoint()).y()+self.p.assets_heading.height(),
+                                self.p.search.mapTo(self.p.surface,QPoint()).y())
+                self.assertEqual(self.p.assets.horizontalScrollBar().maximum(),0)
+                self.assertGreaterEqual(self.p.search.height(),self.p.search.fontMetrics().height()+16)
+        self.asset_api.assert_not_called()
 
     def test_click_copies_once_preserves_source_other_destination_and_undo_reopen(self):
         source = copy.deepcopy(materials.item(self.w.state,self.ident)); before=self.c.history_state()
@@ -267,7 +316,7 @@ class PickerRev9Tests(unittest.TestCase):
         self.w.resize(640,480); self.p.fit_window(); APP.processEvents()
         self.assertTrue(self.p.rect().contains(self.p.surface.geometry())); self.assertTrue(self.p.narrow_categories.isVisible())
         self.assertTrue(self.p.category_pane.isHidden())
-        for widget in (self.p.title,self.p.destination_label,self.p.close_button,self.p.category,self.p.new_button):
+        for widget in (self.p.title,self.p.destination_label,self.p.close_button,self.p.category,self.p.search,self.p.new_button):
             for corner in (widget.rect().topLeft(),widget.rect().bottomRight()):
                 self.assertTrue(self.p.surface.rect().contains(widget.mapTo(self.p.surface,corner)),widget.objectName())
         before=self.p.new_button.mapTo(self.p.surface,QPoint())
@@ -276,6 +325,7 @@ class PickerRev9Tests(unittest.TestCase):
         self.assertEqual(self.p.new_button.mapTo(self.p.surface,QPoint()),before)
         self.assertTrue(self.p.new_button.isVisible())
         self.p.category.setFocus(); QTest.keyClick(self.p.category,Qt.Key.Key_Tab)
+        self.assertTrue(self.p.search.hasFocus()); QTest.keyClick(self.p.search,Qt.Key.Key_Tab)
         self.assertTrue(self.p.assets.hasFocus())
         QTest.keyClick(self.p.assets,Qt.Key.Key_Tab); self.assertTrue(self.p.new_button.hasFocus())
         for widget in (self.p.category,self.p.new_button):

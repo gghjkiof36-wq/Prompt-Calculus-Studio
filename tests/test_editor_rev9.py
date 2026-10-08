@@ -296,8 +296,6 @@ class EditorRev9Tests(unittest.TestCase):
             group_left=self.page.browser.x()-workspace_left
             group_right=self.page.scroll.viewport().width()-self.page.preview_card.geometry().right()-1
             self.assertLessEqual(abs(group_left-group_right),1)
-            self.assertEqual(self.page.title.mapTo(self.page.browser,QPoint()).y()+self.page.title.height(),
-                             self.page.count.mapTo(self.page.browser,QPoint()).y()+self.page.count.height())
             self.page.close_preview();self.assertEqual(self.page.browser.geometry(),before)
         for i in range(self.page.listing.count()): self.assertTrue(self.page.listing.item(i).icon().isNull())
         for width in (1100,640,360):

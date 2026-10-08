@@ -3,7 +3,8 @@ import copy
 from PySide6.QtCore import Qt, QPoint, QPointF, QSize, QRect, QEvent, QSignalBlocker
 from PySide6.QtGui import QPainter, QColor
 from PySide6.QtWidgets import (QDialog, QFrame, QWidget, QVBoxLayout, QHBoxLayout,
-    QListWidget, QListWidgetItem, QSizeGrip, QSizePolicy, QApplication, QPushButton)
+    QListWidget, QListWidgetItem, QSizeGrip, QSizePolicy, QApplication, QPushButton, QLineEdit)
+from . import materials
 from .widgets import label, button, ComboBox
 from .quiet_splitter import QuietSplitter
 from .palette_cards import PickerCardDelegate, ClosingClickGuard
@@ -77,7 +78,12 @@ class CanvasPalette(QDialog):
         self.modules=QListWidget(); self.modules.setAccessibleName('內容分類'); cats.addWidget(self.modules,1)
         self.split.addWidget(self.category_pane)
         local=QWidget(); local.setMinimumWidth(0); rows=QVBoxLayout(local); rows.setContentsMargins(12,0,0,0); rows.setSpacing(8)
-        self.assets_heading=label('本地文字模組','Heading'); rows.addWidget(self.assets_heading)
+        self.assets_header=QWidget(); self.assets_header_layout=QVBoxLayout(self.assets_header)
+        self.assets_header_layout.setContentsMargins(0,0,0,0); self.assets_header_layout.setSpacing(8)
+        self.assets_heading=label('本地文字模組','Heading'); self.assets_header_layout.addWidget(self.assets_heading)
+        self.search=QLineEdit(); self.search.setAccessibleName('搜尋目前分類的文字模組')
+        self.search.setPlaceholderText('搜尋名稱、別名或內容'); self.search.setClearButtonEnabled(True)
+        self.assets_header_layout.addWidget(self.search); rows.addWidget(self.assets_header)
         self.assets=QListWidget(); self.assets.setAccessibleName('本地文字模組'); self.assets.setSpacing(3)
         self.assets.setItemDelegate(PickerCardDelegate(self.assets)); self.assets.setMouseTracking(True)
         self.assets.setUniformItemSizes(False); rows.addWidget(self.assets,1)
@@ -93,6 +99,7 @@ class CanvasPalette(QDialog):
         for listing in (self.modules,self.assets):
             listing.setMinimumSize(0,0); listing.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             listing.setTextElideMode(Qt.TextElideMode.ElideRight); listing.installEventFilter(self)
+        self.assets.viewport().installEventFilter(self)
         self.grip=PaletteGrip(self)
         saved=canvas.window.state['settings'].get('canvas_palette',{})
         self.sheet_size=QSize(*saved.get('size',[900,660]))
@@ -104,6 +111,7 @@ class CanvasPalette(QDialog):
         # Both Qt activation paths can fire for the same click. The operation guard
         # closes only after a successful transaction and blocks the second path.
         self.assets.itemClicked.connect(lambda _:self.insert())
+        self.search.textChanged.connect(self.refresh)
         self.refresh(); self.update_destination()
         for control in self.findChildren(QPushButton): control.setAutoDefault(False)
         canvas.window.installEventFilter(self)
@@ -210,18 +218,34 @@ class CanvasPalette(QDialog):
     def refresh(self):
         ident=self.selected_id(self.assets); had_focus=self.assets.hasFocus()
         self.assets.clear(); mid=self.selected_id(self.modules)
+        query=self.search.text().strip()
+        matches={asset['id'] for asset in materials.search(self.canvas.window.state,query)} if query else None
         for asset in self.canvas.window.state['items']:
             if not self.in_category(asset,mid): continue
+            if matches is not None and asset['id'] not in matches: continue
             entry=self.entry(asset['name']+'\n'+asset['prompt'].replace('\n',' '),asset['id'])
             entry.setToolTip(asset['name']+'\n'+asset['prompt'])
             self.assets.addItem(entry)
         self.assets_heading.setText(f'{self.category_name()} · {self.assets.count()} 個模組')
-        self.empty.setText('此分類尚無文字模組')
+        self.empty.setText('找不到符合搜尋的文字模組，請修改或清除搜尋。' if query else '此分類尚無文字模組')
         self.empty.setVisible(self.assets.count()==0)
         self.empty_spacer.setVisible(self.assets.count()==0)
         self.assets.setVisible(self.assets.count()>0)
         valid=self.restore_selection(self.assets,ident)
         if had_focus and not valid: self.new_button.setFocus()
+        self.assets.doItemsLayout(); self.align_search()
+
+    def align_search(self):
+        # Use the actual painted card edges, including the list's spacing and
+        # current scroll gutter, for both the heading and its search field.
+        viewport=self.assets.viewport(); origin=viewport.mapTo(self.assets,QPoint()).x()
+        if self.assets.count():
+            card=self.assets.visualItemRect(self.assets.item(0))
+            left=origin+card.x()+1; right=self.assets.width()-(origin+card.x()+card.width()-2)
+        else:
+            left=origin+self.assets.spacing()+1
+            right=self.assets.width()-origin-viewport.width()+self.assets.spacing()+2
+        self.assets_header_layout.setContentsMargins(max(0,left),0,max(0,right),0)
 
     def focus_list(self,listing,first=False):
         if not listing.count() or not listing.isVisible() or not listing.isEnabled(): return False
@@ -233,7 +257,7 @@ class CanvasPalette(QDialog):
         if key==Qt.Key.Key_Escape: self.reject(); return True
         if key in (Qt.Key.Key_Tab,Qt.Key.Key_Backtab):
             order=[self.destination,self.category if self.narrow_categories.isVisible() else self.modules,
-                   self.assets,self.new_button,self.close_button]
+                   self.search,self.assets,self.new_button,self.close_button]
             index=order.index(source) if source in order else -1
             step=-1 if key==Qt.Key.Key_Backtab or modifiers&Qt.KeyboardModifier.ShiftModifier else 1
             for offset in range(1,len(order)+1):
@@ -244,6 +268,8 @@ class CanvasPalette(QDialog):
                 else: target.setFocus(); break
             return True
         if modifiers!=Qt.KeyboardModifier.NoModifier: return False
+        if source is self.search and key in (Qt.Key.Key_Down,Qt.Key.Key_Return,Qt.Key.Key_Enter):
+            self.focus_list(self.assets,first=True); return True
         if source is self.modules and key==Qt.Key.Key_Right:
             self.focus_list(self.assets,first=True); return True
         if source is self.assets:
@@ -254,12 +280,14 @@ class CanvasPalette(QDialog):
         return False
 
     def eventFilter(self,watched,event):
+        if watched is self.assets.viewport() and event.type()==QEvent.Type.Resize:
+            self.align_search()
         if event.type() in (QEvent.Type.MouseButtonPress,QEvent.Type.MouseButtonRelease,QEvent.Type.MouseButtonDblClick):
             if isinstance(watched,QWidget) and (watched is self or self.isAncestorOf(watched)):
                 self.last_mouse_position=event.globalPosition().toPoint()
         if watched is self.canvas.window and event.type() in (QEvent.Type.Resize,QEvent.Type.Move):
             if self.isVisible(): self.fit_window()
-        elif watched in (self.assets,self.modules,self.category,self.destination,self.new_button,self.close_button) and event.type()==QEvent.Type.KeyPress:
+        elif watched in (self.assets,self.modules,self.category,self.destination,self.search,self.new_button,self.close_button) and event.type()==QEvent.Type.KeyPress:
             if self.navigate(watched,event): return True
         return super().eventFilter(watched,event)
 
@@ -313,9 +341,9 @@ class CanvasPalette(QDialog):
         self.split.widget(1).layout().setContentsMargins(0 if narrow else 12,0,0,0)
         line=self.title.fontMetrics().height()
         self.close_button.setFixedSize(max(36,line+16),max(36,line+16))
-        for control in (self.new_button,self.destination,self.category):
+        for control in (self.new_button,self.destination,self.category,self.search):
             control.setMinimumHeight(max(36,control.fontMetrics().height()+16))
-        self.assets.doItemsLayout()
+        self.assets.doItemsLayout(); self.align_search()
 
     def paintEvent(self,event):
         painter=QPainter(self); painter.fillRect(self.rect(),QColor(0,0,0,120))
