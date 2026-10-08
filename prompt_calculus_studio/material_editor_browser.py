@@ -112,8 +112,9 @@ class PromptEditor(QWidget):
         self.new_button.setIcon(icon('plus'))
         self.library_more = button('更多', self.library_menu, 'Quiet'); self.library_more.setIcon(icon('more-horizontal'))
         title_row = row(self.title, self.count, None, self.new_button, self.library_more)
-        title_row.setAlignment(self.title, Qt.AlignmentFlag.AlignBaseline)
-        title_row.setAlignment(self.count, Qt.AlignmentFlag.AlignBaseline)
+        for text in (self.title, self.count):
+            text.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+            title_row.setAlignment(text, Qt.AlignmentFlag.AlignBottom)
         self.header_layout.addLayout(title_row)
         self.search = QLineEdit(); self.search.setPlaceholderText('搜尋目前分類的名稱、別名或內容')
         self.pins = QCheckBox('釘選'); self.order = ComboBox(); self.order.addItem('名稱', 'name'); self.order.addItem('最近使用', 'recent')
@@ -272,7 +273,19 @@ class PromptEditor(QWidget):
                          "font-size:%dpx; font-weight:400; color:%s; background:transparent; border:0; padding:4px; }") % (
                              font_pixels(settings['prompt_size']), colors['text'])
         if self.preview_text.styleSheet() != preview_style: self.preview_text.setStyleSheet(preview_style)
-        self.preview_text.ensurePolished(); self.title.ensurePolished()
+        self.preview_text.ensurePolished()
+        # Font descenders leave different empty space beneath large Latin/CJK
+        # headings and their smaller count. Align the visible glyph bottoms,
+        # rather than their widget boxes or the layout's nominal baseline.
+        padding = []
+        for text in (self.title, self.count):
+            text.ensurePolished()
+            metrics = text.fontMetrics()
+            padding.append(metrics.descent()-metrics.tightBoundingRect(text.text()).bottom())
+        for text, inset in zip((self.title, self.count), padding):
+            bottom = max(padding)-inset
+            if text.contentsMargins().bottom() != bottom:
+                text.setContentsMargins(0, 0, 0, bottom)
         self.preview_text.document().setDefaultFont(self.preview_text.font())
         block = self.preview_text.document().begin()
         if block.isValid() and block.blockFormat().lineHeight() != 160:
