@@ -17,14 +17,14 @@ from .management_reading import READING_CONTENT_WIDTH, READING_MARGIN, READING_N
 
 class LibraryDelegate(QStyledItemDelegate):
     def sizeHint(self, option, index):
-        return QSize(180, QFontMetrics(option.font).height() * 2 + 34)
+        return QSize(180, QFontMetrics(option.font).height() * 2 + 40)
 
     def paint(self, painter, option, index):
         colors = widget_colors(self.parent())
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
         focused = bool(option.state & QStyle.StateFlag.State_HasFocus)
-        rect = QRectF(option.rect).adjusted(1, 3, -2, -3)
+        rect = QRectF(option.rect).adjusted(1, 6, -1, -6)
         painter.save(); painter.setRenderHint(painter.RenderHint.Antialiasing)
         painter.setPen(QPen(QColor(colors['accent' if selected or focused else 'line']), 2 if focused else 1))
         painter.setBrush(QColor(colors['selected' if selected else 'hover' if hover else 'surface']))
@@ -88,7 +88,7 @@ class PromptEditor(QWidget):
         self.scroll.setFrameShape(QScrollArea.Shape.NoFrame); outer.addWidget(self.scroll)
         self.scroll.viewport().installEventFilter(self)
         self.shell = QWidget(); self.scroll.setWidget(self.shell)
-        self.category_panel = QWidget(self.shell); self.category_panel.setObjectName('ContextSidebar')
+        self.category_panel = QWidget(self.scroll.viewport()); self.category_panel.setObjectName('ContextSidebar')
         self.category_panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         category_layout = QVBoxLayout(self.category_panel)
         category_layout.setContentsMargins(12, 24, 12, 12); category_layout.setSpacing(8)
@@ -104,19 +104,24 @@ class PromptEditor(QWidget):
         self.manage_button = button('管理分類', self.manage_categories, 'Quiet'); category_layout.addWidget(self.manage_button)
         self.browser = QWidget(self.shell); content = QVBoxLayout(self.browser)
         content.setContentsMargins(0, 0, 0, 0); content.setSpacing(14)
+        self.browser_header = QWidget()
+        self.header_layout = QVBoxLayout(self.browser_header)
+        self.header_layout.setContentsMargins(1, 0, 13, 0); self.header_layout.setSpacing(14)
+        content.addWidget(self.browser_header)
         self.title = label('全部模組', 'DialogTitle'); self.count = label('', 'Subtle')
         self.new_button = button('新增模組', self.new_material, 'Primary')
         from .ui_icons import icon
         self.new_button.setIcon(icon('plus'))
         self.library_more = button('更多', self.library_menu, 'Quiet'); self.library_more.setIcon(icon('more-horizontal'))
-        content.addLayout(row(self.title, self.count, None, self.new_button, self.library_more))
+        self.header_layout.addLayout(row(self.title, self.count, None, self.new_button, self.library_more))
         self.search = QLineEdit(); self.search.setPlaceholderText('搜尋目前分類的名稱、別名或內容')
         self.pins = QCheckBox('釘選'); self.order = ComboBox(); self.order.addItem('名稱', 'name'); self.order.addItem('最近使用', 'recent')
-        content.addLayout(row(self.search, self.pins, self.order))
-        self.list_hint = label('單擊預覽 · 雙擊編輯', 'Subtle'); content.addWidget(self.list_hint)
+        self.header_layout.addLayout(row(self.search, self.pins, self.order))
+        self.list_hint = label('單擊預覽 · 雙擊編輯', 'Subtle'); self.header_layout.addWidget(self.list_hint)
         from .prompt_editor import MaterialList
         self.listing = MaterialList(); self.listing.setFrameShape(QListWidget.Shape.NoFrame)
-        self.listing.setItemDelegate(LibraryDelegate(self.listing)); self.listing.setSpacing(3)
+        self.listing.setItemDelegate(LibraryDelegate(self.listing)); self.listing.setSpacing(0)
+        self.listing.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.listing.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.listing.customContextMenuRequested.connect(self.material_menu)
         content.addWidget(self.listing, 1)
@@ -202,6 +207,13 @@ class PromptEditor(QWidget):
         self.listing.setMinimumHeight(list_height); self.listing.setMaximumHeight(list_height)
         browser_height = self.browser.sizeHint().height()
         self.browser.setGeometry(x, start, central, browser_height)
+        self.browser.layout().activate()
+        # Reserve the same scroll gutter for the header and rows, so controls
+        # align with the visible card edges even when the list needs scrolling.
+        gutter = max(0, self.listing.width()-self.listing.viewport().width())
+        self.header_layout.setContentsMargins(1, 0, gutter+1, 0)
+        self.header_layout.activate()
+        self.category_panel.raise_()
         bottom = start + browser_height + 24
         if has_preview:
             card_width = detail_width if not below else central

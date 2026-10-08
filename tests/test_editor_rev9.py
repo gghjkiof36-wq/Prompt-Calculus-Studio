@@ -2,7 +2,7 @@
 import copy
 import unittest
 from unittest.mock import patch
-from PySide6.QtCore import Qt, QCoreApplication, QEvent
+from PySide6.QtCore import Qt, QCoreApplication, QEvent, QPoint
 from PySide6.QtGui import QTextCursor
 from PySide6.QtTest import QTest
 import test_material_editor as fixture_module
@@ -281,9 +281,14 @@ class EditorRev9Tests(unittest.TestCase):
             self.assertLessEqual(abs(left_gap-right_gap),1,('Unbalanced workspace gutters',left_gap,right_gap))
             self.assertGreaterEqual(left_gap,24)
             self.assertEqual(self.page.browser.geometry(),before)
-            self.assertEqual(self.page.title.x(),0)
-            self.assertEqual(self.page.search.x(),0)
+            self.assertEqual(self.page.title.mapTo(self.page.browser,QPoint()).x(),1)
+            self.assertEqual(self.page.search.mapTo(self.page.browser,QPoint()).x(),1)
             self.assertEqual(self.page.listing.x(),0)
+            order_right=self.page.order.mapTo(self.page.browser,QPoint()).x()+self.page.order.width()
+            more_right=self.page.library_more.mapTo(self.page.browser,QPoint()).x()+self.page.library_more.width()
+            self.assertEqual(order_right,self.page.listing.viewport().width()-1)
+            self.assertEqual(more_right,order_right)
+            self.assertIs(self.page.category_panel.parentWidget(),self.page.scroll.viewport())
             self.assertEqual(self.page.scroll.horizontalScrollBar().maximum(),0)
             if width==2048:
                 self.assertTrue(340 <= self.page.preview_card.width() <= 380)
