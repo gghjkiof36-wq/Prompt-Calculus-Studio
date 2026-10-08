@@ -725,14 +725,6 @@ class Window(QMainWindow):
         if hasattr(self,"state"): update_window_shape(self)
         if hasattr(self,'builder_scroll'):self.adapt_prompt_layout()
         if hasattr(self,'sidebar_peek'):QTimer.singleShot(0,self.sync_context_sidebar)
-        if self.width()<1000 and hasattr(self,'material_sidebar') and self.material_sidebar.isVisible():
-            QTimer.singleShot(0,self.compact_materials)
-
-    def compact_materials(self):
-        if self.width()>=1000 or not hasattr(self,'material_sidebar') or not self.material_sidebar.isVisible():return
-        self.leave_canvas()
-        self.material_sidebar.hide()
-
     def compact_module_changed(self):
         if not hasattr(self,'module_list'):return
         target=self.compact_modules.currentData()

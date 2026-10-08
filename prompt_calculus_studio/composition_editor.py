@@ -241,8 +241,6 @@ class CompositionEditor(QWidget):
         self.view_ready=True; self.save_view()
     def edit_text(self,key):
         return TextCanvas.edit(self.text_canvas,key)
-    def close_text_editor(self):
-        self.view.setFocus()
     def can_leave(self):
         self.save_view(); return True
     def history(self):
@@ -340,7 +338,6 @@ class CompositionEditor(QWidget):
                 entry=QListWidgetItem(('🔒 ' if item['locked'] else '')+item['name']+(' · 隱藏' if not item['visible'] else '')); entry.setData(Qt.ItemDataRole.UserRole,item['id']); self.layers.addItem(entry)
                 if item['id']==self.selected: self.layers.setCurrentItem(entry)
             self.layers.blockSignals(False); self.refresh_properties(); self.refresh_text()
-            if self.prompt_editor is not None: self.prompt_editor.refresh()
             self.undo_button.setEnabled(bool(self.canvas.undo_stack)); self.redo_button.setEnabled(bool(self.canvas.redo_stack))
         finally: self.refreshing=False
     def refresh_text(self):
