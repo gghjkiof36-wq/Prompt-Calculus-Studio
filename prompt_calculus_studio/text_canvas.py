@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit, 
     QDoubleSpinBox, QCheckBox, QDialog, QListWidget, QListWidgetItem)
 
 from . import composition as comp
-from .canvas_palette import CanvasPalette, CanvasTagEdit
+from .canvas_palette import CanvasPalette
 from .canvas_items import TextCard, PreviewCard, NodeCard, CanvasView
 from .core import uid, validate_state, output_groups, TEMPORARY_GROUP
 from .widgets import label, button, row, StudioDialog, dialog_buttons, RoundMenu, InputDialog
