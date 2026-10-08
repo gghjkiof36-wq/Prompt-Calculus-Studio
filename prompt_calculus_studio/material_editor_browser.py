@@ -294,7 +294,12 @@ class PromptEditor(QWidget):
         dialog = StudioDialog(self.window); dialog.setWindowTitle(value['name']); dialog.resize(800, 700)
         image = QLabel(); image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         image.setPixmap(QPixmap(str(path)).scaled(720, 560, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        dialog.body.addWidget(image); dialog.show(); self.image_dialog = dialog
+        dialog.body.addWidget(image)
+        def finished(_):
+            if getattr(self, 'image_dialog', None) is dialog: self.image_dialog = None
+            dialog.deleteLater()
+        dialog.finished.connect(finished)
+        self.image_dialog = dialog; dialog.show()
 
     def set_destination(self, canvas_id):
         self.destination_id = canvas_id
@@ -561,9 +566,16 @@ class MaterialEditDialog(StudioDialog):
 
     def done(self, result):
         self.form.timer.stop(); self.page.window.completion.cancel(self.prompt); self.prompt.completer.popup().hide()
-        from .material_editor_documents import _key
         cache = getattr(self.page.window, '_material_editor_documents', {})
-        document = cache.pop(_key(self.form), None)
-        if document is not None and document not in cache.values():
-            self.destroyed.connect(document.deleteLater)
+        scope = self.form.document_scope
+        documents = []
+        for key in list(cache):
+            if key[:2] == ('dialog', scope):
+                document = cache.pop(key)
+                if document not in documents: documents.append(document)
+        # A duplicate can change identity during this transaction. Release every
+        # private document, but retain any document adopted by the source cache.
+        for document in documents:
+            if document not in cache.values():
+                self.destroyed.connect(document.deleteLater)
         super().done(result)
