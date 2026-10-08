@@ -394,6 +394,8 @@ class Window(QMainWindow):
 
     def refresh_prompt_editors(self):
         from .prompt_editor import _live_editors
+        page=getattr(self,'prompt_editor',None)
+        if page is not None and page.isVisible():page.refresh()
         for editor in _live_editors(self):
             if editor.isVisible():editor.refresh()
 
@@ -755,10 +757,9 @@ class Window(QMainWindow):
         for workspace in self.state["workspaces"]: self.workspace.addItem(workspace["name"],workspace["id"])
         self.workspace.setCurrentIndex(self.workspace.findData(self.state["workspace"])); self.workspace.blockSignals(False)
         if hasattr(self,'canvas_workspace'):
-            self.canvas_workspace.blockSignals(True); self.canvas_workspace.clear()
-            for workspace in self.state['workspaces']: self.canvas_workspace.addItem(workspace['name'],workspace['id'])
-            self.canvas_workspace.setCurrentIndex(self.canvas_workspace.findData(self.state['workspace']))
-            self.canvas_workspace.blockSignals(False)
+            self.canvas_workspace.refresh(self.state)
+        page=getattr(self,'prompt_editor',None)
+        if page is not None:page.refresh_workspace()
 
     def switch_workspace(self):
         if self.workspace.currentData():

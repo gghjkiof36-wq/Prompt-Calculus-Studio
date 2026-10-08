@@ -317,6 +317,7 @@ class PickerRev9Tests(unittest.TestCase):
         self.assertTrue(self.p.rect().contains(self.p.surface.geometry())); self.assertTrue(self.p.narrow_categories.isVisible())
         self.assertTrue(self.p.category_pane.isHidden())
         for widget in (self.p.title,self.p.destination_label,self.p.close_button,self.p.category,self.p.search,self.p.new_button):
+            if not widget.isVisible(): continue
             for corner in (widget.rect().topLeft(),widget.rect().bottomRight()):
                 self.assertTrue(self.p.surface.rect().contains(widget.mapTo(self.p.surface,corner)),widget.objectName())
         before=self.p.new_button.mapTo(self.p.surface,QPoint())

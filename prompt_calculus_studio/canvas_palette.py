@@ -129,11 +129,12 @@ class CanvasPalette(QDialog):
     def update_destination(self):
         value=self.canvases().get(self.destination_id)
         if value:
-            self.destination_label.setText('加入至「'+value['name']+'」 · 點選模組加入')
+            self.destination_label.clear()
         elif not self.canvases():
             self.destination_label.setText('尚無文字畫布；請關閉此頁，返回 Canvas 建立文字畫布。')
         else:
             self.destination_label.setText('請先選擇目的文字畫布。' if self.choose_destination else '目的文字畫布已不存在，請返回 Canvas 重新開啟。')
+        self.destination_label.setVisible(value is None)
         for control in (self.assets,self.new_button):
             control.setEnabled(value is not None and not self.busy)
 

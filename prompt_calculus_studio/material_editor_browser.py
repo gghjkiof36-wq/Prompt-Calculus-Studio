@@ -8,11 +8,21 @@ from PySide6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QFormL
     QListWidget, QListWidgetItem, QCheckBox, QScrollArea, QTextEdit, QLabel,
     QStyledItemDelegate, QStyle, QApplication, QDialog, QSizePolicy)
 from . import materials
-from .core import uid
+from .core import uid, output_groups
 from .widgets import label, button, row, ComboBox, StudioDialog, RoundMenu, preview_path, set_preview, InputDialog, ask
 from .views import widget_colors
 from .material_editor_page import Disclosure, sync_prompt_style, apply_line_spacing
 from .management_reading import READING_CONTENT_WIDTH, READING_MARGIN, READING_NARROW_MARGIN
+
+
+def _replace_visible_order(state, field, before, after):
+    """Keep hidden records in their slots, with every record and field intact."""
+    mapping = {value['id']: value for value in state[field]}
+    visible = set(before)
+    if len(visible) != len(before) or len(after) != len(before) or set(after) != visible or not visible <= mapping.keys():
+        raise ValueError('清單已更新，請重新拖曳排序。')
+    ordered = iter(after)
+    state[field] = [mapping[next(ordered)] if value['id'] in visible else value for value in state[field]]
 
 
 class LibraryDelegate(QStyledItemDelegate):
@@ -30,7 +40,7 @@ class LibraryDelegate(QStyledItemDelegate):
         painter.setBrush(QColor(colors['selected' if selected else 'hover' if hover else 'surface']))
         painter.drawRoundedRect(rect, 9, 9)
         left = rect.left() + 16
-        width = max(10, int(rect.right()-left-32))
+        width = max(10, int(rect.right()-left-16))
         name, _, prompt = str(index.data(Qt.ItemDataRole.DisplayRole)).partition('\n')
         font = QFont(option.font); font.setWeight(QFont.Weight.DemiBold)
         metrics = QFontMetrics(font); height = metrics.height()
@@ -41,7 +51,6 @@ class LibraryDelegate(QStyledItemDelegate):
         painter.setPen(QColor(colors['secondary']))
         painter.drawText(QRectF(left, rect.top()+16+height, width, height+2), Qt.AlignmentFlag.AlignVCenter,
                          metrics.elidedText(prompt, Qt.TextElideMode.ElideRight, width))
-        painter.drawText(QRectF(rect.right()-28, rect.top(), 20, rect.height()), Qt.AlignmentFlag.AlignCenter, '›')
         painter.restore()
 
 
@@ -74,12 +83,16 @@ class PromptEditor(QWidget):
         self.narrow = False; self._keyboard_selection = False
         if not hasattr(window, '_material_editor_session'):
             window._material_editor_session = dict(serial=0, active=None, drafts={})
-        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
-        from .workspace_navigation import WorkspaceModeSwitch
-        self.workspace_switch = WorkspaceModeSwitch(window, active='list')
-        workbar = QHBoxLayout(); workbar.setContentsMargins(24, 16, 24, 0)
-        self.workspace_name = label('', 'Subtle'); self.workspace_name.setMaximumWidth(180)
-        workbar.addWidget(self.workspace_name); workbar.addWidget(self.workspace_switch); workbar.addStretch(); outer.addLayout(workbar)
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0); outer.setSpacing(0)
+        from .recent_sidebar import CanvasWorkspaceCombo, CanvasWorkspaceBar
+        self.workspace_header = QWidget(); self.workspace_header.setObjectName('CanvasWorkspaceInset')
+        workbar = QHBoxLayout(self.workspace_header); workbar.setContentsMargins(24, 16, 24, 0); workbar.setSpacing(0)
+        self.workspace_combo = CanvasWorkspaceCombo(); self.workspace_combo.setFixedWidth(156)
+        self.workspace_combo.setEnabled(callable(getattr(window, 'change_workspace', None)))
+        self.workspace_combo.currentIndexChanged.connect(self._workspace_changed)
+        self.workspace_bar = CanvasWorkspaceBar(window, self.workspace_combo, active='list', header=self.workspace_header)
+        self.workspace_switch = self.workspace_bar.workspace_switch
+        workbar.addWidget(self.workspace_bar); workbar.addStretch(); outer.addWidget(self.workspace_header)
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True)
         self.scroll.setProperty('pcsReadingPage', True)
         self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -91,7 +104,9 @@ class PromptEditor(QWidget):
         category_layout = QVBoxLayout(self.category_panel)
         category_layout.setContentsMargins(12, 24, 12, 12); category_layout.setSpacing(8)
         self.category_heading = label('內容分類', 'SidebarHeading'); category_layout.addWidget(self.category_heading)
-        self.categories = QListWidget(); self.categories.setObjectName('SidebarNavigation')
+        from .prompt_editor import ReorderableList
+        self.categories = ReorderableList(); self.categories.setObjectName('SidebarNavigation')
+        self.categories.enable_reordering(); self.categories.reorderRequested.connect(self._reorder_categories)
         self.categories.setFrameShape(QListWidget.Shape.NoFrame); self.categories.setSpacing(3)
         self.categories.setResizeMode(QListWidget.ResizeMode.Adjust); category_layout.addWidget(self.categories, 1)
         self.category = ComboBox(self); self.category.hide()
@@ -108,6 +123,7 @@ class PromptEditor(QWidget):
         content.addWidget(self.browser_header)
         self.title = label('全部模組', 'DialogTitle'); self.count = label('', 'Subtle')
         self.new_button = button('新增模組', self.new_material, 'Primary')
+        self.new_button.setCursor(Qt.CursorShape.PointingHandCursor)
         from .ui_icons import icon
         self.new_button.setIcon(icon('plus'))
         self.library_more = button('更多', self.library_menu, 'Quiet'); self.library_more.setIcon(icon('more-horizontal'))
@@ -118,10 +134,12 @@ class PromptEditor(QWidget):
         self.header_layout.addLayout(title_row)
         self.search = QLineEdit(); self.search.setPlaceholderText('搜尋目前分類的名稱、別名或內容')
         self.pins = QCheckBox('釘選'); self.order = ComboBox(); self.order.addItem('名稱', 'name'); self.order.addItem('最近使用', 'recent')
+        self.order.addItem('手動排序', 'manual')
         self.header_layout.addLayout(row(self.search, self.pins, self.order))
         self.list_hint = label('單擊預覽 · 雙擊編輯', 'Subtle'); self.header_layout.addWidget(self.list_hint)
         from .prompt_editor import MaterialList
         self.listing = MaterialList(); self.listing.setFrameShape(QListWidget.Shape.NoFrame)
+        self.listing.enable_reordering(); self.listing.reorderRequested.connect(self._reorder_materials)
         self.listing.setItemDelegate(LibraryDelegate(self.listing)); self.listing.setSpacing(0)
         self.listing.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.listing.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -147,12 +165,14 @@ class PromptEditor(QWidget):
         self.scroll.verticalScrollBar().rangeChanged.connect(self._queue_layout)
         self.listing.verticalScrollBar().rangeChanged.connect(self._queue_layout)
         self.preview_timer = QTimer(self); self.preview_timer.setTimerType(Qt.TimerType.PreciseTimer); self.preview_timer.setSingleShot(True); self.preview_timer.timeout.connect(self._show_selected_preview)
+        self.listing.dragStarted.connect(self.preview_timer.stop)
+        self.categories.dragStarted.connect(self.preview_timer.stop)
         self.listing.itemClicked.connect(self._mouse_preview)
         self.listing.itemDoubleClicked.connect(lambda entry: self.edit_material(entry.data(Qt.ItemDataRole.UserRole)))
         self.listing.currentItemChanged.connect(self._selection_changed)
         self.f2 = QShortcut(QKeySequence(Qt.Key.Key_F2), self); self.f2.activated.connect(self.open_selected)
         self.search.textChanged.connect(self.refresh_list); self.pins.toggled.connect(self.refresh_list)
-        self.order.currentIndexChanged.connect(self.refresh_list)
+        self.order.currentIndexChanged.connect(self._order_changed)
         self.category.currentIndexChanged.connect(self._category_changed)
         self.categories.currentItemChanged.connect(self._category_selected)
         self.refresh()
@@ -187,7 +207,7 @@ class PromptEditor(QWidget):
         # Center the task column within the workspace after navigation, using
         # the same balanced gutters as the settings reading pages.
         width = viewport_width
-        self.workspace_name.setVisible(width >= 600)
+        self.workspace_bar.refresh()
         if self.narrow:
             self.category_heading.hide(); self.categories.hide()
             self.category.show(); self.category_controls.show()
@@ -312,10 +332,48 @@ class PromptEditor(QWidget):
         self.window._material_browser_category = self.category.currentData()
         self.title.setText(self.category.currentText()); self.refresh_list()
 
+    def _order_changed(self):
+        self.window.state['settings']['material_library_order'] = self.order.currentData()
+        self.refresh_list()
+        changed = getattr(self.window, 'changed', None)
+        if changed: changed('settings', refresh=False)
+
+    def _reorder_materials(self, before, after):
+        if before != self.listing.order_ids(): return
+        def apply(state):
+            _replace_visible_order(state, 'items', before, after)
+            state['settings']['material_library_order'] = 'manual'
+        if self.window.canvas.commit(apply, label='調整素材順序'): self.refresh()
+
+    def _reorder_categories(self, before, after):
+        if before != self.categories.order_ids(): return
+        # The all-items shortcut and virtual empty category are navigation,
+        # not stored categories. A real uncategorized category can be moved.
+        original = [ident for ident in before if ident not in (None, '@uncategorized')]
+        reordered = [ident for ident in after if ident not in (None, '@uncategorized')]
+        def apply(state):
+            if 'output_order' not in state:
+                state['output_order'] = output_groups(state, include_hidden=True)
+            _replace_visible_order(state, 'modules', original, reordered)
+        if self.window.canvas.commit(apply, label='調整分類順序'): self.refresh()
+
+    def refresh_workspace(self):
+        self.workspace_combo.refresh(self.window.state)
+        self.workspace_bar.refresh()
+
+    def _workspace_changed(self):
+        target = self.workspace_combo.currentData()
+        if target is None or target == self.window.state['workspace']: return
+        change = getattr(self.window, 'change_workspace', None)
+        if callable(change): change(target)
+        # A rejected draft flush leaves the actual workspace unchanged.
+        self.refresh()
+
     def refresh(self):
         self._refreshing = True
-        workspace = next((v for v in self.window.state['workspaces'] if v['id']==self.window.state['workspace']), {})
-        self.workspace_name.setText(workspace.get('name', ''))
+        order = self.window.state['settings'].get('material_library_order', 'name')
+        self.order.blockSignals(True); self.order.setCurrentIndex(max(0, self.order.findData(order))); self.order.blockSignals(False)
+        self.refresh_workspace()
         selected = self.get_browser_category()
         self.category.blockSignals(True); self.categories.blockSignals(True)
         self.category.clear(); self.categories.clear()
@@ -327,6 +385,7 @@ class PromptEditor(QWidget):
             count = sum(1 for v in self.window.state['items'] if ident is None or v['module'] == ident)
             self.category.addItem(name, ident)
             entry = QListWidgetItem(f'{name}  {count}'); entry.setData(Qt.ItemDataRole.UserRole, ident)
+            if ident in (None, '@uncategorized'): entry.setFlags(entry.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
             self.categories.addItem(entry)
         index = max(0, self.category.findData(selected)); self.category.setCurrentIndex(index); self.categories.setCurrentRow(index)
         self.category.blockSignals(False); self.categories.blockSignals(False); self._refreshing = False
@@ -339,6 +398,9 @@ class PromptEditor(QWidget):
         self.listing.blockSignals(True); self.listing.clear()
         category = self.get_browser_category()
         rows = [] if category == '@uncategorized' else materials.search(self.window.state, self.search.text(), category, pinned=self.pins.isChecked(), order=self.order.currentData())
+        if self.order.currentData() == 'manual':
+            visible = {value['id'] for value in rows}
+            rows = [value for value in self.window.state['items'] if value['id'] in visible]
         for value in rows:
             entry = QListWidgetItem(value['name']+'\n'+value['prompt'].replace('\n', ' '))
             entry.setData(Qt.ItemDataRole.UserRole, value['id']); self.listing.addItem(entry)

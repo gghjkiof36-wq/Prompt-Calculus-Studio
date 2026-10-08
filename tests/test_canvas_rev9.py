@@ -50,6 +50,108 @@ class CanvasRev9Tests(unittest.TestCase):
         self.assertTrue(self.c.insert_asset_with_destination(self.asset(), QPointF(2240, 340), self.cid))
         return (set(self.w.state['uses']) - old).pop()
 
+    def card_point(self, card, local, scale=.8):
+        view=self.c.view; view.resetTransform(); view.scale(scale,scale); view.centerOn(card)
+        APP.processEvents()
+        point=view.mapFromScene(card.mapToScene(local))
+        self.assertTrue(view.viewport().rect().contains(point))
+        self.assertIs(view.interaction.card_at(point),card)
+        self.assertIsNone(card.action_at(card.mapFromScene(view.mapToScene(point))))
+        return point
+
+    def double_click(self, point):
+        viewport=self.c.view.viewport()
+        # A native double click includes the first release. Sending only the
+        # DblClick event misses actions accidentally fired by that release.
+        QTest.mouseClick(viewport,Qt.MouseButton.LeftButton,pos=point)
+        APP.processEvents()
+        QTest.mouseDClick(viewport,Qt.MouseButton.LeftButton,pos=point)
+        QTest.mouseRelease(viewport,Qt.MouseButton.LeftButton,pos=point)
+        QTest.qWait(5)
+
+    def test_routing_collapsed_card_body_edits_once_without_hidden_add(self):
+        key=self.add_copy(); card=self.c.cards[key]; self.assertTrue(card.collapsed)
+        before=self.c.history_state()
+        for scale in (.55,.8,1.25):
+            for local in (QPointF(28,card.header_height-12),QPointF(card.width/2,card.height-24),
+                          QPointF(card.width/2,card.height-8)):
+                with self.subTest(scale=scale,local=local):
+                    point=self.card_point(card,local,scale)
+                    with patch.object(self.c,'edit') as edit, patch.object(self.c,'palette') as add, \
+                         patch.object(self.c,'quick_text') as quick, patch.object(self.c,'function_palette') as functions:
+                        QTest.mouseClick(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
+                        APP.processEvents()
+                        add.assert_not_called(); edit.assert_not_called()
+                        QTest.mouseDClick(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
+                        QTest.mouseRelease(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
+                        QTest.qWait(5)
+                        edit.assert_called_once_with(key); add.assert_not_called()
+                        quick.assert_not_called(); functions.assert_not_called()
+        self.assertEqual(self.c.history_state(),before)
+
+    def test_routing_nested_collapsed_card_and_expanded_padding_keep_their_target(self):
+        key=self.add_copy(); child=comp.node('Nested copy','smile')
+        self.c.commit(lambda state:state['uses'][key].update(collapsed=False,children=[child]))
+        child_key=key+':'+child['id']; before=self.c.history_state()
+        for target,local in ((child_key,QPointF(70,self.c.cards[child_key].height-10)),
+                             (key,QPointF(self.c.cards[key].width/2,self.c.cards[key].height-48))):
+            card=self.c.cards[target]; point=self.card_point(card,local)
+            with patch.object(self.c,'edit') as edit, patch.object(self.c,'palette') as add, \
+                 patch.object(self.c,'quick_text') as quick, patch.object(self.c,'function_palette') as functions:
+                self.double_click(point)
+                edit.assert_called_once_with(target); add.assert_not_called()
+                quick.assert_not_called(); functions.assert_not_called()
+        self.assertEqual(self.c.history_state(),before)
+
+    def test_routing_true_blank_and_visible_add_button_keep_separate_actions(self):
+        key=self.add_copy(); self.c.toggle_collapsed(key); card=self.c.cards[key]
+        view=self.c.view; view.resetTransform(); view.scale(.8,.8); view.centerOn(card); APP.processEvents()
+        point=view.mapFromScene(card.mapToScene(card.actions()['add'].center()))
+        with patch.object(self.c,'palette') as add, patch.object(self.c,'edit') as edit:
+            QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=point); QTest.qWait(5)
+            add.assert_called_once_with(target=key); edit.assert_not_called()
+        before=self.c.history_state(); container=self.c.containers[self.cid]
+        scene_point=container.mapToScene(QPointF(72,container.height-70))
+        view.centerOn(scene_point); APP.processEvents(); point=view.mapFromScene(scene_point)
+        self.assertIs(view.itemAt(point),container)
+        with patch.object(self.c,'quick_text') as quick, patch.object(self.c,'palette') as add, \
+             patch.object(self.c,'function_palette') as functions, patch.object(self.c,'edit') as edit:
+            self.double_click(point)
+            quick.assert_called_once(); self.assertEqual(quick.call_args.args[0],self.cid)
+            add.assert_not_called(); functions.assert_not_called(); edit.assert_not_called()
+        view.centerOn(8000,8000); APP.processEvents(); point=view.viewport().rect().center()
+        self.assertIsNone(view.itemAt(point))
+        with patch.object(self.c,'quick_text') as quick, patch.object(self.c,'palette') as add, \
+             patch.object(self.c,'function_palette') as functions, patch.object(self.c,'edit') as edit:
+            self.double_click(point)
+            functions.assert_called_once(); add.assert_not_called(); quick.assert_not_called(); edit.assert_not_called()
+        self.assertEqual(self.c.history_state(),before)
+
+    def test_routing_collapsed_padding_opens_current_copy_dialog_and_cancel_is_isolated(self):
+        key=self.add_copy(); before=self.c.history_state(); errors=[]; opened=[]; seen=[]
+        card=self.c.cards[key]; point=self.card_point(card,QPointF(card.width/2,card.height-24))
+        timer=QTimer(self.w); timer.setInterval(10)
+        def cancel():
+            dialog=getattr(self.c,'active_node_dialog',None)
+            if dialog is None or dialog in seen: return
+            seen.append(dialog)
+            try:
+                opened.append((dialog.windowTitle(),dialog.use_id))
+                dialog.prompt.setPlainText('cancelled local edit')
+                QTest.mouseClick(dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Cancel),
+                                 Qt.MouseButton.LeftButton)
+            except BaseException as error:
+                errors.append(error)
+                if dialog: dialog.reject()
+        with patch.object(self.c,'palette') as add, patch.object(self.c,'quick_text') as quick, \
+             patch.object(self.c,'function_palette') as functions:
+            timer.timeout.connect(cancel); timer.start()
+            self.double_click(point); QTest.qWait(25); timer.stop()
+            add.assert_not_called(); quick.assert_not_called(); functions.assert_not_called()
+        if errors: raise errors[0]
+        self.assertEqual(opened,[('編輯當次模組',key)])
+        self.assertEqual(self.c.history_state(),before); self.assertEqual(self.asset()['prompt'],'red dress')
+
     def edit_dialog(self, canvas, key, *, save):
         errors = []
         def input_and_close():

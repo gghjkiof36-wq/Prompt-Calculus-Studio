@@ -4,8 +4,8 @@ import datetime
 import json
 import weakref
 from shiboken6 import isValid
-from PySide6.QtCore import Qt, QMimeData, QTimer, QSize
-from PySide6.QtGui import QDrag
+from PySide6.QtCore import Qt, QMimeData, QTimer, QSize, Signal
+from PySide6.QtGui import QDrag, QPainter, QPen, QColor
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit,
     QPlainTextEdit, QListWidget, QListWidgetItem, QStackedWidget, QCheckBox, QSplitter,
     QScrollArea, QDialog, QSizePolicy)
@@ -97,11 +97,135 @@ def flush_editors(window, closing=False):
     return True
 
 
-class MaterialList(QListWidget):
+class ReorderableList(QListWidget):
+    """Same-view ordering is a transaction; external drags never move records."""
+    reorderRequested = Signal(object, object)
+    dragStarted = Signal()
+    ORDER_MIME = 'application/x-pcs-library-order'
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setDragEnabled(True)
         self.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self.reorder_enabled = False
+        self._drop_row = None
+        self._drag_position = None
+        self._suppress_release = False
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.setInterval(60)
+        self._scroll_timer.timeout.connect(self._scroll_drag)
+
+    def enable_reordering(self):
+        self.reorder_enabled = True
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QListWidget.DragDropMode.DragDrop)
+
+    def order_ids(self):
+        return [self.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.count())]
+
+    def mousePressEvent(self, event):
+        self._suppress_release = False
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._suppress_release:
+            self._suppress_release = False
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def drag_mime(self, current):
+        mime = QMimeData()
+        if self.reorder_enabled:
+            payload = dict(view=str(id(self)), ident=current.data(Qt.ItemDataRole.UserRole), order=self.order_ids())
+            mime.setData(self.ORDER_MIME, json.dumps(payload).encode('utf-8'))
+        return mime
+
+    def startDrag(self, actions):
+        current = self.currentItem()
+        if current is None or not current.flags() & Qt.ItemFlag.ItemIsDragEnabled: return
+        drag = QDrag(self); drag.setMimeData(self.drag_mime(current))
+        if not current.icon().isNull(): drag.setPixmap(current.icon().pixmap(64, 64))
+        external = drag.mimeData().hasFormat(MIME_TYPE)
+        allowed = Qt.DropAction.CopyAction if external else Qt.DropAction.MoveAction
+        if self.reorder_enabled: allowed |= Qt.DropAction.MoveAction
+        self._suppress_release = True; self.dragStarted.emit()
+        try:
+            drag.exec(allowed, Qt.DropAction.CopyAction if external else Qt.DropAction.MoveAction)
+        finally:
+            self._clear_drop()
+            drag.deleteLater()
+
+    def _own_drag(self, event):
+        if not self.reorder_enabled or event.source() is not self: return None
+        try:
+            payload = json.loads(bytes(event.mimeData().data(self.ORDER_MIME)))
+            if payload['view'] != str(id(self)) or payload['order'] != self.order_ids(): return None
+            entry = self.item(payload['order'].index(payload['ident']))
+            return payload if entry.flags() & Qt.ItemFlag.ItemIsDragEnabled else None
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return None
+
+    def _insertion_row(self, position):
+        movable = [i for i in range(self.count()) if self.item(i).flags() & Qt.ItemFlag.ItemIsDragEnabled]
+        if not movable: return None
+        target = self.itemAt(position)
+        row = self.row(target) if target is not None else self.count()
+        if target is not None and position.y() > self.visualItemRect(target).center().y(): row += 1
+        return min(max(row, movable[0]), movable[-1]+1)
+
+    def dragEnterEvent(self, event):
+        if self._own_drag(event):
+            event.setDropAction(Qt.DropAction.MoveAction); event.accept()
+        else: event.ignore()
+
+    def dragMoveEvent(self, event):
+        if not self._own_drag(event):
+            self._clear_drop(); event.ignore(); return
+        self._drag_position = event.position().toPoint()
+        self._drop_row = self._insertion_row(self._drag_position)
+        self._scroll_timer.start(); self.viewport().update()
+        event.setDropAction(Qt.DropAction.MoveAction); event.accept()
+
+    def _scroll_drag(self):
+        if self._drag_position is None: return
+        y = self._drag_position.y(); height = self.viewport().height()
+        direction = -1 if y < 24 else 1 if y > height-24 else 0
+        if direction:
+            bar = self.verticalScrollBar(); bar.setValue(bar.value()+direction*max(8, self.fontMetrics().height()))
+            self._drop_row = self._insertion_row(self._drag_position); self.viewport().update()
+
+    def _clear_drop(self):
+        self._scroll_timer.stop(); self._drop_row = None; self._drag_position = None
+        self.viewport().update()
+
+    def dragLeaveEvent(self, event):
+        self._clear_drop(); event.accept()
+
+    def dropEvent(self, event):
+        payload = self._own_drag(event)
+        row = self._insertion_row(event.position().toPoint()) if payload else None
+        self._clear_drop()
+        if row is None: event.ignore(); return
+        before = payload['order']; after = list(before); source = after.index(payload['ident'])
+        after.insert(row-(source < row), after.pop(source))
+        event.setDropAction(Qt.DropAction.MoveAction); event.accept()
+        if after != before: self.reorderRequested.emit(before, after)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._drop_row is None or not self.count(): return
+        from .views import widget_colors
+        end = self._drop_row == self.count()
+        rect = self.visualItemRect(self.item(self.count()-1 if end else self._drop_row))
+        y = rect.bottom() if end else rect.top()
+        painter = QPainter(self.viewport()); painter.setPen(QPen(QColor(widget_colors(self)['accent']), 2))
+        painter.drawLine(rect.left()+4, y, rect.right()-4, y)
+
+
+class MaterialList(ReorderableList):
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.setWordWrap(False)
         self.setIconSize(QSize(64, 64))
@@ -112,15 +236,10 @@ class MaterialList(QListWidget):
         self.pressed_button = event.button()
         super().mousePressEvent(event)
 
-    def startDrag(self, actions):
-        current = self.currentItem()
-        if current is None: return
-        mime = QMimeData()
+    def drag_mime(self, current):
+        mime = super().drag_mime(current)
         mime.setData(MIME_TYPE, current.data(Qt.ItemDataRole.UserRole).encode('utf-8'))
-        drag = QDrag(self)
-        drag.setMimeData(mime)
-        if not current.icon().isNull(): drag.setPixmap(current.icon().pixmap(64, 64))
-        drag.exec(Qt.DropAction.CopyAction)
+        return mime
 
 
 class MaterialText(PromptEdit):
@@ -295,9 +414,9 @@ class MaterialEditorForm(QWidget):
         detail = QVBoxLayout(self.detail)
         detail.setContentsMargins(0, 0, 0, 0)
         self.back_button = button('返回素材', self.show_library, 'Quiet')
-        self.back_button.setVisible(compact)
         self.heading = label('建立或選擇素材', 'Heading')
         detail.addLayout(row(self.back_button, self.heading))
+        self.back_button.setVisible(compact)
         self.scope_hint = label('', 'Subtle', True)
         detail.addWidget(self.scope_hint)
         form = QFormLayout()

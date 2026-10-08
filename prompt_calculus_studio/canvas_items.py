@@ -406,14 +406,12 @@ class NodeCard(ResizableCard):
     def mouseReleaseEvent(self,event):
         if self.release_control(event): return
         super().mouseReleaseEvent(event)
-        canvas=self.canvas; key=self.key
+        canvas=self.canvas
         if self.pos()!=self.start:
             if canvas.finish_node_drop(self,event.scenePos()): return
             if self.parentItem(): self.parentItem().layout_card(); return
             moves={i.key:[i.pos().x(),i.pos().y()] for i in self.scene().selectedItems() if isinstance(i,NodeCard) and i.parentItem() is None}
             QTimer.singleShot(0,lambda:canvas.move_cards(moves))
-        elif event.button()==Qt.MouseButton.LeftButton and self.add_rect.contains(event.pos()):
-            QTimer.singleShot(0,lambda:canvas.palette(target=key))
 
     def mouseMoveEvent(self,event):
         if self.resizing or self.pressed: super().mouseMoveEvent(event); return

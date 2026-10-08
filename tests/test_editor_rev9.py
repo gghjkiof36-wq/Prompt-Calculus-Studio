@@ -2,13 +2,27 @@
 import copy
 import unittest
 from unittest.mock import patch
-from PySide6.QtCore import Qt, QCoreApplication, QEvent, QPoint
+from PySide6.QtCore import Qt, QCoreApplication, QEvent, QPoint, QObject
 from PySide6.QtGui import QTextCursor
+from PySide6.QtWidgets import QWidget
 from PySide6.QtTest import QTest
 import test_material_editor as fixture_module
 from prompt_calculus_studio.prompt_editor import PromptEditor
 from prompt_calculus_studio import materials
 from prompt_calculus_studio.settings_page import SETTINGS_READING_WIDTH
+
+
+class WindowShowTrace(QObject):
+    def __init__(self, app):
+        super().__init__(app)
+        self.shows = []
+        app.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.Show and isinstance(watched, QWidget) and watched.isWindow():
+            self.shows.append((type(watched).__name__, watched.windowTitle(),
+                               watched.text() if hasattr(watched, 'text') else ''))
+        return False
 
 
 class EditorRev9Tests(unittest.TestCase):
@@ -29,6 +43,66 @@ class EditorRev9Tests(unittest.TestCase):
 
     def edit(self):
         dialog = self.page.edit_material(self.ident); self.app.processEvents(); return dialog
+
+    def test_new_button_mouse_and_keyboard_open_one_persistent_dialog(self):
+        before = copy.deepcopy(self.w.state)
+        trace = WindowShowTrace(self.app)
+        self.addCleanup(self.app.removeEventFilter, trace)
+        for keyboard in (False, True):
+            with self.subTest(keyboard=keyboard):
+                if keyboard:
+                    self.page.new_button.setFocus(Qt.FocusReason.TabFocusReason)
+                    QTest.keyClick(self.page.new_button, Qt.Key.Key_Space)
+                else:
+                    QTest.mouseClick(self.page.new_button, Qt.MouseButton.LeftButton)
+                dialog = self.page.active_dialog
+                self.assertIsNotNone(dialog)
+                for delay in (30, 170, self.app.doubleClickInterval()+60):
+                    QTest.qWait(delay)
+                    self.assertIs(self.page.active_dialog, dialog)
+                    self.assertTrue(dialog.isVisible())
+                    self.assertIsNone(dialog.target_id)
+                QTest.mouseClick(dialog.cancel_button, Qt.MouseButton.LeftButton)
+                self.app.processEvents()
+                self.assertIsNone(self.page.active_dialog)
+                self.assertEqual(self.w.state, before)
+        self.assertFalse([entry for entry in trace.shows if entry[0] == 'QPushButton'], trace.shows)
+
+    def test_complete_double_click_keeps_editor_visible_after_second_release(self):
+        from prompt_calculus_studio.material_editor_browser import MaterialEditDialog
+        before = copy.deepcopy(self.w.state)
+        trace = WindowShowTrace(self.app)
+        self.addCleanup(self.app.removeEventFilter, trace)
+        for width, preview in ((1440, False), (1360, True), (1024, False), (640, True)):
+            with self.subTest(width=width, preview=preview):
+                self.page.resize(width, 900)
+                self.page.set_browser_category(None)
+                if preview: self.page.preview_material(self.ident)
+                else: self.page.close_preview()
+                self.app.processEvents(); QTest.qWait(40)
+                entry = next(self.page.listing.item(i) for i in range(self.page.listing.count())
+                             if self.page.listing.item(i).data(Qt.ItemDataRole.UserRole) == self.ident)
+                self.page.listing.scrollToItem(entry)
+                self.app.processEvents()
+                position = self.page.listing.visualItemRect(entry).center()
+                QTest.mouseClick(self.page.listing.viewport(), Qt.MouseButton.LeftButton, pos=position)
+                QTest.qWait(35)
+                self.assertIsNone(self.page.active_dialog)
+                QTest.mouseDClick(self.page.listing.viewport(), Qt.MouseButton.LeftButton, pos=position)
+                QTest.mouseRelease(self.page.listing.viewport(), Qt.MouseButton.LeftButton, pos=position)
+                dialog = self.page.active_dialog
+                self.assertIsNotNone(dialog)
+                for delay in (30, 170, self.app.doubleClickInterval()+60):
+                    QTest.qWait(delay)
+                    self.assertIs(self.page.active_dialog, dialog)
+                    self.assertTrue(dialog.isVisible())
+                    self.assertEqual(dialog.target_id, self.ident)
+                    visible = [v for v in self.app.topLevelWidgets()
+                               if isinstance(v, MaterialEditDialog) and v.isVisible()]
+                    self.assertEqual(visible, [dialog])
+                dialog.reject(); self.app.processEvents()
+                self.assertEqual(self.w.state, before)
+        self.assertFalse([entry for entry in trace.shows if entry[0] == 'QPushButton'], trace.shows)
 
     def test_mouse_preview_is_readonly_then_f2_opens_dialog(self):
         self.page.set_browser_category(self.w.state['items'][0]['module'])
