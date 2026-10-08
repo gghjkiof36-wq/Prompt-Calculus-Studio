@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QDialog, QFrame, QWidget, QVBoxLayout, QHBoxLayou
     QBoxLayout, QSizePolicy, QApplication, QPushButton)
 from .completion import PromptEdit
 from .core import format_candidate, insertion
-from .widgets import label, button, RoundMenu, ComboBox, thumb_icon
+from .widgets import label, button, RoundMenu, ComboBox
 from .quiet_splitter import QuietSplitter
 from .palette_cards import PickerCardDelegate, ClosingClickGuard
 from .ui_icons import icon
@@ -323,7 +323,6 @@ class CanvasPalette(QDialog):
             if query not in ' '.join([asset['name'],asset['prompt'],*asset.get('aliases',[])]).casefold(): continue
             entry=self.entry(asset['name']+'\n'+asset['prompt'].replace('\n',' '),asset['id'])
             entry.setToolTip(asset['name']+'\n'+asset['prompt'])
-            if asset.get('preview'): entry.setIcon(thumb_icon(self.canvas.window.store,asset['preview'],64))
             self.assets.addItem(entry)
         self.assets_heading.setText(f'{self.category_name()} · {self.assets.count()} 個模組')
         self.scope.setText('搜尋範圍：'+self.category_name()+' · 名稱、別名、內容')

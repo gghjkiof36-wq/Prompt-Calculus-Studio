@@ -23,16 +23,15 @@ class PickerCardDelegate(QStyledItemDelegate):
             result.append(QFontMetrics(font).elidedText(remaining, Qt.TextElideMode.ElideRight, max(20, width)))
         return result
 
-    def text_width(self, index, width):
-        image = index.data(Qt.ItemDataRole.DecorationRole)
-        return max(20, width - 58 - (66 if image and not image.isNull() else 0))
+    @staticmethod
+    def text_width(width):
+        return max(20, width - 58)
 
     def sizeHint(self, option, index):
         line = QFontMetrics(option.font).height()
         text = str(index.data() or '').partition('\n')[2]
-        count = len(self.lines(text, option.font, self.text_width(index, self.parent().viewport().width())))
-        image = index.data(Qt.ItemDataRole.DecorationRole)
-        return QSize(120, max(36 + (count + 1) * line, 86 if image and not image.isNull() else 0))
+        count = len(self.lines(text, option.font, self.text_width(self.parent().viewport().width())))
+        return QSize(120, 36 + (count + 1) * line)
 
     def paint(self, painter, option, index):
         colors = widget_colors(self.parent())
@@ -44,11 +43,7 @@ class PickerCardDelegate(QStyledItemDelegate):
         painter.setBrush(QColor(colors['selected' if selected else 'hover' if hover else 'surface']))
         painter.drawRoundedRect(rect, 8, 8)
         left = rect.left() + 14
-        image = index.data(Qt.ItemDataRole.DecorationRole)
-        if image and not image.isNull():
-            image.paint(painter, QRectF(left, rect.top() + 12, 54, 54).toRect())
-            left += 66
-        width = self.text_width(index, int(rect.width()))
+        width = self.text_width(int(rect.width()))
         name, _, prompt = str(index.data() or '').partition('\n')
         font = QFont(option.font); font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(font); metrics = QFontMetrics(font); height = metrics.height()

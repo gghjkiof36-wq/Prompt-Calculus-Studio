@@ -134,6 +134,21 @@ class PickerRev9Tests(unittest.TestCase):
         self.p.assets.itemActivated.emit(self.p.assets.item(0)); self.p.insert()
         self.assertEqual(self.asset_api.call_count,1); self.assertTrue(self.p.inserted)
 
+    def test_text_only_picker_does_not_read_preview_or_reserve_image_space(self):
+        self.card(); APP.processEvents()
+        before_height=self.p.assets.visualItemRect(self.p.assets.item(0)).height()
+        source=materials.item(self.w.state,self.ident)
+        source['preview']='thumbnails/picker-must-not-read.png'
+        before=copy.deepcopy(source)
+        with patch('prompt_calculus_studio.widgets.preview_path',side_effect=AssertionError('Picker must not read images')) as read:
+            self.p.refresh(); APP.processEvents(); self.p.assets.viewport().grab()
+            read.assert_not_called()
+        item=self.p.assets.item(0)
+        self.assertTrue(item.icon().isNull())
+        self.assertEqual(self.p.assets.visualItemRect(item).height(),before_height)
+        self.assertEqual(materials.item(self.w.state,self.ident),before)
+        self.assertIn(before['name'],item.text()); self.assertIn(before['prompt'],item.text())
+
     def test_failed_insert_retains_selection_then_explicit_retry_succeeds(self):
         self.asset_api.side_effect=[False,True]
         self.click_card()
