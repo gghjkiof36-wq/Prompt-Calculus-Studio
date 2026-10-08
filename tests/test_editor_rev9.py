@@ -2,9 +2,9 @@
 import copy
 import unittest
 from unittest.mock import patch
-from PySide6.QtCore import Qt, QCoreApplication, QEvent, QPoint, QObject
+from PySide6.QtCore import Qt, QCoreApplication, QEvent, QPoint, QObject, QTimer
 from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget, QLineEdit, QDialogButtonBox, QApplication, QPushButton
 from PySide6.QtTest import QTest
 import test_material_editor as fixture_module
 from prompt_calculus_studio.prompt_editor import PromptEditor
@@ -43,6 +43,41 @@ class EditorRev9Tests(unittest.TestCase):
 
     def edit(self):
         dialog = self.page.edit_material(self.ident); self.app.processEvents(); return dialog
+
+    def test_category_plus_opens_creation_directly_and_cancel_preserves_state(self):
+        for width in (1440, 640):
+            self.page.resize(width, 800); self.app.processEvents(); QTest.qWait(35)
+            self.assertTrue(self.page.category_add.isVisible())
+            if not self.page.narrow:
+                self.assertGreater(self.page.category_add.x(), self.page.category_heading.geometry().right())
+            self.assertFalse([button for button in self.page.category_panel.findChildren(QPushButton)
+                              if button.text() == '管理分類'])
+            for accepted in (False, True):
+                before = copy.deepcopy(self.w.state); seen = []; errors = []
+                name = 'Created category '+str(width)
+                def operate():
+                    dialog = QApplication.activeModalWidget()
+                    try:
+                        self.assertIsNotNone(dialog); self.assertEqual(dialog.windowTitle(), '新增分類')
+                        editor = dialog.findChild(QLineEdit)
+                        self.assertIsNotNone(editor); QTest.keyClicks(editor, name)
+                        buttons = dialog.findChild(QDialogButtonBox)
+                        action = buttons.button(QDialogButtonBox.StandardButton.Save if accepted else QDialogButtonBox.StandardButton.Cancel)
+                        seen.append(dialog.windowTitle()); QTest.mouseClick(action, Qt.MouseButton.LeftButton)
+                    except BaseException as exc:
+                        errors.append(exc)
+                        if dialog is not None: dialog.reject()
+                QTimer.singleShot(40, operate)
+                if accepted:
+                    self.page.category_add.setFocus(); QTest.keyClick(self.page.category_add, Qt.Key.Key_Space)
+                else: QTest.mouseClick(self.page.category_add, Qt.MouseButton.LeftButton)
+                self.app.processEvents(); self.assertFalse(errors, errors); self.assertEqual(seen, ['新增分類'])
+                if accepted:
+                    added = [value for value in self.w.state['modules'] if value['name'] == name]
+                    self.assertEqual(len(added), 1); self.assertEqual(self.page.get_browser_category(), added[0]['id'])
+                    self.assertEqual(self.w.state['items'], before['items'])
+                    self.assertEqual(self.w.state['modules'][:-1], before['modules'])
+                else: self.assertEqual(self.w.state, before)
 
     def test_new_button_mouse_and_keyboard_open_one_persistent_dialog(self):
         before = copy.deepcopy(self.w.state)
@@ -461,8 +496,8 @@ class EditorRev9Tests(unittest.TestCase):
             else:
                 self.assertEqual(detail.x(),main.x())
                 self.assertGreater(detail.y(),main.bottom())
-            self.assertIs(self.page.manage_button.parentWidget(),
-                          self.page.category_controls if self.page.narrow else self.page.category_panel)
+            self.assertIs(self.page.category_add.parentWidget(),
+                          self.page.category_controls if self.page.narrow else self.page.category_title)
         self.assertEqual(self.w.state['items'],original)
 
 if __name__=='__main__': unittest.main()

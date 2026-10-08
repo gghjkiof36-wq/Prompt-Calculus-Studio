@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from PySide6.QtCore import Qt, QPoint, QPointF, QCoreApplication, QEvent
-from PySide6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QMouseEvent, QTextCursor
+from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDropEvent, QMouseEvent, QTextCursor
 from PySide6.QtNetwork import QNetworkAccessManager
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -107,6 +107,73 @@ class EditorReorderTests(unittest.TestCase):
                          [next(expected) if value['id'] in visible else value['id'] for value in previous])
         self.assertEqual({value['id']: value for value in self.w.state[field]},
                          {value['id']: value for value in previous})
+
+    def internal_event(self, listing, kind, position, mime):
+        base = {'enter': QDragEnterEvent, 'move': QDragMoveEvent, 'drop': QDropEvent}[kind]
+        class Event(base):
+            def source(self): return listing
+        event = Event(QPointF(position) if kind == 'drop' else position, Qt.DropAction.MoveAction,
+                      mime, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+        QCoreApplication.sendEvent(listing.viewport(), event)
+        return event
+
+    def test_category_gap_and_horizontal_edges_keep_the_local_drop_slot(self):
+        listing = self.page.categories
+        movable = [listing.item(i) for i in range(listing.count())
+                   if listing.item(i).flags() & Qt.ItemFlag.ItemIsDragEnabled]
+        left, right = movable[:2]
+        a, b = listing.visualItemRect(left), listing.visualItemRect(right)
+        self.assertGreater(b.top()-a.bottom(), 1, 'Exercise the real category spacing')
+        before = listing.order_ids(); changes = []
+        listing.reorderRequested.connect(lambda *values: changes.append(values))
+        mime = listing.drag_mime(movable[-1])
+        self.assertTrue(self.internal_event(listing, 'enter', a.center(), mime).isAccepted())
+        # Cross both row edges and the empty gap, then move sideways outside the
+        # item rectangle while remaining inside the list viewport.
+        for y in range(a.bottom()-2, b.top()+3):
+            for x in (a.center().x(), 0, listing.viewport().width()-1):
+                event = self.internal_event(listing, 'move', QPoint(x, y), mime)
+                self.assertTrue(event.isAccepted())
+                self.assertEqual(listing._drop_row, listing.row(right))
+                listing._scroll_drag()
+                self.assertEqual(listing._drop_row, listing.row(right))
+                self.assertEqual(listing.order_ids(), before)
+        QCoreApplication.sendEvent(listing.viewport(), QDragLeaveEvent())
+        self.assertIsNone(listing._drop_row); self.assertFalse(listing._scroll_timer.isActive())
+        self.assertEqual(changes, []); self.assertEqual(listing.order_ids(), before)
+
+    def test_gap_drop_and_outside_cancel_preserve_records_and_fixed_shortcuts(self):
+        listing = self.page.categories
+        before = listing.order_ids(); original = copy.deepcopy(self.w.state['modules'])
+        protected = copy.deepcopy({key: self.w.state.get(key) for key in
+            ('items', 'uses', 'output_order', 'selections', 'draft', 'draft_base', 'multi_output', 'content_history')})
+        movable = [listing.item(i) for i in range(listing.count())
+                   if listing.item(i).flags() & Qt.ItemFlag.ItemIsDragEnabled]
+        a, b = (listing.visualItemRect(value) for value in movable[:2])
+        gap = QPoint(a.center().x(), a.bottom()+1)
+        source = movable[-1]; mime = listing.drag_mime(source); changes = []
+        listing.reorderRequested.connect(lambda *values: changes.append(values))
+        self.assertTrue(self.internal_event(listing, 'enter', gap, mime).isAccepted())
+        self.assertTrue(self.internal_event(listing, 'move', gap, mime).isAccepted())
+        for outside in (QPoint(-1, gap.y()), QPoint(listing.viewport().width(), gap.y()),
+                        QPoint(gap.x(), -1), QPoint(gap.x(), listing.viewport().height())):
+            self.assertFalse(self.internal_event(listing, 'move', outside, mime).isAccepted())
+            self.assertIsNone(listing._drop_row); self.assertIsNone(listing._drag_position)
+            self.assertFalse(listing._scroll_timer.isActive())
+            self.assertFalse(self.internal_event(listing, 'drop', outside, mime).isAccepted())
+            self.assertEqual(listing.order_ids(), before); self.assertEqual(self.w.state['modules'], original)
+            self.assertEqual({key: self.w.state.get(key) for key in protected}, protected)
+            self.assertTrue(self.internal_event(listing, 'enter', gap, mime).isAccepted())
+            self.assertTrue(self.internal_event(listing, 'move', gap, mime).isAccepted())
+        self.assertEqual(changes, [])
+        expected = list(before); expected.remove(source.data(Qt.ItemDataRole.UserRole))
+        expected.insert(before.index(movable[1].data(Qt.ItemDataRole.UserRole)), source.data(Qt.ItemDataRole.UserRole))
+        self.assertTrue(self.internal_event(listing, 'drop', gap, mime).isAccepted())
+        self.assertEqual(listing.order_ids(), expected); self.assertEqual(len(changes), 1)
+        self.assertEqual(listing.order_ids()[0], None); self.assertEqual(listing.order_ids()[-1], '@uncategorized')
+        self.assertEqual({v['id']: v for v in self.w.state['modules']}, {v['id']: v for v in original})
+        self.w.canvas.undo(); self.app.processEvents(); self.assertEqual(self.w.state['modules'], original)
+        self.w.canvas.redo(); self.app.processEvents(); self.assertEqual(listing.order_ids(), expected)
 
     def test_name_drag_becomes_manual_persists_and_preserves_hidden_records(self):
         previous = copy.deepcopy(self.w.state['items'])

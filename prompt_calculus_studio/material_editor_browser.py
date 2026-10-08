@@ -121,7 +121,16 @@ class PromptEditor(QWidget):
         self.category_panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         category_layout = QVBoxLayout(self.category_panel)
         category_layout.setContentsMargins(12, 24, 12, 12); category_layout.setSpacing(8)
-        self.category_heading = label('內容分類', 'SidebarHeading'); category_layout.addWidget(self.category_heading)
+        self.category_heading = label('內容分類', 'SidebarHeading')
+        from .ui_icons import icon
+        self.category_add = button('', self.new_category, 'Quiet')
+        self.category_add.setIcon(icon('plus')); self.category_add.setIconSize(QSize(18, 18))
+        self.category_add.setAccessibleName('新增分類'); self.category_add.setFixedSize(28, 28)
+        self.category_add.setCursor(Qt.CursorShape.PointingHandCursor); self.category_add.setStyleSheet('padding:0;')
+        self.category_title = QWidget()
+        self.category_title_row = row(self.category_heading, None, self.category_add)
+        self.category_title_row.setContentsMargins(0, 0, 0, 0); self.category_title.setLayout(self.category_title_row)
+        category_layout.addWidget(self.category_title)
         from .prompt_editor import ReorderableList
         self.categories = ReorderableList(); self.categories.setObjectName('SidebarNavigation')
         self.categories.setItemDelegate(CategoryNavigationDelegate(self.categories))
@@ -133,7 +142,6 @@ class PromptEditor(QWidget):
         controls = QHBoxLayout(self.category_controls); controls.setContentsMargins(0, 0, 0, 0); controls.setSpacing(12)
         controls.addWidget(self.category, 1)
         category_layout.addWidget(self.category_controls)
-        self.manage_button = button('管理分類', self.manage_categories, 'Quiet'); category_layout.addWidget(self.manage_button)
         self.browser = QWidget(self.shell); content = QVBoxLayout(self.browser)
         content.setContentsMargins(0, 0, 0, 0); content.setSpacing(14)
         self.browser_header = QWidget()
@@ -228,20 +236,20 @@ class PromptEditor(QWidget):
         width = viewport_width
         self.workspace_bar.refresh()
         if self.narrow:
-            self.category_heading.hide(); self.categories.hide()
+            self.category_title.hide(); self.categories.hide()
             self.category.show(); self.category_controls.show()
-            if self.manage_button.parentWidget() is not self.category_controls:
-                self.category_controls.layout().addWidget(self.manage_button)
+            if self.category_add.parentWidget() is not self.category_controls:
+                self.category_controls.layout().addWidget(self.category_add)
             self.category_panel.setGeometry(0, 0, width, 100)
             panel_height = self.category_panel.layout().sizeHint().height()
             self.category_panel.setFixedHeight(panel_height)
             start = panel_height+READING_NARROW_MARGIN
             area_x = READING_NARROW_MARGIN; area_width = max(0, width-2*READING_NARROW_MARGIN)
         else:
-            self.category_heading.show(); self.categories.show()
+            self.category_title.show(); self.categories.show()
             self.category.hide(); self.category_controls.hide()
-            if self.manage_button.parentWidget() is not self.category_panel:
-                self.category_panel.layout().addWidget(self.manage_button)
+            if self.category_add.parentWidget() is not self.category_title:
+                self.category_title_row.addWidget(self.category_add)
             self.categories.setFlow(QListWidget.Flow.TopToBottom); self.categories.setWrapping(False)
             self.categories.setMinimumHeight(0); self.categories.setMaximumHeight(16777215)
             self.categories.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -553,10 +561,6 @@ class PromptEditor(QWidget):
         if self.window.canvas.commit(lambda state: materials.remove(state, ident), label='刪除文字素材'):
             if self.preview_id == ident: self.close_preview()
             self.refresh()
-
-    def manage_categories(self):
-        menu = RoundMenu(self); menu.addAction('新增分類', self.new_category)
-        menu.open_at(self.category_panel.mapToGlobal(self.category_panel.rect().bottomLeft()))
 
     def new_category(self):
         name, ok = InputDialog.getText(self.window, '新增分類', '分類名稱')

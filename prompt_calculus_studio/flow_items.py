@@ -214,7 +214,7 @@ class CanvasContainer(QGraphicsObject):
     def refresh(self):
         value=self.canvas.data()['canvases'][self.key]; self.prepareGeometryChange()
         self.width,self.height=value['display_size']; self.setPos(*value['position'])
-        self.setToolTip('展開文字畫布「'+value['name']+'」'); self.update()
+        self.setToolTip(''); self.update()
     def boundingRect(self): return QRectF(-4,-4,self.width+8,self.height+8)
     def rect(self): return QRectF(0,0,self.width,self.height)
     def corner_at(self,pos):

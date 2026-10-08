@@ -167,12 +167,14 @@ class ReorderableList(QListWidget):
             return None
 
     def _insertion_row(self, position):
+        if not self.viewport().rect().contains(position): return None
         movable = [i for i in range(self.count()) if self.item(i).flags() & Qt.ItemFlag.ItemIsDragEnabled]
         if not movable: return None
-        target = self.itemAt(position)
-        row = self.row(target) if target is not None else self.count()
-        if target is not None and position.y() > self.visualItemRect(target).center().y(): row += 1
-        return min(max(row, movable[0]), movable[-1]+1)
+        # itemAt() misses the spacing and the sides of a row. Those are still
+        # the same vertical insertion slot, rather than the end of the list.
+        for row in movable:
+            if position.y() <= self.visualItemRect(self.item(row)).center().y(): return row
+        return movable[-1]+1
 
     def dragEnterEvent(self, event):
         if self._own_drag(event):
@@ -184,6 +186,8 @@ class ReorderableList(QListWidget):
             self._clear_drop(); event.ignore(); return
         self._drag_position = event.position().toPoint()
         self._drop_row = self._insertion_row(self._drag_position)
+        if self._drop_row is None:
+            self._clear_drop(); event.ignore(); return
         self._scroll_timer.start(); self.viewport().update()
         event.setDropAction(Qt.DropAction.MoveAction); event.accept()
 

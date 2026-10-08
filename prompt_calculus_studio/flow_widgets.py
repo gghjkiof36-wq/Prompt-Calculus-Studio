@@ -359,9 +359,6 @@ class FlowCard(TextCard):
             if self.action_at(event.pos())=='size':QTimer.singleShot(0,self.panel.edit)
             self.update();event.accept();return True
         return super().release_control(event)
-    def hoverMoveEvent(self,event):
-        super().hoverMoveEvent(event)
-        if self.kind=='stages' and self.hot=='size':self.setToolTip('參數')
     def mouseDoubleClickEvent(self,event):
         if self.kind=='stages' and event.button()==Qt.MouseButton.LeftButton:
             QTimer.singleShot(0,self.panel.edit);event.accept();return

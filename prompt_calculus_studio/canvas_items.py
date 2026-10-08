@@ -5,7 +5,7 @@ import time
 from PySide6.QtCore import Qt, QRect, QRectF, QPointF, QSizeF, QTimer, Signal, QEvent
 from PySide6.QtGui import QColor, QPen, QFontMetricsF, QPainter, QPainterPath, QWheelEvent, QTextLayout, QTextOption, QRegion, QContextMenuEvent
 from PySide6.QtWidgets import (QGraphicsObject, QGraphicsItem, QGraphicsProxyWidget,
-    QGraphicsView, QGraphicsScene, QFrame, QRubberBand, QAbstractScrollArea, QApplication, QStyle, QStyleOption, QWidget)
+    QGraphicsView, QGraphicsScene, QFrame, QRubberBand, QAbstractScrollArea, QApplication, QStyle, QStyleOption, QWidget, QToolTip)
 from . import composition as comp
 
 
@@ -56,7 +56,6 @@ class ResizableCard(QGraphicsObject):
     def hoverMoveEvent(self,event):
         hot=self.action_at(event.pos())
         if hot!=self.hot: self.hot=hot; self.update()
-        self.setToolTip({'resize':'調整尺寸','size':'調整尺寸','weight':'輸入權重','minus':'權重 −0.1','plus':'權重 +0.1','add':'加入子元素'}.get(hot,''))
         if hot=='resize': self.setCursor(Qt.CursorShape.SizeFDiagCursor if self.resize_corner(event.pos()) in ('tl','br') else Qt.CursorShape.SizeBDiagCursor)
         elif hot: self.setCursor(Qt.CursorShape.PointingHandCursor)
         else: self.unsetCursor()
@@ -110,10 +109,19 @@ class ResizableCard(QGraphicsObject):
         for offset in (7,12):
             painter.drawLine(QPointF(self.width-offset,self.height-5),QPointF(self.width-5,self.height-offset))
         for action,rect in self.actions().items():
+            if action=='collapse':
+                # The name owns this disclosure: keep the generous hit area,
+                # but draw only the same line icon used by native controls.
+                from .ui_icons import icon
+                painter.save();painter.setOpacity(painter.opacity()*(.65 if self.pressed==action else 1 if self.hot==action else .82))
+                painter.translate(rect.center())
+                if self.collapsed:painter.rotate(-90)
+                icon('chevron-down',colors['text']).paint(painter,QRect(-8,-8,16,16))
+                painter.restore();continue
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(colors['selected'] if self.pressed==action else colors['hover'] if self.hot==action else colors['surface']))
             painter.drawRoundedRect(rect,7,7); painter.setPen(QColor(colors['text'] if self.hot==action else colors['secondary']))
-            text={'size':'↗','minus':'−','plus':'+','collapse':'▸' if getattr(self,'collapsed',False) else '▾','add':'＋' if getattr(self,'compact',False) else '＋ 加入子元素'}.get(action)
+            text={'size':'↗','minus':'−','plus':'+','add':'＋' if getattr(self,'compact',False) else '＋ 加入子元素'}.get(action)
             if action=='weight': text=f"{self.value['weight']/10:.1f}"
             painter.drawText(rect,Qt.AlignmentFlag.AlignCenter,text)
 
@@ -338,13 +346,25 @@ class NodeCard(ResizableCard):
         if self.drop_size: y+=self.drop_size[1]+12
         ident=self.canvas.entries[self.key][0]
         self.height=y+18 if self.collapsed else max(requested_h,y+(44 if ident is not None else 24))
+        # A compact collapsed child still has a name row and a weight row.
+        # Reserve their separation so long names/disclosures and the add icon
+        # cannot overlap weight hit targets after the body disappears.
+        if self.compact:self.height=max(self.height,self.line+58)
         self.add_rect=QRectF(12,self.height-42,self.width-44,28) if ident is not None else QRectF()
         if self.compact: self.add_rect=QRectF(self.width-44,5,30,28)
         weight_y=self.height-42 if self.compact else 6
         self.weight_rect=QRectF(self.width-114,weight_y,50,28)
         self.minus_rect=QRectF(self.width-146,weight_y,28,28)
         self.plus_rect=QRectF(self.width-60,weight_y,28,28)
-        self.collapse_rect=QRectF(20,6,24,26)
+        self.title_text=self.value['name']
+        if self.compact and (self.value['weight']!=10 or not self.value['enabled']):
+            self.title_text+=f" · {self.value['weight']/10:.1f}" if self.value['enabled'] else ' · 停用'
+        title_y=8 if self.compact else 10+self.line
+        title_right=self.add_rect.left()-8 if self.compact else self.width-14
+        title_width=max(0,title_right-14-(32 if ident is not None else 0))
+        self.title_text=metrics.elidedText(self.title_text,Qt.TextElideMode.ElideRight,title_width)
+        self.title_rect=QRectF(14,title_y,title_width,self.line)
+        self.collapse_rect=QRectF(20+metrics.horizontalAdvance(self.title_text),title_y+(self.line-26)/2,26,26)
         if propagate and self.parentItem(): self.parentItem().layout_card()
         self.update()
 
@@ -383,18 +403,11 @@ class NodeCard(ResizableCard):
         status=self.subtitle+(' · 停用' if not self.value['enabled'] else '')
         if comp.active_overlay(self.value): status+=' · 已覆蓋'
 
-        header_left=self.collapse_rect.right()+8 if self.canvas.entries[self.key][0] is not None else 14
         if not self.compact:
-            status_width=max(0,self.minus_rect.left()-8-header_left)
-            painter.drawText(QRectF(header_left,8,status_width,self.line),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(status,Qt.TextElideMode.ElideRight,status_width))
+            status_width=max(0,self.minus_rect.left()-22)
+            painter.drawText(QRectF(14,8,status_width,self.line),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(status,Qt.TextElideMode.ElideRight,status_width))
         painter.setPen(QColor(colors['secondary'] if self.muted else colors['text']))
-        title=self.value['name']
-        if self.compact and (self.value['weight']!=10 or not self.value['enabled']):
-            title+=f" · {self.value['weight']/10:.1f}" if self.value['enabled'] else ' · 停用'
-        title_y=8 if self.compact else 10+self.line
-        title_left=header_left if self.compact else 14
-        title_width=max(0,(self.add_rect.left()-8 if self.compact else self.width-14)-title_left)
-        painter.drawText(QRectF(title_left,title_y,title_width,self.line),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(title,Qt.TextElideMode.ElideRight,title_width))
+        painter.drawText(self.title_rect,Qt.AlignmentFlag.AlignVCenter,self.title_text)
         if self.own:
             painter.setPen(QColor(colors['secondary']))
             painter.drawText(QRectF(14,16+self.line*(1 if self.compact else 2),available,self.text_height),Qt.TextFlag.TextWordWrap,self.own)
@@ -468,6 +481,14 @@ class CanvasView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setAcceptDrops(True); self.viewport().setAcceptDrops(True)
+
+    def viewportEvent(self,event):
+        if event.type()==QEvent.Type.ToolTip:
+            # An empty child tip inherits its enclosing CanvasArea's tip.
+            # Stop scene help before Qt walks that parent chain or dispatches
+            # it to an embedded module widget; Canvas chrome stays separate.
+            QToolTip.hideText();event.accept();return True
+        return super().viewportEvent(event)
 
     def dragEnterEvent(self,event):
         if event.mimeData().hasFormat('application/x-pcs-material'):event.acceptProposedAction();return

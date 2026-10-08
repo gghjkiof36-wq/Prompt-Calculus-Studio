@@ -6,9 +6,10 @@ import unittest
 from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QPointF, Qt, QTimer
+from PySide6.QtCore import QEvent, QPointF, Qt, QTimer
+from PySide6.QtGui import QHelpEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialogButtonBox
+from PySide6.QtWidgets import QApplication, QDialogButtonBox, QToolTip
 from prompt_calculus_studio import composition as comp, materials, multi_output as model
 from prompt_calculus_studio.core import DEFAULT_SETTINGS
 from prompt_calculus_studio.extension_page import ExtensionPage
@@ -238,6 +239,56 @@ class CanvasRev9Tests(unittest.TestCase):
         self.assertEqual(self.asset()['prompt'], 'red dress')
         page.close_editor(); APP.processEvents()
         self.assertIsNone(self.c.editor_page)
+
+    def test_name_disclosure_toggles_root_and_long_nested_copy_without_edit_or_resize(self):
+        key=self.add_copy(); original=copy.deepcopy(self.asset())
+        def click_fold(target):
+            card=self.c.cards[target]; before=card.collapsed
+            rect=card.actions()['collapse']
+            self.assertAlmostEqual(rect.center().y(),card.title_rect.center().y())
+            self.assertGreater(rect.left(),card.title_rect.left())
+            self.assertIsNone(card.resize_corner(rect.center()))
+            for action in ('minus','plus','weight','add'):
+                other=card.actions().get(action)
+                if other is not None:self.assertFalse(rect.intersects(other),action)
+            view=self.c.view;view.resetTransform();view.centerOn(card);APP.processEvents()
+            point=view.mapFromScene(card.mapToScene(rect.center()))
+            self.assertIs(view.interaction.card_at(point),card)
+            with patch.object(self.c,'edit') as edit,patch.object(self.c,'palette') as add:
+                QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(5)
+                edit.assert_not_called();add.assert_not_called()
+            self.assertIs(self.c.cards[target].collapsed,not before)
+            self.assertEqual(self.asset(),original)
+        click_fold(key)
+        child=comp.node('長名稱文字模組的折疊控制應留在名稱後方並保留新增與權重操作'*3,'smile')
+        self.c.commit(lambda state:state['uses'][key].update(children=[child]))
+        child_key=key+':'+child['id'];card=self.c.cards[child_key]
+        self.assertNotEqual(card.title_text,child['name'])
+        self.assertTrue(card.title_text.endswith('…'))
+        click_fold(child_key);click_fold(child_key)
+        click_fold(key)
+        self.c.undo();self.assertFalse(self.c.cards[key].collapsed)
+        self.c.redo();self.assertTrue(self.c.cards[key].collapsed)
+        self.assertEqual(self.asset(),original)
+
+    def test_module_hover_help_never_opens_a_tip_or_changes_card_geometry(self):
+        key=self.add_copy();previous=set(self.c.data()['stages'])
+        self.c.add_flow_node('stages',QPointF(3600,200));stage=(set(self.c.data()['stages'])-previous).pop()
+        targets=[(self.c.cards[key],QPointF(80,45)),
+                 (self.c.cards[key],self.c.cards[key].weight_rect.center()),
+                 (self.c.containers[self.cid],QPointF(100,22)),
+                 (self.c.flow_cards[stage],self.c.flow_cards[stage].actions()['size'].center())]
+        before=self.c.history_state()
+        for card,local in targets:
+            view=self.c.view;view.resetTransform();view.centerOn(card);APP.processEvents()
+            point=view.mapFromScene(card.mapToScene(local));size=card.boundingRect()
+            QTest.mouseMove(view.viewport(),point);APP.processEvents()
+            self.assertEqual(card.toolTip(),'')
+            event=QHelpEvent(QEvent.Type.ToolTip,point,view.viewport().mapToGlobal(point))
+            self.assertTrue(QApplication.sendEvent(view.viewport(),event));self.assertTrue(event.isAccepted())
+            QTest.qWait(5)
+            self.assertFalse(QToolTip.isVisible());self.assertEqual(card.boundingRect(),size)
+        self.assertEqual(self.c.history_state(),before)
 
 
 if __name__ == '__main__': unittest.main()
