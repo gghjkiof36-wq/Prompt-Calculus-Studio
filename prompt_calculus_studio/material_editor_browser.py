@@ -4,7 +4,7 @@ import json
 import math
 from PySide6.QtCore import Qt, QTimer, QSize, QRectF, QPoint, Signal, QEvent
 from PySide6.QtGui import QFont, QColor, QPen, QFontMetrics, QTextCursor, QTextBlockFormat, QPixmap, QShortcut, QKeySequence
-from PySide6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit,
+from PySide6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QLineEdit,
     QListWidget, QListWidgetItem, QCheckBox, QScrollArea, QTextEdit, QLabel,
     QStyledItemDelegate, QStyleOptionViewItem, QStyle, QApplication, QDialog, QSizePolicy)
 from . import materials
@@ -148,21 +148,35 @@ class PromptEditor(QWidget):
         self.header_layout = QVBoxLayout(self.browser_header)
         self.header_layout.setContentsMargins(1, 0, 13, 0); self.header_layout.setSpacing(14)
         content.addWidget(self.browser_header)
-        self.title = label('全部模組', 'DialogTitle'); self.count = label('', 'Subtle')
+        self.title = label('全部模組', 'DialogTitle', True); self.count = label('', 'Subtle')
         self.new_button = button('新增模組', self.new_material, 'Primary')
         self.new_button.setCursor(Qt.CursorShape.PointingHandCursor)
         from .ui_icons import icon
         self.new_button.setIcon(icon('plus', 'on-accent'))
         self.library_more = button('更多', self.library_menu, 'Quiet'); self.library_more.setIcon(icon('more-horizontal'))
-        title_row = row(self.title, self.count, None, self.new_button, self.library_more)
+        self.heading_caption = QWidget(self.browser_header)
+        title_row = row(self.title, self.count, None); title_row.setContentsMargins(0, 0, 0, 0)
+        self.heading_caption.setLayout(title_row)
         for text in (self.title, self.count):
             text.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
             title_row.setAlignment(text, Qt.AlignmentFlag.AlignBottom)
-        self.header_layout.addLayout(title_row)
+        self.heading_actions = QWidget(self.browser_header)
+        actions = row(self.new_button, self.library_more); actions.setContentsMargins(0, 0, 0, 0)
+        self.heading_actions.setLayout(actions)
+        self.heading_grid = QGridLayout(); self.heading_grid.setContentsMargins(0, 0, 0, 0)
+        self.heading_grid.setHorizontalSpacing(8); self.heading_grid.setVerticalSpacing(10)
+        self.header_layout.addLayout(self.heading_grid)
         self.search = QLineEdit(); self.search.setPlaceholderText('搜尋目前分類的名稱、別名或內容')
         self.pins = QCheckBox('釘選'); self.order = ComboBox(); self.order.addItem('名稱', 'name'); self.order.addItem('最近使用', 'recent')
         self.order.addItem('手動排序', 'manual')
-        self.header_layout.addLayout(row(self.search, self.pins, self.order))
+        self.filter_controls = QWidget(self.browser_header)
+        filters = row(self.pins, self.order); filters.setContentsMargins(0, 0, 0, 0)
+        self.filter_controls.setLayout(filters)
+        self.search_grid = QGridLayout(); self.search_grid.setContentsMargins(0, 0, 0, 0)
+        self.search_grid.setHorizontalSpacing(8); self.search_grid.setVerticalSpacing(10)
+        self.header_layout.addLayout(self.search_grid)
+        self._header_modes = None
+        self._arrange_browser_controls(READING_CONTENT_WIDTH-14)
         self.list_hint = label('單擊預覽 · 雙擊編輯', 'Subtle'); self.header_layout.addWidget(self.list_hint)
         from .prompt_editor import MaterialList
         self.listing = MaterialList(); self.listing.setFrameShape(QListWidget.Shape.NoFrame)
@@ -185,6 +199,8 @@ class PromptEditor(QWidget):
         self.preview_text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         preview.addWidget(self.preview_text)
         self.preview_image = PreviewImage(); self.preview_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_image.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self._preview_pixmap = QPixmap()
         self.preview_image.setCursor(Qt.CursorShape.PointingHandCursor); self.preview_image.clicked.connect(self.enlarge_preview)
         preview.addWidget(self.preview_image)
         self.edit_button = button('編輯素材', lambda: self.edit_material(self.preview_id)); preview.addWidget(self.edit_button)
@@ -224,13 +240,35 @@ class PromptEditor(QWidget):
         if area.viewportMargins().right() != reserve:
             area.setViewportMargins(0, 0, reserve, 0)
 
+    def _arrange_browser_controls(self, width):
+        # Reflow controls inside their own column before shrinking the list.
+        # A single unbroken toolbar must not decide where the preview belongs.
+        heading_below = width < self.heading_caption.sizeHint().width()+self.heading_actions.sizeHint().width()+8
+        filters_below = width < 220+self.filter_controls.sizeHint().width()+8
+        modes = (heading_below, filters_below)
+        if modes == self._header_modes: return
+        self._header_modes = modes
+        for grid, first, second, below in (
+                (self.heading_grid, self.heading_caption, self.heading_actions, heading_below),
+                (self.search_grid, self.search, self.filter_controls, filters_below)):
+            grid.removeWidget(first); grid.removeWidget(second)
+            grid.addWidget(first, 0, 0, 1, 2 if below else 1)
+            grid.addWidget(second, 1 if below else 0, 0 if below else 1, 1, 2 if below else 1,
+                           Qt.AlignmentFlag.AlignRight)
+            grid.setColumnStretch(0, 1); grid.setColumnStretch(1, 0)
+        self.header_layout.invalidate()
+
     def _layout(self):
         if not hasattr(self, 'browser'): return
         self._sync_type()
         self._reserve_scroll_gutter(self.scroll)
         viewport_width = self.scroll.viewport().width(); height = self.scroll.viewport().height()
-        minimum_browser = max(520, self.browser.minimumSizeHint().width())
-        self.narrow = viewport_width < max(800, 264+minimum_browser+24)
+        minimum_browser = max(280, self.heading_caption.minimumSizeHint().width()+14,
+                              self.heading_actions.minimumSizeHint().width()+14,
+                              self.filter_controls.minimumSizeHint().width()+14)
+        minimum_detail = max(260, self.edit_button.minimumSizeHint().width()+38)
+        minimum_pair = minimum_browser+24+minimum_detail
+        self.narrow = viewport_width < max(800, 240+2*READING_MARGIN+minimum_pair)
         # Center the task column within the workspace after navigation, using
         # the same balanced gutters as the settings reading pages.
         width = viewport_width
@@ -259,24 +297,28 @@ class PromptEditor(QWidget):
             start = READING_MARGIN; area_x = 240+READING_MARGIN
             area_width = max(0, width-area_x-READING_MARGIN)
         has_preview = bool(self.preview_id and self.preview_card.isVisible())
-        detail_width = min(380, max(340, round(area_width*.22)))
-        # Fit the list and its supporting preview together. Testing only the
-        # centered list's right gutter made normal desktop windows stack early.
-        below = area_width < minimum_browser+24+340
-        if has_preview and not below:
+        if has_preview:
+            # The detail remains a right-hand column at every width. At desktop
+            # sizes both columns contract; only an exceptionally small viewport
+            # scrolls horizontally instead of moving the detail below the list.
+            area_width = max(area_width, minimum_pair)
+            detail_width = min(380, max(minimum_detail, round(area_width*.32)))
             detail_width = min(detail_width, area_width-minimum_browser-24)
             central = min(READING_CONTENT_WIDTH, area_width-24-detail_width)
             group_width = central+24+detail_width
         else:
+            area_width = max(area_width, minimum_browser)
             central = min(READING_CONTENT_WIDTH, area_width)
             group_width = central
         x = area_x + (area_width-group_width)//2
+        self._arrange_browser_controls(central-14)
         row_height = self.listing.fontMetrics().height()*2 + 40
         list_height = max(110, min(580, self.listing.count()*row_height + 12))
         self.listing.setMinimumHeight(list_height); self.listing.setMaximumHeight(list_height)
-        browser_height = self.browser.sizeHint().height()
+        browser_layout = self.browser.layout(); browser_layout.invalidate()
+        browser_height = max(browser_layout.totalMinimumSize().height(), browser_layout.totalHeightForWidth(central))
         self.browser.setGeometry(x, start, central, browser_height)
-        self.browser.layout().activate()
+        browser_layout.activate()
         self._reserve_scroll_gutter(self.listing)
         # Reserve the same scroll gutter for the header and rows, so controls
         # align with the visible card edges even when the list needs scrolling.
@@ -286,7 +328,7 @@ class PromptEditor(QWidget):
         self.category_panel.raise_()
         bottom = start + browser_height + 24
         if has_preview:
-            card_width = detail_width if not below else central
+            card_width = detail_width
             self.preview_card.ensurePolished(); self.preview_card.setFixedWidth(card_width)
             layout = self.preview_card.layout(); margins = layout.contentsMargins()
             frame = self.preview_card.contentsMargins()
@@ -303,14 +345,18 @@ class PromptEditor(QWidget):
             text_insets = self.preview_text.height()-self.preview_text.viewport().height()
             text_height = math.ceil(self.preview_text.document().size().height())+text_insets
             self.preview_text.setFixedHeight(max(36, min(300, text_height)))
+            if not self.preview_image.isHidden():
+                image = self._preview_pixmap.scaled(min(250, available), 250,
+                    Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                self.preview_image.setPixmap(image); self.preview_image.setFixedHeight(image.height())
             layout.invalidate()
             card_height = max(layout.totalMinimumSize().height(), layout.totalHeightForWidth(card_width))
-            px, py = (x, bottom) if below else (x+central+24, self.search.mapTo(self.shell, QPoint()).y())
+            px, py = x+central+24, self.search.mapTo(self.shell, QPoint()).y()
             self.preview_card.setGeometry(px, py, card_width, card_height)
             layout.activate()
             bottom = max(bottom, py+card_height+24)
         self.shell.setMinimumHeight(max(height, bottom))
-        self.shell.setMinimumWidth(0)
+        self.shell.setMinimumWidth(area_x+area_width+(READING_NARROW_MARGIN if self.narrow else READING_MARGIN))
 
     def _sync_type(self):
         from .theme import font_pixels
@@ -443,7 +489,7 @@ class PromptEditor(QWidget):
         return entry.data(Qt.ItemDataRole.UserRole) if entry else None
 
     def _mouse_preview(self, entry):
-        # A single click may introduce the preview below the list. Never relayout
+        # A single click may shrink the list to make room for its preview. Never relayout
         # until Qt's actual double-click interval has elapsed.
         if self.active_dialog or self.listing.pressed_button != Qt.MouseButton.LeftButton: return
         self.preview_timer.start(QApplication.doubleClickInterval())
@@ -463,9 +509,10 @@ class PromptEditor(QWidget):
             if self.listing.item(i).data(Qt.ItemDataRole.UserRole) == ident: self.listing.setCurrentRow(i); break
         self.listing.blockSignals(False)
         self.preview_id = ident; self.preview_name.setText(value['name']); self.preview_text.setPlainText(value['prompt'])
-        has_image = bool(preview_path(self.window.store, value.get('preview')))
+        image_path = preview_path(self.window.store, value.get('preview'))
+        has_image = bool(image_path)
         self.preview_image.setVisible(has_image)
-        if has_image: set_preview(self.preview_image, self.window.store, value.get('preview'), 250)
+        self._preview_pixmap = QPixmap(str(image_path)) if has_image else QPixmap()
         self.preview_card.show(); self._layout()
 
     def close_preview(self):

@@ -77,6 +77,7 @@ def validation_reference(release, paths):
         '--v087-candidate6':'docs/releases/0.8.7/validation.md',
         '--v087-candidate7':'docs/releases/0.8.7/validation.md',
         '--v087-candidate8':'docs/releases/0.8.7/validation.md',
+        '--v087-candidate9':'docs/releases/0.8.7/validation.md',
     }
     available={path.relative_to(ROOT).as_posix() for path in paths}
     report=reports.get(release.flag)

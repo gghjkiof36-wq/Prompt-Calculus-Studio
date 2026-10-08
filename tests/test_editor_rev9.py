@@ -460,7 +460,7 @@ class EditorRev9Tests(unittest.TestCase):
             self.assertEqual(more_right,order_right)
             self.assertIs(self.page.category_panel.parentWidget(),self.page.scroll.viewport())
             self.assertEqual(self.page.scroll.horizontalScrollBar().maximum(),0)
-            self.assertTrue(340 <= self.page.preview_card.width() <= 380)
+            self.assertTrue(260 <= self.page.preview_card.width() <= 380)
             self.assertEqual(self.page.preview_card.x(),self.page.browser.geometry().right()+25)
             self.assertEqual(self.page.preview_card.y(),self.page.search.mapTo(self.page.shell,QPoint()).y())
             group_left=self.page.browser.x()-workspace_left
@@ -468,36 +468,68 @@ class EditorRev9Tests(unittest.TestCase):
             self.assertLessEqual(abs(group_left-group_right),1)
             self.page.close_preview();self.assertEqual(self.page.browser.geometry(),before)
         for i in range(self.page.listing.count()): self.assertTrue(self.page.listing.item(i).icon().isNull())
-        for width in (1100,640,360):
+        for width in (1100,1024,800,640):
             self.page.close_preview();self.page.resize(width,640);self.app.processEvents();self.app.processEvents()
             self.page.preview_material(self.ident);self.app.processEvents();self.app.processEvents()
             self.assertLessEqual(self.page.browser.width(),SETTINGS_READING_WIDTH)
             self.assertLessEqual(self.page.browser.geometry().right(),self.page.scroll.viewport().width())
             workspace_left=0 if self.page.narrow else self.page.category_panel.geometry().right()+1
             left_gap=self.page.browser.x()-workspace_left
-            right_gap=self.page.scroll.viewport().width()-(self.page.browser.x()+self.page.browser.width())
+            right_gap=self.page.scroll.viewport().width()-(self.page.preview_card.x()+self.page.preview_card.width())
             self.assertLessEqual(abs(left_gap-right_gap),1)
             self.assertEqual(self.page.scroll.horizontalScrollBar().maximum(),0)
-            self.assertGreater(self.page.preview_card.y(),self.page.browser.geometry().bottom())
+            self.assertEqual(self.page.preview_card.x(),self.page.browser.geometry().right()+25)
+            self.assertEqual(self.page.preview_card.y(),self.page.search.mapTo(self.page.shell,QPoint()).y())
 
-    def test_preview_stays_beside_list_during_desktop_resize_and_returns_from_narrow(self):
+    def test_preview_stays_right_while_list_and_controls_adapt_during_resize(self):
         self.page.set_browser_category(None); self.page.preview_material(self.ident)
         original=copy.deepcopy(self.w.state['items'])
-        for width,side in ((2048,True),(1440,True),(1360,True),(1024,False),(640,False),(1360,True),(2048,True)):
+        for width in (2048,1440,1360,1184,1152,1100,1024,1000,960,900,880,800,640,1024,1360,2048):
             self.page.resize(width,900); self.app.processEvents(); self.app.processEvents()
             main=self.page.browser.geometry(); detail=self.page.preview_card.geometry()
             self.assertEqual(self.page.preview_id,self.ident)
             self.assertEqual(self.page.scroll.horizontalScrollBar().maximum(),0)
             self.assertLessEqual(detail.right(),self.page.scroll.viewport().width())
-            if side:
-                self.assertEqual(detail.x(),main.right()+25)
-                self.assertEqual(detail.y(),self.page.search.mapTo(self.page.shell,QPoint()).y())
-                self.assertGreaterEqual(main.width(),520)
-            else:
-                self.assertEqual(detail.x(),main.x())
-                self.assertGreater(detail.y(),main.bottom())
+            self.assertEqual(detail.x(),main.right()+25)
+            self.assertEqual(detail.y(),self.page.search.mapTo(self.page.shell,QPoint()).y())
+            self.assertGreaterEqual(main.width(),280)
+            self.assertGreaterEqual(detail.width(),260)
+            if width==1024:
+                self.assertLess(main.width(),520)
+                self.assertLess(detail.width(),340)
+            controls=(self.page.search,self.page.pins,self.page.order,self.page.new_button,self.page.library_more)
+            for control in controls:
+                location=control.mapTo(self.page.browser,QPoint())
+                self.assertTrue(self.page.browser.rect().contains(location),control)
+                self.assertLessEqual(location.x()+control.width(),main.width(),control)
+            card_right=self.page.listing.viewport().mapTo(self.page.browser,QPoint()).x()+self.page.listing.viewport().width()-1
+            for control in (self.page.order,self.page.library_more):
+                self.assertEqual(control.mapTo(self.page.browser,QPoint()).x()+control.width(),card_right)
             self.assertIs(self.page.category_add.parentWidget(),
                           self.page.category_controls if self.page.narrow else self.page.category_title)
         self.assertEqual(self.w.state['items'],original)
+
+    def test_narrow_preview_filters_close_reopen_and_edit_keep_the_same_material(self):
+        self.page.resize(1024,900); self.app.processEvents();self.app.processEvents()
+        asset=materials.item(self.w.state,self.ident)
+        before=copy.deepcopy(self.w.state['items'])
+        for width in (1024,640):
+            self.page.resize(width,900);self.app.processEvents();self.app.processEvents()
+            self.page.search.setText(asset['prompt']);self.app.processEvents()
+            self.page.preview_material(self.ident);self.app.processEvents()
+            self.assertEqual(self.page.preview_text.toPlainText(),asset['prompt'])
+            self.page.order.setCurrentIndex(self.page.order.findData('manual'));self.app.processEvents()
+            self.assertEqual(self.page.preview_id,self.ident)
+            QTest.mouseClick(self.page.edit_button,Qt.MouseButton.LeftButton);self.app.processEvents()
+            self.assertIsNotNone(self.page.active_dialog)
+            self.assertEqual(self.page.active_dialog.target_id,self.ident)
+            self.page.active_dialog.reject();self.app.processEvents()
+            self.page.close_preview();self.app.processEvents()
+            main_width=self.page.browser.width()
+            self.page.preview_material(self.ident);self.app.processEvents();self.app.processEvents()
+            self.assertLess(self.page.browser.width(),main_width)
+            self.assertEqual(self.page.preview_card.y(),self.page.search.mapTo(self.page.shell,QPoint()).y())
+            self.assertGreater(self.page.preview_card.x(),self.page.browser.geometry().right())
+        self.assertEqual(self.w.state['items'],before)
 
 if __name__=='__main__': unittest.main()
