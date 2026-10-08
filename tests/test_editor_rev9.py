@@ -5,17 +5,17 @@ from unittest.mock import patch
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextCursor
 from PySide6.QtTest import QTest
-from test_material_editor import MaterialEditorTests as _Fixture
+import test_material_editor as fixture_module
 from prompt_calculus_studio.prompt_editor import PromptEditor
 from prompt_calculus_studio import materials
 
 
 class EditorRev9Tests(unittest.TestCase):
     @classmethod
-    def setUpClass(cls): _Fixture.setUpClass(); cls.app = _Fixture.app
+    def setUpClass(cls): fixture_module.MaterialEditorTests.setUpClass(); cls.app = fixture_module.MaterialEditorTests.app
 
     def setUp(self):
-        self.fixture = _Fixture(); self.fixture.setUp()
+        self.fixture = fixture_module.MaterialEditorTests(); self.fixture.setUp()
         self.w = self.fixture.w; self.w.resize(1440, 900)
         self.w.enter_canvas = lambda: None; self.w.leave_canvas = lambda: None
         self.page = PromptEditor(self.w); self.page.resize(1440, 900); self.page.show()
