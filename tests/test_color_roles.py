@@ -94,6 +94,18 @@ class ColorRoleTests(unittest.TestCase):
             self.assertEqual(original['info'],changed['info'])
             self.assertEqual(original['error'],changed['error'])
 
+    def test_primary_feedback_has_distinct_fills_without_rejecting_valid_accents(self):
+        for palette in ('graphite', 'paper', 'mist'):
+            for accent in ('neutral', 'blue', 'green'):
+                with self.subTest(palette=palette, accent=accent):
+                    roles = visual_tokens({'visual_palette': palette, 'accent': accent})
+                    self.assertEqual(len({roles[key] for key in ('accent', 'accent_hover', 'accent_pressed')}), 3)
+                    for key in ('accent', 'accent_hover', 'accent_pressed'):
+                        self.assertGreaterEqual(contrast(roles['on_accent'], roles[key]), 4.5)
+        for accent in ('#777777', '#747474', '#808080'):
+            roles = derive_roles(dict(FOUNDATIONS['dark_red'], accent=accent))
+            self.assertGreaterEqual(contrast(roles['on_accent'], roles['accent']), 4.5)
+
     def test_input_maps_and_cached_results_are_independent(self):
         for name, foundation in FOUNDATIONS.items():
             original = copy.deepcopy(foundation)

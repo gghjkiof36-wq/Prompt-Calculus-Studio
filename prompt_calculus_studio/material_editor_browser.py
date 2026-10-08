@@ -125,7 +125,7 @@ class PromptEditor(QWidget):
         self.new_button = button('新增模組', self.new_material, 'Primary')
         self.new_button.setCursor(Qt.CursorShape.PointingHandCursor)
         from .ui_icons import icon
-        self.new_button.setIcon(icon('plus'))
+        self.new_button.setIcon(icon('plus', 'on-accent'))
         self.library_more = button('更多', self.library_menu, 'Quiet'); self.library_more.setIcon(icon('more-horizontal'))
         title_row = row(self.title, self.count, None, self.new_button, self.library_more)
         for text in (self.title, self.count):

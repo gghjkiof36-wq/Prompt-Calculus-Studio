@@ -106,7 +106,10 @@ def derive_roles(foundation):
     t['canvas_header'] = mix(t['surface'], t['success'], .145)
     t['canvas_field'] = mix(t['field'], t['success'], .025)
     t['text'] = readable(t['text'], surfaces+[t['canvas_body'], t['canvas_header'], t['selected'], t['popup_active']])
-    t['on_accent'] = readable(t['text'], (t['accent'],))
+    # Reserve contrast for hover/press fills. Starting exactly at 4.5:1 can
+    # force both interaction colors back to the unchanged accent.
+    available = max(contrast('#000000', t['accent']), contrast('#ffffff', t['accent']))
+    t['on_accent'] = readable(t['text'], (t['accent'],), minimum=min(7, available))
     t['accent_hover'] = interaction(t['accent'], t['on_accent'], .09)
     t['accent_pressed'] = interaction(t['accent'], t['on_accent'], .14)
     for role in ('run','stop'):
