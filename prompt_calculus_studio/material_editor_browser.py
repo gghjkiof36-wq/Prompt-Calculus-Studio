@@ -1,6 +1,7 @@
 """Read-only material library and transactional original-edit dialog (rev9)."""
 import copy
 import json
+import math
 from PySide6.QtCore import Qt, QTimer, QSize, QRectF, Signal, QEvent
 from PySide6.QtGui import QFont, QColor, QPen, QFontMetrics, QTextCursor, QTextBlockFormat, QPixmap, QShortcut, QKeySequence
 from PySide6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit,
@@ -22,15 +23,12 @@ class LibraryDelegate(QStyledItemDelegate):
         colors = widget_colors(self.parent())
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+        focused = bool(option.state & QStyle.StateFlag.State_HasFocus)
         rect = QRectF(option.rect).adjusted(1, 3, -2, -3)
         painter.save(); painter.setRenderHint(painter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor(colors['accent' if selected else 'line']), 1))
+        painter.setPen(QPen(QColor(colors['accent' if selected or focused else 'line']), 2 if focused else 1))
         painter.setBrush(QColor(colors['selected' if selected else 'hover' if hover else 'surface']))
         painter.drawRoundedRect(rect, 9, 9)
-        if option.state & QStyle.StateFlag.State_HasFocus:
-            painter.setPen(QPen(QColor(colors['text']), 1, Qt.PenStyle.DotLine))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(rect.adjusted(3, 3, -3, -3), 6, 6)
         left = rect.left() + 16
         width = max(10, int(rect.right()-left-32))
         name, _, prompt = str(index.data(Qt.ItemDataRole.DisplayRole)).partition('\n')
@@ -131,6 +129,7 @@ class PromptEditor(QWidget):
         self.preview_text = QTextEdit(); self.preview_text.setReadOnly(True); self.preview_text.setAcceptRichText(False)
         self.preview_text.setObjectName('MaterialPreviewPrompt'); self.preview_text.setUndoRedoEnabled(False)
         self.preview_text.setFrameShape(QTextEdit.Shape.NoFrame)
+        self.preview_text.document().setDocumentMargin(0)
         self.preview_text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         preview.addWidget(self.preview_text)
         self.preview_image = PreviewImage(); self.preview_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -218,8 +217,10 @@ class PromptEditor(QWidget):
             name_height = max(1, self.preview_name.heightForWidth(available))
             self.preview_name.setFixedHeight(name_height)
             self.preview_text.setFixedWidth(available)
-            text_height = int(self.preview_text.document().size().height())+16
-            self.preview_text.setFixedHeight(max(70, min(300, text_height)))
+            self.preview_text.document().setTextWidth(self.preview_text.viewport().width())
+            text_insets = self.preview_text.height()-self.preview_text.viewport().height()
+            text_height = math.ceil(self.preview_text.document().size().height())+text_insets
+            self.preview_text.setFixedHeight(max(36, min(300, text_height)))
             layout.invalidate()
             card_height = max(layout.totalMinimumSize().height(), layout.totalHeightForWidth(card_width))
             px, py = (x, bottom) if below else (x+central+24, start)
@@ -234,8 +235,8 @@ class PromptEditor(QWidget):
         settings = dict(self.window.state['settings']); settings.update(getattr(self.window, 'appearance_preview', {}))
         colors = widget_colors(self)
         preview_style = ("QTextEdit#MaterialPreviewPrompt { font-family:'Cascadia Mono','Consolas','Microsoft JhengHei'; "
-                         "font-size:%dpx; color:%s; background:%s; border:0; padding:4px; }") % (
-                             font_pixels(settings['prompt_size']), colors['text'], colors['field'])
+                         "font-size:%dpx; font-weight:400; color:%s; background:transparent; border:0; padding:4px; }") % (
+                             font_pixels(settings['prompt_size']), colors['text'])
         if self.preview_text.styleSheet() != preview_style: self.preview_text.setStyleSheet(preview_style)
         self.preview_text.ensurePolished(); self.title.ensurePolished()
         self.preview_text.document().setDefaultFont(self.preview_text.font())
