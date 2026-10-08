@@ -75,6 +75,7 @@ class CanvasRev9Tests(unittest.TestCase):
         first = self.add_copy(); second = self.add_copy()
         self.assertEqual(model.owner(self.w.state, first), self.cid)
         self.assertEqual(model.owner(self.w.state, second), self.cid)
+        self.assertEqual(self.w.state['uses'][first]['source_revision'], materials.fingerprint(self.asset()))
         self.assertNotEqual(self.w.state['uses'][first]['id'], self.w.state['uses'][second]['id'])
         self.assertEqual(self.c.insertion_canvas, None)
         self.assertFalse(getattr(self.c, '_fixed_insertion_canvas', False))

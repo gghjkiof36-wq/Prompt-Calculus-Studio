@@ -549,8 +549,10 @@ class TextCanvas(QWidget):
         self.insert_asset(copy.deepcopy(dialog.asset()))
 
     def insert_asset(self,asset,position=None):
+        from .materials import fingerprint
         value = comp.clone_node(comp.prototype(asset))
-        value.update(source_id=asset['id'],source_module=asset['module'])
+        value.update(source_id=asset['id'],source_module=asset['module'],
+                     source_revision=fingerprint(asset),content_kind=asset.get('content_kind','tags'))
         return self.append_value(value,position)
 
     def _insert_with_destination(self, action, destination_id):
