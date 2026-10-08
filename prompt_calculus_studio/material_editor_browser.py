@@ -589,12 +589,10 @@ class MaterialEditDialog(StudioDialog):
         self.body.addLayout(row(label('Prompt', 'Subtle'), None, expand))
         self.prompt.setMinimumHeight(100); self.prompt.setFixedHeight(170); self.body.addWidget(self.prompt)
         self.advanced_toggle = Disclosure('進階功能 · 4 項'); self.body.addWidget(self.advanced_toggle)
-        self.advanced_scroll = QScrollArea(); self.advanced_scroll.setWidgetResizable(True)
-        self.advanced_scroll.setFrameShape(QScrollArea.Shape.NoFrame); self.advanced_scroll.setMinimumHeight(100)
-        self.advanced = QWidget(); self.advanced_scroll.setWidget(self.advanced)
+        self.advanced = QWidget(); self.advanced.setObjectName('MaterialDialogAdvanced')
         advanced_layout = QVBoxLayout(self.advanced); advanced_layout.setContentsMargins(0, 0, 0, 0); advanced_layout.setSpacing(8)
-        self.body.addWidget(self.advanced_scroll); self.advanced_scroll.hide()
-        self.advanced_toggle.toggled.connect(self.advanced_scroll.setVisible)
+        self.body.addWidget(self.advanced); self.advanced.hide()
+        self.advanced_toggle.toggled.connect(self.advanced.setVisible)
         def group(title):
             toggle = Disclosure(title); panel = QWidget(); layout = QVBoxLayout(panel); layout.setContentsMargins(8, 4, 8, 10)
             advanced_layout.addWidget(toggle); advanced_layout.addWidget(panel); panel.hide(); toggle.toggled.connect(panel.setVisible)
@@ -604,9 +602,10 @@ class MaterialEditDialog(StudioDialog):
         self.lookup_toggle, lookup = group('標籤查詢'); lookup.addWidget(f.lookup); lookup.addWidget(f.lookup_hint)
         self.relation_toggle, relation = group('關係與預覽'); relation.addWidget(label('停用的完整 Tag，每行一項', 'Subtle')); relation.addWidget(f.excludes); relation.addWidget(f.preview)
         relation.addLayout(row(button('選擇預覽圖', f.choose_image, 'Quiet'), button('移除預覽', f.clear_image, 'Quiet')))
-        self.history_toggle, history = group('內容歷史'); history.addWidget(button('查看內容歷史', f.history, 'Quiet'))
-        self.error = StatusLabel(); f.status = self.error; self.body.addWidget(self.error)
-        self.destination_label = label('', 'Subtle', True); self.body.addWidget(self.destination_label)
+        self.history_toggle, history = group('內容歷史')
+        self.history_button = button('查看內容歷史', f.history, 'Quiet'); history.addWidget(self.history_button)
+        self.error = StatusLabel(); f.status = self.error
+        self.destination_label = label('', 'Subtle', True)
         self.cancel_button = button('取消', self.reject, 'Quiet')
         self.save_button = button('保存', lambda: self.save(bool(self.form.destination_id) and not self.target_id), 'Primary')
         self.add_button = button('保存並加入畫布', lambda: self.save(True), 'Quiet')
@@ -614,16 +613,22 @@ class MaterialEditDialog(StudioDialog):
         self.body.addLayout(row(self.identity, None, self.cancel_button, self.save_button, self.add_button))
         self.form_scroll = QScrollArea(); self.form_scroll.setWidgetResizable(True); self.form_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self.form_scroll.setMinimumHeight(0)
+        self.form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         form_content = QWidget(); form_content.setObjectName('MaterialDialogBody')
-        self.form_scroll.setStyleSheet('QScrollArea { background:transparent; border:0; } QWidget#MaterialDialogBody { background:transparent; }')
+        self.form_scroll.setStyleSheet('QScrollArea { background:transparent; border:0; } QWidget#MaterialDialogBody, QWidget#MaterialDialogAdvanced { background:transparent; }')
         self.form_scroll.viewport().setObjectName('MaterialDialogViewport')
         self.form_scroll.viewport().setStyleSheet('QWidget#MaterialDialogViewport { background:transparent; }')
         form_layout = QVBoxLayout(form_content); form_layout.setContentsMargins(0, 0, 0, 0); form_layout.setSpacing(10)
+        # The single outer viewport follows every disclosure's natural height.
+        # A second scroll area here compressed expanded fields into its own
+        # viewport, leaving two competing scrollbars and clipped form rows.
+        form_layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetMinimumSize)
         while self.body.count() > 1:
             item = self.body.takeAt(0)
             if item.widget(): form_layout.addWidget(item.widget())
             elif item.layout(): form_layout.addLayout(item.layout())
         form_layout.addStretch(); self.form_scroll.setWidget(form_content); self.body.insertWidget(0, self.form_scroll, 1)
+        self.body.insertWidget(1, self.error); self.body.insertWidget(2, self.destination_label)
         self.set_destination(page.destination_id)
         self.prompt.textChanged.connect(lambda: apply_line_spacing(f)); sync_prompt_style(f); apply_line_spacing(f)
         self.error.setText('')
@@ -653,7 +658,10 @@ class MaterialEditDialog(StudioDialog):
 
     def expand_text(self):
         expanded = self.prompt.height() < 300
-        self.prompt.setFixedHeight(340 if expanded else 170); self.resize(self.width(), 780 if expanded else 610)
+        self.prompt.setFixedHeight(340 if expanded else 170)
+        available = max(400, self.page.window.height()-24)
+        if self.screen(): available = min(available, self.screen().availableGeometry().height()-40)
+        self.resize(self.width(), min(780 if expanded else 610, available))
 
     def _value(self):
         f = self.form; value = copy.deepcopy(f.base or {}); fields = f.form_values()

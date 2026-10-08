@@ -292,9 +292,70 @@ class EditorRev9Tests(unittest.TestCase):
         self.page.set_browser_category('@uncategorized');self.assertEqual(self.page.get_browser_category(),category)
 
     def test_save_failure_stays_in_dialog(self):
+        self.w.resize(640, 480); self.page.resize(640, 480)
         before = copy.deepcopy(self.w.state); dialog = self.edit(); dialog.name.clear()
+        dialog.advanced_toggle.setChecked(True); dialog.info_toggle.setChecked(True)
+        dialog.relation_toggle.setChecked(True); self.app.processEvents()
+        dialog.form_scroll.verticalScrollBar().setValue(dialog.form_scroll.verticalScrollBar().maximum())
         self.assertFalse(dialog.save()); self.assertTrue(dialog.isVisible()); self.assertTrue(dialog.error.text())
+        self.app.processEvents()
+        self.assertFalse(dialog.form_scroll.isAncestorOf(dialog.error))
+        self.assertTrue(dialog.error.isVisible())
+        self.assertTrue(dialog.rect().contains(dialog.error.mapTo(dialog, dialog.error.rect().topLeft())))
+        self.assertTrue(dialog.rect().contains(dialog.error.mapTo(dialog, dialog.error.rect().bottomRight())))
+        self.assertTrue(dialog.rect().contains(dialog.save_button.mapTo(dialog, dialog.save_button.rect().center())))
         self.assertEqual(self.w.state,before)
+
+    def test_advanced_sections_use_one_scroll_and_keep_footer_reachable(self):
+        from PySide6.QtWidgets import QScrollArea
+        for size in ((1440, 900), (640, 480)):
+            with self.subTest(size=size):
+                self.w.resize(*size); self.page.resize(*size)
+                before = copy.deepcopy(self.w.state); dialog = self.edit()
+                viewport = dialog.form_scroll.viewport()
+                def reveal(control):
+                    dialog.form_scroll.ensureWidgetVisible(control, 8, 8)
+                    self.app.processEvents(); QTest.qWait(10)
+                    position = control.mapTo(viewport, control.rect().center())
+                    self.assertTrue(viewport.rect().contains(position), (control.text() if hasattr(control, 'text') else type(control).__name__, position))
+                    return control
+                QTest.mouseClick(reveal(dialog.advanced_toggle), Qt.MouseButton.LeftButton)
+                for toggle in (dialog.info_toggle, dialog.lookup_toggle, dialog.relation_toggle, dialog.history_toggle):
+                    QTest.mouseClick(reveal(toggle), Qt.MouseButton.LeftButton)
+                self.app.processEvents()
+                self.assertEqual(dialog.form_scroll.findChildren(QScrollArea), [])
+                self.assertGreater(dialog.form_scroll.verticalScrollBar().maximum(), 0)
+                for control in (dialog.form.edit_category, dialog.form.kind, dialog.form.aliases,
+                                dialog.form.notes, dialog.form.lookup, dialog.form.excludes, dialog.history_button):
+                    self.assertTrue(control.isVisible())
+                    reveal(control)
+                for control in (dialog.save_button, dialog.cancel_button):
+                    self.assertFalse(dialog.form_scroll.isAncestorOf(control))
+                    self.assertTrue(dialog.rect().contains(control.mapTo(dialog, control.rect().center())))
+                self.assertFalse(dialog.form_scroll.isAncestorOf(dialog.error))
+                self.assertFalse(dialog.form_scroll.isAncestorOf(dialog.destination_label))
+                QTest.mouseClick(reveal(dialog.form.aliases), Qt.MouseButton.LeftButton)
+                dialog.form.aliases.selectAll(); QTest.keyClicks(dialog.form.aliases, 'advanced aliases')
+                QTest.mouseClick(reveal(dialog.form.notes), Qt.MouseButton.LeftButton)
+                dialog.form.notes.selectAll(); QTest.keyClicks(dialog.form.notes, 'advanced notes')
+                QTest.mouseClick(reveal(dialog.form.excludes), Qt.MouseButton.LeftButton)
+                dialog.form.excludes.selectAll(); QTest.keyClicks(dialog.form.excludes, 'excluded_tag')
+                self.assertEqual(dialog._value()['aliases'], ['advanced aliases'])
+                self.assertEqual(dialog._value()['notes'], 'advanced notes')
+                self.assertEqual(dialog._value()['excludes'], ['excluded_tag'])
+                self.assertEqual(self.w.state, before)
+                QTest.mouseClick(dialog.cancel_button, Qt.MouseButton.LeftButton)
+                self.assertEqual(self.w.state, before)
+
+    def test_expand_long_text_keeps_narrow_dialog_footer_within_host(self):
+        self.w.resize(640, 480); self.page.resize(640, 480)
+        dialog = self.edit()
+        dialog.expand_text(); self.app.processEvents()
+        self.assertLessEqual(dialog.height(), self.w.height()-24)
+        self.assertTrue(dialog.rect().contains(dialog.save_button.mapTo(dialog, dialog.save_button.rect().center())))
+        self.assertGreater(dialog.form_scroll.verticalScrollBar().maximum(), 0)
+        dialog.expand_text(); self.app.processEvents()
+        self.assertLessEqual(dialog.height(), self.w.height()-24)
 
     def test_save_add_partial_failure_retry_is_only_add_and_idempotent(self):
         self.page.set_destination(self.fixture.canvas); dialog = self.page.new_material()
