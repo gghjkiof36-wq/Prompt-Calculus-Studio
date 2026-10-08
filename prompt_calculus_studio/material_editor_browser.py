@@ -501,6 +501,8 @@ class MaterialEditDialog(StudioDialog):
             self.advanced_toggle.setStyleSheet('text-align:left;min-height:0;padding:2px;'); self.advanced_toggle.setFixedHeight(40)
             if self.width()<500: self.identity.hide()
             self.prompt.setFixedHeight(max(140, int(self.prompt.fontMetrics().lineSpacing()*3*1.65)+20))
+        from .material_editor_documents import ModalNativeHistory
+        self.native_history = ModalNativeHistory(f)
 
     def set_destination(self, canvas_id):
         self.form.set_destination(canvas_id)
@@ -582,19 +584,9 @@ class MaterialEditDialog(StudioDialog):
         return bool(success)
 
     def _publish_saved(self):
-        """Commit text into the prior native document as one undoable save.
-
-        The dialog's working document never replaces the old draft's history on
-        cancel. Other editor surfaces therefore retain their actual Qt document.
-        """
+        """Advance the native source checkpoint only after canonical Save."""
         f = self.form; window = self.page.window
-        from .material_editor_documents import _document
-        cache = getattr(window, '_material_editor_documents', {})
-        key = ('source', self.target_id); document = cache.get(key)
-        if document is None: document = cache[key] = f.prompt.document()
-        elif document.toPlainText() != f.prompt.toPlainText():
-            cursor = QTextCursor(document); cursor.beginEditBlock(); cursor.select(QTextCursor.SelectionType.Document)
-            cursor.insertText(f.prompt.toPlainText()); cursor.endEditBlock()
+        self.native_history.save_checkpoint()
         saved = f.export_state(); saved.update(base=copy.deepcopy(f.base), dirty=False)
         session = window._material_editor_session
         previous_new = session['drafts'].get(('new', ''))
@@ -604,6 +596,7 @@ class MaterialEditDialog(StudioDialog):
         session['active'] = f.target; session['serial'] += 1
 
     def done(self, result):
+        self.native_history.rollback()
         self.form.timer.stop(); self.page.window.completion.cancel(self.prompt); self.prompt.completer.popup().hide()
         cache = getattr(self.page.window, '_material_editor_documents', {})
         scope = self.form.document_scope

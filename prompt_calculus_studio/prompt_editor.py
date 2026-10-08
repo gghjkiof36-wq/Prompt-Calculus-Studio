@@ -315,7 +315,8 @@ class MaterialEditorForm(QWidget):
         self.lookup_hint.hide()
         detail.addWidget(self.lookup_hint)
         from .material_editor_page import PagePromptText
-        self.prompt = PagePromptText(self)
+        from .material_editor_documents import ModalPromptText
+        self.prompt = ModalPromptText(self) if self.isolated else PagePromptText(self)
         self.prompt.setObjectName('Prompt')
         self.prompt.setPlaceholderText('輸入文字內容')
         self.prompt.setMinimumHeight(150)
@@ -579,6 +580,9 @@ class MaterialEditorForm(QWidget):
 
     def _publish(self, force=False):
         if self.loading or self.importing_session: return
+        if not self.isolated and self.base:
+            from .material_editor_documents import _key
+            if _key(self) in getattr(self.window, '_material_native_transactions', {}): return
         value = self.export_state()
         if value is None: return
         session = self.session
@@ -737,6 +741,8 @@ class MaterialEditorForm(QWidget):
         else:
             from .material_editor_page import update_page
             update_page(self)
+        history = getattr(self.prompt, 'history', None)
+        if history is not None and history.identity != self.base['id']: history.bind()
         self._publish(force=True)
 
     def form_values(self):

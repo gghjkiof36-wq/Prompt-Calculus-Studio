@@ -2,7 +2,7 @@
 import copy
 import unittest
 from unittest.mock import patch
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QCoreApplication, QEvent
 from PySide6.QtGui import QTextCursor
 from PySide6.QtTest import QTest
 import test_material_editor as fixture_module
@@ -91,6 +91,123 @@ class EditorRev9Tests(unittest.TestCase):
         dialog=self.edit();dialog.prompt.insertPlainText('edited ');self.assertTrue(dialog.save())
         self.assertEqual(self.w._material_editor_session['drafts'][('new','')],saved)
 
+    def saved_text(self, text):
+        dialog = self.edit(); dialog.prompt.selectAll(); QTest.keyClicks(dialog.prompt, text)
+        self.assertTrue(dialog.save()); self.app.processEvents()
+
+    def undo_key(self, dialog):
+        QTest.keyClick(dialog.prompt, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+
+    def redo_key(self, dialog):
+        QTest.keyClick(dialog.prompt, Qt.Key.Key_Y, Qt.KeyboardModifier.ControlModifier)
+
+    def test_reopen_native_undo_redo_keyboard_and_standard_menu(self):
+        original = materials.item(self.w.state, self.ident)['prompt']
+        self.saved_text('saved first'); self.saved_text('saved second')
+        canonical = copy.deepcopy(self.w.state); dialog = self.edit()
+        self.undo_key(dialog); self.assertEqual(dialog.prompt.toPlainText(), 'saved first')
+        self.undo_key(dialog); self.assertEqual(dialog.prompt.toPlainText(), original)
+        QTest.keyClick(dialog.prompt, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual(dialog.prompt.toPlainText(), 'saved first')
+        menu = dialog.prompt.createStandardContextMenu()
+        actions = {action.objectName(): action for action in menu.actions()}
+        self.assertTrue(actions['edit-undo'].isEnabled()); self.assertTrue(actions['edit-redo'].isEnabled())
+        actions['edit-redo'].trigger(); self.assertEqual(dialog.prompt.toPlainText(), 'saved second')
+        actions['edit-undo'].trigger(); self.assertEqual(dialog.prompt.toPlainText(), 'saved first')
+        menu.deleteLater(); self.assertEqual(self.w.state, canonical)
+        self.assertTrue(dialog.save())
+        self.assertEqual(materials.item(self.w.state, self.ident)['prompt'], 'saved first')
+        again = self.edit(); self.redo_key(again); self.assertEqual(again.prompt.toPlainText(), 'saved second')
+
+    def test_cancel_after_inherited_undo_and_typing_restores_prior_redo_and_view(self):
+        original = materials.item(self.w.state, self.ident)['prompt']
+        self.saved_text('one'); self.saved_text('two')
+        dialog = self.edit(); self.undo_key(dialog); self.assertTrue(dialog.save())
+        prior = self.fixture.editor; prior.open_material(self.ident)
+        source = prior.prompt.document(); self.assertTrue(source.isRedoAvailable())
+        cursor = prior.prompt.textCursor(); cursor.setPosition(1); cursor.setPosition(3, QTextCursor.MoveMode.KeepAnchor)
+        prior.prompt.setTextCursor(cursor); prior._publish(force=True)
+        saved_session = copy.deepcopy(self.w._material_editor_session); state = copy.deepcopy(self.w.state)
+        for escape in (False, True):
+            dialog = self.edit(); self.undo_key(dialog); self.assertEqual(dialog.prompt.toPlainText(), original)
+            dialog.prompt.moveCursor(QTextCursor.MoveOperation.End); QTest.keyClicks(dialog.prompt, ' local branch')
+            # Even a hidden form claiming and publishing cannot touch this source.
+            prior.prompt.claim_history(); prior._publish(force=True)
+            self.assertEqual(self.w._material_editor_session, saved_session); self.assertEqual(self.w.state, state)
+            if escape: QTest.keyClick(dialog.prompt, Qt.Key.Key_Escape)
+            else: QTest.mouseClick(dialog.cancel_button, Qt.MouseButton.LeftButton)
+            self.assertIs(prior.prompt.document(), source); self.assertEqual(source.toPlainText(), 'one')
+            self.assertEqual((prior.prompt.textCursor().anchor(), prior.prompt.textCursor().position()), (1,3))
+            self.assertTrue(source.isRedoAvailable()); self.assertEqual(self.w._material_editor_session, saved_session)
+            again = self.edit(); self.redo_key(again); self.assertEqual(again.prompt.toPlainText(), 'two'); again.reject()
+            self.assertEqual(source.toPlainText(), 'one'); self.assertTrue(source.isRedoAvailable())
+
+    def test_local_and_inherited_native_chains_traverse_in_order_then_save_branch(self):
+        self.saved_text('one'); self.saved_text('two')
+        dialog = self.edit(); dialog.prompt.moveCursor(QTextCursor.MoveOperation.End)
+        QTest.keyClicks(dialog.prompt, ' local')
+        self.undo_key(dialog); self.assertEqual(dialog.prompt.toPlainText(), 'two')
+        self.undo_key(dialog); self.assertEqual(dialog.prompt.toPlainText(), 'one')
+        self.redo_key(dialog); self.assertEqual(dialog.prompt.toPlainText(), 'two')
+        self.redo_key(dialog); self.assertEqual(dialog.prompt.toPlainText(), 'two local')
+        self.undo_key(dialog); self.undo_key(dialog)
+        dialog.prompt.moveCursor(QTextCursor.MoveOperation.End); QTest.keyClicks(dialog.prompt, ' branch')
+        self.assertTrue(dialog.save())
+        again = self.edit(); self.undo_key(again); self.assertEqual(again.prompt.toPlainText(), 'one')
+        self.redo_key(again); self.assertEqual(again.prompt.toPlainText(), 'one branch')
+        self.redo_key(again); self.assertEqual(again.prompt.toPlainText(), 'one branch')
+
+    def test_partial_add_save_is_new_checkpoint_even_when_followup_cancelled(self):
+        self.saved_text('before'); self.page.set_destination(self.fixture.canvas)
+        dialog = self.edit(); dialog.prompt.selectAll(); QTest.keyClicks(dialog.prompt, 'saved before retry')
+        original_commit = self.w.canvas.commit
+        with patch.object(self.w.canvas, 'commit', lambda op,label='Edit',**kw: False if label=='加入文字素材' else original_commit(op,label,**kw)):
+            self.assertFalse(dialog.save(True))
+        saved_state = copy.deepcopy(self.w.state); saved_session = copy.deepcopy(self.w._material_editor_session)
+        self.undo_key(dialog); self.assertEqual(dialog.prompt.toPlainText(), 'before')
+        QTest.keyClicks(dialog.prompt, ' discarded'); dialog.reject()
+        self.assertEqual(self.w.state, saved_state); self.assertEqual(self.w._material_editor_session, saved_session)
+        again = self.edit(); self.assertEqual(again.prompt.toPlainText(), 'saved before retry')
+        self.undo_key(again); self.assertEqual(again.prompt.toPlainText(), 'before')
+        self.redo_key(again); self.assertEqual(again.prompt.toPlainText(), 'saved before retry')
+
+    def test_cancel_native_navigation_preserves_long_draft_scroll_and_redo(self):
+        prior = self.fixture.editor; prior.open_material(self.ident)
+        long_text = '\n'.join('原有長稿 %d: αβ文字😀' % i for i in range(90))
+        prior.prompt.selectAll(); prior.prompt.insertPlainText(long_text)
+        prior.prompt.moveCursor(QTextCursor.MoveOperation.End); prior.prompt.insertPlainText(' pending redo')
+        prior.prompt.undo(); self.assertTrue(prior.prompt.document().isRedoAvailable())
+        cursor = prior.prompt.textCursor(); cursor.setPosition(190); cursor.setPosition(210, QTextCursor.MoveMode.KeepAnchor)
+        prior.prompt.setTextCursor(cursor); prior.prompt.verticalScrollBar().setValue(160)
+        prior._publish(force=True); source = prior.prompt.document()
+        position = (prior.prompt.textCursor().position(), prior.prompt.textCursor().anchor(), prior.prompt.verticalScrollBar().value())
+        session = copy.deepcopy(self.w._material_editor_session); state = copy.deepcopy(self.w.state)
+        dialog = self.edit(); self.redo_key(dialog); self.assertTrue(dialog.prompt.toPlainText().endswith(' pending redo'))
+        dialog.prompt.insertPlainText('\n新行😀'); self.undo_key(dialog); self.undo_key(dialog)
+        QTest.keyClick(dialog.prompt, Qt.Key.Key_Escape)
+        self.assertIs(prior.prompt.document(), source); self.assertEqual(source.toPlainText(), long_text)
+        self.assertEqual((prior.prompt.textCursor().position(), prior.prompt.textCursor().anchor(), prior.prompt.verticalScrollBar().value()), position)
+        self.assertEqual(self.w._material_editor_session, session); self.assertEqual(self.w.state, state)
+        self.assertTrue(source.isRedoAvailable()); prior.prompt.redo()
+        self.assertEqual(prior.prompt.toPlainText(), long_text+' pending redo')
+
+    def test_modal_history_lifecycle_duplicate_cancel_and_saved_source_retained(self):
+        from shiboken6 import isValid
+        self.saved_text('source alive')
+        source = self.w._material_editor_documents[('source', self.ident)]
+        for _ in range(3):
+            dialog = self.page.duplicate_material(self.ident)
+            dialog = self.page.active_dialog
+            scope = dialog.form.document_scope
+            private = set(v for key,v in self.w._material_editor_documents.items() if key[:2] == ('dialog',scope))
+            self.assertGreater(len(private), 1); dialog.reject()
+            self.app.processEvents(); QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            self.app.processEvents(); QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            self.assertTrue(all(not isValid(document) for document in private))
+            self.assertTrue(isValid(source)); self.assertFalse(self.w._material_native_transactions)
+        self.assertEqual(source.toPlainText(), 'source alive')
+        again = self.edit(); self.undo_key(again); self.assertNotEqual(again.prompt.toPlainText(), 'source alive')
+
     def test_virtual_uncategorized_is_readonly_and_maps_to_real_id(self):
         before=copy.deepcopy(self.w.state);self.page.set_browser_category('@uncategorized')
         self.assertEqual(self.page.get_browser_category(),'@uncategorized');self.assertEqual(self.page.listing.count(),0)
@@ -152,18 +269,25 @@ class EditorRev9Tests(unittest.TestCase):
         self.assertEqual(self.page.listing.count(),0)
         self.assertFalse(self.page.listing.isVisible());self.assertTrue(self.page.empty_results.isVisible())
         dialog=self.page.new_material();self.assertEqual(dialog.form.edit_category.currentData(),category);dialog.reject()
-        self.page.set_browser_category(None);self.page.resize(2048,1152);self.app.processEvents();self.app.processEvents()
-        self.page.close_preview()
-        before=self.page.browser.geometry();self.page.preview_material(self.ident);self.app.processEvents()
-        self.assertEqual(self.page.browser.geometry().x(),before.x())
-        self.assertEqual(before.x(),self.page.category_panel.geometry().right()+25)
-        self.assertGreater(self.page.browser.width(),1000);self.assertLess(self.page.browser.width(),before.width())
-        self.assertTrue(340 <= self.page.preview_card.width() <= 380)
-        self.assertLess(self.page.browser.geometry().right(),self.page.preview_card.x())
+        self.page.set_browser_category(None)
+        for width,height in ((1360,900),(2048,1152)):
+            self.page.close_preview();self.page.resize(width,height);self.app.processEvents();self.app.processEvents()
+            before=self.page.browser.geometry();self.page.preview_material(self.ident);self.app.processEvents()
+            self.assertEqual((before.x(),before.width()),(264,920))
+            self.assertEqual(self.page.browser.geometry(),before)
+            self.assertEqual(before.x(),self.page.category_panel.geometry().right()+25)
+            if width==2048:
+                self.assertTrue(340 <= self.page.preview_card.width() <= 380)
+                self.assertLess(self.page.browser.geometry().right(),self.page.preview_card.x())
+            else:
+                self.assertGreater(self.page.preview_card.y(),self.page.browser.geometry().bottom())
+            self.page.close_preview();self.assertEqual(self.page.browser.geometry(),before)
         for i in range(self.page.listing.count()): self.assertTrue(self.page.listing.item(i).icon().isNull())
-        self.page.close_preview();self.assertEqual(self.page.browser.geometry(),before)
-        self.page.resize(360,640);self.app.processEvents();self.app.processEvents();self.page.preview_material(self.ident)
-        self.assertLessEqual(self.page.browser.geometry().right(),self.page.scroll.viewport().width())
-        self.assertGreater(self.page.preview_card.y(),self.page.browser.y())
+        for width in (1100,640,360):
+            self.page.close_preview();self.page.resize(width,640);self.app.processEvents();self.app.processEvents()
+            self.page.preview_material(self.ident);self.app.processEvents();self.app.processEvents()
+            self.assertLess(self.page.browser.width(),920)
+            self.assertLessEqual(self.page.browser.geometry().right(),self.page.scroll.viewport().width())
+            self.assertGreater(self.page.preview_card.y(),self.page.browser.geometry().bottom())
 
 if __name__=='__main__': unittest.main()
