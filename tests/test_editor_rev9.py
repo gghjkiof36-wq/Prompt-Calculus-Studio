@@ -280,7 +280,7 @@ class EditorRev9Tests(unittest.TestCase):
             right_gap=self.page.scroll.viewport().width()-(before.x()+before.width())
             self.assertLessEqual(abs(left_gap-right_gap),1,('Unbalanced workspace gutters',left_gap,right_gap))
             self.assertGreaterEqual(left_gap,24)
-            self.assertEqual(self.page.browser.geometry(),before)
+            self.assertLessEqual(self.page.browser.width(),SETTINGS_READING_WIDTH)
             self.assertEqual(self.page.title.mapTo(self.page.browser,QPoint()).x(),1)
             self.assertEqual(self.page.search.mapTo(self.page.browser,QPoint()).x(),1)
             self.assertEqual(self.page.listing.x(),0)
@@ -290,11 +290,14 @@ class EditorRev9Tests(unittest.TestCase):
             self.assertEqual(more_right,order_right)
             self.assertIs(self.page.category_panel.parentWidget(),self.page.scroll.viewport())
             self.assertEqual(self.page.scroll.horizontalScrollBar().maximum(),0)
-            if width==2048:
-                self.assertTrue(340 <= self.page.preview_card.width() <= 380)
-                self.assertLess(self.page.browser.geometry().right(),self.page.preview_card.x())
-            else:
-                self.assertGreater(self.page.preview_card.y(),self.page.browser.geometry().bottom())
+            self.assertTrue(340 <= self.page.preview_card.width() <= 380)
+            self.assertEqual(self.page.preview_card.x(),self.page.browser.geometry().right()+25)
+            self.assertEqual(self.page.preview_card.y(),self.page.search.mapTo(self.page.shell,QPoint()).y())
+            group_left=self.page.browser.x()-workspace_left
+            group_right=self.page.scroll.viewport().width()-self.page.preview_card.geometry().right()-1
+            self.assertLessEqual(abs(group_left-group_right),1)
+            self.assertEqual(self.page.title.mapTo(self.page.browser,QPoint()).y()+self.page.title.height(),
+                             self.page.count.mapTo(self.page.browser,QPoint()).y()+self.page.count.height())
             self.page.close_preview();self.assertEqual(self.page.browser.geometry(),before)
         for i in range(self.page.listing.count()): self.assertTrue(self.page.listing.item(i).icon().isNull())
         for width in (1100,640,360):
@@ -308,5 +311,25 @@ class EditorRev9Tests(unittest.TestCase):
             self.assertLessEqual(abs(left_gap-right_gap),1)
             self.assertEqual(self.page.scroll.horizontalScrollBar().maximum(),0)
             self.assertGreater(self.page.preview_card.y(),self.page.browser.geometry().bottom())
+
+    def test_preview_stays_beside_list_during_desktop_resize_and_returns_from_narrow(self):
+        self.page.set_browser_category(None); self.page.preview_material(self.ident)
+        original=copy.deepcopy(self.w.state['items'])
+        for width,side in ((2048,True),(1440,True),(1360,True),(1024,False),(640,False),(1360,True),(2048,True)):
+            self.page.resize(width,900); self.app.processEvents(); self.app.processEvents()
+            main=self.page.browser.geometry(); detail=self.page.preview_card.geometry()
+            self.assertEqual(self.page.preview_id,self.ident)
+            self.assertEqual(self.page.scroll.horizontalScrollBar().maximum(),0)
+            self.assertLessEqual(detail.right(),self.page.scroll.viewport().width())
+            if side:
+                self.assertEqual(detail.x(),main.right()+25)
+                self.assertEqual(detail.y(),self.page.search.mapTo(self.page.shell,QPoint()).y())
+                self.assertGreaterEqual(main.width(),520)
+            else:
+                self.assertEqual(detail.x(),main.x())
+                self.assertGreater(detail.y(),main.bottom())
+            self.assertIs(self.page.manage_button.parentWidget(),
+                          self.page.category_controls if self.page.narrow else self.page.category_panel)
+        self.assertEqual(self.w.state['items'],original)
 
 if __name__=='__main__': unittest.main()

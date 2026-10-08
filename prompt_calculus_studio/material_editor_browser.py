@@ -2,7 +2,7 @@
 import copy
 import json
 import math
-from PySide6.QtCore import Qt, QTimer, QSize, QRectF, Signal, QEvent
+from PySide6.QtCore import Qt, QTimer, QSize, QRectF, QPoint, Signal, QEvent
 from PySide6.QtGui import QFont, QColor, QPen, QFontMetrics, QTextCursor, QTextBlockFormat, QPixmap, QShortcut, QKeySequence
 from PySide6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit,
     QListWidget, QListWidgetItem, QCheckBox, QScrollArea, QTextEdit, QLabel,
@@ -82,9 +82,7 @@ class PromptEditor(QWidget):
         workbar.addWidget(self.workspace_name); workbar.addWidget(self.workspace_switch); workbar.addStretch(); outer.addLayout(workbar)
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True)
         self.scroll.setProperty('pcsReadingPage', True)
-        # Match the settings reading pages: reserve the scroll track so opening
-        # longer content does not move the centered column sideways.
-        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.scroll.setFrameShape(QScrollArea.Shape.NoFrame); outer.addWidget(self.scroll)
         self.scroll.viewport().installEventFilter(self)
         self.shell = QWidget(); self.scroll.setWidget(self.shell)
@@ -113,7 +111,10 @@ class PromptEditor(QWidget):
         from .ui_icons import icon
         self.new_button.setIcon(icon('plus'))
         self.library_more = button('更多', self.library_menu, 'Quiet'); self.library_more.setIcon(icon('more-horizontal'))
-        self.header_layout.addLayout(row(self.title, self.count, None, self.new_button, self.library_more))
+        title_row = row(self.title, self.count, None, self.new_button, self.library_more)
+        title_row.setAlignment(self.title, Qt.AlignmentFlag.AlignBottom)
+        title_row.setAlignment(self.count, Qt.AlignmentFlag.AlignBottom)
+        self.header_layout.addLayout(title_row)
         self.search = QLineEdit(); self.search.setPlaceholderText('搜尋目前分類的名稱、別名或內容')
         self.pins = QCheckBox('釘選'); self.order = ComboBox(); self.order.addItem('名稱', 'name'); self.order.addItem('最近使用', 'recent')
         self.header_layout.addLayout(row(self.search, self.pins, self.order))
@@ -121,7 +122,7 @@ class PromptEditor(QWidget):
         from .prompt_editor import MaterialList
         self.listing = MaterialList(); self.listing.setFrameShape(QListWidget.Shape.NoFrame)
         self.listing.setItemDelegate(LibraryDelegate(self.listing)); self.listing.setSpacing(0)
-        self.listing.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.listing.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.listing.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.listing.customContextMenuRequested.connect(self.material_menu)
         content.addWidget(self.listing, 1)
@@ -142,6 +143,8 @@ class PromptEditor(QWidget):
         preview.addWidget(self.preview_image)
         self.edit_button = button('編輯素材', lambda: self.edit_material(self.preview_id)); preview.addWidget(self.edit_button)
         self.preview_card.hide()
+        self.scroll.verticalScrollBar().rangeChanged.connect(self._queue_layout)
+        self.listing.verticalScrollBar().rangeChanged.connect(self._queue_layout)
         self.preview_timer = QTimer(self); self.preview_timer.setTimerType(Qt.TimerType.PreciseTimer); self.preview_timer.setSingleShot(True); self.preview_timer.timeout.connect(self._show_selected_preview)
         self.listing.itemClicked.connect(self._mouse_preview)
         self.listing.itemDoubleClicked.connect(lambda entry: self.edit_material(entry.data(Qt.ItemDataRole.UserRole)))
@@ -162,9 +165,21 @@ class PromptEditor(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event); QTimer.singleShot(0, self._layout)
 
+    def _queue_layout(self, *_):
+        QTimer.singleShot(0, self._layout)
+
+    @staticmethod
+    def _reserve_scroll_gutter(area):
+        # Keep the column stable without showing a scrollbar that cannot move.
+        bar = area.verticalScrollBar()
+        reserve = bar.sizeHint().width() if bar.maximum() <= bar.minimum() else 0
+        if area.viewportMargins().right() != reserve:
+            area.setViewportMargins(0, 0, reserve, 0)
+
     def _layout(self):
         if not hasattr(self, 'browser'): return
         self._sync_type()
+        self._reserve_scroll_gutter(self.scroll)
         viewport_width = self.scroll.viewport().width(); height = self.scroll.viewport().height()
         minimum_browser = max(520, self.browser.minimumSizeHint().width())
         self.narrow = viewport_width < max(800, 264+minimum_browser+24)
@@ -197,17 +212,24 @@ class PromptEditor(QWidget):
             area_width = max(0, width-area_x-READING_MARGIN)
         has_preview = bool(self.preview_id and self.preview_card.isVisible())
         detail_width = min(380, max(340, round(area_width*.22)))
-        central = min(READING_CONTENT_WIDTH, area_width)
-        x = area_x + (area_width-central)//2
-        # Detail supports the centered list without shifting it on selection.
-        # Use the right gutter only when the complete card fits there.
-        below = area_x+area_width-(x+central) < 24+detail_width
+        # Fit the list and its supporting preview together. Testing only the
+        # centered list's right gutter made normal desktop windows stack early.
+        below = area_width < minimum_browser+24+340
+        if has_preview and not below:
+            detail_width = min(detail_width, area_width-minimum_browser-24)
+            central = min(READING_CONTENT_WIDTH, area_width-24-detail_width)
+            group_width = central+24+detail_width
+        else:
+            central = min(READING_CONTENT_WIDTH, area_width)
+            group_width = central
+        x = area_x + (area_width-group_width)//2
         row_height = self.listing.fontMetrics().height()*2 + 40
         list_height = max(110, min(580, self.listing.count()*row_height + 12))
         self.listing.setMinimumHeight(list_height); self.listing.setMaximumHeight(list_height)
         browser_height = self.browser.sizeHint().height()
         self.browser.setGeometry(x, start, central, browser_height)
         self.browser.layout().activate()
+        self._reserve_scroll_gutter(self.listing)
         # Reserve the same scroll gutter for the header and rows, so controls
         # align with the visible card edges even when the list needs scrolling.
         gutter = max(0, self.listing.width()-self.listing.viewport().width())
@@ -235,7 +257,7 @@ class PromptEditor(QWidget):
             self.preview_text.setFixedHeight(max(36, min(300, text_height)))
             layout.invalidate()
             card_height = max(layout.totalMinimumSize().height(), layout.totalHeightForWidth(card_width))
-            px, py = (x, bottom) if below else (x+central+24, start)
+            px, py = (x, bottom) if below else (x+central+24, self.search.mapTo(self.shell, QPoint()).y())
             self.preview_card.setGeometry(px, py, card_width, card_height)
             layout.activate()
             bottom = max(bottom, py+card_height+24)
