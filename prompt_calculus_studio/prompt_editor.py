@@ -30,11 +30,14 @@ def _live_editors(window):
 
 def reset_editors(window):
     """Drop old-document forms after the caller has confirmed and replaced it."""
+    page = getattr(window, 'prompt_editor', None)
+    if page is not None and isValid(page) and hasattr(page, 'reset'): page.reset()
     serial = getattr(window, '_material_editor_session', {}).get('serial', 0) + 1
     window._material_editor_session = dict(serial=serial, active=None, drafts={})
     from .material_editor_documents import reset_documents
     reset_documents(window)
     for editor in _live_editors(window):
+        editor.session = window._material_editor_session
         editor.timer.stop()
         window.completion.cancel(editor.prompt)
         editor.prompt.completer.popup().hide()
@@ -221,10 +224,12 @@ def show_history(window, target=None):
     dialog.exec()
 
 
-class PromptEditor(QWidget):
+class MaterialEditorForm(QWidget):
     """`target` identifies a material original or a workspace-local node copy."""
-    def __init__(self, window, compact=False):
+    def __init__(self, window, compact=False, isolated=False):
         super().__init__()
+        self.isolated = isolated
+        self.document_scope = uid() if isolated else None
         self.window, self.compact = window, compact
         self.narrow = compact
         self.target = None
@@ -239,7 +244,8 @@ class PromptEditor(QWidget):
         if not hasattr(window, '_material_editor_session'):
             window._material_editor_session = dict(serial=0, active=None, drafts={})
         if not hasattr(window, '_material_editors'): window._material_editors = weakref.WeakSet()
-        window._material_editors.add(self)
+        if not isolated: window._material_editors.add(self)
+        self.session = (copy.deepcopy(window._material_editor_session) if isolated else window._material_editor_session)
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.setInterval(350)
@@ -451,8 +457,8 @@ class PromptEditor(QWidget):
             self.refresh_list()
         finally:
             self.loading = False
-        session = self.window._material_editor_session
-        if session['serial'] != self.session_serial and session['active'] is not None:
+        session = self.session
+        if not self.isolated and session['serial'] != self.session_serial and session['active'] is not None:
             saved = session['drafts'].get(session['active'])
             if saved and (saved['target'] is None or saved['target'][0] != 'canvas' or saved['workspace'] == self.window.state['workspace']):
                 self._restore_session(saved, session['serial'])
@@ -575,7 +581,7 @@ class PromptEditor(QWidget):
         if self.loading or self.importing_session: return
         value = self.export_state()
         if value is None: return
-        session = self.window._material_editor_session
+        session = self.session
         if not force and self.session_serial < session['serial']: return
         key = self.target if self.target is not None else ('new', '')
         if self.target and self.target[0] == 'canvas': key += (self.edit_workspace,)
@@ -634,14 +640,14 @@ class PromptEditor(QWidget):
         self._publish()
         if closing:
             pending = any(v['dirty'] and (v['target'] is None or v['target'][0] != 'canvas')
-                          for v in self.window._material_editor_session['drafts'].values())
+                          for v in self.session['drafts'].values())
             if pending and not ask(self.window, '未保存的素材', '仍有未保存的素材草稿，確定關閉並捨棄？'):
                 return False
         return True
 
     def new_material(self, add_to_canvas=False, text=''):
         if not self.can_leave(): return
-        saved = self.window._material_editor_session['drafts'].get(('new', ''))
+        saved = self.session['drafts'].get(('new', ''))
         if saved and saved['dirty'] and not text:
             self._restore_session(saved)
             self._publish(force=True)
@@ -670,7 +676,7 @@ class PromptEditor(QWidget):
                     self.listing.setCurrentItem(entry); self.listing.scrollToItem(entry)
                 break
         self.target = ('material', ident)
-        saved = self.window._material_editor_session['drafts'].get(self.target)
+        saved = self.session['drafts'].get(self.target)
         if saved and (saved['dirty'] or saved['base'] == value):
             self._restore_session(saved)
             self._publish(force=True)
@@ -816,7 +822,7 @@ class PromptEditor(QWidget):
             else: materials.save(state, value)
             if add_to_canvas: materials.add_to_canvas(state, ident, target)
         if self.window.canvas.commit(apply, label='保存素材並加入畫布' if add_to_canvas else '保存文字素材'):
-            self.window._material_editor_session['drafts'].pop(('new', ''), None)
+            self.session['drafts'].pop(('new', ''), None)
             self.dirty = False
             self.target = ('material', ident)
             self.load_value(materials.item(self.window.state, ident), 'material')
@@ -954,3 +960,7 @@ class PromptEditor(QWidget):
         self.flush_canvas()
         self._publish()
         super().hideEvent(event)
+
+
+# Full-page browsing and modal editing share the same material form semantics.
+from .material_editor_browser import PromptEditor

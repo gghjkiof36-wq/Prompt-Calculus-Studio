@@ -16,6 +16,8 @@ def _document(window, text):
 
 
 def _key(editor):
+    if getattr(editor, 'document_scope', None):
+        return ('dialog', editor.document_scope, editor.base['id'])
     return (('canvas', editor.edit_workspace, editor.target[1])
             if editor.target and editor.target[0] == 'canvas'
             else ('source', editor.base['id']))
