@@ -990,20 +990,12 @@ class Window(QMainWindow):
         return self.open_new_material(text=initial)
 
     def edit_item(self,ident):
-        original=next(i for i in self.state["items"] if i["id"]==ident)
-        if 'composition' in original:
-            dialog=NodeDialog(self,original['composition'],'編輯素材原型的本層內容')
-            dialog.description.setText('修改素材庫原型的本層內容；已建立的當次副本保持原樣。子項可在 Canvas 調整後另存新素材。')
-            if dialog.exec()==QDialog.DialogCode.Accepted:
-                value=copy.deepcopy(original['composition']); value.update(dialog.values())
-                original.update(name=value['name'],prompt=composition.render(value),composition=value)
-                self.refresh_library(); self.refresh_builder(); self.changed()
-            return
-        dialog=ItemDialog(self,original)
-        if dialog.exec()==QDialog.DialogCode.Accepted:
-            if original["module"]!=dialog.item["module"]: self.remove_selection(ident)
-            self.state["items"]=[dialog.item if i["id"]==ident else i for i in self.state["items"]]
-            self.refresh_library(); self.refresh_builder(); self.changed()
+        if not any(i['id']==ident for i in self.state['items']):
+            self.notice('素材已移除。');return None
+        self.set_interface_mode('list')
+        if self.surface_stack.currentWidget() is not getattr(self,'prompt_editor',None):return None
+        self.prompt_editor.set_destination(None)
+        return self.prompt_editor.edit_material(ident)
 
     def remove_selection(self,ident):
         for picks in [self.state["selections"]]+[w["picks"] for w in self.state["workspaces"]]:
