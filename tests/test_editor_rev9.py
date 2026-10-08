@@ -273,9 +273,17 @@ class EditorRev9Tests(unittest.TestCase):
         for width,height in ((1360,900),(2048,1152)):
             self.page.close_preview();self.page.resize(width,height);self.app.processEvents();self.app.processEvents()
             before=self.page.browser.geometry();self.page.preview_material(self.ident);self.app.processEvents()
-            self.assertEqual((before.x(),before.width()),(264,920))
+            self.assertEqual(before.width(),920)
+            workspace_left=self.page.category_panel.geometry().right()+1
+            left_gap=before.x()-workspace_left
+            right_gap=self.page.scroll.viewport().width()-(before.x()+before.width())
+            self.assertLessEqual(abs(left_gap-right_gap),1,('Unbalanced workspace gutters',left_gap,right_gap))
+            self.assertGreaterEqual(left_gap,24)
             self.assertEqual(self.page.browser.geometry(),before)
-            self.assertEqual(before.x(),self.page.category_panel.geometry().right()+25)
+            self.assertEqual(self.page.title.x(),0)
+            self.assertEqual(self.page.search.x(),0)
+            self.assertEqual(self.page.listing.x(),0)
+            self.assertEqual(self.page.scroll.horizontalScrollBar().maximum(),0)
             if width==2048:
                 self.assertTrue(340 <= self.page.preview_card.width() <= 380)
                 self.assertLess(self.page.browser.geometry().right(),self.page.preview_card.x())
@@ -288,6 +296,11 @@ class EditorRev9Tests(unittest.TestCase):
             self.page.preview_material(self.ident);self.app.processEvents();self.app.processEvents()
             self.assertLess(self.page.browser.width(),920)
             self.assertLessEqual(self.page.browser.geometry().right(),self.page.scroll.viewport().width())
+            workspace_left=0 if self.page.narrow else self.page.category_panel.geometry().right()+1
+            left_gap=self.page.browser.x()-workspace_left
+            right_gap=self.page.scroll.viewport().width()-(self.page.browser.x()+self.page.browser.width())
+            self.assertLessEqual(abs(left_gap-right_gap),1)
+            self.assertEqual(self.page.scroll.horizontalScrollBar().maximum(),0)
             self.assertGreater(self.page.preview_card.y(),self.page.browser.geometry().bottom())
 
 if __name__=='__main__': unittest.main()

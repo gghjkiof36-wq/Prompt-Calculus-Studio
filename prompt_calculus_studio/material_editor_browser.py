@@ -83,6 +83,9 @@ class PromptEditor(QWidget):
         self.workspace_name = label('', 'Subtle'); self.workspace_name.setMaximumWidth(180)
         workbar.addWidget(self.workspace_name); workbar.addWidget(self.workspace_switch); workbar.addStretch(); outer.addLayout(workbar)
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True)
+        # Match the settings reading pages: reserve the scroll track so opening
+        # longer content does not move the centered column sideways.
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.scroll.setFrameShape(QScrollArea.Shape.NoFrame); outer.addWidget(self.scroll)
         self.scroll.viewport().installEventFilter(self)
         self.shell = QWidget(); self.scroll.setWidget(self.shell)
@@ -158,9 +161,9 @@ class PromptEditor(QWidget):
         viewport_width = self.scroll.viewport().width(); height = self.scroll.viewport().height()
         minimum_browser = max(520, self.browser.minimumSizeHint().width())
         self.narrow = viewport_width < max(800, 264+minimum_browser+24)
-        # Use the established management content column. Detail is additional:
-        # opening it must not change the main list's bounds.
-        width = viewport_width if self.narrow else self.scroll.width()-2*self.scroll.frameWidth()
+        # Center the task column within the workspace after navigation, using
+        # the same balanced gutters as the settings reading pages.
+        width = viewport_width
         self.workspace_name.setVisible(width >= 600)
         if self.narrow:
             self.category_heading.hide(); self.categories.hide()
@@ -186,8 +189,10 @@ class PromptEditor(QWidget):
         has_preview = bool(self.preview_id and self.preview_card.isVisible())
         detail_width = min(380, max(340, round(area_width*.22)))
         central = min(PREFERRED_CONTENT_WIDTH, area_width)
-        below = area_width < central+24+detail_width
-        x = area_x
+        x = area_x + (area_width-central)//2
+        # Detail supports the centered list without shifting it on selection.
+        # Use the right gutter only when the complete card fits there.
+        below = area_x+area_width-(x+central) < 24+detail_width
         row_height = self.listing.fontMetrics().height()*2 + 40
         list_height = max(110, min(580, self.listing.count()*row_height + 12))
         self.listing.setMinimumHeight(list_height); self.listing.setMaximumHeight(list_height)
