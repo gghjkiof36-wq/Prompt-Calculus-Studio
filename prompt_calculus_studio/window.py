@@ -289,6 +289,7 @@ class Window(QMainWindow):
         self.generation_panel.refresh()
         self.restore_canvas_page(); self.canvas_content.setCurrentWidget(self.canvas)
         self.canvas_workspace_bar.refresh()
+        self.canvas_workspace_bar.workspace_switch.set_mode('canvas')
         self.surface_stack.setCurrentWidget(self.canvas_shell)
         self.refresh_builder(); self.changed(); QTimer.singleShot(0,self.canvas.restore_view)
         self.canvas.functions.mode_changed()
@@ -305,7 +306,8 @@ class Window(QMainWindow):
             from .prompt_editor import PromptEditor
             if not hasattr(self,'prompt_editor'):
                 self.prompt_editor=PromptEditor(self);self.surface_stack.addWidget(self.prompt_editor)
-            self.prompt_editor.refresh();self.surface_stack.setCurrentWidget(self.prompt_editor)
+            self.prompt_editor.refresh();self.prompt_editor.workspace_switch.set_mode('list')
+            self.surface_stack.setCurrentWidget(self.prompt_editor)
             self.canvas_mode=False;self.record_navigation('home','editor');return
         self.close_recent_sheet()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()

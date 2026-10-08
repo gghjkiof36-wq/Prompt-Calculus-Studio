@@ -21,3 +21,7 @@ class WorkspaceModeSwitch(QWidget):
             self.group.addButton(entry)
             body.addWidget(entry)
 
+    def set_mode(self, active):
+        self.canvas_button.setChecked(active=='canvas')
+        self.editor_button.setChecked(active=='list')
+
