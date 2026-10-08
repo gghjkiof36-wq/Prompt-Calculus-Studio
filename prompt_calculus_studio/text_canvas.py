@@ -88,8 +88,11 @@ class TextCanvas(QWidget):
         if target is not None: self.enter(target)
         self.insertion_key=target
         if target in self.cards: self.cards[target].setSelected(True); self.cards[target].update()
-        try: CanvasPalette(self,position if isinstance(position,QPointF) else None).exec()
+        picker=CanvasPalette(self,position if isinstance(position,QPointF) else None)
+        self.window.active_material_picker=picker
+        try: return picker.exec()
         finally:
+            self.window.active_material_picker=None
             self.insertion_key=None; self.root_id,self.path=previous
             if target in self.cards: self.cards[target].update()
 
@@ -524,10 +527,13 @@ class TextCanvas(QWidget):
         dialog = NodeDialog(self.window)
         if self.root_id is None:
             dialog.description.setText('建立當次使用的模組；需要重複使用時，可另存到素材庫。')
-        if dialog.exec() != QDialog.DialogCode.Accepted: return
+        self.active_node_dialog=dialog
+        try: accepted=dialog.exec()==QDialog.DialogCode.Accepted
+        finally: self.active_node_dialog=None
+        if not accepted: return False
         value = comp.node(dialog.name.text().strip()); value.update(dialog.values())
         value['grouped'] = True
-        self.append_value(value,position)
+        return self.append_value(value,position)
 
     def add_temporary(self,position=None):
         """Fast local text entry; saving a reusable material is a separate action."""
@@ -545,7 +551,37 @@ class TextCanvas(QWidget):
     def insert_asset(self,asset,position=None):
         value = comp.clone_node(comp.prototype(asset))
         value.update(source_id=asset['id'],source_module=asset['module'])
-        self.append_value(value,position)
+        return self.append_value(value,position)
+
+    def _insert_with_destination(self, action, destination_id):
+        """Keep the picker's owner fixed even if layout changes while it is open."""
+        from . import multi_output as model
+        state=self.window.state
+        canvases=state.get('multi_output',{}).get('canvases',{})
+        editor=self.__dict__.get('editor')
+        if destination_id not in canvases or (editor is not None and destination_id!=editor.key):
+            self.window.notice('目的文字畫布已移除，請重新選擇。'); return False
+        if self.root_id is not None and model.owner(state,self.root_id)!=destination_id:
+            self.window.notice('目前模組已不在目的文字畫布內，請重新選擇。'); return False
+        missing=object()
+        previous=self.__dict__.get('insertion_canvas',missing)
+        fixed=self.__dict__.get('_fixed_insertion_canvas',missing)
+        self.insertion_canvas=destination_id;self._fixed_insertion_canvas=True
+        try: return bool(action())
+        finally:
+            if previous is missing:self.__dict__.pop('insertion_canvas',None)
+            else:self.insertion_canvas=previous
+            if fixed is missing:self.__dict__.pop('_fixed_insertion_canvas',None)
+            else:self._fixed_insertion_canvas=fixed
+
+    def insert_asset_with_destination(self,asset,position,destination_id):
+        return self._insert_with_destination(lambda:self.insert_asset(asset,position),destination_id)
+
+    def add_tag_with_destination(self,text,position,destination_id):
+        return self._insert_with_destination(lambda:self.add_tag(text,position),destination_id)
+
+    def add_new_with_destination(self,position,destination_id):
+        return self._insert_with_destination(lambda:self.add_new(position),destination_id)
 
     def selected_node(self, state, key):
         ident, node_id = self.entries[key]
@@ -555,22 +591,26 @@ class TextCanvas(QWidget):
         return ident, root, part
 
     def edit(self, key):
-        if hasattr(self.window,'edit_canvas_material'):
-            self.window.edit_canvas_material(key);return
+        if key not in self.entries:return False
         ident, node_id = self.entries[key]
-        if ident is None: return
+        if ident is None: return False
         root = comp.usage_root(self.window.state, ident)
         value = copy.deepcopy(comp.find(root, node_id))
+        if value is None:return False
         is_root = node_id == root['id'] and ident not in self.window.state.get('uses',{})
         if is_root: value['weight'] = self.window.state.get('weights', {}).get(ident, 10)
         dialog = NodeDialog(self.window, value, '編輯當次模組')
-        if dialog.exec() != QDialog.DialogCode.Accepted: return
+        dialog.use_id=ident;dialog.node_id=node_id
+        self.active_node_dialog=dialog
+        try: accepted=dialog.exec()==QDialog.DialogCode.Accepted
+        finally: self.active_node_dialog=None
+        if not accepted:return False
         def apply(state):
             item_id, root, part = self.selected_node(state, key)
             changes = dialog.values()
             if is_root: state.setdefault('weights', {})[item_id] = changes.pop('weight')
             part.update(changes)
-        self.commit(apply)
+        return self.commit(apply)
 
     def override(self, key):
         dialog = AssetDialog(self.window)

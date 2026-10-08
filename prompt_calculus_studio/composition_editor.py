@@ -37,7 +37,7 @@ class EditorTextCanvas:
         position=position or self.view.mapToScene(self.view.viewport().rect().center())
         return TextCanvas.append_value(self,value,position)
     def palette(self,position=None,target=None): return TextCanvas.palette(self,position,target)
-    def edit(self,key): self.editor.edit_text(key)
+    def edit(self,key): return self.editor.edit_text(key)
     def preview_node_drop(self,*args): pass
     def finish_node_drop(self,*args): return False
     def __getattr__(self,name):
@@ -170,7 +170,7 @@ class ImageView(QGraphicsView):
     def mouseDoubleClickEvent(self,event):
         if event.button()==Qt.MouseButton.LeftButton and not self.text_at(event.position().toPoint()):
             self.pan=None; position=self.mapToScene(event.position().toPoint())
-            QTimer.singleShot(0,lambda:self.editor.text_canvas.add_temporary(position)); event.accept(); return
+            QTimer.singleShot(0,lambda:self.editor.text_canvas.palette(position)); event.accept(); return
         super().mouseDoubleClickEvent(event)
     def contextMenuEvent(self,event):
         if self.text_at(event.pos()): super().contextMenuEvent(event); return
@@ -191,7 +191,9 @@ class CompositionEditor(QWidget):
         self.setObjectName('WorkspaceSurface'); body=QVBoxLayout(self); body.setContentsMargins(14,12,14,12)
         self.title=label(self.data()['name'],'Heading'); self.size_button=button('啟用底圖',self.dimensions,'Quiet')
         self.undo_button=button('復原',self.undo,'Quiet'); self.redo_button=button('重做',self.redo,'Quiet')
-        body.addLayout(row(button('‹ 返回工作區',self.close_editor,'Quiet'),self.title,None,self.size_button))
+        self.return_button=button('返回Canvas',self.close_editor,'Quiet')
+        self.return_button.setProperty('iconName','arrow-left')
+        body.addLayout(row(self.return_button,self.title,None,self.size_button))
         self.identity=label('文字畫布內的獨立副本 · 修改會同步至目前流程','Subtle')
         body.addWidget(self.identity)
         self.history_button=button('畫布歷史',self.history,'Quiet')
@@ -238,19 +240,10 @@ class CompositionEditor(QWidget):
         else: self.view.fit()
         self.view_ready=True; self.save_view()
     def edit_text(self,key):
-        if self.prompt_editor is None:
-            from .prompt_editor import PromptEditor
-            self.text_sidebar=QFrame(); side=QVBoxLayout(self.text_sidebar); side.setContentsMargins(0,0,0,0)
-            side.addLayout(row(label('文字編輯','Heading'),None,button('收合',self.close_text_editor,'Quiet')))
-            self.prompt_editor=PromptEditor(self.window,compact=True); side.addWidget(self.prompt_editor,1)
-            self.text_sidebar.setMinimumWidth(340); self.text_sidebar.setMaximumWidth(440); self.center.addWidget(self.text_sidebar)
-        self.prompt_editor.edit_canvas(key)
-        self.text_sidebar.show(); self.layer_toggle.setChecked(False)
+        return TextCanvas.edit(self.text_canvas,key)
     def close_text_editor(self):
-        if self.prompt_editor is not None and not self.prompt_editor.can_leave(): return
-        self.text_sidebar.hide(); self.view.setFocus()
+        self.view.setFocus()
     def can_leave(self):
-        if self.prompt_editor is not None and not self.prompt_editor.can_leave(): return False
         self.save_view(); return True
     def history(self):
         if not self.can_leave(): return

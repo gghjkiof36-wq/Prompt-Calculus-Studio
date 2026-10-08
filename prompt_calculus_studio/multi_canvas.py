@@ -587,7 +587,7 @@ class MultiCanvas(TextCanvas):
     def quick_text(self,key,position):
         previous=(self.root_id,list(self.path),self.insertion_canvas)
         self.root_id=None;self.path=[];self.insertion_canvas=key
-        try:self.add_temporary(position)
+        try:return TextCanvas.palette(self,position)
         finally:self.root_id,self.path,self.insertion_canvas=previous
 
     def toggle_collapsed(self,key):
@@ -662,7 +662,7 @@ class MultiCanvas(TextCanvas):
         return key
     def append_value(self,value,position=None):
         previous=self.insertion_canvas
-        if self.root_id is None and isinstance(position,QPointF): self.insertion_canvas=self.canvas_at(position)
+        if self.root_id is None and isinstance(position,QPointF) and not getattr(self,'_fixed_insertion_canvas',False): self.insertion_canvas=self.canvas_at(position)
         try: return super().append_value(value,position)
         finally: self.insertion_canvas=previous
     def preview_node_drop(self,card,position):
@@ -746,8 +746,8 @@ class MultiCanvas(TextCanvas):
         menu.addAction('重新命名',lambda:self.rename_function('clip_inputs',key))
         menu.addAction('移除 CLIP 輸入',lambda:self.commit(lambda s:clip_flow.remove(s,key))); menu.open_at(position)
     def container_menu(self,key,position):
-        menu=RoundMenu(self.window); menu.addAction('展開編輯',lambda:self.open_editor(key))
-        menu.addAction('搜尋／新建文字素材',lambda:self.window.show_materials(key))
+        menu=RoundMenu(self.window); menu.addAction('展開文字畫布「'+self.data()['canvases'][key]['name']+'」',lambda:self.open_editor(key))
+        menu.addAction('加入文字模組',lambda:self.window.show_materials(key))
         menu.addAction('畫布歷史',lambda:self.window.show_content_history(key))
         def rename():
             text,ok=InputDialog.getText(self.window,'畫布名稱','名稱',text=self.data()['canvases'][key]['name'])

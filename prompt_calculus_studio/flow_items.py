@@ -213,7 +213,8 @@ class CanvasContainer(QGraphicsObject):
         self.setAcceptHoverEvents(True); self.setZValue(-1)
     def refresh(self):
         value=self.canvas.data()['canvases'][self.key]; self.prepareGeometryChange()
-        self.width,self.height=value['display_size']; self.setPos(*value['position']); self.update()
+        self.width,self.height=value['display_size']; self.setPos(*value['position'])
+        self.setToolTip('展開文字畫布「'+value['name']+'」'); self.update()
     def boundingRect(self): return QRectF(-4,-4,self.width+8,self.height+8)
     def rect(self): return QRectF(0,0,self.width,self.height)
     def corner_at(self,pos):
@@ -239,7 +240,7 @@ class CanvasContainer(QGraphicsObject):
         font=self.canvas.font();font.setBold(True);painter.setFont(font);painter.setPen(QColor(colors['text']))
         title=painter.fontMetrics().elidedText(value['name'],Qt.TextElideMode.ElideRight,int(self.width-230))
         painter.drawText(QRectF(47,9,self.width-230,30),Qt.AlignmentFlag.AlignVCenter,title)
-        painter.setFont(self.canvas.font());painter.setPen(QColor(colors['secondary'])); painter.drawText(QRectF(self.width-174,9,154,30),Qt.AlignmentFlag.AlignCenter,'編輯文字 ↗')
+        painter.setFont(self.canvas.font());painter.setPen(QColor(colors['secondary'])); painter.drawText(QRectF(self.width-174,9,154,30),Qt.AlignmentFlag.AlignCenter,'展開文字畫布')
         pen=QPen(QColor(colors['divider']),1);pen.setCosmetic(True);painter.setPen(pen)
         painter.drawLine(QPointF(18,44),QPointF(self.width-18,44))
         preview=self.canvas.image_previews.get(self.key)

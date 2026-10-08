@@ -280,6 +280,7 @@ class Window(QMainWindow):
     def enter_canvas(self):
         if not hasattr(self,'canvas_shell'): return
         if not self.flush_editor_drafts():return
+        self.finish_expanded_canvas()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
         self.canvas_mode=True
         self.close_recent_sheet();self.canvas_header.show()
@@ -291,11 +292,12 @@ class Window(QMainWindow):
         self.surface_stack.setCurrentWidget(self.canvas_shell)
         self.refresh_builder(); self.changed(); QTimer.singleShot(0,self.canvas.restore_view)
         self.canvas.functions.mode_changed()
-        self.record_navigation('home')
+        self.record_navigation('home','canvas')
 
     def leave_canvas(self,checked=False,retain_mode=False):
         if not retain_mode and hasattr(self,'canvas'):
             if not self.flush_editor_drafts():return
+            self.finish_expanded_canvas()
             self.remember_canvas_view()
             self.close_recent_sheet()
             if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
@@ -304,7 +306,7 @@ class Window(QMainWindow):
             if not hasattr(self,'prompt_editor'):
                 self.prompt_editor=PromptEditor(self);self.surface_stack.addWidget(self.prompt_editor)
             self.prompt_editor.refresh();self.surface_stack.setCurrentWidget(self.prompt_editor)
-            self.canvas_mode=False;self.record_navigation('home');return
+            self.canvas_mode=False;self.record_navigation('home','editor');return
         self.close_recent_sheet()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
         self.canvas_mode=retain_mode
@@ -319,28 +321,63 @@ class Window(QMainWindow):
 
     def show_materials(self,canvas_id=None):
         if not self.flush_editor_drafts():return None
-        from .prompt_editor import PromptEditor
-        from .quiet_splitter import QuietSplitter
-        if self.width()<1000:
-            self.leave_canvas()
-            if canvas_id:self.prompt_editor.set_destination(canvas_id)
-            return self.prompt_editor
-        if not hasattr(self,'material_sidebar'):
-            self.material_sidebar=PromptEditor(self,compact=True)
-            self.canvas.layout().removeWidget(self.canvas.view)
-            self.material_split=QuietSplitter(Qt.Orientation.Horizontal)
-            self.material_split.addWidget(self.canvas.view);self.material_split.addWidget(self.material_sidebar)
-            self.material_split.setStretchFactor(0,1);self.material_split.setStretchFactor(1,0)
-            self.canvas.layout().addWidget(self.material_split)
-            self.material_split.setSizes([max(480,self.width()-420),380])
-        self.material_sidebar.setVisible(True)
-        if canvas_id:self.material_sidebar.set_destination(canvas_id)
-        self.material_sidebar.refresh()
-        return self.material_sidebar
+        from .canvas_palette import CanvasPalette
+        from .multi_output import owner
+        page=getattr(self.canvas,'editor_page',None)
+        canvas=page.text_canvas if page is not None else self.canvas
+        if canvas_id is None and page is not None:canvas_id=page.key
+        if canvas_id is None:
+            selected=set()
+            for item in canvas.view.scene().selectedItems():
+                key=getattr(item,'key',None)
+                if key in self.canvas.data()['canvases']:selected.add(key)
+                elif key:
+                    destination=owner(self.state,key.split(':')[0])
+                    if destination:selected.add(destination)
+            if len(selected)==1:canvas_id=selected.pop()
+        previous=(canvas.root_id,list(canvas.path))
+        canvas.root_id=None;canvas.path=[]
+        picker=CanvasPalette(canvas,None,destination_id=canvas_id,choose_destination=canvas_id is None)
+        self.active_material_picker=picker
+        try:picker.exec()
+        finally:
+            self.active_material_picker=None
+            canvas.root_id,canvas.path=previous
+        return picker
 
     def toggle_materials(self):
-        if hasattr(self,'material_sidebar') and not self.material_sidebar.isHidden():self.material_sidebar.hide()
-        else:self.show_materials()
+        self.show_materials()
+
+    def open_new_material(self,destination_id=None,text=''):
+        page=getattr(self.canvas,'editor_page',None)
+        self._material_return_context=('expanded',page.key) if page is not None else ('canvas',None) if self.canvas_mode else None
+        token=object();self._material_return_token=token
+        self.set_interface_mode('list')
+        if not hasattr(self,'prompt_editor') or self.surface_stack.currentWidget() is not self.prompt_editor:return None
+        self.prompt_editor.set_destination(destination_id)
+        dialog=self.prompt_editor.new_material(text=text)
+        if dialog is not None and hasattr(dialog,'finished'):
+            def restore_on_cancel(result):
+                if (result==QDialog.DialogCode.Rejected and self._material_return_token is token
+                        and self._material_return_context is not None):
+                    self.return_after_material_add(destination_id)
+            dialog.finished.connect(restore_on_cancel)
+        return dialog
+
+    def finish_expanded_canvas(self):
+        page=getattr(self.canvas,'editor_page',None)
+        if page is None:return
+        page.save_view();page.closing=True
+        if page.animation:page.animation.stop()
+        page.finish_close()
+
+    def return_after_material_add(self,destination_id=None):
+        context=getattr(self,'_material_return_context',None)
+        self._material_return_context=None
+        self._material_return_token=None
+        self.set_interface_mode('canvas')
+        if context and context[0]=='expanded' and context[1] in self.canvas.data()['canvases']:
+            self.canvas.open_editor(context[1])
 
     def show_content_history(self,canvas_id=None):
         if not self.flush_editor_drafts():return
@@ -359,15 +396,17 @@ class Window(QMainWindow):
             if editor.isVisible():editor.refresh()
 
     def edit_canvas_material(self,key):
-        from .multi_output import owner
-        editor=self.show_materials(owner(self.state,key.split(':')[0]))
-        if editor is not None:editor.edit_canvas(key)
+        page=getattr(self.canvas,'editor_page',None)
+        canvas=page.text_canvas if page is not None and key in page.text_canvas.entries else self.canvas
+        return canvas.edit(key)
 
     def add_material_to_canvas(self,ident,position=None,canvas_id=None):
         asset=next((i for i in self.state['items'] if i['id']==ident),None)
         if asset is None:self.notice('素材已移除。');return False
         canvas=self.canvas
-        target=canvas.canvas_at(position) if position is not None else canvas_id
+        target=canvas_id if canvas_id is not None else canvas.canvas_at(position) if position is not None else None
+        if canvas_id is not None and target not in canvas.data()['canvases']:
+            self.notice('目的文字畫布已移除，請重新選擇。');return False
         if target not in canvas.data()['canvases']:
             choices=list(canvas.data()['canvases'])
             labels=[canvas.data()['canvases'][k]['name']+' · '+str(i+1) for i,k in enumerate(choices)]+['新增文字畫布']
@@ -518,7 +557,9 @@ class Window(QMainWindow):
             if kind=='settings': self.settings(detail)
             else:
                 if self.settings_page.preferences is not None: self.settings_page.cancel()
-                if kind=='home': self.return_to_prompt()
+                if kind=='home':
+                    if detail in ('canvas','editor'):self.set_interface_mode('canvas' if detail=='canvas' else 'list')
+                    else:self.return_to_prompt()
                 elif kind=='page': self.show_page(getattr(self,detail))
         finally: self.navigation_locked=False; self.update_navigation()
 
@@ -946,11 +987,7 @@ class Window(QMainWindow):
 
     def new_item(self,initial=""):
         if isinstance(initial,bool): initial=""
-        if self.canvas_mode:
-            editor=self.show_materials()
-        else:
-            self.leave_canvas();editor=self.prompt_editor
-        if editor is not None:editor.new_material(text=initial)
+        return self.open_new_material(text=initial)
 
     def edit_item(self,ident):
         original=next(i for i in self.state["items"] if i["id"]==ident)
