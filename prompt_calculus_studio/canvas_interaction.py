@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QGraphicsItem,QGraphicsProxyWidget,QApplication
 class CanvasInteraction:
     def __init__(self,view):
         self.view=view;self.canvas=view.canvas;self.box=None;self.group=None
-        self.box_dragged=False;self.suppress_context_menu=False
+        self.box_dragged=False;self.box_button=None;self.suppress_context_menu=False
 
     def card_at(self,point):
         from .flow_items import Port
@@ -29,17 +29,27 @@ class CanvasInteraction:
     def pointer(self,event):
         self.view.pointer_scene=self.view.mapToScene(event.position().toPoint())
 
+    def begin_box(self,event,scope):
+        right=event.button()==Qt.MouseButton.RightButton
+        ctrl_left=(event.button()==Qt.MouseButton.LeftButton and
+                   event.modifiers()==Qt.KeyboardModifier.ControlModifier)
+        if not (right or ctrl_left):return False
+        # Ctrl-left is the ordinary replacement marquee. Only the retained
+        # Ctrl-right shortcut adds to the previous selection.
+        additive=right and bool(event.modifiers()&Qt.KeyboardModifier.ControlModifier)
+        self.box=(event.position().toPoint(),
+                  {i.key for i in self.view.scene().selectedItems() if hasattr(i,'key')} if additive else set(),scope)
+        self.box_button=event.button();self.box_dragged=False;self.suppress_context_menu=False
+        self.pointer(event);self.view.setFocus();self.view.scene().clearFocus()
+        event.accept();return True
+
     def press(self,event):
         self.pointer(event);view=self.view;point=event.position().toPoint();card=self.card_at(point)
         self.suppress_context_menu=False
         ctrl=bool(event.modifiers()&Qt.KeyboardModifier.ControlModifier)
         background,scope=self.background_at(point)
+        if background and self.begin_box(event,scope):return True
         if event.button()==Qt.MouseButton.RightButton:
-            if background:
-                # A short right click still belongs to the original context menu.
-                self.box=(point,{i.key for i in view.scene().selectedItems() if hasattr(i,'key')} if ctrl else set(),scope)
-                self.box_dragged=False
-                view.setFocus();view.scene().clearFocus();event.accept();return True
             if card is not None:view.scene().clearSelection();card.setSelected(True)
             return False
         if event.button()!=Qt.MouseButton.LeftButton:return False
@@ -82,7 +92,7 @@ class CanvasInteraction:
             point=event.position().toPoint()
             if not self.box_dragged and (point-self.box[0]).manhattanLength()>=QApplication.startDragDistance():
                 # Windows delivers its context-menu event after button release.
-                self.box_dragged=True;self.suppress_context_menu=True
+                self.box_dragged=True;self.suppress_context_menu=self.box_button==Qt.MouseButton.RightButton
                 self.view.scene().clearSelection();self.view.rubber.show()
             if self.box_dragged:self.view.rubber.setGeometry(QRect(self.box[0],point).normalized())
             event.accept();return True
@@ -93,8 +103,8 @@ class CanvasInteraction:
             _,moving=self.group;self.group=None
             positions={k:[item.scenePos().x(),item.scenePos().y()] for k,(item,_) in moving.items()}
             QTimer.singleShot(0,lambda:self.canvas.move_selection(positions));event.accept();return True
-        if event.button()!=Qt.MouseButton.RightButton or not self.box:return False
-        start,previous,scope=self.box;self.box=None;self.view.rubber.hide()
+        if not self.box or event.button()!=self.box_button:return False
+        start,previous,scope=self.box;self.box=None;self.box_button=None;self.view.rubber.hide()
         if not self.box_dragged:event.accept();return True
         self.box_dragged=False
         rect=self.view.mapToScene(QRect(start,event.position().toPoint()).normalized()).boundingRect()

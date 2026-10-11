@@ -36,10 +36,10 @@ class CanvasMouseButtonTests(StageFixture):
         self.view.centerOn(card);QTest.qWait(5)
         return self.view.mapFromScene(card.mapToScene(local))
 
-    def box(self,rect,modifiers=Qt.KeyboardModifier.NoModifier):
+    def box(self,rect,modifiers=Qt.KeyboardModifier.NoModifier,button=Qt.MouseButton.RightButton):
         self.view.centerOn(rect.center());QTest.qWait(5)
         a=self.view.mapFromScene(rect.topLeft());b=self.view.mapFromScene(rect.bottomRight())
-        self.drag(a,b,Qt.MouseButton.RightButton,modifiers);return b
+        self.drag(a,b,button,modifiers);return b
 
     def test_left_blank_drag_pans_without_layout_or_undo_changes(self):
         self.view.centerOn(8000,8000);QTest.qWait(5)
@@ -50,9 +50,134 @@ class CanvasMouseButtonTests(StageFixture):
         self.assertLess((self.view.mapToScene(b)-before).manhattanLength(),3)
         self.assertEqual(self.w.state['text_positions'],positions);self.assertEqual(len(self.c.undo_stack),history)
         self.assertIsNone(self.view.interaction.box);self.assertFalse(self.view.rubber.isVisible());self.assertIsNone(self.view.pan)
+
+    def test_ctrl_left_blank_waits_for_threshold_then_selects_without_pan(self):
+        self.view.centerOn(8000,8000);QTest.qWait(5)
+        point=self.view.viewport().rect().center();before=self.view.mapToScene(point)
+        self.c.clips[self.clip].setSelected(True);history=len(self.c.undo_stack)
+        QTest.mousePress(self.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier,point)
+        self.assertIsNone(self.view.pan)
+        self.assertEqual(set(self.c.selection_keys()),{self.clip});self.assertFalse(self.view.rubber.isVisible())
+        QTest.mouseMove(self.view.viewport(),point+QPoint(1,1),5)
+        QTest.mouseRelease(self.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier,point+QPoint(1,1))
+        self.assertEqual(set(self.c.selection_keys()),{self.clip});self.assertEqual(self.view.mapToScene(point),before)
+        self.drag(point,point+QPoint(65,40),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(self.c.selection_keys(),[]);self.assertEqual(self.view.mapToScene(point),before)
+        self.assertEqual(len(self.c.undo_stack),history);self.assertFalse(self.view.rubber.isVisible())
+
+    def test_ctrl_left_matches_right_selection_replaces_and_scopes_to_container(self):
+        stage=next(iter(self.c.data()['stages']))
+        self.c.move_selection({self.clip:[5000,5000],stage:[5800,5000]})
+        rect=QRectF(4960,4960,480,320)
+        self.box(rect);expected=set(self.c.selection_keys());self.assertEqual(expected,{self.clip})
+        self.view.scene().clearSelection();self.c.flow_cards[stage].setSelected(True)
+        with patch.object(self.c,'tools_menu') as menu:
+            self.box(rect,Qt.KeyboardModifier.ControlModifier,Qt.MouseButton.LeftButton)
+            self.assertEqual(set(self.c.selection_keys()),expected);menu.assert_not_called()
+        self.assertFalse(self.view.interaction.suppress_context_menu)
+        container=self.c.containers[self.cid]
+        self.c.move_selection({'root':[container.x()+50,container.y()+160]})
+        root=self.c.cards['root'];rect=root.sceneBoundingRect().adjusted(-10,-10,10,10)
         self.c.clips[self.clip].setSelected(True)
+        self.box(rect,Qt.KeyboardModifier.ControlModifier,Qt.MouseButton.LeftButton)
+        self.assertEqual(set(self.c.selection_keys()),{'root'});self.assertFalse(container.isSelected())
+
+    def test_ctrl_left_from_outer_space_does_not_select_container_children(self):
+        self.c.move_selection({self.cid:[4500,4500],'root':[4550,4660]})
+        container=self.c.containers[self.cid]
+        self.view.resetTransform();self.view.scale(.4,.4)
+        rect=container.sceneBoundingRect().adjusted(-30,-30,30,30)
+        self.box(rect,Qt.KeyboardModifier.ControlModifier,Qt.MouseButton.LeftButton)
+        self.assertEqual(set(self.c.selection_keys()),{self.cid})
+
+    def test_new_marquee_selection_moves_copies_pastes_and_undoes_atomically(self):
+        from prompt_calculus_studio.canvas_operations import MIME
+        stage=next(iter(self.c.data()['stages']))
+        self.c.move_selection({self.clip:[5000,5000],stage:[5500,5000]})
+        self.box(QRectF(4960,4960,1010,380),Qt.KeyboardModifier.ControlModifier,Qt.MouseButton.LeftButton)
+        self.assertEqual(set(self.c.selection_keys()),{self.clip,stage})
+        before=copy.deepcopy(self.w.state['text_positions']);history=len(self.c.undo_stack)
+        point=self.point(self.c.clips[self.clip])
+        self.drag(point,point+QPoint(70,35),Qt.MouseButton.LeftButton)
+        for key in (self.clip,stage):
+            self.assertEqual(self.w.state['text_positions'][key],[before[key][0]+100,before[key][1]+50])
+        self.assertEqual(len(self.c.undo_stack),history+1)
+        QTest.keyClick(self.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        for key in (self.clip,stage):self.assertEqual(self.w.state['text_positions'][key],before[key])
+        QTest.keyClick(self.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        QTest.keyClick(self.view,Qt.Key.Key_C,Qt.KeyboardModifier.ControlModifier)
+        self.assertTrue(APP.clipboard().mimeData().hasFormat(MIME))
+        clips=set(self.c.data()['clip_inputs']);stages=set(self.c.data()['stages']);history=len(self.c.undo_stack)
+        self.view.pointer_scene=QPointF(8000,8000)
+        QTest.keyClick(self.view,Qt.Key.Key_V,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        self.assertEqual(len(set(self.c.data()['clip_inputs'])-clips),1)
+        self.assertEqual(len(set(self.c.data()['stages'])-stages),1)
+        self.assertEqual(len(self.c.undo_stack),history+1)
+        QTest.keyClick(self.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        self.assertEqual(set(self.c.data()['clip_inputs']),clips);self.assertEqual(set(self.c.data()['stages']),stages)
+        QTest.keyClick(self.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        self.assertEqual(len(set(self.c.data()['stages'])-stages),1)
+
+    def test_expanded_text_marquee_matches_right_and_group_move_keeps_outer_positions(self):
+        from prompt_calculus_studio.composition import node
+        def setup(state):
+            state['uses']['second']=node('Second','more')
+            canvas=state['multi_output']['canvases'][self.cid]
+            canvas['members'].append('second');canvas['edit_positions']={'root':[0,0],'second':[600,0]}
+        self.c.commit(setup);outer=copy.deepcopy(self.w.state['text_positions'])
+        self.c.clips[self.clip].setSelected(True)
+        self.c.open_editor(self.cid);QTest.qWait(15)
+        page=self.c.editor_page;self.view=page.view;self.view.resetTransform();self.view.scale(.5,.5)
+        def selected():return {i.key for i in self.view.scene().selectedItems() if hasattr(i,'key')}
+        rect=page.text_canvas.cards['root'].sceneBoundingRect().adjusted(-15,-15,15,15)
+        self.box(rect);self.assertEqual(selected(),{'root'})
+        self.view.scene().clearSelection()
+        self.box(rect,Qt.KeyboardModifier.ControlModifier,Qt.MouseButton.LeftButton)
+        self.assertEqual(selected(),{'root'})
+        self.assertIsNone(self.view.pan);self.assertEqual(set(self.c.selection_keys()),{self.clip})
+        rect=page.text_canvas.cards['second'].sceneBoundingRect().adjusted(-15,-15,15,15)
+        self.box(rect,Qt.KeyboardModifier.ControlModifier);self.assertEqual(selected(),{'root','second'})
+        before=copy.deepcopy(page.data()['edit_positions']);history=len(self.c.undo_stack)
+        point=self.point(page.text_canvas.cards['root'])
+        self.drag(point,point+QPoint(40,25),Qt.MouseButton.LeftButton)
+        self.assertEqual(len(self.c.undo_stack),history+1)
+        for key in ('root','second'):
+            self.assertEqual(page.data()['edit_positions'][key],[before[key][0]+80,before[key][1]+50])
+        self.assertEqual(self.w.state['text_positions'],outer)
+        QTest.keyClick(self.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        self.assertEqual(page.data()['edit_positions'],before)
+        QTest.keyClick(self.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        self.assertEqual(page.data()['edit_positions']['root'],[80,50])
+        page.close_editor()
+
+    def test_expanded_short_right_click_menu_survives_both_marquee_entries(self):
+        self.c.open_editor(self.cid);QTest.qWait(15);page=self.c.editor_page;self.view=page.view
+        self.view.centerOn(8000,8000);QTest.qWait(5)
+        point=self.view.viewport().rect().center();end=point+QPoint(60,40)
+        with patch('prompt_calculus_studio.composition_editor.RoundMenu.open_at') as menu:
+            self.drag(point,end,Qt.MouseButton.RightButton);self.context(end);menu.assert_not_called()
+            self.drag(point,end,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier)
+            self.assertFalse(self.view.interaction.suppress_context_menu)
+            QTest.mouseClick(self.view.viewport(),Qt.MouseButton.RightButton,pos=end);self.context(end)
+            menu.assert_called_once()
+        page.close_editor()
+
+    def test_ctrl_resize_and_image_drawing_keep_their_own_gestures(self):
+        self.c.commit(lambda state:state['uses']['root'].update(collapsed=False))
+        card=self.c.cards['root'];point=self.point(card,QPointF(card.width-8,card.height-8))
+        self.assertIs(self.view.interaction.card_at(point),card)
+        width=card.width;height=card.height
+        self.drag(point,point+QPoint(35,28),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier)
+        self.assertGreater(self.c.cards['root'].width,width);self.assertGreater(self.c.cards['root'].height,height)
+        self.assertIsNone(self.view.interaction.box)
+        from prompt_calculus_studio.composition_image import document
+        self.c.open_editor(self.cid);QTest.qWait(15);page=self.c.editor_page
+        page.commit_image(document(600,600));page.show_text.setChecked(False);page.tool='rect'
+        self.view=page.view;self.view.resetTransform();self.view.scale(.6,.6);self.view.centerOn(300,300);QTest.qWait(5)
+        a=self.view.mapFromScene(QPointF(50,50));b=self.view.mapFromScene(QPointF(200,200))
         self.drag(a,b,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier)
-        self.assertEqual(set(self.c.selection_keys()),{self.clip});self.assertIsNone(self.view.box_start)
+        self.assertIsNone(self.view.interaction.box);self.assertEqual(len(page.image()['layers']),1)
+        self.assertEqual(page.image()['layers'][0]['type'],'rect');page.close_editor()
 
     def test_container_empty_body_pans_even_with_selected_group(self):
         container=self.c.containers[self.cid]
@@ -104,6 +229,15 @@ class CanvasMouseButtonTests(StageFixture):
         self.assertEqual(self.w.state['uses']['root']['weight'],before+1)
         self.assertEqual(self.c.cards['root'].pos(),position);self.assertIsNone(self.view.interaction.group)
         self.c.undo();self.assertEqual(self.w.state['uses']['root']['weight'],before)
+
+    def test_ctrl_click_card_still_adds_and_removes_from_selection(self):
+        root=self.c.cards['root'];clip=self.c.clips[self.clip]
+        QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=self.point(root))
+        point=self.point(clip)
+        QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier,point)
+        self.assertEqual(set(self.c.selection_keys()),{'root',self.clip})
+        QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier,point)
+        self.assertEqual(set(self.c.selection_keys()),{'root'});self.assertIsNone(self.view.interaction.box)
 
     def test_left_card_drag_moves_and_undo_redo_restore_exact_positions(self):
         card=self.c.clips[self.clip];point=self.point(card);end=point+QPoint(70,35)

@@ -1,10 +1,10 @@
 """Full-content composition editor. The export renderer never sees UI objects."""
 import copy,json,math
 from PySide6.QtCore import Qt,QPointF,QRectF,QTimer,QPropertyAnimation,QEasingCurve,QEvent
-from PySide6.QtGui import QColor,QImage,QPixmap,QPen,QPainter,QKeySequence,QTransform
+from PySide6.QtGui import QColor,QImage,QPixmap,QPen,QPainter,QKeySequence,QTransform,QContextMenuEvent
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QFrame,QGraphicsView,QGraphicsScene,QGraphicsPixmapItem,
     QGraphicsRectItem,QFileDialog,QDialog,QFormLayout,QSpinBox,QDoubleSpinBox,QCheckBox,QListWidget,QListWidgetItem,
-    QColorDialog,QScrollArea,QLabel,QAbstractItemView,QGraphicsProxyWidget)
+    QColorDialog,QScrollArea,QLabel,QAbstractItemView,QGraphicsProxyWidget,QRubberBand)
 from .widgets import button,label,row,StudioDialog,dialog_buttons,RoundMenu
 from .text_canvas import TextCanvas
 from .composition_image import document,layer,resize_layer,validate_image,render_image,PreviewCache
@@ -52,6 +52,7 @@ class ImageView(QGraphicsView):
         super().__init__(); self.editor=editor; self.setScene(QGraphicsScene(self)); self.pixmap=QGraphicsPixmapItem(); self.scene().addItem(self.pixmap)
         self.outline=QGraphicsRectItem(); self.outline.setZValue(5); self.scene().addItem(self.outline)
         self.outline.hide(); self.drag=None; self.start=None; self.working=None; self.original=None; self.pan=None; self.space=False
+        self.rubber=QRubberBand(QRubberBand.Shape.Rectangle,self.viewport());self.pointer_scene=None
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
@@ -88,8 +89,13 @@ class ImageView(QGraphicsView):
             item=item.parentItem()
         return False
     def mousePressEvent(self,event):
+        self.interaction.suppress_context_menu=False
         if event.button()==Qt.MouseButton.MiddleButton or (self.space and event.button()==Qt.MouseButton.LeftButton):
             self.begin_pan(event); return
+        # Pure-text expansion shares the workspace marquee and scope rules.
+        # Image layers retain their existing selection and drawing tools.
+        if self.editor.image() is None and self.interaction.background_at(event.position().toPoint())[0]:
+            if self.interaction.begin_box(event,self.editor.key):return
         if self.text_at(event.position().toPoint()): super().mousePressEvent(event); return
         if event.button()!=Qt.MouseButton.LeftButton: super().mousePressEvent(event); return
         e=self.editor; doc=e.image()
@@ -113,6 +119,7 @@ class ImageView(QGraphicsView):
             item.update(stroke=e.color,stroke_width=e.thickness.value()); self.working['layers'].append(item); e.selected=item['id']
         self.show_selection(); event.accept()
     def mouseMoveEvent(self,event):
+        if self.interaction.box and self.interaction.move(event):return
         if self.pan is not None:
             delta=event.position().toPoint()-self.pan; self.pan=event.position().toPoint()
             self.horizontalScrollBar().setValue(self.horizontalScrollBar().value()-delta.x()); self.verticalScrollBar().setValue(self.verticalScrollBar().value()-delta.y())
@@ -134,6 +141,7 @@ class ImageView(QGraphicsView):
             if len(item['points'])<10000: item['points'].append([pos.x(),pos.y()])
         e.paint_document(self.working); self.show_selection(self.working); event.accept()
     def mouseReleaseEvent(self,event):
+        if self.interaction.release(event):return
         if self.pan is not None:
             self.pan=None; self.editor.save_view(); self.setCursor(Qt.CursorShape.ArrowCursor if self.editor.tool=='select' else Qt.CursorShape.CrossCursor); event.accept(); return
         if event.button()!=Qt.MouseButton.LeftButton: super().mouseReleaseEvent(event); return
@@ -168,11 +176,13 @@ class ImageView(QGraphicsView):
     def begin_pan(self,event):
         self.pan=event.position().toPoint(); self.setCursor(Qt.CursorShape.ClosedHandCursor); event.accept()
     def mouseDoubleClickEvent(self,event):
-        if event.button()==Qt.MouseButton.LeftButton and not self.text_at(event.position().toPoint()):
+        if event.button()==Qt.MouseButton.LeftButton and event.modifiers()==Qt.KeyboardModifier.NoModifier and not self.text_at(event.position().toPoint()):
             self.pan=None; position=self.mapToScene(event.position().toPoint())
             QTimer.singleShot(0,lambda:self.editor.text_canvas.palette(position)); event.accept(); return
         super().mouseDoubleClickEvent(event)
     def contextMenuEvent(self,event):
+        if event.reason()==QContextMenuEvent.Reason.Mouse and self.interaction.suppress_context_menu:
+            self.interaction.suppress_context_menu=False;event.accept();return
         if self.text_at(event.pos()): super().contextMenuEvent(event); return
         self.pan=None; position=self.mapToScene(event.pos()); e=self.editor; menu=RoundMenu(e.window)
         menu.addAction('加入 Tag 與素材',lambda:e.text_canvas.palette(position))
@@ -210,6 +220,8 @@ class CompositionEditor(QWidget):
         tools_body=QWidget(); tools_body.setObjectName('ScrollContent'); tools_body.setLayout(tools); tools_scroll=QScrollArea(); tools_scroll.viewport().setObjectName('ScrollViewport'); tools_scroll.setWidgetResizable(True); tools_scroll.setWidget(tools_body); tools_scroll.setFrameShape(QFrame.Shape.NoFrame)
         tools_scroll.setMinimumWidth(155); tools_scroll.setMaximumWidth(230); center.addWidget(tools_scroll)
         self.view=ImageView(self); center.addWidget(self.view,1); self.text_canvas=EditorTextCanvas(self)
+        from .canvas_interaction import CanvasInteraction
+        self.view.canvas=self.text_canvas;self.view.interaction=CanvasInteraction(self.view)
         self.sidebar=QFrame(); self.sidebar.setObjectName('ScrollContent'); side=QVBoxLayout(self.sidebar); side.setContentsMargins(8,0,0,0)
         self.sidebar_scroll=QScrollArea(); self.sidebar_scroll.viewport().setObjectName('ScrollViewport'); self.sidebar_scroll.setWidgetResizable(True); self.sidebar_scroll.setWidget(self.sidebar); self.sidebar_scroll.setMinimumWidth(200); self.sidebar_scroll.setMaximumWidth(300); self.sidebar_scroll.setFrameShape(QFrame.Shape.NoFrame); center.addWidget(self.sidebar_scroll)
         self.layer_toggle.toggled.connect(self.sidebar_scroll.setVisible)
