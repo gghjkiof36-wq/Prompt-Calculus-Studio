@@ -34,6 +34,12 @@ class LibraryDelegate(QStyledItemDelegate):
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
         focused = bool(option.state & QStyle.StateFlag.State_HasFocus)
+        depth = getattr(self.parent(), 'stack_depth', lambda _: 0)(index)
+        if depth and not (selected or hover or focused):
+            from .color_roles import mix
+            colors = dict(colors)
+            for key in ('surface', 'line'):
+                colors[key] = mix(colors[key], colors['base'], min(.65, depth*.3))
         rect = QRectF(option.rect).adjusted(1, 6, -1, -6)
         painter.save(); painter.setRenderHint(painter.RenderHint.Antialiasing)
         painter.setPen(QPen(QColor(colors['accent' if selected or focused else 'line']), 2 if focused else 1))
@@ -177,8 +183,8 @@ class PromptEditor(QWidget):
         self.header_layout.addLayout(self.search_grid)
         self._header_modes = None
         self._arrange_browser_controls(READING_CONTENT_WIDTH-14)
-        from .prompt_editor import MaterialList
-        self.listing = MaterialList(); self.listing.setFrameShape(QListWidget.Shape.NoFrame)
+        from .material_editor_motion import EditorMaterialList
+        self.listing = EditorMaterialList(self); self.listing.setFrameShape(QListWidget.Shape.NoFrame)
         self.listing.enable_reordering(); self.listing.reorderRequested.connect(self._reorder_materials)
         self.listing.setItemDelegate(LibraryDelegate(self.listing)); self.listing.setSpacing(0)
         self.listing.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -467,6 +473,7 @@ class PromptEditor(QWidget):
         if self.preview_id: self.preview_material(self.preview_id)
 
     def refresh_list(self, *_):
+        self.listing.stop_scroll()
         selected = self.selected_id(); scroll = self.listing.verticalScrollBar().value()
         self.listing.blockSignals(True); self.listing.clear()
         category = self.get_browser_category()

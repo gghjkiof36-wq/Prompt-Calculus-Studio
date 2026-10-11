@@ -183,6 +183,51 @@ class EditorRev9Tests(unittest.TestCase):
         last = self.page.listing.item(self.page.listing.count()-1)
         self.assertTrue(self.page.listing.viewport().rect().contains(self.page.listing.visualItemRect(last)))
 
+    def test_bottom_stack_hit_targets_reduced_motion_and_scroll_interrupt(self):
+        from PySide6.QtGui import QWheelEvent
+        from PySide6.QtCore import QPointF, QAbstractAnimation
+        for i in range(30):
+            materials.save(self.w.state, dict(name=f'Motion {i:02}', prompt='sample', module=None))
+        self.page.refresh(); self.page.resize(1024, 640); self.page.preview_material(self.ident)
+        self.w.state['settings']['reduce_motion'] = False
+        listing = self.page.listing; bar = listing.verticalScrollBar()
+        self.app.processEvents(); QTest.qWait(40)
+        start, layers = listing._stack()
+        targets = {}
+        for y in range(start, listing.viewport().height()):
+            point = QPoint(listing.viewport().width()//2, y)
+            index = listing.indexAt(point)
+            if index.isValid(): targets.setdefault(index.row(), point)
+        self.assertGreaterEqual(len(targets), 2)
+        row, point = list(targets.items())[-1]
+        ident = listing.item(row).data(Qt.ItemDataRole.UserRole)
+        QTest.mouseClick(listing.viewport(), Qt.MouseButton.LeftButton, pos=point)
+        self.assertEqual(self.page.selected_id(), ident)
+        self.assertEqual(self.page.preview_id, ident)
+        QTest.mouseDClick(listing.viewport(), Qt.MouseButton.LeftButton, pos=point)
+        QTest.mouseRelease(listing.viewport(), Qt.MouseButton.LeftButton, pos=point)
+        self.assertEqual(self.page.active_dialog.target_id, ident)
+        self.page.active_dialog.reject(); self.app.processEvents()
+
+        point = QPointF(80, 80)
+        def wheel():
+            event = QWheelEvent(point, point, QPoint(), QPoint(0, -120),
+                                Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+                                Qt.ScrollPhase.NoScrollPhase, False)
+            QApplication.sendEvent(listing.viewport(), event)
+        before = bar.value(); wheel()
+        self.assertEqual(listing.scroll_motion.state(), QAbstractAnimation.State.Running)
+        QTest.qWait(70); self.assertGreater(bar.value(), before)
+        first_target = listing.scroll_motion.endValue(); wheel()
+        self.assertGreater(listing.scroll_motion.endValue(), first_target)
+        QTest.keyClick(listing, Qt.Key.Key_Home)
+        self.assertEqual(listing.scroll_motion.state(), QAbstractAnimation.State.Stopped)
+        self.w.state['settings']['reduce_motion'] = True
+        self.assertIsNone(listing._stack())
+        before = bar.value(); wheel()
+        self.assertEqual(listing.scroll_motion.state(), QAbstractAnimation.State.Stopped)
+        self.assertGreater(bar.value(), before)
+
     def test_switch_open_preview_updates_on_click_and_preserves_double_click_target(self):
         before = copy.deepcopy(self.w.state)
         for width in (1440, 1024, 640):
