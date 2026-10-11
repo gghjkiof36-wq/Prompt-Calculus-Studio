@@ -20,6 +20,9 @@ class EditorMaterialList(MaterialList):
         bar.sliderPressed.connect(self.stop_scroll)
         bar.rangeChanged.connect(self.stop_scroll)
         bar.valueChanged.connect(self.viewport().update)
+        from .material_editor_interaction import MaterialRowActions
+        self.row_actions = MaterialRowActions(self)
+        self.release_global = QPoint()
 
     def reduced_motion(self):
         return self.owner.window.state['settings'].get('reduce_motion', False)
@@ -123,6 +126,10 @@ class EditorMaterialList(MaterialList):
 
     def mousePressEvent(self, event):
         self.stop_scroll(); super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.release_global = event.globalPosition().toPoint()
+        super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
         self.stop_scroll(); super().keyPressEvent(event)

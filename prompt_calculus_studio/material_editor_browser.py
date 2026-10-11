@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, QTimer, QSize, QRectF, QPoint, Signal, QEvent
 from PySide6.QtGui import QFont, QColor, QPen, QFontMetrics, QTextCursor, QTextBlockFormat, QPixmap, QShortcut, QKeySequence
 from PySide6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QLineEdit,
     QListWidget, QListWidgetItem, QCheckBox, QScrollArea, QTextEdit, QLabel,
-    QStyledItemDelegate, QStyleOptionViewItem, QStyle, QApplication, QDialog, QSizePolicy)
+    QStyledItemDelegate, QStyleOptionViewItem, QStyle, QApplication, QDialog, QSizePolicy, QPushButton)
 from . import materials
 from .core import uid, output_groups
 from .widgets import label, button, row, ComboBox, StudioDialog, RoundMenu, preview_path, set_preview, InputDialog, ask
@@ -32,7 +32,9 @@ class LibraryDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         colors = widget_colors(self.parent())
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+        actions = self.parent().row_actions
+        action_row = actions.ident == index.data(Qt.ItemDataRole.UserRole)
+        hover = bool(option.state & QStyle.StateFlag.State_MouseOver) or action_row
         focused = bool(option.state & QStyle.StateFlag.State_HasFocus)
         depth = getattr(self.parent(), 'stack_depth', lambda _: 0)(index)
         if depth and not (selected or hover or focused):
@@ -50,7 +52,7 @@ class LibraryDelegate(QStyledItemDelegate):
         if depth:
             painter.setOpacity(max(0., 1-depth/.4))
         left = rect.left() + 16
-        width = max(10, int(rect.right()-left-16))
+        width = max(10, int(rect.right()-left-16)-(actions.width()+8 if action_row else 0))
         name, _, prompt = str(index.data(Qt.ItemDataRole.DisplayRole)).partition('\n')
         font = QFont(option.font); font.setWeight(QFont.Weight.DemiBold)
         metrics = QFontMetrics(font); height = metrics.height()
@@ -216,9 +218,10 @@ class PromptEditor(QWidget):
         self.preview_card.hide()
         self.scroll.verticalScrollBar().rangeChanged.connect(self._queue_layout)
         self.listing.verticalScrollBar().rangeChanged.connect(self._queue_layout)
-        self.preview_timer = QTimer(self); self.preview_timer.setTimerType(Qt.TimerType.PreciseTimer); self.preview_timer.setSingleShot(True); self.preview_timer.timeout.connect(self._show_selected_preview)
-        self.listing.dragStarted.connect(self.preview_timer.stop)
-        self.categories.dragStarted.connect(self.preview_timer.stop)
+        from .material_editor_interaction import PreviewClickBridge
+        self.preview_click = PreviewClickBridge(self)
+        self.listing.dragStarted.connect(self.preview_click.cancel)
+        self.categories.dragStarted.connect(self.preview_click.cancel)
         self.listing.itemClicked.connect(self._mouse_preview)
         self.listing.itemDoubleClicked.connect(lambda entry: self.edit_material(entry.data(Qt.ItemDataRole.UserRole)))
         self.listing.currentItemChanged.connect(self._selection_changed)
@@ -477,6 +480,8 @@ class PromptEditor(QWidget):
         if self.preview_id: self.preview_material(self.preview_id)
 
     def refresh_list(self, *_):
+        self.preview_click.cancel()
+        self.listing.row_actions.clear()
         self.listing.stop_scroll()
         selected = self.selected_id(); scroll = self.listing.verticalScrollBar().value()
         self.listing.blockSignals(True); self.listing.clear()
@@ -501,20 +506,16 @@ class PromptEditor(QWidget):
 
     def _mouse_preview(self, entry):
         if self.active_dialog or self.listing.pressed_button != Qt.MouseButton.LeftButton: return
-        self.preview_timer.stop()
-        if self.preview_card.isVisible():
-            # The column already exists, so switching content does not move the
-            # clicked row. Only opening the column needs double-click protection.
-            self.preview_material(entry.data(Qt.ItemDataRole.UserRole))
-        else:
-            self.preview_timer.start(QApplication.doubleClickInterval())
+        ident = entry.data(Qt.ItemDataRole.UserRole)
+        if not self.preview_card.isVisible():
+            # Show immediately while preserving the first click's identity if
+            # the new column moves the row away from the second click.
+            self.preview_click.arm(ident, self.listing.release_global)
+        self.preview_material(ident)
 
     def _selection_changed(self, entry, previous):
         if entry and QApplication.mouseButtons() == Qt.MouseButton.NoButton and not self._refreshing:
-            self.preview_timer.stop(); self.preview_material(entry.data(Qt.ItemDataRole.UserRole))
-
-    def _show_selected_preview(self):
-        if self.selected_id(): self.preview_material(self.selected_id())
+            self.preview_click.cancel(); self.preview_material(entry.data(Qt.ItemDataRole.UserRole))
 
     def preview_material(self, ident):
         try: value = materials.item(self.window.state, ident)
@@ -531,7 +532,8 @@ class PromptEditor(QWidget):
         self.preview_card.show(); self._layout()
 
     def close_preview(self):
-        self.preview_timer.stop(); self.preview_id = None; self.preview_card.hide(); self._layout()
+        self.preview_click.cancel()
+        self.preview_id = None; self.preview_card.hide(); self._layout()
 
     def enlarge_preview(self):
         if not self.preview_id: return
@@ -562,7 +564,6 @@ class PromptEditor(QWidget):
         if ident: return self.edit_material(ident)
 
     def _open_dialog(self, ident, text=''):
-        self.preview_timer.stop()
         if self.active_dialog:
             self.active_dialog.raise_(); return self.active_dialog
         dialog = MaterialEditDialog(self, ident, text)
@@ -590,14 +591,18 @@ class PromptEditor(QWidget):
     def material_menu(self, position):
         entry = self.listing.itemAt(position)
         if not entry: return
-        ident = entry.data(Qt.ItemDataRole.UserRole); value = materials.item(self.window.state, ident)
+        self.material_menu_at(entry.data(Qt.ItemDataRole.UserRole), self.listing.viewport().mapToGlobal(position))
+
+    def material_menu_at(self, ident, position):
+        self.preview_click.cancel()
+        value = materials.item(self.window.state, ident)
         menu = RoundMenu(self); menu.addAction('編輯素材', lambda: self.edit_material(ident))
         menu.addAction('取消釘選' if value.get('pinned') else '釘選素材', lambda: self.pin_material(ident))
         menu.addAction('另存為新素材', lambda: self.duplicate_material(ident))
         from .prompt_editor import show_history
         menu.addAction('內容歷史', lambda: show_history(self.window, ident))
         menu.addAction('刪除素材', lambda: self.delete_material(ident))
-        menu.open_at(self.listing.viewport().mapToGlobal(position))
+        menu.open_at(position)
 
     def pin_material(self, ident):
         def apply(state):
@@ -711,6 +716,10 @@ class MaterialEditDialog(StudioDialog):
             self.prompt.setFixedHeight(max(140, int(self.prompt.fontMetrics().lineSpacing()*3*1.65)+20))
         from .material_editor_documents import ModalNativeHistory
         self.native_history = ModalNativeHistory(f)
+        # QDialog otherwise chooses the header's close button for Return.
+        # Let text editors and completion popups consume their own keys first.
+        for control in self.findChildren(QPushButton): control.setAutoDefault(False)
+        self.save_button.setDefault(True)
 
     def set_destination(self, canvas_id):
         self.form.set_destination(canvas_id)

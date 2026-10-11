@@ -240,7 +240,6 @@ class EditorRev9Tests(unittest.TestCase):
             ident = second.data(Qt.ItemDataRole.UserRole)
             QTest.mouseClick(self.page.listing.viewport(), Qt.MouseButton.LeftButton, pos=position)
             self.assertEqual(self.page.preview_id, ident)
-            self.assertFalse(self.page.preview_timer.isActive())
             self.assertEqual(self.page.preview_text.toPlainText(), materials.item(self.w.state, ident)['prompt'])
             self.app.processEvents()
             self.assertIs(self.page.listing.itemAt(position), second)
@@ -438,6 +437,129 @@ class EditorRev9Tests(unittest.TestCase):
         self.assertTrue(dialog.rect().contains(dialog.error.mapTo(dialog, dialog.error.rect().bottomRight())))
         self.assertTrue(dialog.rect().contains(dialog.save_button.mapTo(dialog, dialog.save_button.rect().center())))
         self.assertEqual(self.w.state,before)
+
+    def test_enter_saves_name_and_reopens_with_prompt_undo_redo(self):
+        for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            original = materials.item(self.w.state, self.ident)['prompt']
+            dialog = self.edit()
+            dialog.prompt.moveCursor(QTextCursor.MoveOperation.End)
+            QTest.keyClicks(dialog.prompt, ' keyboard saved')
+            dialog.name.setText('Keyboard save '+str(key.value)); dialog.name.setFocus()
+            QTest.keyClick(dialog.name, key); self.app.processEvents()
+            self.assertIsNone(self.page.active_dialog)
+            self.assertEqual(materials.item(self.w.state, self.ident)['name'], 'Keyboard save '+str(key.value))
+            self.assertEqual(materials.item(self.w.state, self.ident)['prompt'], original+' keyboard saved')
+            again = self.edit()
+            self.assertEqual(again.prompt.toPlainText(), original+' keyboard saved')
+            self.undo_key(again); self.assertEqual(again.prompt.toPlainText(), original)
+            self.redo_key(again); self.assertEqual(again.prompt.toPlainText(), original+' keyboard saved')
+            again.reject(); self.app.processEvents()
+
+    def test_enter_keeps_multiline_and_failed_save_draft(self):
+        before = copy.deepcopy(self.w.state); dialog = self.edit()
+        dialog.advanced_toggle.setChecked(True); dialog.info_toggle.setChecked(True)
+        dialog.relation_toggle.setChecked(True)
+        for editor in (dialog.prompt, dialog.form.notes, dialog.form.excludes):
+            dialog.form_scroll.ensureWidgetVisible(editor); editor.setFocus()
+            editor.moveCursor(QTextCursor.MoveOperation.End); original = editor.toPlainText()
+            for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                QTest.keyClicks(editor, ' next line'); original += ' next line'
+                QTest.keyClick(editor, key, Qt.KeyboardModifier.KeypadModifier if key == Qt.Key.Key_Enter else Qt.KeyboardModifier.NoModifier); original += '\n'
+                self.assertEqual(editor.toPlainText(), original)
+                self.assertTrue(dialog.isVisible()); self.assertEqual(self.w.state, before)
+        dialog.name.clear(); dialog.name.setFocus(); QTest.keyClick(dialog.name, Qt.Key.Key_Return)
+        self.assertTrue(dialog.isVisible()); self.assertTrue(dialog.error.text())
+        self.assertEqual(self.w.state, before)
+        QTest.keyClick(dialog.name, Qt.Key.Key_Escape); self.app.processEvents()
+        self.assertIsNone(self.page.active_dialog); self.assertEqual(self.w.state, before)
+
+    def test_enter_completion_and_ime_commit_do_not_save(self):
+        from PySide6.QtGui import QInputMethodEvent
+        before = copy.deepcopy(self.w.state); dialog = self.edit()
+        dialog.prompt.selectAll(); QTest.keyClicks(dialog.prompt, 'smi')
+        token = dialog.prompt.context()
+        dialog.prompt.display(token, [dict(value='smile', source='local', category=0)])
+        self.assertTrue(dialog.prompt.completer.popup().isVisible())
+        QTest.keyClick(dialog.prompt, Qt.Key.Key_Return)
+        self.assertIn('smile', dialog.prompt.toPlainText())
+        self.assertTrue(dialog.isVisible()); self.assertEqual(self.w.state, before)
+        preedit = QInputMethodEvent('文字', [])
+        QApplication.sendEvent(dialog.prompt, preedit)
+        self.assertTrue(dialog.prompt.composing)
+        commit = QInputMethodEvent(); commit.setCommitString('文字')
+        QApplication.sendEvent(dialog.prompt, commit)
+        self.assertIn('文字', dialog.prompt.toPlainText())
+        self.assertTrue(dialog.isVisible()); self.assertEqual(self.w.state, before)
+
+    def test_initial_preview_is_immediate_and_double_click_survives_reflow(self):
+        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtCore import QPointF
+        before = copy.deepcopy(self.w.state)
+        for width in (1440, 1024, 640):
+            for edge in (False, True):
+                self.page.resize(width, 900); self.page.close_preview(); self.app.processEvents()
+                listing = self.page.listing; entry = listing.item(2)
+                ident = entry.data(Qt.ItemDataRole.UserRole); rect = listing.visualItemRect(entry)
+                point = QPoint(rect.right()-15, rect.center().y()) if edge else rect.center()
+                global_point = listing.viewport().mapToGlobal(point)
+                QTest.mouseClick(listing.viewport(), Qt.MouseButton.LeftButton, pos=point)
+                self.assertTrue(self.page.preview_card.isVisible())
+                self.assertEqual(self.page.preview_id, ident)
+                self.app.processEvents()
+                # Deliver the second physical click to the widget now under
+                # the original desktop position, including the new preview.
+                receiver = QApplication.widgetAt(global_point) or self.page
+                local = receiver.mapFromGlobal(global_point)
+                event = QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(local), QPointF(global_point),
+                                   Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+                QApplication.sendEvent(receiver, event)
+                self.assertEqual(self.page.active_dialog.target_id, ident)
+                release = QMouseEvent(QEvent.Type.MouseButtonRelease, QPointF(), QPointF(global_point),
+                                     Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)
+                QApplication.sendEvent(self.page.active_dialog, release)
+                self.assertTrue(self.page.active_dialog.isVisible())
+                self.page.active_dialog.reject(); self.app.processEvents()
+        self.assertEqual(self.w.state, before)
+
+    def test_hover_actions_target_row_without_selecting_and_menu_edits_same_item(self):
+        listing = self.page.listing; actions = listing.row_actions
+        self.page.preview_material(self.ident); self.app.processEvents()
+        entry = next(listing.item(i) for i in range(listing.count())
+                     if listing.item(i).data(Qt.ItemDataRole.UserRole) != self.ident)
+        target = entry.data(Qt.ItemDataRole.UserRole)
+        pinned = materials.item(self.w.state, target).get('pinned', False)
+        QTest.mouseMove(listing.viewport(), listing.visualItemRect(entry).center()); self.app.processEvents()
+        self.assertTrue(actions.isVisible()); self.assertEqual(actions.ident, target)
+        QTest.mouseMove(actions.pin, actions.pin.rect().center()); self.app.processEvents()
+        self.assertTrue(actions.pin.isVisible())
+        QTest.mouseClick(actions.pin, Qt.MouseButton.LeftButton); self.app.processEvents()
+        self.assertEqual(materials.item(self.w.state, target)['pinned'], not pinned)
+        self.assertEqual(self.page.selected_id(), self.ident); self.assertEqual(self.page.preview_id, self.ident)
+        entry = next(listing.item(i) for i in range(listing.count()) if listing.item(i).data(Qt.ItemDataRole.UserRole) == target)
+        QTest.mouseMove(listing.viewport(), listing.visualItemRect(entry).center()); self.app.processEvents()
+        QTest.mouseClick(actions.more, Qt.MouseButton.LeftButton); self.app.processEvents()
+        menu = QApplication.activePopupWidget(); self.assertIsNotNone(menu)
+        self.assertEqual([a.text() for a in menu.actions()], ['編輯素材', '取消釘選' if not pinned else '釘選素材', '另存為新素材', '內容歷史', '刪除素材'])
+        menu.hide(); menu.actions()[0].trigger(); self.app.processEvents()
+        self.assertEqual(self.page.active_dialog.target_id, target)
+        self.page.active_dialog.reject(); self.app.processEvents()
+        QTest.mouseMove(self.page.search, self.page.search.rect().center()); self.app.processEvents()
+        self.assertFalse(actions.isVisible())
+
+    def test_hover_actions_hide_on_scroll_and_filtered_unpin(self):
+        for i in range(25): materials.save(self.w.state, dict(name=f'Hover {i}', prompt='scroll', module=None, pinned=True))
+        self.page.pins.setChecked(True); self.page.resize(1024, 640); self.page.refresh(); self.app.processEvents()
+        listing = self.page.listing; actions = listing.row_actions
+        entry = listing.item(0); target = entry.data(Qt.ItemDataRole.UserRole)
+        QTest.mouseMove(listing.viewport(), listing.visualItemRect(entry).center()); self.app.processEvents()
+        self.assertTrue(actions.isVisible())
+        QTest.mouseClick(actions.pin, Qt.MouseButton.LeftButton); self.app.processEvents()
+        self.assertFalse(materials.item(self.w.state, target)['pinned'])
+        self.assertNotIn(target, listing.order_ids())
+        QTest.mouseMove(listing.viewport(), listing.visualItemRect(listing.item(1)).center()); self.app.processEvents()
+        self.assertTrue(actions.isVisible())
+        listing.verticalScrollBar().setValue(100)
+        self.assertFalse(actions.isVisible())
 
     def test_advanced_sections_use_one_scroll_and_keep_footer_reachable(self):
         from PySide6.QtWidgets import QScrollArea
