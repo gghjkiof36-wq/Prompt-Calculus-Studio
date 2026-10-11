@@ -152,6 +152,28 @@ class EditorRev9Tests(unittest.TestCase):
         self.page.listing.setFocus(); QTest.keyClick(self.page.listing, Qt.Key.Key_F2)
         self.assertEqual(self.page.active_dialog.target_id, self.ident)
 
+    def test_switch_open_preview_updates_on_click_and_preserves_double_click_target(self):
+        before = copy.deepcopy(self.w.state)
+        for width in (1440, 1024, 640):
+            self.page.resize(width, 900); self.page.set_browser_category(None)
+            first, second = self.page.listing.item(0), self.page.listing.item(1)
+            self.page.preview_material(first.data(Qt.ItemDataRole.UserRole))
+            self.app.processEvents(); QTest.qWait(35)
+            self.page.listing.scrollToItem(second); self.app.processEvents()
+            position = self.page.listing.visualItemRect(second).center()
+            ident = second.data(Qt.ItemDataRole.UserRole)
+            QTest.mouseClick(self.page.listing.viewport(), Qt.MouseButton.LeftButton, pos=position)
+            self.assertEqual(self.page.preview_id, ident)
+            self.assertFalse(self.page.preview_timer.isActive())
+            self.assertEqual(self.page.preview_text.toPlainText(), materials.item(self.w.state, ident)['prompt'])
+            self.app.processEvents()
+            self.assertIs(self.page.listing.itemAt(position), second)
+            QTest.mouseDClick(self.page.listing.viewport(), Qt.MouseButton.LeftButton, pos=position)
+            QTest.mouseRelease(self.page.listing.viewport(), Qt.MouseButton.LeftButton, pos=position)
+            self.assertEqual(self.page.active_dialog.target_id, ident)
+            self.page.active_dialog.reject(); self.app.processEvents()
+        self.assertEqual(self.w.state, before)
+
     def test_cancel_escape_keeps_existing_draft_document_undo_selection(self):
         prior = self.fixture.editor; prior.open_material(self.ident)
         document = prior.prompt.document(); original = prior.prompt.toPlainText()

@@ -177,7 +177,6 @@ class PromptEditor(QWidget):
         self.header_layout.addLayout(self.search_grid)
         self._header_modes = None
         self._arrange_browser_controls(READING_CONTENT_WIDTH-14)
-        self.list_hint = label('單擊預覽 · 雙擊編輯', 'Subtle'); self.header_layout.addWidget(self.list_hint)
         from .prompt_editor import MaterialList
         self.listing = MaterialList(); self.listing.setFrameShape(QListWidget.Shape.NoFrame)
         self.listing.enable_reordering(); self.listing.reorderRequested.connect(self._reorder_materials)
@@ -489,10 +488,14 @@ class PromptEditor(QWidget):
         return entry.data(Qt.ItemDataRole.UserRole) if entry else None
 
     def _mouse_preview(self, entry):
-        # A single click may shrink the list to make room for its preview. Never relayout
-        # until Qt's actual double-click interval has elapsed.
         if self.active_dialog or self.listing.pressed_button != Qt.MouseButton.LeftButton: return
-        self.preview_timer.start(QApplication.doubleClickInterval())
+        self.preview_timer.stop()
+        if self.preview_card.isVisible():
+            # The column already exists, so switching content does not move the
+            # clicked row. Only opening the column needs double-click protection.
+            self.preview_material(entry.data(Qt.ItemDataRole.UserRole))
+        else:
+            self.preview_timer.start(QApplication.doubleClickInterval())
 
     def _selection_changed(self, entry, previous):
         if entry and QApplication.mouseButtons() == Qt.MouseButton.NoButton and not self._refreshing:
