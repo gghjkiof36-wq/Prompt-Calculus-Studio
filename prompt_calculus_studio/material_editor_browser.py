@@ -311,11 +311,12 @@ class PromptEditor(QWidget):
             group_width = central
         x = area_x + (area_width-group_width)//2
         self._arrange_browser_controls(central-14)
-        row_height = self.listing.fontMetrics().height()*2 + 40
-        list_height = max(110, min(580, self.listing.count()*row_height + 12))
-        self.listing.setMinimumHeight(list_height); self.listing.setMaximumHeight(list_height)
+        # Use the viewport's remaining height rather than a fixed 580px list.
+        # Rows keep their delegate height; only overflowing content scrolls.
+        self.listing.setMinimumHeight(110); self.listing.setMaximumHeight(16777215)
         browser_layout = self.browser.layout(); browser_layout.invalidate()
         browser_height = max(browser_layout.totalMinimumSize().height(), browser_layout.totalHeightForWidth(central))
+        if self.listing.count(): browser_height = max(browser_height, height-start-24)
         self.browser.setGeometry(x, start, central, browser_height)
         browser_layout.activate()
         self._reserve_scroll_gutter(self.listing)

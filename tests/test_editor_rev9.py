@@ -152,6 +152,37 @@ class EditorRev9Tests(unittest.TestCase):
         self.page.listing.setFocus(); QTest.keyClick(self.page.listing, Qt.Key.Key_F2)
         self.assertEqual(self.page.active_dialog.target_id, self.ident)
 
+    def test_list_uses_remaining_height_without_stretching_rows(self):
+        materials.save(self.w.state, dict(name='Eighth material', prompt='eight', module=None))
+        self.page.refresh(); self.page.set_browser_category(None)
+        for width, height in ((2048, 1152), (1440, 1000), (1024, 1000), (640, 900)):
+            for preview in (False, True):
+                with self.subTest(width=width, height=height, preview=preview):
+                    self.page.resize(width, height)
+                    if preview: self.page.preview_material(self.ident)
+                    else: self.page.close_preview()
+                    self.app.processEvents(); QTest.qWait(40)
+                    viewport = self.page.scroll.viewport()
+                    bottom = self.page.listing.mapTo(viewport, QPoint(0, self.page.listing.height())).y()
+                    self.assertAlmostEqual(viewport.height()-bottom, 24, delta=2)
+                    self.assertEqual(self.page.listing.verticalScrollBar().maximum(), 0)
+                    last = self.page.listing.item(self.page.listing.count()-1)
+                    self.assertTrue(self.page.listing.viewport().rect().contains(self.page.listing.visualItemRect(last)))
+                    first_height = self.page.listing.visualItemRect(self.page.listing.item(0)).height()
+                    self.assertLess(first_height, 110)
+
+    def test_overflow_stays_inside_list_and_last_row_remains_reachable(self):
+        for i in range(30):
+            materials.save(self.w.state, dict(name=f'Overflow {i:02}', prompt='more', module=None))
+        self.page.refresh(); self.page.set_browser_category(None)
+        self.page.resize(1024, 640); self.page.preview_material(self.ident)
+        self.app.processEvents(); QTest.qWait(40)
+        self.assertGreater(self.page.listing.verticalScrollBar().maximum(), 0)
+        self.assertEqual(self.page.scroll.verticalScrollBar().maximum(), 0)
+        self.page.listing.scrollToBottom(); self.app.processEvents()
+        last = self.page.listing.item(self.page.listing.count()-1)
+        self.assertTrue(self.page.listing.viewport().rect().contains(self.page.listing.visualItemRect(last)))
+
     def test_switch_open_preview_updates_on_click_and_preserves_double_click_target(self):
         before = copy.deepcopy(self.w.state)
         for width in (1440, 1024, 640):
