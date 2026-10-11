@@ -45,6 +45,10 @@ class LibraryDelegate(QStyledItemDelegate):
         painter.setPen(QPen(QColor(colors['accent' if selected or focused else 'line']), 2 if focused else 1))
         painter.setBrush(QColor(colors['selected' if selected else 'hover' if hover else 'surface']))
         painter.drawRoundedRect(rect, 9, 9)
+        # Back cards are depth cues, not overlapping scraps of text. Their
+        # content is revealed continuously as scrolling brings them forward.
+        if depth:
+            painter.setOpacity(max(0., 1-depth/.4))
         left = rect.left() + 16
         width = max(10, int(rect.right()-left-16))
         name, _, prompt = str(index.data(Qt.ItemDataRole.DisplayRole)).partition('\n')

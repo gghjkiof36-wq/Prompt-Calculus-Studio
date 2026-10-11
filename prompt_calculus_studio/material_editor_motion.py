@@ -43,7 +43,7 @@ class EditorMaterialList(MaterialList):
         self.scroll_motion.start(); event.accept()
 
     def _stack(self):
-        if getattr(self, '_computing_stack', False): return None
+        if not self.isVisible() or getattr(self, '_computing_stack', False): return None
         self._computing_stack = True
         try: return self._calculate_stack()
         finally: self._computing_stack = False
@@ -59,7 +59,7 @@ class EditorMaterialList(MaterialList):
         if not first.isValid(): return None
         strength = min(1., (bar.maximum()-bar.value())/max(1, band))
         layers = []
-        for row in range(first.row(), min(self.count(), first.row()+4)):
+        for row in range(first.row(), min(self.count(), first.row()+3)):
             index = self.model().index(row, 0)
             rect = super().visualRect(index)
             depth = max(0., (rect.top()-start)/max(1, rect.height()))
