@@ -64,6 +64,13 @@ class SourceTreeTests(StageFixture):
         self.assertEqual(compile_output(self.w.state,self.out)['final_prompt'],text)
         buttons=[b.text() for b in self.c.outputs[self.out].panel.findChildren(QPushButton)]
         self.assertNotIn('排序',buttons)
+        group=self.group(tree,self.cid);rect=tree.visualItemRect(group)
+        self.assertEqual(rect.left(),tree.visualItemRect(group.child(0)).left())
+        QTest.mouseClick(tree.viewport(),Qt.MouseButton.LeftButton,pos=QPoint(rect.right()-20,rect.center().y()))
+        APP.processEvents();self.assertFalse(self.group(tree,self.cid).isExpanded())
+        group=self.group(tree,self.cid);rect=tree.visualItemRect(group)
+        QTest.mouseClick(tree.viewport(),Qt.MouseButton.LeftButton,pos=QPoint(rect.right()-20,rect.center().y()))
+        APP.processEvents();self.assertTrue(self.group(tree,self.cid).isExpanded())
 
     def test_source_order_keeps_members_and_manual_empty_draft(self):
         tree=self.prepare()

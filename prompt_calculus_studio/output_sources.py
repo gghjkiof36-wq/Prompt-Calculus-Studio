@@ -19,7 +19,8 @@ class OutputSources(QTreeWidget):
     def __init__(self,canvas,output):
         super().__init__();self.canvas=canvas;self.output=output;self.signature=None;self.colors={}
         self._press_pos=None;self._source=None;self._drag_token=b'';self._hint=None
-        self.setObjectName('ModuleSourceOrder');self.setHeaderHidden(True);self.setIndentation(20)
+        self.setObjectName('ModuleSourceOrder');self.setHeaderHidden(True)
+        self.setIndentation(0);self.setRootIsDecorated(False)
         self.setIconSize(QSize(16,16));self.setItemDelegate(SourceDelegate(self))
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setTextElideMode(Qt.TextElideMode.ElideRight);self.setExpandsOnDoubleClick(False)

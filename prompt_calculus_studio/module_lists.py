@@ -3,6 +3,7 @@ import copy
 from PySide6.QtCore import Qt,QSize
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QStyledItemDelegate,QStyleOptionViewItem,QStyle,QApplication
+from .ui_icons import icon
 
 DETAIL_ROLE=int(Qt.ItemDataRole.UserRole)+1
 
@@ -21,6 +22,10 @@ class SourceDelegate(QStyledItemDelegate):
         rect=style.subElementRect(QStyle.SubElement.SE_ItemViewItemText,opt,opt.widget).adjusted(4,0,-10,0)
         painter.save();painter.setFont(opt.font)
         color=opt.palette.color(opt.palette.ColorRole.Text);painter.setPen(color)
+        if isinstance(token,(list,tuple)) and token and token[0]=='source' and index.model().hasChildren(index):
+            name_icon='chevron-down' if self.parent().isExpanded(index) else 'chevron-right'
+            icon(name_icon,color.name(),16).paint(painter,rect.right()-16,rect.center().y()-8,16,16)
+            rect.adjust(0,0,-28,0)
         detail=index.data(DETAIL_ROLE) or '';width=min(rect.width()//2,opt.fontMetrics.horizontalAdvance(detail)+18) if detail else 0
         painter.drawText(rect.adjusted(0,0,-width,0),Qt.AlignmentFlag.AlignVCenter,
                          opt.fontMetrics.elidedText(name,Qt.TextElideMode.ElideRight,max(0,rect.width()-width)))
