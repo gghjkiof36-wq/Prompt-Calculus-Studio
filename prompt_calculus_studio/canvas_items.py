@@ -508,13 +508,23 @@ class CanvasView(QGraphicsView):
     transformChanged=Signal()
 
     def scale(self,sx,sy):
+        self._raster_direct_until=time.monotonic()+.12
         super().scale(sx,sy);self.transformChanged.emit()
 
     def resetTransform(self):
+        self._raster_direct_until=time.monotonic()+.12
         super().resetTransform();self.transformChanged.emit()
 
     def setTransform(self,matrix,combine=False):
+        self._raster_direct_until=time.monotonic()+.12
         super().setTransform(matrix,combine);self.transformChanged.emit()
+
+    def paintEvent(self,event):
+        from .canvas_raster import paint_scope
+        # Zoom changes every card's device raster. Draw vectors while the
+        # transform is changing; reuse resumes without a repaint timer.
+        with paint_scope(time.monotonic()>=getattr(self,'_raster_direct_until',0)):
+            super().paintEvent(event)
 
     def __init__(self,canvas):
         super().__init__(canvas); self.canvas=canvas; self.pan=None; self.pan_button=None; self.box_start=None

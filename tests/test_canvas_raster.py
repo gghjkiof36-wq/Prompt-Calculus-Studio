@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QApplication
 
-from prompt_calculus_studio.canvas_raster import LAYERS, SHADOWS, RasterCache, paint_cached
+from prompt_calculus_studio.canvas_raster import LAYERS, SHADOWS, RasterCache, paint_cached, paint_scope
 from prompt_calculus_studio.canvas_items import CanvasView, NodeCard, canvas_colors
 from prompt_calculus_studio.composition import node
 from prompt_calculus_studio import module_chrome
@@ -60,7 +60,7 @@ class CanvasRasterTests(unittest.TestCase):
                                   self.canvas.affected_nodes.get('root', {}))
 
     def test_text_shadow_and_edges_match_at_zoom_dpr_and_fractional_pan(self):
-        for zoom, dpr in ((.3, 1), (.9, 1.25), (1, 1), (1.5, 1.25), (1, 2)):
+        for zoom, dpr in ((.3, 1), (.77, 1.25), (.9, 1.25), (1, 1), (1.5, 1.25), (1, 2)):
             for offset in ((25.35, 25.75), (26.1, 27.25)):
                 with self.subTest(zoom=zoom, dpr=dpr, offset=offset):
                     expected = self.render(self.direct_card, zoom, dpr, offset)
@@ -147,6 +147,14 @@ class CanvasRasterTests(unittest.TestCase):
         cache=RasterCache(max_entries=4)
         for i in range(10): cache.recurring(i)
         self.assertEqual(len(cache.pending),4)
+
+    def test_zoom_paint_scope_avoids_cache_allocation_and_restores_reuse(self):
+        with patch.object(LAYERS, 'put', wraps=LAYERS.put) as put:
+            with paint_scope(False):
+                for _ in range(3): self.render(lambda p:self.card.paint(p,None))
+            put.assert_not_called()
+            for _ in range(3): self.render(lambda p:self.card.paint(p,None))
+            self.assertEqual(put.call_count,1)
 
     def test_batch_grid_matches_individual_points_at_negative_positions(self):
         view = SimpleNamespace(canvas=self.canvas)

@@ -4,9 +4,10 @@ This does not cache widgets, scene state or hit areas. Full viewport updates
 remain enabled; only the expensive rasterization inside a paint is reused.
 """
 from collections import OrderedDict
+from contextlib import contextmanager
 import math
 
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QRectF
 from PySide6.QtGui import QImage, QPainter, QTransform
 
 
@@ -62,9 +63,24 @@ LAYERS = RasterCache()
 # Large container shadows must not evict the text cards during a fractional
 # pan. Oversized shadows use the original vectors, with no image allocation.
 SHADOWS = RasterCache(max_bytes=8 * 1024 * 1024, max_entry_bytes=512 * 1024)
+_reuse_enabled = True
+
+
+@contextmanager
+def paint_scope(reuse=True):
+    global _reuse_enabled
+    previous = _reuse_enabled
+    _reuse_enabled = previous and reuse
+    try:
+        yield
+    finally:
+        _reuse_enabled = previous
 
 
 def paint_cached(painter, key, bounds, draw, cache=LAYERS):
+    if not _reuse_enabled:
+        draw(painter)
+        return
     transform = painter.deviceTransform()
     sx, sy = transform.m11(), transform.m22()
     if (not transform.isAffine() or transform.m12() or transform.m21()
@@ -83,8 +99,9 @@ def paint_cached(painter, key, bounds, draw, cache=LAYERS):
     dx, dy = transform.dx() - left, transform.dy() - top
     device = painter.device()
     dpi = device.logicalDpiX(), device.logicalDpiY()
+    dpr = device.devicePixelRatioF()
     token = (key, width, height, round(sx, 9), round(sy, 9),
-             round(dx, 6), round(dy, 6), dpi, painter.renderHints().value,
+             round(dx, 6), round(dy, 6), dpi, dpr, painter.renderHints().value,
              painter.font().key())
     image = cache.get(token)
     if image is None:
@@ -96,6 +113,9 @@ def paint_cached(painter, key, bounds, draw, cache=LAYERS):
             draw(painter)
             return
         image.fill(0)
+        # QIcon and font engines also consult the paint device's DPR. Matching
+        # only deviceTransform would change their rounding at fractional zoom.
+        image.setDevicePixelRatio(dpr)
         image.setDotsPerMeterX(round(dpi[0] / .0254))
         image.setDotsPerMeterY(round(dpi[1] / .0254))
         local = QPainter(image)
@@ -104,7 +124,7 @@ def paint_cached(painter, key, bounds, draw, cache=LAYERS):
             local.setFont(painter.font())
             local.setPen(painter.pen())
             local.setBrush(painter.brush())
-            local.setWorldTransform(QTransform(sx, 0, 0, sy, dx, dy))
+            local.setWorldTransform(QTransform(sx/dpr, 0, 0, sy/dpr, dx/dpr, dy/dpr))
             draw(local)
         finally:
             local.end()
@@ -114,5 +134,5 @@ def paint_cached(painter, key, bounds, draw, cache=LAYERS):
     painter.save()
     painter.resetTransform()
     painter.setWorldTransform(painter.deviceTransform().inverted()[0])
-    painter.drawImage(QPointF(left, top), image)
+    painter.drawImage(QRectF(left, top, width, height), image, QRectF(0, 0, width, height))
     painter.restore()
