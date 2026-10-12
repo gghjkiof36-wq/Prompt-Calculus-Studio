@@ -1,6 +1,6 @@
 # Canvas 外觀基準
 
-此頁記錄 0.8.7 Candidate19 的 Canvas 外觀基準，供後續元件沿用。使用者確認的方向是精簡布局、中性深灰卡片、小型實心接點，並優先統一彈出後的 UI。本批補上彈窗深度與操作細節，實際外觀待使用者檢視；其它主頁分批適配。
+此頁記錄 0.8.7 Candidate20 的 Canvas 外觀基準，供後續元件沿用。使用者確認的方向是精簡布局、中性深灰卡片、小型實心接點，並優先統一彈出後的 UI。新增功能模組取消進場動畫，保留遮罩與外側關閉；圖片來源、載入圖片、Prompt 輸出及預排程的下一版布局待方案確認，尚未實作。
 
 | 範圍 | 共用來源 | 本批決定 |
 | --- | --- | --- |
@@ -8,7 +8,7 @@
 | Canvas 卡面 | `canvas_items.canvas_colors`、`module_chrome.matte_colors` | 各種卡片共用 graphite 卡身 `#232628`、標頭 `#282c2e`、內層 `#191c1e`；邊線與文字由共用色彩規則派生，陰影較輕 |
 | 連接點 | `flow_items.Port` | 直徑約 9 個場景單位，實心；滑過及可連接時顯示外圈。保留原本 22×26 命中範圍與連線規則 |
 | 模組相關視窗 | `module_chrome.apply_module_dialog`、`dialog_colors`、`canvas_dialog_context` | 深色外框、細邊線、統一標題與關閉圖示；多欄編輯使用稍亮的 `DialogEditor` 區域及深色欄位，小型表單的欄位比外框稍亮；主要操作用重點色 |
-| 遮罩與進場 | `dialog_presentation.CanvasSheetDialog`、`DialogShade` | 功能選擇器擁有整窗遮罩與外側點擊，180ms 向上 10px 定位並加深遮罩；減少動態效果時直接呈現。巢狀共用彈窗壓暗可見父層，關閉或銷毀時移除遮罩 |
+| 遮罩與開啟 | `dialog_presentation.CanvasSheetDialog`、`DialogShade` | 功能選擇器固定位置直接顯示，沒有位移或遮罩動畫；保留整窗變暗、外側點擊與 Escape 關閉。巢狀共用彈窗壓暗可見父層，關閉或銷毀時移除遮罩 |
 | 一般操作與綁定 | `module_chrome.style_action` | 暫停／繼續與存入素材庫同色、同圓角及邊框，隨主題更新；綁定入口保留深色內層 |
 | 節點預覽 | `module_preview.ModulePreview`、`FunctionPicker` | 使用隔離資料建立真實元件，文字與控制保持即時繪製；固定可用區域，按寬與高等比例縮放，預覽不顯示捲動欄。對話框隨螢幕調整，內容切換不改視窗大小 |
 | 文字模組選擇器 | `stacked_card_list.StackedCardListMixin`、`palette_cards.PickerCardDelegate` | 與 Prompt Editor 共用底部三層通知堆疊、捲動與命中範圍；捲到底展開，減少動態效果時使用一般清單 |

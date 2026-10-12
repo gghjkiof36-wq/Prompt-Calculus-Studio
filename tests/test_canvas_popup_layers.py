@@ -1,4 +1,4 @@
-"""Real Qt popup dismissal, nested focus, motion and form depth; offline."""
+"""Real Qt popup dismissal, nested focus, stable placement and form depth; offline."""
 import copy
 from unittest.mock import patch
 from PySide6.QtCore import Qt,QPoint,QPointF,QRect,QTimer,QEvent
@@ -20,35 +20,31 @@ class CanvasPopupLayersTests(StageFixture):
         self.w.resize(1400,960);self.w.apply_theme(preserve_layout=True)
         QTest.qWait(400);self.w.persist()
 
-    def test_function_sheet_owns_backdrop_motion_and_outside_click_without_canvas_edit(self):
+    def test_function_sheet_opens_in_place_with_backdrop_and_outside_click_without_canvas_edit(self):
         before=copy.deepcopy(self.c.data());undo=len(self.c.undo_stack)
         with patch.object(QScreen,'availableGeometry',return_value=QRect(0,0,1920,1080)):
             dialog=FunctionPicker(self.c);dialog.show()
             try:
                 self.assertEqual(dialog.geometry(),QRect(self.w.mapToGlobal(QPoint()),self.w.size()))
-                self.assertEqual(dialog.progress,0)
                 size=dialog.surface.size();start=dialog.surface.pos()
-                for _ in range(30):
-                    if dialog.motion.state()==dialog.motion.State.Stopped:break
-                    QTest.qWait(20)
-                self.assertEqual(dialog.progress,1);self.assertEqual(dialog.surface.size(),size)
-                self.assertEqual(start.y()-dialog.surface.y(),10)
                 self.assertEqual(dialog.grab().toImage().pixelColor(4,4).alpha(),120)
+                for _ in range(6):
+                    QTest.qWait(40)
+                    self.assertEqual(dialog.surface.pos(),start)
+                    self.assertEqual(dialog.surface.size(),size)
+                    self.assertEqual(dialog.grab().toImage().pixelColor(4,4).alpha(),120)
                 self.w.resize(1200,780);QTest.qWait(20)
                 self.assertEqual(dialog.size(),self.w.size())
                 self.assertTrue(dialog.rect().contains(dialog.surface.geometry()))
                 QTest.mouseClick(dialog,Qt.MouseButton.LeftButton,pos=QPoint(4,4));QTest.qWait(10)
                 self.assertFalse(dialog.isVisible());self.assertEqual(dialog.result(),QDialog.DialogCode.Rejected)
                 self.assertEqual(self.c.data(),before);self.assertEqual(len(self.c.undo_stack),undo)
-                self.assertEqual(dialog.motion.state(),dialog.motion.State.Stopped)
             finally:dialog.reject();dialog.deleteLater()
 
     def test_reduced_motion_has_full_scrim_immediately_and_escape_returns_to_canvas(self):
         self.w.state['settings']['reduce_motion']=True
         dialog=FunctionPicker(self.c);dialog.show();QTest.qWait(10)
         try:
-            self.assertEqual(dialog.progress,1)
-            self.assertEqual(dialog.motion.state(),dialog.motion.State.Stopped)
             self.assertEqual(dialog.grab().toImage().pixelColor(4,4).alpha(),120)
             QTest.keyClick(dialog.search,Qt.Key.Key_Escape);QTest.qWait(10)
             self.assertFalse(dialog.isVisible())

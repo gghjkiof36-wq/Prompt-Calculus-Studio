@@ -1,5 +1,5 @@
 """Canvas dialog depth and a bounded, dismissible function sheet."""
-from PySide6.QtCore import Qt, QEvent, QPoint, QRect, QSize, QVariantAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QEvent, QPoint, QRect, QSize
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QWidget, QDialog, QFrame, QLayout, QApplication
 
@@ -54,21 +54,13 @@ class CanvasSheetDialog(StudioDialog):
         self.layout().removeWidget(self.surface)
         self.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         self.layout().setEnabled(False)
-        self.sheet_size=None;self.progress=1.0;self.closing_position=None
-        self.motion=QVariantAnimation(self);self.motion.setDuration(180)
-        self.motion.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self.motion.valueChanged.connect(self.animate_sheet)
+        self.sheet_size=None;self.closing_position=None
         parent.installEventFilter(self)
 
     def showEvent(self,event):
         QDialog.showEvent(self,event)
         if self.sheet_size is None:self.sheet_size=self.size()-QSize(12,12)
         self.fit_window()
-        self.motion.stop()
-        if reduced_motion(self):self.animate_sheet(1.0)
-        else:
-            self.animate_sheet(0.0)
-            self.motion.setStartValue(0.0);self.motion.setEndValue(1.0);self.motion.start()
 
     def fit_window(self):
         host=self.parentWidget()
@@ -80,11 +72,7 @@ class CanvasSheetDialog(StudioDialog):
         area=self.rect().adjusted(20,20,-20,-20)
         size=self.sheet_size.boundedTo(area.size())
         self.surface.resize(size)
-        offset=round(10*(1-self.progress))
-        self.surface.move(area.center()-QPoint(size.width()//2,size.height()//2)+QPoint(0,offset))
-
-    def animate_sheet(self,value):
-        self.progress=float(value);self.place_sheet();self.update()
+        self.surface.move(area.center()-QPoint(size.width()//2,size.height()//2))
 
     def resizeEvent(self,event):
         QDialog.resizeEvent(self,event)
@@ -97,7 +85,7 @@ class CanvasSheetDialog(StudioDialog):
 
     def paintEvent(self,event):
         painter=QPainter(self)
-        painter.fillRect(self.rect(),QColor(0,0,0,round(90+30*self.progress)))
+        painter.fillRect(self.rect(),QColor(0,0,0,120))
 
     def mousePressEvent(self,event):
         if not self.surface.geometry().contains(event.position().toPoint()):
@@ -108,7 +96,6 @@ class CanvasSheetDialog(StudioDialog):
     def mouseDoubleClickEvent(self,event):event.accept()
 
     def hideEvent(self,event):
-        self.motion.stop()
         if self.closing_position is not None and hasattr(self,'canvas'):
             from .palette_cards import ClosingClickGuard
             ClosingClickGuard(self.canvas.view.viewport(),self.closing_position)
