@@ -3,7 +3,7 @@ import math
 import time
 
 from PySide6.QtCore import Qt, QRect, QRectF, QPointF, QSizeF, QTimer, Signal, QEvent
-from PySide6.QtGui import QColor, QPen, QFontMetricsF, QPainter, QPainterPath, QWheelEvent, QTextLayout, QTextOption, QRegion, QContextMenuEvent
+from PySide6.QtGui import QColor, QPen, QFontMetricsF, QPainter, QPainterPath, QPolygonF, QWheelEvent, QTextLayout, QTextOption, QRegion, QContextMenuEvent
 from PySide6.QtWidgets import (QGraphicsObject, QGraphicsItem, QGraphicsProxyWidget,
     QGraphicsView, QGraphicsScene, QFrame, QRubberBand, QAbstractScrollArea, QApplication, QStyle, QStyleOption, QWidget, QToolTip)
 from . import composition as comp
@@ -417,6 +417,23 @@ class NodeCard(ResizableCard):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         colors=canvas_colors(self.canvas)
         affected=getattr(self.canvas,'affected_nodes',{}).get(self.key,{})
+        # At overview scale the tiny vector controls are cheaper to draw and
+        # avoid raster-engine rounding differences in subpixel icon strokes.
+        if min(painter.deviceTransform().m11(),painter.deviceTransform().m22())<.5:
+            self._paint_card(painter,colors,affected)
+            return
+        active=getattr(self.canvas.window,'_material_editor_session',{}).get('active')
+        from .canvas_raster import paint_cached
+        key=('text-card',self.width,self.height,self.canvas.font().key(),tuple(sorted(colors.items())),
+             self.value['name'],self.value['weight'],self.collapsed,self.muted,self.status,self.own,
+             self.line,self.body_top,self.text_height,self.header_height,self.drop_y,
+             tuple(self.drop_size) if self.drop_size else None,self.parentItem() is not None,
+             self.canvas.entries[self.key][0] is not None,self.isSelected(),self.hot,self.pressed,
+             bool(affected),bool(affected.get('all')),self.key in getattr(self.canvas,'active_keys',set()),
+             active==('canvas',self.key,self.canvas.window.state.get('workspace')))
+        paint_cached(painter,key,self.boundingRect(),lambda target:self._paint_card(target,colors,affected))
+
+    def _paint_card(self,painter,colors,affected):
         border=colors['secondary'] if self.muted or affected.get('all') else '#d4ac51' if affected else colors['canvas_line']
         painter.setPen(QPen(QColor(border),2 if affected or self.muted else 1))
         if self.key in getattr(self.canvas,'active_keys',set()):painter.setPen(QPen(QColor(colors['info']),2.5))
@@ -660,8 +677,13 @@ class CanvasView(QGraphicsView):
         dot=QColor(colors['line']);dot.setAlpha(90)
         pen=QPen(dot,1); pen.setCosmetic(True); painter.setPen(pen)
         spacing=28 if self.transform().m11()>=.6 else 112
-        for x in range(math.floor(rect.left()/spacing)*spacing,math.ceil(rect.right()),spacing):
-            for y in range(math.floor(rect.top()/spacing)*spacing,math.ceil(rect.bottom()),spacing): painter.drawPoint(QPointF(x,y))
+        xs=range(math.floor(rect.left()/spacing)*spacing,math.ceil(rect.right()),spacing)
+        ys=range(math.floor(rect.top()/spacing)*spacing,math.ceil(rect.bottom()),spacing)
+        key=(spacing,xs.start,ys.start,len(xs),len(ys))
+        if getattr(self,'_grid_key',None)!=key:
+            self._grid_key=key
+            self._grid_points=QPolygonF([QPointF(x,y) for x in xs for y in ys])
+        painter.drawPoints(self._grid_points)
         painter.restore()
 
     def wheelEvent(self,event):
