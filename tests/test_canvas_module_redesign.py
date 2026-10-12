@@ -206,6 +206,17 @@ class ModuleRedesignTests(StageFixture):
             self.assertEqual(len(set(self.c.data()['clip_inputs'])-existing),1)
             dialog.deleteLater()
 
+    def test_container_footer_opens_editor_without_panning(self):
+        container=self.c.containers[self.cid]
+        center=container.mapToScene(container.actions()['editor'].center())
+        self.view.centerOn(center);QTest.qWait(10)
+        QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=self.view.mapFromScene(center));QTest.qWait(20)
+        self.assertIsNone(self.view.pan)
+        self.assertIsNotNone(self.c.editor_page)
+        self.assertTrue(self.c.editor_page.isVisible())
+        self.c.editor_page.close_editor();QTest.qWait(15)
+        self.assertIsNone(self.c.editor_page)
+
     def test_container_size_menu_and_collapsed_function_resize_preserve_expanded_size(self):
         from prompt_calculus_studio.widgets import RoundMenu
         menus=[]

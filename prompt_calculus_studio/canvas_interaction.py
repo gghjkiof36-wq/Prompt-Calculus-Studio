@@ -23,7 +23,7 @@ class CanvasInteraction:
         if item is None:return True,None
         if isinstance(item,CanvasContainer):
             local=item.mapFromScene(self.view.mapToScene(point))
-            if not item.collapsed and local.y()>44 and not item.corner_at(local):return True,item.key
+            if not item.collapsed and local.y()>44 and not item.corner_at(local) and not item.action_at(local):return True,item.key
         return False,None
 
     def pointer(self,event):
