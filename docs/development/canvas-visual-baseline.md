@@ -9,7 +9,7 @@
 | 連接點 | `flow_items.Port` | 直徑約 9 個場景單位，實心；滑過及可連接時顯示外圈。保留原本 22×26 命中範圍與連線規則 |
 | 模組相關視窗 | `module_chrome.apply_module_dialog`、`dialog_colors`、`canvas_dialog_context` | 中性深灰外框、細邊線、統一標題與關閉圖示；主要操作用重點色，輸入及綁定使用深色內層 |
 | 節點預覽 | `module_preview.ModulePreview`、`FunctionPicker` | 使用隔離資料建立真實元件，文字與控制保持即時繪製；固定可用區域，按寬與高等比例縮放，預覽不顯示捲動欄。對話框隨螢幕調整，內容切換不改視窗大小 |
-| 文字模組選擇器 | `stacked_card_list.StackedCardListMixin`、`palette_cards.PaletteCardDelegate` | 與 Prompt Editor 共用底部三層通知堆疊、捲動與命中範圍；捲到底展開，減少動態效果時使用一般清單 |
+| 文字模組選擇器 | `stacked_card_list.StackedCardListMixin`、`palette_cards.PickerCardDelegate` | 與 Prompt Editor 共用底部三層通知堆疊、捲動與命中範圍；捲到底展開，減少動態效果時使用一般清單 |
 
 Stage 保留名稱、收合、更多、輸入／輸出與工作流入口。參考圖只決定外觀方向，不補回多餘的說明欄位。底部執行欄不在本批重設範圍。Candidate17 的偏綠 Stage 專用材質已由共用中性角色取代，原有 `#111111` 背景及實心接點保留。
 
