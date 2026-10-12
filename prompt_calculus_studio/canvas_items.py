@@ -19,7 +19,7 @@ def paint_module_surface(painter,outline,colors,header_bottom):
     body=colors.get('canvas_body',colors['surface'])
     header=colors.get('canvas_header',body)
     from .module_chrome import paint_shadow
-    paint_shadow(painter,outline)
+    paint_shadow(painter,outline,strength=colors.get('shadow_strength',1.0))
     fill=QColor(body);fill.setAlpha(colors.get('canvas_alpha',255))
     painter.setBrush(fill);painter.drawPath(outline)
     if header!=body:
@@ -274,9 +274,12 @@ class TextCard(ResizableCard):
     def shape(self):
         path=QPainterPath();path.addRoundedRect(QRectF(0,0,self.width,self.height),16,16);return path
 
+    def surface_colors(self):
+        return canvas_colors(self.canvas)
+
     def paint(self,painter,option,widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        colors=canvas_colors(self.canvas)
+        colors=self.surface_colors()
         selected=getattr(self,'dock_hover',False) or self.isSelected()
         painter.setPen(QPen(QColor(colors['accent'] if selected else colors['canvas_line']),1.5 if selected else 1))
         if self.key in getattr(self.canvas,'active_keys',set()):painter.setPen(QPen(QColor(colors['info']),2.5))
@@ -286,7 +289,7 @@ class TextCard(ResizableCard):
         from .module_chrome import paint_header
         paint_header(painter,self.width,getattr(self,'title','Prompt 控制'),self.canvas.font(),colors,
                      self.collapsed,getattr(self,'module_icon','canvas'),self.hot)
-        pen=QPen(QColor(colors['canvas_line']),1);pen.setCosmetic(True);painter.setPen(pen)
+        pen=QPen(QColor(colors.get('canvas_divider',colors['canvas_line'])),1);pen.setCosmetic(True);painter.setPen(pen)
         painter.drawLine(QPointF(0,divider),QPointF(self.width,divider))
         painter.setFont(self.canvas.font())
         if self.collapsed and getattr(self,'fold_message',''):
@@ -687,7 +690,7 @@ class CanvasView(QGraphicsView):
 
     def drawBackground(self,painter,rect):
         painter.save()
-        colors=canvas_colors(self.canvas);painter.fillRect(rect,QColor(colors['base']))
+        colors=canvas_colors(self.canvas);painter.fillRect(rect,QColor(colors['canvas_background']))
         painter.setRenderHint(QPainter.RenderHint.Antialiasing,False)
         dot=QColor(colors['line']);dot.setAlpha(90)
         pen=QPen(dot,1); pen.setCosmetic(True); painter.setPen(pen)

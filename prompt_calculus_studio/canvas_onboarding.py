@@ -27,7 +27,7 @@ def pending_setup(state):
     return pending
 
 
-def setup_action(canvas,action,kind,key,*,emphasize_pending=False):
+def setup_action(canvas,action,kind,key,*,emphasize_pending=False,colors=None):
     """Highlight setup actions without changing bindings or sequencing them."""
     pending=pending_setup(canvas.window.state);target=(kind,key)
     required=target in pending;current=bool(pending and pending[0]==target)
@@ -39,7 +39,7 @@ def setup_action(canvas,action,kind,key,*,emphasize_pending=False):
         action.setObjectName(role);action.style().unpolish(action);action.style().polish(action);action.update()
     from .canvas_items import canvas_colors
     from .ui_icons import icon
-    colors=canvas_colors(canvas)
+    if colors is None:colors=canvas_colors(canvas)
     from .module_chrome import style_action
     style_action(action,colors,pending=required)
     action.setIcon(icon(action.property('iconName') or 'workflow',colors['text']))

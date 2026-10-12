@@ -30,6 +30,15 @@ SURFACES = ('base', 'chrome', 'surface', 'raised', 'field', 'sidebar')
 
 
 class ColorRoleTests(unittest.TestCase):
+    def test_module_finish_and_canvas_background_follow_each_palette(self):
+        for name in ('graphite','paper','mist'):
+            roles=visual_tokens({'visual_palette':name})
+            for foreground in ('module_text','module_secondary'):
+                for surface in ('module_body','module_header','module_field','module_pending'):
+                    self.assertGreaterEqual(contrast(roles[foreground],roles[surface]),4.5,(name,foreground,surface))
+            if name=='graphite':self.assertEqual(roles['canvas_background'],'#111111')
+            else:self.assertEqual(roles['canvas_background'],roles['base'])
+
     def test_complete_custom_foundations_derive_without_preset_names(self):
         for name, foundation in FOUNDATIONS.items():
             with self.subTest(name=name):

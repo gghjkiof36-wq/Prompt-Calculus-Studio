@@ -83,9 +83,12 @@ class StagePanel(QFrame):
 
     def refresh(self):
         from .canvas_onboarding import setup_action
+        from .canvas_items import canvas_colors
+        from .module_chrome import matte_colors
         value=self.canvas.window.state.get('multi_output',{}).get('stages',{}).get(self.key)
         if value is None:return
-        selected=not setup_action(self.canvas,self.edit_button,'stages',self.key,emphasize_pending=True)
+        selected=not setup_action(self.canvas,self.edit_button,'stages',self.key,emphasize_pending=True,
+                                  colors=matte_colors(canvas_colors(self.canvas)))
         profile=next((p for p in self.canvas.window.state.get('generation',{}).get('profiles',[]) if p['id']==value.get('workflow')),None)
         self.edit_button.setText(profile['name']+' · 參數' if selected and profile else '工作流已移除 · 重新選擇' if value.get('workflow') else '未設定 · 選擇工作流')
         runner=self.canvas.window.comfy.input_flow.chain
@@ -111,11 +114,10 @@ class SchedulePanel(QFrame):
         self.empty=label('沒有等待執行的任務','Subtle',True);self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setMinimumHeight(56);body.addWidget(self.empty,1)
         self.pause_button=button('暫停',self.toggle_pause)
-        self.more=button('',self.more_actions,'Quiet')
+        self.more=button('管理',self.more_actions,'Quiet')
         self.more.setAccessibleName('預排程選項');self.more.setToolTip('預排程選項')
         history=button('歷史',lambda:show_history(canvas.window),'Quiet')
         from .ui_icons import icon
-        self.more.setIcon(icon('more-horizontal'));self.more.setProperty('iconName','more-horizontal')
         history.setIcon(icon('history'));history.setProperty('iconName','history')
         body.insertLayout(0,row(self.summary,None,self.more))
         body.addLayout(row(history,None,self.pause_button))

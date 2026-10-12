@@ -17,6 +17,8 @@ VISUAL_PALETTES = {
         'accent_neutral':'#e3d5ba', 'accent_blue':'#a6c6db', 'accent_green':'#b8cbb1',
         'chrome_solid':'#202527', 'sidebar':'#1a1f21',
         'mica_tint':'#343936', 'acrylic_tint':'#3c4042',
+        'module_body':'#202625', 'module_header':'#262c2b', 'module_field':'#191f1e',
+        'canvas_background':'#111111',
     },
     'mist': {
         'base':'#151b23', 'chrome':'#1e2833', 'surface':'#242f3b',

@@ -726,15 +726,10 @@ class MultiCanvas(TextCanvas):
         self.commit(change)
 
     def order_sources(self,key):
-        from .flow_data import text_sources,source_name
-        dialog=StudioDialog(self.window);dialog.setWindowTitle('Prompt 控制 · 文字合併順序');dialog.resize(400,380)
-        listing=QListWidget();listing.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        for cid in text_sources(self.data()['outputs'][key]):
-            item=QListWidgetItem(source_name(self.window.state,cid));item.setData(Qt.ItemDataRole.UserRole,cid);listing.addItem(item)
-        dialog.body.addWidget(label('拖曳排列；由上到下合併，各文字來源保持獨立。','Subtle',True))
-        dialog.body.addWidget(listing);dialog.body.addWidget(dialog_buttons(dialog))
+        from .source_order_dialog import SourceOrderDialog
+        dialog=SourceOrderDialog(self,key)
         if dialog.exec()!=QDialog.DialogCode.Accepted:return
-        ids=[listing.item(i).data(Qt.ItemDataRole.UserRole) for i in range(listing.count())]
+        ids=dialog.ordered_ids()
         def change(state):
             canvases=[i for i in ids if i in state['multi_output']['canvases']]
             state['multi_output']['outputs'][key].update(text_sources=ids,canvases=canvases,canvas=canvases[0] if canvases else None)

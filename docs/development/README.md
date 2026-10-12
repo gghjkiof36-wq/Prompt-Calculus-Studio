@@ -13,6 +13,7 @@ $env:PROMPT_STUDIO_DATA = Join-Path $PWD 'qa/dev-data'
 
 - [架構與資料流](architecture.md)
 - [Stage 模塊、接點與執行邊界](stage-architecture.md)
+- [Canvas 外觀與共用元件基準](canvas-visual-baseline.md)
 - [資料保存、參數與相容性](data-compatibility.md)
 - [技術債與處理條件](technical-debt.md)
 - [建置與來源包](building.md)

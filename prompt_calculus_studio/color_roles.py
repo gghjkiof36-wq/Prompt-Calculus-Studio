@@ -107,6 +107,21 @@ def derive_roles(foundation):
     t['canvas_field'] = t['field']
     t['canvas_inset'] = mix(t['canvas_body'], t['field'], .8)
     t['canvas_line'] = mix(t['canvas_body'], t['text'], .18)
+    t.setdefault('canvas_background',t['base'])
+    # Shared matte finish, adopted by Stage first. Other Canvas surfaces retain
+    # their current roles until their visual pass; every palette has a fallback.
+    t.setdefault('module_body', mix(t['surface'], t['field'], .25))
+    t.setdefault('module_header', t['canvas_header'])
+    t.setdefault('module_field', t['field'])
+    t['module_line'] = mix(t['module_body'], t['text'], .14)
+    t['module_divider'] = mix(t['module_header'], t['text'], .10)
+    t['module_pending'] = mix(t['module_body'], t['accent'], .13)
+    t['module_pending_line'] = mix(t['module_line'], t['accent'], .24)
+    module_surfaces = [t[key] for key in ('module_body','module_header','module_field','module_pending')]
+    t['module_text'] = readable(t['text'], module_surfaces)
+    t['module_secondary'] = readable(mix(t['module_text'],t['module_body'],.25),module_surfaces)
+    t['module_hover'] = interaction(t['module_body'],t['module_text'],.06)
+    t['module_selected'] = interaction(t['module_body'],t['module_text'],.12)
     t['text'] = readable(t['text'], surfaces+[t['canvas_body'], t['canvas_header'], t['selected'], t['popup_active']])
     # Reserve contrast for hover/press fills. Starting exactly at 4.5:1 can
     # force both interaction colors back to the unchanged accent.

@@ -3,6 +3,43 @@ from PySide6.QtCore import Qt, QRect, QRectF
 from PySide6.QtGui import QColor, QPen, QFontMetricsF
 
 
+def apply_module_dialog(dialog, colors, heading_size):
+    """Shared shell and choice rows for the picker and module-related sheets."""
+    from PySide6.QtWidgets import QFrame
+    from .color_roles import mix
+    background=mix(colors['base'],colors['surface'],.22)
+    line=mix(background,colors['text'],.20)
+    dialog.setStyleSheet(f'''
+        QFrame#DialogSurface {{background:{background};border:1px solid {line};border-radius:14px;}}
+        QLabel#DialogTitle {{font-size:{heading_size}px;font-weight:500;}}
+        QListWidget[moduleChoices="true"] {{background:transparent;border:0;padding:0;outline:0;}}
+        QListWidget[moduleChoices="true"]::item {{padding:8px 10px;border:0;border-radius:8px;}}
+        QListWidget[moduleChoices="true"]::item:hover {{background:{colors['hover']};}}
+        QListWidget[moduleChoices="true"]::item:selected {{background:{mix(background,colors['accent'],.20)};color:{colors['text']};}}
+    ''')
+    surface=dialog.findChild(QFrame,'DialogSurface')
+    surface.layout().setContentsMargins(20,16,20,18)
+    surface.layout().setSpacing(14);dialog.body.setSpacing(12)
+    return background,line
+
+
+def matte_colors(colors):
+    """One finish for the Stage card, its controls and its real-node preview."""
+    result = dict(colors)
+    for role, source in (
+        ('surface','module_body'), ('canvas_body','module_body'),
+        ('canvas_header','module_header'), ('field','module_field'),
+        ('canvas_field','module_field'), ('canvas_inset','module_field'),
+        ('line','module_line'), ('canvas_line','module_line'),
+        ('canvas_divider','module_divider'), ('text','module_text'),
+        ('secondary','module_secondary'), ('pending','module_pending'),
+        ('pending_line','module_pending_line'), ('hover','module_hover'),
+        ('selected','module_selected')):
+        result[role] = colors[source]
+    result['shadow_strength'] = .65
+    return result
+
+
 def module_value(canvas, key, state=None):
     writing = state is not None
     state = canvas.window.state if state is None else state
@@ -59,25 +96,25 @@ def paint_header(painter, width, title, font, colors, collapsed=False, icon_name
     painter.restore()
 
 
-def paint_shadow(painter, outline, nested=False):
+def paint_shadow(painter, outline, nested=False, strength=1.0):
     from .canvas_raster import paint_cached, SHADOWS
     geometry = tuple((e.x, e.y, e.type.value)
                      for i in range(outline.elementCount())
                      for e in (outline.elementAt(i),))
     bounds = outline.boundingRect().translated(0, 3 if nested else 6).adjusted(-7, -7, 7, 7)
-    paint_cached(painter, ('shadow', nested, outline.fillRule().value, geometry), bounds,
-                 lambda target: _draw_shadow(target, outline, nested), SHADOWS)
+    paint_cached(painter, ('shadow', nested, strength, outline.fillRule().value, geometry), bounds,
+                 lambda target: _draw_shadow(target, outline, nested, strength), SHADOWS)
 
 
-def _draw_shadow(painter, outline, nested=False):
+def _draw_shadow(painter, outline, nested=False, strength=1.0):
     painter.save()
     shape = outline.translated(0, 3 if nested else 6)
     painter.setBrush(Qt.BrushStyle.NoBrush)
     for spread, alpha in ((12, 3), (9, 5), (6, 8), (3, 12)):
-        painter.setPen(QPen(QColor(0, 0, 0, alpha // 2 if nested else alpha), spread,
+        painter.setPen(QPen(QColor(0, 0, 0, round((alpha // 2 if nested else alpha)*strength)), spread,
                             Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         painter.drawPath(shape)
-    painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(0, 0, 0, 20 if nested else 45))
+    painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(0, 0, 0, round((20 if nested else 45)*strength)))
     painter.drawPath(shape); painter.restore()
 
 
@@ -87,8 +124,8 @@ def visual_bounds(width, height):
 
 def style_action(widget, colors, pending=False, primary=False):
     from .color_roles import mix
-    background = colors['accent'] if primary else mix(colors['surface'], colors['accent'], .20) if pending else colors['surface']
+    background = colors['accent'] if primary else colors.get('pending',mix(colors['surface'], colors['accent'], .20)) if pending else colors['surface']
     foreground = colors['on_accent'] if primary else colors['text']
-    border = mix(colors['line'], colors['accent'], .5) if pending else colors['line']
+    border = colors.get('pending_line',mix(colors['line'], colors['accent'], .5)) if pending else colors['line']
     widget.setStyleSheet(f"QPushButton {{background:{background}; color:{foreground}; border:1px solid {border}; border-radius:8px; padding:7px 12px;}} QPushButton:hover {{border-color:{colors['accent']};}} QPushButton:pressed {{background:{colors['selected']};color:{colors['text']};}} QPushButton:disabled {{background:{colors['field']};color:{colors['secondary']};border-color:{colors['line']};}}")
     widget.setProperty('modulePending',pending)

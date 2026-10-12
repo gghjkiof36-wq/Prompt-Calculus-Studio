@@ -191,7 +191,7 @@ class ModuleRedesignTests(StageFixture):
         self.c.undo();self.assertEqual(set(self.c.data()['canvases']),existing)
         dialog.deleteLater()
 
-    def test_function_picker_double_click_and_add_button_insert_once(self):
+    def test_function_picker_single_click_and_add_button_insert_once(self):
         from prompt_calculus_studio.function_picker import FunctionPicker
         for by_button in (False,True):
             dialog=FunctionPicker(self.c,QPointF(2100,1200));dialog.show();QTest.qWait(10)
@@ -200,7 +200,7 @@ class ModuleRedesignTests(StageFixture):
             else:
                 point=dialog.list.visualItemRect(dialog.list.item(0)).center()
                 QTest.mouseClick(dialog.list.viewport(),Qt.MouseButton.LeftButton,pos=point)
-                self.assertEqual(set(self.c.data()['clip_inputs']),existing)
+                self.assertEqual(len(set(self.c.data()['clip_inputs'])-existing),1)
                 QTest.mouseDClick(dialog.list.viewport(),Qt.MouseButton.LeftButton,pos=point)
             QTest.qWait(15)
             self.assertEqual(len(set(self.c.data()['clip_inputs'])-existing),1)

@@ -23,7 +23,7 @@ ICON_NAMES = frozenset({
     'package','download','check','clock','info','close','play','pin','menu',
     'workflow','history','external-link','alert','server','check-circle',
     'folder','plus','minus','copy','trash','chevron-down','chevron-up','grid','list','more-horizontal',
-    'panel-left','type','file-text','list-ordered','image-single','scan-eye','link-2','maximize',
+    'panel-left','type','file-text','list-ordered','image-single','scan-eye','link-2','maximize','grip-vertical',
 })
 _STYLE_RESOURCES = {}
 
@@ -165,6 +165,9 @@ def _draw(painter, name):
         for y in (6,12,18): line(4,y,20,y)
     elif name == 'more-horizontal':
         for x in (5,12,19):circle(x,12,1)
+    elif name == 'grip-vertical':
+        for x in (9,15):
+            for y in (5,12,19):circle(x,y,.7)
     elif name == 'external-link':
         poly((13,3),(21,3),(21,11)); line(21,3,11,13)
         poly((9,5),(4,5),(4,20),(19,20),(19,15))

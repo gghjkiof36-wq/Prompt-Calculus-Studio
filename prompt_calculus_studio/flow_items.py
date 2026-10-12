@@ -77,7 +77,7 @@ class Port(QGraphicsObject):
     def __init__(self,canvas,parent,key,kind,output,slot=None,index=0):
         super().__init__(parent); self.canvas=canvas; self.key=key; self.kind=kind; self.output=output
         self.slot=slot; self.index=index
-        self.highlight=False; self.preview=None; self.target=None; self.setZValue(20)
+        self.highlight=False; self.hovered=False; self.preview=None; self.target=None; self.setZValue(20)
         self.setAcceptHoverEvents(True); self.setCursor(Qt.CursorShape.CrossCursor)
         name=(canvas.data()['outputs'].get(slot) or canvas.data()['canvases'].get(slot) or {}).get('name',LABELS[kind])
         from .flow_data import channel,source_name
@@ -100,10 +100,18 @@ class Port(QGraphicsObject):
     def paint(self,painter,option,widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         color=wire_color(self.canvas,self.kind)
-        painter.setPen(QPen(color,2)); painter.setBrush(color if self.highlight else QColor(canvas_colors(self.canvas)['surface']))
-        painter.drawEllipse(QPointF(),7,7)
+        if self.highlight or self.hovered:
+            ring=QColor(color);ring.setAlpha(180 if self.highlight else 100)
+            painter.setPen(QPen(ring,1));painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QPointF(),8,8)
+        painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(color)
+        painter.drawEllipse(QPointF(),5 if self.highlight else 4.5,5 if self.highlight else 4.5)
         # Port captions stay within the node, above its controls.
         painter.setPen(color)
+    def hoverEnterEvent(self,event):
+        self.hovered=True;self.update();super().hoverEnterEvent(event)
+    def hoverLeaveEvent(self,event):
+        self.hovered=False;self.update();super().hoverLeaveEvent(event)
     def compatible(self,other):
         if self.output==other.output or self.key==other.key: return False
         source,destination=(self,other) if self.output else (other,self)

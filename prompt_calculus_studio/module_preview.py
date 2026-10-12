@@ -1,9 +1,19 @@
 """Read-only default-node previews rendered by the real Canvas card classes."""
 import copy
 from types import SimpleNamespace
-from PySide6.QtCore import Qt, QObject, Signal, QRectF
+from PySide6.QtCore import Qt, QObject, Signal, QRectF, QTimer
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QFrame
+
+
+# Only the isolated example's layout changes. Production node defaults and the
+# user's saved graph remain untouched; all painting and controls are shared.
+PREVIEW_SIZES = {
+    'canvas': (360, 340), 'output': (378, 340), 'clip': (360, 174),
+    'reader': (360, 180), 'source': (360, 380), 'single': (360, 380),
+    'image-input': (360, 180), 'preview': (368, 336),
+    'schedule': (380, 360), 'stage': (360, 245),
+}
 
 
 class PreviewRuntime(QObject):
@@ -60,6 +70,7 @@ class PreviewCanvas:
         state = self.window.state; data = self.data(); key = 'preview_node'
         if kind == 'canvas':
             data['canvases'][key] = new_canvas('文字畫布')
+            data['canvases'][key]['display_size'] = list(PREVIEW_SIZES[kind])
             card = CanvasContainer(self, key); self.containers[key] = card; card.refresh()
             contract = 'canvas'
         elif kind == 'output':
@@ -87,7 +98,19 @@ class PreviewCanvas:
             card = SourceCard(self.functions, key); self.functions.cards[key] = card
             contract = 'text_reader' if kind == 'reader' else 'image_source' if kind == 'source' else 'image'
         self.view.scene().addItem(card)
-        if not isinstance(card, CanvasContainer): card.attach(); card.update_text()
+        if not isinstance(card, CanvasContainer):
+            state['text_sizes'][key] = list(PREVIEW_SIZES[kind])
+            card.attach(); card.update_text()
+            # The catalog shows the primary controls at a readable size. Extra
+            # batch tools stay in the full Canvas; only this isolated instance
+            # receives the compact layout, with the real widgets and paint.
+            if kind in ('source','single'):
+                card.panel.preview.setMinimumHeight(120)
+                if kind=='source':card.panel.source_controls.hide()
+                card.layout_card()
+            elif kind=='output':
+                card.panel.order.setMinimumHeight(48)
+                card.layout_card()
         spec = MODULES[contract]
         inputs = ('text','image') if kind == 'output' else ('control',) if kind == 'stage' else spec.inputs
         outputs = ('flow','image','clip') if kind == 'stage' else spec.outputs
@@ -112,30 +135,42 @@ class ModulePreview(QGraphicsView):
         super().__init__(); self.actual = canvas; self.context = None; self.card = None
         self.setScene(QGraphicsScene(self)); self.setInteractive(False)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus); self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setMinimumWidth(220)
+        self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing |
+                            QPainter.RenderHint.SmoothPixmapTransform)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setMinimumWidth(380)
         self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self.setStyleSheet('QGraphicsView {background:transparent;border:0;padding:0;}')
         self.fitting = False
+        self.refit=QTimer(self);self.refit.setSingleShot(True)
+        self.refit.timeout.connect(self.fit_node)
 
     def show_kind(self, kind):
+        self.refit.stop()
         self.scene().clear(); self.card = None; self.context = None
         if kind:
             self.context = PreviewCanvas(self.actual, self)
             self.card = self.context.make_card(kind)
+            proxy=getattr(self.card,'proxy',None)
+            if proxy is not None:proxy.geometryChanged.connect(lambda:self.refit.start(0))
         self.fit_node()
+        # Proxy widgets settle their minimum height after the first layout.
+        # Refit on that change, never on every scene paint or pointer move.
+        self.refit.start(0)
 
     def fit_node(self):
         if self.fitting:return
         self.fitting = True
         try:
             if self.card:
-                rect = self.scene().itemsBoundingRect().adjusted(-2,-2,2,2)
-                scale=min(1,max(1,self.viewport().width()-4)/rect.width(),360/rect.height())
-                self.setFixedHeight(round(rect.height()*scale)+4)
+                rect = self.scene().itemsBoundingRect().adjusted(-4,-4,4,4)
+                # Tall content scrolls instead of shrinking every label and
+                # control. The floor also protects large-font/narrow windows.
+                scale=max(.85,min(1,max(1,self.viewport().width()-4)/rect.width()))
+                self.setFixedHeight(min(420,round(rect.height()*scale)+4))
                 self.scene().setSceneRect(rect); self.resetTransform();self.scale(scale,scale)
+                self.verticalScrollBar().setValue(self.verticalScrollBar().minimum())
             else:self.setFixedHeight(0)
         finally:self.fitting = False
 

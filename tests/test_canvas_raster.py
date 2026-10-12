@@ -163,7 +163,7 @@ class CanvasRasterTests(unittest.TestCase):
         for zoom in (.3, .599, .6, .9, 1.5):
             view.transform = lambda: SimpleNamespace(m11=lambda: zoom)
             def direct(p):
-                colors=canvas_colors(self.canvas); p.fillRect(rect, QColor(colors['base']))
+                colors=canvas_colors(self.canvas); p.fillRect(rect, QColor(colors['canvas_background']))
                 p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
                 dot=QColor(colors['line']); dot.setAlpha(90)
                 pen=QPen(dot, 1); pen.setCosmetic(True); p.setPen(pen)

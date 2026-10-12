@@ -4,7 +4,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QLineEdit, QListWidget, QListWidgetItem, QHBoxLayout, QVBoxLayout, QFrame, QPushButton, QLabel
 from .widgets import StudioDialog, label, button, row, RoundMenu
 from .module_preview import ModulePreview
-from .module_chrome import style_action
+from .module_chrome import style_action, apply_module_dialog
 from .canvas_items import canvas_colors
 from .ui_icons import icon
 
@@ -28,29 +28,20 @@ class FunctionPicker(StudioDialog):
         super().__init__(canvas.window); self.canvas = canvas
         self.position = QPointF(position) if position is not None else canvas.view.mapToScene(canvas.view.viewport().rect().center())
         self.owner = (canvas.window.store, canvas.window.state['workspace'])
-        self.setWindowTitle('新增功能模組'); self.set_outside_dismiss(); self.resize(820, 748)
+        self.setWindowTitle('新增功能模組'); self.set_outside_dismiss(); self.resize(900, 748)
         self.category = '全部'; self.added = False; self.actions = canvas.functions.insertion_callbacks(self.position)
         colors=canvas_colors(canvas)
-        from .color_roles import mix
         from .theme import font_pixels
         heading_size=max(16,font_pixels(canvas.window.state['settings']['ui_size']))
-        background=mix(colors['base'],colors['surface'],.22)
-        line=mix(background,colors['text'],.20)
+        background,line=apply_module_dialog(self,colors,heading_size)
         self.setObjectName('FunctionPicker')
-        self.setStyleSheet(f'''
-            QFrame#DialogSurface {{background:{background};border:1px solid {line};border-radius:14px;}}
-            QLabel#DialogTitle {{font-size:{heading_size}px;font-weight:500;}}
+        self.setStyleSheet(self.styleSheet()+f'''
             QLineEdit#FunctionSearch {{background:{colors['surface']};border:1px solid {line};border-radius:8px;padding:10px 12px;}}
             QLineEdit#FunctionSearch:focus {{border-color:{colors['accent']};}}
-            QListWidget#FunctionList {{background:transparent;border:0;padding:0;outline:0;}}
-            QListWidget#FunctionList::item {{padding:8px 10px;border:0;border-radius:8px;}}
-            QListWidget#FunctionList::item:hover {{background:{colors['hover']};}}
-            QListWidget#FunctionList::item:selected {{background:{mix(background,colors['accent'],.20)};color:{colors['text']};}}
             QFrame#FunctionDetails {{background:transparent;border:0;}}
             QFrame#FunctionFooter {{background:transparent;border:0;border-top:1px solid {line};}}
         ''')
-        surface=self.findChild(QFrame,'DialogSurface'); surface.layout().setContentsMargins(20,16,20,18)
-        surface.layout().setSpacing(14); self.body.setSpacing(12)
+        surface=self.findChild(QFrame,'DialogSurface')
         title_icon=QLabel();title_icon.setPixmap(icon('package',colors['secondary']).pixmap(18,18))
         surface.layout().itemAt(0).layout().insertWidget(0,title_icon)
         self.search = QLineEdit(); self.search.setObjectName('FunctionSearch')
@@ -67,7 +58,7 @@ class FunctionPicker(StudioDialog):
         self.more.setAccessibleName('更多工具'); self.more.setToolTip('更多工具'); filters.addWidget(self.more)
         self.body.addLayout(filters)
         columns = QHBoxLayout(); columns.setSpacing(18)
-        self.list = QListWidget(); self.list.setObjectName('FunctionList')
+        self.list = QListWidget(); self.list.setObjectName('FunctionList');self.list.setProperty('moduleChoices',True)
         self.list.setAccessibleName('功能模組'); self.list.setMinimumWidth(260); self.list.setIconSize(QSize(18,18))
         self.list.setSpacing(2); columns.addWidget(self.list, 5)
         panel = QFrame(); panel.setObjectName('FunctionDetails'); detail = QVBoxLayout(panel)
@@ -81,10 +72,13 @@ class FunctionPicker(StudioDialog):
         self.empty = label('沒有符合的功能模組', 'Subtle'); self.empty.hide(); self.body.addWidget(self.empty)
         self.add_button = button('新增模組', self.insert_current, 'Primary'); self.add_button.setIcon(icon('plus','on-accent'))
         footer=QFrame();footer.setObjectName('FunctionFooter'); actions=QHBoxLayout(footer)
-        actions.setContentsMargins(0,14,0,0); actions.addWidget(label('選中預覽 · 雙擊新增','Subtle')); actions.addStretch();actions.addWidget(self.add_button)
+        actions.setContentsMargins(0,14,0,0); actions.addStretch();actions.addWidget(self.add_button)
         self.body.addWidget(footer); style_action(self.add_button,colors,primary=True)
         for control in self.findChildren(QPushButton):control.setAutoDefault(False)
         self.list.currentItemChanged.connect(self.select_current)
+        self.list.setMouseTracking(True)
+        self.list.itemEntered.connect(self.list.setCurrentItem)
+        self.list.itemClicked.connect(self.insert_current)
         self.list.itemActivated.connect(self.insert_current)
         self.search.textChanged.connect(self.filter_items); self.search.returnPressed.connect(self.insert_current)
         self.set_category('全部'); self.search.setFocus()

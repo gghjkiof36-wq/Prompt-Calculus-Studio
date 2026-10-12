@@ -40,10 +40,10 @@ class CanvasProxyEdgeTests(unittest.TestCase):
         graph=copy.deepcopy(self.c.data());undo=copy.deepcopy(self.c.undo_stack)
         for palette in ('graphite','paper','mist'):
             self.w.state['settings']['visual_palette']=palette;self.w.apply_theme(preserve_layout=True)
-            body=visual_tokens(self.w.state['settings'])['canvas_body']
             for scale in (.35,.86,1):
                 self.c.view.resetTransform();self.c.view.scale(scale,scale)
                 for card in cards:
+                    body=card.surface_colors()['canvas_body']
                     self.c.view.centerOn(card);QTest.qWait(10)
                     image=self.c.view.viewport().grab().toImage();rect=card.proxy.rect();dpr=image.devicePixelRatio()
                     samples=[]
@@ -78,8 +78,8 @@ class CanvasProxyEdgeTests(unittest.TestCase):
         saved=Path(os.environ.get('PCS_TEST_ARTIFACT_DIR',self.tmp.name));saved.mkdir(parents=True,exist_ok=True)
         for palette in ('graphite','paper','mist'):
             self.w.state['settings']['visual_palette']=palette;self.w.apply_theme(preserve_layout=True)
-            body=visual_tokens(self.w.state['settings'])['canvas_body']
             for card in cards:
+                body=card.surface_colors()['canvas_body']
                 # Raise only the inspected card; enlarged adjacent cards may overlap.
                 card.setZValue(100)
                 for width,height in ((500.7,620.3),(360.4,170.6)):
