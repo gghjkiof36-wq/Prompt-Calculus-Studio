@@ -56,8 +56,9 @@ class CanvasRasterTests(unittest.TestCase):
 
     def direct_card(self, painter):
         with patch.object(module_chrome, 'paint_shadow', module_chrome._draw_shadow):
-            self.card._paint_card(painter, canvas_colors(self.canvas),
-                                  self.canvas.affected_nodes.get('root', {}))
+            colors=canvas_colors(self.canvas)
+            self.card._paint_surface(painter, colors, self.canvas.affected_nodes.get('root', {}))
+            self.card._paint_content(painter, colors)
 
     def test_text_shadow_and_edges_match_at_zoom_dpr_and_fractional_pan(self):
         for zoom, dpr in ((.3, 1), (.77, 1.25), (.9, 1.25), (1, 1), (1.5, 1.25), (1, 2)):
@@ -94,7 +95,7 @@ class CanvasRasterTests(unittest.TestCase):
                 previous = actual
 
     def test_unchanged_card_reuses_raster_after_integer_device_translation(self):
-        with patch.object(self.card, '_paint_card', wraps=self.card._paint_card) as draw:
+        with patch.object(self.card, '_paint_surface', wraps=self.card._paint_surface) as draw:
             self.render(lambda p: self.card.paint(p, None), offset=(24, 24))
             self.render(lambda p: self.card.paint(p, None), offset=(28, 28))
             self.render(lambda p: self.card.paint(p, None), offset=(32, 32))
@@ -135,7 +136,7 @@ class CanvasRasterTests(unittest.TestCase):
         for n in range(16):
             self.render(lambda p: module_chrome.paint_shadow(p, large), offset=(25+n*.25,25+n*.25))
         self.assertEqual((len(LAYERS.entries),LAYERS.byte_count),(count,size))
-        with patch.object(self.card, '_paint_card', wraps=self.card._paint_card) as draw:
+        with patch.object(self.card, '_paint_surface', wraps=self.card._paint_surface) as draw:
             self.render(lambda p: self.card.paint(p, None))
             draw.assert_not_called()
 

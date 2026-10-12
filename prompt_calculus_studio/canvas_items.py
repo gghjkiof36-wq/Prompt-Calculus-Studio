@@ -417,30 +417,25 @@ class NodeCard(ResizableCard):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         colors=canvas_colors(self.canvas)
         affected=getattr(self.canvas,'affected_nodes',{}).get(self.key,{})
-        # At overview scale the tiny vector controls are cheaper to draw and
-        # avoid raster-engine rounding differences in subpixel icon strokes.
-        if min(painter.deviceTransform().m11(),painter.deviceTransform().m22())<.5:
-            self._paint_card(painter,colors,affected)
-            return
         active=getattr(self.canvas.window,'_material_editor_session',{}).get('active')
         from .canvas_raster import paint_cached
-        key=('text-card',self.width,self.height,self.canvas.font().key(),tuple(sorted(colors.items())),
-             self.value['name'],self.value['weight'],self.collapsed,self.muted,self.status,self.own,
-             self.line,self.body_top,self.text_height,self.header_height,self.drop_y,
-             tuple(self.drop_size) if self.drop_size else None,self.parentItem() is not None,
-             self.canvas.entries[self.key][0] is not None,self.isSelected(),self.hot,self.pressed,
+        key=('text-surface',self.width,self.height,tuple(sorted(colors.items())),
+             self.muted,self.parentItem() is not None,self.isSelected(),
              bool(affected),bool(affected.get('all')),self.key in getattr(self.canvas,'active_keys',set()),
              active==('canvas',self.key,self.canvas.window.state.get('workspace')))
-        paint_cached(painter,key,self.boundingRect(),lambda target:self._paint_card(target,colors,affected))
+        paint_cached(painter,key,self.boundingRect(),lambda target:self._paint_surface(target,colors,affected))
+        # Text and controls stay vector drawn. In particular, native glyph
+        # hinting must not jump when an image's origin changes at fractional zoom.
+        self._paint_content(painter,colors)
 
-    def _paint_card(self,painter,colors,affected):
+    def _paint_surface(self,painter,colors,affected):
         border=colors['secondary'] if self.muted or affected.get('all') else '#d4ac51' if affected else colors['canvas_line']
         painter.setPen(QPen(QColor(border),2 if affected or self.muted else 1))
         if self.key in getattr(self.canvas,'active_keys',set()):painter.setPen(QPen(QColor(colors['info']),2.5))
         body=colors['field'] if self.muted else colors['selected'] if self.isSelected() else colors['canvas_inset'] if self.parentItem() else colors['canvas_body']
         painter.setBrush(QColor(body))
         surface=QRectF(0,0,self.width,self.height)
-        from .module_chrome import paint_shadow,paint_header
+        from .module_chrome import paint_shadow
         paint_shadow(painter,self.shape(),self.parentItem() is not None)
         painter.drawRoundedRect(surface,12,12); painter.setFont(self.canvas.font())
         if not self.parentItem():
@@ -456,6 +451,10 @@ class NodeCard(ResizableCard):
         if active==('canvas',self.key,self.canvas.window.state.get('workspace')):
             painter.save();pen=QPen(QColor(colors['info']),1.5,Qt.PenStyle.DashLine);pen.setCosmetic(True)
             painter.setPen(pen);painter.setBrush(Qt.BrushStyle.NoBrush);painter.drawRoundedRect(surface.adjusted(7,7,-7,-7),7,7);painter.restore()
+
+    def _paint_content(self,painter,colors):
+        from .module_chrome import paint_header
+        painter.setFont(self.canvas.font())
         if self.muted: painter.setOpacity(.42)
         metrics=QFontMetricsF(painter.font()); available=self.width-28
         paint_header(painter,self.width,self.value['name'],self.canvas.font(),colors,self.collapsed,hot=self.hot)

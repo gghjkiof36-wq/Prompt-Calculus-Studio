@@ -129,8 +129,8 @@ def paint_cached(painter, key, bounds, draw, cache=LAYERS):
         finally:
             local.end()
         cache.put(token, image)
-    # Composite at physical pixel coordinates: no resampling of text on pan,
-    # and a new raster for each zoom/DPR/subpixel phase, not a stretched bitmap.
+    # Composite at physical pixel coordinates without resampling on pan;
+    # each zoom/DPR/subpixel phase uses its own raster, not a stretched bitmap.
     painter.save()
     painter.resetTransform()
     painter.setWorldTransform(painter.deviceTransform().inverted()[0])
