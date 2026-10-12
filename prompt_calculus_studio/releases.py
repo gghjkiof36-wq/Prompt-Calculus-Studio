@@ -73,8 +73,9 @@ RELEASES={r.flag:r for r in (
     Release('--v087-candidate14','v087-editor-candidate14-20261012','v0.8.7 Canvas 模組候選 14','Start-PCS-v0.8.7-Candidate14','--v0.8.7-alpha'),
     Release('--v087-candidate15','v087-editor-candidate15-20261012','v0.8.7 Canvas 效能候選 15','Start-PCS-v0.8.7-Candidate15','--v0.8.7-alpha'),
     Release('--v087-candidate16','v087-editor-candidate16-20261012','v0.8.7 Canvas 更新效能候選 16','Start-PCS-v0.8.7-Candidate16','--v0.8.7-alpha'),
+    Release('--v087-candidate17','v087-editor-candidate17-20261012','v0.8.7 Canvas 外觀候選 17','Start-PCS-v0.8.7-Candidate17','--v0.8.7-alpha'),
 )}
-CURRENT=RELEASES['--v087-candidate16']
+CURRENT=RELEASES['--v087-candidate17']
 # Historical build flags remain readable; new metadata uses explicit dotted version identifiers.
 RELEASE_ALIASES={
     '--v084-alpha1':'--v0.8.4-alpha.1',
