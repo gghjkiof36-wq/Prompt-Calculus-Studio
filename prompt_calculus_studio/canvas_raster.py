@@ -17,6 +17,7 @@ class RasterCache:
         self.max_entry_bytes = min(max_entry_bytes, max_bytes)
         self.max_entries = max_entries
         self.entries = OrderedDict()
+        self.pending = OrderedDict()
         self.byte_count = 0
 
     def get(self, key):
@@ -38,8 +39,20 @@ class RasterCache:
         self.entries[key] = image
         self.byte_count += size
 
+    def recurring(self, key):
+        # A continuously changing zoom/resize should not rasterize a large
+        # throwaway image every frame. Admit a visual state on its second use.
+        if key in self.pending:
+            self.pending.pop(key)
+            return True
+        self.pending[key] = None
+        if len(self.pending) > self.max_entries:
+            self.pending.popitem(last=False)
+        return False
+
     def clear(self):
         self.entries.clear()
+        self.pending.clear()
         self.byte_count = 0
 
 
@@ -55,7 +68,7 @@ def paint_cached(painter, key, bounds, draw, cache=LAYERS):
     transform = painter.deviceTransform()
     sx, sy = transform.m11(), transform.m22()
     if (not transform.isAffine() or transform.m12() or transform.m21()
-            or sx <= 0 or sy <= 0
+            or sx <= 0 or sy <= 0 or painter.opacity() != 1
             or painter.compositionMode() != QPainter.CompositionMode.CompositionMode_SourceOver):
         draw(painter)
         return
@@ -75,6 +88,9 @@ def paint_cached(painter, key, bounds, draw, cache=LAYERS):
              painter.font().key())
     image = cache.get(token)
     if image is None:
+        if not cache.recurring(token):
+            draw(painter)
+            return
         image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
         if image.isNull():
             draw(painter)

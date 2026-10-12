@@ -63,9 +63,10 @@ class CanvasRasterTests(unittest.TestCase):
         for zoom, dpr in ((.3, 1), (.9, 1.25), (1, 1), (1.5, 1.25), (1, 2)):
             for offset in ((25.35, 25.75), (26.1, 27.25)):
                 with self.subTest(zoom=zoom, dpr=dpr, offset=offset):
-                    actual = self.render(lambda p: self.card.paint(p, None), zoom, dpr, offset)
                     expected = self.render(self.direct_card, zoom, dpr, offset)
-                    self.assert_pixels_close(actual, expected)
+                    for _ in range(3):
+                        actual = self.render(lambda p: self.card.paint(p, None), zoom, dpr, offset)
+                        self.assert_pixels_close(actual, expected)
 
     def test_live_visual_states_invalidate_the_card(self):
         previous = self.render(lambda p: self.card.paint(p, None))
@@ -86,6 +87,7 @@ class CanvasRasterTests(unittest.TestCase):
                        palette, font, disabled, drop):
             with self.subTest(state=change.__name__):
                 change()
+                self.render(lambda p: self.card.paint(p, None))
                 actual = self.render(lambda p: self.card.paint(p, None))
                 self.assertNotEqual(actual, previous)
                 self.assert_pixels_close(actual, self.render(self.direct_card))
@@ -95,13 +97,15 @@ class CanvasRasterTests(unittest.TestCase):
         with patch.object(self.card, '_paint_card', wraps=self.card._paint_card) as draw:
             self.render(lambda p: self.card.paint(p, None), offset=(24, 24))
             self.render(lambda p: self.card.paint(p, None), offset=(28, 28))
-            self.assertEqual(draw.call_count, 1)
-            self.render(lambda p: self.card.paint(p, None), zoom=1.0, offset=(28, 28))
+            self.render(lambda p: self.card.paint(p, None), offset=(32, 32))
             self.assertEqual(draw.call_count, 2)
+            self.render(lambda p: self.card.paint(p, None), zoom=1.0, offset=(28, 28))
+            self.assertEqual(draw.call_count, 3)
 
     def test_shadow_reuse_keeps_nested_and_outer_outlines_distinct(self):
         outline = QPainterPath(); outline.addRoundedRect(QRectF(0, 0, 320, 180), 16, 16)
         for nested in (False, True):
+            self.render(lambda p: module_chrome.paint_shadow(p, outline, nested))
             actual = self.render(lambda p: module_chrome.paint_shadow(p, outline, nested))
             expected = self.render(lambda p: module_chrome._draw_shadow(p, outline, nested))
             self.assert_pixels_close(actual, expected)
@@ -125,6 +129,7 @@ class CanvasRasterTests(unittest.TestCase):
 
     def test_large_shadow_does_not_evict_card_layers(self):
         self.render(lambda p: self.card.paint(p, None))
+        self.render(lambda p: self.card.paint(p, None))
         count, size = len(LAYERS.entries), LAYERS.byte_count
         large = QPainterPath(); large.addRoundedRect(QRectF(0, 0, 1400, 1000), 16, 16)
         for n in range(16):
@@ -133,6 +138,15 @@ class CanvasRasterTests(unittest.TestCase):
         with patch.object(self.card, '_paint_card', wraps=self.card._paint_card) as draw:
             self.render(lambda p: self.card.paint(p, None))
             draw.assert_not_called()
+
+    def test_one_time_zoom_levels_do_not_allocate_disposable_card_images(self):
+        with patch.object(LAYERS, 'put', wraps=LAYERS.put) as put:
+            for zoom in (.71, .77, .83, .91, 1.03, 1.11):
+                self.render(lambda p: self.card.paint(p, None),zoom)
+            put.assert_not_called()
+        cache=RasterCache(max_entries=4)
+        for i in range(10): cache.recurring(i)
+        self.assertEqual(len(cache.pending),4)
 
     def test_batch_grid_matches_individual_points_at_negative_positions(self):
         view = SimpleNamespace(canvas=self.canvas)
