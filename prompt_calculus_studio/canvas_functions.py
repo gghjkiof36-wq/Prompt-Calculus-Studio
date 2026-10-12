@@ -135,7 +135,7 @@ class SourceCard(TextCard):
         if owner.data()['images'][key].get('enhanced'):self.title='圖片來源'
         if owner.data()['images'][key].get('reader')=='text':
             from .result_widgets import TextResultPanel
-            self.title='讀取文字';self.module_icon='list';self.panel=TextResultPanel(owner,key)
+            self.title='讀取文字';self.module_icon='file-text';self.panel=TextResultPanel(owner,key)
         else:self.panel=SourcePanel(owner,key)
         self.setToolTip('')
     def attach(self):

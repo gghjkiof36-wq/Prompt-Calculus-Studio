@@ -144,6 +144,9 @@ def stylesheet(settings):
     QFrame#CanvasModuleBody QLineEdit, QFrame#CanvasModuleBody QPlainTextEdit,
     QFrame#CanvasModuleBody QComboBox, QFrame#CanvasModuleBody QSpinBox,
     QFrame#CanvasModuleBody QDoubleSpinBox {{ background:{t['canvas_field']}; }}
+    QListWidget#ModuleSourceOrder {{background:transparent;border:0;padding:0;}}
+    QListWidget#ModuleSourceOrder::item {{border:0;border-radius:6px;padding:8px 10px;}}
+    QFrame#CanvasModuleBody QPlainTextEdit#Prompt {{border:0;border-radius:8px;padding:10px;}}
     QLabel#ExploreTitle {{ font-size:28px; font-weight:600; }}
     QFrame#PopupPanel {{ background:{t['raised']}; border:1px solid {t['line']}; border-radius:16px; }}
     QPushButton#FilterChip {{ background:{t['surface']}; border:1px solid transparent; padding:6px 12px; border-radius:14px; }}

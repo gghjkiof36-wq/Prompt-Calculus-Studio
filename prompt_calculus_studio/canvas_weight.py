@@ -30,7 +30,7 @@ class WeightEdit(QLineEdit):
         self.setFont(card.canvas.font())
         from .canvas_items import canvas_colors
         colors = canvas_colors(card.canvas)
-        self.setStyleSheet(f"QLineEdit {{background:{colors['surface']}; color:{colors['text']}; border:0; border-radius:6px; padding:0; selection-background-color:{colors['selected']};}}")
+        self.setStyleSheet(f"QLineEdit {{background:transparent; color:{colors['text']}; border:0; border-radius:6px; padding:0; selection-background-color:{colors['selected']};}}")
 
     def keyPressEvent(self, event):
         if self.composing and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):

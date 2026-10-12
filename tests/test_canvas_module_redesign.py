@@ -239,6 +239,21 @@ class ModuleRedesignTests(StageFixture):
         self.c.undo();self.assertEqual(next(b for b in self.c.data()['bindings'] if b['clip']==self.clip)['node'],'6')
         self.c.redo();self.w.persist();self.assertEqual(next(b for b in self.w.store.load()['multi_output']['bindings'] if b['clip']==self.clip)['node'],'7')
 
+    def test_binding_can_explicitly_remove_a_stale_target_after_refresh(self):
+        from prompt_calculus_studio.clip_widgets import ClipBindingDialog
+        self.w.settings_page.workflow_manager.catalog.loaded=True
+        dialog=ClipBindingDialog(self.c,self.clip)
+        from stage_fixture import pure_profile
+        profile=pure_profile(dialog.profile()['id'])
+        profile['frontend_id']=dialog.profile()['frontend_id']
+        dialog.staged[profile['id']]=profile;dialog.refresh_targets();dialog.update_submit()
+        self.assertEqual(dialog.target.count(),1)
+        self.assertIsNone(dialog.target.currentData())
+        self.assertTrue(dialog.save_button.isEnabled())
+        dialog.accept();dialog.apply();dialog.deleteLater()
+        self.assertFalse(any(binding['clip']==self.clip for binding in self.c.data()['bindings']),self.notices)
+        self.c.undo();self.assertTrue(any(binding['clip']==self.clip for binding in self.c.data()['bindings']))
+
     def test_image_binding_pending_and_error_survive_collapse(self):
         from prompt_calculus_studio.flow_data import add_image_input
         from prompt_calculus_studio.flow_widgets import ImageInputDialog

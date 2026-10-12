@@ -126,6 +126,11 @@ class WorkflowBindingDialog(StudioDialog):
         if self.workflow.currentData() is None:return self.manual_choice and not self.requires_workflow()
         if not self.profile() or not self.target.isEnabled():return False
         if not self.requires_target:return True
+        if self.empty_target_allowed and self.target.currentData() is None and any(
+                binding['clip']==self.key and binding['workflow']==self.workflow.currentData() for binding in self.bindings):
+            # Removing a stale binding is a valid explicit action even when
+            # its old workflow no longer has any writable text field.
+            return True
         if not any(self.target.itemData(i) is not None and self.target.model().item(i).isEnabled()
                    for i in range(self.target.count())):return False
         selected=self.target.model().item(self.target.currentIndex())

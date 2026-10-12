@@ -2,7 +2,7 @@
 import copy
 from types import SimpleNamespace
 from PySide6.QtCore import Qt, QObject, Signal, QRectF
-from PySide6.QtGui import QPainter, QColor
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QFrame
 
 
@@ -115,9 +115,10 @@ class ModulePreview(QGraphicsView):
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setMinimumSize(220, 260)
-        from .canvas_items import canvas_colors
-        self.setBackgroundBrush(QColor(canvas_colors(canvas)['field']))
+        self.setMinimumWidth(220)
+        self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        self.setStyleSheet('QGraphicsView {background:transparent;border:0;padding:0;}')
+        self.fitting = False
 
     def show_kind(self, kind):
         self.scene().clear(); self.card = None; self.context = None
@@ -127,9 +128,16 @@ class ModulePreview(QGraphicsView):
         self.fit_node()
 
     def fit_node(self):
-        if self.card:
-            rect = self.scene().itemsBoundingRect().adjusted(-18,-18,18,18)
-            self.scene().setSceneRect(rect); self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+        if self.fitting:return
+        self.fitting = True
+        try:
+            if self.card:
+                rect = self.scene().itemsBoundingRect().adjusted(-2,-2,2,2)
+                scale=min(1,max(1,self.viewport().width()-4)/rect.width(),360/rect.height())
+                self.setFixedHeight(round(rect.height()*scale)+4)
+                self.scene().setSceneRect(rect); self.resetTransform();self.scale(scale,scale)
+            else:self.setFixedHeight(0)
+        finally:self.fitting = False
 
     def resizeEvent(self, event):
         super().resizeEvent(event); self.fit_node()

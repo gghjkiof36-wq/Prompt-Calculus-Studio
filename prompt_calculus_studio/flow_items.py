@@ -208,7 +208,7 @@ class ConnectionGesture(QObject):
 
 class CanvasContainer(QGraphicsObject):
     def __init__(self,canvas,key):
-        super().__init__(); self.canvas=canvas; self.key=key; self.width=760; self.height=620; self.start=None; self.corner=None; self.hovered=False
+        super().__init__(); self.canvas=canvas; self.key=key; self.width=760; self.height=620; self.start=None; self.corner=None; self.hovered=False;self.hot=None
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsMovable|QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
         self.setAcceptHoverEvents(True); self.setZValue(-1)
     def refresh(self):
@@ -231,8 +231,8 @@ class CanvasContainer(QGraphicsObject):
     def actions(self):
         from .module_chrome import header_rects
         font=self.canvas.font();font.setBold(True)
-        result=header_rects(self.width,self.canvas.data()['canvases'][self.key]['name'],font,extra=154)[2]
-        result['editor']=QRectF(self.width-206,7,150,30)
+        result=header_rects(self.width,self.canvas.data()['canvases'][self.key]['name'],font)[2]
+        if not self.collapsed:result['editor']=QRectF(16,self.height-54,self.width-32,38)
         return result
     def action_at(self,pos):return next((name for name,rect in self.actions().items() if rect.contains(pos)),None)
     def corner_at(self,pos):
@@ -240,26 +240,33 @@ class CanvasContainer(QGraphicsObject):
         for name,point in [('tl',QPointF()),('tr',QPointF(self.width,0)),('bl',QPointF(0,self.height)),('br',QPointF(self.width,self.height))]:
             if abs(pos.x()-point.x())<17 and abs(pos.y()-point.y())<17: return name
     def hoverMoveEvent(self,event):
-        corner=self.corner_at(event.pos()); self.setCursor(Qt.CursorShape.SizeFDiagCursor if corner in ('tl','br') else Qt.CursorShape.SizeBDiagCursor if corner else Qt.CursorShape.ArrowCursor)
+        hot=self.action_at(event.pos())
+        if hot!=self.hot:self.hot=hot;self.update()
+        corner=self.corner_at(event.pos()); self.setCursor(Qt.CursorShape.SizeFDiagCursor if corner in ('tl','br') else Qt.CursorShape.SizeBDiagCursor if corner else Qt.CursorShape.PointingHandCursor if hot else Qt.CursorShape.ArrowCursor)
         super().hoverMoveEvent(event)
+    def hoverLeaveEvent(self,event):
+        self.hot=None;self.update();super().hoverLeaveEvent(event)
     def paint(self,painter,option,widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         colors=canvas_colors(self.canvas)
-        painter.setPen(QPen(QColor(colors['accent'] if self.hovered or self.isSelected() else colors['line']),1.5 if self.hovered else 1))
+        painter.setPen(QPen(QColor(colors['accent'] if self.hovered or self.isSelected() else colors['canvas_line']),1.5 if self.hovered else 1))
         if self.key in getattr(self.canvas,'active_keys',set()):painter.setPen(QPen(QColor(colors['info']),2.5))
         outline=QPainterPath();outline.addRoundedRect(self.rect(),16,16)
         # A container recedes behind its text cards; do not reduce child
         # opacity or reintroduce transparent proxy-widget painting.
-        container=dict(colors,canvas_alpha=205,canvas_body=mix(colors['canvas_body'],colors['base'],.80),
-                       canvas_header=mix(colors['canvas_header'],colors['base'],.66))
+        container=dict(colors,canvas_alpha=255,canvas_body=mix(colors['canvas_body'],colors['base'],.80))
         paint_module_surface(painter,outline,container,44)
         value=self.canvas.data()['canvases'][self.key]
         from .module_chrome import paint_header
-        paint_header(painter,self.width,value['name'],self.canvas.font(),colors,self.collapsed,'canvas',extra=154)
-        painter.setFont(self.canvas.font());painter.setPen(QColor(colors['secondary']))
-        painter.drawText(self.actions()['editor'],Qt.AlignmentFlag.AlignCenter,'展開文字畫布')
-        pen=QPen(QColor(colors['divider']),1);pen.setCosmetic(True);painter.setPen(pen)
-        painter.drawLine(QPointF(18,44),QPointF(self.width-18,44))
+        paint_header(painter,self.width,value['name'],self.canvas.font(),colors,self.collapsed,'panel-left',self.hot)
+        painter.setFont(self.canvas.font())
+        if not self.collapsed:
+            area=self.actions()['editor'];painter.setPen(QPen(QColor(colors['canvas_line']),1))
+            painter.setBrush(QColor(colors['hover'] if self.hot=='editor' else container['canvas_body']))
+            painter.drawRoundedRect(area,8,8);painter.setPen(QColor(colors['text']))
+            painter.drawText(area,Qt.AlignmentFlag.AlignCenter,'展開文字畫布')
+        pen=QPen(QColor(colors['canvas_line']),1);pen.setCosmetic(True);painter.setPen(pen)
+        painter.drawLine(QPointF(0,44),QPointF(self.width,44))
         preview=self.canvas.image_previews.get(self.key)
         if self.collapsed:return
         if preview is not None:

@@ -83,8 +83,9 @@ class StagePanel(QFrame):
 
     def refresh(self):
         from .canvas_onboarding import setup_action
+        value=self.canvas.window.state.get('multi_output',{}).get('stages',{}).get(self.key)
+        if value is None:return
         selected=not setup_action(self.canvas,self.edit_button,'stages',self.key,emphasize_pending=True)
-        value=self.canvas.data()['stages'].get(self.key,{})
         profile=next((p for p in self.canvas.window.state.get('generation',{}).get('profiles',[]) if p['id']==value.get('workflow')),None)
         self.edit_button.setText(profile['name']+' · 參數' if selected and profile else '工作流已移除 · 重新選擇' if value.get('workflow') else '未設定 · 選擇工作流')
         runner=self.canvas.window.comfy.input_flow.chain
@@ -162,7 +163,7 @@ class SchedulePanel(QFrame):
         item=self.list.currentItem();return self.runner.store.read(item.data(Qt.ItemDataRole.UserRole)) if item else None
 
     def refresh(self):
-        if self.dragging or self.runner.closed:return
+        if self.dragging or self.runner.closed or self.key not in self.canvas.window.state.get('multi_output',{}).get('schedulers',{}):return
         rows=self.entries();value=self.canvas.data()['schedulers'].get(self.key,{})
         ids=[r['id'] for r in rows];old=[self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]
         selected=self.selected();selected=selected['id'] if selected else None

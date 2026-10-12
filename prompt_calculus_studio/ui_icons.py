@@ -23,6 +23,7 @@ ICON_NAMES = frozenset({
     'package','download','check','clock','info','close','play','pin','menu',
     'workflow','history','external-link','alert','server','check-circle',
     'folder','plus','minus','copy','trash','chevron-down','chevron-up','grid','list','more-horizontal',
+    'panel-left','type','file-text','list-ordered','image-single','scan-eye','link-2','maximize',
 })
 _STYLE_RESOURCES = {}
 
@@ -87,6 +88,29 @@ def _draw(painter, name):
     if name in ('canvas','workflow'):
         rect(3,3,6,6); rect(15,15,6,6); rect(3,15,6,6)
         poly((6,9),(6,12),(18,12),(18,15)); line(6,12,6,15)
+    elif name == 'panel-left':
+        rect(3,3,6,18,1);rect(13,3,8,7,1);rect(13,14,8,7,1)
+    elif name == 'type':
+        poly((4,6),(4,3),(20,3),(20,6));line(12,3,12,21);line(8,21,16,21)
+    elif name == 'file-text':
+        poly((5,3),(14,3),(20,9),(20,21),(5,21),closed=True)
+        poly((14,3),(14,9),(20,9));line(8,13,16,13);line(8,17,16,17)
+    elif name == 'list-ordered':
+        poly((3,3),(4,2),(4,7));line(2.5,7,5.5,7)
+        poly((2,12),(5,12),(5,14),(2,17),(5,17))
+        for y in (4,12,20):line(10,y,21,y)
+    elif name == 'link-2':
+        painter.drawArc(QRectF(2,7,12,10),90*16,180*16)
+        painter.drawArc(QRectF(10,7,12,10),-90*16,180*16);line(8,12,16,12)
+    elif name == 'maximize':
+        for sx,sy in ((1,1),(-1,1),(1,-1),(-1,-1)):
+            poly((12+sx*4,12+sy*9),(12+sx*9,12+sy*9),(12+sx*9,12+sy*4))
+    elif name == 'scan-eye':
+        for sx,sy in ((1,1),(-1,1),(1,-1),(-1,-1)):
+            poly((12+sx*5,12+sy*10),(12+sx*10,12+sy*10),(12+sx*10,12+sy*5))
+        path=QPainterPath(QPointF(3,12));path.quadTo(12,2,21,12);path.quadTo(12,22,3,12);painter.drawPath(path);circle(12,12,3)
+    elif name == 'image-single':
+        rect(3,3,18,18,2);circle(8,8,1.6);poly((3,18),(10,11),(14,15),(17,12),(21,16))
     elif name == 'media':
         rect(6,3,15,15,2); poly((3,7),(3,21),(17,21)); circle(16.5,7.5,1.2)
         poly((7,15),(11,10),(14,13),(16,11),(20,15))

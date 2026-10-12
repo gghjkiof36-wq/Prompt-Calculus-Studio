@@ -22,7 +22,7 @@ class OutputPanel(QFrame):
     def __init__(self,canvas,key):
         super().__init__(); self.canvas=canvas; self.key=key; self.updating=False
         self.setObjectName('CanvasModuleBody'); body=QVBoxLayout(self); body.setContentsMargins(4,8,4,4);body.setSpacing(10)
-        self.order=OutputOrderList(); self.order.setMinimumHeight(96)
+        self.order=OutputOrderList(); self.order.setMinimumHeight(96);self.order.setObjectName('ModuleSourceOrder')
         self.order.orderChanged.connect(self.reordered)
         self.order.removeRequested.connect(self.remove_items)
         self.order.itemDoubleClicked.connect(lambda item:canvas.focus_node(item.data(Qt.ItemDataRole.UserRole)))
@@ -52,7 +52,11 @@ class OutputPanel(QFrame):
         self.clear=button('清除手動內容',self.clear_draft,'ClearDraft')
         self.clear.setText('還原自動');self.clear.setToolTip('清除手動內容，使用文字來源重新組合')
         self.save_material=button('存入素材庫',lambda:canvas.window.new_item(self.editor.toPlainText()),'Quiet')
-        list_layout.insertLayout(0,row(self.save_material,None,self.clear))
+        from .module_chrome import style_action
+        from .canvas_items import canvas_colors
+        self.save_material.setIcon(icon('package'));style_action(self.save_material,canvas_colors(canvas))
+        text_layout.itemAt(0).layout().insertWidget(1,self.clear)
+        body.addWidget(self.save_material)
 
     def toggle_preview(self):
         output=self.canvas.data()['outputs'][self.key]
@@ -129,7 +133,7 @@ class OutputPanel(QFrame):
             item.setToolTip(comp.render(root))
         manual=output['draft'] is not None
         self.source_count.setText('文字來源'+(' · '+str(len(members)) if members else ''))
-        self.order.setEnabled(not manual); self.clear.setEnabled(manual)
+        self.order.setEnabled(not manual); self.clear.setEnabled(manual);self.clear.setVisible(manual)
         self.draft_status.setText('正在使用手動版本' if manual else '' if cid else '缺少來源畫布')
         self.draft_status.setVisible(bool(self.draft_status.text()))
         self.conflicts.setText('；'.join(', '.join(v['tags'])+' ← '+', '.join(v['by']) for v in affected.values())); self.conflicts.setVisible(bool(affected))
@@ -140,7 +144,7 @@ class OutputPanel(QFrame):
 class OutputCard(TextCard):
     default_size=(440,410)
     def __init__(self,canvas,key):
-        super().__init__(canvas); self.key=key; self.module_icon='copy'; self.panel=OutputPanel(canvas,key); self.init_interaction()
+        super().__init__(canvas); self.key=key; self.module_icon='list-ordered'; self.panel=OutputPanel(canvas,key); self.init_interaction()
     def attach(self):
         if self.proxy.widget() is not self.panel: self.proxy.setWidget(self.panel)
         self.panel.setStyleSheet(self.canvas.window.styleSheet()); self.panel.ensurePolished()

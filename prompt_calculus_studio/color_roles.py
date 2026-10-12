@@ -102,9 +102,11 @@ def derive_roles(foundation):
     t['scrollbar'] = mix(t['control'], t['base'], .45)
     t['wire'] = readable(mix(t['info'], t['text'], .35), (t['base'],), 3)
     t['connected_indicator'] = status_light(t['success'], (t['chrome'],t['chrome_solid']))
-    t['canvas_body'] = mix(t['surface'], t['success'], .065)
-    t['canvas_header'] = mix(t['surface'], t['success'], .145)
-    t['canvas_field'] = mix(t['field'], t['success'], .025)
+    t['canvas_body'] = mix(t['surface'], t['field'], .16)
+    t['canvas_header'] = mix(t['surface'], t['raised'], .14)
+    t['canvas_field'] = t['field']
+    t['canvas_inset'] = mix(t['canvas_body'], t['field'], .8)
+    t['canvas_line'] = mix(t['canvas_body'], t['text'], .18)
     t['text'] = readable(t['text'], surfaces+[t['canvas_body'], t['canvas_header'], t['selected'], t['popup_active']])
     # Reserve contrast for hover/press fills. Starting exactly at 4.5:1 can
     # force both interaction colors back to the unchanged accent.

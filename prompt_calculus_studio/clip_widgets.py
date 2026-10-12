@@ -66,7 +66,7 @@ class ClipPanel(QFrame):
         self.setup_status=label('');self.setup_status.setParent(self);self.setup_status.hide()
         self.binding=button('綁定文字欄位',lambda:canvas.bind_dialog(key))
         from .ui_icons import icon
-        self.binding.setIcon(icon('workflow'));self.binding.setProperty('iconName','workflow')
+        self.binding.setIcon(icon('link-2'));self.binding.setProperty('iconName','link-2')
         self.binding.setToolTip('選擇工作流與可寫入的文字欄位（包含 CLIP）')
         body.addWidget(self.binding)
         self.status=label('','Subtle',True);body.addWidget(self.status)
@@ -92,7 +92,7 @@ class ClipPanel(QFrame):
 class ClipCard(TextCard):
     default_size=(360,174)
     def __init__(self,canvas,key):
-        super().__init__(canvas); self.key=key; self.module_icon='workflow'; self.header_detail=True; self.panel=ClipPanel(canvas,key); self.init_interaction()
+        super().__init__(canvas); self.key=key; self.module_icon='type'; self.header_detail=True; self.panel=ClipPanel(canvas,key); self.init_interaction()
     def attach(self):
         if self.proxy.widget() is not self.panel: self.proxy.setWidget(self.panel)
         self.panel.setStyleSheet(self.canvas.window.styleSheet()); self.panel.ensurePolished()
