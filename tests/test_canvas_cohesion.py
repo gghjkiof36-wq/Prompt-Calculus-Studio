@@ -55,7 +55,7 @@ class CanvasCohesionTests(StageFixture):
                 for i in range(len(FUNCTIONS)):
                     dialog.list.setCurrentRow(i);QTest.qWait(10)
                     self.assertEqual(dialog.geometry(),geometry)
-                    self.assertLessEqual(dialog.height(),720)
+                    self.assertLessEqual(dialog.surface.height(),720)
                     for child in (dialog.search,dialog.list,dialog.add_button,dialog.description):
                         rect=QRect(child.mapTo(dialog,QPoint()),child.size())
                         self.assertTrue(dialog.rect().contains(rect),rect)

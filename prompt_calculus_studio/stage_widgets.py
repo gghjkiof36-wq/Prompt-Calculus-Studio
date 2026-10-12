@@ -113,6 +113,9 @@ class SchedulePanel(QFrame):
         self.empty=label('沒有等待執行的任務','Subtle',True);self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setMinimumHeight(56);body.addWidget(self.empty,1)
         self.pause_button=button('暫停',self.toggle_pause)
+        from .module_chrome import style_action
+        from .canvas_items import canvas_colors
+        style_action(self.pause_button,canvas_colors(canvas))
         self.more=button('管理',self.more_actions,'Quiet')
         self.more.setAccessibleName('預排程選項');self.more.setToolTip('預排程選項')
         history=button('歷史',lambda:show_history(canvas.window),'Quiet')
@@ -165,6 +168,9 @@ class SchedulePanel(QFrame):
 
     def refresh(self):
         if self.dragging or self.runner.closed or self.key not in self.canvas.window.state.get('multi_output',{}).get('schedulers',{}):return
+        from .module_chrome import style_action
+        from .canvas_items import canvas_colors
+        style_action(self.pause_button,canvas_colors(self.canvas))
         rows=self.entries();value=self.canvas.data()['schedulers'].get(self.key,{})
         ids=[r['id'] for r in rows];old=[self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]
         selected=self.selected();selected=selected['id'] if selected else None

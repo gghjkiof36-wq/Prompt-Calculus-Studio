@@ -152,6 +152,11 @@ def dialog_buttons(dialog, save=None):
 class StudioDialog(QDialog):
     """A lightweight in-app sheet with the same typography and rounded surface."""
     def __init__(self,parent=None):
+        from .module_chrome import canvas_dialog_context,apply_module_dialog
+        context=canvas_dialog_context(parent)
+        if context:
+            from .dialog_presentation import presenting_parent
+            parent=presenting_parent(parent)
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -168,9 +173,15 @@ class StudioDialog(QDialog):
         self.reveal.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.reveal.valueChanged.connect(self.setWindowOpacity)
         self._outside_dismiss=False
-        from .module_chrome import canvas_dialog_context,apply_module_dialog
-        context=canvas_dialog_context(parent)
+        self._backdrop=None
         if context:apply_module_dialog(self,*context)
+
+    def editor_area(self):
+        """Shared inset for multi-field editors; footer actions stay on the shell."""
+        frame=QFrame();frame.setObjectName('DialogEditor')
+        layout=QVBoxLayout(frame);layout.setContentsMargins(16,16,16,16);layout.setSpacing(12)
+        self.body.addWidget(frame,1)
+        return layout
 
     def set_outside_dismiss(self,enabled=True):
         self._outside_dismiss=bool(enabled)
@@ -194,12 +205,25 @@ class StudioDialog(QDialog):
 
     def showEvent(self,event):
         super().showEvent(event)
+        if hasattr(self,'_module_dialog_context') and self.parentWidget() and not getattr(self,'_owns_backdrop',False):
+            from .dialog_presentation import DialogShade
+            self._backdrop=DialogShade(QWidget.window(self.parentWidget()))
+            self.destroyed.connect(self._backdrop.deleteLater)
         screen=self.screen().availableGeometry()
         self.resize(min(self.width(),screen.width()-40),min(self.height(),screen.height()-40))
         center=self.parentWidget().mapToGlobal(self.parentWidget().rect().center()) if self.parentWidget() else screen.center()
         self.move(max(screen.left()+12,min(center.x()-self.width()//2,screen.right()-self.width()-12)),
                   max(screen.top()+12,min(center.y()-self.height()//2,screen.bottom()-self.height()-12)))
-        self.reveal.setStartValue(0.88); self.reveal.setEndValue(1.0); self.reveal.start()
+        from .dialog_presentation import reduced_motion
+        self.reveal.stop()
+        if reduced_motion(self):self.setWindowOpacity(1.0)
+        else:self.reveal.setStartValue(0.88); self.reveal.setEndValue(1.0); self.reveal.start()
+
+    def hideEvent(self,event):
+        self.reveal.stop()
+        if self._backdrop is not None:
+            self._backdrop.hide();self._backdrop.deleteLater();self._backdrop=None
+        super().hideEvent(event)
 
 
 class DismissibleSheet(StudioDialog):
@@ -409,6 +433,14 @@ class RoundMenu(QMenu):
     def paintEvent(self,event):
         self._surface.paint()
         super().paintEvent(event)
+
+    def mousePressEvent(self,event):
+        if not self.rect().contains(event.position().toPoint()):
+            # Qt otherwise replays the dismissing press to the trigger below,
+            # whose handler builds another menu. Apply per press: Qt clears
+            # this attribute on the next mouse event.
+            self.setAttribute(Qt.WidgetAttribute.WA_NoMouseReplay)
+        super().mousePressEvent(event)
 
     def open_at(self,position):
         self.popup(position)

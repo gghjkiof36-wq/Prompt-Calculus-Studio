@@ -52,11 +52,14 @@ class OutputPanel(QFrame):
         self.clear=button('清除手動內容',self.clear_draft,'ClearDraft')
         self.clear.setText('還原自動');self.clear.setToolTip('清除手動內容，使用文字來源重新組合')
         self.save_material=button('存入素材庫',lambda:canvas.window.new_item(self.editor.toPlainText()),'Quiet')
-        from .module_chrome import style_action
-        from .canvas_items import canvas_colors
-        self.save_material.setIcon(icon('package'));style_action(self.save_material,canvas_colors(canvas))
+        self.save_material.setIcon(icon('package'));self.refresh_visual_theme()
         text_layout.itemAt(0).layout().insertWidget(1,self.clear)
         body.addWidget(self.save_material)
+
+    def refresh_visual_theme(self):
+        from .module_chrome import style_action
+        from .canvas_items import canvas_colors
+        style_action(self.save_material,canvas_colors(self.canvas))
 
     def toggle_preview(self):
         output=self.canvas.data()['outputs'][self.key]

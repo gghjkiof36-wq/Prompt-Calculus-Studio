@@ -2,7 +2,8 @@
 from PySide6.QtCore import Qt, QSize, QPointF
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QLineEdit, QListWidget, QListWidgetItem, QHBoxLayout, QVBoxLayout, QFrame, QPushButton, QLabel, QSizePolicy
-from .widgets import StudioDialog, label, button, row, RoundMenu
+from .widgets import label, button, row, RoundMenu
+from .dialog_presentation import CanvasSheetDialog
 from .module_preview import ModulePreview
 from .module_chrome import style_action, apply_module_dialog
 from .canvas_items import canvas_colors
@@ -23,12 +24,12 @@ FUNCTIONS = (
 )
 
 
-class FunctionPicker(StudioDialog):
+class FunctionPicker(CanvasSheetDialog):
     def __init__(self, canvas, position=None):
         super().__init__(canvas.window); self.canvas = canvas
         self.position = QPointF(position) if position is not None else canvas.view.mapToScene(canvas.view.viewport().rect().center())
         self.owner = (canvas.window.store, canvas.window.state['workspace'])
-        self.setWindowTitle('新增功能模組'); self.set_outside_dismiss(); self.resize(900, 800)
+        self.setWindowTitle('新增功能模組'); self.resize(900, 800)
         self.category = '全部'; self.added = False; self.actions = canvas.functions.insertion_callbacks(self.position)
         colors=canvas_colors(canvas)
         from .theme import font_pixels

@@ -36,8 +36,11 @@ def module_dialog_styles(colors, heading_size):
     t=dialog_colors(colors)
     return f'''
         QFrame#DialogSurface {{background:{t['base']};border:1px solid {t['line']};border-radius:14px;}}
+        QFrame#DialogEditor {{background:{t['surface']};border:0;border-radius:10px;}}
         QLabel#DialogTitle {{font-size:{heading_size}px;font-weight:500;}}
-        QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {{background:{t['field']};border:1px solid {t['line']};border-radius:8px;color:{t['text']};}}
+        QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {{background:{t['surface']};border:1px solid {t['line']};border-radius:8px;color:{t['text']};placeholder-text-color:{t['secondary']};}}
+        QFrame#DialogEditor QLineEdit, QFrame#DialogEditor QPlainTextEdit, QFrame#DialogEditor QTextEdit,
+        QFrame#DialogEditor QComboBox, QFrame#DialogEditor QSpinBox, QFrame#DialogEditor QDoubleSpinBox {{background:{t['field']};}}
         QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{border-color:{t['accent']};}}
         QPushButton {{background:{t['surface']};border:1px solid {t['line']};border-radius:8px;color:{t['text']};}}
         QPushButton:hover {{background:{t['hover']};}}
@@ -170,5 +173,6 @@ def style_action(widget, colors, pending=False, primary=False):
     background = colors['accent'] if primary else colors.get('module_field',colors['field']) if pending else colors['surface']
     foreground = colors['on_accent'] if primary else colors['text']
     border = colors['line']
-    widget.setStyleSheet(f"QPushButton {{background:{background}; color:{foreground}; border:1px solid {border}; border-radius:8px; padding:7px 12px;}} QPushButton:hover {{border-color:{colors['accent']};}} QPushButton:pressed {{background:{colors['selected']};color:{colors['text']};}} QPushButton:disabled {{background:{colors['field']};color:{colors['secondary']};border-color:{colors['line']};}}")
+    style=f"QPushButton {{background:{background}; color:{foreground}; border:1px solid {border}; border-radius:8px; padding:7px 12px;}} QPushButton:hover {{border-color:{colors['accent']};}} QPushButton:pressed {{background:{colors['selected']};color:{colors['text']};}} QPushButton:disabled {{background:{colors['field']};color:{colors['secondary']};border-color:{colors['line']};}}"
+    if widget.styleSheet()!=style:widget.setStyleSheet(style)
     widget.setProperty('modulePending',pending)

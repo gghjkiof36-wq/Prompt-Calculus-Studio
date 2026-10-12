@@ -17,19 +17,20 @@ class NodeDialog(StudioDialog):
     def __init__(self, parent, value=None, title='新增模組'):
         super().__init__(parent); self.setWindowTitle(title); self.resize(550, 550)
         value = value or comp.node('')
+        editor=self.editor_area() if hasattr(self,'_module_dialog_context') else self.body
         self.description = label('只修改這次組合；素材庫原文保留。', 'Subtle', True)
-        self.body.addWidget(self.description)
-        form = QFormLayout(); self.body.addLayout(form)
+        editor.addWidget(self.description)
+        form = QFormLayout(); editor.addLayout(form)
         self.name = QLineEdit(value['name']); form.addRow('名稱', self.name)
         self.prompt = QPlainTextEdit(value['prompt']); self.prompt.setPlaceholderText('可留空作為群組，再加入子模組。')
-        self.body.addWidget(self.prompt, 1)
+        editor.addWidget(self.prompt, 1)
         self.weight = QDoubleSpinBox(); self.weight.setRange(-100, 100); self.weight.setDecimals(1); self.weight.setSingleStep(.1)
         self.weight.setValue(value['weight'] / 10); form.addRow('整組權重', self.weight)
         self.enabled = QCheckBox('啟用'); self.enabled.setChecked(value['enabled']); form.addRow(self.enabled)
         self.excludes = QPlainTextEdit('\n'.join(value['excludes'])); self.excludes.setMaximumHeight(75)
         self.excludes.setPlaceholderText('使用時排除的完整 Tag，每行一項。')
-        self.body.addWidget(self.excludes)
-        self.error = label('', 'Draft', True); self.body.addWidget(self.error)
+        editor.addWidget(self.excludes)
+        self.error = label('', 'Draft', True); editor.addWidget(self.error)
         self.body.addWidget(dialog_buttons(self, self.save))
 
     def save(self):
@@ -119,6 +120,8 @@ class TextCanvas(QWidget):
             port.caption.setBrush(caption_color(self,port.kind))
         for card in [*getattr(self,'clips',{}).values(),*getattr(self,'flow_cards',{}).values()]:
             if hasattr(card.panel,'refresh'):card.panel.refresh()
+        for card in getattr(self,'outputs',{}).values():
+            card.panel.refresh_visual_theme()
         if hasattr(self,'execution_bar'):self.execution_bar.refresh_visual_theme()
         if hasattr(self,'update_lines'):self.update_lines()
         self.view.viewport().update()
