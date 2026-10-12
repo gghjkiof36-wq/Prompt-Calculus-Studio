@@ -364,9 +364,13 @@ class NodeCard(ResizableCard):
         self.own=value['prompt'] if not self.collapsed and value['prompt'].strip()!=value['name'].strip() else ''
         self.layout_card(propagate=False)
 
-    def layout_card(self,propagate=True):
+    def natural_width(self):
+        return max(320,self.requested_size[0],max((p.natural_width()+28 for p in self.parts),default=0),
+                   (self.drop_size[0]+28) if self.drop_size else 0)
+
+    def layout_card(self,propagate=True,available_width=0):
         self.prepareGeometryChange(); requested_w,requested_h=self.requested_size
-        self.width=max(320,requested_w,max((p.width+28 for p in self.parts),default=0),(self.drop_size[0]+28) if self.drop_size else 0)
+        self.width=max(self.natural_width(),available_width)
         metrics=QFontMetricsF(self.canvas.font())
         self.text_height=math.ceil(metrics.boundingRect(QRectF(0,0,self.width-28,100000),Qt.TextFlag.TextWordWrap,self.own).height()) if self.own else 0
         status=[]
@@ -379,7 +383,9 @@ class NodeCard(ResizableCard):
         ident=self.canvas.entries[self.key][0]
         weight_y=self.header_height+6
         y=weight_y+(40 if ident is not None else 0)
-        for child in self.parts: child.setPos(14,y); y+=child.height+10
+        for child in self.parts:
+            child.layout_card(propagate=False,available_width=self.width-28)
+            child.setPos(14,y); y+=child.height+10
         self.drop_y=y
         if self.drop_size: y+=self.drop_size[1]+12
         self.height=y+8 if self.collapsed else max(requested_h,y+8)
