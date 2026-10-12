@@ -148,9 +148,12 @@ class PreviewTests(unittest.TestCase):
         StageRunner.remember_preview(runner,older,dict(images=[image('old','first')],attempts=['old']))
         StageRunner.remember_preview(runner,latest,dict(images=[],attempts=[]))
         StageRunner.remember_preview(runner,older,dict(images=[image('old','first')],attempts=['old']))
-        self.assertEqual(runner.preview_results['stage']['images'],[])
+        self.assertEqual([i['name'] for i in runner.preview_results['stage']['images']],['old0'])
         StageRunner.remember_preview(runner,latest,dict(images=[image('new','second'),image('new','second',1)],attempts=['new']))
         self.assertEqual(len(runner.preview_results['stage']['images']),2)
+        self.assertEqual([i['name'] for i in runner.preview_results['stage']['images']],['new0','new1'])
+        StageRunner.remember_preview(runner,older,dict(images=[image('old','first')],attempts=['old']))
+        self.assertEqual([i['name'] for i in runner.preview_results['stage']['images']],['new0','new1'])
 
     def test_current_iteration_retains_all_variants_outputs_and_source(self):
         items=[image('old','entry0'),image('a'),image('a',index=1),image('b')];before=copy.deepcopy(items)

@@ -9,6 +9,8 @@ from .widgets import label, button, ComboBox
 from .quiet_splitter import QuietSplitter
 from .palette_cards import PickerCardDelegate, ClosingClickGuard
 from .ui_icons import icon
+from .module_chrome import dialog_colors, module_dialog_styles
+from .stacked_card_list import StackedCardList
 
 
 class PaletteGrip(QSizeGrip):
@@ -48,6 +50,11 @@ class CanvasPalette(QDialog):
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.surface=QFrame(self); self.surface.setObjectName('DialogSurface')
+        from .canvas_items import canvas_colors
+        from .theme import font_pixels
+        colors=canvas_colors(canvas);self.colors=dialog_colors(colors)
+        self._module_dialog_context=(colors,max(16,font_pixels(canvas.window.state['settings']['ui_size'])))
+        self.setStyleSheet(module_dialog_styles(*self._module_dialog_context))
         self.body=QVBoxLayout(self.surface); self.body.setContentsMargins(24,24,24,20); self.body.setSpacing(12)
         header=QHBoxLayout(); header.setSpacing(12)
         self.title=label('加入文字模組','DialogTitle',True); header.addWidget(self.title,1)
@@ -75,7 +82,8 @@ class CanvasPalette(QDialog):
         content.addWidget(self.narrow_categories)
         self.split=QuietSplitter(); self.split.setChildrenCollapsible(False); content.addWidget(self.split,1)
         self.category_pane=QWidget(); cats=QVBoxLayout(self.category_pane); cats.setContentsMargins(0,0,12,0); cats.setSpacing(8)
-        self.modules=QListWidget(); self.modules.setAccessibleName('內容分類'); cats.addWidget(self.modules,1)
+        self.modules=QListWidget(); self.modules.setProperty('moduleChoices',True)
+        self.modules.setAccessibleName('內容分類'); cats.addWidget(self.modules,1)
         self.split.addWidget(self.category_pane)
         local=QWidget(); local.setMinimumWidth(0); rows=QVBoxLayout(local); rows.setContentsMargins(12,0,0,0); rows.setSpacing(8)
         self.assets_header=QWidget(); self.assets_header_layout=QVBoxLayout(self.assets_header)
@@ -84,7 +92,9 @@ class CanvasPalette(QDialog):
         self.search=QLineEdit(); self.search.setAccessibleName('搜尋目前分類的文字模組')
         self.search.setPlaceholderText('搜尋名稱、別名或內容'); self.search.setClearButtonEnabled(True)
         self.assets_header_layout.addWidget(self.search); rows.addWidget(self.assets_header)
-        self.assets=QListWidget(); self.assets.setAccessibleName('本地文字模組'); self.assets.setSpacing(3)
+        self.assets=StackedCardList(lambda:canvas.window.state['settings'],lambda:self.colors)
+        self.assets.setAccessibleName('本地文字模組'); self.assets.setSpacing(3)
+        self.assets.setStyleSheet('QListWidget {background:transparent;border:0;padding:0;}')
         self.assets.setItemDelegate(PickerCardDelegate(self.assets)); self.assets.setMouseTracking(True)
         self.assets.setUniformItemSizes(False); rows.addWidget(self.assets,1)
         self.empty=label('','Subtle',True); rows.addWidget(self.empty)

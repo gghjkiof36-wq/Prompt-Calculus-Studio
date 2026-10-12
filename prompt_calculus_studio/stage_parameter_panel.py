@@ -17,8 +17,9 @@ from .stage_parameters import (empty, identity, key, descriptor_fields, parse,
 from .stage_parameter_terms import term
 from .stage_parameter_choices import ParameterChoices
 from .parameter_display import display_value
-from .theme import visual_tokens
+from .theme import visual_tokens,font_pixels
 from .ui_icons import icon,stylesheet_icon_paths
+from .module_chrome import dialog_colors,apply_module_dialog
 
 
 def style_parameter_scrollbar(bar,tokens=None):
@@ -120,7 +121,8 @@ class ParameterSheet(QFrame):
         self.client=window.comfy;self.catalog=window.settings_page.workflow_manager.catalog
         self.owner=(window.store,window.state['workspace'],self.client.url,self.client.epoch)
         self.language=language or window.state.get('settings',{}).get('language','zh-TW')
-        self.tokens=visual_tokens({**window.state.get('settings',{}),**getattr(window,'appearance_preview',{})})
+        self.tokens=dialog_colors(visual_tokens({**window.state.get('settings',{}),**getattr(window,'appearance_preview',{})}))
+        self._module_dialog_context=(self.tokens,max(16,font_pixels(window.state['settings']['ui_size'])))
         self.profiles=copy.deepcopy(window.state.get('generation',{}).get('profiles',[]));self.serial=0;self.revision=0;self.closed=False;self.loading=False
         self.configs={};self.raw={};self.draft_fields={};self.modes={};self.descriptions={};self.scroll_positions={};self.group_expanded={};self.selected=None;self.form_owner=None;self.seed_intents={}
         self.task_base=copy.deepcopy(item['saved']) if item else None
@@ -137,10 +139,10 @@ class ParameterSheet(QFrame):
         t=self.tokens;scrim=','.join(str(v) for v in QColor(t['base']).getRgb()[:3])
         self.setObjectName('StageParameterMask');self.setStyleSheet(f'''
             #StageParameterMask {{background:rgba({scrim},145);}}
-            #StageParameterPanel {{background:{t['base']};border:1px solid {t['line']};border-radius:20px;}}
+            #StageParameterPanel {{background:{t['base']};border:1px solid {t['line']};border-radius:14px;}}
             #StageParameterDrawer {{background:{t['raised']};border:1px solid {t['line']};border-radius:14px;}}
             #StageParameterEditor {{background:{t['surface']};border:0;border-radius:14px;}}
-            #StageParameterFooter {{background:{t['surface']};border:0;border-bottom-left-radius:20px;border-bottom-right-radius:20px;}}
+            #StageParameterFooter {{background:{t['base']};border:0;border-top:1px solid {t['line']};border-bottom-left-radius:14px;border-bottom-right-radius:14px;}}
             #StageWorkflowPicker {{background:{t['field']};border:1px solid {t['line']};border-radius:10px;}}
             #StageParameterPanel QLabel[stageNodeName="true"] {{font-weight:500;}}
             #StageParameterPanel QLabel[stageSecondary="true"] {{color:{t['secondary']};}}
@@ -168,8 +170,9 @@ class ParameterSheet(QFrame):
         self.header=QWidget();heading=QHBoxLayout(self.header);heading.setContentsMargins(24,18,24,18)
         title=self.stage['name']+((' · '+item['label']+' · '+item['id'][:8]) if item else '')
         self.title=label(title,'DialogTitle')
-        self.close_button=button('×',self.request_close,'Quiet');self.close_button.setObjectName('StageParameterClose')
-        self.close_button.setFixedSize(44,44);self.close_button.setStyleSheet('font-size:24px;padding:0;')
+        self.title.setStyleSheet(f'font-size:{max(16,font_pixels(window.state["settings"]["ui_size"]))}px;')
+        self.close_button=button('',self.request_close,'Quiet');self.close_button.setObjectName('StageParameterClose')
+        self.close_button.setIcon(icon('close',t['text']));self.close_button.setFixedSize(44,44)
         self.close_button.setToolTip(term('close',self.language));self.close_button.setAccessibleName(term('close',self.language))
         self.title.setMinimumWidth(0);self.title.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred);self.title.setToolTip(title)
         heading.addWidget(self.title,1);heading.addWidget(self.close_button);main.addWidget(self.header)
@@ -591,6 +594,7 @@ class ParameterSheet(QFrame):
     def confirm_close(self):
         from .stage_editor_drafts import write
         dialog=StudioDialog(self);dialog.setWindowTitle('保留未套用的草稿');dialog.resize(530,290)
+        apply_module_dialog(dialog,self.tokens,max(16,font_pixels(self.window.state['settings']['ui_size'])))
         dialog.body.addWidget(label('這些變更尚未套用。關閉後保留草稿，下次開啟可繼續編輯；執行仍使用已套用的設定。',None,True))
         reminder=QCheckBox('不再提醒');dialog.body.addWidget(reminder)
         dialog.body.addLayout(row(None,button('繼續編輯',dialog.reject),button('保留並關閉',dialog.accept,'Primary')))

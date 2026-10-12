@@ -165,7 +165,7 @@ class StageParameterUITests(StageFixture):
                 sheet=self.sheet();t=sheet.tokens
                 self.assertEqual(sheet.panel.grab().toImage().pixelColor(10,30).name(),t['base'])
                 self.assertEqual(sheet.editor.grab().toImage().pixelColor(10,10).name(),t['surface'])
-                self.assertEqual(sheet.footer.grab().toImage().pixelColor(10,10).name(),t['surface'])
+                self.assertEqual(sheet.footer.grab().toImage().pixelColor(10,10).name(),t['base'])
                 seed=sheet.findChild(SeedEditor,'parameter_35_seed')
                 seed.text.setFocus();QTest.qWait(10)
                 image=seed.grab().toImage()
@@ -194,7 +194,9 @@ class StageParameterUITests(StageFixture):
             QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton,pos=QPoint(3,3));QTest.qWait(25)
             self.assertFalse(self.w.findChildren(ParameterSheet))
         QTest.mouseDClick(view.viewport(),Qt.MouseButton.LeftButton,pos=header());close(current())
-        card=self.c.flow_cards[self.stage];point=view.mapFromScene(card.mapToScene(card.actions()['size'].center()))
+        card=self.c.flow_cards[self.stage];button=card.panel.edit_button
+        point=view.mapFromScene(card.proxy.mapToScene(QPointF(button.mapTo(card.panel,button.rect().center()))))
+        QTest.mouseMove(view.viewport(),point);QTest.qWait(10)
         QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=point);close(current())
         QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=header())
         QTest.keyClick(view,Qt.Key.Key_Return);close(current())

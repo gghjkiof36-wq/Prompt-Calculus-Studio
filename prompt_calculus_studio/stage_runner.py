@@ -592,11 +592,15 @@ class StageRunner(QObject):
         self.results={};self.preview_results={};self.preview_stamps={}
 
     def remember_preview(self,attempt,result):
-        """Only the visible projection discards previous iteration images.
+        """Keep the last completed image batch while the next one is pending.
 
         Ordered attempt creation prevents a late download from restoring an old
         iteration; the journal and results consumed by later Stages stay intact.
         """
+        # A pending/failed/text-only attempt is not a replacement image. Also
+        # allow the first completed result to appear when newer jobs were
+        # already submitted concurrently; only a newer completed batch wins.
+        if not result.get('images'):return
         key=attempt['stage'];scope=(attempt['owner'],attempt.get('round'),attempt.get('parent'))
         stamp=attempt.get('created',0);previous=self.preview_stamps.get(key)
         if previous and scope!=previous[1] and stamp<previous[0]:return

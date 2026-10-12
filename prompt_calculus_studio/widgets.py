@@ -168,6 +168,9 @@ class StudioDialog(QDialog):
         self.reveal.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.reveal.valueChanged.connect(self.setWindowOpacity)
         self._outside_dismiss=False
+        from .module_chrome import canvas_dialog_context,apply_module_dialog
+        context=canvas_dialog_context(parent)
+        if context:apply_module_dialog(self,*context)
 
     def set_outside_dismiss(self,enabled=True):
         self._outside_dismiss=bool(enabled)

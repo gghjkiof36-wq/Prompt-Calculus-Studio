@@ -3,28 +3,72 @@ from PySide6.QtCore import Qt, QRect, QRectF
 from PySide6.QtGui import QColor, QPen, QFontMetricsF
 
 
-def apply_module_dialog(dialog, colors, heading_size):
-    """Shared shell and choice rows for the picker and module-related sheets."""
-    from PySide6.QtWidgets import QFrame
+def canvas_dialog_context(parent):
+    """Resolve Canvas ownership, including nested sheets, without global QSS."""
+    while parent is not None:
+        context=getattr(parent,'_module_dialog_context',None)
+        if context:return context
+        stack=getattr(parent,'surface_stack',None)
+        canvas=getattr(parent,'canvas',None)
+        if stack is not None and canvas is not None:
+            current=stack.currentWidget();content=getattr(parent,'canvas_content',None)
+            if ((current is not None and current is getattr(canvas,'editor_page',None)) or
+                    (current is getattr(parent,'canvas_shell',None) and content is not None and content.currentWidget() is canvas)):
+                from .canvas_items import canvas_colors
+                from .theme import font_pixels
+                return canvas_colors(canvas),max(16,font_pixels(parent.state['settings']['ui_size']))
+        parent=parent.parentWidget()
+    return None
+
+
+def dialog_colors(colors):
+    """Canvas sheets share roles; legacy pages can adopt these independently."""
     from .color_roles import mix
-    background=mix(colors['base'],colors['surface'],.22)
-    line=mix(background,colors['text'],.20)
-    dialog.setStyleSheet(f'''
-        QFrame#DialogSurface {{background:{background};border:1px solid {line};border-radius:14px;}}
+    result=matte_colors(colors)
+    result['base']=colors.get('module_dialog',mix(colors['base'],result['surface'],.22))
+    result['module_dialog']=result['base']
+    result['raised']=result['surface']
+    result['line']=mix(result['base'],result['text'],.20)
+    return result
+
+
+def module_dialog_styles(colors, heading_size):
+    t=dialog_colors(colors)
+    return f'''
+        QFrame#DialogSurface {{background:{t['base']};border:1px solid {t['line']};border-radius:14px;}}
         QLabel#DialogTitle {{font-size:{heading_size}px;font-weight:500;}}
+        QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {{background:{t['field']};border:1px solid {t['line']};border-radius:8px;color:{t['text']};}}
+        QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{border-color:{t['accent']};}}
+        QPushButton {{background:{t['surface']};border:1px solid {t['line']};border-radius:8px;color:{t['text']};}}
+        QPushButton:hover {{background:{t['hover']};}}
+        QPushButton#Quiet, QPushButton#DialogClose {{background:transparent;border:0;}}
+        QPushButton#Quiet:hover, QPushButton#DialogClose:hover {{background:{t['hover']};}}
+        QPushButton#Primary {{background:{t['accent']};border-color:{t['accent']};color:{t['on_accent']};}}
+        QPushButton:disabled {{background:{t['field']};color:{t['secondary']};border-color:{t['line']};}}
         QListWidget[moduleChoices="true"] {{background:transparent;border:0;padding:0;outline:0;}}
         QListWidget[moduleChoices="true"]::item {{padding:8px 10px;border:0;border-radius:8px;}}
-        QListWidget[moduleChoices="true"]::item:hover {{background:{colors['hover']};}}
-        QListWidget[moduleChoices="true"]::item:selected {{background:{mix(background,colors['accent'],.20)};color:{colors['text']};}}
-    ''')
+        QListWidget[moduleChoices="true"]::item:hover {{background:{t['hover']};}}
+        QListWidget[moduleChoices="true"]::item:selected {{background:{t['selected']};color:{t['text']};}}
+    '''
+
+
+def apply_module_dialog(dialog, colors, heading_size):
+    """Shared shell and choice rows for the picker and module-related sheets."""
+    from PySide6.QtWidgets import QFrame,QPushButton
+    from .ui_icons import icon
+    t=dialog_colors(colors)
+    dialog._module_dialog_context=(colors,heading_size)
+    dialog.setStyleSheet(module_dialog_styles(colors,heading_size))
     surface=dialog.findChild(QFrame,'DialogSurface')
     surface.layout().setContentsMargins(20,16,20,18)
     surface.layout().setSpacing(14);dialog.body.setSpacing(12)
-    return background,line
+    close=dialog.findChild(QPushButton,'DialogClose')
+    if close:close.setText('');close.setIcon(icon('close',t['text']))
+    return t['base'],t['line']
 
 
 def matte_colors(colors):
-    """One finish for the Stage card, its controls and its real-node preview."""
+    """One finish for Canvas cards, controls and their real-node previews."""
     result = dict(colors)
     for role, source in (
         ('surface','module_body'), ('canvas_body','module_body'),
@@ -123,9 +167,8 @@ def visual_bounds(width, height):
 
 
 def style_action(widget, colors, pending=False, primary=False):
-    from .color_roles import mix
-    background = colors['accent'] if primary else colors.get('pending',mix(colors['surface'], colors['accent'], .20)) if pending else colors['surface']
+    background = colors['accent'] if primary else colors.get('module_field',colors['field']) if pending else colors['surface']
     foreground = colors['on_accent'] if primary else colors['text']
-    border = colors.get('pending_line',mix(colors['line'], colors['accent'], .5)) if pending else colors['line']
+    border = colors['line']
     widget.setStyleSheet(f"QPushButton {{background:{background}; color:{foreground}; border:1px solid {border}; border-radius:8px; padding:7px 12px;}} QPushButton:hover {{border-color:{colors['accent']};}} QPushButton:pressed {{background:{colors['selected']};color:{colors['text']};}} QPushButton:disabled {{background:{colors['field']};color:{colors['secondary']};border-color:{colors['line']};}}")
     widget.setProperty('modulePending',pending)

@@ -3,8 +3,8 @@ import copy
 import sys
 from collections import Counter
 from unittest.mock import patch
-from PySide6.QtCore import Qt, QPoint, QPointF, QRectF, QMimeData, QEvent
-from PySide6.QtGui import QImage, QPainter, QDropEvent, QFontDatabase, QMouseEvent
+from PySide6.QtCore import Qt, QPoint, QPointF, QRectF, QRect, QMimeData, QEvent
+from PySide6.QtGui import QImage, QPainter, QDropEvent, QFontDatabase, QMouseEvent, QScreen
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLabel, QPushButton
 from stage_fixture import StageFixture, APP
@@ -56,7 +56,9 @@ class CanvasVisualBatchTests(StageFixture):
     def test_all_real_previews_keep_legible_scale_and_fit_their_width(self):
         QTest.qWait(400);self.w.persist()
         before=copy.deepcopy(self.w.state);history=len(self.c.undo_stack)
-        dialog=FunctionPicker(self.c);dialog.show();QTest.qWait(20)
+        with patch.object(QScreen,'availableGeometry',return_value=QRect(0,0,1920,1080)):
+            dialog=FunctionPicker(self.c);dialog.show();QTest.qWait(20)
+        slot=dialog.preview.size()
         try:
             for i,(kind,*_) in enumerate(FUNCTIONS):
                 dialog.list.setCurrentRow(i);QTest.qWait(25)
@@ -64,7 +66,7 @@ class CanvasVisualBatchTests(StageFixture):
                 self.assertGreaterEqual(view.transform().m11(),.85,kind)
                 self.assertEqual(view.horizontalScrollBar().maximum(),0,kind)
                 self.assertEqual(view.verticalScrollBar().maximum(),0,kind)
-                self.assertLessEqual(view.height(),420,kind)
+                self.assertEqual(view.size(),slot,kind)
                 self.assertFalse(view.isInteractive())
                 if kind=='stage':
                     actual=next(card for card in self.c.flow_cards.values() if card.kind=='stages')

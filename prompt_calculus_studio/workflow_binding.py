@@ -24,12 +24,13 @@ class WorkflowBindingDialog(StudioDialog):
         self.connection=(self.catalog.client.url,self.catalog.client.epoch)
         self.workflow=ComboBox(); self.workflow.setMinimumWidth(400)
         self.target=ComboBox(); self.target.setMinimumWidth(400)
-        self.resize(590,360)
+        self.resize(590,330)
         self.body.addLayout(row(label('工作流','Subtle'),None,button('重新整理',self.reload_workflows,'Quiet')))
         self.body.addWidget(self.workflow)
         self.nodes_label=label('可寫入的文字欄位','Subtle'); self.body.addWidget(self.nodes_label); self.body.addWidget(self.target)
         self.hint=label('','Subtle',True); self.body.addWidget(self.hint)
         self.source_hint=label('','Subtle',True); self.source_hint.hide(); self.body.addWidget(self.source_hint)
+        self.body.addStretch(1)
         selected=canvas.data().get('clip_inputs',{}).get(key,{}).get('workflow')
         existing=next((b for b in self.bindings if b['clip']==key and (not selected or b['workflow']==selected)),None)
         self.initial=existing['workflow'] if existing else selected
@@ -37,9 +38,11 @@ class WorkflowBindingDialog(StudioDialog):
         self.workflow.currentIndexChanged.connect(self.read_current)
         self.buttons=dialog_buttons(self,self.accept)
         self.save_button=self.buttons.button(QDialogButtonBox.StandardButton.Save)
-        from .module_chrome import style_action
+        from .module_chrome import style_action,apply_module_dialog
         from .canvas_items import canvas_colors
+        from .theme import font_pixels
         colors=canvas_colors(canvas)
+        apply_module_dialog(self,colors,max(16,font_pixels(canvas.window.state['settings']['ui_size'])))
         style_action(self.save_button,colors,primary=True)
         style_action(self.buttons.button(QDialogButtonBox.StandardButton.Cancel),colors)
         for control in self.findChildren(type(self.save_button)):

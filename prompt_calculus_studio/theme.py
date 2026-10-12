@@ -17,7 +17,8 @@ VISUAL_PALETTES = {
         'accent_neutral':'#e3d5ba', 'accent_blue':'#a6c6db', 'accent_green':'#b8cbb1',
         'chrome_solid':'#202527', 'sidebar':'#1a1f21',
         'mica_tint':'#343936', 'acrylic_tint':'#3c4042',
-        'module_body':'#202625', 'module_header':'#262c2b', 'module_field':'#191f1e',
+        'module_body':'#232628', 'module_header':'#282c2e', 'module_field':'#191c1e',
+        'module_dialog':'#191c1e',
         'canvas_background':'#111111',
     },
     'mist': {
@@ -145,7 +146,7 @@ def stylesheet(settings):
     QFrame#InsetPanel[pcsCanvasBody="true"], QFrame#Panel[pcsCanvasBody="true"] {{ background:transparent; border:0; }}
     QFrame#CanvasModuleBody QLineEdit, QFrame#CanvasModuleBody QPlainTextEdit,
     QFrame#CanvasModuleBody QComboBox, QFrame#CanvasModuleBody QSpinBox,
-    QFrame#CanvasModuleBody QDoubleSpinBox {{ background:{t['canvas_field']}; }}
+    QFrame#CanvasModuleBody QDoubleSpinBox {{ background:{t['module_field']}; }}
     QListWidget#ModuleSourceOrder {{background:transparent;border:0;padding:0;}}
     QListWidget#ModuleSourceOrder::item {{border:0;border-radius:6px;padding:8px 10px;}}
     QFrame#CanvasModuleBody QPlainTextEdit#Prompt {{border:0;border-radius:8px;padding:10px;}}

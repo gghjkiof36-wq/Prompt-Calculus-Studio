@@ -4,6 +4,7 @@ from PySide6.QtGui import QColor, QFont, QFontMetrics, QPen, QTextLayout, QTextO
 from PySide6.QtWidgets import QApplication, QStyledItemDelegate, QStyle
 from .views import widget_colors
 from .ui_icons import icon
+from .color_roles import mix
 
 
 class PickerCardDelegate(QStyledItemDelegate):
@@ -34,14 +35,17 @@ class PickerCardDelegate(QStyledItemDelegate):
         return QSize(120, 36 + (count + 1) * line)
 
     def paint(self, painter, option, index):
-        colors = widget_colors(self.parent())
+        colors = self.parent().motion_colors() if hasattr(self.parent(),'motion_colors') else widget_colors(self.parent())
+        depth = getattr(self.parent(),'stack_depth',lambda _:0)(index)
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
         rect = QRectF(option.rect).adjusted(1, 3, -2, -3)
         painter.save(); painter.setRenderHint(painter.RenderHint.Antialiasing)
         painter.setPen(QPen(QColor(colors['accent' if selected else 'line']), 1))
-        painter.setBrush(QColor(colors['selected' if selected else 'hover' if hover else 'surface']))
+        fill=colors['selected' if selected else 'hover' if hover else 'surface']
+        painter.setBrush(QColor(mix(fill,colors['base'],min(.55,depth*.3))))
         painter.drawRoundedRect(rect, 8, 8)
+        painter.setOpacity(max(0,1-depth/.4))
         left = rect.left() + 14
         width = self.text_width(int(rect.width()))
         name, _, prompt = str(index.data() or '').partition('\n')

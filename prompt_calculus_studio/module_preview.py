@@ -3,7 +3,7 @@ import copy
 from types import SimpleNamespace
 from PySide6.QtCore import Qt, QObject, Signal, QRectF, QTimer
 from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QFrame
+from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QFrame, QSizePolicy
 
 
 # Only the isolated example's layout changes. Production node defaults and the
@@ -137,9 +137,10 @@ class ModulePreview(QGraphicsView):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus); self.setFrameShape(QFrame.Shape.NoFrame)
         self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing |
                             QPainter.RenderHint.SmoothPixmapTransform)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.setMinimumWidth(380)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setMinimumSize(360,120)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Expanding)
         self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self.setStyleSheet('QGraphicsView {background:transparent;border:0;padding:0;}')
         self.fitting = False
@@ -165,13 +166,13 @@ class ModulePreview(QGraphicsView):
         try:
             if self.card:
                 rect = self.scene().itemsBoundingRect().adjusted(-4,-4,4,4)
-                # Tall content scrolls instead of shrinking every label and
-                # control. The floor also protects large-font/narrow windows.
-                scale=max(.85,min(1,max(1,self.viewport().width()-4)/rect.width()))
-                self.setFixedHeight(min(420,round(rect.height()*scale)+4))
+                # The layout owns the slot. Changing nodes must never change
+                # the dialog's minimum size or toggle a scrollbar mid-layout.
+                scale=min(1,max(1,self.viewport().width()-4)/rect.width(),
+                          max(1,self.viewport().height()-4)/rect.height())
                 self.scene().setSceneRect(rect); self.resetTransform();self.scale(scale,scale)
                 self.verticalScrollBar().setValue(self.verticalScrollBar().minimum())
-            else:self.setFixedHeight(0)
+            else:self.scene().setSceneRect(QRectF());self.resetTransform()
         finally:self.fitting = False
 
     def resizeEvent(self, event):

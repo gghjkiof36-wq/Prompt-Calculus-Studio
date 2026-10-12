@@ -11,7 +11,8 @@ from . import composition as comp
 
 def canvas_colors(canvas):
     from .theme import visual_tokens
-    return visual_tokens(canvas.window.state.get('settings',{}))
+    from .module_chrome import matte_colors
+    return matte_colors(visual_tokens(canvas.window.state.get('settings',{})))
 
 
 def paint_module_surface(painter,outline,colors,header_bottom):

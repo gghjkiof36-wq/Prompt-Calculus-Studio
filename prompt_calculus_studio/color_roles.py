@@ -108,8 +108,8 @@ def derive_roles(foundation):
     t['canvas_inset'] = mix(t['canvas_body'], t['field'], .8)
     t['canvas_line'] = mix(t['canvas_body'], t['text'], .18)
     t.setdefault('canvas_background',t['base'])
-    # Shared matte finish, adopted by Stage first. Other Canvas surfaces retain
-    # their current roles until their visual pass; every palette has a fallback.
+    # Shared Canvas finish; application pages keep their existing surface roles
+    # while individual sheets migrate through module_chrome.dialog_colors.
     t.setdefault('module_body', mix(t['surface'], t['field'], .25))
     t.setdefault('module_header', t['canvas_header'])
     t.setdefault('module_field', t['field'])
