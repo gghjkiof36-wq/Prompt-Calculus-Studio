@@ -106,7 +106,8 @@ class SchedulePanel(QFrame):
         self.summary=label('','Subtle',True)
         self.policy_button=button('輸入取值',self.policies,'Quiet')
         self.policy_button.setParent(self);self.policy_button.hide()
-        self.list=PendingList(self);self.list.setIconSize(QSize(48,48));self.list.setMinimumHeight(96)
+        self.list=PendingList(self);self.list.setIconSize(QSize(48,48));self.list.setMinimumHeight(96);self.list.setObjectName('ModuleScheduleList')
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff);self.list.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.list.orderChanged.connect(self.reordered);self.list.itemDoubleClicked.connect(self.detail);body.addWidget(self.list,1)
         self.list.removeRequested.connect(lambda ids:self.remove(ids[0]) if ids else None)
         self.list.setToolTip('拖曳調整順序；雙擊查看內容；右鍵處理此項')
@@ -116,21 +117,25 @@ class SchedulePanel(QFrame):
         from .module_chrome import style_action
         from .canvas_items import canvas_colors
         style_action(self.pause_button,canvas_colors(canvas))
-        self.more=button('管理',self.more_actions,'Quiet')
-        self.more.setAccessibleName('預排程選項');self.more.setToolTip('預排程選項')
+        self.more=button('管理',self.manage,'Quiet')
+        self.more.setAccessibleName('管理預排程');self.more.setToolTip('拖曳排列等待項目')
         history=button('歷史',lambda:show_history(canvas.window),'Quiet')
         from .ui_icons import icon
         history.setIcon(icon('history'));history.setProperty('iconName','history')
         body.insertLayout(0,row(self.summary,None,self.more))
-        body.addLayout(row(history,None,self.pause_button))
+        body.addLayout(row(history,None));body.addWidget(self.pause_button)
         self.canvas.window.comfy.stateChanged.connect(self.refresh);self.refresh()
 
     def toggle_pause(self):
         paused=self.runner.store.scheduler_paused(self.canvas.window.state['workspace'],self.key)
         self.action('resume' if paused else 'pause')
 
-    def more_actions(self):
-        menu=RoundMenu(self)
+    def manage(self):
+        from .schedule_order_dialog import ScheduleOrderDialog
+        dialog=ScheduleOrderDialog(self);dialog.exec()
+
+    def more_actions(self,anchor=None):
+        menu=RoundMenu(anchor or self)
         menu.addAction('增加資料接點',self.add_channel)
         if self.canvas.data()['schedulers'].get(self.key,{}).get('mode')=='stage':menu.addAction('輸入取值',self.policies)
         menu.addSeparator()
@@ -139,7 +144,7 @@ class SchedulePanel(QFrame):
         cancel=menu.addAction('取消目前項目',lambda:self.cancel_current());cancel.setEnabled(bool(self.rows))
         menu.addSeparator()
         all_runs=menu.addAction('取消此處所有流程（含等待項目）',lambda:self.action('cancel'));all_runs.setEnabled(bool(self.rows))
-        menu.open_for(self.more,self.canvas.view)
+        menu.open_for(anchor or self.more,None if anchor else self.canvas.view)
 
     def item_menu(self,ident,position):
         item=self.runner.store.read(ident)
@@ -190,6 +195,8 @@ class SchedulePanel(QFrame):
         mode='Stage 組合' if value.get('mode')=='stage' else ''
         paused=self.runner.store.scheduler_paused(self.canvas.window.state['workspace'],self.key)
         self.pause_button.setText('繼續' if paused else '暫停')
+        from .ui_icons import icon
+        self.pause_button.setIcon(icon('play' if paused else 'pause',canvas_colors(self.canvas)['text']))
         self.pause_button.setToolTip('繼續處理等待項目' if paused else '暫停此預排程')
         self.empty.setVisible(not rows);self.list.setVisible(bool(rows))
         counts={}

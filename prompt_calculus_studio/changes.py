@@ -26,7 +26,7 @@ def layout_only(before,after):
             if 'workflow_order' in multi:multi['workflow_order']=without(multi['workflow_order'],('collapsed',))
         if 'canvas_functions' in value:
             functions=without(value['canvas_functions'],('preview_display',));result['canvas_functions']=functions
-            if 'images' in functions:functions['images']={k:without(v,('collapsed',)) for k,v in functions['images'].items()}
+            if 'images' in functions:functions['images']={k:without(v,('collapsed','management_collapsed')) for k,v in functions['images'].items()}
         return result
     return content(before)==content(after)
 

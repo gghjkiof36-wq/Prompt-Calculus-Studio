@@ -1,9 +1,9 @@
 """Image function cards are separate from text composition and can dock to output."""
 import copy
 from pathlib import Path
-from PySide6.QtCore import Qt,QRectF,QPointF
-from PySide6.QtGui import QPainterPath
-from PySide6.QtWidgets import QFrame,QVBoxLayout,QCheckBox,QDialog
+from PySide6.QtCore import Qt,QRectF,QPointF,QSize
+from PySide6.QtGui import QPainterPath,QPainter
+from PySide6.QtWidgets import QFrame,QVBoxLayout,QCheckBox,QDialog,QPushButton
 from .widgets import label,button,row,ElidedLabel,RoundMenu
 from .image_preview import SourcePreview
 from .error_dialog import import_error
@@ -12,27 +12,82 @@ from .canvas_items import TextCard
 from .core import uid
 
 
+class SourceMenuButton(QPushButton):
+    def paintEvent(self,event):
+        super().paintEvent(event)
+        from .ui_icons import icon
+        painter=QPainter(self);icon('chevron-down',self.palette().color(self.foregroundRole()).name(),16).paint(
+            painter,self.width()-25,(self.height()-16)//2,16,16);painter.end()
+
+
 class SourcePanel(QFrame):
     def __init__(self,owner,key):
         super().__init__(); self.owner=owner; self.key=key; self.current=None
-        self.setObjectName('InsetPanel'); body=QVBoxLayout(self); body.setContentsMargins(14,14,14,14)
+        self.setObjectName('CanvasModuleBody'); body=QVBoxLayout(self); body.setContentsMargins(4,8,4,4);body.setSpacing(10)
         self.binding=button('選擇工作流與圖片節點',self.bind_node,'Quiet'); body.addWidget(self.binding)
         from .result_widgets import ResultSelector
         self.result_node=ResultSelector(owner,key,'image');body.addWidget(self.result_node)
-        self.show_image=QCheckBox('顯示圖片'); self.show_image.setChecked(True); self.show_image.toggled.connect(self.toggle_preview); body.addWidget(self.show_image)
-        self.preview=SourcePreview(owner.window.store); self.preview.setMinimumSize(240,160); self.preview.clicked.connect(self.choose_file)
+        self.show_image=QCheckBox('顯示圖片'); self.show_image.setChecked(True); self.show_image.toggled.connect(self.toggle_preview)
+        body.addLayout(row(label('圖片預覽','Subtle'),None,self.show_image))
+        self.preview=SourcePreview(owner.window.store); self.preview.setMinimumSize(240,160); self.preview.clicked.connect(self.open_preview)
         self.preview.setWordWrap(True); self.preview.pathReady.connect(self.load); self.preview.failed.connect(lambda message:import_error(owner.window,message))
-        body.addWidget(self.preview,1); self.name=ElidedLabel(''); body.addWidget(self.name)
-        self.choose=button('選擇圖片 ▾',self.source_menu,'Quiet'); self.attach_button=button('接到 Prompt',self.toggle_attachment,'Quiet')
-        body.addLayout(row(self.choose,None,self.attach_button))
+        body.addWidget(self.preview,1); self.name=ElidedLabel('');self.name.setMinimumWidth(0)
         from .source_controls import edit_list,step,choose_prompt
+        self.counter=label('','Subtle')
+        self.previous=button('',lambda:step(self,-1));self.next=button('',lambda:step(self,1))
+        body.addLayout(row(self.name,None,self.counter,self.previous,self.next))
+        self.choose=SourceMenuButton('選擇圖片');self.choose.clicked.connect(self.source_menu)
+        self.attach_button=button('接到 Prompt',self.toggle_attachment,'Quiet')
+        body.addWidget(self.choose);body.addWidget(self.attach_button)
+        self.management=button('圖片管理',self.toggle_management,'Quiet')
+        self.management.setCheckable(True);body.addWidget(self.management)
         self.source_controls=QFrame();controls=QVBoxLayout(self.source_controls);controls.setContentsMargins(0,0,0,0)
+        controls.setSpacing(10)
+        self.list_button=button('圖片清單',lambda:edit_list(self))
+        self.prompt_button=button('提示詞設定',lambda:choose_prompt(self))
+        controls.addLayout(row(self.list_button,self.prompt_button))
         self.source_status=label('','Subtle',True);controls.addWidget(self.source_status)
-        controls.addLayout(row(button('上一張',lambda:step(self,-1),'Quiet'),button('下一張',lambda:step(self,1),'Quiet'),button('圖片清單',lambda:edit_list(self),'Quiet')))
-        controls.addWidget(button('正面／負面提示詞來源',lambda:choose_prompt(self),'Quiet'))
-        controls.addLayout(row(button('暫停後續',lambda:self.live_control('pause'),'Quiet'),button('繼續',lambda:self.live_control('resume'),'Quiet')))
-        controls.addWidget(button('停止這批後續供應',lambda:self.live_control('stop_feed'),'Quiet'))
+        separator=QFrame();separator.setObjectName('ModuleDivider');separator.setFixedHeight(1);controls.addWidget(separator)
+        self.pause_button=button('暫停供應',self.toggle_feed);self.stop_button=button('停止供應',lambda:self.live_control('stop_feed'))
+        controls.addLayout(row(self.pause_button,self.stop_button))
         body.addWidget(self.source_controls)
+        self.source_controls.hide()
+        if owner.window.state.get('multi_output',{}).get('version',0)>=7:owner.window.comfy.stateChanged.connect(self.refresh)
+
+    def refresh_visual_theme(self):
+        from .module_chrome import style_action
+        from .canvas_items import canvas_colors
+        from .ui_icons import icon
+        colors=canvas_colors(self.owner.canvas)
+        for control,name in ((self.choose,'folder'),(self.previous,'chevron-left'),(self.next,'chevron-right'),
+                             (self.list_button,'media'),(self.prompt_button,'settings'),(self.stop_button,'stop')):
+            style_action(control,colors,dropdown=control is self.choose);control.setIcon(icon(name,colors['text']));control.setIconSize(QSize(18,18))
+        style_action(self.pause_button,colors)
+        self.pause_button.setIcon(icon('play' if self.pause_button.property('feedPaused') else 'pause',colors['text']))
+        for control,name in ((self.previous,'上一張'),(self.next,'下一張')):
+            control.setAccessibleName(name);control.setToolTip(name);control.setFixedWidth(36)
+        expanded=not self.owner.data()['images'][self.key].get('management_collapsed',True)
+        self.management.setIcon(icon('chevron-down' if expanded else 'chevron-right',colors['secondary']))
+
+    def toggle_management(self):
+        value=self.owner.data()['images'][self.key]
+        value['management_collapsed']=not value.get('management_collapsed',True)
+        self.refresh();self.owner.window.changed('layout')
+        self.layout().activate()
+        card=self.owner.cards.get(self.key)
+        if card:card.layout_card();self.owner.canvas.update_lines()
+
+    def feed_runs(self):
+        chain=self.owner.window.comfy.input_flow.chain
+        return [run for run in chain.runs(True) if any(s.get('auto')==self.key for s in run['plan']['stages'].values())]
+
+    def toggle_feed(self):
+        self.live_control('resume' if self.pause_button.property('feedPaused') else 'pause')
+
+    def open_preview(self):
+        if not self.current:self.choose_file();return
+        from .image_viewer import show_image
+        show_image(self.owner.window,self.owner.window.store.directory/self.current['relative'],self.current['name'])
 
     def live_control(self,action):
         flow=self.owner.window.comfy.input_flow
@@ -43,7 +98,7 @@ class SourcePanel(QFrame):
                         if action=='stop_feed':flow.chain.stop_feed(run['id'],self.key)
                         else:getattr(flow.chain,action)(run['id'])
             except ValueError as exc:self.owner.window.notice(str(exc))
-            return
+            self.refresh();return
         for owner,control in flow.controls():
             source=control.get('feed') or control.get('cursor')
             if source and source['key']==self.key:getattr(flow,action)(owner)
@@ -81,9 +136,10 @@ class SourcePanel(QFrame):
                 menu.addAction(str(index+1)+' · '+item['name'],lambda checked=False,i=index,c=collection['collection']:images.choose(self.key,c,i))
         for name,kind in (('媒體庫','image'),('最近生成','recent')):
             menu.addAction(name,lambda checked=False,k=kind:self.owner.window.generation_panel.choose_catalog(k,self.load))
-        menu.open_at(self.cursor().pos())
+        menu.open_for(self.choose,self.owner.canvas.view)
     def toggle_attachment(self): self.owner.attach(self.key,not self.owner.data()['images'][self.key].get('attached',False))
     def refresh(self):
+        if self.key not in self.owner.data()['images']:return
         self.result_node.refresh()
         value=self.owner.data()['images'][self.key]; source=self.owner.current_source(self.key); self.current=source
         binding=value.get('binding'); profile=next((p for p in self.owner.window.state.get('generation',{}).get('profiles',[]) if binding and p['id']==binding['workflow']),None)
@@ -94,20 +150,38 @@ class SourcePanel(QFrame):
         style_action(self.binding,canvas_colors(self.owner.canvas),pending=not binding or not profile)
         advanced=self.owner.window.state.get('multi_output',{}).get('version',1)>=4
         enhanced=value.get('enhanced',False)
-        self.source_controls.setVisible(enhanced)
+        expanded=not value.get('management_collapsed',True)
+        self.management.setVisible(enhanced);self.management.setChecked(expanded)
+        self.source_controls.setVisible(enhanced and expanded)
+        self.attach_button.setVisible('multi_output' not in self.owner.window.state)
         self.binding.setVisible(advanced and not enhanced and self.owner.window.state['multi_output']['version']<7); self.show_image.setVisible(advanced)
         if enhanced:
             items=value.get('items',[]);count=len(items)
             choice=value.get('prompt_choice',[])
             role={'positive':'正面','negative':'負面','unknown':'指定來源'}.get(choice[0] if len(choice)==3 else 'positive','指定來源')
             content=value.get('content');kind='PCS 文字模塊' if content and content['kind']=='modules' else '原始'+role+'提示詞' if content else value.get('content_error','尚未選擇圖片')
-            self.source_status.setText((str(value.get('index',0)+1)+'／'+str(count)+' 張 · ' if count else '')+kind+'\n按執行處理一張；接入預排程可處理整批。')
+            self.source_status.setText(kind if source else '');self.source_status.setVisible(bool(source))
         self.show_image.blockSignals(True); self.show_image.setChecked(value.get('show_image',True)); self.show_image.blockSignals(False)
         self.preview.setVisible(value.get('show_image',True))
         self.attach_button.setText('解除拼接' if value.get('attached') else '接到 Prompt')
         error=self.owner.window.comfy.images.errors.get(self.key,'') if binding and hasattr(self.owner.window,'comfy') else ''
-        collection=self.owner.window.comfy.images.collection(self.key) if binding else None
-        self.choose.setText('選擇圖片／資料夾 ▾' if enhanced else '選擇圖片 · '+str(len(collection['items']))+' 張 ▾' if collection else '選擇圖片 ▾')
+        collection=self.owner.window.comfy.images.collection(self.key)
+        items=collection['items'] if collection else value.get('items',[])
+        count=len(items);index=value.get('input_index') if collection else value.get('index',0)
+        self.counter.setText((str(index+1) if index is not None else '全部')+' / '+str(count) if count else '')
+        self.counter.setVisible(enhanced and bool(count))
+        self.previous.setVisible(enhanced);self.next.setVisible(enhanced)
+        self.previous.setEnabled(count>1 and index is not None and index>0)
+        self.next.setEnabled(count>1 and (index is None or index<count-1))
+        self.list_button.setEnabled(bool(items));self.prompt_button.setEnabled(bool(source))
+        if self.owner.window.state.get('multi_output',{}).get('version',0)>=7:
+            runs=self.feed_runs() if enhanced else []
+            paused=bool(runs) and all(run['status']=='paused' for run in runs)
+            self.pause_button.setProperty('feedPaused',paused)
+            self.pause_button.setText('繼續供應' if paused else '暫停供應')
+            self.pause_button.setEnabled(bool(runs));self.stop_button.setEnabled(bool(runs))
+        self.refresh_visual_theme()
+        self.choose.setText('更換圖片' if source or items else '選擇圖片／資料夾' if enhanced else '選擇圖片')
         self.name.setVisible(bool(source or error)); self.name.setText(source['name'] if source else error)
         if collection and not source and not error:
             self.name.setText('共 '+str(len(collection['items']))+' 張 · 依輸出順序');self.name.show()

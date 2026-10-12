@@ -20,9 +20,9 @@ ALIASES = {
 }
 ICON_NAMES = frozenset({
     'canvas','media','explore','export','settings','back','forward','search','update',
-    'package','download','check','clock','info','close','play','pin','menu',
+    'package','download','check','clock','info','close','play','pause','stop','lock','pin','menu',
     'workflow','history','external-link','alert','server','check-circle',
-    'folder','plus','minus','copy','trash','chevron-down','chevron-up','grid','list','more-horizontal',
+    'folder','plus','minus','copy','trash','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal',
     'panel-left','type','file-text','list-ordered','image-single','scan-eye','link-2','maximize','grip-vertical',
 })
 _STYLE_RESOURCES = {}
@@ -152,6 +152,14 @@ def _draw(painter, name):
         line(6,6,18,18); line(18,6,6,18)
     elif name == 'play':
         poly((7,3.8),(20,12),(7,20.2),closed=True)
+    elif name == 'pause':
+        rect(5,4,4,16,.7);rect(15,4,4,16,.7)
+    elif name == 'stop':
+        rect(4,4,16,16,2)
+    elif name == 'lock':
+        rect(5,11,14,10,2);painter.drawArc(QRectF(8,2,8,14),0,180*16);line(12,15,12,17)
+    elif name in ('chevron-left','chevron-right'):
+        poly((15,5),(8,12),(15,19)) if name=='chevron-left' else poly((9,5),(16,12),(9,19))
     elif name == 'pin':
         poly((8,3),(16,3),(15,10),(18,14),(6,14),(9,10),closed=True)
         line(12,14,12,21)

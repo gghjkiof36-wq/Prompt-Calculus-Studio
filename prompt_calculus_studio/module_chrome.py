@@ -169,10 +169,11 @@ def visual_bounds(width, height):
     return QRectF(-10, -4, width + 20, height + 24)
 
 
-def style_action(widget, colors, pending=False, primary=False):
+def style_action(widget, colors, pending=False, primary=False, dropdown=False):
     background = colors['accent'] if primary else colors.get('module_field',colors['field']) if pending else colors['surface']
     foreground = colors['on_accent'] if primary else colors['text']
     border = colors['line']
-    style=f"QPushButton {{background:{background}; color:{foreground}; border:1px solid {border}; border-radius:8px; padding:7px 12px;}} QPushButton:hover {{border-color:{colors['accent']};}} QPushButton:pressed {{background:{colors['selected']};color:{colors['text']};}} QPushButton:disabled {{background:{colors['field']};color:{colors['secondary']};border-color:{colors['line']};}}"
+    padding='7px 28px 7px 12px' if dropdown else '7px 12px'
+    style=f"QPushButton {{background:{background}; color:{foreground}; border:1px solid {border}; border-radius:8px; padding:{padding};}} QPushButton:hover {{border-color:{colors['accent']};}} QPushButton:pressed {{background:{colors['selected']};color:{colors['text']};}} QPushButton:disabled {{background:{colors['field']};color:{colors['secondary']};border-color:{colors['line']};}}"
     if widget.styleSheet()!=style:widget.setStyleSheet(style)
     widget.setProperty('modulePending',pending)

@@ -147,8 +147,10 @@ def stylesheet(settings):
     QFrame#CanvasModuleBody QLineEdit, QFrame#CanvasModuleBody QPlainTextEdit,
     QFrame#CanvasModuleBody QComboBox, QFrame#CanvasModuleBody QSpinBox,
     QFrame#CanvasModuleBody QDoubleSpinBox {{ background:{t['module_field']}; }}
-    QListWidget#ModuleSourceOrder {{background:transparent;border:0;padding:0;}}
+    QListWidget#ModuleSourceOrder, QListWidget#ModuleScheduleList {{background:{t['module_field']};border:0;border-radius:8px;padding:4px;}}
     QListWidget#ModuleSourceOrder::item {{border:0;border-radius:6px;padding:8px 10px;}}
+    QListWidget#ModuleScheduleList::item {{border:0;border-radius:6px;padding:10px;}}
+    QFrame#ModuleDivider {{background:{t['line']};border:0;}}
     QFrame#CanvasModuleBody QPlainTextEdit#Prompt {{border:0;border-radius:8px;padding:10px;}}
     QLabel#ExploreTitle {{ font-size:28px; font-weight:600; }}
     QFrame#PopupPanel {{ background:{t['raised']}; border:1px solid {t['line']}; border-radius:16px; }}

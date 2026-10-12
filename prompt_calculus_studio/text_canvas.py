@@ -122,6 +122,8 @@ class TextCanvas(QWidget):
             if hasattr(card.panel,'refresh'):card.panel.refresh()
         for card in getattr(self,'outputs',{}).values():
             card.panel.refresh_visual_theme()
+        for card in self.functions.cards.values():
+            if hasattr(card.panel,'refresh_visual_theme'):card.panel.refresh_visual_theme()
         if hasattr(self,'execution_bar'):self.execution_bar.refresh_visual_theme()
         if hasattr(self,'update_lines'):self.update_lines()
         self.view.viewport().update()

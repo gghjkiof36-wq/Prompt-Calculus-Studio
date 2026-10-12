@@ -23,9 +23,14 @@ class OutputPanel(QFrame):
         super().__init__(); self.canvas=canvas; self.key=key; self.updating=False
         self.setObjectName('CanvasModuleBody'); body=QVBoxLayout(self); body.setContentsMargins(4,8,4,4);body.setSpacing(10)
         self.order=OutputOrderList(); self.order.setMinimumHeight(96);self.order.setObjectName('ModuleSourceOrder')
+        self.source_rows=canvas.data().get('version',0)>=7
+        if self.source_rows:
+            from .module_lists import SourceDelegate
+            self.order.setItemDelegate(SourceDelegate(self.order));self.order.setDragEnabled(False)
         self.order.orderChanged.connect(self.reordered)
         self.order.removeRequested.connect(self.remove_items)
-        self.order.itemDoubleClicked.connect(lambda item:canvas.focus_node(item.data(Qt.ItemDataRole.UserRole)))
+        self.order.itemDoubleClicked.connect(lambda item:self.open_source(item.data(Qt.ItemDataRole.UserRole)))
+        if self.source_rows:self.order.itemActivated.connect(lambda item:self.open_source(item.data(Qt.ItemDataRole.UserRole)))
         self.order.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.order.customContextMenuRequested.connect(self.context)
         self.split=QuietSplitter(Qt.Orientation.Vertical); self.split.setChildrenCollapsible(False)
@@ -33,7 +38,7 @@ class OutputPanel(QFrame):
         self.split.setToolTip('拖曳分隔線，調整組合清單與文字欄的比例。')
         listing=QWidget(); list_layout=QVBoxLayout(listing); list_layout.setContentsMargins(0,0,0,0)
         self.source_count=label('文字來源','Subtle')
-        reorder=button('排列',lambda:canvas.order_sources(key),'Quiet');reorder.setToolTip('排列文字來源')
+        reorder=button('排序',lambda:canvas.order_sources(key),'Quiet');reorder.setToolTip('排列文字來源')
         list_layout.addLayout(row(self.source_count,None,reorder)); list_layout.addWidget(self.order)
         text_panel=QWidget();self.text_panel=text_panel; text_layout=QVBoxLayout(text_panel); text_layout.setContentsMargins(0,0,0,0)
         self.draft_status=label('自動文字','Subtle')
@@ -60,6 +65,9 @@ class OutputPanel(QFrame):
         from .module_chrome import style_action
         from .canvas_items import canvas_colors
         style_action(self.save_material,canvas_colors(self.canvas))
+        if self.source_rows:
+            from .ui_icons import icon
+            for i in range(self.order.count()):self.order.item(i).setIcon(icon('type',canvas_colors(self.canvas)['text'],16))
 
     def toggle_preview(self):
         output=self.canvas.data()['outputs'][self.key]
@@ -93,16 +101,28 @@ class OutputPanel(QFrame):
         if item:
             self.order.setCurrentItem(item)
             key=item.data(Qt.ItemDataRole.UserRole)
+            if self.source_rows:
+                menu=RoundMenu(self);menu.addAction('開啟文字來源',lambda:self.open_source(key))
+                menu.addAction('排列文字來源',lambda:self.canvas.order_sources(self.key))
+                menu.open_at(widget_global_position(self.order.viewport(),pos,self.canvas.view));return
             self.canvas.view.scene().clearSelection()
             if key in self.canvas.cards:self.canvas.cards[key].setSelected(True)
             self.canvas.context(key,widget_global_position(self.order.viewport(),pos,self.canvas.view),[key])
+    def open_source(self,key):
+        if not self.source_rows:self.canvas.focus_node(key);return
+        parent=key.split('::')[0]
+        groups=(self.canvas.containers,self.canvas.outputs,self.canvas.flow_cards,self.canvas.functions.cards)
+        card=next((group[parent] for group in groups if parent in group),None)
+        if card:
+            self.canvas.view.scene().clearSelection();card.setSelected(True);self.canvas.view.centerOn(card)
     def remove_items(self,keys):
+        if self.source_rows:return
         if self.updating or not self.order.isEnabled():return
         from .flow_data import canvas_ids
         members=[k for cid in canvas_ids(self.canvas.data()['outputs'][self.key]) for k in self.canvas.data()['canvases'][cid]['members']]
         self.canvas.remove_keys([key for key in keys if key in members])
     def reordered(self,*args):
-        if self.updating: return
+        if self.updating or self.source_rows: return
         keys=[self.order.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.order.count())]; canvas=self.canvas
         from .flow_data import canvas_ids
         def reorder(state):
@@ -123,21 +143,27 @@ class OutputPanel(QFrame):
         try: compiled=model.compile_output(state,self.key); text=compiled['final_prompt']; affected=compiled['affected']
         except ValueError: text=output['draft'] or ''; affected={}
         if self.editor.toPlainText()!=text: self.editor.setPlainText(text)
-        from .flow_data import canvas_ids
-        cid=output['canvas']; members=[k for c in canvas_ids(output) for k in self.canvas.data()['canvases'][c]['members']]
+        from .flow_data import canvas_ids,text_sources,source_name
+        cid=output['canvas']; members=text_sources(output) if self.source_rows else [k for c in canvas_ids(output) for k in self.canvas.data()['canvases'][c]['members']]
         prior=[self.order.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.order.count())]
         if prior!=members:
             self.order.clear()
             for key in members:
                 item=QListWidgetItem(); item.setData(Qt.ItemDataRole.UserRole,key); self.order.addItem(item)
         for i,key in enumerate(members):
+            if self.source_rows:
+                from .module_lists import DETAIL_ROLE,source_kind
+                from .ui_icons import icon
+                from .canvas_items import canvas_colors
+                item=self.order.item(i);item.setText(source_name(state,key));item.setIcon(icon('type',canvas_colors(self.canvas)['text'],16))
+                item.setData(DETAIL_ROLE,source_kind(state,key));item.setToolTip(source_name(state,key));continue
             root=state['uses'][key]; item=self.order.item(i)
             item.setText(root['name']+(f" · ×{root['weight']/10:.1f}" if root['weight']!=10 else '')+(' · 停用' if not root['enabled'] else ''))
             item.setToolTip(comp.render(root))
         manual=output['draft'] is not None
         self.source_count.setText('文字來源'+(' · '+str(len(members)) if members else ''))
-        self.order.setEnabled(not manual); self.clear.setEnabled(manual);self.clear.setVisible(manual)
-        self.draft_status.setText('正在使用手動版本' if manual else '' if cid else '缺少來源畫布')
+        self.order.setEnabled(self.source_rows or not manual); self.clear.setEnabled(manual);self.clear.setVisible(manual)
+        self.draft_status.setText('Prompt 預覽 · 手動版本' if manual else 'Prompt 預覽')
         self.draft_status.setVisible(bool(self.draft_status.text()))
         self.conflicts.setText('；'.join(', '.join(v['tags'])+' ← '+', '.join(v['by']) for v in affected.values())); self.conflicts.setVisible(bool(affected))
         self.apply_preview_visibility()

@@ -6,8 +6,8 @@ from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QFrame, QSizePolicy
 
 
-# Only the isolated example's layout changes. Production node defaults and the
-# user's saved graph remain untouched; all painting and controls are shared.
+# Catalog geometry for the other modules. The four reviewed cards use their
+# production defaults so the picker and a newly inserted card have one layout.
 PREVIEW_SIZES = {
     'canvas': (360, 340), 'output': (378, 340), 'clip': (360, 174),
     'reader': (360, 180), 'source': (360, 380), 'single': (360, 380),
@@ -24,9 +24,9 @@ class PreviewRuntime(QObject):
         # Previewing a node cannot read a user's run history or initiate IO.
         store = SimpleNamespace(rows=lambda *a, **k: [], scheduler_paused=lambda *a: False)
         runner = SimpleNamespace(store=store, closed=False, results={},
-                                 progress=lambda: '', expansion=lambda *a: '')
+                                 progress=lambda: '', expansion=lambda *a: '', runs=lambda *a: [])
         self.input_flow = SimpleNamespace(chain=runner)
-        self.images = SimpleNamespace(source=lambda key: None, errors={})
+        self.images = SimpleNamespace(source=lambda key: None, collection=lambda key: None, errors={})
 
 
 class PreviewCanvas:
@@ -99,18 +99,8 @@ class PreviewCanvas:
             contract = 'text_reader' if kind == 'reader' else 'image_source' if kind == 'source' else 'image'
         self.view.scene().addItem(card)
         if not isinstance(card, CanvasContainer):
-            state['text_sizes'][key] = list(PREVIEW_SIZES[kind])
+            state['text_sizes'][key] = list(card.default_size if kind in ('source','single','output','schedule') else PREVIEW_SIZES[kind])
             card.attach(); card.update_text()
-            # The catalog shows the primary controls at a readable size. Extra
-            # batch tools stay in the full Canvas; only this isolated instance
-            # receives the compact layout, with the real widgets and paint.
-            if kind in ('source','single'):
-                card.panel.preview.setMinimumHeight(120)
-                if kind=='source':card.panel.source_controls.hide()
-                card.layout_card()
-            elif kind=='output':
-                card.panel.order.setMinimumHeight(48)
-                card.layout_card()
         spec = MODULES[contract]
         inputs = ('text','image') if kind == 'output' else ('control',) if kind == 'stage' else spec.inputs
         outputs = ('flow','image','clip') if kind == 'stage' else spec.outputs

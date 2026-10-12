@@ -147,6 +147,6 @@ class CanvasVisualBatchTests(StageFixture):
         self.assertEqual(len(controls),1)
         menus=[]
         with patch.object(RoundMenu,'open_for',lambda menu,*args:menus.append(menu)):
-            QTest.mouseClick(controls[0],Qt.MouseButton.LeftButton)
+            panel.more_actions()
         self.assertEqual([a.text() for a in menus[0].actions() if not a.isSeparator()],
                          ['增加資料接點','移除選取項目','取消目前項目','取消此處所有流程（含等待項目）'])

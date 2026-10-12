@@ -53,7 +53,22 @@ def edit_list(panel):
     if window.state.get('multi_output',{}).get('version',0)>=7:
         from .flow_data import incoming
         if incoming(window.state,panel.key,'image') or value.get('stage_reference'):
-            window.notice('這份清單來自接入圖片；可在「選擇圖片」選指定一張或全部。要改成固定清單，請從歷史選圖或載入資料夾。');return
+            collection=window.comfy.images.collection(panel.key)
+            if not collection:return
+            dialog=StudioDialog(window);dialog.setWindowTitle('接入圖片清單');dialog.resize(650,540)
+            listing=QListWidget();listing.setIconSize(QSize(56,56))
+            from PySide6.QtGui import QIcon
+            for source in collection['items']:
+                item=QListWidgetItem(QIcon(str(window.store.directory/source['relative'])),source['name']);listing.addItem(item)
+            index=value.get('input_index');listing.setCurrentRow(index if index is not None else 0)
+            dialog.body.addWidget(listing,1)
+            def select_current():
+                current=listing.currentRow()
+                if current>=0:window.comfy.images.choose(panel.key,collection['collection'],current);dialog.accept()
+            def select_all():
+                panel.owner.canvas.commit(lambda s:s['canvas_functions']['images'][panel.key].pop('input_index',None));dialog.accept()
+            dialog.body.addLayout(row(button('使用全部',select_all,'Quiet'),None,button('取消',dialog.reject,'Quiet'),button('使用這張',select_current,'Primary')))
+            listing.itemDoubleClicked.connect(lambda *_:select_current());dialog.exec();return
     items=copy.deepcopy(value.get('items') or ([value['source']] if value.get('source') else []))
     dialog=StudioDialog(window);dialog.setWindowTitle('圖片來源 · 清單與目前圖片');dialog.resize(650,540)
     dialog.body.addWidget(label('拖曳排列；移除只略過這張圖片。保存清單後，由第一張開始；已排程的項目仍保留。','Subtle',True))
@@ -84,7 +99,8 @@ def step(panel,delta):
     if window.state.get('multi_output',{}).get('version',0)>=7:
         collection=window.comfy.images.collection(panel.key)
         if collection:
-            window.comfy.images.choose(panel.key,collection['collection'],value.get('input_index',0)+delta);return
+            index=value.get('input_index')
+            window.comfy.images.choose(panel.key,collection['collection'],max(0,(index+delta) if index is not None else 0));return
     index=value.get('index',0)+delta
     changed=panel.owner.canvas.commit(lambda state:select(state,panel.key,index,panel.owner.window.store.directory))
     if changed is not False:panel.owner.window.comfy.input_flow.direct.reset_source(panel.key)

@@ -29,7 +29,7 @@ class FunctionPicker(CanvasSheetDialog):
         super().__init__(canvas.window); self.canvas = canvas
         self.position = QPointF(position) if position is not None else canvas.view.mapToScene(canvas.view.viewport().rect().center())
         self.owner = (canvas.window.store, canvas.window.state['workspace'])
-        self.setWindowTitle('新增功能模組'); self.resize(900, 800)
+        self.setWindowTitle('新增功能模組'); self.resize(1000, 900)
         self.category = '全部'; self.added = False; self.actions = canvas.functions.insertion_callbacks(self.position)
         colors=canvas_colors(canvas)
         from .theme import font_pixels
@@ -62,7 +62,7 @@ class FunctionPicker(CanvasSheetDialog):
         self.list = QListWidget(); self.list.setObjectName('FunctionList');self.list.setProperty('moduleChoices',True)
         self.list.setAccessibleName('功能模組'); self.list.setMinimumWidth(220); self.list.setIconSize(QSize(18,18))
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.list.setSpacing(2); columns.addWidget(self.list, 5)
+        self.list.setSpacing(2); columns.addWidget(self.list, 4)
         panel = QFrame(); panel.setObjectName('FunctionDetails'); detail = QVBoxLayout(panel)
         detail.setContentsMargins(0,4,0,0); detail.setSpacing(10)
         detail.addWidget(label('節點預覽', 'Subtle'))
@@ -73,7 +73,7 @@ class FunctionPicker(CanvasSheetDialog):
         for text,lines in ((self.name,1),(self.description,2)):
             text.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed)
             text.setFixedHeight(text.fontMetrics().height()*lines+4)
-        columns.addWidget(panel, 4); self.body.addLayout(columns, 1)
+        columns.addWidget(panel, 5); self.body.addLayout(columns, 1)
         self.empty = label('沒有符合的功能模組', 'Subtle'); self.empty.hide(); self.body.addWidget(self.empty)
         self.add_button = button('新增模組', self.insert_current, 'Primary'); self.add_button.setIcon(icon('plus','on-accent'))
         footer=QFrame();footer.setObjectName('FunctionFooter'); actions=QHBoxLayout(footer)
