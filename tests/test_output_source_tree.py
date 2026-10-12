@@ -120,7 +120,8 @@ class SourceTreeTests(StageFixture):
         self.w.state['settings'].update(visual_palette='paper',ui_size=16);self.w.apply_theme(preserve_layout=True);APP.processEvents()
         tree=self.c.outputs[self.out].panel.order;group=self.group(tree,self.cid)
         self.assertFalse(group.isExpanded());self.assertEqual(group.childCount(),2)
-        self.assertEqual(group.child(0).text(0),'角色');self.assertFalse(group.icon(0).isNull())
+        self.assertEqual(group.child(0).text(0),'角色');self.assertTrue(group.icon(0).isNull())
+        self.assertFalse(group.child(0).icon(0).isNull())
         self.assertGreaterEqual(group.sizeHint(0).height(),tree.fontMetrics().height()+20)
 
     def test_expanded_rows_fit_and_long_lists_remain_bounded(self):
