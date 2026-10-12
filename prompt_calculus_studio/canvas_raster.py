@@ -11,9 +11,11 @@ from PySide6.QtGui import QImage, QPainter, QTransform
 
 
 class RasterCache:
-    def __init__(self, max_bytes=32 * 1024 * 1024, max_entry_bytes=8 * 1024 * 1024):
+    def __init__(self, max_bytes=48 * 1024 * 1024, max_entry_bytes=2 * 1024 * 1024,
+                 max_entries=256):
         self.max_bytes = max_bytes
         self.max_entry_bytes = min(max_entry_bytes, max_bytes)
+        self.max_entries = max_entries
         self.entries = OrderedDict()
         self.byte_count = 0
 
@@ -30,7 +32,8 @@ class RasterCache:
         previous = self.entries.pop(key, None)
         if previous is not None:
             self.byte_count -= previous.sizeInBytes()
-        while self.entries and self.byte_count + size > self.max_bytes:
+        while self.entries and (self.byte_count + size > self.max_bytes
+                                or len(self.entries) >= self.max_entries):
             self.byte_count -= self.entries.popitem(last=False)[1].sizeInBytes()
         self.entries[key] = image
         self.byte_count += size
@@ -43,6 +46,9 @@ class RasterCache:
 # A process-wide byte budget also bounds multiple canvases and old zoom levels.
 # Keys contain only visual values, never references to windows, items or models.
 LAYERS = RasterCache()
+# Large container shadows must not evict the text cards during a fractional
+# pan. Oversized shadows use the original vectors, with no image allocation.
+SHADOWS = RasterCache(max_bytes=8 * 1024 * 1024, max_entry_bytes=512 * 1024)
 
 
 def paint_cached(painter, key, bounds, draw, cache=LAYERS):

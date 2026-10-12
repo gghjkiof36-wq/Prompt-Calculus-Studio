@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QApplication
 
-from prompt_calculus_studio.canvas_raster import LAYERS, RasterCache, paint_cached
+from prompt_calculus_studio.canvas_raster import LAYERS, SHADOWS, RasterCache, paint_cached
 from prompt_calculus_studio.canvas_items import CanvasView, NodeCard, canvas_colors
 from prompt_calculus_studio.composition import node
 from prompt_calculus_studio import module_chrome
@@ -23,6 +23,7 @@ class CanvasRasterTests(unittest.TestCase):
 
     def setUp(self):
         LAYERS.clear()
+        SHADOWS.clear()
         self.font = QFont('Microsoft JhengHei UI', 10)
         self.value = node('角色設定', '午後街道，暖色陽光。 standing, soft light')
         self.value['collapsed'] = False
@@ -121,6 +122,17 @@ class CanvasRasterTests(unittest.TestCase):
             actual = self.render(lambda p: paint_cached(p, 'large', QRectF(0, 0, 320, 180), draw, cache))
             self.assertEqual(actual, self.render(draw))
             put.assert_not_called()
+
+    def test_large_shadow_does_not_evict_card_layers(self):
+        self.render(lambda p: self.card.paint(p, None))
+        count, size = len(LAYERS.entries), LAYERS.byte_count
+        large = QPainterPath(); large.addRoundedRect(QRectF(0, 0, 1400, 1000), 16, 16)
+        for n in range(16):
+            self.render(lambda p: module_chrome.paint_shadow(p, large), offset=(25+n*.25,25+n*.25))
+        self.assertEqual((len(LAYERS.entries),LAYERS.byte_count),(count,size))
+        with patch.object(self.card, '_paint_card', wraps=self.card._paint_card) as draw:
+            self.render(lambda p: self.card.paint(p, None))
+            draw.assert_not_called()
 
     def test_batch_grid_matches_individual_points_at_negative_positions(self):
         view = SimpleNamespace(canvas=self.canvas)

@@ -60,13 +60,13 @@ def paint_header(painter, width, title, font, colors, collapsed=False, icon_name
 
 
 def paint_shadow(painter, outline, nested=False):
-    from .canvas_raster import paint_cached
+    from .canvas_raster import paint_cached, SHADOWS
     geometry = tuple((e.x, e.y, e.type.value)
                      for i in range(outline.elementCount())
                      for e in (outline.elementAt(i),))
     bounds = outline.boundingRect().translated(0, 3 if nested else 6).adjusted(-7, -7, 7, 7)
     paint_cached(painter, ('shadow', nested, outline.fillRule().value, geometry), bounds,
-                 lambda target: _draw_shadow(target, outline, nested))
+                 lambda target: _draw_shadow(target, outline, nested), SHADOWS)
 
 
 def _draw_shadow(painter, outline, nested=False):
