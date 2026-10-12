@@ -79,3 +79,4 @@ def edit_weight(card):
     proxy.setZValue(10)
     edit.setFocus(Qt.FocusReason.MouseFocusReason)
     edit.selectAll()
+    card.update(card.weight_rect)

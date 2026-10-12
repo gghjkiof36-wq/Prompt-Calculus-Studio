@@ -129,7 +129,10 @@ class ResizableCard(QGraphicsObject):
                 center=rect.center();icon(action,colors['secondary']).paint(painter,QRect(round(center.x()-8),round(center.y()-8),16,16))
                 continue
             text={'size':'↗','add':'＋ 子元素'}.get(action)
-            if action=='weight': text=f"{self.value['weight']/10:.1f}"
+            if action=='weight':
+                # The transparent inline editor owns the number while editing.
+                if getattr(self,'weight_editor',None) is not None:continue
+                text=f"{self.value['weight']/10:.1f}"
             painter.drawText(rect,Qt.AlignmentFlag.AlignCenter,text)
 
 
