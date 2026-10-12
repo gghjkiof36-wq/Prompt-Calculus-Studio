@@ -21,7 +21,7 @@ def layout_only(before,after):
             for kind in ('canvases','outputs','clip_inputs','image_inputs','schedulers','stages'):
                 fields=('collapsed',)
                 if kind=='canvases':fields+=('position','display_size','edit_view')
-                elif kind=='outputs':fields+=('panel_ratio','preview_collapsed')
+                elif kind=='outputs':fields+=('panel_ratio','preview_collapsed','source_collapsed')
                 if kind in multi:multi[kind]={k:without(v,fields) for k,v in multi[kind].items()}
             if 'workflow_order' in multi:multi['workflow_order']=without(multi['workflow_order'],('collapsed',))
         if 'canvas_functions' in value:

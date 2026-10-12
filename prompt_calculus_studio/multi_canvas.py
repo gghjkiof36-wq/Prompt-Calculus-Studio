@@ -22,15 +22,16 @@ class OutputPanel(QFrame):
     def __init__(self,canvas,key):
         super().__init__(); self.canvas=canvas; self.key=key; self.updating=False
         self.setObjectName('CanvasModuleBody'); body=QVBoxLayout(self); body.setContentsMargins(4,8,4,4);body.setSpacing(10)
-        self.order=OutputOrderList(); self.order.setMinimumHeight(96);self.order.setObjectName('ModuleSourceOrder')
         self.source_rows=canvas.data().get('version',0)>=7
         if self.source_rows:
-            from .module_lists import SourceDelegate
-            self.order.setItemDelegate(SourceDelegate(self.order));self.order.setDragEnabled(False)
-        self.order.orderChanged.connect(self.reordered)
-        self.order.removeRequested.connect(self.remove_items)
-        self.order.itemDoubleClicked.connect(lambda item:self.open_source(item.data(Qt.ItemDataRole.UserRole)))
-        if self.source_rows:self.order.itemActivated.connect(lambda item:self.open_source(item.data(Qt.ItemDataRole.UserRole)))
+            from .output_sources import OutputSources
+            self.order=OutputSources(canvas,key)
+        else:
+            self.order=OutputOrderList()
+            self.order.orderChanged.connect(self.reordered)
+            self.order.removeRequested.connect(self.remove_items)
+            self.order.itemDoubleClicked.connect(lambda item:self.open_source(item.data(Qt.ItemDataRole.UserRole)))
+        self.order.setMinimumHeight(96);self.order.setObjectName('ModuleSourceOrder')
         self.order.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.order.customContextMenuRequested.connect(self.context)
         self.split=QuietSplitter(Qt.Orientation.Vertical); self.split.setChildrenCollapsible(False)
@@ -38,8 +39,7 @@ class OutputPanel(QFrame):
         self.split.setToolTip('拖曳分隔線，調整組合清單與文字欄的比例。')
         listing=QWidget(); list_layout=QVBoxLayout(listing); list_layout.setContentsMargins(0,0,0,0)
         self.source_count=label('文字來源','Subtle')
-        reorder=button('排序',lambda:canvas.order_sources(key),'Quiet');reorder.setToolTip('排列文字來源')
-        list_layout.addLayout(row(self.source_count,None,reorder)); list_layout.addWidget(self.order)
+        list_layout.addWidget(self.source_count);list_layout.addWidget(self.order)
         text_panel=QWidget();self.text_panel=text_panel; text_layout=QVBoxLayout(text_panel); text_layout.setContentsMargins(0,0,0,0)
         self.draft_status=label('自動文字','Subtle')
         self.preview_toggle=button('收合預覽',self.toggle_preview,'Quiet')
@@ -66,8 +66,7 @@ class OutputPanel(QFrame):
         from .canvas_items import canvas_colors
         style_action(self.save_material,canvas_colors(self.canvas))
         if self.source_rows:
-            from .ui_icons import icon
-            for i in range(self.order.count()):self.order.item(i).setIcon(icon('type',canvas_colors(self.canvas)['text'],16))
+            self.order.refresh(self.canvas.window.state,canvas_colors(self.canvas))
 
     def toggle_preview(self):
         output=self.canvas.data()['outputs'][self.key]
@@ -100,11 +99,15 @@ class OutputPanel(QFrame):
         item=self.order.itemAt(pos)
         if item:
             self.order.setCurrentItem(item)
-            key=item.data(Qt.ItemDataRole.UserRole)
             if self.source_rows:
-                menu=RoundMenu(self);menu.addAction('開啟文字來源',lambda:self.open_source(key))
-                menu.addAction('排列文字來源',lambda:self.canvas.order_sources(self.key))
-                menu.open_at(widget_global_position(self.order.viewport(),pos,self.canvas.view));return
+                token=self.order.token(item)
+                if token[0]=='source':
+                    menu=RoundMenu(self)
+                    if item.childCount():menu.addAction('收合' if item.isExpanded() else '展開',lambda:item.setExpanded(not item.isExpanded()))
+                    menu.addAction('開啟文字來源',lambda:self.open_source(token[1]))
+                    menu.open_at(widget_global_position(self.order.viewport(),pos,self.canvas.view));return
+                key=token[2]
+            else:key=item.data(Qt.ItemDataRole.UserRole)
             self.canvas.view.scene().clearSelection()
             if key in self.canvas.cards:self.canvas.cards[key].setSelected(True)
             self.canvas.context(key,widget_global_position(self.order.viewport(),pos,self.canvas.view),[key])
@@ -143,23 +146,21 @@ class OutputPanel(QFrame):
         try: compiled=model.compile_output(state,self.key); text=compiled['final_prompt']; affected=compiled['affected']
         except ValueError: text=output['draft'] or ''; affected={}
         if self.editor.toPlainText()!=text: self.editor.setPlainText(text)
-        from .flow_data import canvas_ids,text_sources,source_name
+        from .flow_data import canvas_ids,text_sources
         cid=output['canvas']; members=text_sources(output) if self.source_rows else [k for c in canvas_ids(output) for k in self.canvas.data()['canvases'][c]['members']]
-        prior=[self.order.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.order.count())]
-        if prior!=members:
-            self.order.clear()
-            for key in members:
-                item=QListWidgetItem(); item.setData(Qt.ItemDataRole.UserRole,key); self.order.addItem(item)
-        for i,key in enumerate(members):
-            if self.source_rows:
-                from .module_lists import DETAIL_ROLE,source_kind
-                from .ui_icons import icon
-                from .canvas_items import canvas_colors
-                item=self.order.item(i);item.setText(source_name(state,key));item.setIcon(icon('type',canvas_colors(self.canvas)['text'],16))
-                item.setData(DETAIL_ROLE,source_kind(state,key));item.setToolTip(source_name(state,key));continue
-            root=state['uses'][key]; item=self.order.item(i)
-            item.setText(root['name']+(f" · ×{root['weight']/10:.1f}" if root['weight']!=10 else '')+(' · 停用' if not root['enabled'] else ''))
-            item.setToolTip(comp.render(root))
+        if self.source_rows:
+            from .canvas_items import canvas_colors
+            self.order.refresh(state,canvas_colors(self.canvas))
+        else:
+            prior=[self.order.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.order.count())]
+            if prior!=members:
+                self.order.clear()
+                for key in members:
+                    item=QListWidgetItem();item.setData(Qt.ItemDataRole.UserRole,key);self.order.addItem(item)
+            for i,key in enumerate(members):
+                root=state['uses'][key];item=self.order.item(i)
+                item.setText(root['name']+(f" · ×{root['weight']/10:.1f}" if root['weight']!=10 else '')+(' · 停用' if not root['enabled'] else ''))
+                item.setToolTip(comp.render(root))
         manual=output['draft'] is not None
         self.source_count.setText('文字來源'+(' · '+str(len(members)) if members else ''))
         self.order.setEnabled(self.source_rows or not manual); self.clear.setEnabled(manual);self.clear.setVisible(manual)
@@ -802,7 +803,7 @@ class MultiCanvas(TextCanvas):
         menu=RoundMenu(self.window)
         menu.addAction('調整模組尺寸…',lambda:self.size_dialog(key));menu.addAction('恢復自動尺寸',lambda:self.reset_size(key))
         menu.addAction('重新命名',lambda:self.rename_function('outputs',key))
-        menu.addAction('排列文字來源',lambda:self.order_sources(key))
+        if self.data().get('version',0)<7:menu.addAction('排列文字來源',lambda:self.order_sources(key))
         menu.addAction('新增 CLIP 輸入並連接',lambda:self.add_clip(self.outputs[key].pos()+QPointF(self.outputs[key].width+90,0),key))
         menu.addAction('設為目前輸出',lambda:self.set_current(key)); menu.addAction('移除輸出',lambda:self.remove_output(key)); menu.open_at(position)
     def rename_function(self,collection,key):

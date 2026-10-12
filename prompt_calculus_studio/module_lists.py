@@ -1,8 +1,8 @@
-"""Compact source rows; the Canvas and sorting dialog use the same text icon."""
+"""Compact source rows and isolated text projections for ordering previews."""
 import copy
 from PySide6.QtCore import Qt,QSize
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QStyledItemDelegate,QStyleOptionViewItem,QStyle,QApplication
-from .ui_icons import icon
 
 DETAIL_ROLE=int(Qt.ItemDataRole.UserRole)+1
 
@@ -12,16 +12,20 @@ class SourceDelegate(QStyledItemDelegate):
         opt=QStyleOptionViewItem(option);self.initStyleOption(opt,index)
         name=opt.text;opt.text=''
         style=opt.widget.style() if opt.widget else QApplication.style()
+        token=index.data(Qt.ItemDataRole.UserRole)
+        if isinstance(token,(list,tuple)) and token and token[0]=='source':
+            painter.save();painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(self.parent().colors['surface']))
+            painter.drawRoundedRect(opt.rect.adjusted(0,2,-1,-2),6,6);painter.restore()
         style.drawControl(QStyle.ControlElement.CE_ItemViewItem,opt,painter,opt.widget)
         rect=style.subElementRect(QStyle.SubElement.SE_ItemViewItemText,opt,opt.widget).adjusted(4,0,-10,0)
         painter.save();painter.setFont(opt.font)
         color=opt.palette.color(opt.palette.ColorRole.Text);painter.setPen(color)
-        detail=index.data(DETAIL_ROLE) or '';width=min(rect.width()//2,opt.fontMetrics.horizontalAdvance(detail)+28)
+        detail=index.data(DETAIL_ROLE) or '';width=min(rect.width()//2,opt.fontMetrics.horizontalAdvance(detail)+18) if detail else 0
         painter.drawText(rect.adjusted(0,0,-width,0),Qt.AlignmentFlag.AlignVCenter,
                          opt.fontMetrics.elidedText(name,Qt.TextElideMode.ElideRight,max(0,rect.width()-width)))
         painter.setPen(opt.palette.color(opt.palette.ColorRole.PlaceholderText))
-        painter.drawText(rect.adjusted(rect.width()-width,0,-22,0),Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight,detail)
-        icon('chevron-right',color.name(),16).paint(painter,rect.right()-14,rect.center().y()-8,16,16)
+        painter.drawText(rect.adjusted(rect.width()-width,0,0,0),Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight,detail)
         painter.restore()
 
     def sizeHint(self,option,index):return QSize(0,max(42,option.fontMetrics.height()+20))
