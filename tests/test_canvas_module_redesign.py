@@ -207,6 +207,7 @@ class ModuleRedesignTests(StageFixture):
             dialog.deleteLater()
 
     def test_container_footer_opens_editor_without_panning(self):
+        self.w.state['settings']['reduce_motion']=True
         container=self.c.containers[self.cid]
         center=container.mapToScene(container.actions()['editor'].center())
         self.view.centerOn(center);QTest.qWait(10)
