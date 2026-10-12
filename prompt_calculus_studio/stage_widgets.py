@@ -108,7 +108,7 @@ class SchedulePanel(QFrame):
         self.list.orderChanged.connect(self.reordered);self.list.itemDoubleClicked.connect(self.detail);body.addWidget(self.list,1)
         self.list.removeRequested.connect(lambda ids:self.remove(ids[0]) if ids else None)
         self.list.setToolTip('拖曳調整順序；雙擊查看內容；右鍵處理此項')
-        self.empty=label('執行後，等待項目會顯示在這裡。','Subtle',True);self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty=label('沒有等待執行的任務','Subtle',True);self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setMinimumHeight(56);body.addWidget(self.empty,1)
         self.pause_button=button('暫停',self.toggle_pause)
         self.more=button('',self.more_actions,'Quiet')
@@ -180,7 +180,7 @@ class SchedulePanel(QFrame):
             entry.setToolTip('雙擊查看內容；右鍵處理此項');entry.setFlags(entry.flags() | Qt.ItemFlag.ItemIsDragEnabled if item['status']=='waiting' else entry.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
             if source:entry.setIcon(QIcon(str(self.canvas.window.store.directory/source['relative'])))
         self.list.blockSignals(False);self.rows=rows
-        mode='Stage 組合' if value.get('mode')=='stage' else '資料輸入'
+        mode='Stage 組合' if value.get('mode')=='stage' else ''
         paused=self.runner.store.scheduler_paused(self.canvas.window.state['workspace'],self.key)
         self.pause_button.setText('繼續' if paused else '暫停')
         self.pause_button.setToolTip('繼續處理等待項目' if paused else '暫停此預排程')
@@ -188,9 +188,10 @@ class SchedulePanel(QFrame):
         counts={}
         for item in rows:
             status=self.runner.entry_status(item);counts[status]=counts.get(status,0)+1
-        status=' · '.join(str(count)+' 項'+NAMES.get(status,status) for status,count in counts.items()) or '尚無等待項目'
-        if paused:status='已暫停 · '+status
-        self.summary.setText(mode+' · '+status)
+        status=' · '.join(str(count)+' 項'+NAMES.get(status,status) for status,count in counts.items())
+        if paused:status=' · '.join(filter(None,('已暫停',status)))
+        summary=' · '.join(filter(None,(mode,status)))
+        self.summary.setText(summary);self.summary.setVisible(bool(summary))
         self.summary.setToolTip(self.runner.progress()+'\n'+self.runner.expansion(self.key,len(rows) or self.canvas.window.state['settings'].get('comfy_count',1)))
 
     def reordered(self):
