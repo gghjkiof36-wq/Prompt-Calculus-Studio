@@ -40,7 +40,9 @@ def setup_action(canvas,action,kind,key,*,emphasize_pending=False):
     from .canvas_items import canvas_colors
     from .ui_icons import icon
     colors=canvas_colors(canvas)
-    action.setIcon(icon(action.property('iconName') or 'workflow',colors['on_accent' if highlighted else 'text']))
+    from .module_chrome import style_action
+    style_action(action,colors,pending=required)
+    action.setIcon(icon(action.property('iconName') or 'workflow',colors['text']))
     return required
 
 

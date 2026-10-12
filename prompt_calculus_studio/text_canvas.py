@@ -23,7 +23,7 @@ class NodeDialog(StudioDialog):
         self.name = QLineEdit(value['name']); form.addRow('名稱', self.name)
         self.prompt = QPlainTextEdit(value['prompt']); self.prompt.setPlaceholderText('可留空作為群組，再加入子模組。')
         self.body.addWidget(self.prompt, 1)
-        self.weight = QDoubleSpinBox(); self.weight.setRange(0, 100); self.weight.setDecimals(1); self.weight.setSingleStep(.1)
+        self.weight = QDoubleSpinBox(); self.weight.setRange(-100, 100); self.weight.setDecimals(1); self.weight.setSingleStep(.1)
         self.weight.setValue(value['weight'] / 10); form.addRow('整組權重', self.weight)
         self.enabled = QCheckBox('啟用'); self.enabled.setChecked(value['enabled']); form.addRow(self.enabled)
         self.excludes = QPlainTextEdit('\n'.join(value['excludes'])); self.excludes.setMaximumHeight(75)
@@ -465,7 +465,7 @@ class TextCanvas(QWidget):
             ident, root, part = self.selected_node(state,key)
             legacy = root is part and ident not in state.get('uses',{})
             weight = state.get('weights',{}).get(ident,10) if legacy else part['weight']
-            weight = max(0,min(1000, value if value is not None else weight+delta))
+            weight = max(-1000,min(1000, value if value is not None else weight+delta))
             if legacy: state.setdefault('weights',{})[ident] = weight
             else: part['weight'] = weight
         self.commit(apply)
@@ -474,23 +474,31 @@ class TextCanvas(QWidget):
         ident, root, part = self.selected_node(copy.deepcopy(self.window.state),key)
         weight = self.window.state.get('weights',{}).get(ident,10) if root is part and ident not in self.window.state.get('uses',{}) else part['weight']
         dialog=StudioDialog(self.window); dialog.setWindowTitle('調整權重'); dialog.resize(380,220)
-        field=QDoubleSpinBox(); field.setRange(0,100); field.setDecimals(1); field.setSingleStep(.1); field.setValue(weight/10)
+        field=QDoubleSpinBox(); field.setRange(-100,100); field.setDecimals(1); field.setSingleStep(.1); field.setValue(weight/10)
         dialog.body.addWidget(label(part['name'],'Heading')); dialog.body.addWidget(field)
         dialog.body.addWidget(dialog_buttons(dialog,dialog.accept)); field.setFocus(); field.selectAll()
         if dialog.exec()==QDialog.DialogCode.Accepted: self.change_weight(key,value=round(field.value()*10))
 
     def resize_card(self,key,width,height,position=None):
         def apply(s):
+            if key in s.get('multi_output',{}).get('canvases',{}):
+                minimum=self.minimum_canvas(key)
+                s['multi_output']['canvases'][key]['display_size']=[max(minimum[0],min(10000,width)),max(minimum[1],min(10000,height))]
+                return
             s.setdefault('text_sizes',{})[key]=[min(10000,width),min(10000,height)]
             if position is not None: s.setdefault('text_positions',{})[key]=position
         self.commit(apply)
 
     def size_dialog(self,key):
-        card = getattr(self,'outputs',{}).get(key) or getattr(self,'clips',{}).get(key) or (getattr(self,'order_card',None) if key=='__workflow_order__' else self.output if key=='__text_output__' else self.preview_card if key=='__result_preview__' else self.functions.cards.get(key) or self.cards.get(key))
+        card = getattr(self,'outputs',{}).get(key) or getattr(self,'clips',{}).get(key) or getattr(self,'flow_cards',{}).get(key) or (getattr(self,'order_card',None) if key=='__workflow_order__' else self.output if key=='__text_output__' else self.preview_card if key=='__result_preview__' else self.functions.cards.get(key) or self.cards.get(key))
+        card=card or getattr(self,'containers',{}).get(key)
         if card is None: return
         dialog = StudioDialog(self.window); dialog.setWindowTitle('調整模組尺寸')
         form=QFormLayout(); dialog.body.addLayout(form); fields=[]
-        for title,current in [('寬度',card.width),('高度',card.height)]:
+        from .module_chrome import module_value
+        size=module_value(self,key).get('display_size') if key in getattr(self,'containers',{}) else getattr(card,'requested_size',None) if card.collapsed else None
+        size=size or (card.width,card.height)
+        for title,current in zip(('寬度','高度'),size):
             field=QDoubleSpinBox(); field.setDecimals(0); field.setRange(100,10000); field.setValue(current)
             form.addRow(title,field); fields.append(field)
         dialog.body.addWidget(label('尺寸至少容納模組內容；也可拖曳四角調整。','Subtle',True))
@@ -498,6 +506,7 @@ class TextCanvas(QWidget):
         if dialog.exec()==QDialog.DialogCode.Accepted: self.resize_card(key,*(f.value() for f in fields))
 
     def reset_size(self,key):
+        if key in getattr(self,'containers',{}):return self.resize_card(key,760,620)
         self.commit(lambda s:s.get('text_sizes',{}).pop(key,None))
 
     def append_value(self, value, position=None):

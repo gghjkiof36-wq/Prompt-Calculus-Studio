@@ -130,7 +130,8 @@ class OutputPanel(QFrame):
         manual=output['draft'] is not None
         self.source_count.setText('文字來源'+(' · '+str(len(members)) if members else ''))
         self.order.setEnabled(not manual); self.clear.setEnabled(manual)
-        self.draft_status.setText('正在使用手動版本' if manual else '自動文字' if cid else '缺少來源畫布')
+        self.draft_status.setText('正在使用手動版本' if manual else '' if cid else '缺少來源畫布')
+        self.draft_status.setVisible(bool(self.draft_status.text()))
         self.conflicts.setText('；'.join(', '.join(v['tags'])+' ← '+', '.join(v['by']) for v in affected.values())); self.conflicts.setVisible(bool(affected))
         self.apply_preview_visibility()
         self.updating=False
@@ -151,7 +152,7 @@ class OutputCard(TextCard):
         self.proxy.setGeometry(QRectF(14,top,max(350,minimum.width(),width-28),max(210,minimum.height(),height-top-14))); self.sync_bounds()
     def update_text(self):
         self.title=self.canvas.data()['outputs'][self.key]['name']; self.panel.refresh(); super().update_text()
-    def contextMenuEvent(self,event): self.canvas.output_menu(self.key,event.screenPos()); event.accept()
+    def open_menu(self,position): self.canvas.output_menu(self.key,position)
     def detach(self): pass
 
 
@@ -222,23 +223,24 @@ class FlowFunctions(CanvasFunctions):
         for title,action in self.insertion_actions(position): menu.addAction(title,action)
         return menu
     def insertion_actions(self,position=None):
-        return [('畫布',lambda:self.canvas.add_canvas(position)),
-                ('Prompt 控制',lambda:self.canvas.add_output(position)),
-                ('CLIP 輸入',lambda:self.canvas.add_clip(position)),
-                ('圖片來源',lambda:self.add_image(position=position)),
-                ('加載圖片（單張）',lambda:self.add_image(position=position,enhanced=False)),
-                ('讀取文字',lambda:self.add_text_reader(position)),
-                ('ComfyUI 圖片輸入',lambda:self.canvas.add_flow_node('image_inputs',position)),
-                ('預排程',lambda:self.canvas.add_flow_node('schedulers',position)),
-                ('Stage／執行階段',lambda:self.canvas.add_flow_node('stages',position)),
-                ('依現有綁定補建 Stage',self.canvas.migrate_stages),
-                ('預覽圖片',self.show_preview)]
+        from .function_picker import FUNCTIONS
+        actions=self.insertion_callbacks(position)
+        return [(title,actions[key]) for key,title,*_ in FUNCTIONS]+[('依現有綁定補建 Stage',self.canvas.migrate_stages)]
+    def insertion_callbacks(self,position=None):
+        return dict(canvas=lambda:self.canvas.add_canvas(position),output=lambda:self.canvas.add_output(position),
+                    clip=lambda:self.canvas.add_clip(position),reader=lambda:self.add_text_reader(position),
+                    source=lambda:self.add_image(position=position),single=lambda:self.add_image(position=position,enhanced=False),
+                    **{'image-input':lambda:self.canvas.add_flow_node('image_inputs',position)},
+                    schedule=lambda:self.canvas.add_flow_node('schedulers',position),
+                    stage=lambda:self.canvas.add_flow_node('stages',position),preview=self.show_preview)
     def add_text_reader(self,position=None):
         from .result_data import add_text_reader
         position=position or self.canvas.view.mapToScene(self.canvas.view.viewport().rect().center())
         self.canvas.commit(lambda s:add_text_reader(s,(position.x(),position.y())))
     def context(self,key,position):
         menu=RoundMenu(self.window)
+        menu.addAction('調整模組尺寸…',lambda:self.canvas.size_dialog(key))
+        menu.addAction('恢復自動尺寸',lambda:self.canvas.reset_size(key))
         if key in self.cards:
             if hasattr(self.cards[key].panel,'choose_file'):menu.addAction('選擇圖片…',self.cards[key].panel.choose_file)
             if self.data()['images'][key].get('reader')!='text':
@@ -399,6 +401,7 @@ class MultiCanvas(TextCanvas):
         for card in self.outputs.values(): card.update_text()
         for card in self.clips.values(): card.update_text()
         for card in self.flow_cards.values():card.update_text()
+        for card in self.functions.cards.values():card.update_text()
         if self.order_card: self.order_card.update_text()
         if self.preview_card: self.preview_card.update_text()
         preview_links=tuple(sorted(model.connected_outputs(self.window.state,'preview')))
@@ -409,6 +412,10 @@ class MultiCanvas(TextCanvas):
     def refresh_layout(self):
         self.prune_cards()
         if self.isVisible():super().refresh_layout()
+        for container in self.containers.values():container.refresh()
+        for card in [*self.outputs.values(),*self.clips.values(),*self.flow_cards.values(),*self.functions.cards.values(),self.preview_card,self.order_card]:
+            if card is not None:card.sync_bounds()
+        self.update_lines()
     def refresh(self):
         if not hasattr(self,'outputs') or self.refreshing: return
         if hasattr(self,'onboarding'):self.onboarding.refresh()
@@ -554,6 +561,9 @@ class MultiCanvas(TextCanvas):
             if self.data()['version']>=5:y=58+port.index*24
             if port.key in self.data().get('stages',{}) or port.key in self.clips:y+=24
             port.setPos(parent.width if port.output else 0,y)
+        for card in [*self.outputs.values(),*self.clips.values(),*self.flow_cards.values(),*self.functions.cards.values(),self.preview_card,self.order_card]:
+            if card is not None and card.collapsed:
+                card.prepareGeometryChange();card.apply_fold();card.update()
         for line in self.lines.values():
             line.setVisible(not self.window.state['settings'].get('hide_connections',False))
             value=line.value; source=self.line_port(value,True); dest=self.line_port(value,False)
@@ -580,9 +590,8 @@ class MultiCanvas(TextCanvas):
         finally: self.insertion_canvas=None
 
     def function_palette(self,position=None):
-        menu=RoundMenu(self.window)
-        for title,callback in self.functions.insertion_actions(position):menu.addAction(title,callback)
-        menu.open_at(self.view.viewport().mapToGlobal(self.view.mapFromScene(position)) if position is not None else self.view.viewport().mapToGlobal(self.view.viewport().rect().center()))
+        from .function_picker import FunctionPicker
+        return FunctionPicker(self,position).exec()
 
     def quick_text(self,key,position):
         previous=(self.root_id,list(self.path),self.insertion_canvas)
@@ -743,10 +752,12 @@ class MultiCanvas(TextCanvas):
         self.commit(apply); return created[0] if created else None
     def clip_menu(self,key,position):
         menu=RoundMenu(self.window); menu.addAction('綁定工作流文字欄',lambda:self.bind_dialog(key))
+        menu.addAction('調整模組尺寸…',lambda:self.size_dialog(key));menu.addAction('恢復自動尺寸',lambda:self.reset_size(key))
         menu.addAction('重新命名',lambda:self.rename_function('clip_inputs',key))
         menu.addAction('移除 CLIP 輸入',lambda:self.commit(lambda s:clip_flow.remove(s,key))); menu.open_at(position)
     def container_menu(self,key,position):
         menu=RoundMenu(self.window); menu.addAction('展開文字畫布「'+self.data()['canvases'][key]['name']+'」',lambda:self.open_editor(key))
+        menu.addAction('調整模組尺寸…',lambda:self.size_dialog(key));menu.addAction('恢復自動尺寸',lambda:self.reset_size(key))
         menu.addAction('加入文字模組',lambda:self.window.show_materials(key))
         menu.addAction('畫布歷史',lambda:self.window.show_content_history(key))
         def rename():
@@ -761,6 +772,7 @@ class MultiCanvas(TextCanvas):
         self.commit(lambda s:model.connect(s,key,output,'text'))
     def output_menu(self,key,position):
         menu=RoundMenu(self.window)
+        menu.addAction('調整模組尺寸…',lambda:self.size_dialog(key));menu.addAction('恢復自動尺寸',lambda:self.reset_size(key))
         menu.addAction('重新命名',lambda:self.rename_function('outputs',key))
         menu.addAction('排列文字來源',lambda:self.order_sources(key))
         menu.addAction('新增 CLIP 輸入並連接',lambda:self.add_clip(self.outputs[key].pos()+QPointF(self.outputs[key].width+90,0),key))

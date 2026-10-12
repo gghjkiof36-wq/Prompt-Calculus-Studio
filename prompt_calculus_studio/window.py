@@ -968,7 +968,7 @@ class Window(QMainWindow):
         if self.state['draft'] is not None:
             self.notice('正在使用手動版本；清除手動內容後才能調整權重。'); return
         weights=self.state.setdefault('weights',{})
-        weights[ident]=max(0,min(1000,weights.get(ident,10)+delta))
+        weights[ident]=max(-1000,min(1000,weights.get(ident,10)+delta))
         self.refresh_library(); self.refresh_builder(); self.changed()
 
     def toggle_item(self,widget):

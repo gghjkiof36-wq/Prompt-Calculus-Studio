@@ -101,12 +101,12 @@ def validate_state(state):
                 raise ValueError("單選模組不能保存多個選擇。")
     selections_valid(state.get("selections"))
     weights = state.get("weights", {})
-    if not isinstance(weights, dict) or any(not isinstance(k, str) or type(v) is not int or not 0 <= v <= 1000 for k, v in weights.items()):
+    if not isinstance(weights, dict) or any(not isinstance(k, str) or type(v) is not int or not -1000 <= v <= 1000 for k, v in weights.items()):
         raise ValueError("素材權重格式無效。")
     for w in state["workspaces"]:
         owners=w.get('canvas_owners',{})
         if not isinstance(owners,dict) or any(not isinstance(k,str) or (v is not None and not isinstance(v,str)) for k,v in owners.items()): raise ValueError('固定模組的畫布歸屬格式無效。')
-        if not isinstance(w.get('weights',{}),dict) or any(not isinstance(k,str) or type(v) is not int or not 0<=v<=1000 for k,v in w.get('weights',{}).items()):
+        if not isinstance(w.get('weights',{}),dict) or any(not isinstance(k,str) or type(v) is not int or not -1000<=v<=1000 for k,v in w.get('weights',{}).items()):
             raise ValueError('工作區權重格式無效。')
         if not isinstance(w.get("fixed"), list) or any(not isinstance(m,str) or m not in modules for m in w["fixed"]):
             raise ValueError("工作區固定模組無效。")

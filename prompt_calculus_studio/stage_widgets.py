@@ -45,6 +45,7 @@ class PendingList(OutputOrderList):
 
 class StageDialog(WorkflowBindingDialog):
     manual_choice=True
+    requires_target=False
     empty_choice='選擇工作流'
     def __init__(self,canvas,key):
         value=canvas.data()['stages'][key];self.image_binding=value if value.get('workflow') else None
@@ -83,12 +84,15 @@ class StagePanel(QFrame):
     def refresh(self):
         from .canvas_onboarding import setup_action
         selected=not setup_action(self.canvas,self.edit_button,'stages',self.key,emphasize_pending=True)
-        self.edit_button.setText('調整參數' if selected else '選擇工作流')
+        value=self.canvas.data()['stages'].get(self.key,{})
+        profile=next((p for p in self.canvas.window.state.get('generation',{}).get('profiles',[]) if p['id']==value.get('workflow')),None)
+        self.edit_button.setText(profile['name']+' · 參數' if selected and profile else '工作流已移除 · 重新選擇' if value.get('workflow') else '未設定 · 選擇工作流')
         runner=self.canvas.window.comfy.input_flow.chain
         error=next((a.get('error','') for a in reversed(runner.store.rows('attempt',self.canvas.window.state['workspace']))
                     if a.get('stage')==self.key and a['status'] in ('failed','unconfirmed','result_error')), '')
         latest=next((a for a in reversed(runner.store.rows('attempt',self.canvas.window.state['workspace'])) if a.get('stage')==self.key),None)
         if latest and latest['status'] not in ('failed','unconfirmed','result_error'):error=''
+        if value.get('workflow') and not profile:error=error or '工作流已移除，請重新選擇。'
         self.status.setText(error);self.status.setVisible(bool(error))
 
 

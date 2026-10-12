@@ -80,7 +80,7 @@ class ClipPanel(QFrame):
             self.binding.setText(profile['name']+' · #'+binding['node']+' / '+binding['field'])
             if (binding['node'],binding['field']) not in profile_text_fields(profile):error='綁定節點已移除，請重新選擇。'
         else:
-            self.binding.setText('綁定文字欄位')
+            self.binding.setText('未綁定 · 選擇節點')
             if binding:error='綁定的工作流已移除。'
         from .canvas_onboarding import setup_action,setup_badge
         pending=setup_action(self.canvas,self.binding,'clip_inputs',self.key)
@@ -101,21 +101,9 @@ class ClipCard(TextCard):
     def layout_card(self):
         width,height=self.requested_size; minimum=self.panel.minimumSizeHint()
         self.proxy.setGeometry(QRectF(14,110,max(290,minimum.width(),width-28),max(50,minimum.height(),height-124))); self.sync_bounds()
-    def paint(self,painter,option,widget=None):
-        super().paint(painter,option,widget)
-        from .canvas_items import canvas_colors
-        colors=canvas_colors(self.canvas);pending=self.panel.binding.property('setupPending')
-        painter.save()
-        if pending:
-            painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(QColor(colors['selected']))
-            painter.drawRoundedRect(QRectF(18,38,62,23),5,5)
-        font=painter.font();font.setPointSizeF(10);font.setBold(bool(pending));painter.setFont(font)
-        painter.setPen(QColor(colors['text' if pending else 'secondary']))
-        painter.drawText(QRectF(18,38,62,23),Qt.AlignmentFlag.AlignCenter,self.panel.setup_status.text())
-        painter.restore()
     def update_text(self):
         self.title=self.canvas.data()['clip_inputs'][self.key]['name']; self.panel.refresh(); super().update_text()
-    def contextMenuEvent(self,event): self.canvas.clip_menu(self.key,event.screenPos()); event.accept()
+    def open_menu(self,position): self.canvas.clip_menu(self.key,position)
     def detach(self): pass
 
 

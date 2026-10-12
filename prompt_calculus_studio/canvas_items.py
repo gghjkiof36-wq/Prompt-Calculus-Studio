@@ -18,7 +18,8 @@ def paint_module_surface(painter,outline,colors,header_bottom):
     """Paint only the module's visual layers, keeping its existing outline."""
     body=colors.get('canvas_body',colors['surface'])
     header=colors.get('canvas_header',body)
-    painter.save();painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(QColor(0,0,0,38));painter.drawPath(outline.translated(2,4));painter.restore()
+    from .module_chrome import paint_shadow
+    paint_shadow(painter,outline)
     fill=QColor(body);fill.setAlpha(colors.get('canvas_alpha',255))
     painter.setBrush(fill);painter.drawPath(outline)
     if header!=body:
@@ -44,6 +45,7 @@ class ResizableCard(QGraphicsObject):
     def resize_rect(self): return QRectF(self.width-22,self.height-22,22,22)
 
     def resize_corner(self,pos):
+        if getattr(self,'proxy',None) is not None and self.collapsed:return None
         for corner,x,y in [('tl',0,0),('tr',self.width-18,0),('bl',0,self.height-18),('br',self.width-22,self.height-22)]:
             if QRectF(x,y,22 if corner=='br' else 18,22 if corner=='br' else 18).contains(pos): return corner
 
@@ -96,8 +98,17 @@ class ResizableCard(QGraphicsObject):
         elif action==self.action_at(event.pos()):
             if action=='size': QTimer.singleShot(0,lambda:canvas.size_dialog(key))
             elif action=='add': QTimer.singleShot(0,lambda:canvas.palette(target=key))
-            elif action=='weight': QTimer.singleShot(0,lambda:canvas.weight_dialog(key))
-            elif action=='collapse':QTimer.singleShot(0,lambda:canvas.toggle_collapsed(key))
+            elif action=='weight':
+                from .canvas_weight import edit_weight
+                edit_weight(self)
+            elif action=='collapse':
+                if isinstance(self,NodeCard):QTimer.singleShot(0,lambda:canvas.toggle_collapsed(key))
+                else:
+                    from .module_chrome import toggle_module
+                    QTimer.singleShot(0,lambda:toggle_module(canvas,key))
+            elif action=='more':
+                position=event.screenPos()
+                QTimer.singleShot(0,lambda:self.open_menu(position))
             elif action in ('minus','plus'):
                 delta=-1 if action=='minus' else 1
                 QTimer.singleShot(0,lambda:canvas.change_weight(key,delta=delta))
@@ -105,19 +116,8 @@ class ResizableCard(QGraphicsObject):
 
     def draw_controls(self,painter):
         colors=canvas_colors(self.canvas)
-        painter.setPen(QPen(QColor(colors['accent'] if self.hot=='resize' else colors['line']),1.4))
-        for offset in (7,12):
-            painter.drawLine(QPointF(self.width-offset,self.height-5),QPointF(self.width-5,self.height-offset))
         for action,rect in self.actions().items():
-            if action=='collapse':
-                # The name owns this disclosure: keep the generous hit area,
-                # but draw only the same line icon used by native controls.
-                from .ui_icons import icon
-                painter.save();painter.setOpacity(painter.opacity()*(.65 if self.pressed==action else 1 if self.hot==action else .82))
-                painter.translate(rect.center())
-                if self.collapsed:painter.rotate(-90)
-                icon('chevron-down',colors['text']).paint(painter,QRect(-8,-8,16,16))
-                painter.restore();continue
+            if action in ('collapse','more'):continue
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(colors['selected'] if self.pressed==action else colors['hover'] if self.hot==action else colors['surface']))
             painter.drawRoundedRect(rect,7,7); painter.setPen(QColor(colors['text'] if self.hot==action else colors['secondary']))
@@ -222,10 +222,31 @@ class TextCard(ResizableCard):
     def sync_bounds(self):
         # Qt may enlarge the embedded panel after a deferred font/layout change.
         rect=self.proxy.geometry()
-        self.prepareGeometryChange(); self.width=rect.right()+14; self.height=rect.bottom()+14; self.update()
+        self.prepareGeometryChange(); self.width=rect.right()+14; self.height=rect.bottom()+14
+        self.apply_fold(); self.update()
         self.canvas.functions.layout()
 
-    def actions(self): return {'size':QRectF(self.width-46,7,30,28)}
+    @property
+    def collapsed(self):
+        from .module_chrome import module_value
+        return bool(module_value(self.canvas,self.key).get('collapsed',False))
+
+    def apply_fold(self):
+        self.fold_message=next((control.text() for name in ('status','error','conflicts')
+                                if (control:=getattr(self.panel,name,None)) is not None and control.text()),'')
+        if self.collapsed:
+            ports=[p for p in getattr(self.canvas,'ports',{}).values() if p.parentItem() is self]
+            self.height=max([66]+[p.y()+22 for p in ports])
+            if self.fold_message:self.height+=QFontMetricsF(self.canvas.font()).height()+18
+        self.proxy.setVisible(not self.collapsed)
+
+    def actions(self):
+        from .module_chrome import header_rects
+        font=self.canvas.font();font.setBold(True)
+        return header_rects(self.width,getattr(self,'title','Prompt 控制'),font)[2]
+
+    def open_menu(self,position):
+        self.canvas.tools_menu(position)
 
     def detach(self):
         if self.proxy.widget() is None: return
@@ -235,7 +256,9 @@ class TextCard(ResizableCard):
         self.panel.show()
         if self.saved_sizes: self.canvas.window.split.setSizes(self.saved_sizes)
 
-    def boundingRect(self): return QRectF(-1,-1,self.width+6,self.height+8)
+    def boundingRect(self):
+        from .module_chrome import visual_bounds
+        return visual_bounds(self.width,self.height)
     def shape(self):
         path=QPainterPath();path.addRoundedRect(QRectF(0,0,self.width,self.height),16,16);return path
 
@@ -246,17 +269,18 @@ class TextCard(ResizableCard):
         painter.setPen(QPen(QColor(colors['accent'] if selected else colors['line']),1.5 if selected else 1))
         if self.key in getattr(self.canvas,'active_keys',set()):painter.setPen(QPen(QColor(colors['info']),2.5))
         outline=QPainterPath(); outline.addRoundedRect(QRectF(0,0,self.width,self.height),16,16)
-        divider=66 if getattr(self,'kind',None)=='stages' or getattr(self,'header_detail',False) else 44
+        divider=44
         paint_module_surface(painter,self.canvas.functions.outline(self,outline),colors,divider)
-        from .ui_icons import icon
-        icon(getattr(self,'module_icon','canvas'),colors['secondary']).paint(painter,QRect(17,14,19,19))
-        painter.setPen(QColor(colors['text'])); font=self.canvas.font();font.setBold(True);painter.setFont(font)
-        title=getattr(self,'title','目前組合與最終 Prompt 輸出')
-        title=QFontMetricsF(font).elidedText(title,Qt.TextElideMode.ElideRight,int(self.width-104))
-        painter.drawText(QRectF(46,7,self.width-104,32),Qt.AlignmentFlag.AlignVCenter,title)
+        from .module_chrome import paint_header
+        paint_header(painter,self.width,getattr(self,'title','Prompt 控制'),self.canvas.font(),colors,
+                     self.collapsed,getattr(self,'module_icon','canvas'),self.hot)
         pen=QPen(QColor(colors['divider']),1);pen.setCosmetic(True);painter.setPen(pen)
         painter.drawLine(QPointF(16,divider),QPointF(self.width-16,divider))
         painter.setFont(self.canvas.font())
+        if self.collapsed and getattr(self,'fold_message',''):
+            painter.setPen(QColor(colors.get('danger',colors['text'])))
+            text=painter.fontMetrics().elidedText(self.fold_message,Qt.TextElideMode.ElideRight,int(self.width-28))
+            painter.drawText(QRectF(14,self.height-32,self.width-28,26),Qt.AlignmentFlag.AlignVCenter,text)
         self.draw_controls(painter)
 
     def update_text(self):
@@ -284,7 +308,7 @@ class TextCard(ResizableCard):
         if self.resizing or self.pressed: super().mouseMoveEvent(event); return
         super().mouseMoveEvent(event); self.canvas.functions.moving(self,event.scenePos())
 
-    def contextMenuEvent(self,event): self.canvas.tools_menu(event.screenPos()); event.accept()
+    def contextMenuEvent(self,event): self.open_menu(event.screenPos()); event.accept()
 
 
 class PreviewCard(TextCard):
@@ -307,7 +331,7 @@ class PreviewCard(TextCard):
         self.proxy.setGeometry(QRectF(14,top,max(340,minimum.width(),width-28),max(220,minimum.height(),height-top-14)))
         self.sync_bounds()
 
-    def contextMenuEvent(self,event): self.canvas.functions.context(self.key,event.screenPos()); event.accept()
+    def open_menu(self,position): self.canvas.functions.context(self.key,position)
 
 
 class NodeCard(ResizableCard):
@@ -339,42 +363,40 @@ class NodeCard(ResizableCard):
         self.width=max(320,requested_w,max((p.width+28 for p in self.parts),default=0),(self.drop_size[0]+28) if self.drop_size else 0)
         metrics=QFontMetricsF(self.canvas.font())
         self.text_height=math.ceil(metrics.boundingRect(QRectF(0,0,self.width-28,100000),Qt.TextFlag.TextWordWrap,self.own).height()) if self.own else 0
-        self.header_height=16+self.line*(1 if self.compact else 2)+(self.text_height+8 if self.own else 0)
+        status=[]
+        if '覆蓋' in self.subtitle or '未生效' in self.subtitle or self.subtitle=='未分配':status.append(self.subtitle)
+        if not self.value['enabled']:status.append('停用')
+        if comp.active_overlay(self.value):status.append('已覆蓋')
+        self.status=' · '.join(status)
+        self.body_top=44+(self.line if self.status else 0)
+        self.header_height=self.body_top+(self.text_height+8 if self.own else 0)
         y=self.header_height+8
         for child in self.parts: child.setPos(14,y); y+=child.height+10
         self.drop_y=y
         if self.drop_size: y+=self.drop_size[1]+12
         ident=self.canvas.entries[self.key][0]
-        self.height=y+18 if self.collapsed else max(requested_h,y+(44 if ident is not None else 24))
-        # A compact collapsed child still has a name row and a weight row.
-        # Reserve their separation so long names/disclosures and the add icon
-        # cannot overlap weight hit targets after the body disappears.
-        if self.compact:self.height=max(self.height,self.line+58)
-        self.add_rect=QRectF(12,self.height-42,self.width-44,28) if ident is not None else QRectF()
-        if self.compact: self.add_rect=QRectF(self.width-44,5,30,28)
-        weight_y=self.height-42 if self.compact else 6
-        self.weight_rect=QRectF(self.width-114,weight_y,50,28)
-        self.minus_rect=QRectF(self.width-146,weight_y,28,28)
-        self.plus_rect=QRectF(self.width-60,weight_y,28,28)
-        self.title_text=self.value['name']
-        if self.compact and (self.value['weight']!=10 or not self.value['enabled']):
-            self.title_text+=f" · {self.value['weight']/10:.1f}" if self.value['enabled'] else ' · 停用'
-        title_y=8 if self.compact else 10+self.line
-        title_right=self.add_rect.left()-8 if self.compact else self.width-14
-        title_width=max(0,title_right-14-(32 if ident is not None else 0))
-        self.title_text=metrics.elidedText(self.title_text,Qt.TextElideMode.ElideRight,title_width)
-        self.title_rect=QRectF(14,title_y,title_width,self.line)
-        self.collapse_rect=QRectF(20+metrics.horizontalAdvance(self.title_text),title_y+(self.line-26)/2,26,26)
+        self.height=y+(40 if ident is not None else 18) if self.collapsed else max(requested_h,y+(40 if ident is not None else 18))
+        weight_y=self.height-38
+        self.minus_rect=QRectF(14,weight_y,28,28)
+        self.weight_rect=QRectF(46,weight_y,70,28)
+        self.plus_rect=QRectF(120,weight_y,28,28)
+        self.add_rect=QRectF(160,weight_y,self.width-174,28) if ident is not None else QRectF()
+        from .module_chrome import header_rects
+        font=self.canvas.font();font.setBold(True)
+        self.title_text,self.title_rect,header=header_rects(self.width,self.value['name'],font,False)
+        self.collapse_rect=header['collapse'];self.more_rect=header['more']
         if propagate and self.parentItem(): self.parentItem().layout_card()
         self.update()
 
     def actions(self):
         if self.canvas.entries[self.key][0] is None: return {}
-        result=dict(minus=self.minus_rect,weight=self.weight_rect,plus=self.plus_rect,collapse=self.collapse_rect)
+        result=dict(minus=self.minus_rect,weight=self.weight_rect,plus=self.plus_rect,collapse=self.collapse_rect,more=self.more_rect)
         if not self.collapsed:result['add']=self.add_rect
         return result
 
-    def boundingRect(self): return QRectF(-1,-1,self.width+6,self.height+8)
+    def boundingRect(self):
+        from .module_chrome import visual_bounds
+        return visual_bounds(self.width,self.height)
     def shape(self):
         path=QPainterPath();path.addRoundedRect(QRectF(0,0,self.width,self.height),12,12);return path
     def selectionRect(self): return QRectF(0,0,self.width,self.header_height)
@@ -388,7 +410,8 @@ class NodeCard(ResizableCard):
         if self.key in getattr(self.canvas,'active_keys',set()):painter.setPen(QPen(QColor(colors['info']),2.5))
         painter.setBrush(QColor(colors['field'] if self.muted else colors['selected'] if self.isSelected() else colors['raised'] if self.parentItem() else colors.get('canvas_body',colors['surface'])))
         surface=QRectF(0,0,self.width,self.height)
-        painter.save();painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(QColor(0,0,0,38));painter.drawRoundedRect(surface.translated(2,4),12,12);painter.restore()
+        from .module_chrome import paint_shadow,paint_header
+        paint_shadow(painter,self.shape(),self.parentItem() is not None)
         painter.drawRoundedRect(surface,12,12); painter.setFont(self.canvas.font())
         if self.isSelected():
             painter.save();pen=QPen(QColor(colors['accent']),2);pen.setCosmetic(True);painter.setPen(pen);painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -399,18 +422,13 @@ class NodeCard(ResizableCard):
             painter.setPen(pen);painter.setBrush(Qt.BrushStyle.NoBrush);painter.drawRoundedRect(surface.adjusted(7,7,-7,-7),7,7);painter.restore()
         if self.muted: painter.setOpacity(.42)
         metrics=QFontMetricsF(painter.font()); available=self.width-28
-        painter.setPen(QColor(colors['secondary']))
-        status=self.subtitle+(' · 停用' if not self.value['enabled'] else '')
-        if comp.active_overlay(self.value): status+=' · 已覆蓋'
-
-        if not self.compact:
-            status_width=max(0,self.minus_rect.left()-22)
-            painter.drawText(QRectF(14,8,status_width,self.line),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(status,Qt.TextElideMode.ElideRight,status_width))
-        painter.setPen(QColor(colors['secondary'] if self.muted else colors['text']))
-        painter.drawText(self.title_rect,Qt.AlignmentFlag.AlignVCenter,self.title_text)
+        paint_header(painter,self.width,self.value['name'],self.canvas.font(),colors,self.collapsed,hot=self.hot)
+        if self.status:
+            painter.setPen(QColor(colors['secondary']))
+            painter.drawText(QRectF(14,42,available,self.line),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(self.status,Qt.TextElideMode.ElideRight,available))
         if self.own:
             painter.setPen(QColor(colors['secondary']))
-            painter.drawText(QRectF(14,16+self.line*(1 if self.compact else 2),available,self.text_height),Qt.TextFlag.TextWordWrap,self.own)
+            painter.drawText(QRectF(14,self.body_top,available,self.text_height),Qt.TextFlag.TextWordWrap,self.own)
         self.draw_controls(painter)
         if self.drop_size:
             painter.setOpacity(1); painter.setPen(QPen(QColor(colors['accent']),1,Qt.PenStyle.DashLine)); painter.setBrush(QColor(colors['selected']))
@@ -442,9 +460,12 @@ class NodeCard(ResizableCard):
         QTimer.singleShot(0,lambda:canvas.edit(key)); event.accept()
 
     def contextMenuEvent(self,event):
+        self.open_menu(event.screenPos());event.accept()
+
+    def open_menu(self,position):
         self.canvas.view.setFocus(); self.scene().clearFocus()
-        self.scene().clearSelection(); self.setSelected(True)
-        self.canvas.context(self.key,event.screenPos()); event.accept()
+        if not self.isSelected():self.scene().clearSelection();self.setSelected(True)
+        self.canvas.context(self.key,position)
 
 
 class CanvasView(QGraphicsView):

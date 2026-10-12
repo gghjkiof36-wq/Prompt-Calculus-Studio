@@ -23,7 +23,7 @@ class CanvasInteraction:
         if item is None:return True,None
         if isinstance(item,CanvasContainer):
             local=item.mapFromScene(self.view.mapToScene(point))
-            if local.y()>44 and not item.corner_at(local):return True,item.key
+            if not item.collapsed and local.y()>44 and not item.corner_at(local):return True,item.key
         return False,None
 
     def pointer(self,event):
@@ -60,8 +60,6 @@ class CanvasInteraction:
             local=card.mapFromScene(view.pointer_scene)
             action=getattr(card,'action_at',lambda p:None)(local)
             corner=getattr(card,'corner_at',lambda p:None)(local)
-            from .flow_items import CanvasContainer
-            if isinstance(card,CanvasContainer) and QRectF(card.width-178,6,158,36).contains(local):action='editor'
             if action or corner:return False
         if card is not None and ctrl:
             card.setSelected(not card.isSelected());view.setFocus();view.scene().clearFocus();event.accept();return True

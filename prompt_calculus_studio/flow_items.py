@@ -214,10 +214,29 @@ class CanvasContainer(QGraphicsObject):
     def refresh(self):
         value=self.canvas.data()['canvases'][self.key]; self.prepareGeometryChange()
         self.width,self.height=value['display_size']; self.setPos(*value['position'])
+        self.collapsed=value.get('collapsed',False)
+        if self.collapsed:
+            ports=[p for p in self.canvas.ports.values() if p.parentItem() is self]
+            self.height=max([132]+[p.y()+22 for p in ports])
+        for key in value['members']:
+            card=self.canvas.cards.get(key)
+            if card is not None:card.setVisible(not self.collapsed)
         self.setToolTip(''); self.update()
-    def boundingRect(self): return QRectF(-4,-4,self.width+8,self.height+8)
+    def boundingRect(self):
+        from .module_chrome import visual_bounds
+        return visual_bounds(self.width,self.height)
     def rect(self): return QRectF(0,0,self.width,self.height)
+    def shape(self):
+        path=QPainterPath();path.addRoundedRect(self.rect(),16,16);return path
+    def actions(self):
+        from .module_chrome import header_rects
+        font=self.canvas.font();font.setBold(True)
+        result=header_rects(self.width,self.canvas.data()['canvases'][self.key]['name'],font,extra=154)[2]
+        result['editor']=QRectF(self.width-206,7,150,30)
+        return result
+    def action_at(self,pos):return next((name for name,rect in self.actions().items() if rect.contains(pos)),None)
     def corner_at(self,pos):
+        if getattr(self,'collapsed',False):return None
         for name,point in [('tl',QPointF()),('tr',QPointF(self.width,0)),('bl',QPointF(0,self.height)),('br',QPointF(self.width,self.height))]:
             if abs(pos.x()-point.x())<17 and abs(pos.y()-point.y())<17: return name
     def hoverMoveEvent(self,event):
@@ -235,15 +254,14 @@ class CanvasContainer(QGraphicsObject):
                        canvas_header=mix(colors['canvas_header'],colors['base'],.66))
         paint_module_surface(painter,outline,container,44)
         value=self.canvas.data()['canvases'][self.key]
-        from .ui_icons import icon
-        icon('canvas',colors['secondary']).paint(painter,QRectF(18,14,19,19).toRect())
-        font=self.canvas.font();font.setBold(True);painter.setFont(font);painter.setPen(QColor(colors['text']))
-        title=painter.fontMetrics().elidedText(value['name'],Qt.TextElideMode.ElideRight,int(self.width-230))
-        painter.drawText(QRectF(47,9,self.width-230,30),Qt.AlignmentFlag.AlignVCenter,title)
-        painter.setFont(self.canvas.font());painter.setPen(QColor(colors['secondary'])); painter.drawText(QRectF(self.width-174,9,154,30),Qt.AlignmentFlag.AlignCenter,'展開文字畫布')
+        from .module_chrome import paint_header
+        paint_header(painter,self.width,value['name'],self.canvas.font(),colors,self.collapsed,'canvas',extra=154)
+        painter.setFont(self.canvas.font());painter.setPen(QColor(colors['secondary']))
+        painter.drawText(self.actions()['editor'],Qt.AlignmentFlag.AlignCenter,'展開文字畫布')
         pen=QPen(QColor(colors['divider']),1);pen.setCosmetic(True);painter.setPen(pen)
         painter.drawLine(QPointF(18,44),QPointF(self.width-18,44))
         preview=self.canvas.image_previews.get(self.key)
+        if self.collapsed:return
         if preview is not None:
             area=QRectF(20,124,self.width-40,self.height-144); size=preview.size(); size.scale(area.size().toSize(),Qt.AspectRatioMode.KeepAspectRatio)
             target=QRectF(QPointF(),size); target.moveCenter(area.center()); painter.drawImage(target,preview)
@@ -263,8 +281,14 @@ class CanvasContainer(QGraphicsObject):
                 painter.drawLine(QPointF(x+sx*6,y+sy*6),QPointF(x+sx*18,y+sy*6)); painter.drawLine(QPointF(x+sx*6,y+sy*6),QPointF(x+sx*6,y+sy*18))
     def mousePressEvent(self,event):
         if event.button()!=Qt.MouseButton.LeftButton: super().mousePressEvent(event); return
-        if QRectF(self.width-178,6,158,36).contains(event.pos()):
+        action=self.action_at(event.pos())
+        if action=='editor':
             QTimer.singleShot(0,lambda:self.canvas.open_editor(self.key)); event.accept(); return
+        if action=='collapse':
+            from .module_chrome import toggle_module
+            QTimer.singleShot(0,lambda:toggle_module(self.canvas,self.key));event.accept();return
+        if action=='more':
+            self.canvas.container_menu(self.key,event.screenPos());event.accept();return
         self.corner=self.corner_at(event.pos()); self.start=(QPointF(event.scenePos()),QPointF(self.pos()),self.width,self.height)
         self.card_starts={key:QPointF(self.canvas.cards[key].pos()) for key in self.canvas.data()['canvases'][self.key]['members'] if key in self.canvas.cards}
         self.setZValue(self.canvas.next_z()); super().mousePressEvent(event)
@@ -285,7 +309,7 @@ class CanvasContainer(QGraphicsObject):
     def mouseReleaseEvent(self,event):
         super().mouseReleaseEvent(event)
         if self.start is None: return
-        pos=[self.x(),self.y()]; size=[self.width,self.height]; key=self.key; canvas=self.canvas
+        pos=[self.x(),self.y()]; size=self.canvas.data()['canvases'][self.key]['display_size'] if self.collapsed else [self.width,self.height]; key=self.key; canvas=self.canvas
         moved={k:[c.x(),c.y()] for k,c in canvas.cards.items() if k in self.card_starts}
         self.start=None; self.corner=None
         def apply(s):

@@ -303,6 +303,12 @@ def validate_multi(state):
     from .composition import validate_node
     data=state['multi_output']
     if not isinstance(data,dict) or data.get('version') not in (1,2,3,4,5,6,7): raise ValueError('多畫布資料版本無效。')
+    for kind in ('canvases','outputs','clip_inputs','image_inputs','schedulers','stages'):
+        collection=data.get(kind,{})
+        if not isinstance(collection,dict):raise ValueError('模組資料格式無效。')
+        for module in collection.values():
+            if not isinstance(module,dict):raise ValueError('模組資料格式無效。')
+            if 'collapsed' in module and type(module['collapsed']) is not bool:raise ValueError('模組收合狀態無效。')
     if data['version']>=7:
         from .stage_model import validate as validate_stages
         validate_stages(state)

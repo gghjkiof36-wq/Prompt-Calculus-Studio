@@ -87,8 +87,11 @@ class SourcePanel(QFrame):
         self.result_node.refresh()
         value=self.owner.data()['images'][self.key]; source=self.owner.current_source(self.key); self.current=source
         binding=value.get('binding'); profile=next((p for p in self.owner.window.state.get('generation',{}).get('profiles',[]) if binding and p['id']==binding['workflow']),None)
-        text=(profile['name'] if profile else '工作流已移除')+' · #'+binding['node'] if binding else '選擇工作流與圖片節點'
+        text=(profile['name'] if profile else '工作流已移除 · 重新選擇')+' · #'+binding['node'] if binding else '未綁定 · 選擇節點'
         self.binding.setText(text[:42]+('…' if len(text)>42 else '')); self.binding.setToolTip(text)
+        from .module_chrome import style_action
+        from .canvas_items import canvas_colors
+        style_action(self.binding,canvas_colors(self.owner.canvas),pending=not binding or not profile)
         advanced=self.owner.window.state.get('multi_output',{}).get('version',1)>=4
         enhanced=value.get('enhanced',False)
         self.source_controls.setVisible(enhanced)
@@ -128,10 +131,11 @@ class SourceCard(TextCard):
         return (360,440 if value.get('show_image',True) else 230)
     def __init__(self,owner,key):
         super().__init__(owner.canvas); self.owner=owner; self.key=key; self.title='加載圖片'
+        self.module_icon='media'
         if owner.data()['images'][key].get('enhanced'):self.title='圖片來源'
         if owner.data()['images'][key].get('reader')=='text':
             from .result_widgets import TextResultPanel
-            self.title='讀取文字';self.panel=TextResultPanel(owner,key)
+            self.title='讀取文字';self.module_icon='list';self.panel=TextResultPanel(owner,key)
         else:self.panel=SourcePanel(owner,key)
         self.setToolTip('')
     def attach(self):
@@ -148,8 +152,7 @@ class SourceCard(TextCard):
         shown=self.owner.data()['images'][self.key].get('show_image',True)
         self.proxy.setGeometry(QRectF(14,top,max(280,minimum.width(),width-28),max(230 if shown else 100,minimum.height(),height-top-14)))
         self.sync_bounds()
-    def contextMenuEvent(self,event): self.owner.context(self.key,event.screenPos()); event.accept()
-    def boundingRect(self): return QRectF(0,0,self.width+14,self.height)
+    def open_menu(self,position): self.owner.context(self.key,position)
 
 
 class CanvasFunctions:

@@ -328,10 +328,13 @@ def validate_canvas_functions(value):
     if not isinstance(value,dict) or not isinstance(value.get('images'),dict) or len(value['images'])>100:
         raise ValueError('圖片模組資料無效。')
     if any(type(value.get(key,False)) is not bool for key in ('preview','preview_attached')): raise ValueError('圖片模組狀態無效。')
+    display=value.get('preview_display',{})
+    if not isinstance(display,dict) or type(display.get('collapsed',False)) is not bool:raise ValueError('圖片預覽收合狀態無效。')
     attached=0
     for key,item in value['images'].items():
         if not isinstance(key,str) or not key.startswith('__source_') or not isinstance(item,dict) or type(item.get('attached')) is not bool:
             raise ValueError('圖片模組格式無效。')
+        if type(item.get('collapsed',False)) is not bool:raise ValueError('圖片模組收合狀態無效。')
         validate_generation(dict(mode='img2img',profiles=[],chosen={},source=item.get('source')))
         if item.get('reader') not in (None,'text'):raise ValueError('讀取模塊類型無效。')
         if item.get('output_node') is not None and not isinstance(item['output_node'],str):raise ValueError('圖片結果節點無效。')

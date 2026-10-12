@@ -126,12 +126,14 @@ class WorkflowOrderCard(TextCard):
         plan=definition(self.canvas.window.state) or {};top=90+24*len(plan.get('stages',[]))
         self.proxy.setGeometry(QRectF(14,top,max(290,minimum.width(),width-28),max(190,minimum.height(),height-top-14))); self.sync_bounds()
     def update_text(self): self.panel.refresh(); super().update_text()
-    def contextMenuEvent(self,event):
+    def open_menu(self,position):
         menu=RoundMenu(self.canvas.window)
+        menu.addAction('調整模組尺寸…',lambda:self.canvas.size_dialog(self.key))
+        menu.addAction('恢復自動尺寸',lambda:self.canvas.reset_size(self.key))
         def remove():
             runner=self.canvas.window.comfy.input_flow.chain;run=runner.current()
             if run:runner.pause(run['id'],'串接模塊已隱藏，後續暫停，紀錄保留。')
             self.canvas.commit(lambda s:s['multi_output']['workflow_order'].update(visible=False))
         menu.addAction('隱藏串接模塊',remove)
-        menu.open_at(event.screenPos()); event.accept()
+        menu.open_at(position)
     def detach(self): pass

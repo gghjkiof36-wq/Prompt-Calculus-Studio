@@ -50,8 +50,8 @@ def validate_node(root):
             raise ValueError('複合模組文字或啟用狀態無效。')
         from .materials import validate_fields
         validate_fields(value)
-        if type(value.get('weight')) is not int or not 0 <= value['weight'] <= 1000:
-            raise ValueError('子項權重須介於 0.0–100.0。')
+        if type(value.get('weight')) is not int or not -1000 <= value['weight'] <= 1000:
+            raise ValueError('子項權重須介於 -100.0–100.0。')
         if type(value.get('grouped', False)) is not bool:
             raise ValueError('模組分組格式無效。')
         if not isinstance(value.get('excludes'), list) or any(not isinstance(t, str) or not t.strip() for t in value['excludes']):

@@ -16,6 +16,11 @@ def layout_only(before,after):
         value=copy.deepcopy(value)
         for key in ('text_positions','text_sizes'):value.pop(key,None)
         multi=value.get('multi_output',{})
+        for kind in ('canvases','outputs','clip_inputs','image_inputs','schedulers','stages'):
+            for module in multi.get(kind,{}).values():module.pop('collapsed',None)
+        for image in value.get('canvas_functions',{}).get('images',{}).values():image.pop('collapsed',None)
+        value.get('canvas_functions',{}).pop('preview_display',None)
+        multi.get('workflow_order',{}).pop('collapsed',None)
         for canvas in multi.get('canvases',{}).values():
             for key in ('position','display_size','edit_view'):canvas.pop(key,None)
         for output in multi.get('outputs',{}).values():

@@ -2,12 +2,15 @@
 import copy
 from shiboken6 import isValid
 from pathlib import PurePosixPath
+from PySide6.QtWidgets import QDialogButtonBox
 from .generation import options
 from .widgets import StudioDialog,ComboBox,label,button,row,dialog_buttons
 
 
 class WorkflowBindingDialog(StudioDialog):
     manual_choice=False
+    requires_target=True
+    empty_target_allowed=True
     empty_choice='不綁定 · 手動圖片'
 
     def __init__(self,canvas,key):
@@ -21,6 +24,7 @@ class WorkflowBindingDialog(StudioDialog):
         self.connection=(self.catalog.client.url,self.catalog.client.epoch)
         self.workflow=ComboBox(); self.workflow.setMinimumWidth(400)
         self.target=ComboBox(); self.target.setMinimumWidth(400)
+        self.resize(590,360)
         self.body.addLayout(row(label('工作流','Subtle'),None,button('重新整理',self.reload_workflows,'Quiet')))
         self.body.addWidget(self.workflow)
         self.nodes_label=label('可寫入的文字欄位','Subtle'); self.body.addWidget(self.nodes_label); self.body.addWidget(self.target)
@@ -31,7 +35,18 @@ class WorkflowBindingDialog(StudioDialog):
         self.initial=existing['workflow'] if existing else selected
         if self.manual_choice:self.initial=self.image_binding['workflow'] if self.image_binding else None
         self.workflow.currentIndexChanged.connect(self.read_current)
-        self.body.addWidget(dialog_buttons(self,self.accept))
+        self.buttons=dialog_buttons(self,self.accept)
+        self.save_button=self.buttons.button(QDialogButtonBox.StandardButton.Save)
+        from .module_chrome import style_action
+        from .canvas_items import canvas_colors
+        colors=canvas_colors(canvas)
+        style_action(self.save_button,colors,primary=True)
+        style_action(self.buttons.button(QDialogButtonBox.StandardButton.Cancel),colors)
+        for control in self.findChildren(type(self.save_button)):
+            control.setAutoDefault(False)
+        self.save_button.setDefault(True)
+        self.body.addWidget(self.buttons)
+        self.target.currentIndexChanged.connect(self.update_submit)
         self.catalog.changed.connect(self.refresh_workflows); self.finished.connect(self.finish_requests)
         self.refresh_workflows()
         if not self.catalog.loaded and not self.catalog.busy:self.catalog.refresh()
@@ -52,7 +67,7 @@ class WorkflowBindingDialog(StudioDialog):
         if self.catalog.busy:
             # refresh() emits both its starting and finished state. Only the
             # completed list can initiate a new native read/navigation.
-            self.loading=True;self.target.setEnabled(False);return
+            self.loading=True;self.target.setEnabled(False);self.update_submit();return
         selected=self.workflow.currentData() if self.workflow.count() else self.initial
         self.remote_entries={}
         for path in self.catalog.files:
@@ -82,9 +97,10 @@ class WorkflowBindingDialog(StudioDialog):
         # Adding another CLIP must preserve an already linked workflow's local
         # parameter overrides. Re-reading that graph is an explicit refresh.
         cached=not self.force_read and key in self.originals
-        if not entry or key in self.staged or cached:self.refresh_targets();self.show_read_source(key);return
+        if not entry or key in self.staged or cached:self.refresh_targets();self.update_submit();self.show_read_source(key);return
         self.loading=True; self.target.clear(); self.target.setEnabled(False)
         self.hint.setText('讀取工作流節點…'); self.hint.show()
+        self.update_submit()
         client=self.catalog.client; context=(client.url,client.epoch)
         def valid():
             if not isValid(self) or not isValid(self.canvas.window):return False
@@ -92,22 +108,36 @@ class WorkflowBindingDialog(StudioDialog):
             return not self.closed and serial==self.serial and context==(client.url,client.epoch) and self.owner==(w.store,w.state['workspace'])
         def failed(error):
             if not valid():return
-            self.loading=False; self.hint.setText('無法讀取工作流：'+str(error)); self.hint.show()
+            self.loading=False; self.hint.setText('無法讀取工作流：'+str(error)); self.hint.show();self.update_submit()
         def received(value,source='已儲存版本'):
             if not valid():return
             try:
                 from .workflow_import import read_profile
                 profile=read_profile(value,entry['name'],key,entry['origin'])
             except (ValueError,KeyError,TypeError) as exc:failed(exc);return
-            self.staged[key]=profile; self.read_sources[key]=source; self.loading=False; self.refresh_targets()
+            self.staged[key]=profile; self.read_sources[key]=source; self.loading=False; self.refresh_targets();self.update_submit()
             # Only the saved fallback needs an extra label; ordinary live
             # operation remains visually quiet.
             self.show_read_source(key)
         self.catalog.read_draft(entry['path'],self.originals.get(key),received,failed)
 
+    def can_submit(self):
+        if self.loading:return False
+        if self.workflow.currentData() is None:return self.manual_choice and not self.requires_workflow()
+        if not self.profile() or not self.target.isEnabled():return False
+        if not self.requires_target:return True
+        if not any(self.target.itemData(i) is not None and self.target.model().item(i).isEnabled()
+                   for i in range(self.target.count())):return False
+        selected=self.target.model().item(self.target.currentIndex())
+        return bool(selected and selected.isEnabled() and (self.empty_target_allowed or self.target.currentData() is not None))
+
+    def requires_workflow(self):return not self.requires_target
+
+    def update_submit(self,*_):
+        if hasattr(self,'save_button'):self.save_button.setEnabled(self.can_submit())
+
     def accept(self):
-        if self.loading or (self.workflow.currentData() is not None and not self.target.isEnabled()):return
-        if not self.profile() and not self.manual_choice:return
+        if not self.can_submit():return
         super().accept()
 
     def binding_profile(self):
