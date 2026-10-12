@@ -55,7 +55,7 @@ class OutputSources(QTreeWidget):
             for key,name,kind,children in rows:
                 parent=QTreeWidgetItem([name]);parent.setData(0,ROLE,('source',key))
                 parent.setData(0,DETAIL_ROLE,str(len(children))+' 項' if key in canvases else kind)
-                parent.setIcon(0,icon('list-ordered',colors['text'],16));parent.setBackground(0,QBrush(QColor(colors['surface'])))
+                parent.setIcon(0,icon('arrow-down-up',colors['text'],16));parent.setBackground(0,QBrush(QColor(colors['surface'])))
                 parent.setSizeHint(0,QSize(0,max(40,self.fontMetrics().height()+20)))
                 parent.setToolTip(0,'拖曳調整來源順序；點擊展開或收合' if children else name)
                 self.addTopLevelItem(parent)

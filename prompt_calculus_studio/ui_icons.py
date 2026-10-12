@@ -23,7 +23,7 @@ ICON_NAMES = frozenset({
     'package','download','check','clock','info','close','play','pause','stop','lock','pin','menu',
     'workflow','history','external-link','alert','server','check-circle',
     'folder','plus','minus','copy','trash','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal',
-    'panel-left','type','file-text','list-ordered','image-single','scan-eye','link-2','maximize','grip-vertical',
+    'panel-left','type','file-text','list-ordered','arrow-down-up','image-single','scan-eye','link-2','maximize','grip-vertical',
 })
 _STYLE_RESOURCES = {}
 
@@ -99,6 +99,9 @@ def _draw(painter, name):
         poly((3,3),(4,2),(4,7));line(2.5,7,5.5,7)
         poly((2,12),(5,12),(5,14),(2,17),(5,17))
         for y in (4,12,20):line(10,y,21,y)
+    elif name == 'arrow-down-up':
+        line(8,4,8,20);poly((4,8),(8,4),(12,8))
+        line(16,4,16,20);poly((12,16),(16,20),(20,16))
     elif name == 'link-2':
         painter.drawArc(QRectF(2,7,12,10),90*16,180*16)
         painter.drawArc(QRectF(10,7,12,10),-90*16,180*16);line(8,12,16,12)
