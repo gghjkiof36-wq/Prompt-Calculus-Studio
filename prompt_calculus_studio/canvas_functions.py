@@ -140,7 +140,7 @@ class SourceCard(TextCard):
         self.setToolTip('')
     def attach(self):
         if self.proxy.widget() is not self.panel: self.proxy.setWidget(self.panel)
-        self.panel.setStyleSheet(self.canvas.window.styleSheet()); self.panel.ensurePolished()
+        self.sync_panel_style(); self.panel.ensurePolished()
         self.panel.refresh(); self.panel.layout().activate()
         self.restore_size()
         self.layout_card(); self.panel.show()

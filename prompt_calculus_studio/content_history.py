@@ -78,16 +78,19 @@ def _operation_state(state):
     # Async execution state and generated images are never edits.
     fields = ('modules', 'items', 'uses', 'text_positions', 'text_sizes', 'selections', 'temporary',
               'output_order', 'instances', 'weights', 'draft', 'draft_base', 'view_drafts')
-    value = {key: copy.deepcopy(state[key]) for key in fields if key in state}
+    # Only a transient equality projection. Preserve the snapshots and avoid
+    # copying every material/tree just to ignore a few runtime fields.
+    value = {key: state[key] for key in fields if key in state}
     multi = state.get('multi_output', {})
-    value['multi_output'] = {key: copy.deepcopy(multi[key]) for key in
+    value['multi_output'] = {key: multi[key] for key in
                             ('canvases', 'outputs', 'clip_inputs', 'connections', 'stages', 'schedulers') if key in multi}
-    for source in value.get('items', []):
-        source.pop('last_used', None)
+    if 'items' in value:
+        value['items'] = [{key:field for key,field in source.items() if key != 'last_used'} for source in value['items']]
+    runtime = ('results', 'status', 'running', 'progress', 'error', 'current', 'active_job')
     for kind in ('stages', 'schedulers', 'outputs'):
-        for node in value['multi_output'].get(kind, {}).values():
-            for key in ('results', 'status', 'running', 'progress', 'error', 'current', 'active_job'):
-                node.pop(key, None)
+        if kind in value['multi_output']:
+            value['multi_output'][kind] = {ident:{key:field for key,field in node.items() if key not in runtime}
+                                          for ident,node in value['multi_output'][kind].items()}
     return value
 
 
@@ -110,9 +113,11 @@ def record(state, before, after, label='編輯', merge_key=None, coalesce=False)
         a, b = old.get((kind, target, scope)), new.get((kind, target, scope))
         if kind == 'canvas' and (a != b or before.get('text_positions', {}).get(target) != after.get('text_positions', {}).get(target)):
             canvas_ids.update(v for v in (old_owners.get(target), new_owners.get(target)) if v)
-        if _version_content(kind, a) != _version_content(kind, b):
+        if a == b: continue
+        old_content, new_content = _version_content(kind, a), _version_content(kind, b)
+        if old_content != new_content:
             changes.append(dict(kind=kind, target=target, before=copy.deepcopy(a), after=copy.deepcopy(b),
-                                before_hash=_digest(_version_content(kind, a)), after_hash=_digest(_version_content(kind, b)),
+                                before_hash=_digest(old_content), after_hash=_digest(new_content),
                                 before_owner=old_owners.get(target), after_owner=new_owners.get(target)))
             if kind == 'output':
                 changes[-1]['scope'] = scope

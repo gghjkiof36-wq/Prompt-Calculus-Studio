@@ -147,7 +147,7 @@ class OutputCard(TextCard):
         super().__init__(canvas); self.key=key; self.module_icon='list-ordered'; self.panel=OutputPanel(canvas,key); self.init_interaction()
     def attach(self):
         if self.proxy.widget() is not self.panel: self.proxy.setWidget(self.panel)
-        self.panel.setStyleSheet(self.canvas.window.styleSheet()); self.panel.ensurePolished()
+        self.sync_panel_style(); self.panel.ensurePolished()
         self.restore_size(); self.layout_card(); self.panel.show(); self.panel.restore_ratio(); self.panel.refresh()
     def layout_card(self):
         width,height=self.requested_size; minimum=self.panel.minimumSizeHint()

@@ -213,10 +213,16 @@ class TextCard(ResizableCard):
             window.builder_scroll.takeWidget()
             for effect in window.selection_effects: effect.setEnabled(False)
             self.panel.hide(); self.panel.setParent(None); self.proxy.setWidget(self.panel)
-        self.panel.setStyleSheet(window.styleSheet())
+        self.sync_panel_style()
         self.panel.ensurePolished(); self.panel.layout().activate()
         self.restore_size()
         self.layout_card(); self.panel.show()
+
+    def sync_panel_style(self):
+        # Reapplying identical QSS repolishes every embedded control and queues
+        # another layout pass. New panels and actual theme changes still apply.
+        style=self.canvas.window.styleSheet()
+        if self.panel.styleSheet()!=style:self.panel.setStyleSheet(style)
 
     def layout_card(self):
         minimum=self.panel.minimumSizeHint(); width,height=self.requested_size
@@ -326,7 +332,7 @@ class PreviewCard(TextCard):
 
     def attach(self):
         if self.proxy.widget() is not self.panel: self.proxy.setWidget(self.panel)
-        self.panel.setStyleSheet(self.canvas.window.styleSheet()); self.panel.ensurePolished(); self.panel.layout().activate()
+        self.sync_panel_style(); self.panel.ensurePolished(); self.panel.layout().activate()
         self.restore_size()
         self.layout_card(); self.panel.show()
 

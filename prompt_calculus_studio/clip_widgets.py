@@ -95,7 +95,7 @@ class ClipCard(TextCard):
         super().__init__(canvas); self.key=key; self.module_icon='type'; self.header_detail=True; self.panel=ClipPanel(canvas,key); self.init_interaction()
     def attach(self):
         if self.proxy.widget() is not self.panel: self.proxy.setWidget(self.panel)
-        self.panel.setStyleSheet(self.canvas.window.styleSheet()); self.panel.ensurePolished()
+        self.sync_panel_style(); self.panel.ensurePolished()
         self.restore_size()
         self.layout_card(); self.panel.show(); self.update_text()
     def layout_card(self):

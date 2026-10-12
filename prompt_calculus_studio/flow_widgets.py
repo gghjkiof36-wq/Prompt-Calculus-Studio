@@ -343,7 +343,7 @@ class FlowCard(TextCard):
         return self.canvas.flow_cards.get(self.key) is self and self.key in self.canvas.data().get(self.kind,{})
     def attach(self):
         if self.proxy.widget() is not self.panel:self.proxy.setWidget(self.panel)
-        self.title=self.canvas.data()[self.kind][self.key]['name'];self.panel.setStyleSheet(self.canvas.window.styleSheet())
+        self.title=self.canvas.data()[self.kind][self.key]['name'];self.sync_panel_style()
         self.panel.ensurePolished();self.restore_size();self.layout_card();self.panel.show();self.panel.refresh()
     def layout_card(self):
         top=82
