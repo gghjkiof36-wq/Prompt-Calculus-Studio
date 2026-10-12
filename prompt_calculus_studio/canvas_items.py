@@ -696,7 +696,13 @@ class CanvasView(QGraphicsView):
         key=(spacing,x0,y0,x1,y1)
         if getattr(self,'_grid_key',None)!=key:
             self._grid_key=key
-            self._grid_points=QPolygonF([QPointF(x,y) for x in range(x0,x1,spacing) for y in range(y0,y1,spacing)])
+            batches=getattr(self,'_grid_batches',{})
+            points=batches.pop(key,None)
+            if points is None:
+                points=QPolygonF([QPointF(x,y) for x in range(x0,x1,spacing) for y in range(y0,y1,spacing)])
+            batches[key]=points
+            if len(batches)>4:batches.pop(next(iter(batches)))
+            self._grid_batches=batches;self._grid_points=points
         painter.setClipRect(QRectF(xs.start-spacing/2,ys.start-spacing/2,len(xs)*spacing,len(ys)*spacing),Qt.ClipOperation.IntersectClip)
         painter.drawPoints(self._grid_points)
         painter.restore()

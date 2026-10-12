@@ -177,6 +177,11 @@ class CanvasRasterTests(unittest.TestCase):
                 points=view._grid_points
                 self.render(lambda p: CanvasView.drawBackground(view,p,rect),zoom)
                 self.assertIs(view._grid_points,points)
+                other=rect.translated(28*16,0)
+                self.render(lambda p: CanvasView.drawBackground(view,p,other),zoom)
+                self.render(lambda p: CanvasView.drawBackground(view,p,rect),zoom)
+                self.assertIs(view._grid_points,points)
+                self.assertLessEqual(len(view._grid_batches),4)
 
 
 if __name__ == '__main__': unittest.main()
