@@ -329,9 +329,10 @@ async def native_status(request):
     service.native_queue.require_supported()
     ident=(await body(request))['id']; operation=service.native_queue.read(ident)
     running,queued=PromptServer.instance.prompt_queue.get_current_queue_volatile()
-    known={p[1] for p in (*running,*queued)}
+    known=[*running,*queued]
     if operation.get('prompt_id'):
-        known.update(PromptServer.instance.prompt_queue.get_history(prompt_id=operation['prompt_id']))
+        history=PromptServer.instance.prompt_queue.get_history(prompt_id=operation['prompt_id'])
+        known.extend(entry.get('prompt',[]) for entry in history.values() if isinstance(entry,dict))
     return web.json_response(service.native_queue.reconcile(ident,known))
 
 

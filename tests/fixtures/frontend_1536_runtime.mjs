@@ -1,12 +1,18 @@
-// Offline execution of installed ComfyUI 1.53.6 sources. No browser or service.
+// Offline execution of explicitly supported installed frontend sources. No service.
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 
 export const assets = process.env.PCS_FRONTEND_ASSETS;
-if (!assets) throw Error('PCS_FRONTEND_ASSETS must point to an existing frontend 1.53.6 static/assets directory');
-const maps = ['settingStore-DDHzGrHr', 'core-C8yW9NC5', 'Popover-8b3JoYW2', 'formatUtil-grDslll6'];
+export const frontendVersion = process.env.PCS_FRONTEND_VERSION ?? '1.53.6';
+if (!assets) throw Error('PCS_FRONTEND_ASSETS must point to an existing supported frontend static/assets directory');
+const versions = {
+    '1.53.6':['settingStore-DDHzGrHr','core-C8yW9NC5'],
+    '1.53.10':['settingStore-CbkuaYBI','core-CqC6n1cV'],
+};
+if (!versions[frontendVersion]) throw Error('Unsupported source-backed fixture version: '+frontendVersion);
+const maps = [...versions[frontendVersion], 'Popover-8b3JoYW2', 'formatUtil-grDslll6'];
 const sources = maps.flatMap(name => {
     const map = JSON.parse(readFileSync(`${assets}/${name}.js.map`, 'utf8'));
     return map.sources.map((path, i) => ({ path, text: map.sourcesContent[i], map: `${name}.js.map` }));

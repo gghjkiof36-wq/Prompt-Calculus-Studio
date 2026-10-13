@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { createRuntime, sourceEvidence, vue, assets } from './frontend_1536_runtime.mjs';
+import { createRuntime, sourceEvidence, vue, assets, frontendVersion } from './frontend_1536_runtime.mjs';
 const productPath = fileURLToPath(new URL('../../comfyui_prompt_calculus_studio/web/native_parameter_capabilities.js', import.meta.url));
 const checkout = fileURLToPath(new URL('../../', import.meta.url)).replace(/[\\/]$/, '');
 const baselineRef = process.argv.find(arg => arg.startsWith('--baseline-ref='))?.slice('--baseline-ref='.length);
@@ -151,7 +151,7 @@ for (const primed of [false, true]) {
         cases.push({ name: `delegates_and_PCS_observer_${primed ? 'primed' : 'unprimed'}`, foreignChangesRejected: true, ownedObserverRetained: true, probeKeysRemoved: true });
     }
 }
-const result = { frontend: '1.53.6', assets, mode: baseline ? 'baseline-reproduction' : 'fixed',
+const result = { frontend: frontendVersion, assets, mode: baseline ? 'baseline-reproduction' : 'fixed',
     coverage: 'Installed production Vue/Pinia bundle; exact source-map widgetValueStore, widgetStore, BaseWidget/concrete classes, LGraphNode.addWidget/addCustomWidget, DOMWidget own accessors, core STRING/FLOAT factories, DynamicPrompts provider and processor, extensionService registration.' + (baseline ? '' : ' Fixed-source checks additionally exercise the INT/control factory and production parameterTransaction with native serialiseWidgetValues, restoring actual reactive backing state.'),
     boundaries: 'Offline only. Node shell/graph serializer wrapper are adapters; addToGraph invokes native setNodeId directly. Native serialiseWidgetValues executes, not full graphToPrompt/LGraph.serialize/add/configure. DOM creation/registration and unrelated settings/menu infrastructure are adapters. INT control hooks are actual factory closures, but nextValueForLinkedTarget is fail-fast unavailable and no seed policy hook executes. No API prompt, network, submission or GPU.',
     product_sha256: createHash('sha256').update(productSource).digest('hex'), product_source: baseline ? `git ${baselineRef} native_parameter_capabilities.js` : 'working-tree native_parameter_capabilities.js',

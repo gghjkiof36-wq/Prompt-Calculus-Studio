@@ -55,8 +55,8 @@ export function describeParameters(app,output,definitions={},seeds=null,capabili
                 else if(linked||Array.isArray(raw))reason='由連線供應';
                 else if(!decl||!['INT','FLOAT','STRING','BOOLEAN','ENUM'].includes(type))reason='尚未適配的控制';
                 else if(!serialized||serialized.class_type!==node.type||!primitive(raw))reason='此節點未包含可核對的提交欄位';
-                else if(typeof widget.serializeValue==='function')reason='特殊序列化控制尚未適配';
-                else if(!equal(raw,widget.value))reason='原生序列化與顯示值不同';
+                else if(typeof widget.serializeValue==='function'&&!(type==='STRING'&&capabilities?.trusted(widget)))reason='特殊序列化控制尚未適配';
+                else if(!equal(raw,widget.value))reason=capabilities?.trusted(widget)?'此欄位會展開動態提示詞或移除註解，請在 ComfyUI 編輯模板':'原生序列化與顯示值不同';
                 else if(widget.beforeQueued!=null||widget.afterQueued!=null)reason='特殊提交回呼尚未適配';
                 else if(!capabilities?.primitive(widget))reason='控制項來源或回呼已變更，尚未適配';
                 else if(type==='INT'&&!Number.isSafeInteger(raw))reason='原生整數無法確認精確值';
@@ -122,14 +122,16 @@ export function parameterTransaction(app,command,description,guard,seeds,onProgr
         if(!equal(field.value,p.base))throw new Error(`#${p.node} / ${p.field}：ComfyUI 同一欄位已被修改，請重新核對變更。`);
         validValue({...field,node:p.node},p.resolved??p.value);
         if(p.seed_mode&&(!modes.includes(p.seed_mode)||p.seed_timing!==field.seed_timing))throw new Error('原生種子政策或時機已變更。');
-        entries.push({patch:p,node,widget,original:widget.value,last:widget.value,field});seen.add(targetKey(p));
+        entries.push({patch:p,node,widget,original:widget.value,last:widget.value,field,serializer:widget.serializeValue});seen.add(targetKey(p));
     }
     let closed=false,lastProof=[],projected=false,afterCount=0,folds=[],serializeGraph=null;
     const sameNode=e=>app.rootGraph===graph&&graph._nodes?.includes(e.node)&&e.node.widgets?.includes(e.widget);
-    const safeEntry=e=>sameNode(e)&&capabilities?.primitive(e.widget)&&e.widget.beforeQueued==null&&e.widget.afterQueued==null;
+    const safeEntry=e=>sameNode(e)&&capabilities?.primitive(e.widget)&&e.widget.beforeQueued==null&&e.widget.afterQueued==null&&
+        e.widget.serializeValue===e.serializer&&(typeof e.serializer!=='function'||e.field.type==='STRING'&&capabilities?.trusted(e.widget));
     const proof=output=>entries.map(e=>{
         guard();const {patch:p}=e,value=output?.[p.node]?.inputs?.[p.field];validValue({...e.field,node:p.node},value);
-        if(!equal(value,e.last))throw new Error('原生參數序列化與套用值不同，未提交。');
+        if(!equal(value,e.last))throw new Error(typeof e.serializer==='function'?
+            '此文字會經動態提示詞展開或註解處理；請在 ComfyUI 編輯模板，未提交。':'原生參數序列化與套用值不同，未提交。');
         if(!p.seed_mode&&!equal(value,p.value)||p.seed_mode==='fixed'&&!equal(value,p.resolved??p.value))throw new Error('Stage 參數尚未正確套用，未提交。');
         return {node:p.node,path:p.path,class_type:p.class_type,field:p.field,schema:p.schema,requested:p.value,
             actual:value,...(p.seed_mode?{seed_mode:p.seed_mode,seed_timing:p.seed_timing}:{})};

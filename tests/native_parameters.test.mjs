@@ -8,7 +8,7 @@ import {createParameterCapabilities} from '../comfyui_prompt_calculus_studio/web
 const defs={KSampler:{python_module:'nodes',input:{required:{seed:['INT',{min:0,max:2**64-1}],steps:['INT',{min:1,max:10000,step:1}],cfg:['FLOAT',{min:0,max:100}],sampler_name:[['euler','dpmpp_2m']],scheduler:[['normal','karras']],denoise:['FLOAT',{min:0,max:1}]} }},
     EmptyLatentImage:{python_module:'nodes',input:{required:{width:['INT',{min:16,max:4096,step:8}],height:['INT',{min:16,max:4096,step:8}],batch_size:['INT',{min:1,max:4096,step:1}]}}}};
 
-function fixture(timing='after',{hang=false,dropEarly=false,withClip=false,unknownSerializer=false}={}){
+function fixture(timing='after',{hang=false,dropEarly=false,withClip=false,unknownSerializer=false,clipValue='{raw|template}',resolveClip=null}={}){
     globalThis.document=new EventTarget();let hasExecuted=false,before=0,after=0,draws=0;
     const seed={name:'seed',type:'number',value:500,options:{min:0,max:2**64-1}};
     const control={name:'control_after_generate',type:'combo',value:'fixed',
@@ -24,7 +24,7 @@ function fixture(timing='after',{hang=false,dropEarly=false,withClip=false,unkno
     const api=Object.assign(new EventTarget(),{clientId:'web-client',async getNodeDefs(){return defs;},async queuePrompt(...args){sent.push(structuredClone(args));return {prompt_id:'prompt-'+sent.length};}});
     let dynamicCalls=0;
     const app={graph,rootGraph:graph,extensions:[{name:'Comfy.DynamicPrompts',nodeCreated(node){for(const w of node.widgets??[])if(w.dynamicPrompts)
-        w.serializeValue=()=>{dynamicCalls++;return 'resolved text';};}}],processingQueue:false,queueItems:[],extensionManager:{workflow:{activeWorkflow:{path:'workflows/A.json',activeState:{id:'native-A'}}}},
+        w.serializeValue=()=>{dynamicCalls++;return resolveClip?resolveClip(w.value):'resolved text';};}}],processingQueue:false,queueItems:[],extensionManager:{workflow:{activeWorkflow:{path:'workflows/A.json',activeState:{id:'native-A'}}}},
         async graphToPrompt(){const workflow=graph.serialize(),output=payload();for(const n of graph._nodes)for(const [i,w] of n.widgets.entries())
             if(w.name!=='control_after_generate')output[n.id].inputs[w.name]=w.serializeValue?await w.serializeValue(undefined,i):w.value;
             return {workflow,output};},
@@ -40,7 +40,7 @@ function fixture(timing='after',{hang=false,dropEarly=false,withClip=false,unkno
         if(w.name==='control_after_generate')continue;
         const decl=defs[n.type]?.input.required[w.name];const kind=Array.isArray(decl?.[0])?'COMBO':decl?.[0];factories[kind]?.(n,w.name);
     }
-    if(withClip){const clip={id:6,type:'CLIPTextEncode',widgets:[{name:'text',type:'customtext',dynamicPrompts:true,value:'{raw|template}'}]};
+    if(withClip){const clip={id:6,type:'CLIPTextEncode',widgets:[{name:'text',type:'customtext',dynamicPrompts:true,value:clipValue}]};
         factories.STRING(clip,'text');app.extensions[0].nodeCreated(clip);
         capabilities.observeCallback(clip.widgets[0],()=>{});graph._nodes.unshift(clip);}
     if(unknownSerializer)graph._nodes.unshift({id:99,type:'Unknown',widgets:[{name:'data',value:'unchanged',serializeValue:async()=> 'unchanged'}]});
@@ -63,6 +63,23 @@ test('two queued CFG intentions preserve live dimensions, other sampler and nati
             assert.equal(f.sent.at(-1)[1].output['12'].inputs.width,1024);assert.equal(f.node.widgets.find(w=>w.name==='cfg').value,8);
         }
         await f.app.queuePrompt(0,1);assert.equal(f.sent.at(-1)[1].output['35'].inputs.cfg,8);
+    }finally{f.adapter.stop();}
+});
+
+for(const value of ['new literal','{red|blue}'])test(`native queue submits only exact literal text: ${value}`,async()=>{
+    const f=fixture('after',{withClip:true,clipValue:'original',resolveClip:text=>text.startsWith('{')?'red':text});
+    const clipDefs={...defs,CLIPTextEncode:{input:{required:{text:['STRING',{multiline:true,dynamicPrompts:true}]}}}};
+    f.api.getNodeDefs=async()=>clipDefs;
+    try{
+        const p=await f.app.graphToPrompt();
+        const d=describeParameters(f.app,p.output,clipDefs,null,f.capabilities);
+        const field=d.nodes.find(n=>n.id==='6').fields.find(v=>v.field==='text');
+        assert.equal(field.editable,true);
+        const patch={...field,node:'6',path:['6'],class_type:'CLIPTextEncode',base:field.value,value};
+        const result=await f.adapter.execute(f.command([patch]));
+        if(value.startsWith('{')){assert.match(result.error,/動態提示詞/);assert.equal(f.sent.length,0);}
+        else{assert.ok(result.prompt_id,JSON.stringify(result));assert.equal(f.sent.length,1);assert.equal(f.sent[0][1].output['6'].inputs.text,value);}
+        assert.equal(f.graph._nodes[0].widgets[0].value,'original');
     }finally{f.adapter.stop();}
 });
 

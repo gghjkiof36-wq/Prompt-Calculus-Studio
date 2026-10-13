@@ -57,7 +57,9 @@ class ReceiptExecutor:
                 self.client.running=len(self.pending)
                 result=self.native.status(command['id'])
             elif route.startswith('/history/'):result={k:v for k,v in self.history.items() if k==route.split('/')[-1]}
-            elif route=='workflow/native/status':result=self.native.reconcile(data['id'],set(self.pending)|set(self.history))
+            elif route=='workflow/native/status':result=self.native.reconcile(data['id'],
+                [(0,p['prompt_id'],p['prompt'],p['extra_data']) for p in self.pending.values()]+
+                [entry.get('prompt',[]) for entry in self.history.values()])
             elif route=='workflow/inputs/publish':result=self.native.inputs.publish(data)
             elif route=='/upload/image':
                 import re

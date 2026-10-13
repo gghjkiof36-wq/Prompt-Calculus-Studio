@@ -481,6 +481,10 @@ class NativeQueue:
                         validate_value(e['next_value'],p)
                 operation['parameter_receipt']['fields']=proof
             operation.update(state='queued',submit_inflight=False,error=str(value.get('error',''))[:1000])
+        elif operation['state']=='queued':
+            # A page closing or a late transport error cannot revoke an exact
+            # accepted receipt. Keep tracking that job; never enqueue a retry.
+            operation['frontend_error']=str(value.get('error','未取得網頁回覆。'))[:1000]
         else:operation.update(state='unconfirmed' if value.get('uncertain') or operation['state']=='submitted' else 'failed',error=str(value.get('error','未取得提交回執。'))[:1000])
         self.save(operation);return self.status(operation['id'])
 
@@ -598,9 +602,19 @@ class NativeQueue:
             self.save(operation)
         return dict(ok=True,state='abandoned',recovery=operation['recovery'],reason=operation['error'])
 
-    def reconcile(self,ident,known_ids):
+    def reconcile(self,ident,entries):
+        """Recover a lost frontend ACK using the actual backend queue/history."""
         self.require_supported()
         operation=self.read(ident)
-        if operation.get('prompt_id') in known_ids and operation['state'] in ('submitted','unconfirmed'):
-            operation.update(state='queued',submit_inflight=False,error='已由 ComfyUI 佇列／歷史確認原生提交。');self.save(operation)
+        if operation.get('prompt_id') and operation['state'] in ('submitted','unconfirmed'):
+            for entry in entries:
+                if not isinstance(entry,(list,tuple)) or len(entry)<4 or entry[1]!=operation['prompt_id']:continue
+                extra=entry[3].get('extra_pnginfo',{}) if isinstance(entry[3],dict) else {}
+                marker=extra.get('prompt_studio',{}) if isinstance(extra,dict) else {}
+                generation=marker.get('generation',{}) if isinstance(marker,dict) else {}
+                expected=operation.get('marker',{}).get('generation')
+                if (not expected or generation!=expected or generation.get('native_operation')!=ident or
+                        not graph_matches(operation.get('graph'),entry[2],operation.get('input_types'))):continue
+                operation.update(state='queued',submit_inflight=False,error='已由 ComfyUI 佇列／歷史確認原生提交。')
+                self.save(operation);break
         return self.status(ident)

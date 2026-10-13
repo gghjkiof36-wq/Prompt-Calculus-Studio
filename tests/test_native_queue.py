@@ -178,7 +178,7 @@ class NativeQueueTests(unittest.TestCase):
         restarted=Service(self.root,self.root,self.root).native_queue
         self.assertEqual(restarted.status('operation-1')['state'],'unconfirmed')
         self.assertEqual(restarted.poll(self.live)['commands'],[])
-        self.assertEqual(restarted.reconcile('operation-1',{payload['prompt_id']})['state'],'queued')
+        self.assertEqual(restarted.reconcile('operation-1',[(0,payload['prompt_id'],payload['prompt'],payload['extra_data'])])['state'],'queued')
         self.assertEqual(restarted.start(self.request)['prompt_id'],payload['prompt_id'])
 
     def test_cancellation_or_tampered_actual_graph_fails_backend_validation(self):
