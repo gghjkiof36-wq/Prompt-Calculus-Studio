@@ -4,7 +4,8 @@ from PySide6.QtCore import Qt, QPoint, QPointF, QSize, QRect, QEvent, QSignalBlo
 from PySide6.QtGui import QPainter, QColor
 from PySide6.QtWidgets import (QDialog, QFrame, QWidget, QVBoxLayout, QHBoxLayout,
     QListWidget, QListWidgetItem, QSizeGrip, QSizePolicy, QApplication, QPushButton, QLineEdit)
-from . import materials
+from . import materials, material_navigation as navigation
+from .material_folder_navigation import FolderNavigation
 from .widgets import label, button, ComboBox
 from .quiet_splitter import QuietSplitter
 from .palette_cards import PickerCardDelegate, ClosingClickGuard
@@ -82,7 +83,9 @@ class CanvasPalette(QDialog):
         content.addWidget(self.narrow_categories)
         self.split=QuietSplitter(); self.split.setChildrenCollapsible(False); content.addWidget(self.split,1)
         self.category_pane=QWidget(); cats=QVBoxLayout(self.category_pane); cats.setContentsMargins(0,0,12,0); cats.setSpacing(8)
-        self.modules=QListWidget(); self.modules.setProperty('moduleChoices',True)
+        self.modules=FolderNavigation(manage=False,colors=lambda:self.colors)
+        self.modules.setProperty('moduleChoices',True); self.modules.setSpacing(3)
+        self.modules.toggleRequested.connect(self.toggle_folder)
         self.modules.setAccessibleName('內容分類'); cats.addWidget(self.modules,1)
         self.split.addWidget(self.category_pane)
         local=QWidget(); local.setMinimumWidth(0); rows=QVBoxLayout(local); rows.setContentsMargins(12,0,0,0); rows.setSpacing(8)
@@ -160,34 +163,65 @@ class CanvasPalette(QDialog):
         return {m['id'] for m in self.canvas.window.state['modules'] if m['name']=='未分類'}
 
     def populate_categories(self):
-        selected=(self.selected_id(self.modules) if self.modules.count() else
+        selected=(self.get_browser_category() if self.category.count() else
                   getattr(self.canvas.window,'_material_browser_category',None))
         state=self.canvas.window.state
         if selected==self.UNCATEGORIZED:
             selected=next((m['id'] for m in state['modules'] if m['name']=='未分類'),selected)
         blocked=QSignalBlocker(self.modules); combo_blocked=QSignalBlocker(self.category)
         self.modules.clear(); self.category.clear()
-        categories=[('全部',None)]+[(m['name'],m['id']) for m in state['modules']]
-        if not self.uncategorized_ids(): categories.append(('未分類',self.UNCATEGORIZED))
-        for name,ident in categories:
+        value=navigation.view(state); folders={v['id']:v for v in value['folders']}
+        categories={v['id']:v for v in state['modules']}
+        collapsed=set(state['settings'].get('material_folder_collapsed',[]))
+        self.modules.has_folders=bool(folders)
+        def add(name,ident,kind='category',parent=None):
             count=sum(1 for item in state['items'] if self.in_category(item,ident))
-            self.modules.addItem(self.entry(f'{name}   {count}',ident)); self.category.addItem(f'{name} · {count}',ident)
-        if not self.restore_selection(self.modules,selected): self.modules.setCurrentRow(0)
-        self.category.setCurrentIndex(max(0,self.category.findData(self.selected_id(self.modules))))
+            caption=f'{folders[parent]["name"]} / {name}' if parent else name
+            self.category.addItem(f'{caption} · {count}',ident)
+            if kind=='folder': self.category.setItemIcon(self.category.count()-1,icon('folder',self.colors['secondary']))
+            if parent not in collapsed:
+                self.modules.add_row(ident,name,count,kind,parent,ident in collapsed)
+        add('全部模組',None,'shortcut')
+        for ident in value['order']:
+            if ident in folders:
+                folder=folders[ident]; add(folder['name'],ident,'folder')
+                for cid in folder['categories']: add(categories[cid]['name'],cid,parent=ident)
+            else: add(categories[ident]['name'],ident)
+        unclassified=next((m['id'] for m in state['modules'] if m['name']=='未分類'),self.UNCATEGORIZED)
+        add('未分類',unclassified,'shortcut')
+        self.category.setCurrentIndex(max(0,self.category.findData(selected)))
+        self.restore_selection(self.modules,self.category.currentData())
         del blocked,combo_blocked
         self.canvas.window._material_browser_category=self.get_browser_category()
 
+    def toggle_folder(self,ident):
+        window=self.canvas.window
+        if self.closed or self.layout_owner!=(window.store,window.state['workspace']): return
+        if navigation.folder(window.state,ident) is None: return
+        collapsed=set(window.state['settings'].get('material_folder_collapsed',[]))
+        if ident in collapsed: collapsed.remove(ident)
+        else: collapsed.add(ident)
+        window.state['settings']['material_folder_collapsed']=sorted(collapsed)
+        # Folding changes navigation visibility, never the active filter or copy target.
+        self.populate_categories(); window.changed('settings',refresh=False)
+
     def in_category(self,item,ident):
         if ident is None: return True
+        if navigation.is_folder(ident):
+            folder=navigation.folder(self.canvas.window.state,ident)
+            return folder is not None and item.get('module') in folder['categories']
         if ident==self.UNCATEGORIZED:
             known={m['id'] for m in self.canvas.window.state['modules']}
             return item.get('module') in self.uncategorized_ids() or item.get('module') not in known
         return item.get('module')==ident
 
     def category_name(self):
-        ident=self.selected_id(self.modules)
+        ident=self.get_browser_category()
         if ident is None: return '全部分類'
         if ident==self.UNCATEGORIZED: return '未分類'
+        if navigation.is_folder(ident):
+            folder=navigation.folder(self.canvas.window.state,ident)
+            return folder['name'] if folder else '目前資料夾'
         return next((m['name'] for m in self.canvas.window.state['modules'] if m['id']==ident),'目前分類')
 
     def category_changed(self):
@@ -198,15 +232,20 @@ class CanvasPalette(QDialog):
         self.refresh()
 
     def get_browser_category(self):
-        return self.selected_id(self.modules)
+        return self.category.currentData()
 
     def set_browser_category(self,ident):
         if ident==self.UNCATEGORIZED:
             ident=next((m['id'] for m in self.canvas.window.state['modules'] if m['name']=='未分類'),ident)
-        if not self.restore_selection(self.modules,ident): self.modules.setCurrentRow(0)
+        blocked=QSignalBlocker(self.modules); combo_blocked=QSignalBlocker(self.category)
+        self.category.setCurrentIndex(max(0,self.category.findData(ident)))
+        self.restore_selection(self.modules,self.category.currentData())
+        del blocked,combo_blocked
+        self.canvas.window._material_browser_category=self.get_browser_category()
+        self.refresh()
 
     def combo_category_changed(self):
-        self.restore_selection(self.modules,self.category.currentData())
+        self.set_browser_category(self.category.currentData())
 
     def show_error(self,text):
         self.status.setText(text); self.status.show()
@@ -228,7 +267,7 @@ class CanvasPalette(QDialog):
 
     def refresh(self):
         ident=self.selected_id(self.assets); had_focus=self.assets.hasFocus()
-        self.assets.clear(); mid=self.selected_id(self.modules)
+        self.assets.clear(); mid=self.get_browser_category()
         query=self.search.text().strip()
         matches={asset['id'] for asset in materials.search(self.canvas.window.state,query)} if query else None
         for asset in self.canvas.window.state['items']:
@@ -238,7 +277,10 @@ class CanvasPalette(QDialog):
             entry.setToolTip(asset['name']+'\n'+asset['prompt'])
             self.assets.addItem(entry)
         self.assets_heading.setText(f'{self.category_name()} · {self.assets.count()} 個模組')
-        self.empty.setText('找不到符合搜尋的文字模組，請修改或清除搜尋。' if query else '此分類尚無文字模組')
+        folder=navigation.is_folder(mid)
+        self.search.setAccessibleName('搜尋此資料夾的文字模組' if folder else '搜尋目前分類的文字模組')
+        self.search.setPlaceholderText('搜尋此資料夾的名稱、別名或內容' if folder else '搜尋名稱、別名或內容')
+        self.empty.setText('找不到符合搜尋的文字模組，請修改或清除搜尋。' if query else '此資料夾尚無文字模組' if folder else '此分類尚無文字模組')
         self.empty.setVisible(self.assets.count()==0)
         self.empty_spacer.setVisible(self.assets.count()==0)
         self.assets.setVisible(self.assets.count()>0)
@@ -282,6 +324,8 @@ class CanvasPalette(QDialog):
         if source is self.search and key in (Qt.Key.Key_Down,Qt.Key.Key_Return,Qt.Key.Key_Enter):
             self.focus_list(self.assets,first=True); return True
         if source is self.modules and key==Qt.Key.Key_Right:
+            if navigation.is_folder(self.get_browser_category()) and self.get_browser_category() in self.canvas.window.state['settings'].get('material_folder_collapsed',[]):
+                return False  # The folder row handles Right as expand first.
             self.focus_list(self.assets,first=True); return True
         if source is self.assets:
             if key==Qt.Key.Key_Left:
@@ -362,7 +406,8 @@ class CanvasPalette(QDialog):
     def showEvent(self,event):
         super().showEvent(event); self.fit_window(); self.split.setSizes(self.split_sizes)
         (self.destination if self.choose_destination else
-         self.category if self.narrow_categories.isVisible() else self.modules).setFocus()
+         self.category if self.narrow_categories.isVisible() else
+         self.modules if self.modules.currentRow()>=0 else self.search).setFocus()
 
     def resizeEvent(self,event):
         super().resizeEvent(event)

@@ -20,7 +20,7 @@ class FolderDelegate(QStyledItemDelegate):
         if data['id'] is None: rect.adjust(0, 0, 0, -16)
         entry.rect = rect; entry.text = ''
         self.parent().style().drawControl(QStyle.ControlElement.CE_ItemViewItem, entry, painter, self.parent())
-        colors = widget_colors(self.parent()); painter.save(); painter.setFont(option.font)
+        colors = self.parent().colors(); painter.save(); painter.setFont(option.font)
         arrow, name, count, more = self.parent().regions(rect, data)
         if data['kind'] == 'folder':
             icon('chevron-right' if data['collapsed'] else 'chevron-down', colors['secondary']).paint(painter, arrow.adjusted(6, 6, -6, -6))
@@ -30,7 +30,7 @@ class FolderDelegate(QStyledItemDelegate):
                          option.fontMetrics.elidedText(data['name'], Qt.TextElideMode.ElideRight, name.width()))
         painter.setPen(QColor(colors['secondary']))
         painter.drawText(count, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, str(data['count']))
-        if data['kind'] != 'shortcut':
+        if self.parent().manage and data['kind'] != 'shortcut':
             icon('more-horizontal', colors['secondary']).paint(painter, more.adjusted(6, 6, -6, -6))
         if data['id'] is None:
             painter.setPen(QPen(QColor(colors.get('divider', colors['line'])), 1))
@@ -45,19 +45,22 @@ class FolderNavigation(ReorderableList):
     undoRequested = Signal()
     redoRequested = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, manage=True, colors=None):
         super().__init__(parent)
+        self.manage = manage; self.colors = colors or (lambda: widget_colors(self))
         self.setItemDelegate(FolderDelegate(self)); self.setMouseTracking(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._pressed_control = None; self._folder_drop = None; self._drag_ident = None
         self.has_folders = False
-        self.enable_reordering()
+        if manage: self.enable_reordering()
+        else:
+            self.setDragEnabled(False); self.setAcceptDrops(False)
 
     def regions(self, rect, data):
         button = 28; center = rect.center().y()
         arrow = QRect(rect.left()+2, center-button//2, button, button)
         more = QRect(rect.right()-button-4, center-button//2, button, button)
-        right = more.left()-6 if data['kind'] != 'shortcut' else rect.right()-10
+        right = more.left()-6 if self.manage and data['kind'] != 'shortcut' else rect.right()-10
         count_width = self.fontMetrics().horizontalAdvance(str(data['count']))+4
         count = QRect(right-count_width, rect.top(), count_width, rect.height())
         left = rect.left() + (54 if data['kind'] == 'folder' else 32 if data['parent'] else 12)
@@ -69,7 +72,7 @@ class FolderNavigation(ReorderableList):
         entry.setData(ROW, dict(id=ident, name=name, count=count, kind=kind, parent=parent, collapsed=collapsed))
         entry.setToolTip(f'{name} · {count} 個模組')
         entry.setData(Qt.ItemDataRole.AccessibleTextRole, f'{name}，{count} 個模組')
-        if kind == 'shortcut': entry.setFlags(entry.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
+        if kind == 'shortcut' or not self.manage: entry.setFlags(entry.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
         self.addItem(entry)
 
     def mousePressEvent(self, event):
@@ -79,7 +82,7 @@ class FolderNavigation(ReorderableList):
             data = item.data(ROW); arrow, _, _, more = self.regions(self.visualItemRect(item), data)
             if event.button() == Qt.MouseButton.LeftButton:
                 action = ('toggle' if data['kind'] == 'folder' and arrow.contains(event.position().toPoint())
-                          else 'menu' if data['kind'] != 'shortcut' and more.contains(event.position().toPoint()) else None)
+                          else 'menu' if self.manage and data['kind'] != 'shortcut' and more.contains(event.position().toPoint()) else None)
                 if action:
                     self._pressed_control = (item, action); event.accept(); return
         super().mousePressEvent(event)
@@ -94,6 +97,7 @@ class FolderNavigation(ReorderableList):
         super().mouseReleaseEvent(event)
 
     def open_menu(self, item):
+        if not self.manage: return
         data = item.data(ROW)
         if data['kind'] == 'shortcut': return
         self.setFocus(Qt.FocusReason.MouseFocusReason)
@@ -106,8 +110,8 @@ class FolderNavigation(ReorderableList):
         event.accept()
 
     def keyPressEvent(self, event):
-        if event.matches(QKeySequence.StandardKey.Undo): self.undoRequested.emit(); event.accept(); return
-        if event.matches(QKeySequence.StandardKey.Redo): self.redoRequested.emit(); event.accept(); return
+        if self.manage and event.matches(QKeySequence.StandardKey.Undo): self.undoRequested.emit(); event.accept(); return
+        if self.manage and event.matches(QKeySequence.StandardKey.Redo): self.redoRequested.emit(); event.accept(); return
         item = self.currentItem(); data = item.data(ROW) if item else None
         if data and data['kind'] == 'folder' and event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
             if data['collapsed'] == (event.key() == Qt.Key.Key_Right): self.toggleRequested.emit(data['id'])
