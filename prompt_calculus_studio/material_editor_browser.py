@@ -125,8 +125,8 @@ class PromptEditor(QWidget):
         self.category_title_row = row(self.category_heading, None, self.category_add)
         self.category_title_row.setContentsMargins(0, 0, 0, 0); self.category_title.setLayout(self.category_title_row)
         category_layout.addWidget(self.category_title)
-        from .material_folder_navigation import FolderNavigation
-        self.categories = FolderNavigation(); self.categories.setObjectName('SidebarNavigation')
+        from .material_category_drag import EditorCategoryNavigation
+        self.categories = EditorCategoryNavigation(self); self.categories.setObjectName('SidebarNavigation')
         self.categories.reorderRequested.connect(self._reorder_categories)
         self.categories.toggleRequested.connect(self.toggle_folder)
         self.categories.menuRequested.connect(self.category_row_menu)

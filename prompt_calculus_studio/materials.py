@@ -80,6 +80,15 @@ def save(state, value):
     return result['id']
 
 
+def move_category(state, ident, destination):
+    """Move only the library original; canvas copies keep their provenance."""
+    value=item(state,ident)
+    if destination=='@uncategorized':destination=add_category(state,'未分類')
+    if destination not in {entry['id'] for entry in state['modules']}:
+        raise ValueError('分類已更新，請重新拖曳。')
+    value['module']=destination
+
+
 def add_category(state, name):
     from .core import uid
     name = name.strip()
