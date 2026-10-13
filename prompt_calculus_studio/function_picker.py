@@ -1,7 +1,7 @@
 """Searchable Canvas function chooser; text-canvas material picking stays separate."""
-from PySide6.QtCore import Qt, QSize, QPointF
+from PySide6.QtCore import Qt, QSize, QPointF, QRect, QEvent
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QLineEdit, QListWidget, QListWidgetItem, QHBoxLayout, QVBoxLayout, QFrame, QPushButton, QLabel, QSizePolicy
+from PySide6.QtWidgets import QLineEdit, QListWidget, QListWidgetItem, QHBoxLayout, QVBoxLayout, QFrame, QPushButton, QLabel, QSizePolicy, QScrollArea
 from .widgets import label, button, row, RoundMenu
 from .dialog_presentation import CanvasSheetDialog
 from .module_preview import ModulePreview
@@ -24,6 +24,37 @@ FUNCTIONS = (
 )
 
 
+class FunctionDetails(QFrame):
+    """Stable text slots at the current width; the scroll area owns overflow."""
+    def __init__(self, canvas, background):
+        super().__init__(); self.setObjectName('FunctionDetails')
+        detail=QVBoxLayout(self); detail.setContentsMargins(0,4,0,0); detail.setSpacing(10)
+        detail.addWidget(label('節點預覽','Subtle'))
+        self.preview=ModulePreview(canvas); self.preview.setMinimumWidth(0)
+        self.preview.setBackgroundBrush(QColor(background)); detail.addWidget(self.preview,1)
+        self.name=label('','Heading',True); self.description=label('','Subtle',True)
+        self.kind=label('','Subtle')
+        for text in (self.name,self.description,self.kind):detail.addWidget(text)
+        self.fit_text()
+
+    def fit_text(self):
+        if not hasattr(self,'description'):return
+        width=max(1,self.contentsRect().width())
+        for text,column,lines in ((self.name,1,1),(self.description,3,2)):
+            text.ensurePolished(); metrics=text.fontMetrics()
+            height=max(metrics.height()*lines,max(metrics.boundingRect(
+                QRect(0,0,width,10000),Qt.TextFlag.TextWordWrap,item[column]).height() for item in FUNCTIONS))+4
+            text.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed)
+            if text.height()!=height or text.minimumHeight()!=height:text.setFixedHeight(height)
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event); self.fit_text()
+
+    def changeEvent(self,event):
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.FontChange,QEvent.Type.StyleChange):self.fit_text()
+
+
 class FunctionPicker(CanvasSheetDialog):
     def __init__(self, canvas, position=None):
         super().__init__(canvas.window); self.canvas = canvas
@@ -40,6 +71,7 @@ class FunctionPicker(CanvasSheetDialog):
             QLineEdit#FunctionSearch {{background:{colors['surface']};border:1px solid {line};border-radius:8px;padding:10px 12px;}}
             QLineEdit#FunctionSearch:focus {{border-color:{colors['accent']};}}
             QFrame#FunctionDetails {{background:transparent;border:0;}}
+            QScrollArea#FunctionDetailScroll, QScrollArea#FunctionDetailScroll > QWidget > QWidget {{background:transparent;border:0;}}
             QFrame#FunctionFooter {{background:transparent;border:0;border-top:1px solid {line};}}
         ''')
         surface=self.findChild(QFrame,'DialogSurface')
@@ -63,17 +95,12 @@ class FunctionPicker(CanvasSheetDialog):
         self.list.setAccessibleName('功能模組'); self.list.setMinimumWidth(220); self.list.setIconSize(QSize(18,18))
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list.setSpacing(2); columns.addWidget(self.list, 4)
-        panel = QFrame(); panel.setObjectName('FunctionDetails'); detail = QVBoxLayout(panel)
-        detail.setContentsMargins(0,4,0,0); detail.setSpacing(10)
-        detail.addWidget(label('節點預覽', 'Subtle'))
-        self.preview = ModulePreview(canvas); self.preview.setBackgroundBrush(QColor(background)); detail.addWidget(self.preview,1)
-        self.name = label('', 'Heading', True); detail.addWidget(self.name)
-        self.description = label('', 'Subtle', True); detail.addWidget(self.description)
-        self.kind = label('', 'Subtle'); detail.addWidget(self.kind)
-        for text,lines in ((self.name,1),(self.description,2)):
-            text.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed)
-            text.setFixedHeight(text.fontMetrics().height()*lines+4)
-        columns.addWidget(panel, 5); self.body.addLayout(columns, 1)
+        panel=FunctionDetails(canvas,background)
+        self.preview=panel.preview; self.name=panel.name; self.description=panel.description; self.kind=panel.kind
+        self.details=QScrollArea(); self.details.setObjectName('FunctionDetailScroll')
+        self.details.setFrameShape(QFrame.Shape.NoFrame); self.details.setWidgetResizable(True)
+        self.details.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.details.setWidget(panel); columns.addWidget(self.details,5); self.body.addLayout(columns,1)
         self.empty = label('沒有符合的功能模組', 'Subtle'); self.empty.hide(); self.body.addWidget(self.empty)
         self.add_button = button('新增模組', self.insert_current, 'Primary'); self.add_button.setIcon(icon('plus','on-accent'))
         footer=QFrame();footer.setObjectName('FunctionFooter'); actions=QHBoxLayout(footer)

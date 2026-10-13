@@ -1,7 +1,8 @@
 """Retain bounded source pixels and paint smoothly at the actual Canvas scale."""
+from time import monotonic
 from PySide6.QtCore import Qt,QRectF,Signal
 from PySide6.QtGui import QImageReader,QImage,QPainter
-from PySide6.QtWidgets import QSizePolicy
+from PySide6.QtWidgets import QSizePolicy,QApplication
 from .image_drop import ImageDropLabel
 
 
@@ -9,6 +10,7 @@ class SourcePreview(ImageDropLabel):
     clicked=Signal()
     def __init__(self,store):
         super().__init__(store); self.image=QImage(); self.source_key=None
+        self._press=None; self._last_click=None
         self.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Expanding)
 
     def load_path(self,path):
@@ -37,6 +39,35 @@ class SourcePreview(ImageDropLabel):
         painter=QPainter(self); painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.drawImage(target,self.image)
 
+    def mousePressEvent(self,event):
+        self._press=None
+        if event.button()==Qt.MouseButton.LeftButton:
+            # Accept the press so the graphics proxy also delivers its release.
+            self._press=event.globalPosition(); event.accept()
+        else:super().mousePressEvent(event)
+
+    def mouseMoveEvent(self,event):
+        if self._press is not None:
+            if (event.globalPosition()-self._press).manhattanLength()>=QApplication.startDragDistance():self._press=None
+            event.accept()
+        else:super().mouseMoveEvent(event)
+
+    def activate(self,event):
+        self._last_click=(monotonic(),event.globalPosition())
+        self.clicked.emit()
+
     def mouseReleaseEvent(self,event):
-        if event.button()==Qt.MouseButton.LeftButton: self.clicked.emit()
-        else: super().mouseReleaseEvent(event)
+        pressed=self._press; self._press=None
+        if event.button()==Qt.MouseButton.LeftButton:
+            if (pressed is not None and self.rect().contains(event.position().toPoint()) and
+                    (event.globalPosition()-pressed).manhattanLength()<QApplication.startDragDistance()):self.activate(event)
+            event.accept()
+        else:super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self,event):
+        if event.button()!=Qt.MouseButton.LeftButton:return super().mouseDoubleClickEvent(event)
+        self._press=None
+        last=self._last_click
+        if (last is None or (monotonic()-last[0])*1000>QApplication.doubleClickInterval() or
+                (event.globalPosition()-last[1]).manhattanLength()>=QApplication.startDragDistance()):self.activate(event)
+        event.accept()
