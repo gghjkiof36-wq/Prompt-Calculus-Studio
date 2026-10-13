@@ -93,6 +93,75 @@ def add_category(state, name):
     return ident
 
 
+def category(state, ident):
+    value = next((v for v in state['modules'] if v['id'] == ident), None)
+    if value is None:
+        raise ValueError('分類已不存在，請重新選擇。')
+    if value['name'] == '未分類':
+        raise ValueError('「未分類」用來保留未歸類的素材，不能重新命名或刪除。')
+    return value
+
+
+def rename_category(state, ident, name):
+    value = category(state, ident); name = name.strip()
+    if not name:
+        raise ValueError('請輸入分類名稱。')
+    if name == '未分類' or any(v['id'] != ident and v['name'].casefold() == name.casefold() for v in state['modules']):
+        raise ValueError('已有同名分類，請使用其他名稱。')
+    value['name'] = name
+
+
+def remove_category(state, ident):
+    """Remove only the category; retain materials, detached copies and drafts."""
+    from . import material_navigation as navigation
+    category(state, ident)
+    destination = add_category(state, '未分類')
+    next(v for v in state['modules'] if v['id'] == destination)['mode'] = 'multiple'
+    for value in state['items']:
+        if value['module'] == ident: value['module'] = destination
+
+    def remap(owner):
+        # Old list selections can also be saved in inactive workspaces/outputs.
+        # Repair category references there while retaining IDs and text copies.
+        for field in ('selections', 'picks'):
+            picks = owner.get(field, {})
+            if ident in picks:
+                values = picks.pop(ident)
+                picks[destination] = list(dict.fromkeys(picks.get(destination, []) + values))
+        for field in ('fixed', 'output_order'):
+            if ident in owner.get(field, []):
+                owner[field] = list(dict.fromkeys(destination if key == ident else key for key in owner[field]))
+        if owner.get('temporary_before') == ident: owner['temporary_before'] = destination
+        owners = owner.get('canvas_owners', {})
+        if ident in owners:
+            canvas = owners.pop(ident); owners.setdefault(destination, canvas)
+        for output in owner.get('multi_output', {}).get('outputs', {}).values():
+            remap(output.get('list_state', {}))
+
+    for owner in (state, *state.get('workspaces', []), *state.get('workspace_scenes', {}).get('items', {}).values()):
+        remap(owner)
+    state['modules'] = [value for value in state['modules'] if value['id'] != ident]
+    if navigation.FIELD in state: state[navigation.FIELD] = navigation.view(state)
+    return destination
+
+
+def category_metadata_only(before, after):
+    """Catalog naming/affiliation with no change to any active or saved Prompt."""
+    fields = {'modules', 'items', 'material_navigation'}
+    if {k: v for k, v in before.items() if k not in fields} != {k: v for k, v in after.items() if k not in fields}:
+        return False
+    def without(values, field):
+        return [{k: v for k, v in value.items() if k != field} for value in values]
+    if without(before.get('items', []), 'module') != without(after.get('items', []), 'module'):
+        return False
+    prior = {v['id']: v for v in before.get('modules', [])}
+    later = {v['id']: v for v in after.get('modules', [])}
+    for ident in prior.keys() & later.keys():
+        if without([prior[ident]], 'name') != without([later[ident]], 'name'): return False
+    common = prior.keys() & later.keys()
+    return [v['id'] for v in before.get('modules', []) if v['id'] in common] == [v['id'] for v in after.get('modules', []) if v['id'] in common]
+
+
 def add_to_canvas(state, ident, canvas_id, position=None):
     """Copy, never move/link, the material; commit ownership with its new ID."""
     from .core import uid

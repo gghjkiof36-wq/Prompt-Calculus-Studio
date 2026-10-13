@@ -67,7 +67,7 @@ class AssetDialog(StudioDialog):
         return next(i for i in self.window.state['items'] if i['id'] == ident)
 
 
-HISTORY_FIELDS = ('version', 'modules', 'items', 'selections', 'temporary', 'weights', 'instances', 'output_order', 'text_positions', 'text_sizes', 'uses', 'workspaces', 'workspace', 'prompt_layout', 'view_drafts','canvas_functions','generation', 'material_navigation')
+HISTORY_FIELDS = ('version', 'modules', 'items', 'selections', 'temporary', 'temporary_before', 'weights', 'instances', 'output_order', 'text_positions', 'text_sizes', 'uses', 'workspaces', 'workspace', 'workspace_scenes', 'prompt_layout', 'view_drafts','canvas_functions','generation', 'material_navigation')
 
 
 class TextCanvas(QWidget):

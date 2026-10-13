@@ -274,6 +274,9 @@ def stylesheet(settings):
     QMenu::item:disabled {{ color:{t['disabled_text']}; }}
     QMenu::separator {{ height:1px; background:{t['divider']}; margin:6px 12px; }}
     QMenu::indicator {{ width:0; }}
+    QLabel#DestructiveMenuAction {{ color:{t['destructive_text']}; background:transparent; padding:5px 10px; border:0; border-radius:7px; }}
+    QLabel#DestructiveMenuAction[active="true"] {{ background:{t['popup_active']}; }}
+    QLabel#DestructiveMenuAction:disabled {{ color:{t['disabled_text']}; }}
     QTabWidget::pane {{ border:none; background:transparent; top:8px; }}
     QScrollArea {{ background:transparent; border:none; }}
     QWidget#ScrollContent, QWidget#ScrollViewport {{ background:transparent; }}

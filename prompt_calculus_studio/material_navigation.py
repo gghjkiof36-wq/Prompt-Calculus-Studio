@@ -125,6 +125,7 @@ def reorder_root(state, before, after):
 
 
 def navigation_only(before, after):
-    return (before.get(FIELD) != after.get(FIELD)
+    from .materials import category_metadata_only
+    return category_metadata_only(before, after) or (before.get(FIELD) != after.get(FIELD)
             and {k: v for k, v in before.items() if k != FIELD}
             == {k: v for k, v in after.items() if k != FIELD})

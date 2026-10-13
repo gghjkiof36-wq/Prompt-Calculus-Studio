@@ -40,7 +40,7 @@ class EditorFolderTests(unittest.TestCase):
         more = listing.regions(listing.visualItemRect(item), item.data(ROW))[3]
         QTest.mouseClick(listing.viewport(), Qt.MouseButton.LeftButton, pos=more.center())
         menu = QApplication.activePopupWidget(); self.assertIsInstance(menu, RoundMenu)
-        submenu = menu.actions()[0].menu(); self.assertIsInstance(submenu, RoundMenu)
+        submenu = next(action.menu() for action in menu.actions() if action.menu()); self.assertIsInstance(submenu, RoundMenu)
         text = nav.folder(self.w.state, destination)['name'] if destination else '移回外層'
         next(v for v in submenu.actions() if v.text() == text).trigger()
         menu.close(); self.app.processEvents()
@@ -134,7 +134,7 @@ class EditorFolderTests(unittest.TestCase):
         self.assertTrue(self.page.category_more.isVisible()); self.assertTrue(self.page.category_more.isEnabled())
         QTest.mouseClick(self.page.category_more, Qt.MouseButton.LeftButton)
         menu = QApplication.activePopupWidget(); self.assertIsInstance(menu, RoundMenu)
-        self.assertEqual([a.text() for a in menu.actions()], ['重新命名', '移除資料夾'])
+        self.assertEqual([a.text() for a in menu.actions() if not a.isSeparator()], ['重新命名', '刪除資料夾'])
         self.assertTrue(menu.screen().availableGeometry().contains(menu.geometry()))
         QTest.keyClick(menu, Qt.Key.Key_Escape); self.app.processEvents()
         self.assertIsNone(QApplication.activePopupWidget())

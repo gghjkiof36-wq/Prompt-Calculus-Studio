@@ -97,6 +97,7 @@ def derive_roles(foundation):
     t['selected'] = interaction(t['surface'], t['text'], .12)
     t['rail_selected'] = interaction(t['chrome'], t['text'], .16)
     t['popup_active'] = interaction(t['raised'], t['text'], .10)
+    t['destructive_text'] = readable(t['error'], (t['raised'], t['popup_active']))
     t['disabled_bg'] = interaction(t['surface'], t['text'], .035)
     t['disabled_text'] = readable(mix(t['text'], t['surface'], .40), surfaces+[t['disabled_bg']])
     t['scrollbar'] = mix(t['control'], t['base'], .45)

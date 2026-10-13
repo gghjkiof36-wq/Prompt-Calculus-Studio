@@ -70,7 +70,17 @@ class PopupSurface(QObject):
         # Qt deliberately does not inherit ToolTipBase into ordinary child
         # widgets; their value can be the native pale-yellow tooltip color.
         # Read the theme palette at its actual owning top-level instead.
-        return QWidget.palette(self.surface_host())
+        host = self.surface_host()
+        state = getattr(host, 'state', None)
+        if isinstance(state, dict):
+            # Stylesheet repolishing can retain the previous ToolTipBase in a
+            # live Window palette. PCS popups use the same current theme roles
+            # as their labels, including when switching light/dark palettes.
+            from .theme import widget_palette
+            settings = dict(state.get('settings', {}))
+            settings.update(getattr(host, 'appearance_preview', {}))
+            return widget_palette(settings)
+        return QWidget.palette(host)
 
     def tint_alpha(self):
         from .core import DEFAULT_SETTINGS

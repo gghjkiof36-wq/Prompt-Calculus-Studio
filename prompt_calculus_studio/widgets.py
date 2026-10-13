@@ -4,7 +4,7 @@ from PySide6.QtGui import QPixmap, QDesktopServices, QIcon, QPainterPath, QRegio
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QFrame,
                               QDialogButtonBox, QFileDialog, QMessageBox, QDialog, QScrollArea,
-                              QLineEdit, QPlainTextEdit, QComboBox, QFontComboBox, QListView, QListWidget, QMenu, QSizePolicy, QWidget, QBoxLayout, QApplication,QStyledItemDelegate,QStyle,QStyleOptionViewItem,QStyleOptionComboBox,QStylePainter)
+                              QLineEdit, QPlainTextEdit, QComboBox, QFontComboBox, QListView, QListWidget, QMenu, QWidgetAction, QSizePolicy, QWidget, QBoxLayout, QApplication,QStyledItemDelegate,QStyle,QStyleOptionViewItem,QStyleOptionComboBox,QStylePainter)
 from .popup_surface import POPUP_WIDTH, PopupSurface, popup_row_height, popup_width
 
 def label(text, role=None, wrap=False):
@@ -391,6 +391,24 @@ class RoundMenu(QMenu):
         # A submenu hides whenever the pointer returns to its parent. Its
         # action must live until the root popup closes, not until that hover ends.
         if not isinstance(parent,QMenu): self.aboutToHide.connect(self.deleteLater)
+
+    def add_destructive_action(self, text, callback):
+        """A native menu action with semantic text color, including on hover."""
+        action = QWidgetAction(self); action.setText(text)
+        caption = label(text); caption.setObjectName('DestructiveMenuAction')
+        caption.setIndent(0); caption.setMargin(0)
+        caption.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        caption.setMinimumHeight(popup_row_height(self.fontMetrics()))
+        caption.setProperty('active', False)
+        action.setDefaultWidget(caption); action.triggered.connect(callback)
+        self.addAction(action)
+        def selected(current):
+            active = current is action
+            if caption.property('active') != active:
+                caption.setProperty('active', active)
+                caption.style().unpolish(caption); caption.style().polish(caption); caption.update()
+        self.hovered.connect(selected)
+        return action
 
     def addMenu(self,*args):
         # QMenu's title/icon overloads instantiate plain QMenu internally.

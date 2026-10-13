@@ -228,14 +228,14 @@ class PromptEditor(QWidget):
             if event.matches(QKeySequence.StandardKey.Undo): self.window.canvas.undo(); return True
             if event.matches(QKeySequence.StandardKey.Redo): self.window.canvas.redo(); return True
         if hasattr(self, 'scroll') and watched is self.scroll.viewport() and event.type() == QEvent.Type.Resize:
-            QTimer.singleShot(0, self._layout)
+            QTimer.singleShot(0, self, self._layout)
         return super().eventFilter(watched, event)
 
     def resizeEvent(self, event):
-        super().resizeEvent(event); QTimer.singleShot(0, self._layout)
+        super().resizeEvent(event); QTimer.singleShot(0, self, self._layout)
 
     def _queue_layout(self, *_):
-        QTimer.singleShot(0, self._layout)
+        QTimer.singleShot(0, self, self._layout)
 
     @staticmethod
     def _reserve_scroll_gutter(area):
@@ -264,6 +264,8 @@ class PromptEditor(QWidget):
         self.header_layout.invalidate()
 
     def _layout(self):
+        from shiboken6 import isValid
+        if not isValid(self) or not hasattr(self, 'preview_text') or not isValid(self.preview_text): return
         if not hasattr(self, 'browser'): return
         self._sync_type()
         self._reserve_scroll_gutter(self.scroll)
@@ -464,8 +466,11 @@ class PromptEditor(QWidget):
         menu = RoundMenu(self)
         if navigation.is_folder(ident):
             menu.addAction('重新命名', lambda: self.rename_folder(ident))
-            menu.addAction('移除資料夾', lambda: self.remove_folder(ident))
+            menu.addSeparator()
+            menu.add_destructive_action('刪除資料夾', lambda: self.remove_folder(ident))
         else:
+            materials.category(self.window.state, ident)
+            menu.addAction('重新命名', lambda: self.rename_category(ident))
             move = menu.addMenu('移至資料夾')
             parent = navigation.parent(self.window.state, ident)
             value = navigation.view(self.window.state); folders = {v['id']: v for v in value['folders']}
@@ -477,6 +482,8 @@ class PromptEditor(QWidget):
             if folders: move.addSeparator()
             action = move.addAction('移回外層', lambda: self.move_category(ident))
             action.setEnabled(parent is not None)
+            menu.addSeparator()
+            menu.add_destructive_action('刪除分類', lambda: self.remove_category(ident))
         menu.open_at(position)
         return menu
 
@@ -498,8 +505,23 @@ class PromptEditor(QWidget):
 
     def remove_folder(self, ident):
         folder = navigation.folder(self.window.state, ident)
-        if folder is None or not ask(self.window, '移除資料夾', f'移除「{folder["name"]}」？分類會移回外層，素材保留。'): return
-        self._commit_navigation(lambda state: navigation.remove_folder(state, ident), '移除資料夾')
+        if folder is None or not ask(self.window, '刪除資料夾', f'刪除「{folder["name"]}」資料夾？裡面的分類會移回外層，素材保留。'): return
+        self._commit_navigation(lambda state: navigation.remove_folder(state, ident), '刪除資料夾')
+
+    def rename_category(self, ident):
+        value = materials.category(self.window.state, ident)
+        name, ok = InputDialog.getText(self.window, '重新命名分類', '分類名稱', text=value['name'])
+        if ok and self.window.canvas.commit(lambda state: materials.rename_category(state, ident, name), label='重新命名分類'):
+            self.refresh()
+
+    def remove_category(self, ident):
+        value = materials.category(self.window.state, ident)
+        if not ask(self.window, '刪除分類', f'刪除「{value["name"]}」分類？其中的素材會移到「未分類」保留。'): return
+        destination = []
+        selected = self.get_browser_category()
+        if self.window.canvas.commit(lambda state: destination.append(materials.remove_category(state, ident)), label='刪除分類'):
+            self.refresh()
+            if selected == ident: self.set_browser_category(destination[0])
 
     def refresh_workspace(self):
         self.workspace_combo.refresh(self.window.state)
