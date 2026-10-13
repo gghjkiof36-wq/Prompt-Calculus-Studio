@@ -211,7 +211,8 @@ class EditorReorderTests(unittest.TestCase):
         order = [self.other_cat]+[v['id'] for v in previous if v['id'] != self.other_cat]
         self.assertEqual(self.page.categories.order_ids()[0], None)
         self.assertFalse(self.page.categories.item(0).flags() & Qt.ItemFlag.ItemIsDragEnabled)
-        self.assertEqual([v['id'] for v in self.w.state['modules']], order)
+        self.assertEqual(self.w.state['modules'], previous)
+        self.assertEqual(self.w.state['material_navigation']['order'], order)
         self.assertEqual([self.page.category.itemData(i) for i in range(1, self.page.category.count()) if self.page.category.itemData(i) != '@uncategorized'], order)
         self.assertEqual({key: self.w.state.get(key) for key in protected}, protected)
         self.assertEqual(build_prompt(self.w.state), prompt)
@@ -219,7 +220,8 @@ class EditorReorderTests(unittest.TestCase):
         self.assertEqual(self.w.state['modules'], previous)
         self.assertEqual([i for i in self.page.categories.order_ids() if i not in (None,'@uncategorized')], [v['id'] for v in previous])
         self.w.canvas.redo(); self.app.processEvents()
-        self.assertEqual([v['id'] for v in self.w.state['modules']], order)
+        self.assertEqual(self.w.state['modules'], previous)
+        self.assertEqual(self.w.state['material_navigation']['order'], order)
 
     def test_failed_commit_and_foreign_drop_leave_state_and_sort_mode_unchanged(self):
         # Window geometry is saved asynchronously and is not a material edit.
@@ -235,14 +237,14 @@ class EditorReorderTests(unittest.TestCase):
         QCoreApplication.sendEvent(self.page.listing.viewport(), event)
         self.assertFalse(event.isAccepted()); self.assertEqual(project(), state); foreign.deleteLater()
 
-    def test_category_reorder_freezes_missing_legacy_output_order(self):
+    def test_category_reorder_leaves_missing_legacy_output_order_untouched(self):
         self.w.state.pop('output_order', None)
         self.w.state['selections'][self.cat] = [self.ids[0]]
         self.w.state['selections'][self.other_cat] = [self.ids[1]]
         expected = output_groups(self.w.state, include_hidden=True)
         self.drag(self.page.categories, self.other_cat, None)
         self.assertEqual(output_groups(self.w.state, include_hidden=True), expected)
-        self.assertEqual(self.w.state['output_order'], expected)
+        self.assertNotIn('output_order', self.w.state)
 
     def test_reorder_keeps_native_draft_document_and_f2_target(self):
         ident = self.ids[0]

@@ -207,6 +207,8 @@ def validate_state(state):
     if 'workspace_scenes' in state:
         from .workspace_scene import validate as validate_scenes
         validate_scenes(state)
+    from .material_navigation import validate as validate_navigation
+    validate_navigation(state)
     return state
 
 

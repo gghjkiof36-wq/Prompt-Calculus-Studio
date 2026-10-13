@@ -67,7 +67,7 @@ class AssetDialog(StudioDialog):
         return next(i for i in self.window.state['items'] if i['id'] == ident)
 
 
-HISTORY_FIELDS = ('version', 'modules', 'items', 'selections', 'temporary', 'weights', 'instances', 'output_order', 'text_positions', 'text_sizes', 'uses', 'workspaces', 'workspace', 'prompt_layout', 'view_drafts','canvas_functions','generation')
+HISTORY_FIELDS = ('version', 'modules', 'items', 'selections', 'temporary', 'weights', 'instances', 'output_order', 'text_positions', 'text_sizes', 'uses', 'workspaces', 'workspace', 'prompt_layout', 'view_drafts','canvas_functions','generation', 'material_navigation')
 
 
 class TextCanvas(QWidget):
@@ -178,9 +178,14 @@ class TextCanvas(QWidget):
     def commit(self, operation, label='編輯', merge_key=None):
         before = self.history_state(); value = copy.deepcopy(self.window.state)
         try:
-            operation(value); comp.prune_instances(value)
-            if value.get('uses'): value.setdefault('prompt_layout','paragraphs')
-            value['output_order']=output_groups(value,include_hidden=True); validate_state(value)
+            from .material_navigation import navigation_only
+            operation(value)
+            library_only = navigation_only(self.window.state, value)
+            if not library_only:
+                comp.prune_instances(value)
+                if value.get('uses'): value.setdefault('prompt_layout','paragraphs')
+                value['output_order']=output_groups(value,include_hidden=True)
+            validate_state(value)
             if value == self.window.state: return
             if value['version'] > self.window.state['version']:
                 self.window.store.save(self.window.state)
@@ -198,7 +203,7 @@ class TextCanvas(QWidget):
             self._last_edit=(merge_key,now)
             self.redo_stack.clear(); self.last_state = after
             from .changes import layout_only
-            self.sync('layout' if layout_only(before,after) else 'prompt')
+            self.sync('library' if library_only else 'layout' if layout_only(before,after) else 'prompt')
             return True
         except (ValueError, KeyError, StopIteration) as exc:
             self.window.notice(str(exc))
@@ -220,6 +225,11 @@ class TextCanvas(QWidget):
         self._undo_sizes=retained
 
     def sync(self,scope='prompt'):
+        if scope == 'library':
+            page = getattr(self.window, 'prompt_editor', None)
+            if page is not None: page.refresh()
+            self.window.changed('settings', refresh=False)
+            return
         if scope=='layout':self.refresh_layout(); self.window.changed('layout',refresh=False); return
         self.window.generation_panel.refresh()
         self.window.refresh_modules(); self.window.refresh_library(); self.window.refresh_builder(); self.window.changed('prompt',refresh=False)
@@ -263,7 +273,8 @@ class TextCanvas(QWidget):
         source.pop(); destination.append((before, later)); self.window.state = state
         self.last_state = self.history_state()
         from .changes import layout_only
-        self.sync('layout' if layout_only(expected,target) else 'prompt')
+        from .material_navigation import navigation_only
+        self.sync('library' if navigation_only(expected,target) else 'layout' if layout_only(expected,target) else 'prompt')
 
     def undo(self): self.restore_history(self.undo_stack, self.redo_stack, False)
     def redo(self): self.restore_history(self.redo_stack, self.undo_stack, True)

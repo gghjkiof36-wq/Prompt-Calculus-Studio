@@ -4,6 +4,7 @@
 
 ## 素材、文字草稿與內容歷史
 
+- 候選26新增可選的庫級 `material_navigation` version 1，保存資料夾、分類ID歸屬及側欄順序；`settings.material_folder_collapsed` 保存收合偏好。缺欄位時全部分類在外層，不在refresh写入，不重排原`modules`或Canvas輸出。新增、改名、移動及移除沿既有Undo交易，僅收合不新增內容交易。已刪除分類的舊引用在顯示時忽略，下一次明確收納操作才清除；不支援的收納版本拒絕載入。資料夾不屬於工作區場景，也不寫進PNG生成快照；恢復快照保留目前庫的收納關係。
 - `items` 保存素材原件，`uses` 是每份畫布的獨立內容樹。新增 `content_kind`（tags/text/markdown）、`pinned`、`last_used`、`source_revision` 與 `collapsed` 為可選欄位；既有內容缺欄不強制改写收合狀態。未知內容格式拒絕，不回退成 tags 清理。
 - `multi_output.outputs` 的 Canvas 與 list 草稿保留分隔，`None` 與 `""` 不可互換。Editor 切頁、切工作區及退出前同步目前副本，素材原件仍需明確保存；舊 list 的內容與次序可透過取回入口查看，不自動生成新流程。
 - `content_history.version=1` 保存最多 200 筆／4 MiB 的內容及操作紀錄。素材、文字樹與 output 草稿的 before/after 分開記錄，output 帶 canvas/list scope。還原內容經 Canvas transaction 產生新的歷史；不改外部提交、圖片歷史或非目標輸出。

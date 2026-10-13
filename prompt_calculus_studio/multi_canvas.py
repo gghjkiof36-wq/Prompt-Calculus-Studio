@@ -319,9 +319,14 @@ class MultiCanvas(TextCanvas):
     def history_state(self):
         return {k:copy.deepcopy(self.window.state[k]) for k in HISTORY_FIELDS+('multi_output','draft','draft_base') if k in self.window.state}
     def commit(self,operation,label='編輯',merge_key=None):
+        from .material_navigation import navigation_only
+        library_only = False
         old_connections=copy.deepcopy(self.data()['connections'])
         def apply(s):
+            nonlocal library_only
             operation(s)
+            library_only = navigation_only(self.window.state, s)
+            if library_only: return
             client=getattr(self.window,'comfy',None)
             if s['multi_output']['version']>=7 and client:
                 from .stage_context import sync_result_view
@@ -332,7 +337,7 @@ class MultiCanvas(TextCanvas):
             model.reconcile(s)
         result=super().commit(apply,label=label,merge_key=merge_key)
         client=getattr(self.window,'comfy',None)
-        if result and client and self.data()['version']>=7:
+        if result and client and not library_only and self.data()['version']>=7:
             client.input_flow.chain.route_changed()
         if result and client and old_connections!=self.data()['connections']:
             removed=[c for c in old_connections if c not in self.data()['connections']]
@@ -379,9 +384,11 @@ class MultiCanvas(TextCanvas):
         source.pop(); destination.append((before,later)); self.window.state=value; self.last_state=self.history_state()
         self._last_edit=None
         from .changes import layout_only
-        self.sync('layout' if layout_only(expected,target) else 'prompt')
+        from .material_navigation import navigation_only
+        library_only = navigation_only(expected, target)
+        self.sync('library' if library_only else 'layout' if layout_only(expected,target) else 'prompt')
         if reader_changed and self.data()['version']>=7:self.window.comfy.input_flow.chain.refresh_results()
-        if self.data()['version']>=7:self.window.comfy.input_flow.chain.route_changed()
+        if not library_only and self.data()['version']>=7:self.window.comfy.input_flow.chain.route_changed()
         if canvas_focus:self.view.setFocus();self.view.scene().clearFocus()
 
     def history_projection(self,state):

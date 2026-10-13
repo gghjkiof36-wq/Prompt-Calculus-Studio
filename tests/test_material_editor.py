@@ -259,6 +259,11 @@ class MaterialEditorTests(unittest.TestCase):
         self.w.completion = CompletionService(self.w)
         window = self.w
         class Canvas:
+            # The lightweight editor fixture exposes the Canvas interface but
+            # must never stand in for real undo/redo validation (folder/reorder
+            # suites construct Window and exercise its actual history).
+            def undo(self): raise AssertionError('Canvas undo requires the real Window fixture')
+            def redo(self): raise AssertionError('Canvas redo requires the real Window fixture')
             def commit(self, operation, label='Edit', merge_key=None):
                 before = copy.deepcopy(window.state); after = copy.deepcopy(window.state)
                 operation(after); validate_state(after); window.state = after

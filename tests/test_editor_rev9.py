@@ -44,7 +44,7 @@ class EditorRev9Tests(unittest.TestCase):
     def edit(self):
         dialog = self.page.edit_material(self.ident); self.app.processEvents(); return dialog
 
-    def test_category_plus_opens_creation_directly_and_cancel_preserves_state(self):
+    def test_category_plus_menu_opens_creation_and_cancel_preserves_state(self):
         for width in (1440, 640):
             self.page.resize(width, 800); self.app.processEvents(); QTest.qWait(35)
             self.assertTrue(self.page.category_add.isVisible())
@@ -67,10 +67,13 @@ class EditorRev9Tests(unittest.TestCase):
                     except BaseException as exc:
                         errors.append(exc)
                         if dialog is not None: dialog.reject()
-                QTimer.singleShot(40, operate)
                 if accepted:
                     self.page.category_add.setFocus(); QTest.keyClick(self.page.category_add, Qt.Key.Key_Space)
                 else: QTest.mouseClick(self.page.category_add, Qt.MouseButton.LeftButton)
+                menu = QApplication.activePopupWidget(); self.assertIsNotNone(menu)
+                category_action = next(v for v in menu.actions() if v.text() == '新增分類')
+                QTimer.singleShot(40, operate)
+                QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(category_action).center())
                 self.app.processEvents(); self.assertFalse(errors, errors); self.assertEqual(seen, ['新增分類'])
                 if accepted:
                     added = [value for value in self.w.state['modules'] if value['name'] == name]

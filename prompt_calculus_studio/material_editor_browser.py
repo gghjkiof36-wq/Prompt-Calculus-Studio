@@ -7,8 +7,8 @@ from PySide6.QtGui import QFont, QColor, QPen, QFontMetrics, QTextCursor, QTextB
 from PySide6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QLineEdit,
     QListWidget, QListWidgetItem, QCheckBox, QScrollArea, QTextEdit, QLabel,
     QStyledItemDelegate, QStyleOptionViewItem, QStyle, QApplication, QDialog, QSizePolicy, QPushButton)
-from . import materials
-from .core import uid, output_groups
+from . import materials, material_navigation as navigation
+from .core import uid
 from .widgets import label, button, row, ComboBox, StudioDialog, RoundMenu, preview_path, set_preview, InputDialog, ask
 from .views import widget_colors
 from .material_editor_page import Disclosure, sync_prompt_style, apply_line_spacing
@@ -66,24 +66,6 @@ class LibraryDelegate(QStyledItemDelegate):
         painter.restore()
 
 
-class CategoryNavigationDelegate(QStyledItemDelegate):
-    """Separate the fixed all-items shortcut without changing reorder IDs."""
-    def sizeHint(self, option, index):
-        size = super().sizeHint(option, index)
-        if index.data(Qt.ItemDataRole.UserRole) is None: size.setHeight(size.height()+16)
-        return size
-
-    def paint(self, painter, option, index):
-        if index.data(Qt.ItemDataRole.UserRole) is not None:
-            return super().paint(painter, option, index)
-        entry = QStyleOptionViewItem(option); entry.rect.adjust(0, 0, 0, -16)
-        super().paint(painter, entry, index)
-        colors = widget_colors(self.parent())
-        painter.save(); painter.setPen(QPen(QColor(colors.get('divider', colors['line'])), 1))
-        painter.drawLine(option.rect.left()+12, option.rect.bottom()-8, option.rect.right()-12, option.rect.bottom()-8)
-        painter.restore()
-
-
 class StatusLabel(QLabel):
     def __init__(self):
         super().__init__(); self.setObjectName('Subtle'); self.setWordWrap(True); self.hide()
@@ -135,24 +117,32 @@ class PromptEditor(QWidget):
         category_layout.setContentsMargins(12, 24, 12, 12); category_layout.setSpacing(8)
         self.category_heading = label('內容分類', 'SidebarHeading')
         from .ui_icons import icon
-        self.category_add = button('', self.new_category, 'Quiet')
+        self.category_add = button('', self.category_add_menu, 'Quiet')
         self.category_add.setIcon(icon('plus')); self.category_add.setIconSize(QSize(18, 18))
-        self.category_add.setAccessibleName('新增分類'); self.category_add.setFixedSize(28, 28)
+        self.category_add.setAccessibleName('新增資料夾或分類'); self.category_add.setToolTip('新增資料夾或分類'); self.category_add.setFixedSize(28, 28)
         self.category_add.setCursor(Qt.CursorShape.PointingHandCursor); self.category_add.setStyleSheet('padding:0;')
         self.category_title = QWidget()
         self.category_title_row = row(self.category_heading, None, self.category_add)
         self.category_title_row.setContentsMargins(0, 0, 0, 0); self.category_title.setLayout(self.category_title_row)
         category_layout.addWidget(self.category_title)
-        from .prompt_editor import ReorderableList
-        self.categories = ReorderableList(); self.categories.setObjectName('SidebarNavigation')
-        self.categories.setItemDelegate(CategoryNavigationDelegate(self.categories))
-        self.categories.enable_reordering(); self.categories.reorderRequested.connect(self._reorder_categories)
+        from .material_folder_navigation import FolderNavigation
+        self.categories = FolderNavigation(); self.categories.setObjectName('SidebarNavigation')
+        self.categories.reorderRequested.connect(self._reorder_categories)
+        self.categories.toggleRequested.connect(self.toggle_folder)
+        self.categories.menuRequested.connect(self.category_row_menu)
+        self.categories.moveRequested.connect(self.move_category)
+        self.categories.undoRequested.connect(self.window.canvas.undo)
+        self.categories.redoRequested.connect(self.window.canvas.redo)
         self.categories.setFrameShape(QListWidget.Shape.NoFrame); self.categories.setSpacing(3)
         self.categories.setResizeMode(QListWidget.ResizeMode.Adjust); category_layout.addWidget(self.categories, 1)
-        self.category = ComboBox(self); self.category.hide()
+        self.category = ComboBox(self); self.category.hide(); self.category.installEventFilter(self)
         self.category_controls = QWidget(); self.category_controls.hide()
         controls = QHBoxLayout(self.category_controls); controls.setContentsMargins(0, 0, 0, 0); controls.setSpacing(12)
         controls.addWidget(self.category, 1)
+        self.category_more = button('', self.selected_category_menu, 'Quiet')
+        self.category_more.setIcon(icon('more-horizontal')); self.category_more.setFixedSize(28, 28)
+        self.category_more.setAccessibleName('資料夾或分類選單'); self.category_more.setToolTip('資料夾或分類選單')
+        self.category_more.setStyleSheet('padding:0;'); controls.addWidget(self.category_more)
         category_layout.addWidget(self.category_controls)
         self.browser = QWidget(self.shell); content = QVBoxLayout(self.browser)
         content.setContentsMargins(0, 0, 0, 0); content.setSpacing(14)
@@ -234,6 +224,9 @@ class PromptEditor(QWidget):
         self.set_browser_category(getattr(window, '_material_browser_category', None))
 
     def eventFilter(self, watched, event):
+        if watched is getattr(self, 'category', None) and event.type() == QEvent.Type.KeyPress:
+            if event.matches(QKeySequence.StandardKey.Undo): self.window.canvas.undo(); return True
+            if event.matches(QKeySequence.StandardKey.Redo): self.window.canvas.redo(); return True
         if hasattr(self, 'scroll') and watched is self.scroll.viewport() and event.type() == QEvent.Type.Resize:
             QTimer.singleShot(0, self._layout)
         return super().eventFilter(watched, event)
@@ -416,6 +409,7 @@ class PromptEditor(QWidget):
 
     def _category_changed(self):
         self.window._material_browser_category = self.category.currentData()
+        self.category_more.setEnabled(self.get_browser_category() not in (None, '@uncategorized') and self.category.currentText() != '未分類')
         self.title.setText(self.category.currentText()); self.refresh_list()
 
     def _order_changed(self):
@@ -433,15 +427,79 @@ class PromptEditor(QWidget):
 
     def _reorder_categories(self, before, after):
         if before != self.categories.order_ids(): return
-        # The all-items shortcut and virtual empty category are navigation,
-        # not stored categories. A real uncategorized category can be moved.
-        original = [ident for ident in before if ident not in (None, '@uncategorized')]
-        reordered = [ident for ident in after if ident not in (None, '@uncategorized')]
-        def apply(state):
-            if 'output_order' not in state:
-                state['output_order'] = output_groups(state, include_hidden=True)
-            _replace_visible_order(state, 'modules', original, reordered)
-        if self.window.canvas.commit(apply, label='調整分類順序'): self.refresh()
+        root = navigation.view(self.window.state)['order']
+        original = [ident for ident in before if ident in root]
+        reordered = [ident for ident in after if ident in root]
+        def apply(state): navigation.reorder_root(state, original, reordered)
+        self._commit_navigation(apply, '調整分類順序')
+
+    def _commit_navigation(self, operation, label):
+        # Prepare only library metadata; no-op moves/renames must not enter the
+        # Canvas normalization path or create an Undo entry.
+        state = self.window.state; value = dict(modules=state['modules'])
+        if navigation.FIELD in state: value[navigation.FIELD] = copy.deepcopy(state[navigation.FIELD])
+        try: operation(value)
+        except ValueError as exc: self.window.notice(str(exc)); return False
+        if state.get(navigation.FIELD) == value.get(navigation.FIELD): return False
+        return self.window.canvas.commit(lambda target: target.update({navigation.FIELD: value[navigation.FIELD]}), label=label)
+
+    def toggle_folder(self, ident):
+        collapsed = set(self.window.state['settings'].get('material_folder_collapsed', []))
+        if ident in collapsed: collapsed.remove(ident)
+        else: collapsed.add(ident)
+        self.window.state['settings']['material_folder_collapsed'] = sorted(collapsed)
+        self._refresh_categories()
+        self.window.changed('settings', refresh=False)
+
+    def move_category(self, ident, destination=None, before=None):
+        return self._commit_navigation(lambda state: navigation.move(state, ident, destination, before), '移動分類收納')
+
+    def category_add_menu(self):
+        menu = RoundMenu(self)
+        menu.addAction('新增資料夾', self.new_folder); menu.addAction('新增分類', self.new_category)
+        menu.open_for(self.category_add)
+        return menu
+
+    def category_row_menu(self, ident, position):
+        menu = RoundMenu(self)
+        if navigation.is_folder(ident):
+            menu.addAction('重新命名', lambda: self.rename_folder(ident))
+            menu.addAction('移除資料夾', lambda: self.remove_folder(ident))
+        else:
+            move = menu.addMenu('移至資料夾')
+            parent = navigation.parent(self.window.state, ident)
+            value = navigation.view(self.window.state); folders = {v['id']: v for v in value['folders']}
+            for fid in value['order']:
+                if fid not in folders: continue
+                action = move.addAction(folders[fid]['name'], lambda checked=False, target=fid: self.move_category(ident, target))
+                action.setCheckable(True); action.setChecked(parent == fid)
+                action.setEnabled(parent != fid)
+            if folders: move.addSeparator()
+            action = move.addAction('移回外層', lambda: self.move_category(ident))
+            action.setEnabled(parent is not None)
+        menu.open_at(position)
+        return menu
+
+    def selected_category_menu(self):
+        return self.category_row_menu(self.get_browser_category(), self.category_more.mapToGlobal(self.category_more.rect().bottomLeft()))
+
+    def new_folder(self):
+        name, ok = InputDialog.getText(self.window, '新增資料夾', '資料夾名稱')
+        if not ok: return
+        added = []
+        if self._commit_navigation(lambda state: added.append(navigation.add_folder(state, name)), '新增資料夾'):
+            self.set_browser_category(added[0])
+
+    def rename_folder(self, ident):
+        folder = navigation.folder(self.window.state, ident)
+        if folder is None: return
+        name, ok = InputDialog.getText(self.window, '重新命名資料夾', '資料夾名稱', text=folder['name'])
+        if ok: self._commit_navigation(lambda state: navigation.rename_folder(state, ident, name), '重新命名資料夾')
+
+    def remove_folder(self, ident):
+        folder = navigation.folder(self.window.state, ident)
+        if folder is None or not ask(self.window, '移除資料夾', f'移除「{folder["name"]}」？分類會移回外層，素材保留。'): return
+        self._commit_navigation(lambda state: navigation.remove_folder(state, ident), '移除資料夾')
 
     def refresh_workspace(self):
         self.workspace_combo.refresh(self.window.state)
@@ -460,24 +518,43 @@ class PromptEditor(QWidget):
         order = self.window.state['settings'].get('material_library_order', 'name')
         self.order.blockSignals(True); self.order.setCurrentIndex(max(0, self.order.findData(order))); self.order.blockSignals(False)
         self.refresh_workspace()
-        selected = self.get_browser_category()
-        self.category.blockSignals(True); self.categories.blockSignals(True)
-        self.category.clear(); self.categories.clear()
-        values = [('全部模組', None)] + [(v['name'], v['id']) for v in self.window.state['modules']]
-        unclassified = next((v['id'] for v in self.window.state['modules'] if v['name']=='未分類'), None)
-        if unclassified is None: values.append(('未分類', '@uncategorized'))
-        elif selected == '@uncategorized': selected = unclassified
-        for name, ident in values:
-            count = sum(1 for v in self.window.state['items'] if ident is None or v['module'] == ident)
-            self.category.addItem(name, ident)
-            entry = QListWidgetItem(f'{name}  {count}'); entry.setData(Qt.ItemDataRole.UserRole, ident)
-            if ident in (None, '@uncategorized'): entry.setFlags(entry.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
-            self.categories.addItem(entry)
-        index = max(0, self.category.findData(selected)); self.category.setCurrentIndex(index); self.categories.setCurrentRow(index)
-        self.category.blockSignals(False); self.categories.blockSignals(False); self._refreshing = False
-        self.window._material_browser_category = self.category.currentData()
+        self._refresh_categories()
+        self._refreshing = False
         self.title.setText(self.category.currentText()); self.refresh_list()
         if self.preview_id: self.preview_material(self.preview_id)
+
+    def _refresh_categories(self):
+        selected = self.get_browser_category(); state = self.window.state
+        self.category.blockSignals(True); self.categories.blockSignals(True)
+        self.category.clear(); self.categories.clear()
+        value = navigation.view(state); folders = {v['id']: v for v in value['folders']}
+        categories = {v['id']: v for v in state['modules']}
+        counts = {ident: 0 for ident in categories}
+        for item in state['items']: counts[item['module']] = counts.get(item['module'], 0)+1
+        collapsed = set(state['settings'].get('material_folder_collapsed', []))
+        self.categories.has_folders = bool(folders)
+        def add(name, ident, count, kind='category', parent=None, visible=True):
+            self.category.addItem(name, ident)
+            if visible: self.categories.add_row(ident, name, count, kind, parent, ident in collapsed)
+        add('全部模組', None, len(state['items']), 'shortcut')
+        for ident in value['order']:
+            if ident in folders:
+                folder = folders[ident]
+                add(folder['name'], ident, sum(counts[v] for v in folder['categories']), 'folder')
+                for cid in folder['categories']:
+                    add(categories[cid]['name'], cid, counts[cid], parent=ident, visible=ident not in collapsed)
+            else: add(categories[ident]['name'], ident, counts[ident])
+        unclassified = next((v['id'] for v in state['modules'] if v['name'] == '未分類'), '@uncategorized')
+        add('未分類', unclassified, counts.get(unclassified, 0), 'shortcut')
+        if selected == '@uncategorized': selected = unclassified
+        self.category.setCurrentIndex(max(0, self.category.findData(selected)))
+        selected = self.category.currentData()
+        for index in range(self.categories.count()):
+            if self.categories.item(index).data(Qt.ItemDataRole.UserRole) == selected:
+                self.categories.setCurrentRow(index); break
+        self.category.blockSignals(False); self.categories.blockSignals(False)
+        self.window._material_browser_category = self.category.currentData()
+        self.category_more.setEnabled(selected not in (None, '@uncategorized') and self.category.currentText() != '未分類')
 
     def refresh_list(self, *_):
         self.preview_click.cancel()
@@ -486,7 +563,10 @@ class PromptEditor(QWidget):
         selected = self.selected_id(); scroll = self.listing.verticalScrollBar().value()
         self.listing.blockSignals(True); self.listing.clear()
         category = self.get_browser_category()
-        rows = [] if category == '@uncategorized' else materials.search(self.window.state, self.search.text(), category, pinned=self.pins.isChecked(), order=self.order.currentData())
+        folder = navigation.folder(self.window.state, category) if navigation.is_folder(category) else None
+        self.search.setPlaceholderText('搜尋此資料夾的名稱、別名或內容' if folder else '搜尋目前分類的名稱、別名或內容')
+        rows = [] if category == '@uncategorized' else materials.search(self.window.state, self.search.text(), None if folder else category, pinned=self.pins.isChecked(), order=self.order.currentData())
+        if folder: rows = [v for v in rows if v['module'] in folder['categories']]
         if self.order.currentData() == 'manual':
             visible = {value['id'] for value in rows}
             rows = [value for value in self.window.state['items'] if value['id'] in visible]
@@ -497,7 +577,7 @@ class PromptEditor(QWidget):
         self.listing.blockSignals(False); self.listing.verticalScrollBar().setValue(scroll)
         self.listing.setVisible(bool(rows))
         self.count.setText(f'{len(rows)} 個模組'); self.empty_results.setVisible(not rows)
-        self.empty_results.setText('找不到符合搜尋的模組。' if self.search.text() else '這個分類還沒有模組，可按「新增模組」開始。')
+        self.empty_results.setText('找不到符合搜尋的模組。' if self.search.text() else '這個資料夾還沒有模組，可先移入分類。' if folder else '這個分類還沒有模組，可按「新增模組」開始。')
         self._layout()
 
     def selected_id(self):
@@ -633,7 +713,12 @@ class PromptEditor(QWidget):
         name, ok = InputDialog.getText(self.window, '新增分類', '分類名稱')
         if not ok or not name.strip(): return
         added = []
-        if self.window.canvas.commit(lambda state: added.append(materials.add_category(state, name)), label='新增素材分類'):
+        selected = self.get_browser_category()
+        def apply(state):
+            if any(v['name'] == name.strip() for v in state['modules']): raise ValueError('已有同名分類，請使用其他名稱。')
+            added.append(materials.add_category(state, name))
+            if navigation.is_folder(selected): navigation.move(state, added[0], selected)
+        if self.window.canvas.commit(apply, label='新增素材分類'):
             self.refresh(); self.set_browser_category(added[0])
 
 
@@ -669,7 +754,14 @@ class MaterialEditDialog(StudioDialog):
             advanced_layout.addWidget(toggle); advanced_layout.addWidget(panel); panel.hide(); toggle.toggled.connect(panel.setVisible)
             return toggle, layout
         self.info_toggle, info = group('素材資訊')
-        fields = QFormLayout(); fields.addRow('分類', f.edit_category); fields.addRow('格式', f.kind); fields.addRow('別名', f.aliases); fields.addRow('備註', f.notes); info.addLayout(fields)
+        self.require_category = not ident and navigation.is_folder(page.get_browser_category())
+        fields = QFormLayout()
+        if self.require_category:
+            f.edit_category.insertItem(0, '選擇分類…', None); f.edit_category.setCurrentIndex(0)
+            destination = QFormLayout(); destination.addRow('分類', f.edit_category)
+            self.body.insertLayout(3, destination)
+        else: fields.addRow('分類', f.edit_category)
+        fields.addRow('格式', f.kind); fields.addRow('別名', f.aliases); fields.addRow('備註', f.notes); info.addLayout(fields)
         self.lookup_toggle, lookup = group('標籤查詢'); lookup.addWidget(f.lookup); lookup.addWidget(f.lookup_hint)
         self.relation_toggle, relation = group('關係與預覽'); relation.addWidget(label('停用的完整 Tag，每行一項', 'Subtle')); relation.addWidget(f.excludes); relation.addWidget(f.preview)
         relation.addLayout(row(button('選擇預覽圖', f.choose_image, 'Quiet'), button('移除預覽', f.clear_image, 'Quiet')))
@@ -748,6 +840,8 @@ class MaterialEditDialog(StudioDialog):
     def save(self, add=False):
         if self.busy: return False
         add = bool(add); f = self.form; window = self.page.window
+        if self.require_category and f.edit_category.currentData() not in {v['id'] for v in window.state['modules']}:
+            self.error.setText('請選擇素材所屬的分類。'); f.edit_category.setFocus(); return False
         destination = f.destination_id if add else None
         if add and destination is None: self.error.setText('請先選擇要加入的文字畫布。'); return False
         value = self._value(); signature = json.dumps(value, sort_keys=True, ensure_ascii=False)
