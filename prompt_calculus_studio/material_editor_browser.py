@@ -303,7 +303,9 @@ class PromptEditor(QWidget):
             self.category_panel.setGeometry(0, 0, 240, height)
             start = READING_MARGIN; area_x = 240+READING_MARGIN
             area_width = max(0, width-area_x-READING_MARGIN)
-        has_preview = bool(self.preview_id and self.preview_card.isVisible())
+        # Refresh also runs while an ancestor page is hidden. Reserve the
+        # detail column until the preview itself is explicitly closed.
+        has_preview = bool(self.preview_id and not self.preview_card.isHidden())
         if has_preview:
             # The detail remains a right-hand column at every width. At desktop
             # sizes both columns contract; only an exceptionally small viewport

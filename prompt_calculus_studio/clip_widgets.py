@@ -228,8 +228,14 @@ class ExecutionBar(QFrame):
         self.controls.layout().activate();self.layout().activate()
         self.setMaximumWidth(max(1,area.width())); self.adjustSize()
         self.present_status()
-        x,y=self.canvas.window.state['settings'].get('execution_bar_position',[0.0,1.0])
-        self.move(area.left()+round(max(0,area.width()-self.width())*x),area.top()+round(max(0,area.height()-self.height())*y))
+        if self.drag is None:
+            x,y=self.canvas.window.state['settings'].get('execution_bar_position',[0.0,1.0])
+            self.move(area.left()+round(max(0,area.width()-self.width())*x),area.top()+round(max(0,area.height()-self.height())*y))
+        else:
+            # Status ticks may resize the controls, but the held pointer owns
+            # the position until release stores it. Only clamp to the viewport.
+            self.move(max(area.left(),min(self.x(),area.right()-self.width()+1)),
+                      max(area.top(),min(self.y(),area.bottom()-self.height()+1)))
         self.place_zoom_controls()
     def eventFilter(self,watched,event):
         if watched is self.parentWidget() and event.type()==QEvent.Type.Resize: QTimer.singleShot(0,self.place)

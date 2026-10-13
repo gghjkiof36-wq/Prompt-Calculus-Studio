@@ -3,8 +3,8 @@ import copy,json,os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtCore import QCoreApplication,QEvent,QPoint,QRect,Qt
-from PySide6.QtGui import QFontDatabase,QIcon
+from PySide6.QtCore import QCoreApplication,QEvent,QPoint,QPointF,QRect,Qt,QTimer
+from PySide6.QtGui import QFontDatabase,QIcon,QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from prompt_calculus_studio.color_roles import contrast
@@ -112,15 +112,80 @@ class ExecutionBarPresentationTests(unittest.TestCase):
         self.assertEqual(self.controls.count.suffix(),' 輪')
         self.assertEqual(self.controls.count.value(),100)
 
-    def test_disconnected_controls_and_list_mode_keep_their_existing_labels(self):
+    def test_disconnected_controls_and_editor_switch_keep_canvas_actions(self):
         self.configure();self.w.comfy.connected=False;self.controls.refresh()
         self.assertFalse(self.controls.run_button.isEnabled());self.assertFalse(self.controls.stop.isEnabled())
         self.w.set_interface_mode('list');QTest.qWait(20)
-        self.assertEqual(self.controls.stop.text(),'取消')
-        self.assertFalse(self.controls.activity.detailed)
+        self.assertTrue(self.w.prompt_editor.isVisible())
+        self.assertFalse(self.controls.isVisible())
         self.w.set_interface_mode('canvas');QTest.qWait(20)
+        self.assertTrue(self.controls.isVisible())
         self.assertEqual(self.controls.stop.text(),'')
         self.assertTrue(self.controls.activity.detailed)
+
+    def drag_event(self,kind,global_pos):
+        button=Qt.MouseButton.NoButton if kind==QEvent.Type.MouseMove else Qt.MouseButton.LeftButton
+        buttons=Qt.MouseButton.NoButton if kind==QEvent.Type.MouseButtonRelease else Qt.MouseButton.LeftButton
+        handle=self.bar.handle
+        APP.sendEvent(handle,QMouseEvent(kind,QPointF(handle.mapFromGlobal(global_pos)),QPointF(global_pos),
+                                        button,buttons,Qt.KeyboardModifier.NoModifier))
+
+    def test_status_ticks_keep_the_drag_position_until_release_and_save(self):
+        self.configure(active=True)
+        graph=copy.deepcopy(self.w.canvas.data())
+        saved=list(self.w.state['settings']['execution_bar_position'])
+        start=self.bar.pos();pointer=self.bar.handle.mapToGlobal(self.bar.handle.rect().center())
+        self.drag_event(QEvent.Type.MouseButtonPress,pointer)
+        target=start+QPoint(-160,-190)
+        self.drag_event(QEvent.Type.MouseMove,pointer+target-start)
+        self.assertEqual(self.bar.pos(),target)
+        observed=[]
+        timer=QTimer(self.bar);timer.setInterval(25)
+        def tick():
+            self.w.comfy_changed()
+            observed.append(self.bar.pos())
+        timer.timeout.connect(tick);timer.start()
+        try:
+            QTest.qWait(180)
+        finally:
+            timer.stop();timer.deleteLater()
+        self.assertGreaterEqual(len(observed),3)
+        self.assertTrue(all(position==target for position in observed),(target,observed))
+        self.assertEqual(self.w.state['settings']['execution_bar_position'],saved)
+        target+=QPoint(65,-30)
+        self.drag_event(QEvent.Type.MouseMove,pointer+target-start)
+        self.w.comfy_changed();self.assertEqual(self.bar.pos(),target)
+        self.drag_event(QEvent.Type.MouseButtonRelease,pointer+target-start)
+        self.assertIsNone(self.bar.drag)
+        self.assertNotEqual(self.w.state['settings']['execution_bar_position'],saved)
+        self.w.comfy_changed();self.assertEqual(self.bar.pos(),target)
+        self.w.persist()
+        from prompt_calculus_studio.core import Storage
+        store=Storage(self.tmp.name)
+        try:self.assertEqual(store.load()['settings']['execution_bar_position'],self.w.state['settings']['execution_bar_position'])
+        finally:store.close()
+        self.w.set_interface_mode('list');self.w.set_interface_mode('canvas');QTest.qWait(30)
+        self.assertEqual(self.bar.pos(),target)
+        self.assertEqual(self.w.canvas.data(),graph);self.run.assert_not_called()
+
+    def test_drag_keeps_controls_inside_viewport_when_size_changes(self):
+        self.configure(active=True)
+        pointer=self.bar.handle.mapToGlobal(self.bar.handle.rect().center());start=self.bar.pos()
+        self.drag_event(QEvent.Type.MouseButtonPress,pointer)
+        self.drag_event(QEvent.Type.MouseMove,pointer+QPoint(900,-190))
+        self.w.resize(640,480);QTest.qWait(30);self.w.comfy_changed()
+        area=self.bar.parentWidget().rect().adjusted(12,12,-12,-12)
+        self.assertTrue(area.contains(self.bar.geometry()))
+        position=self.bar.pos()
+        self.w.comfy_changed();self.assertEqual(self.bar.pos(),position)
+        # After clamping to the smaller viewport the same held pointer can
+        # continue dragging, and release commits the final bounded position.
+        destination=QPoint(area.left()+8,area.top()+12)
+        self.drag_event(QEvent.Type.MouseMove,pointer+destination-start)
+        self.assertEqual(self.bar.pos(),destination)
+        self.w.comfy_changed();self.assertEqual(self.bar.pos(),destination)
+        self.drag_event(QEvent.Type.MouseButtonRelease,pointer+destination-start)
+        self.w.comfy_changed();self.assertEqual(self.bar.pos(),destination)
 
 
 if __name__=='__main__':unittest.main()
