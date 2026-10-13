@@ -52,7 +52,7 @@ def reset_editors(window):
         editor.name.clear(); editor.prompt.clear(); editor.aliases.clear()
         editor.notes.clear(); editor.excludes.clear()
         editor.heading.setText('文字素材')
-        editor.scope_hint.setText('選擇素材或文字畫布副本開始編輯。')
+        editor.scope_hint.setText('選擇素材或畫布副本開始編輯。')
         editor.status.clear()
         editor.show_preview()
         editor.detail.setEnabled(False)
@@ -408,7 +408,7 @@ class MaterialEditorForm(QWidget):
         self.count = label('', 'Subtle')
         library.addWidget(self.count)
         self.destination = ComboBox()
-        self.destination.setAccessibleName('加入的文字畫布')
+        self.destination.setAccessibleName('加入的畫布')
         library.addWidget(self.destination)
         library.addLayout(row(button('加入畫布', self.add_selected, 'Primary'), button('編輯素材', self.open_selected, 'Quiet')))
         library.addLayout(row(button('釘選／取消', self.toggle_pin, 'Quiet'), button('新增分類', self.new_category, 'Quiet'), button('歷史', lambda: show_history(window), 'Quiet')))
@@ -472,7 +472,7 @@ class MaterialEditorForm(QWidget):
         self.status = label('', 'Subtle', True)
         detail.addWidget(self.status)
         self.edit_destination = ComboBox()
-        self.edit_destination.setAccessibleName('新素材加入的文字畫布')
+        self.edit_destination.setAccessibleName('新素材加入的畫布')
         detail.addWidget(self.edit_destination)
         self.save_button = button('保存素材', self.save_material, 'Primary')
         self.use_button = button('保存並加入畫布', lambda: self.save_material(True), 'Quiet')
@@ -566,7 +566,7 @@ class MaterialEditorForm(QWidget):
             destination = self.destination_id
             self.destination.blockSignals(True)
             self.destination.clear()
-            self.destination.addItem('選擇文字畫布', None)
+            self.destination.addItem('選擇畫布', None)
             canvases = self.window.state.get('multi_output', {}).get('canvases', {})
             for key, value in canvases.items(): self.destination.addItem(value['name'], key)
             self.destination.setCurrentIndex(max(0, self.destination.findData(destination)))
@@ -784,7 +784,7 @@ class MaterialEditorForm(QWidget):
         value = dict(id=uid(), name='', prompt=text, aliases=[], notes='', excludes=[], preview='',
                      module=self.category.currentData(), content_kind='tags')
         self.load_value(value, 'new')
-        self.status.setText('完成後可直接保存並加入文字畫布。')
+        self.status.setText('完成後可直接保存並加入畫布。')
         if not self.compact and self.narrow: self.hide_library()
         (self.name if self.compact else self.prompt).setFocus()
 
@@ -923,7 +923,7 @@ class MaterialEditorForm(QWidget):
     def target_canvas(self):
         key = self.destination.currentData()
         if key is None:
-            self.window.notice('請先選擇要加入的文字畫布。')
+            self.window.notice('請先選擇要加入的畫布。')
         return key
 
     def save_material(self, add=False):

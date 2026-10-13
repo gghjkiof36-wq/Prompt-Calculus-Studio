@@ -69,7 +69,7 @@ class PreviewCanvas:
         from .module_contracts import MODULES
         state = self.window.state; data = self.data(); key = 'preview_node'
         if kind == 'canvas':
-            data['canvases'][key] = new_canvas('文字畫布')
+            data['canvases'][key] = new_canvas('畫布')
             data['canvases'][key]['display_size'] = list(PREVIEW_SIZES[kind])
             card = CanvasContainer(self, key); self.containers[key] = card; card.refresh()
             contract = 'canvas'

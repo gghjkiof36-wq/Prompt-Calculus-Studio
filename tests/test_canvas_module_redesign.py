@@ -183,7 +183,7 @@ class ModuleRedesignTests(StageFixture):
         from prompt_calculus_studio.function_picker import FunctionPicker
         dialog=FunctionPicker(self.c,QPointF(2100,1200));dialog.show();QTest.qWait(10)
         existing=set(self.c.data()['canvases']);count=len(self.c.undo_stack)
-        dialog.search.setText('文字畫布');QTest.keyClick(dialog.search,Qt.Key.Key_Return);QTest.qWait(15)
+        dialog.search.setText('畫布');QTest.keyClick(dialog.search,Qt.Key.Key_Return);QTest.qWait(15)
         added=set(self.c.data()['canvases'])-existing;self.assertEqual(len(added),1)
         self.assertEqual(self.c.data()['canvases'][added.pop()]['position'],[2100,1200])
         self.assertEqual(len(self.c.undo_stack),count+1)

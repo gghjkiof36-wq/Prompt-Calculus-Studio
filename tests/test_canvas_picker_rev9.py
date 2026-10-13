@@ -246,7 +246,7 @@ class PickerRev9Tests(unittest.TestCase):
             self.p.insert(); self.assertEqual(self.asset_api.call_count,0); self.assertTrue(self.p.isVisible())
         with patch.object(CanvasPalette,'canvases',return_value={}):
             self.open(destination_id=None,choose_destination=True)
-            self.assertIn('尚無文字畫布',self.p.destination_label.text()); self.assertFalse(self.p.new_button.isEnabled())
+            self.assertIn('尚無畫布',self.p.destination_label.text()); self.assertFalse(self.p.new_button.isEnabled())
 
     def test_shared_category_and_workspace_identity_protect_invocation(self):
         self.select(self.cat); self.assertEqual(self.w._material_browser_category,self.cat)

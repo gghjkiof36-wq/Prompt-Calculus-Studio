@@ -843,7 +843,7 @@ class MaterialEditDialog(StudioDialog):
         self.add_button.setVisible(value is not None and self.target_id is not None)
         self.save_button.setText('保存並加入畫布' if value and not self.target_id else '保存')
         self.destination_label.setVisible(value is not None)
-        self.destination_label.setText('加入文字畫布：'+value['name'] if value else '')
+        self.destination_label.setText('加入畫布：'+value['name'] if value else '')
         if self.receipt and canvas_id != self.receipt['destination']:
             self.error.setText('加入目的地已改變；再次保存並加入會使用新的目的地。')
 
@@ -867,7 +867,7 @@ class MaterialEditDialog(StudioDialog):
         if self.require_category and f.edit_category.currentData() not in {v['id'] for v in window.state['modules']}:
             self.error.setText('請選擇素材所屬的分類。'); f.edit_category.setFocus(); return False
         destination = f.destination_id if add else None
-        if add and destination is None: self.error.setText('請先選擇要加入的文字畫布。'); return False
+        if add and destination is None: self.error.setText('請先選擇要加入的畫布。'); return False
         value = self._value(); signature = json.dumps(value, sort_keys=True, ensure_ascii=False)
         receipt = self.receipt
         retry = bool(add and receipt and signature == receipt['signature'] and destination == receipt['destination'])

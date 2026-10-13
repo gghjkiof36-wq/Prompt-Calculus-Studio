@@ -48,7 +48,7 @@ def _populate_pristine(state):
     from .stage_model import add as add_stage
     result=state;data=result['multi_output']
     canvas=next(iter(data['canvases']));output=next(iter(data['outputs']));clip=next(iter(data['clip_inputs']))
-    data['canvases'][canvas].update(name='文字畫布',position=[0,0],display_size=[560,280])
+    data['canvases'][canvas].update(name='畫布',position=[0,0],display_size=[560,280])
     data['outputs'][output]['name']='Prompt 輸出'
     data['clip_inputs'][clip]['name']='CLIP 輸入'
     scheduler=add_scheduler(result,(1220,0));data['schedulers'][scheduler]['mode']='data'

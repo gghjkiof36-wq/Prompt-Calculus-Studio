@@ -38,7 +38,7 @@ class SourceDelegate(QStyledItemDelegate):
 
 def source_kind(state,key):
     data=state['multi_output']
-    if key in data['canvases']:return '文字畫布'
+    if key in data['canvases']:return '畫布'
     if key in data['outputs']:return 'Prompt'
     if key in data.get('stages',{}):return 'Stage'
     if '::' in key:return '預排程'

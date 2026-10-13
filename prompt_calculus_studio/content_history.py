@@ -240,7 +240,7 @@ def restore(state, entry_id, target, *, previous=False, scope=None):
             from .multi_output import assign
             owner = change.get('before_owner' if previous else 'after_owner')
             if owner not in state.get('multi_output', {}).get('canvases', {}):
-                raise ValueError('原文字畫布已移除；可先復原畫布，再還原此內容。')
+                raise ValueError('原畫布已移除；可先復原畫布，再還原此內容。')
             key = uuid.uuid4().hex
             state.setdefault('uses', {})[key] = clone_node(value)
             state.setdefault('output_order', []).append(key)

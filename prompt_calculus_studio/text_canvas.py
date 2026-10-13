@@ -588,9 +588,9 @@ class TextCanvas(QWidget):
         canvases=state.get('multi_output',{}).get('canvases',{})
         editor=self.__dict__.get('editor')
         if destination_id not in canvases or (editor is not None and destination_id!=editor.key):
-            self.window.notice('目的文字畫布已移除，請重新選擇。'); return False
+            self.window.notice('目的畫布已移除，請重新選擇。'); return False
         if self.root_id is not None and model.owner(state,self.root_id)!=destination_id:
-            self.window.notice('目前模組已不在目的文字畫布內，請重新選擇。'); return False
+            self.window.notice('目前模組已不在目的畫布內，請重新選擇。'); return False
         missing=object()
         previous=self.__dict__.get('insertion_canvas',missing)
         fixed=self.__dict__.get('_fixed_insertion_canvas',missing)

@@ -53,7 +53,7 @@ class InterfaceTests(unittest.TestCase):
         w=self.w; w.set_interface_mode('canvas'); w.canvas.add_tag('white background'); before=copy.deepcopy(w.state)
         observed=[]
         def cancel():
-            dialog=APP.activeModalWidget(); observed.append(isinstance(dialog,QFileDialog) and dialog.parentWidget() is w and dialog.testOption(QFileDialog.Option.DontUseNativeDialog)); dialog.reject()
+            dialog=APP.activeModalWidget(); observed.append(isinstance(dialog,QFileDialog) and dialog.parentWidget() is w and not dialog.testOption(QFileDialog.Option.DontUseNativeDialog)); dialog.reject()
         QTimer.singleShot(80,cancel); w.generation_panel.import_workflow(); QTest.qWait(40)
         self.assertEqual(observed,[True]); self.assertTrue(w.isVisible()); self.assertTrue(w.canvas.isVisible())
         self.assertEqual(w.state,before)

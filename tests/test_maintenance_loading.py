@@ -8,6 +8,33 @@ from test_multi_output import workspace
 
 
 class LoadingTests(unittest.TestCase):
+    def test_old_default_canvas_label_updates_all_workspaces_once_without_changing_content(self):
+        from prompt_calculus_studio.core import initial_state
+        from prompt_calculus_studio.canvas_starter import initialize
+        from prompt_calculus_studio.multi_output import new_canvas
+        from prompt_calculus_studio.workspace_scene import capture,create
+        from prompt_calculus_studio.drafts import edit
+        state=initialize(prepare_state(initial_state(),multi=True),fresh_install=True)
+        canvases=state['multi_output']['canvases'];key=next(iter(canvases))
+        canvases[key]['name']='文字畫布';canvases['custom']=new_canvas('我的文字畫布')
+        edit(state,'',state['multi_output']['current_output']);capture(state);create(state,'另一工作區',duplicate=True)
+        original=copy.deepcopy(state);expected=copy.deepcopy(state)
+        expected['multi_output']['canvases'][key]['name']='畫布'
+        for saved in expected['workspace_scenes']['items'].values():saved['multi_output']['canvases'][key]['name']='畫布'
+        with tempfile.TemporaryDirectory() as folder:
+            store=Storage(folder)
+            try:
+                store.save(state);converted=store.load_current(multi=True)
+                self.assertEqual(converted,expected);self.assertEqual(state,original)
+                self.assertEqual(build_prompt(converted),build_prompt(original))
+                backups=list(Path(folder).glob('before-import-*.sqlite3'));self.assertEqual(len(backups),1)
+                db=sqlite3.connect(backups[0])
+                try:self.assertEqual(json.loads(db.execute('SELECT body FROM document WHERE id=1').fetchone()[0]),original)
+                finally:db.close()
+                self.assertEqual(store.load_current(multi=True),expected)
+                self.assertEqual(list(Path(folder).glob('before-import-*.sqlite3')),backups)
+            finally:store.close()
+
     def test_old_document_conversion_is_once_and_backup_has_original(self):
         original=legacy()
         with tempfile.TemporaryDirectory() as folder:

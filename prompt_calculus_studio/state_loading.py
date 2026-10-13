@@ -2,6 +2,12 @@
 import copy
 
 
+def _canvas_default_names(state):
+    # Rename the former built-in label only; custom names and graph IDs stay intact.
+    for canvas in state['multi_output']['canvases'].values():
+        if canvas['name']=='文字畫布':canvas['name']='畫布'
+
+
 def prepare_state(state, *, multi=False):
     from .core import validate_state,DEFAULT_SETTINGS
     from .composition import migrate_canvas_library
@@ -23,6 +29,7 @@ def prepare_state(state, *, multi=False):
         result=upgrade_dataflow(result)
         from .stage_model import upgrade as upgrade_stages
         result=upgrade_stages(result)
+        _canvas_default_names(result)
         from .workspace_scene import load as load_scene,scene as scene_value
         for key,saved in result.get('workspace_scenes',{}).get('items',{}).items():
             # A saved workspace can predate the active workspace schema. Load
@@ -36,6 +43,7 @@ def prepare_state(state, *, multi=False):
             projected=upgrade_workflow_flow(projected)
             projected=upgrade_dataflow(projected)
             projected=upgrade_stages(projected)
+            _canvas_default_names(projected)
             projected.pop('_execution_inputs',None)
             projected.pop('_stage_results',None)
             materialize(projected)

@@ -20,14 +20,14 @@ def load_many(panel, paths, iterate=True):
 
 
 def choose_many(panel, folder=False):
-    options=QFileDialog.Option.DontUseNativeDialog
     if folder:
-        name=QFileDialog.getExistingDirectory(panel.owner.window,'選擇圖片資料夾',options=options)
+        name=QFileDialog.getExistingDirectory(panel.owner.window,'選擇圖片資料夾')
         if not name:return
         try:paths=folder_files(name)
         except OSError as exc:panel.owner.window.notice(str(exc));return
     else:
-        paths,_=QFileDialog.getOpenFileNames(panel.owner.window,'選擇多張圖片','','圖片 (*.png *.jpg *.jpeg *.webp *.bmp)',options=options)
+        paths,_=QFileDialog.getOpenFileNames(panel.owner.window,'選擇多張圖片','','圖片 (*.png *.jpg *.jpeg *.webp *.bmp)')
+        if not paths:return
         paths=sorted(paths,key=natural_key)
     if load_many(panel,paths):edit_list(panel)
 

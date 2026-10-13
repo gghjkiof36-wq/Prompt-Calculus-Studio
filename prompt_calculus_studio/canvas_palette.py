@@ -63,9 +63,9 @@ class CanvasPalette(QDialog):
         self.close_button.setAccessibleName('關閉文字挑選'); self.close_button.setToolTip('關閉')
         header.addWidget(self.close_button,0,Qt.AlignmentFlag.AlignTop); self.body.addLayout(header)
         self.destination_label=label('','Subtle',True); self.body.addWidget(self.destination_label)
-        self.destination=ComboBox(); self.destination.setAccessibleName('目的文字畫布')
+        self.destination=ComboBox(); self.destination.setAccessibleName('目的畫布')
         self.destination.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed)
-        self.destination.addItem('選擇目的文字畫布',None)
+        self.destination.addItem('選擇目的畫布',None)
         for ident,value in self.canvases().items(): self.destination.addItem(value['name'],ident)
         self.destination.setCurrentIndex(max(0,self.destination.findData(self.destination_id)))
         self.body.addWidget(self.destination); self.destination.setVisible(self.choose_destination)
@@ -144,9 +144,9 @@ class CanvasPalette(QDialog):
         if value:
             self.destination_label.clear()
         elif not self.canvases():
-            self.destination_label.setText('尚無文字畫布；請關閉此頁，返回 Canvas 建立文字畫布。')
+            self.destination_label.setText('尚無畫布；請關閉此頁，返回 Canvas 建立畫布。')
         else:
-            self.destination_label.setText('請先選擇目的文字畫布。' if self.choose_destination else '目的文字畫布已不存在，請返回 Canvas 重新開啟。')
+            self.destination_label.setText('請先選擇目的畫布。' if self.choose_destination else '目的畫布已不存在，請返回 Canvas 重新開啟。')
         self.destination_label.setVisible(value is None)
         for control in (self.assets,self.new_button):
             control.setEnabled(value is not None and not self.busy)
@@ -154,9 +154,9 @@ class CanvasPalette(QDialog):
     def ready(self):
         if self.closed or self.inserted or self.busy: return False
         if self.layout_owner!=(self.canvas.window.store,self.canvas.window.state['workspace']):
-            self.show_error('工作區已切換，請關閉並從目前文字畫布重新開啟。'); return False
+            self.show_error('工作區已切換，請關閉並從目前畫布重新開啟。'); return False
         if self.destination_id not in self.canvases():
-            self.update_destination(); self.show_error('請選擇有效的目的文字畫布後再加入。'); return False
+            self.update_destination(); self.show_error('請選擇有效的目的畫布後再加入。'); return False
         return True
 
     def uncategorized_ids(self):
@@ -367,7 +367,7 @@ class CanvasPalette(QDialog):
         if success:
             self.inserted=True; self.accept()
         elif report_cancel:
-            self.show_error('未能加入，選擇已保留；請確認文字畫布後重試。')
+            self.show_error('未能加入，選擇已保留；請確認畫布後重試。')
 
     def new_module(self):
         if self.ready(): self.perform(lambda:self.canvas.add_new_with_destination(self.position,self.destination_id),False)

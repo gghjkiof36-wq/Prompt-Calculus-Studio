@@ -11,7 +11,7 @@ from .ui_icons import icon
 
 
 FUNCTIONS = (
-    ('canvas', '文字畫布', '文字', '放置並組合文字模組', 'panel-left'),
+    ('canvas', '畫布', '文字', '放置並組合文字模組', 'panel-left'),
     ('output', 'Prompt 控制', '文字', '調整來源順序與完整 Prompt', 'list-ordered'),
     ('clip', 'CLIP 輸入', '文字', '將文字送到工作流的指定欄位', 'type'),
     ('reader', '讀取文字', '文字', '選擇並讀取 Stage 的文字結果', 'file-text'),

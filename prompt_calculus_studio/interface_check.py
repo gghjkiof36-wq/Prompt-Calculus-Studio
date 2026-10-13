@@ -1,4 +1,4 @@
-"""Frozen Windows UI checks using a new diagnostic database, never user data."""
+"""Frozen offscreen UI checks using a new diagnostic database, never user data."""
 import json,os
 from pathlib import Path
 from PySide6.QtCore import QTimer
@@ -14,6 +14,10 @@ def start(window):
     def check():
         result={}
         try:
+            # Native Windows pickers run a modal loop without Qt timers. This
+            # diagnostic inspects Qt widgets and must use the offscreen fallback.
+            if QApplication.platformName()!='offscreen':
+                raise ValueError('此自動介面檢查需要 QT_QPA_PLATFORM=offscreen；原生檔案視窗請人工確認。')
             stage('open-settings')
             window.start_interface(); assert window.surface_stack.currentWidget() is window.welcome
             window.set_interface_mode('canvas'); window.canvas.add_tag('landscape, soft light')
@@ -38,7 +42,7 @@ def start(window):
                 def choose_actual():
                     dialog=QApplication.activeModalWidget()
                     if not isinstance(dialog,QFileDialog): picker_info.append(False); return
-                    picker_info.append(any(url.toLocalFile().lower().startswith(file.drive.lower()) for url in dialog.sidebarUrls()))
+                    picker_info.append(dialog.parentWidget() is window and not dialog.testOption(QFileDialog.Option.DontUseNativeDialog))
                     dialog.setDirectory(str(file.parent))
                     def select_file():
                         field=dialog.findChild(QLineEdit,'fileNameEdit')
@@ -54,7 +58,7 @@ def start(window):
                 assert picker_info==[True] and profile['mode']=='img2img'
                 assert profile['prompt']==['6','text'] and profile['image']=='8'
                 assert window.final.toPlainText()=='preserved manual prompt'
-                result['native_d_drive_import']=True
+                result['offscreen_local_workflow_import']=True
             settings.cancel(); QApplication.processEvents()
             stage('preview-and-puzzle')
             path=window.store.directory/'preview.png'; image=QImage(128,96,QImage.Format.Format_RGB32); image.fill(0xff405b70); image.save(str(path))

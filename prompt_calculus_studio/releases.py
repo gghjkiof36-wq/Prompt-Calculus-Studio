@@ -88,6 +88,7 @@ RELEASES={r.flag:r for r in (
     Release('--v0.8.7-alpha.1','v0.8.7-alpha.1','v0.8.7 Alpha 1','Start-PCS-v0.8.7-Alpha','--v0.8.7-alpha'),
     Release('--v0.8.8-preparation.1','v0.8.8-preparation.1','v0.8.8 前置驗證 1（本機）','Start-PCS-v0.8.8-Preparation1','--v0.8.7-alpha'),
     Release('--v0.8.8-preparation.2','v0.8.8-preparation.2','v0.8.8 前置驗證 2（本機）','Start-PCS-v0.8.8-Preparation2','--v0.8.7-alpha'),
+    Release('--v0.8.8-preparation.3','v0.8.8-preparation.3','v0.8.8 前置驗證 3（本機）','Start-PCS-v0.8.8-Preparation3','--v0.8.7-alpha'),
 )}
 CURRENT=RELEASES['--v0.8.7-alpha.1']
 # Historical build flags remain readable; new metadata uses explicit dotted version identifiers.

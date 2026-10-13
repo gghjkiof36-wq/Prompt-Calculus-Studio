@@ -176,7 +176,7 @@ def add_to_canvas(state, ident, canvas_id, position=None):
     from .core import uid
     from .multi_output import assign
     if canvas_id not in state.get('multi_output', {}).get('canvases', {}):
-        raise ValueError('請先選擇要加入的文字畫布。')
+        raise ValueError('請先選擇要加入的畫布。')
     source = item(state, ident)
     root = comp.clone_node(comp.prototype(source))
     root.update(source_id=source['id'], source_module=source['module'],

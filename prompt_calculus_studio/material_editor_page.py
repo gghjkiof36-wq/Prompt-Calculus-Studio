@@ -331,7 +331,7 @@ def update_page(e):
     if kind == 'canvas': status = '同步中' if e.dirty else '即時同步'
     e.identity.setText(identity + ' · ' + status); e.identity.setToolTip(e.scope_hint.text())
     e.more.setText('素材資訊 · ' + (e.edit_category.currentText() or '未分類') + ' · ' + e.kind.currentText())
-    routine = ('', '尚未保存', '完成後可直接保存並加入文字畫布。', '正在編輯畫布副本…')
+    routine = ('', '尚未保存', '完成後可直接保存並加入畫布。', '正在編輯畫布副本…')
     e.status.setVisible(e.status.text() not in routine)
     e.use_button.hide(); e.edit_destination.hide(); e.save_button.setVisible(kind != 'canvas')
     e.copy_button.setEnabled(bool(e.prompt.toPlainText()))

@@ -792,7 +792,7 @@ class MultiCanvas(TextCanvas):
         menu.addAction('重新命名',lambda:self.rename_function('clip_inputs',key))
         menu.addAction('移除 CLIP 輸入',lambda:self.commit(lambda s:clip_flow.remove(s,key))); menu.open_at(position)
     def container_menu(self,key,position):
-        menu=RoundMenu(self.window); menu.addAction('展開文字畫布「'+self.data()['canvases'][key]['name']+'」',lambda:self.open_editor(key))
+        menu=RoundMenu(self.window); menu.addAction('展開畫布「'+self.data()['canvases'][key]['name']+'」',lambda:self.open_editor(key))
         menu.addAction('調整模組尺寸…',lambda:self.size_dialog(key));menu.addAction('恢復自動尺寸',lambda:self.reset_size(key))
         menu.addAction('加入文字模組',lambda:self.window.show_materials(key))
         menu.addAction('畫布歷史',lambda:self.window.show_content_history(key))

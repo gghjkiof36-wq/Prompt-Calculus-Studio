@@ -412,10 +412,10 @@ class Window(QMainWindow):
         canvas=self.canvas
         target=canvas_id if canvas_id is not None else canvas.canvas_at(position) if position is not None else None
         if canvas_id is not None and target not in canvas.data()['canvases']:
-            self.notice('目的文字畫布已移除，請重新選擇。');return False
+            self.notice('目的畫布已移除，請重新選擇。');return False
         if target not in canvas.data()['canvases']:
             choices=list(canvas.data()['canvases'])
-            labels=[canvas.data()['canvases'][k]['name']+' · '+str(i+1) for i,k in enumerate(choices)]+['新增文字畫布']
+            labels=[canvas.data()['canvases'][k]['name']+' · '+str(i+1) for i,k in enumerate(choices)]+['新增畫布']
             from .widgets import InputDialog
             selected,ok=InputDialog.getItem(self,'加入文字素材','選擇目的畫布',labels)
             if not ok:return False

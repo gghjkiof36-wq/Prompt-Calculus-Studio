@@ -272,7 +272,7 @@ class CanvasContainer(QGraphicsObject):
             area=self.actions()['editor'];painter.setPen(QPen(QColor(colors['canvas_line']),1))
             painter.setBrush(QColor(colors['hover'] if self.hot=='editor' else container['canvas_body']))
             painter.drawRoundedRect(area,8,8);painter.setPen(QColor(colors['text']))
-            painter.drawText(area,Qt.AlignmentFlag.AlignCenter,'展開文字畫布')
+            painter.drawText(area,Qt.AlignmentFlag.AlignCenter,'展開畫布')
         pen=QPen(QColor(colors['canvas_line']),1);pen.setCosmetic(True);painter.setPen(pen)
         painter.drawLine(QPointF(0,44),QPointF(self.width,44))
         preview=self.canvas.image_previews.get(self.key)

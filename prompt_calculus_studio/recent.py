@@ -206,7 +206,7 @@ class RecentPage(QFrame):
         if value: self.destination_warning.hide()
 
     def choose_directory(self):
-        path=QFileDialog.getExistingDirectory(self.window,'選擇收藏資料夾',self.window.state['settings'].get('recent_external',''),QFileDialog.Option.DontUseNativeDialog)
+        path=QFileDialog.getExistingDirectory(self.window,'選擇收藏資料夾',self.window.state['settings'].get('recent_external',''))
         if path:
             self.window.state['settings'].update(recent_external=path,recent_destination='external')
             self.refresh_destinations(); self.window.changed('settings'); self.update_save_button()

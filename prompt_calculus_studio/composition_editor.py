@@ -204,7 +204,7 @@ class CompositionEditor(QWidget):
         self.return_button=button('返回Canvas',self.close_editor,'Quiet')
         self.return_button.setProperty('iconName','arrow-left')
         body.addLayout(row(self.return_button,self.title,None,self.size_button))
-        self.identity=label('文字畫布內的獨立副本 · 修改會同步至目前流程','Subtle')
+        self.identity=label('畫布內的獨立副本 · 修改會同步至目前流程','Subtle')
         body.addWidget(self.identity)
         self.history_button=button('畫布歷史',self.history,'Quiet')
         body.addLayout(row(self.undo_button,self.redo_button,self.history_button,None,button('背景',self.background,'Quiet'),button('輸出預覽',self.preview,'Quiet'),button('匯出底圖',self.export,'Quiet')))
@@ -342,7 +342,7 @@ class CompositionEditor(QWidget):
             self.title.setText(self.data()['name']); doc=self.image(); signature=json.dumps(doc,sort_keys=True)
             if signature!=self.signature:
                 if doc: self.paint_document(doc)
-                else: self.view.pixmap.setPixmap(QPixmap()); self.message.setText('純文字畫布。匯入圖片或選擇繪圖工具時，再設定底圖尺寸。')
+                else: self.view.pixmap.setPixmap(QPixmap()); self.message.setText('純文字內容。匯入圖片或選擇繪圖工具時，再設定底圖尺寸。')
                 self.signature=signature
             self.size_button.setText(f"{doc['width']} × {doc['height']}" if doc else '啟用底圖')
             self.layers.blockSignals(True); self.layers.clear()
