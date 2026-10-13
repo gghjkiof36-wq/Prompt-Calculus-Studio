@@ -4,8 +4,8 @@ import os
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from PySide6.QtCore import Qt,QPoint,QPointF,QEvent,QCoreApplication
-from PySide6.QtGui import QDragEnterEvent,QDragMoveEvent,QDropEvent,QDragLeaveEvent,QMouseEvent,QFontDatabase
+from PySide6.QtCore import Qt,QPoint,QPointF,QEvent,QCoreApplication,QRect
+from PySide6.QtGui import QDragEnterEvent,QDragMoveEvent,QDropEvent,QDragLeaveEvent,QMouseEvent,QFontDatabase,QScreen
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
 import test_editor_reorder as fixture
@@ -19,6 +19,8 @@ class MaterialCategoryDragTests(unittest.TestCase):
     tearDown=fixture.EditorReorderTests.tearDown
 
     def setUp(self):
+        screen=patch.object(QScreen,'availableGeometry',return_value=QRect(0,0,1920,1080))
+        screen.start();self.addCleanup(screen.stop)
         fixture.EditorReorderTests.setUp(self)
         QTest.qWait(350);self.w.persist()
 
@@ -107,10 +109,12 @@ class MaterialCategoryDragTests(unittest.TestCase):
         self.assertIn(self.ids[0],[picker.assets.item(i).data(Qt.ItemDataRole.UserRole) for i in range(picker.assets.count())])
         row=next(picker.modules.item(i) for i in range(picker.modules.count()) if picker.modules.item(i).data(Qt.ItemDataRole.UserRole)==folder)
         self.assertEqual(row.data(ROW)['count'],3)
+        self.capture(picker,'canvas-picker-folder-expanded.png')
         arrow=picker.modules.regions(picker.modules.visualItemRect(row),row.data(ROW))[0]
         QTest.mouseClick(picker.modules.viewport(),Qt.MouseButton.LeftButton,pos=arrow.center())
         self.assertNotIn(self.other_cat,picker.modules.order_ids());self.capture(picker,'canvas-picker-category-moved.png');picker.reject()
         self.w.leave_canvas();self.assertNotIn(self.other_cat,self.page.categories.order_ids())
+        self.capture(self.w,'editor-folder-collapsed.png')
         self.page.toggle_folder(folder);self.w.enter_canvas();picker=CanvasPalette(c,QPointF(800,500));picker.show();self.app.processEvents()
         self.assertIn(self.other_cat,picker.modules.order_ids());picker.reject();self.w.leave_canvas()
 
