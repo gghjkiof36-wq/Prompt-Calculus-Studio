@@ -268,32 +268,43 @@ class ManagerPage(QWidget):
         self.gallery.viewport().update()
 
     def make_auto(self):
+        from .management_reading import PREFERRED_CONTENT_WIDTH,ReadingPanel,ReadingText,PageHeadingRole,readable_control
+        self.reading_heading=PageHeadingRole(self.heading,self.window,lambda:self.view)
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
-        frame, body = panel('SettingsGroup')
-        body.addWidget(label('其他節點套件', 'Heading'))
-        body.addWidget(label('排程尚未提供', 'Subtle'))
-        body.addWidget(label('目前可手動更新全部或所選套件。固定版本會排除於更新範圍。', None, True))
-        body.addWidget(button('管理套件', lambda: self.show_view('packages'), 'Quiet'), 0, Qt.AlignmentFlag.AlignLeft)
-        body.addWidget(button('PCS 配套擴充的自動更新', lambda: self.show_view('extension'), 'Quiet'), 0, Qt.AlignmentFlag.AlignLeft)
+        frame = ReadingPanel(self.window);body = frame.body
+        frame.setMaximumWidth(PREFERRED_CONTENT_WIDTH)
+        body.addWidget(ReadingText(self.window,'其他節點套件','panel'))
+        body.addSpacing(8)
+        body.addWidget(ReadingText(self.window,'排程尚未提供',subtle=True))
+        body.addSpacing(8)
+        body.addWidget(ReadingText(self.window,'目前可手動更新全部或所選套件。固定版本會排除於更新範圍。'))
+        body.addSpacing(24)
+        body.addWidget(readable_control(button('管理套件', lambda: self.show_view('packages'), 'Quiet')), 0, Qt.AlignmentFlag.AlignLeft)
+        body.addSpacing(10)
+        body.addWidget(readable_control(button('PCS 配套擴充的自動更新', lambda: self.show_view('extension'), 'Quiet')), 0, Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(frame)
         layout.addStretch()
         return scrolling(content)
 
     def make_tools(self):
+        from .management_reading import PREFERRED_CONTENT_WIDTH,ReadingPanel,ReadingText,readable_control
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
-        frame, body = panel('SettingsGroup')
-        frame.setMaximumWidth(920)
-        body.addWidget(label('在 ComfyUI 管理環境','DialogTitle'))
+        frame = ReadingPanel(self.window);body = frame.body
+        frame.setMaximumWidth(PREFERRED_CONTENT_WIDTH)
+        body.addWidget(ReadingText(self.window,'在 ComfyUI 管理環境','panel'))
         for title, description in (
             ('安裝與修復', '缺少節點 · Git 套件 · Python 套件'),
             ('版本與環境', '重新啟動 · 環境快照 · 主程式版本')):
-            body.addWidget(label(title, 'Heading'))
-            body.addWidget(label(description, 'Subtle', True))
-        body.addWidget(decorated('開啟 ComfyUI', self.open_comfy, 'external-link','Primary'), 0, Qt.AlignmentFlag.AlignLeft)
+            body.addSpacing(24)
+            body.addWidget(ReadingText(self.window,title,'group'))
+            body.addSpacing(8)
+            body.addWidget(ReadingText(self.window,description,subtle=True))
+        body.addSpacing(24)
+        body.addWidget(readable_control(decorated('開啟 ComfyUI', self.open_comfy, 'external-link','Primary')), 0, Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(frame)
         layout.addStretch()
         return scrolling(content)
@@ -309,6 +320,7 @@ class ManagerPage(QWidget):
 
     def show_view(self, key):
         self.view = key
+        self.reading_heading.refresh()
         self.compact_tabs.blockSignals(True)
         self.compact_tabs.setCurrentIndex(self.compact_tabs.findData(key))
         self.compact_tabs.blockSignals(False)

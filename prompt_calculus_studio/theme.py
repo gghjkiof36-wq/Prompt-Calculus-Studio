@@ -17,6 +17,9 @@ VISUAL_PALETTES = {
         'accent_neutral':'#e3d5ba', 'accent_blue':'#a6c6db', 'accent_green':'#b8cbb1',
         'chrome_solid':'#202527', 'sidebar':'#1a1f21',
         'mica_tint':'#343936', 'acrylic_tint':'#3c4042',
+        'module_body':'#232628', 'module_header':'#282c2e', 'module_field':'#191c1e',
+        'module_dialog':'#191c1e',
+        'canvas_background':'#111111',
     },
     'mist': {
         'base':'#151b23', 'chrome':'#1e2833', 'surface':'#242f3b',
@@ -143,7 +146,14 @@ def stylesheet(settings):
     QFrame#InsetPanel[pcsCanvasBody="true"], QFrame#Panel[pcsCanvasBody="true"] {{ background:transparent; border:0; }}
     QFrame#CanvasModuleBody QLineEdit, QFrame#CanvasModuleBody QPlainTextEdit,
     QFrame#CanvasModuleBody QComboBox, QFrame#CanvasModuleBody QSpinBox,
-    QFrame#CanvasModuleBody QDoubleSpinBox {{ background:{t['canvas_field']}; }}
+    QFrame#CanvasModuleBody QDoubleSpinBox {{ background:{t['module_field']}; }}
+    QListWidget#ModuleSourceOrder, QTreeWidget#ModuleSourceOrder, QListWidget#ModuleScheduleList {{background:{t['module_field']};border:0;border-radius:8px;padding:4px;}}
+    QListWidget#ModuleSourceOrder::item, QTreeWidget#ModuleSourceOrder::item {{border:0;border-radius:6px;padding:8px 10px;}}
+    QTreeWidget#ModuleSourceOrder::item:hover {{background:{t['hover']};}}
+    QTreeWidget#ModuleSourceOrder::item:selected {{background:{t['selected']};}}
+    QListWidget#ModuleScheduleList::item {{border:0;border-radius:6px;padding:10px;}}
+    QFrame#ModuleDivider {{background:{t['line']};border:0;}}
+    QFrame#CanvasModuleBody QPlainTextEdit#Prompt {{border:0;border-radius:8px;padding:10px;}}
     QLabel#ExploreTitle {{ font-size:28px; font-weight:600; }}
     QFrame#PopupPanel {{ background:{t['raised']}; border:1px solid {t['line']}; border-radius:16px; }}
     QPushButton#FilterChip {{ background:{t['surface']}; border:1px solid transparent; padding:6px 12px; border-radius:14px; }}
@@ -177,9 +187,9 @@ def stylesheet(settings):
     QListWidget#PaletteAssets::item:selected, QListWidget#PaletteAssets::item:selected:hover {{ background:{t['selected']}; border-color:{t['control']}; }}
     QLabel#Heading {{ font-size:{font_pixels(settings['ui_size']+2)}px; font-weight:600; }}
     QLabel#DialogTitle {{ font-size:{font_pixels(settings['ui_size']+4)}px; font-weight:600; }}
-    QScrollArea#SettingsReadingPage QLabel#DialogTitle {{ font-size:{font_pixels(settings['ui_size']+7)}px; font-weight:600; }}
-    QScrollArea#SettingsReadingPage QLabel#Heading {{ font-size:{font_pixels(settings['ui_size'])}px; font-weight:600; }}
-    QScrollArea#SettingsReadingPage QLabel#Subtle {{ font-size:{font_pixels(max(10,settings['ui_size']-1))}px; font-weight:400; color:{t['muted']}; }}
+    QScrollArea#SettingsReadingPage QLabel#DialogTitle, QScrollArea[pcsReadingPage="true"] QLabel#DialogTitle {{ font-size:{font_pixels(settings['ui_size']+7)}px; font-weight:600; }}
+    QScrollArea#SettingsReadingPage QLabel#Heading, QScrollArea[pcsReadingPage="true"] QLabel#Heading {{ font-size:{font_pixels(settings['ui_size'])}px; font-weight:600; }}
+    QScrollArea#SettingsReadingPage QLabel#Subtle, QScrollArea[pcsReadingPage="true"] QLabel#Subtle {{ font-size:{font_pixels(max(10,settings['ui_size']-1))}px; font-weight:400; color:{t['muted']}; }}
     QLabel#Brand {{ font-size:{font_pixels(settings['ui_size']+3)}px; font-weight:600; }}
     QLabel#BrandMark {{ color:{accent}; font-size:31px; }}
     QLabel#Eyebrow {{ color:{t['muted']}; font-size:{font_pixels(max(9,settings['ui_size']-1))}px; }}
@@ -264,6 +274,9 @@ def stylesheet(settings):
     QMenu::item:disabled {{ color:{t['disabled_text']}; }}
     QMenu::separator {{ height:1px; background:{t['divider']}; margin:6px 12px; }}
     QMenu::indicator {{ width:0; }}
+    QLabel#DestructiveMenuAction {{ color:{t['destructive_text']}; background:transparent; padding:5px 10px; border:0; border-radius:7px; }}
+    QLabel#DestructiveMenuAction[active="true"] {{ background:{t['popup_active']}; }}
+    QLabel#DestructiveMenuAction:disabled {{ color:{t['disabled_text']}; }}
     QTabWidget::pane {{ border:none; background:transparent; top:8px; }}
     QScrollArea {{ background:transparent; border:none; }}
     QWidget#ScrollContent, QWidget#ScrollViewport {{ background:transparent; }}

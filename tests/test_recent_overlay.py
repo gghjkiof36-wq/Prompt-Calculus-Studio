@@ -90,6 +90,12 @@ class RecentOverlayTests(unittest.TestCase):
         self.assertTrue(self.r.detail_scroll.isVisible());self.assertEqual(self.r.images.gridSize(),size)
         self.assertEqual(self.r.detail_name.text(),record['name'])
         self.assertEqual(self.r.images.currentItem().toolTip(),record['name'])
+        close=self.r.detail_close
+        self.assertFalse(close.icon().isNull());self.assertEqual(close.iconSize().width(),18)
+        self.assertGreaterEqual(close.width(),36);self.assertGreaterEqual(close.height(),36)
+        QTest.mouseClick(close,Qt.MouseButton.LeftButton,pos=QPoint(close.width()-5,close.height()-5));QTest.qWait(10)
+        self.assertFalse(self.r.detail_scroll.isVisible());self.assertEqual(self.r.record,record)
+        self.r.show_details(item);QTest.qWait(10)
         for width,height,font in ((800,640,11),(640,480,18)):
             self.w.resize(width,height);self.w.state['settings']['ui_size']=font;self.w.apply_theme();QTest.qWait(100)
             self.assertTrue(self.r.detail_scroll.isVisible());self.assertFalse(self.r.grid_panel.isVisible())
@@ -139,8 +145,8 @@ class RecentOverlayTests(unittest.TestCase):
 
     def test_canvas_capsule_and_bidirectional_mode_switch_preserve_drafts(self):
         self.assertTrue(self.w.canvas_workspace_bar.isVisible());self.assertFalse(self.w.context_rail.isVisible())
-        self.w.resize(640,480);QTest.qWait(30);self.assertEqual(self.w.canvas_workspace_bar.list_mode.text(),'')
-        self.w.resize(1440,900);QTest.qWait(30);self.assertEqual(self.w.canvas_workspace_bar.list_mode.text(),'切換清單')
+        self.w.resize(640,480);QTest.qWait(30);self.assertEqual(self.w.canvas_workspace_bar.list_mode.text(),'Prompt Editor')
+        self.w.resize(1440,900);QTest.qWait(30);self.assertEqual(self.w.canvas_workspace_bar.list_mode.text(),'Prompt Editor')
         state=self.w.state
         from prompt_calculus_studio.drafts import edit
         key=next(iter(self.w.canvas.data()['outputs']));self.w.canvas.commit(lambda current:edit(current,'',key));QTest.qWait(40)

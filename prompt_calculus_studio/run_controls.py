@@ -170,6 +170,14 @@ class RunControls(QWidget):
             ids.update(item['prompt_id'] for item in flow.direct.submitted.values() if item['route']['server']==client.url)
             if flow.current and flow.current.get('waiting'):ids.add(flow.current['waiting'])
             self.activity_count=max(len(ids),client.running+client.pending)
+            chain=getattr(flow,'chain',None)
+            if stage_mode and chain and not chain.closed:
+                owners={r['id'] for r in chain.runs(True) if r['server']==client.url}
+                preparing=[a for a in chain.store.rows('attempt',self.window.state['workspace'],active=True)
+                           if a['owner'] in owners and a['status']=='preparing' and not a.get('prompt_id')]
+                # Preparation belongs to an active execution too, even before
+                # ComfyUI can supply a prompt_id or queue count.
+                self.activity_count=max(len(ids)+len(preparing),client.running+client.pending)
         self.activity_available=not self.activity.isHidden()
         self.present_activity()
         if self.execution_only:

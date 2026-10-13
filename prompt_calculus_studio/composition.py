@@ -6,14 +6,30 @@ its entire target while active; removing it reveals the retained content below.
 import copy
 import math
 import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 MAX_DEPTH = 32
 MAX_NODES = 5000
+_LEGACY_FORMAT = ContextVar('pcs_legacy_composition_format', default=False)
+
+
+@contextmanager
+def legacy_format(enabled=True):
+    """Exact old separator rules, solely for validated historical snapshots."""
+    token = _LEGACY_FORMAT.set(enabled)
+    try: yield
+    finally: _LEGACY_FORMAT.reset(token)
+
+
+def using_legacy_format():
+    return _LEGACY_FORMAT.get()
 
 
 def node(name, prompt='', *, children=None, excludes=None, grouped=False):
     return dict(id=uuid.uuid4().hex, name=name, prompt=prompt, enabled=True,
-                weight=10, children=children or [], overlays=[], excludes=excludes or [], grouped=grouped)
+                weight=10, children=children or [], overlays=[], excludes=excludes or [], grouped=grouped,
+                collapsed=True, content_kind='tags')
 
 
 def validate_node(root):
@@ -32,8 +48,10 @@ def validate_node(root):
             raise ValueError('複合模組名稱不能空白。')
         if not isinstance(value.get('prompt'), str) or type(value.get('enabled')) is not bool:
             raise ValueError('複合模組文字或啟用狀態無效。')
-        if type(value.get('weight')) is not int or not 0 <= value['weight'] <= 1000:
-            raise ValueError('子項權重須介於 0.0–100.0。')
+        from .materials import validate_fields
+        validate_fields(value)
+        if type(value.get('weight')) is not int or not -1000 <= value['weight'] <= 1000:
+            raise ValueError('子項權重須介於 -100.0–100.0。')
         if type(value.get('grouped', False)) is not bool:
             raise ValueError('模組分組格式無效。')
         if not isinstance(value.get('excludes'), list) or any(not isinstance(t, str) or not t.strip() for t in value['excludes']):
@@ -100,9 +118,14 @@ def validate_compositions(state):
 
 def prototype(item):
     if 'composition' in item:
-        return item['composition']
+        root=copy.deepcopy(item['composition'])
+        root['collapsed']=True
+        root.setdefault('content_kind',item.get('content_kind','tags'))
+        return root
     return dict(id='source:' + item['id'], name=item['name'], prompt=item['prompt'],
-                enabled=True, weight=10, children=[], overlays=[], excludes=list(item.get('excludes', [])))
+                enabled=True, weight=10, children=[], overlays=[], excludes=list(item.get('excludes', [])),
+                content_kind=item.get('content_kind', 'tags'), collapsed=True,
+                preview=item.get('preview', ''))
 
 
 def root_for(state, item):
@@ -219,6 +242,33 @@ def effective_nodes(root):
             yield from effective_nodes(child)
 
 
+def trim_tag_boundary(text):
+    """Remove only unescaped, outer comma separators; never edits stored text."""
+    value = text.strip()
+    while value.startswith(','):
+        value = value[1:].lstrip()
+    while value.endswith(','):
+        escapes = len(value[:-1]) - len(value[:-1].rstrip('\\'))
+        if escapes % 2:
+            break
+        value = value[:-1].rstrip()
+    return value
+
+
+def join_fragments(parts, separator=', '):
+    if using_legacy_format(): return separator.join(text for text, _ in parts)
+    parts = [(trim_tag_boundary(text) if kind == 'tags' else text, kind) for text, kind in parts if text.strip()]
+    parts = [(text, kind) for text, kind in parts if text.strip()]
+    result = ''
+    previous = None
+    for text, kind in parts:
+        if result:
+            result += separator if previous == kind == 'tags' else '\n\n'
+        result += text
+        previous = kind
+    return result
+
+
 def render(root, transform=None, *, grouped=None):
     if not root['enabled']:
         return ''
@@ -227,23 +277,24 @@ def render(root, transform=None, *, grouped=None):
     if overlay is not None:
         text = render(overlay, transform)
     else:
-        own = transform(root['prompt']) if transform else root['prompt']
-        parts = [own.strip()] if own.strip() else []
-        parts.extend(text for child in root['children'] if (text := render(child, transform)))
-        # A fragment may already provide the separator. Only normalize the
-        # join boundary; leave the stored text and final fragment untouched.
-        text = ''
-        for part in parts:
-            if text:
-                prefix = text.rstrip()
-                while prefix.endswith(','):
-                    escapes = len(prefix[:-1]) - len(prefix[:-1].rstrip('\\'))
-                    if escapes % 2: break
-                    prefix = prefix[:-1].rstrip()
-                text = prefix + ', ' + part
-            else:
-                text = part
-    return f"({text}:{root['weight'] / 10:.1f})" if text and (grouped or root['weight'] != 10) else text
+        kind = 'tags' if using_legacy_format() else root.get('content_kind', 'tags')
+        own = transform(root['prompt']) if transform and kind == 'tags' else root['prompt']
+        parts = [(own.strip() if kind == 'tags' else own, kind)] if own.strip() else []
+        parts.extend((text, child.get('content_kind', 'tags')) for child in root['children'] if (text := render(child, transform)))
+        if using_legacy_format():
+            text = ''
+            for part, _ in parts:
+                if text:
+                    prefix = text.rstrip()
+                    while prefix.endswith(','):
+                        escapes = len(prefix[:-1]) - len(prefix[:-1].rstrip('\\'))
+                        if escapes % 2: break
+                        prefix = prefix[:-1].rstrip()
+                    text = prefix + ', ' + part
+                else: text = part
+        else:
+            text = join_fragments(parts) if len(parts) > 1 else trim_tag_boundary(parts[0][0]) if parts and kind == 'tags' else parts[0][0] if parts else ''
+    return f"({text}:{root['weight'] / 10:.1f})" if text and root.get('content_kind', 'tags') == 'tags' and (grouped or root['weight'] != 10) else text
 
 
 def detach(root, ident):

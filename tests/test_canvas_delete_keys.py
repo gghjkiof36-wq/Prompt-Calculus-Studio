@@ -3,6 +3,7 @@ import copy
 import unittest
 from PySide6.QtCore import Qt,QPointF
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QGraphicsProxyWidget
 import stage_fixture as fixture
 from prompt_calculus_studio import multi_output as model,stage_model
 from prompt_calculus_studio.flow_data import add_image_input,add_scheduler
@@ -79,7 +80,12 @@ class CanvasDeleteKeysTests(unittest.TestCase):
                                      *self.c.containers.values(),*self.c.cards.values()] if c.key==key)
                 self.select_header(card)
                 before=self.c.history_state()
-                self.assertIsNone(self.c.view.scene().focusItem(),kind)
+                # A header may hold keyboard focus; only embedded editors keep
+                # Delete/Undo as text operations rather than card operations.
+                focus=self.c.view.scene().focusItem()
+                while focus is not None:
+                    self.assertNotIsInstance(focus,QGraphicsProxyWidget,kind)
+                    focus=focus.parentItem()
                 self.press(delete_key)
                 self.assertEqual(self.c.undo_stack[-1][0],before,kind)
                 self.assertNotEqual(self.c.history_state(),before,kind)

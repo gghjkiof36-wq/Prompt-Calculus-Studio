@@ -2,7 +2,7 @@
 
 [繁體中文](README.md)
 
-PCS is a Windows desktop tool for organizing reusable prompts and running ComfyUI workflows. Save characters, styles and scenes as modules, edit them in a list or Canvas, and keep your workspaces locally.
+PCS is a Windows desktop tool for organizing reusable prompts and running ComfyUI workflows. Save characters, styles and scenes as modules, edit them in Prompt Editor or Canvas, and keep your workspaces locally.
 
 ## What it does
 
@@ -16,20 +16,28 @@ Image generation uses your own ComfyUI installation, models and workflows. Promp
 
 ## Canvas
 
-![PCS 0.8.6 actual Canvas](docs/images/canvas-0.8.6.png)
+![PCS 0.8.7 actual Canvas](docs/images/canvas-0.8.7.png)
 
-Actual PCS 0.8.6 window with public sample text. It shows the starter connections and setup prompts; ComfyUI is not connected.
+Actual PCS 0.8.7 window with isolated synthetic sample text. ComfyUI is not connected.
+
+## Prompt Editor
+
+![PCS 0.8.7 Prompt Editor](docs/images/editor-0.8.7.png)
+
+Actual product page with the same isolated sample library.
 
 ## What changed
 
-This release unifies navigation and themes across Canvas, media, exploration, export and settings. New workspaces start with six connected nodes; existing layouts are retained. Media details distinguish the viewed image from selected images, waiting tasks can be removed or cancelled individually, and PCS adds bundled-extension installation and Manager package controls.
+Prompt Editor manages reusable tags, plain text and Markdown. Organize categories in folders; the Canvas picker shares category ordering and expanded states. Adding a material creates a separate Canvas copy. Edit weights in place, reorder modules inside expanded Prompt sources, and use box selection for multiple modules. The add dialog now previews the actual Prompt, image source, single-image and scheduling cards.
+
+[Release notes](docs/releases/0.8.7/alpha.1.md)
 
 ## Download and start
 
-These instructions cover: **[0.8.6 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.6-alpha.1)**.
+These instructions cover: **[0.8.7 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.7-alpha.1)**.
 
-- `PCS-v0.8.6-Alpha1-source.zip`: the PCS source edition.
-- `PCS-v0.8.6-Alpha1-ComfyUI.zip`: the matching ComfyUI extension.
+- `PCS-v0.8.7-Alpha1-source.zip`: the PCS source edition.
+- `PCS-v0.8.7-Alpha1-ComfyUI.zip`: the matching ComfyUI extension.
 - `SHA256SUMS.txt`: download checksums.
 
 Install 64-bit Python 3.12 on Windows. Extract the source ZIP and open PowerShell beside `run.py`:
@@ -37,7 +45,7 @@ Install 64-bit Python 3.12 on Windows. Extract the source ZIP and open PowerShel
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py --v0.8.6-alpha
+.\.venv\Scripts\python.exe run.py --v0.8.7-alpha
 ```
 
 The first installation downloads dependencies. Once installed, double-click `Start.cmd` from the source archive to start PCS. This release provides the source edition and requires Python; no Windows executable download is included.
@@ -58,7 +66,7 @@ For read-only fields, check the displayed reason. After updating the matching ex
 
 If switching workflows gets stuck, check ComfyUI for running jobs, save the workflow, then refresh the browser page. See [troubleshooting](docs/guide/troubleshooting.md).
 
-For changes, downloads and important problems, see the [release notes](docs/releases/0.8.6/alpha.1.md) (Chinese).
+For changes, downloads and important problems, see the [release notes](docs/releases/0.8.7/alpha.1.md) (Chinese).
 
 ## Support
 

@@ -27,7 +27,7 @@ def pending_setup(state):
     return pending
 
 
-def setup_action(canvas,action,kind,key,*,emphasize_pending=False):
+def setup_action(canvas,action,kind,key,*,emphasize_pending=False,colors=None):
     """Highlight setup actions without changing bindings or sequencing them."""
     pending=pending_setup(canvas.window.state);target=(kind,key)
     required=target in pending;current=bool(pending and pending[0]==target)
@@ -39,8 +39,10 @@ def setup_action(canvas,action,kind,key,*,emphasize_pending=False):
         action.setObjectName(role);action.style().unpolish(action);action.style().polish(action);action.update()
     from .canvas_items import canvas_colors
     from .ui_icons import icon
-    colors=canvas_colors(canvas)
-    action.setIcon(icon(action.property('iconName') or 'workflow',colors['on_accent' if highlighted else 'text']))
+    if colors is None:colors=canvas_colors(canvas)
+    from .module_chrome import style_action
+    style_action(action,colors,pending=required)
+    action.setIcon(icon(action.property('iconName') or 'workflow',colors['text']))
     return required
 
 
@@ -132,7 +134,7 @@ class CanvasOnboarding(QFrame):
         elif not state.get('generation',{}).get('profiles'):current,title=1,'連接 ComfyUI，選擇一份工作流'
         elif not bound:current,title=2,'將 Prompt 接到工作流的 CLIP'
         elif stage.get('workflow')!=bound['workflow']:current,title=3,'選擇 Stage 的執行工作流'
-        elif not getattr(self.canvas.window.comfy,'connected',False):current,title=1,'連線 ComfyUI，準備執行'
+        elif not getattr(getattr(self.canvas.window,'comfy',None),'connected',False):current,title=1,'連線 ComfyUI，準備執行'
         else:current,title=None,'流程已設定，使用底部「執行」'
         self.title.setText(title)
         for index,action in enumerate(self.actions):

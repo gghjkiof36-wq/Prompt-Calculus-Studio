@@ -4,7 +4,7 @@
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install PyInstaller
-.\.venv\Scripts\python.exe build_windows.py --v0.8.6-alpha.1
+.\.venv\Scripts\python.exe build_windows.py --v0.8.7-alpha.1
 ```
 
 建置使用 Git 追蹤的來源白名單，需在實際 Git checkout 操作；解壓來源快照不包含 Git 歷史。使用新的空輸出位置，保留原資料與既有交付。

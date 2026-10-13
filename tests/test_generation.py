@@ -96,12 +96,26 @@ class GenerationUiTests(unittest.TestCase):
         self.w.comfy.stateChanged.emit(); return panel
 
     def test_switching_mode_source_and_views_preserves_drafts_and_original_bytes(self):
-        self.w.final.setPlainText('list draft'); before=self.image.read_bytes(); panel=self.configure()
+        from prompt_calculus_studio.editor_legacy import documents
+        # Seed an actual legacy list scope; the current Editor keeps Canvas active.
+        self.w.activate_prompt_view('list'); self.w.refresh_builder()
+        self.w.final.setPlainText('list draft'); before=self.image.read_bytes(); other_before=self.other.read_bytes(); panel=self.configure()
         self.assertEqual(self.w.final.toPlainText(),'list draft'); panel.mode.setCurrentIndex(0)
         self.assertEqual(self.w.final.toPlainText(),'list draft'); self.w.enter_canvas(); self.w.final.setPlainText('canvas draft')
         panel.set_source(str(self.other)); self.assertEqual(self.w.final.toPlainText(),'canvas draft')
-        self.w.leave_canvas(); self.assertEqual(self.w.final.toPlainText(),'list draft'); self.assertEqual(self.image.read_bytes(),before)
+        self.w.leave_canvas()
+        self.assertIs(self.w.surface_stack.currentWidget(),self.w.prompt_editor)
+        self.assertEqual(self.w.state['selection_view'],'canvas')
+        self.assertEqual(self.w.final.toPlainText(),'canvas draft')
+        self.assertEqual(make_snapshot(self.w.state)['final_prompt'],'canvas draft')
+        before_read=copy.deepcopy(self.w.state)
+        self.assertEqual(documents(self.w.state)[0]['manual'],'list draft')
+        self.assertEqual(self.w.state,before_read)
         self.w.persist(); stored=self.w.store.load(); self.assertEqual(stored['generation']['source'],self.w.state['generation']['source']); validate_state(stored)
+        self.assertEqual(stored['draft'],'canvas draft')
+        self.assertEqual(documents(stored)[0]['manual'],'list draft')
+        self.assertEqual(self.image.read_bytes(),before); self.assertEqual(self.other.read_bytes(),other_before)
+        self.assertEqual((self.w.store.directory/stored['generation']['source']['relative']).read_bytes(),other_before)
 
     def test_submission_freezes_prompt_image_and_parameters_before_upload(self):
         panel=self.configure(); self.w.final.setPlainText('original manual'); source=copy.deepcopy(self.w.state['generation']['source']); calls=[]

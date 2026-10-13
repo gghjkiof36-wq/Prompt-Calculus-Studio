@@ -9,12 +9,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 from .exclusions import filter_tags, exclusion_rules, tag_key
-from .composition import validate_compositions, root_for, render, effective_nodes
+from .composition import validate_compositions, root_for, render, effective_nodes, join_fragments, using_legacy_format
 
 
 DEFAULT_SETTINGS = dict(ui_size=11, prompt_size=12, density="comfortable",
                         context_sidebar_width=240, gallery_columns=12,
-                        separate_selections=True, interface_mode='ask', connection_style='curve',reduce_motion=False,
+                        separate_selections=True, interface_mode='ask', connection_style='curve',reduce_motion=False,hide_connections=False,
                         material="mica", visual_palette="graphite", accent="neutral", online=True, search_cache=True,
                         acrylic_transparency=61, mica_transparency=61, menu_transparency=6, confirm_clear_draft=True,
                         formatter="spaces", artist_prefix=True, translator="dictionary",
@@ -81,6 +81,8 @@ def validate_state(state):
         if type(m.get('canvas_library',False)) is not bool:
             raise ValueError('Canvas 素材分類格式無效。')
     for item in items.values():
+        from .materials import validate_fields
+        validate_fields(item)
         if item.get("module") not in modules or not isinstance(item.get("prompt"), str) or (not item["prompt"].strip() and 'composition' not in item):
             raise ValueError("提示詞內容或所屬模組無效。")
         if not isinstance(item.get("aliases"), list) or any(not isinstance(a,str) for a in item["aliases"]) or not isinstance(item.get("notes"), str):
@@ -99,12 +101,12 @@ def validate_state(state):
                 raise ValueError("單選模組不能保存多個選擇。")
     selections_valid(state.get("selections"))
     weights = state.get("weights", {})
-    if not isinstance(weights, dict) or any(not isinstance(k, str) or type(v) is not int or not 0 <= v <= 1000 for k, v in weights.items()):
+    if not isinstance(weights, dict) or any(not isinstance(k, str) or type(v) is not int or not -1000 <= v <= 1000 for k, v in weights.items()):
         raise ValueError("素材權重格式無效。")
     for w in state["workspaces"]:
         owners=w.get('canvas_owners',{})
         if not isinstance(owners,dict) or any(not isinstance(k,str) or (v is not None and not isinstance(v,str)) for k,v in owners.items()): raise ValueError('固定模組的畫布歸屬格式無效。')
-        if not isinstance(w.get('weights',{}),dict) or any(not isinstance(k,str) or type(v) is not int or not 0<=v<=1000 for k,v in w.get('weights',{}).items()):
+        if not isinstance(w.get('weights',{}),dict) or any(not isinstance(k,str) or type(v) is not int or not -1000<=v<=1000 for k,v in w.get('weights',{}).items()):
             raise ValueError('工作區權重格式無效。')
         if not isinstance(w.get("fixed"), list) or any(not isinstance(m,str) or m not in modules for m in w["fixed"]):
             raise ValueError("工作區固定模組無效。")
@@ -162,7 +164,7 @@ def validate_state(state):
     menu_transparency=settings.get('menu_transparency',DEFAULT_SETTINGS['menu_transparency'])
     if type(menu_transparency) is not int or not 0<=menu_transparency<=40:
         raise ValueError('選單透明度必須介於 0 和 40%。')
-    for key in ("online", "artist_prefix", "confirm_clear_draft", "separate_selections", "search_cache"):
+    for key in ("online", "artist_prefix", "confirm_clear_draft", "separate_selections", "search_cache", "hide_connections"):
         if type(settings.get(key, DEFAULT_SETTINGS[key])) is not bool:
             raise ValueError(f"設定 {key} 必須是布林值。")
     palette=settings.get('canvas_palette',{})
@@ -183,6 +185,8 @@ def validate_state(state):
         raise ValueError('模型分類適用類型格式無效。')
     for item in state["items"]:
         if not isinstance(item.get("preview",""),str): raise ValueError("預覽圖片路徑格式無效。")
+    from .content_history import validate as validate_content_history
+    validate_content_history(state)
     for workspace in state["workspaces"]:
         if not isinstance(workspace.get("parameters",{}),dict) or any(not isinstance(v,str) for v in workspace.get("parameters",{}).values()):
             raise ValueError("工作區建議參數格式無效。")
@@ -203,6 +207,8 @@ def validate_state(state):
     if 'workspace_scenes' in state:
         from .workspace_scene import validate as validate_scenes
         validate_scenes(state)
+    from .material_navigation import validate as validate_navigation
+    validate_navigation(state)
     return state
 
 
@@ -306,7 +312,10 @@ def reorder_output(state, source, target, after=False):
 
 def item_prompt(state, item, text=None, *, grouped=False):
     """Wrap the intact source once; integer tenths avoid cumulative rounding."""
-    text = item['prompt'].strip() if text is None else text.strip()
+    text = item['prompt'] if text is None else text
+    if item.get('content_kind', 'tags') != 'tags' and not using_legacy_format():
+        return text
+    text = text.strip()
     if not text: return ''
     weight = state.get('weights', {}).get(item['id'], 10)
     return text if weight == 10 and not grouped else f'({text}:{weight / 10:.1f})'
@@ -332,11 +341,13 @@ def compose_details(state):
     for mid in output_groups(state):
         if mid in state.get('uses', {}):
             clean = render(state['uses'][mid], lambda text: fragment(mid, text))
-            if clean: groups.append(clean); paragraphs.append(clean); canvas_groups = True
+            if clean:
+                part=(clean,state['uses'][mid].get('content_kind','tags'))
+                groups.append(part); paragraphs.append(part); canvas_groups = True
             continue
         if mid==TEMPORARY_GROUP:
             temporary=[clean for i,v in enumerate(state.get('temporary',[])) if (clean:=fragment('temporary:'+str(i),v).strip())]
-            groups.extend(temporary); paragraphs.extend(temporary)
+            groups.extend((v,'tags') for v in temporary); paragraphs.extend((v,'tags') for v in temporary)
             continue
         fragments = []
         for ident in state['selections'].get(mid, []):
@@ -345,12 +356,13 @@ def compose_details(state):
             text = render(root, lambda text: fragment(ident, text), grouped=False)
             clean = item_prompt(state, items[ident], text, grouped=grouped)
             if clean:
-                fragments.append(clean); paragraphs.append(clean); canvas_groups = canvas_groups or grouped
+                part=(clean,root.get('content_kind','tags'))
+                fragments.append(part); paragraphs.append(part); canvas_groups = canvas_groups or grouped
         if fragments:
-            groups.append(", ".join(fragments))
+            groups.append((join_fragments(fragments),'tags' if all(v[1]=='tags' for v in fragments) else 'text'))
     if canvas_groups and state.get('prompt_layout')=='paragraphs':
-        return ",\n\n".join(paragraphs),affected
-    return (", " if canvas_groups else ",\n").join(groups),affected
+        return join_fragments(paragraphs,",\n\n"),affected
+    return join_fragments(groups,", " if canvas_groups else ",\n"),affected
 
 
 def build_prompt(state):

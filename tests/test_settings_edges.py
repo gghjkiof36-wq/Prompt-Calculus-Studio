@@ -208,7 +208,7 @@ class SettingsEdgesTests(unittest.TestCase):
         self.w.set_interface_mode('canvas'); self.settle(); bar=self.w.run_controls
         for size in (11,18,11):
             self.w.state['settings']['ui_size']=size; self.w.apply_theme(preserve_layout=True); self.settle()
-            self.assertEqual(bar.stop.text(),'取消'); self.assertEqual(bar.stop.accessibleName(),'取消執行'); self.assertFalse(bar.stop.icon().isNull())
+            self.assertEqual(bar.stop.text(),''); self.assertEqual(bar.stop.accessibleName(),'取消執行'); self.assertFalse(bar.stop.icon().isNull())
             self.assertEqual(bar.stop.height(),bar.run_button.height()); self.assertEqual(bar.stop.height(),bar.count.height())
             before=(bar.run_button.width(),bar.run_button.height(),bar.stop.width(),bar.stop.height())
             for value in (1,2,10,99,100,1):

@@ -2,6 +2,12 @@
 
 [各版完整紀錄](docs/releases/README.md) · [現行使用指南](docs/guide/README.md)
 
+## 0.8.7 Alpha 1｜2026-10-13
+
+新增 Prompt Editor、資料夾分類及 Canvas 挑選同步；原位編輯權重，框選與多選模組，直接排列 Prompt 來源內的文字模組。四個常用模組的新增頁共用正式卡片預覽。
+
+[版本主頁](docs/releases/0.8.7/README.md)
+
 ## 0.8.6 Alpha 1｜2026-10-03
 
 整理共同導覽、配色與側欄；新工作區提供六節點起始流程，改善媒體操作與逐筆排程，加入配套擴充安裝及 Manager 管理。

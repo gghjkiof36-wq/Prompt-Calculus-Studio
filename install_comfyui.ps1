@@ -73,6 +73,11 @@ function Write-InstallState([string]$State) {
         [IO.File]::Replace($temporary,$receipt,$recordBackup)
     } else { [IO.File]::Move($temporary,$receipt) }
 }
+function Test-PreviousTree([string]$Root) {
+    $rootPath=Assert-PlainPath $Root
+    if (-not (Test-Path -LiteralPath $rootPath -PathType Container)) { return $false }
+    return (ConvertTo-Json @(Get-TreeManifest $rootPath) -Depth 5 -Compress) -eq (ConvertTo-Json @($oldFiles) -Depth 5 -Compress)
+}
 New-Item -ItemType Directory -Path $backups -Force | Out-Null
 Copy-Package $package $stage
 $null=Read-Package $stage 'comfyui'
@@ -86,14 +91,43 @@ if ($existing.Count) {
 }
 Write-InstallState 'replacing'
 try {
-    if ($existing.Count) { Move-Item -LiteralPath $previous -Destination $backup }
+    if ($existing.Count) { [IO.Directory]::Move($previous,$backup) }
     $null=Assert-PlainPath $target
     if (Test-Path -LiteralPath $target) { throw 'Target appeared during staging.' }
-    Move-Item -LiteralPath $stage -Destination $target
+    # Directory.Move refuses a destination created after the final lookup;
+    # Move-Item would nest the stage inside that unrelated directory.
+    [IO.Directory]::Move($stage,$target)
 } catch {
-    if ($existing.Count -and -not (Test-Path -LiteralPath $previous)) { Move-Item -LiteralPath $backup -Destination $previous }
-    Write-InstallState 'rolled_back'
-    throw
+    $installError=$_
+    $recoveryState='rollback_unconfirmed'
+    # Keep the transaction blocking until both the original bytes and the
+    # absence of an unrelated replacement have been verified. Never remove a
+    # competing tree or move a backup inside an existing destination directory.
+    try {
+        $null=Assert-PlainPath $target
+        if ($existing.Count) {
+            $null=Assert-PlainPath $previous; $null=Assert-PlainPath $backup
+            $foreignTarget=($previous -ne $target) -and (Test-Path -LiteralPath $target)
+            if (-not $foreignTarget) {
+                if ((Test-Path -LiteralPath $backup) -and -not (Test-Path -LiteralPath $previous)) {
+                    if (Test-PreviousTree $backup) { [IO.Directory]::Move($backup,$previous) }
+                }
+                if (-not (Test-Path -LiteralPath $backup) -and (Test-PreviousTree $previous) -and
+                    (($previous -eq $target) -or -not (Test-Path -LiteralPath $target))) {
+                    $recoveryState='rolled_back'
+                }
+            }
+        } elseif (-not (Test-Path -LiteralPath $target)) { $recoveryState='rolled_back' }
+    } catch {
+        Write-Output ('PCS_RECOVERY_CHECK_FAILED: '+$_.Exception.Message)
+    }
+    Write-InstallState $recoveryState
+    if ($recoveryState -ne 'rolled_back') {
+        Write-Output ('PCS_ROLLBACK_UNCONFIRMED: '+$installError.Exception.Message)
+        Write-Output 'Installation stopped. Preserve the backup and any competing target; inspect the install record before manually recovering.'
+        exit 21
+    }
+    throw $installError
 }
 Write-InstallState 'completed'
 Write-Output "Installed verified extension: $target"

@@ -1,6 +1,6 @@
 # Stage 與圖片流程
 
-適用：0.8.6 Alpha 1 · [使用指南](README.md)
+適用：0.8.7 Alpha 1 · [使用指南](README.md)
 
 Stage 指定要生成的 ComfyUI 工作流。先完成[連線與文字綁定](comfyui.md#第一次連接與綁定)，生成期間保持 PCS、ComfyUI 後端與工作流網頁開啟。
 

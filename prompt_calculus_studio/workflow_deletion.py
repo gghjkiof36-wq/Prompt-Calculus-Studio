@@ -78,7 +78,7 @@ def prepare_restore(state,record):
 
 def restore_clip_workflows(candidate,record):
     """Restore recorded choices only; inactive bindings never imply a choice."""
-    from .generation import text_fields
+    from .generation import profile_text_fields
     choices=record['clip_workflows']; profile=record['profile']
     if not isinstance(choices,dict) or len(choices)>100 or any(
             not isinstance(key,str) or not key or not isinstance(value,str) or not value
@@ -89,7 +89,7 @@ def restore_clip_workflows(candidate,record):
         if multi.get('version',0)<4 or key not in clips:raise ValueError('原 CLIP 已不存在，保留目前內容與復原紀錄。')
         if clips[key].get('workflow') is not None:raise ValueError('CLIP 工作流選擇已變更，未覆寫目前選擇。')
         bindings=[b for b in multi['bindings'] if b.get('workflow')==workflow and b.get('clip')==key]
-        if len(bindings)!=1 or (bindings[0].get('node'),bindings[0].get('field')) not in text_fields(profile['graph']):
+        if len(bindings)!=1 or (bindings[0].get('node'),bindings[0].get('field')) not in profile_text_fields(profile):
             raise ValueError('原 CLIP 綁定已失效，保留目前內容與復原紀錄。')
         clips[key]['workflow']=workflow
 

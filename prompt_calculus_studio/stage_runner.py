@@ -32,7 +32,7 @@ class StageRunner(QObject):
         super().__init__(flow.client);self.flow=flow;self.client=flow.client;self.window=flow.window
         self.store=StageStore(self.window.store.db);self.closed=False;self.pumping=False;self.preparing=None;self.collecting=set();self.apply_queue=[];self.applying=None
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(self.pump)
-        self.results={};self.load_results()
+        self.results={};self.preview_results={};self.preview_stamps={};self.load_results()
         self.apply_abort=None;self.apply_owner=None;self.apply_operation=None;self.apply_cancellations=set()
 
     def later(self):
@@ -377,6 +377,7 @@ class StageRunner(QObject):
         else:cfg['parameters']=self.store.resolve_parameters(run['workspace'],stage['id'],cfg.get('parameters'))
         attempt=self.store.add('attempt',run['workspace'],run['id'],status='preparing',stage=stage['id'],parent=ctx.get('parent'),
             round=run['round'],position=frame['index'],snapshot_state=state,images=images,error='',sources=ctx.get('saved',{}).get('source_positions',{}),parameter_replay=bool(retry))
+        if run['workspace']==self.window.state['workspace']:self.remember_preview(attempt,dict(images=[],attempts=[],records=[]))
         frame['job']=attempt['id'];self.save(run);self.preparing=attempt['id']
         def valid():
             if self.closed or self.preparing!=attempt['id'] or not self.client.connected:return False
@@ -448,13 +449,15 @@ class StageRunner(QObject):
                 for node,i,image in expected:
                     match=next((r for r in rows if r.get('prompt_id')==job['prompt_id'] and str(r.get('node_id'))==node and r.get('image')==image and r.get('path')),None)
                     if not match:raise ValueError('第 '+str(i+1)+' 張指定結果無法讀取。')
-                    source=import_source(match['path'],self.window.store.directory);source['reference']=dict(run=run['id'],stage=stage['id'],attempt=attempt['id'],prompt_id=job['prompt_id'],node=node,index=i)
+                    source=import_source(match['path'],self.window.store.directory);source['reference']=dict(run=run['id'],stage=stage['id'],attempt=attempt['id'],prompt_id=job['prompt_id'],node=node,index=i,
+                        round=attempt.get('round'),parent=attempt.get('parent'))
                     images.append(source)
                 field=stage.get('text_output');text=None
                 if field:text=job.get('payload',{}).get('prompt',{}).get(field[0],{}).get('inputs',{}).get(field[1])
-                from .generation import text_fields
+                from .generation import profile_text_fields
                 graph=job.get('payload',{}).get('prompt',{})
-                texts=[dict(node=node,field=field,text=graph[node]['inputs'][field]) for node,field in text_fields(graph)]
+                profile=next((p for p in attempt.get('snapshot_state',{}).get('generation',{}).get('profiles',[]) if p['id']==stage['workflow']),{})
+                texts=[dict(node=node,field=field,text=graph[node]['inputs'][field]) for node,field in profile_text_fields(dict(profile,graph=graph))]
                 result=dict(run=run['id'],images=images,text=text,texts=texts,attempts=[attempt['id']],records=[dict(attempt=attempt['id'],text=text,texts=texts)])
                 self.store.update(attempt['id'],status='complete',result=result,error='');self.collecting.discard(attempt['id'])
                 current=self.store.read(run['id'])
@@ -466,6 +469,7 @@ class StageRunner(QObject):
                         if key not in autos:current.setdefault('source_positions',{}).setdefault(key,value)
                     self.save(current)
                 if current['workspace']==self.window.state['workspace']:
+                    self.remember_preview(attempt,result)
                     self.results[stage['id']]=copy.deepcopy(frame['produced'][stage['id']]) if frame and stage['id'] in frame['produced'] else result
                     self.refresh_results()
                 if current['status']=='paused':self.settle(self.store.read(current['id']))
@@ -585,13 +589,34 @@ class StageRunner(QObject):
         for run in self.store.rows('run',previous):
             if run['status'] in ('running','waiting'):
                 self.pause(run['id'],'已切換工作區，後續保留並暫停。',reason='workspace');self.cancel_inputs(run)
-        self.results={}
+        self.results={};self.preview_results={};self.preview_stamps={}
+
+    def remember_preview(self,attempt,result):
+        """Keep the last completed image batch while the next one is pending.
+
+        Ordered attempt creation prevents a late download from restoring an old
+        iteration; the journal and results consumed by later Stages stay intact.
+        """
+        # A pending/failed/text-only attempt is not a replacement image. Also
+        # allow the first completed result to appear when newer jobs were
+        # already submitted concurrently; only a newer completed batch wins.
+        if not result.get('images'):return
+        key=attempt['stage'];scope=(attempt['owner'],attempt.get('round'),attempt.get('parent'))
+        stamp=attempt.get('created',0);previous=self.preview_stamps.get(key)
+        if previous and scope!=previous[1] and stamp<previous[0]:return
+        if previous and scope==previous[1]:
+            shown=self.preview_results[key]
+            if attempt['id'] not in shown.get('attempts',[]):merge_results(self.preview_results,{key:result})
+        else:self.preview_results[key]=copy.deepcopy(result)
+        self.preview_stamps[key]=(max(stamp,previous[0]) if previous else stamp,scope)
 
     def load_results(self):
-        self.results={};latest={}
+        self.results={};self.preview_results={};self.preview_stamps={};latest={}
         for item in self.store.rows('attempt',self.window.state['workspace']):
-            if item['status']!='complete' or not item.get('result'):continue
+            if item['status']!='complete' or not item.get('result'):
+                self.remember_preview(item,dict(images=[],attempts=[],records=[]));continue
             result=item['result'];key=item['stage'];stamp=(item['owner'],item['round'])
+            self.remember_preview(item,result)
             if latest.get(key)!=stamp:self.results[key]=copy.deepcopy(result);latest[key]=stamp
             else:merge_results(self.results,{key:result})
 

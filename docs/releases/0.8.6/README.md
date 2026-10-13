@@ -14,9 +14,14 @@
 
 - [Alpha 1](alpha.1.md) · [下載](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.6-alpha.1)
 
+## 後續本機修復候選
+
+- [啟動與回復修訂 12](repairs/revision12.md)，包含[啟動修復 1](repairs/startup-fix1.md)。這些候選未替換公開 Release。
+
 ## 測試與驗證
 
 - [0.8.6 Alpha 1：驗證紀錄](validation/alpha.1.md)
+- [修訂 12：驗證範圍](validation/revision12.md)
 
 ## 開發歷程
 

@@ -172,7 +172,20 @@ class CompletionService(QObject):
         self.serial += 1
         self.editor = editor
         self.scheduled_owner = (self.window.store, self.window.state['workspace'])
-        self.timer.start(600)
+        self.timer.stop()
+        token = editor.context()
+        if token is not None and editor.lookup_active():
+            settings = self.window.state['settings']
+            self.configure_cache(settings.get('search_cache', True))
+            local = self.local(token)
+            provider = settings.get('translator', 'dictionary') if contains_chinese(token.query) else 'dictionary'
+            if provider == 'google' and not self.api_key: provider = 'dictionary'
+            key = json.dumps([provider, token.query.casefold(), token.artist], ensure_ascii=False)
+            cached = self.window.store.cached(key)
+            if local or cached is not None: self.show(editor, token, local + (cached or []))
+            if token.query in self.window.state['dictionary'] and not token.artist: return
+            if cached is not None and (not settings['online'] or self.window.store.cache_fresh(key)): return
+        self.timer.start(350)
 
     def local(self, token):
         familiar=self.window.store.familiar(self.window.state["workspace"],token.query,token.artist)
@@ -243,23 +256,25 @@ class CompletionService(QObject):
         if not active or active[0] != serial:
             return
         _, editor, token, key, local = active
-        if (serial != self.serial or self.request_owner != (self.window.store,self.window.state['workspace'])
+        if (self.request_owner != (self.window.store,self.window.state['workspace'])
                 or not self.window.state['settings']['online'] or self.window.closing):
             return
         self.configure_cache(self.window.state['settings'].get('search_cache',True))
         if self.request_cache_epoch!=self.window.store.cache_epoch: return
-        try:
-            if not editor.lookup_active() or editor.context()!=token: return
-        except RuntimeError:
-            return
+        # A result for a superseded token is still valid cache data. It must
+        # never be displayed in the new editor/token, nor cross a workspace,
+        # database or cache-reset boundary.
         if not error:
             try:
                 self.window.store.cache(key, rows)
             except Exception:
-                editor.lookup_notice("候選已取得，但快取未能寫入。")
+                if serial == self.serial:
+                    try: editor.lookup_notice("候選已取得，但快取未能寫入。")
+                    except RuntimeError: pass
         if serial != self.serial:
             return
         try:
+            if not editor.lookup_active() or editor.context()!=token: return
             if error:
                 editor.lookup_notice(error)
             else:

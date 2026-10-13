@@ -77,7 +77,7 @@ class StageParameterUITests(StageFixture):
         self.assertEqual(self.c.data()['stages'][self.stage]['parameters'],cfg)
         sheet=self.sheet();self.edit(sheet,'35','cfg','-')
         self.assertFalse(sheet.apply_button.isEnabled());self.assertEqual(sheet.findChild(QLineEdit,'parameter_35_cfg').text(),'-')
-        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=True):QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton)
+        with patch.object(sheet,'confirm_close',return_value=True):QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton)
         QTest.qWait(10);self.assertEqual(self.c.data()['stages'][self.stage]['parameters'],cfg);self.assertFalse(self.executor.submissions)
 
     def test_compact_float_does_not_create_or_round_intentions(self):
@@ -165,7 +165,7 @@ class StageParameterUITests(StageFixture):
                 sheet=self.sheet();t=sheet.tokens
                 self.assertEqual(sheet.panel.grab().toImage().pixelColor(10,30).name(),t['base'])
                 self.assertEqual(sheet.editor.grab().toImage().pixelColor(10,10).name(),t['surface'])
-                self.assertEqual(sheet.footer.grab().toImage().pixelColor(10,10).name(),t['surface'])
+                self.assertEqual(sheet.footer.grab().toImage().pixelColor(10,10).name(),t['base'])
                 seed=sheet.findChild(SeedEditor,'parameter_35_seed')
                 seed.text.setFocus();QTest.qWait(10)
                 image=seed.grab().toImage()
@@ -194,7 +194,9 @@ class StageParameterUITests(StageFixture):
             QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton,pos=QPoint(3,3));QTest.qWait(25)
             self.assertFalse(self.w.findChildren(ParameterSheet))
         QTest.mouseDClick(view.viewport(),Qt.MouseButton.LeftButton,pos=header());close(current())
-        card=self.c.flow_cards[self.stage];point=view.mapFromScene(card.mapToScene(card.actions()['size'].center()))
+        card=self.c.flow_cards[self.stage];button=card.panel.edit_button
+        point=view.mapFromScene(card.proxy.mapToScene(QPointF(button.mapTo(card.panel,button.rect().center()))))
+        QTest.mouseMove(view.viewport(),point);QTest.qWait(10)
         QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=point);close(current())
         QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=header())
         QTest.keyClick(view,Qt.Key.Key_Return);close(current())
@@ -300,13 +302,13 @@ class StageParameterUITests(StageFixture):
         self.assertIn('此節點沒有可調整的參數',[item.text() for item in sheet.form.findChildren(QLabel)])
         self.assertFalse([w for w in sheet.form.findChildren(QWidget) if w.objectName().startswith('parameter_')])
         before=copy.deepcopy(self.c.data());self.edit(sheet,'35','cfg','3')
-        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=False) as ask:
+        with patch.object(sheet,'confirm_close',return_value=False) as ask:
             QTest.mouseClick(sheet,Qt.MouseButton.LeftButton,pos=QPoint(2,2));self.assertTrue(ask.called)
         self.assertFalse(sheet.closed);self.assertEqual(self.c.data(),before)
         style=self.w.styleSheet();self.w.setStyleSheet(re.sub(r'font-size:(\d+)px',lambda m:'font-size:'+str(int(m[1])*2)+'px',style));QTest.qWait(50)
         self.assert_contained_fields(sheet);self.assertEqual(sheet.findChild(QLineEdit,'parameter_35_cfg').text(),'3')
         self.assertTrue(sheet.parentWidget().rect().contains(sheet.panel.geometry()))
-        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=True):
+        with patch.object(sheet,'confirm_close',return_value=True):
             QTest.mouseClick(sheet,Qt.MouseButton.LeftButton,pos=QPoint(2,2))
         QTest.qWait(10);self.assertFalse(self.w.findChildren(ParameterSheet));self.assertEqual(self.c.data(),before)
         self.assertFalse(self.executor.submissions)
@@ -363,14 +365,14 @@ class StageParameterUITests(StageFixture):
         editor.text.setFocus();QTest.keyClick(editor.text,Qt.Key.Key_A,Qt.KeyboardModifier.ControlModifier);QTest.keyClicks(editor.text,'123')
         self.assertEqual(editor.text.text(),'10');self.assertFalse(sheet.dirty());self.assertFalse(self.executor.submissions);sheet.finish()
 
-    def test_other_workflow_draft_is_preserved_and_close_requires_discard(self):
+    def test_other_workflow_draft_is_preserved_and_close_requires_confirmation(self):
         other=copy.deepcopy(self.profile);other.update(id='other-flow',name='other',frontend_id='other-native')
         other['origin']['path']='B.json';self.w.generation_panel.save_profile(other);self.catalog.files=['A.json','B.json']
         self.catalog.read_draft.side_effect=lambda path,profile,done,failed:QTimer.singleShot(0,lambda:done(inspection(other if path=='B.json' else self.profile),'native'))
         sheet=self.sheet();original=sheet.workflow.currentData()
         sheet.workflow.setCurrentIndex(sheet.workflow.findData(other['id']));QTest.qWait(30);self.edit(sheet,'35','cfg','4')
         sheet.workflow.setCurrentIndex(sheet.workflow.findData(original));QTest.qWait(30);self.assertFalse(sheet.dirty())
-        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=False) as ask:
+        with patch.object(sheet,'confirm_close',return_value=False) as ask:
             QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton);self.assertTrue(ask.called)
         self.assertFalse(sheet.closed)
         self.edit(sheet,'35','cfg','3')
@@ -379,7 +381,7 @@ class StageParameterUITests(StageFixture):
         self.assertNotIn('parameters',self.c.data()['stages'][self.stage]);self.assertFalse(sheet.closed)
         sheet.workflow.setCurrentIndex(sheet.workflow.findData(other['id']));QTest.qWait(30);sheet.jump(['35']);QTest.qWait(15)
         self.assertEqual(sheet.findChild(QLineEdit,'parameter_35_cfg').text(),'4')
-        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=True):QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton)
+        with patch.object(sheet,'confirm_close',return_value=True):QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton)
         self.assertEqual(self.c.data()['stages'][self.stage]['workflow'],original);self.assertFalse(self.executor.submissions)
 
     def test_refresh_preserves_draft_baseline_and_removed_field_can_be_discarded(self):
@@ -390,10 +392,10 @@ class StageParameterUITests(StageFixture):
         self.assertIn('同一欄位',sheet.status.text());self.assertFalse(sheet.closed);self.assertNotIn('parameters',self.c.data()['stages'][self.stage])
         self.profile['graph']['35']['inputs'].pop('cfg');sheet.reload();QTest.qWait(30)
         self.assertFalse(sheet.apply_button.isEnabled())
-        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=False) as ask:
+        with patch.object(sheet,'confirm_close',return_value=False) as ask:
             QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton);self.assertTrue(ask.called)
         self.assertFalse(sheet.closed)
-        with patch('prompt_calculus_studio.stage_parameter_panel.ask',return_value=True):QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton)
+        with patch.object(sheet,'confirm_close',return_value=True):QTest.mouseClick(sheet.close_button,Qt.MouseButton.LeftButton)
         self.assertFalse(self.executor.submissions)
 
     def test_search_while_refresh_pending_and_late_reply_after_close(self):

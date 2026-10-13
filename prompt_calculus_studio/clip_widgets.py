@@ -5,7 +5,7 @@ from PySide6.QtGui import QPainter,QColor
 from PySide6.QtWidgets import QFrame,QVBoxLayout,QHBoxLayout,QLineEdit,QWidget,QSpinBox,QProgressBar
 from .canvas_items import TextCard,canvas_colors
 from .widgets import button,label,ComboBox,StudioDialog,dialog_buttons,RoundMenu
-from .generation import active_profile,text_fields,options
+from .generation import active_profile,profile_text_fields,options
 from . import clip_flow
 from .workflow_binding import WorkflowBindingDialog
 
@@ -36,17 +36,15 @@ class ClipBindingDialog(WorkflowBindingDialog):
         if not profile:
             self.hint.setText(self.catalog.message or '尚無可用工作流，請確認 ComfyUI 連線後重新整理。'); self.hint.show(); return
         binding=next((b for b in self.bindings if b['workflow']==profile['id'] and b['clip']==self.key),None)
-        for node,field in text_fields(profile['graph']):
+        for node,field in profile_text_fields(profile):
             graph_node=profile['graph'][node]
-            legacy=binding and (node,field)==(binding['node'],binding['field'])
-            if 'clip' not in graph_node['class_type'].casefold() and not legacy: continue
             title=graph_node.get('_meta',{}).get('title',graph_node['class_type'])
             occupied=next((b for b in self.bindings if (b['workflow'],b['node'],b['field'])==(profile['id'],node,field) and b['clip']!=self.key),None)
-            suffix=' · 已被其他 CLIP 輸入綁定' if occupied else ''
+            suffix=' · 已被其他文字輸入綁定' if occupied else ''
             self.target.addItem(title+' · #'+node+' / '+field+suffix,(node,field))
             if occupied: self.target.model().item(self.target.count()-1).setEnabled(False)
         if binding: self.target.setCurrentIndex(max(0,self.target_index((binding['node'],binding['field']))))
-        self.hint.setText('此工作流沒有可綁定的 CLIP 文字節點。' if self.target.count()==1 else '')
+        self.hint.setText('此工作流沒有已確認可寫入的文字欄位。可重新讀取原生工作流取得 STRING 欄位。' if self.target.count()==1 else '')
         self.hint.setVisible(bool(self.hint.text()))
 
     def apply(self):
@@ -66,10 +64,10 @@ class ClipPanel(QFrame):
         super().__init__();self.canvas=canvas;self.key=key;self.setObjectName('CanvasModuleBody')
         body=QVBoxLayout(self);body.setContentsMargins(4,8,4,4);body.setSpacing(8)
         self.setup_status=label('');self.setup_status.setParent(self);self.setup_status.hide()
-        self.binding=button('綁定 CLIP 節點',lambda:canvas.bind_dialog(key))
+        self.binding=button('綁定文字欄位',lambda:canvas.bind_dialog(key))
         from .ui_icons import icon
-        self.binding.setIcon(icon('workflow'));self.binding.setProperty('iconName','workflow')
-        self.binding.setToolTip('選擇工作流與 CLIP 節點')
+        self.binding.setIcon(icon('link-2'));self.binding.setProperty('iconName','link-2')
+        self.binding.setToolTip('選擇工作流與可寫入的文字欄位（包含 CLIP）')
         body.addWidget(self.binding)
         self.status=label('','Subtle',True);body.addWidget(self.status)
         body.addStretch()
@@ -80,44 +78,32 @@ class ClipPanel(QFrame):
         error=''
         if binding and profile:
             self.binding.setText(profile['name']+' · #'+binding['node']+' / '+binding['field'])
-            if (binding['node'],binding['field']) not in text_fields(profile['graph']):error='綁定節點已移除，請重新選擇。'
+            if (binding['node'],binding['field']) not in profile_text_fields(profile):error='綁定節點已移除，請重新選擇。'
         else:
-            self.binding.setText('綁定 CLIP 節點')
+            self.binding.setText('未綁定 · 選擇節點')
             if binding:error='綁定的工作流已移除。'
         from .canvas_onboarding import setup_action,setup_badge
         pending=setup_action(self.canvas,self.binding,'clip_inputs',self.key)
         setup_badge(self.canvas,self.setup_status,pending)
-        if error:self.binding.setText('重新綁定 CLIP')
+        if error:self.binding.setText('重新綁定文字欄位')
         self.status.setText(error);self.status.setVisible(bool(error))
 
 
 class ClipCard(TextCard):
     default_size=(360,174)
     def __init__(self,canvas,key):
-        super().__init__(canvas); self.key=key; self.module_icon='workflow'; self.header_detail=True; self.panel=ClipPanel(canvas,key); self.init_interaction()
+        super().__init__(canvas); self.key=key; self.module_icon='type'; self.header_detail=True; self.panel=ClipPanel(canvas,key); self.init_interaction()
     def attach(self):
         if self.proxy.widget() is not self.panel: self.proxy.setWidget(self.panel)
-        self.panel.setStyleSheet(self.canvas.window.styleSheet()); self.panel.ensurePolished()
+        self.sync_panel_style(); self.panel.ensurePolished()
         self.restore_size()
         self.layout_card(); self.panel.show(); self.update_text()
     def layout_card(self):
         width,height=self.requested_size; minimum=self.panel.minimumSizeHint()
         self.proxy.setGeometry(QRectF(14,110,max(290,minimum.width(),width-28),max(50,minimum.height(),height-124))); self.sync_bounds()
-    def paint(self,painter,option,widget=None):
-        super().paint(painter,option,widget)
-        from .canvas_items import canvas_colors
-        colors=canvas_colors(self.canvas);pending=self.panel.binding.property('setupPending')
-        painter.save()
-        if pending:
-            painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(QColor(colors['selected']))
-            painter.drawRoundedRect(QRectF(18,38,62,23),5,5)
-        font=painter.font();font.setPointSizeF(10);font.setBold(bool(pending));painter.setFont(font)
-        painter.setPen(QColor(colors['text' if pending else 'secondary']))
-        painter.drawText(QRectF(18,38,62,23),Qt.AlignmentFlag.AlignCenter,self.panel.setup_status.text())
-        painter.restore()
     def update_text(self):
         self.title=self.canvas.data()['clip_inputs'][self.key]['name']; self.panel.refresh(); super().update_text()
-    def contextMenuEvent(self,event): self.canvas.clip_menu(self.key,event.screenPos()); event.accept()
+    def open_menu(self,position): self.canvas.clip_menu(self.key,position)
     def detach(self): pass
 
 
@@ -242,7 +228,7 @@ class ExecutionBar(QFrame):
         self.controls.layout().activate();self.layout().activate()
         self.setMaximumWidth(max(1,area.width())); self.adjustSize()
         self.present_status()
-        x,y=self.canvas.window.state['settings'].get('execution_bar_position',[.5,1.0])
+        x,y=self.canvas.window.state['settings'].get('execution_bar_position',[0.0,1.0])
         self.move(area.left()+round(max(0,area.width()-self.width())*x),area.top()+round(max(0,area.height()-self.height())*y))
         self.place_zoom_controls()
     def eventFilter(self,watched,event):

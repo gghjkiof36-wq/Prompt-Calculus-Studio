@@ -105,8 +105,9 @@ class ImageInputPanel(QFrame):
     def __init__(self,canvas,key):
         super().__init__();self.canvas=canvas;self.key=key;self.setObjectName('CanvasModuleBody')
         body=QVBoxLayout(self);body.setContentsMargins(4,8,4,4);body.setSpacing(8)
-        self.setup_status=label('');body.addWidget(self.setup_status,0,Qt.AlignmentFlag.AlignLeft)
+        self.setup_status=label('');self.setup_status.setParent(self);self.setup_status.hide()
         self.choose=button('綁定 LoadImage 節點',self.bind);self.choose.setProperty('iconName','media');body.addWidget(self.choose)
+        self.status=label('','Subtle',True);body.addWidget(self.status)
 
     def bind(self):
         dialog=ImageInputDialog(self.canvas,self.key)
@@ -118,7 +119,9 @@ class ImageInputPanel(QFrame):
         from .canvas_onboarding import setup_action,setup_badge
         pending=setup_action(self.canvas,self.choose,'image_inputs',self.key)
         setup_badge(self.canvas,self.setup_status,pending)
-        self.choose.setText(profile['name']+' · LoadImage #'+str(value['node']) if not pending else '綁定 LoadImage 節點')
+        self.choose.setText(profile['name']+' · LoadImage #'+str(value['node']) if not pending else '綁定失效 · 重新選擇' if value.get('workflow') else '未綁定 · 選擇節點')
+        error='綁定工作流已移除。' if value.get('workflow') and not profile else '綁定的 LoadImage 節點已移除，請重新選擇。' if value.get('workflow') and pending else ''
+        self.status.setText(error);self.status.setVisible(bool(error))
 
 
 class ScheduleList(OutputOrderList):
@@ -335,10 +338,12 @@ class FlowCard(TextCard):
         self.init_interaction()
         if self.kind=='stages':self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable,True)
     @property
-    def default_size(self):return (500,550) if self.kind=='schedulers' else (360,245) if self.kind=='stages' else (360,160)
+    def default_size(self):return (440,400) if self.kind=='schedulers' else (360,245) if self.kind=='stages' else (360,160)
+    def layout_is_current(self):
+        return self.canvas.flow_cards.get(self.key) is self and self.key in self.canvas.data().get(self.kind,{})
     def attach(self):
         if self.proxy.widget() is not self.panel:self.proxy.setWidget(self.panel)
-        self.title=self.canvas.data()[self.kind][self.key]['name'];self.panel.setStyleSheet(self.canvas.window.styleSheet())
+        self.title=self.canvas.data()[self.kind][self.key]['name'];self.sync_panel_style()
         self.panel.ensurePolished();self.restore_size();self.layout_card();self.panel.show();self.panel.refresh()
     def layout_card(self):
         top=82
@@ -346,7 +351,7 @@ class FlowCard(TextCard):
             from .stage_model import controls
             dependencies=sum(c['kind']=='done' and c['destination']==self.key for c in self.canvas.data()['connections'])
             top=max(160,106+24*(len(controls(self.canvas.window.state,self.key))+dependencies+1))
-        if self.kind=='schedulers':top=70+24*len(self.canvas.data()[self.kind][self.key]['channels'])
+        if self.kind=='schedulers':top=60+24*len(self.canvas.data()[self.kind][self.key]['channels'])
         if self.kind=='schedulers' and self.canvas.data()['version']>=7:top+=24
         w,h=self.requested_size;minimum=self.panel.minimumSizeHint()
         self.proxy.setGeometry(QRectF(14,top,max(290,w-28,minimum.width()),max(h-top-14,minimum.height())));self.sync_bounds()
@@ -357,9 +362,6 @@ class FlowCard(TextCard):
             if self.action_at(event.pos())=='size':QTimer.singleShot(0,self.panel.edit)
             self.update();event.accept();return True
         return super().release_control(event)
-    def hoverMoveEvent(self,event):
-        super().hoverMoveEvent(event)
-        if self.kind=='stages' and self.hot=='size':self.setToolTip('參數')
     def mouseDoubleClickEvent(self,event):
         if self.kind=='stages' and event.button()==Qt.MouseButton.LeftButton:
             QTimer.singleShot(0,self.panel.edit);event.accept();return
@@ -374,24 +376,11 @@ class FlowCard(TextCard):
         if self.kind=='stages' and event.key() in (Qt.Key.Key_Return,Qt.Key.Key_Enter):
             QTimer.singleShot(0,self.panel.edit);event.accept();return
         super().keyPressEvent(event)
-    def paint(self,painter,option,widget=None):
-        super().paint(painter,option,widget)
-        if self.kind=='stages':
-            value=self.canvas.data()['stages'][self.key]
-            profile=next((p for p in self.canvas.window.state.get('generation',{}).get('profiles',[]) if p['id']==value.get('workflow')),None)
-            from .canvas_items import canvas_colors
-            colors=canvas_colors(self.canvas);left=18
-            if not profile:
-                painter.save();painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(QColor(colors['selected']))
-                badge=QRectF(left,37,62,24);painter.drawRoundedRect(badge,5,5)
-                font=painter.font();font.setPointSizeF(10);font.setBold(True);painter.setFont(font);painter.setPen(QColor(colors['text']))
-                painter.drawText(badge,Qt.AlignmentFlag.AlignCenter,'待設定');painter.restore();left+=72
-            painter.setPen(QColor(colors['secondary'] if profile else colors['text']))
-            caption=painter.fontMetrics().elidedText(profile['name'] if profile else '尚未選擇工作流',Qt.TextElideMode.ElideRight,int(self.width-left-18))
-            painter.drawText(QRectF(left,38,self.width-left-18,23),Qt.AlignmentFlag.AlignVCenter,caption)
-    def contextMenuEvent(self,event):
+    def open_menu(self,position):
         menu=RoundMenu(self.canvas.window)
         if self.kind=='stages':menu.addAction('參數',self.panel.edit)
+        menu.addAction('調整模組尺寸…',lambda:self.canvas.size_dialog(self.key))
+        menu.addAction('恢復自動尺寸',lambda:self.canvas.reset_size(self.key))
         menu.addAction('重新命名',lambda:self.canvas.rename_function(self.kind,self.key))
         menu.addAction('移除模塊（保留並暫停等待項目）',lambda:self.canvas.remove_flow_node(self.kind,self.key))
-        menu.open_at(event.screenPos());event.accept()
+        menu.open_at(position)

@@ -94,10 +94,8 @@ class GalleryDetailHandle(QSplitterHandle):
         size=super().sizeHint(); size.setWidth(32); return size
 
     def paintEvent(self,event):
-        window=self.window(); colors=visual_tokens(window.state['settings'])
-        color=QColor(colors['divider'])
-        painter=QPainter(self);pen=QPen(color,1);pen.setCosmetic(True);painter.setPen(pen)
-        painter.drawLine(self.width()//2,0,self.width()//2,self.height())
+        # Keep the draggable gap without a line beside the preview card.
+        pass
 
 
 class GalleryDetailSplitter(QSplitter):

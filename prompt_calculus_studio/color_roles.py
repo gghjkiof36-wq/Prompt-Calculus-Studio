@@ -97,16 +97,37 @@ def derive_roles(foundation):
     t['selected'] = interaction(t['surface'], t['text'], .12)
     t['rail_selected'] = interaction(t['chrome'], t['text'], .16)
     t['popup_active'] = interaction(t['raised'], t['text'], .10)
+    t['destructive_text'] = readable(t['error'], (t['raised'], t['popup_active']))
     t['disabled_bg'] = interaction(t['surface'], t['text'], .035)
     t['disabled_text'] = readable(mix(t['text'], t['surface'], .40), surfaces+[t['disabled_bg']])
     t['scrollbar'] = mix(t['control'], t['base'], .45)
     t['wire'] = readable(mix(t['info'], t['text'], .35), (t['base'],), 3)
     t['connected_indicator'] = status_light(t['success'], (t['chrome'],t['chrome_solid']))
-    t['canvas_body'] = mix(t['surface'], t['success'], .065)
-    t['canvas_header'] = mix(t['surface'], t['success'], .145)
-    t['canvas_field'] = mix(t['field'], t['success'], .025)
+    t['canvas_body'] = mix(t['surface'], t['field'], .16)
+    t['canvas_header'] = mix(t['surface'], t['raised'], .14)
+    t['canvas_field'] = t['field']
+    t['canvas_inset'] = mix(t['canvas_body'], t['field'], .8)
+    t['canvas_line'] = mix(t['canvas_body'], t['text'], .18)
+    t.setdefault('canvas_background',t['base'])
+    # Shared Canvas finish; application pages keep their existing surface roles
+    # while individual sheets migrate through module_chrome.dialog_colors.
+    t.setdefault('module_body', mix(t['surface'], t['field'], .25))
+    t.setdefault('module_header', t['canvas_header'])
+    t.setdefault('module_field', t['field'])
+    t['module_line'] = mix(t['module_body'], t['text'], .14)
+    t['module_divider'] = mix(t['module_header'], t['text'], .10)
+    t['module_pending'] = mix(t['module_body'], t['accent'], .13)
+    t['module_pending_line'] = mix(t['module_line'], t['accent'], .24)
+    module_surfaces = [t[key] for key in ('module_body','module_header','module_field','module_pending')]
+    t['module_text'] = readable(t['text'], module_surfaces)
+    t['module_secondary'] = readable(mix(t['module_text'],t['module_body'],.25),module_surfaces)
+    t['module_hover'] = interaction(t['module_body'],t['module_text'],.06)
+    t['module_selected'] = interaction(t['module_body'],t['module_text'],.12)
     t['text'] = readable(t['text'], surfaces+[t['canvas_body'], t['canvas_header'], t['selected'], t['popup_active']])
-    t['on_accent'] = readable(t['text'], (t['accent'],))
+    # Reserve contrast for hover/press fills. Starting exactly at 4.5:1 can
+    # force both interaction colors back to the unchanged accent.
+    available = max(contrast('#000000', t['accent']), contrast('#ffffff', t['accent']))
+    t['on_accent'] = readable(t['text'], (t['accent'],), minimum=min(7, available))
     t['accent_hover'] = interaction(t['accent'], t['on_accent'], .09)
     t['accent_pressed'] = interaction(t['accent'], t['on_accent'], .14)
     for role in ('run','stop'):

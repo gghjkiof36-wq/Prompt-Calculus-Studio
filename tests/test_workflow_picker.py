@@ -114,7 +114,9 @@ class PickerTests(unittest.TestCase):
         with patch.object(self.w.comfy,'request',request):
             refresh=next(b for b in d.findChildren(QPushButton) if b.text()=='重新整理')
             QTest.mouseClick(refresh,Qt.MouseButton.LeftButton);QTest.qWait(150)
-        self.assertFalse(d.loading);self.assertEqual(len([d.target.itemData(i) for i in range(d.target.count()) if d.target.itemData(i)]),4)
+        self.assertFalse(d.loading)
+        self.assertEqual({d.target.itemData(i) for i in range(d.target.count()) if d.target.itemData(i)},
+                         {('6','text'),('7','text'),('8','text_g'),('91','text'),('92','text')})
         self.assertEqual(d.profile()['frontend_id'],'live-A');self.assertEqual(self.w.state,before)
         self.assertEqual(routes,['/userdata?dir=workflows&recurse=true','workflow/native/inspect','workflow/native/status'])
 

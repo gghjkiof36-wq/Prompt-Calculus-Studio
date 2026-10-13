@@ -1,21 +1,24 @@
 # 開發指南
 
-[文件首頁](../README.md) · 適用：0.8.6 Alpha 1 主分支
+[文件首頁](../README.md) · 此工作分支：0.8.7 Alpha 1
 
 依[開始使用](../guide/getting-started.md)建立 `.venv`。開發與測試使用獨立資料位置：
 
 ```powershell
 $env:PROMPT_STUDIO_DATA = Join-Path $PWD 'qa/dev-data'
-.\.venv\Scripts\python.exe run.py --v0.8.6-alpha
+.\.venv\Scripts\python.exe run.py --v0.8.7-alpha
 ```
 
 ## 架構與相容性
 
 - [架構與資料流](architecture.md)
 - [Stage 模塊、接點與執行邊界](stage-architecture.md)
+- [Canvas 外觀與共用元件基準](canvas-visual-baseline.md)
 - [資料保存、參數與相容性](data-compatibility.md)
 - [技術債與處理條件](technical-debt.md)
 - [建置與來源包](building.md)
+- [0.8.7 候選操作與驗證](../releases/0.8.7/README.md)
+- [AI 與 skill 接入契約](087-ai-skill-contracts.md)（規劃，未提供模型執行）
 
 主程式與擴充原始碼分別位於 `prompt_calculus_studio/`、`comfyui_prompt_calculus_studio/`；`build_comfyui.py` 複製無 Qt 的共享核心建立擴充。版本與啟動旗標集中於 `prompt_calculus_studio/releases.py`。
 

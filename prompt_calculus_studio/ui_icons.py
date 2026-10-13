@@ -20,9 +20,10 @@ ALIASES = {
 }
 ICON_NAMES = frozenset({
     'canvas','media','explore','export','settings','back','forward','search','update',
-    'package','download','check','clock','info','close','play','pin','menu',
+    'package','download','check','clock','info','close','play','pause','stop','lock','pin','menu',
     'workflow','history','external-link','alert','server','check-circle',
-    'folder','plus','minus','copy','trash','chevron-down','chevron-up','grid','list','more-horizontal',
+    'folder','plus','minus','copy','trash','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal',
+    'panel-left','type','file-text','list-ordered','arrow-down-up','image-single','scan-eye','link-2','maximize','grip-vertical',
 })
 _STYLE_RESOURCES = {}
 
@@ -87,6 +88,32 @@ def _draw(painter, name):
     if name in ('canvas','workflow'):
         rect(3,3,6,6); rect(15,15,6,6); rect(3,15,6,6)
         poly((6,9),(6,12),(18,12),(18,15)); line(6,12,6,15)
+    elif name == 'panel-left':
+        rect(3,3,6,18,1);rect(13,3,8,7,1);rect(13,14,8,7,1)
+    elif name == 'type':
+        poly((4,6),(4,3),(20,3),(20,6));line(12,3,12,21);line(8,21,16,21)
+    elif name == 'file-text':
+        poly((5,3),(14,3),(20,9),(20,21),(5,21),closed=True)
+        poly((14,3),(14,9),(20,9));line(8,13,16,13);line(8,17,16,17)
+    elif name == 'list-ordered':
+        poly((3,3),(4,2),(4,7));line(2.5,7,5.5,7)
+        poly((2,12),(5,12),(5,14),(2,17),(5,17))
+        for y in (4,12,20):line(10,y,21,y)
+    elif name == 'arrow-down-up':
+        line(8,4,8,20);poly((4,8),(8,4),(12,8))
+        line(16,4,16,20);poly((12,16),(16,20),(20,16))
+    elif name == 'link-2':
+        painter.drawArc(QRectF(2,7,12,10),90*16,180*16)
+        painter.drawArc(QRectF(10,7,12,10),-90*16,180*16);line(8,12,16,12)
+    elif name == 'maximize':
+        for sx,sy in ((1,1),(-1,1),(1,-1),(-1,-1)):
+            poly((12+sx*4,12+sy*9),(12+sx*9,12+sy*9),(12+sx*9,12+sy*4))
+    elif name == 'scan-eye':
+        for sx,sy in ((1,1),(-1,1),(1,-1),(-1,-1)):
+            poly((12+sx*5,12+sy*10),(12+sx*10,12+sy*10),(12+sx*10,12+sy*5))
+        path=QPainterPath(QPointF(3,12));path.quadTo(12,2,21,12);path.quadTo(12,22,3,12);painter.drawPath(path);circle(12,12,3)
+    elif name == 'image-single':
+        rect(3,3,18,18,2);circle(8,8,1.6);poly((3,18),(10,11),(14,15),(17,12),(21,16))
     elif name == 'media':
         rect(6,3,15,15,2); poly((3,7),(3,21),(17,21)); circle(16.5,7.5,1.2)
         poly((7,15),(11,10),(14,13),(16,11),(20,15))
@@ -128,6 +155,14 @@ def _draw(painter, name):
         line(6,6,18,18); line(18,6,6,18)
     elif name == 'play':
         poly((7,3.8),(20,12),(7,20.2),closed=True)
+    elif name == 'pause':
+        rect(5,4,4,16,.7);rect(15,4,4,16,.7)
+    elif name == 'stop':
+        rect(4,4,16,16,2)
+    elif name == 'lock':
+        rect(5,11,14,10,2);painter.drawArc(QRectF(8,2,8,14),0,180*16);line(12,15,12,17)
+    elif name in ('chevron-left','chevron-right'):
+        poly((15,5),(8,12),(15,19)) if name=='chevron-left' else poly((9,5),(16,12),(9,19))
     elif name == 'pin':
         poly((8,3),(16,3),(15,10),(18,14),(6,14),(9,10),closed=True)
         line(12,14,12,21)
@@ -141,6 +176,9 @@ def _draw(painter, name):
         for y in (6,12,18): line(4,y,20,y)
     elif name == 'more-horizontal':
         for x in (5,12,19):circle(x,12,1)
+    elif name == 'grip-vertical':
+        for x in (9,15):
+            for y in (5,12,19):circle(x,y,.7)
     elif name == 'external-link':
         poly((13,3),(21,3),(21,11)); line(21,3,11,13)
         poly((9,5),(4,5),(4,20),(19,20),(19,15))

@@ -2,12 +2,18 @@
 
 [文件首頁](../README.md) · [精簡更新紀錄](../../CHANGELOG.md)
 
-版本使用「主版.次版.修訂」三段號。現行公開版本是 **0.8.6 Alpha 1**。每版主頁集中提供發布、修復、驗證及歷史紀錄。
+版本使用「主版.次版.修訂」三段號。現行公開版本是 **0.8.7 Alpha 1**。每版主頁集中提供發布、修復、驗證及歷史紀錄。
+
+## 開發歷程
+
+- [0.8.7 Candidate1～28](0.8.7/development/candidate-validation.md)：固定候選的功能與驗證歷程。
+- [0.8.6 修訂 12](0.8.6/repairs/revision12.md)：0.8.7 沿用的啟動及安裝回復修復。
 
 ## 公開版本
 
 | 版本 | 發布 | 版本紀錄 |
 |---|---|---|
+| 0.8.7 | [Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.7-alpha.1) | [版本主頁](0.8.7/README.md) |
 | 0.8.6 | [Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.6-alpha.1) | [版本主頁](0.8.6/README.md) |
 | 0.8.5 | [Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.5-alpha.1) | [版本主頁](0.8.5/README.md) |
 | 0.8.4 | [Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.4-alpha.1) | [版本主頁](0.8.4/README.md) |

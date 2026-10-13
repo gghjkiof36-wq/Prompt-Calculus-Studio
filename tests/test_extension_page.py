@@ -77,6 +77,41 @@ class ExtensionPageTests(unittest.TestCase):
         self.assertEqual(InstallPreferences(self.data).value['root'],str(self.comfy))
         self.assertTrue(self.page.log.isEnabled())
 
+    def test_unconfirmed_recovery_preserves_both_trees_and_stops_gui_retry(self):
+        target=self.comfy/'custom_nodes'/EXTENSION_FOLDER;target.mkdir()
+        (target/'BUILD_INFO.json').write_text(json.dumps(dict(self.info,release='--v086-revision8',git_head='b'*40)))
+        (target/'local_library.json').write_text(json.dumps(dict(library=str(self.data/'studio.sqlite3'))))
+        original={p.relative_to(target).as_posix():p.read_bytes() for p in target.rglob('*') if p.is_file()}
+        wrapper=self.base/'install_comfyui.ps1'
+        receipt=str(self.comfy/'.pcs-program-backups/install-state.json').replace("'","''")
+        prefix="""$global:pcsInjected=$false
+function Test-Path { param($LiteralPath,$PathType)
+ $answer=Microsoft.PowerShell.Management\\Test-Path @PSBoundParameters
+ if (-not $global:pcsInjected -and $LiteralPath -eq 'TARGET' -and [IO.File]::Exists('RECEIPT') -and
+     (([IO.File]::ReadAllText('RECEIPT') | ConvertFrom-Json).state -eq 'replacing')) {
+  $global:pcsInjected=$true
+  [IO.Directory]::CreateDirectory($LiteralPath) | Out-Null
+  [IO.File]::WriteAllText((Join-Path $LiteralPath 'foreign.txt'),'concurrent tree')
+ }
+ return $answer
+}
+""".replace('TARGET',str(target).replace("'","''")).replace('RECEIPT',receipt)
+        wrapper.write_text(prefix+wrapper.read_text(encoding='utf-8-sig'),encoding='utf-8-sig')
+        self.page.preferences.value['root']=str(self.comfy);self.page.preferences.save()
+        self.page.startup();self.wait_install()
+        record=json.loads((self.comfy/'.pcs-program-backups/install-state.json').read_text())
+        self.assertEqual(record['state'],'rollback_unconfirmed')
+        backup=Path(record['backup'])
+        self.assertEqual({p.relative_to(backup).as_posix():p.read_bytes() for p in backup.rglob('*') if p.is_file()},original)
+        self.assertEqual((target/'foreign.txt').read_bytes(),b'concurrent tree')
+        self.assertIn('回復結果尚未確認',self.page.status.text())
+        self.assertFalse(self.page.waiting);self.assertFalse(self.page.retry_timer.isActive())
+        self.assertIn(b'PCS_ROLLBACK_UNCONFIRMED',(self.data/'extension-install.log').read_bytes())
+        before={p.relative_to(self.comfy).as_posix():p.read_bytes() for p in self.comfy.rglob('*') if p.is_file()}
+        self.page.retry_when_stopped();self.app.processEvents()
+        self.assertFalse(self.page.busy)
+        self.assertEqual({p.relative_to(self.comfy).as_posix():p.read_bytes() for p in self.comfy.rglob('*') if p.is_file()},before)
+
     def test_auto_update_preserves_original_library_and_old_program_backup(self):
         old=self.comfy/'custom_nodes'/'comfyui_prompt_studio'; old.mkdir()
         (old/'BUILD_INFO.json').write_text(json.dumps(dict(self.info,release='--v086-revision8',git_head='b'*40)))

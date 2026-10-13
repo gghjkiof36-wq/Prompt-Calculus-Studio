@@ -1,11 +1,12 @@
 """A light Graphics View over the same selected compositions as the list."""
 import copy
+import time
 from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit, QFormLayout,
     QDoubleSpinBox, QCheckBox, QDialog, QListWidget, QListWidgetItem)
 
 from . import composition as comp
-from .canvas_palette import CanvasPalette, CanvasTagEdit
+from .canvas_palette import CanvasPalette
 from .canvas_items import TextCard, PreviewCard, NodeCard, CanvasView
 from .core import uid, validate_state, output_groups, TEMPORARY_GROUP
 from .widgets import label, button, row, StudioDialog, dialog_buttons, RoundMenu, InputDialog
@@ -16,19 +17,20 @@ class NodeDialog(StudioDialog):
     def __init__(self, parent, value=None, title='新增模組'):
         super().__init__(parent); self.setWindowTitle(title); self.resize(550, 550)
         value = value or comp.node('')
+        editor=self.editor_area() if hasattr(self,'_module_dialog_context') else self.body
         self.description = label('只修改這次組合；素材庫原文保留。', 'Subtle', True)
-        self.body.addWidget(self.description)
-        form = QFormLayout(); self.body.addLayout(form)
+        editor.addWidget(self.description)
+        form = QFormLayout(); editor.addLayout(form)
         self.name = QLineEdit(value['name']); form.addRow('名稱', self.name)
         self.prompt = QPlainTextEdit(value['prompt']); self.prompt.setPlaceholderText('可留空作為群組，再加入子模組。')
-        self.body.addWidget(self.prompt, 1)
-        self.weight = QDoubleSpinBox(); self.weight.setRange(0, 100); self.weight.setDecimals(1); self.weight.setSingleStep(.1)
+        editor.addWidget(self.prompt, 1)
+        self.weight = QDoubleSpinBox(); self.weight.setRange(-100, 100); self.weight.setDecimals(1); self.weight.setSingleStep(.1)
         self.weight.setValue(value['weight'] / 10); form.addRow('整組權重', self.weight)
         self.enabled = QCheckBox('啟用'); self.enabled.setChecked(value['enabled']); form.addRow(self.enabled)
         self.excludes = QPlainTextEdit('\n'.join(value['excludes'])); self.excludes.setMaximumHeight(75)
         self.excludes.setPlaceholderText('使用時排除的完整 Tag，每行一項。')
-        self.body.addWidget(self.excludes)
-        self.error = label('', 'Draft', True); self.body.addWidget(self.error)
+        editor.addWidget(self.excludes)
+        self.error = label('', 'Draft', True); editor.addWidget(self.error)
         self.body.addWidget(dialog_buttons(self, self.save))
 
     def save(self):
@@ -65,7 +67,7 @@ class AssetDialog(StudioDialog):
         return next(i for i in self.window.state['items'] if i['id'] == ident)
 
 
-HISTORY_FIELDS = ('version', 'modules', 'items', 'selections', 'temporary', 'weights', 'instances', 'output_order', 'text_positions', 'text_sizes', 'uses', 'workspaces', 'workspace', 'prompt_layout', 'view_drafts','canvas_functions','generation')
+HISTORY_FIELDS = ('version', 'modules', 'items', 'selections', 'temporary', 'temporary_before', 'weights', 'instances', 'output_order', 'text_positions', 'text_sizes', 'uses', 'workspaces', 'workspace', 'workspace_scenes', 'prompt_layout', 'view_drafts','canvas_functions','generation', 'material_navigation')
 
 
 class TextCanvas(QWidget):
@@ -87,8 +89,11 @@ class TextCanvas(QWidget):
         if target is not None: self.enter(target)
         self.insertion_key=target
         if target in self.cards: self.cards[target].setSelected(True); self.cards[target].update()
-        try: CanvasPalette(self,position if isinstance(position,QPointF) else None).exec()
+        picker=CanvasPalette(self,position if isinstance(position,QPointF) else None)
+        self.window.active_material_picker=picker
+        try: return picker.exec()
         finally:
+            self.window.active_material_picker=None
             self.insertion_key=None; self.root_id,self.path=previous
             if target in self.cards: self.cards[target].update()
 
@@ -115,7 +120,12 @@ class TextCanvas(QWidget):
             port.caption.setBrush(caption_color(self,port.kind))
         for card in [*getattr(self,'clips',{}).values(),*getattr(self,'flow_cards',{}).values()]:
             if hasattr(card.panel,'refresh'):card.panel.refresh()
+        for card in getattr(self,'outputs',{}).values():
+            card.panel.refresh_visual_theme()
+        for card in self.functions.cards.values():
+            if hasattr(card.panel,'refresh_visual_theme'):card.panel.refresh_visual_theme()
         if hasattr(self,'execution_bar'):self.execution_bar.refresh_visual_theme()
+        if hasattr(self,'update_lines'):self.update_lines()
         self.view.viewport().update()
 
     def showEvent(self,event):
@@ -136,6 +146,7 @@ class TextCanvas(QWidget):
         if self.parentWidget() and self.parentWidget().layout(): self.parentWidget().layout().activate()
         self.layout().activate(); self.refresh(); self.restore_view(); self.view.viewport().update()
         self._has_presented_view=True
+        self._presented_owner=(self.window.store,self.window.state.get('workspace'))
 
     def restore_hidden_view(self):
         previous=self._hidden_view; self._hidden_view=None
@@ -159,38 +170,77 @@ class TextCanvas(QWidget):
         else:self.fit()
 
     def history_state(self):
-        return {k: copy.deepcopy(self.window.state[k]) for k in HISTORY_FIELDS if k in self.window.state}
+        return self.history_projection(self.window.state)
 
-    def commit(self, operation):
+    def history_projection(self, state):
+        return {k: copy.deepcopy(state[k]) for k in HISTORY_FIELDS if k in state}
+
+    def commit(self, operation, label='編輯', merge_key=None):
         before = self.history_state(); value = copy.deepcopy(self.window.state)
         try:
-            operation(value); comp.prune_instances(value)
-            if value.get('uses'): value.setdefault('prompt_layout','paragraphs')
-            value['output_order']=output_groups(value,include_hidden=True); validate_state(value)
+            from .material_navigation import navigation_only
+            operation(value)
+            library_only = navigation_only(self.window.state, value)
+            if not library_only:
+                comp.prune_instances(value)
+                if value.get('uses'): value.setdefault('prompt_layout','paragraphs')
+                value['output_order']=output_groups(value,include_hidden=True)
+            validate_state(value)
             if value == self.window.state: return
             if value['version'] > self.window.state['version']:
                 self.window.store.save(self.window.state)
                 self.window.store.backup()
+            after = self.history_projection(value)
+            previous=getattr(self,'_last_edit',None);now=time.monotonic()
+            coalesce=bool(merge_key and previous and previous[0]==merge_key and now-previous[1]<.65 and self.undo_stack and isinstance(self.undo_stack[-1],tuple) and self.undo_stack[-1][1]==before)
+            from .content_history import record
+            record(value,before,after,label=label,merge_key=merge_key,coalesce=coalesce)
+            validate_state(value)
             self.window.state = value
-            after = self.history_state(); self.undo_stack.append((before, after)); self.undo_stack = self.undo_stack[-30:]
+            if coalesce:self.undo_stack[-1]=(self.undo_stack[-1][0],after)
+            else:self.undo_stack.append((before,after))
+            self.trim_history()
+            self._last_edit=(merge_key,now)
             self.redo_stack.clear(); self.last_state = after
             from .changes import layout_only
-            self.sync('layout' if layout_only(before,after) else 'prompt')
+            self.sync('library' if library_only else 'layout' if layout_only(before,after) else 'prompt')
             return True
         except (ValueError, KeyError, StopIteration) as exc:
             self.window.notice(str(exc))
             return False
 
+    def trim_history(self):
+        # Entries are immutable snapshots. Cache only still-retained identities
+        # so each keystroke/drag does not serialize the whole 100-step stack.
+        import json
+        self.undo_stack=self.undo_stack[-100:]
+        cached=getattr(self,'_undo_sizes',{});sizes=[];retained={}
+        for entry in self.undo_stack:
+            prior=cached.get(id(entry))
+            size=prior[1] if prior and prior[0] is entry else len(json.dumps(entry,ensure_ascii=False,default=str).encode('utf-8'))
+            sizes.append(size);retained[id(entry)]=(entry,size)
+        total=sum(sizes)
+        while len(self.undo_stack)>1 and total>32_000_000:
+            removed=self.undo_stack.pop(0);total-=sizes.pop(0);retained.pop(id(removed),None)
+        self._undo_sizes=retained
+
     def sync(self,scope='prompt'):
+        if scope == 'library':
+            page = getattr(self.window, 'prompt_editor', None)
+            if page is not None: page.refresh()
+            self.window.changed('settings', refresh=False)
+            return
         if scope=='layout':self.refresh_layout(); self.window.changed('layout',refresh=False); return
         self.window.generation_panel.refresh()
         self.window.refresh_modules(); self.window.refresh_library(); self.window.refresh_builder(); self.window.changed('prompt',refresh=False)
+        if hasattr(self.window,'refresh_prompt_editors'):self.window.refresh_prompt_editors()
 
     def refresh_layout(self):
         """Apply only saved geometry; do not rebuild text or alter output resolution."""
         state=self.window.state
         for item in getattr(self,'containers',{}).values():item.refresh()
         cards=list(self.cards.values())+list(self.functions.cards.values())+list(getattr(self,'outputs',{}).values())+list(getattr(self,'clips',{}).values())
+        cards.extend(getattr(self,'flow_cards',{}).values())
         cards.extend(c for c in (self.output,self.preview_card,getattr(self,'generator',None),getattr(self,'order_card',None)) if c is not None)
         for card in set(cards):
             key=card.key; card.restore_size(); card.layout_card()
@@ -223,7 +273,8 @@ class TextCanvas(QWidget):
         source.pop(); destination.append((before, later)); self.window.state = state
         self.last_state = self.history_state()
         from .changes import layout_only
-        self.sync('layout' if layout_only(expected,target) else 'prompt')
+        from .material_navigation import navigation_only
+        self.sync('library' if navigation_only(expected,target) else 'layout' if layout_only(expected,target) else 'prompt')
 
     def undo(self): self.restore_history(self.undo_stack, self.redo_stack, False)
     def redo(self): self.restore_history(self.redo_stack, self.undo_stack, True)
@@ -431,7 +482,7 @@ class TextCanvas(QWidget):
             ident, root, part = self.selected_node(state,key)
             legacy = root is part and ident not in state.get('uses',{})
             weight = state.get('weights',{}).get(ident,10) if legacy else part['weight']
-            weight = max(0,min(1000, value if value is not None else weight+delta))
+            weight = max(-1000,min(1000, value if value is not None else weight+delta))
             if legacy: state.setdefault('weights',{})[ident] = weight
             else: part['weight'] = weight
         self.commit(apply)
@@ -440,23 +491,31 @@ class TextCanvas(QWidget):
         ident, root, part = self.selected_node(copy.deepcopy(self.window.state),key)
         weight = self.window.state.get('weights',{}).get(ident,10) if root is part and ident not in self.window.state.get('uses',{}) else part['weight']
         dialog=StudioDialog(self.window); dialog.setWindowTitle('調整權重'); dialog.resize(380,220)
-        field=QDoubleSpinBox(); field.setRange(0,100); field.setDecimals(1); field.setSingleStep(.1); field.setValue(weight/10)
+        field=QDoubleSpinBox(); field.setRange(-100,100); field.setDecimals(1); field.setSingleStep(.1); field.setValue(weight/10)
         dialog.body.addWidget(label(part['name'],'Heading')); dialog.body.addWidget(field)
         dialog.body.addWidget(dialog_buttons(dialog,dialog.accept)); field.setFocus(); field.selectAll()
         if dialog.exec()==QDialog.DialogCode.Accepted: self.change_weight(key,value=round(field.value()*10))
 
     def resize_card(self,key,width,height,position=None):
         def apply(s):
+            if key in s.get('multi_output',{}).get('canvases',{}):
+                minimum=self.minimum_canvas(key)
+                s['multi_output']['canvases'][key]['display_size']=[max(minimum[0],min(10000,width)),max(minimum[1],min(10000,height))]
+                return
             s.setdefault('text_sizes',{})[key]=[min(10000,width),min(10000,height)]
             if position is not None: s.setdefault('text_positions',{})[key]=position
         self.commit(apply)
 
     def size_dialog(self,key):
-        card = getattr(self,'outputs',{}).get(key) or getattr(self,'clips',{}).get(key) or (getattr(self,'order_card',None) if key=='__workflow_order__' else self.output if key=='__text_output__' else self.preview_card if key=='__result_preview__' else self.functions.cards.get(key) or self.cards.get(key))
+        card = getattr(self,'outputs',{}).get(key) or getattr(self,'clips',{}).get(key) or getattr(self,'flow_cards',{}).get(key) or (getattr(self,'order_card',None) if key=='__workflow_order__' else self.output if key=='__text_output__' else self.preview_card if key=='__result_preview__' else self.functions.cards.get(key) or self.cards.get(key))
+        card=card or getattr(self,'containers',{}).get(key)
         if card is None: return
         dialog = StudioDialog(self.window); dialog.setWindowTitle('調整模組尺寸')
         form=QFormLayout(); dialog.body.addLayout(form); fields=[]
-        for title,current in [('寬度',card.width),('高度',card.height)]:
+        from .module_chrome import module_value
+        size=module_value(self,key).get('display_size') if key in getattr(self,'containers',{}) else getattr(card,'requested_size',None) if card.collapsed else None
+        size=size or (card.width,card.height)
+        for title,current in zip(('寬度','高度'),size):
             field=QDoubleSpinBox(); field.setDecimals(0); field.setRange(100,10000); field.setValue(current)
             form.addRow(title,field); fields.append(field)
         dialog.body.addWidget(label('尺寸至少容納模組內容；也可拖曳四角調整。','Subtle',True))
@@ -464,6 +523,7 @@ class TextCanvas(QWidget):
         if dialog.exec()==QDialog.DialogCode.Accepted: self.resize_card(key,*(f.value() for f in fields))
 
     def reset_size(self,key):
+        if key in getattr(self,'containers',{}):return self.resize_card(key,760,620)
         self.commit(lambda s:s.get('text_sizes',{}).pop(key,None))
 
     def append_value(self, value, position=None):
@@ -493,9 +553,20 @@ class TextCanvas(QWidget):
         dialog = NodeDialog(self.window)
         if self.root_id is None:
             dialog.description.setText('建立當次使用的模組；需要重複使用時，可另存到素材庫。')
-        if dialog.exec() != QDialog.DialogCode.Accepted: return
+        self.active_node_dialog=dialog
+        try: accepted=dialog.exec()==QDialog.DialogCode.Accepted
+        finally: self.active_node_dialog=None
+        if not accepted: return False
         value = comp.node(dialog.name.text().strip()); value.update(dialog.values())
         value['grouped'] = True
+        return self.append_value(value,position)
+
+    def add_temporary(self,position=None):
+        """Fast local text entry; saving a reusable material is a separate action."""
+        text,ok=InputDialog.getMultiLineText(self.window,'新增臨時文字','文字內容')
+        if not ok or not text.strip():return
+        value=comp.node(text.strip().splitlines()[0][:48],text)
+        value['grouped']=True
         self.append_value(value,position)
 
     def add_asset(self):
@@ -504,9 +575,41 @@ class TextCanvas(QWidget):
         self.insert_asset(copy.deepcopy(dialog.asset()))
 
     def insert_asset(self,asset,position=None):
+        from .materials import fingerprint
         value = comp.clone_node(comp.prototype(asset))
-        value.update(source_id=asset['id'],source_module=asset['module'])
-        self.append_value(value,position)
+        value.update(source_id=asset['id'],source_module=asset['module'],
+                     source_revision=fingerprint(asset),content_kind=asset.get('content_kind','tags'))
+        return self.append_value(value,position)
+
+    def _insert_with_destination(self, action, destination_id):
+        """Keep the picker's owner fixed even if layout changes while it is open."""
+        from . import multi_output as model
+        state=self.window.state
+        canvases=state.get('multi_output',{}).get('canvases',{})
+        editor=self.__dict__.get('editor')
+        if destination_id not in canvases or (editor is not None and destination_id!=editor.key):
+            self.window.notice('目的文字畫布已移除，請重新選擇。'); return False
+        if self.root_id is not None and model.owner(state,self.root_id)!=destination_id:
+            self.window.notice('目前模組已不在目的文字畫布內，請重新選擇。'); return False
+        missing=object()
+        previous=self.__dict__.get('insertion_canvas',missing)
+        fixed=self.__dict__.get('_fixed_insertion_canvas',missing)
+        self.insertion_canvas=destination_id;self._fixed_insertion_canvas=True
+        try: return bool(action())
+        finally:
+            if previous is missing:self.__dict__.pop('insertion_canvas',None)
+            else:self.insertion_canvas=previous
+            if fixed is missing:self.__dict__.pop('_fixed_insertion_canvas',None)
+            else:self._fixed_insertion_canvas=fixed
+
+    def insert_asset_with_destination(self,asset,position,destination_id):
+        return self._insert_with_destination(lambda:self.insert_asset(asset,position),destination_id)
+
+    def add_tag_with_destination(self,text,position,destination_id):
+        return self._insert_with_destination(lambda:self.add_tag(text,position),destination_id)
+
+    def add_new_with_destination(self,position,destination_id):
+        return self._insert_with_destination(lambda:self.add_new(position),destination_id)
 
     def selected_node(self, state, key):
         ident, node_id = self.entries[key]
@@ -516,20 +619,26 @@ class TextCanvas(QWidget):
         return ident, root, part
 
     def edit(self, key):
+        if key not in self.entries:return False
         ident, node_id = self.entries[key]
-        if ident is None: return
+        if ident is None: return False
         root = comp.usage_root(self.window.state, ident)
         value = copy.deepcopy(comp.find(root, node_id))
+        if value is None:return False
         is_root = node_id == root['id'] and ident not in self.window.state.get('uses',{})
         if is_root: value['weight'] = self.window.state.get('weights', {}).get(ident, 10)
         dialog = NodeDialog(self.window, value, '編輯當次模組')
-        if dialog.exec() != QDialog.DialogCode.Accepted: return
+        dialog.use_id=ident;dialog.node_id=node_id
+        self.active_node_dialog=dialog
+        try: accepted=dialog.exec()==QDialog.DialogCode.Accepted
+        finally: self.active_node_dialog=None
+        if not accepted:return False
         def apply(state):
             item_id, root, part = self.selected_node(state, key)
             changes = dialog.values()
             if is_root: state.setdefault('weights', {})[item_id] = changes.pop('weight')
             part.update(changes)
-        self.commit(apply)
+        return self.commit(apply)
 
     def override(self, key):
         dialog = AssetDialog(self.window)

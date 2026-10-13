@@ -113,6 +113,7 @@ class Window(QMainWindow):
         self.welcome=InterfaceChoice(self,True); self.surface_stack.addWidget(self.welcome)
         self.refresh_workspaces(); self.refresh_modules(); self.refresh_library(); self.refresh_builder(); self.apply_theme()
         if self.state.get('selection_view')=='canvas': self.enter_canvas()
+        else: self.leave_canvas()
         self.display_recovery=DisplayRecovery(self)
         from .sidebar_peek import SidebarPeekController
         self.sidebar_peek=SidebarPeekController(self,self.context_sidebar_target)
@@ -266,17 +267,20 @@ class Window(QMainWindow):
 
     def set_interface_mode(self,mode):
         if mode not in ('list','canvas'): return
+        if not self.flush_editor_drafts():return
         self.state['settings']['interface_mode']=mode
         if mode=='canvas': self.enter_canvas()
         else: self.leave_canvas()
         self.persist()
 
     def return_to_prompt(self):
-        if self.state.get('selection_view')=='canvas': self.enter_canvas()
+        if self.state['settings'].get('interface_mode','canvas')=='canvas': self.enter_canvas()
         else: self.leave_canvas()
 
     def enter_canvas(self):
         if not hasattr(self,'canvas_shell'): return
+        if not self.flush_editor_drafts():return
+        self.finish_expanded_canvas()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
         self.canvas_mode=True
         self.close_recent_sheet();self.canvas_header.show()
@@ -285,12 +289,26 @@ class Window(QMainWindow):
         self.generation_panel.refresh()
         self.restore_canvas_page(); self.canvas_content.setCurrentWidget(self.canvas)
         self.canvas_workspace_bar.refresh()
+        self.canvas_workspace_bar.workspace_switch.set_mode('canvas')
         self.surface_stack.setCurrentWidget(self.canvas_shell)
         self.refresh_builder(); self.changed(); QTimer.singleShot(0,self.canvas.restore_view)
         self.canvas.functions.mode_changed()
-        self.record_navigation('home')
+        self.record_navigation('home','canvas')
 
     def leave_canvas(self,checked=False,retain_mode=False):
+        if not retain_mode and hasattr(self,'canvas'):
+            if not self.flush_editor_drafts():return
+            self.finish_expanded_canvas()
+            self.remember_canvas_view()
+            self.close_recent_sheet()
+            if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
+            self.activate_prompt_view('canvas')
+            from .prompt_editor import PromptEditor
+            if not hasattr(self,'prompt_editor'):
+                self.prompt_editor=PromptEditor(self);self.surface_stack.addWidget(self.prompt_editor)
+            self.prompt_editor.refresh();self.prompt_editor.workspace_switch.set_mode('list')
+            self.surface_stack.setCurrentWidget(self.prompt_editor)
+            self.canvas_mode=False;self.record_navigation('home','editor');return
         self.close_recent_sheet()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
         self.canvas_mode=retain_mode
@@ -303,7 +321,113 @@ class Window(QMainWindow):
         if not retain_mode: self.show_latest_generated()
         self.generation_panel.refresh(); self.record_navigation('home')
 
+    def show_materials(self,canvas_id=None):
+        if not self.flush_editor_drafts():return None
+        from .canvas_palette import CanvasPalette
+        from .multi_output import owner
+        page=getattr(self.canvas,'editor_page',None)
+        canvas=page.text_canvas if page is not None else self.canvas
+        if canvas_id is None and page is not None:canvas_id=page.key
+        if canvas_id is None:
+            selected=set()
+            for item in canvas.view.scene().selectedItems():
+                key=getattr(item,'key',None)
+                if key in self.canvas.data()['canvases']:selected.add(key)
+                elif key:
+                    destination=owner(self.state,key.split(':')[0])
+                    if destination:selected.add(destination)
+            if len(selected)==1:canvas_id=selected.pop()
+        previous=(canvas.root_id,list(canvas.path))
+        canvas.root_id=None;canvas.path=[]
+        picker=CanvasPalette(canvas,None,destination_id=canvas_id,choose_destination=canvas_id is None)
+        self.active_material_picker=picker
+        try:picker.exec()
+        finally:
+            self.active_material_picker=None
+            canvas.root_id,canvas.path=previous
+        return picker
+
+    def toggle_materials(self):
+        self.show_materials()
+
+    def open_new_material(self,destination_id=None,text=''):
+        page=getattr(self.canvas,'editor_page',None)
+        self._material_return_context=('expanded',page.key) if page is not None else ('canvas',None) if self.canvas_mode else None
+        token=object();self._material_return_token=token
+        self.set_interface_mode('list')
+        if not hasattr(self,'prompt_editor') or self.surface_stack.currentWidget() is not self.prompt_editor:return None
+        self.prompt_editor.set_destination(destination_id)
+        dialog=self.prompt_editor.new_material(text=text)
+        if dialog is not None and hasattr(dialog,'finished'):
+            def restore_on_cancel(result):
+                if (result==QDialog.DialogCode.Rejected and self._material_return_token is token
+                        and self._material_return_context is not None):
+                    self.return_after_material_add(destination_id)
+            dialog.finished.connect(restore_on_cancel)
+        return dialog
+
+    def finish_expanded_canvas(self):
+        page=getattr(self.canvas,'editor_page',None)
+        if page is None:return
+        page.save_view();page.closing=True
+        if page.animation:page.animation.stop()
+        page.finish_close()
+
+    def return_after_material_add(self,destination_id=None):
+        context=getattr(self,'_material_return_context',None)
+        self._material_return_context=None
+        self._material_return_token=None
+        self.set_interface_mode('canvas')
+        if context and context[0]=='expanded' and context[1] in self.canvas.data()['canvases']:
+            self.canvas.open_editor(context[1])
+
+    def show_content_history(self,canvas_id=None):
+        if not self.flush_editor_drafts():return
+        from .prompt_editor import show_history
+        show_history(self,canvas_id)
+
+    def flush_editor_drafts(self,closing=False):
+        from .prompt_editor import flush_editors
+        page=getattr(getattr(self,'canvas',None),'editor_page',None)
+        if page is not None and hasattr(page,'can_leave') and not page.can_leave():return False
+        return flush_editors(self,closing=closing)
+
+    def refresh_prompt_editors(self):
+        from .prompt_editor import _live_editors
+        page=getattr(self,'prompt_editor',None)
+        if page is not None and page.isVisible():page.refresh()
+        for editor in _live_editors(self):
+            if editor.isVisible():editor.refresh()
+
+    def edit_canvas_material(self,key):
+        page=getattr(self.canvas,'editor_page',None)
+        canvas=page.text_canvas if page is not None and key in page.text_canvas.entries else self.canvas
+        return canvas.edit(key)
+
+    def add_material_to_canvas(self,ident,position=None,canvas_id=None):
+        asset=next((i for i in self.state['items'] if i['id']==ident),None)
+        if asset is None:self.notice('素材已移除。');return False
+        canvas=self.canvas
+        target=canvas_id if canvas_id is not None else canvas.canvas_at(position) if position is not None else None
+        if canvas_id is not None and target not in canvas.data()['canvases']:
+            self.notice('目的文字畫布已移除，請重新選擇。');return False
+        if target not in canvas.data()['canvases']:
+            choices=list(canvas.data()['canvases'])
+            labels=[canvas.data()['canvases'][k]['name']+' · '+str(i+1) for i,k in enumerate(choices)]+['新增文字畫布']
+            from .widgets import InputDialog
+            selected,ok=InputDialog.getItem(self,'加入文字素材','選擇目的畫布',labels)
+            if not ok:return False
+            target=choices[labels.index(selected)] if selected!=labels[-1] else canvas.add_canvas(position)
+        from .materials import add_to_canvas
+        added=[]
+        point=[position.x(),position.y()] if position is not None else None
+        if not canvas.commit(lambda s:added.append(add_to_canvas(s,ident,target,point)),label='加入文字素材'):return False
+        if canvas.isVisible():canvas.focus_node(added[0])
+        self.notice('已加入「'+canvas.data()['canvases'][target]['name']+'」的獨立文字副本。')
+        return True
+
     def show_page(self,page):
+        if not self.flush_editor_drafts():return
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
         if self.surface_stack.currentWidget() is self.settings_page:self.settings_page.flush()
         if page is self.models: self.settings('models'); return
@@ -437,7 +561,9 @@ class Window(QMainWindow):
             if kind=='settings': self.settings(detail)
             else:
                 if self.settings_page.preferences is not None: self.settings_page.cancel()
-                if kind=='home': self.return_to_prompt()
+                if kind=='home':
+                    if detail in ('canvas','editor'):self.set_interface_mode('canvas' if detail=='canvas' else 'list')
+                    else:self.return_to_prompt()
                 elif kind=='page': self.show_page(getattr(self,detail))
         finally: self.navigation_locked=False; self.update_navigation()
 
@@ -601,7 +727,6 @@ class Window(QMainWindow):
         if hasattr(self,"state"): update_window_shape(self)
         if hasattr(self,'builder_scroll'):self.adapt_prompt_layout()
         if hasattr(self,'sidebar_peek'):QTimer.singleShot(0,self.sync_context_sidebar)
-
     def compact_module_changed(self):
         if not hasattr(self,'module_list'):return
         target=self.compact_modules.currentData()
@@ -632,10 +757,9 @@ class Window(QMainWindow):
         for workspace in self.state["workspaces"]: self.workspace.addItem(workspace["name"],workspace["id"])
         self.workspace.setCurrentIndex(self.workspace.findData(self.state["workspace"])); self.workspace.blockSignals(False)
         if hasattr(self,'canvas_workspace'):
-            self.canvas_workspace.blockSignals(True); self.canvas_workspace.clear()
-            for workspace in self.state['workspaces']: self.canvas_workspace.addItem(workspace['name'],workspace['id'])
-            self.canvas_workspace.setCurrentIndex(self.canvas_workspace.findData(self.state['workspace']))
-            self.canvas_workspace.blockSignals(False)
+            self.canvas_workspace.refresh(self.state)
+        page=getattr(self,'prompt_editor',None)
+        if page is not None:page.refresh_workspace()
 
     def switch_workspace(self):
         if self.workspace.currentData():
@@ -654,7 +778,12 @@ class Window(QMainWindow):
             self.state['canvas_view']=[view.transform().m11(),point.x(),point.y()]
 
     def change_workspace(self,target):
+        if not self.flush_editor_drafts():return
         previous=self.state['workspace'];self.remember_canvas_view()
+        editor=getattr(self.canvas,'editor_page',None)
+        if editor is not None:
+            if editor.animation:editor.animation.stop()
+            editor.finish_close()
         if hasattr(self,'comfy'):self.comfy.input_flow.workspace_changed(previous)
         if hasattr(self,'canvas'):
             canvas=self.canvas
@@ -695,6 +824,7 @@ class Window(QMainWindow):
             self.refresh_workspaces();self.changed()
 
     def settings(self,section='interface'):
+        if not self.flush_editor_drafts():return
         self.close_recent_sheet()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
         if not isinstance(section,str): section='interface'
@@ -838,7 +968,7 @@ class Window(QMainWindow):
         if self.state['draft'] is not None:
             self.notice('正在使用手動版本；清除手動內容後才能調整權重。'); return
         weights=self.state.setdefault('weights',{})
-        weights[ident]=max(0,min(1000,weights.get(ident,10)+delta))
+        weights[ident]=max(-1000,min(1000,weights.get(ident,10)+delta))
         self.refresh_library(); self.refresh_builder(); self.changed()
 
     def toggle_item(self,widget):
@@ -852,27 +982,15 @@ class Window(QMainWindow):
 
     def new_item(self,initial=""):
         if isinstance(initial,bool): initial=""
-        if not self.state["modules"]: self.notice("請先新增模組。"); return
-        dialog=ItemDialog(self,initial=initial)
-        if dialog.exec()==QDialog.DialogCode.Accepted:
-            self.state["items"].append(dialog.item); self.current_module=dialog.item["module"]
-            self.refresh_modules(); self.refresh_library(); self.changed()
+        return self.open_new_material(text=initial)
 
     def edit_item(self,ident):
-        original=next(i for i in self.state["items"] if i["id"]==ident)
-        if 'composition' in original:
-            dialog=NodeDialog(self,original['composition'],'編輯素材原型的本層內容')
-            dialog.description.setText('修改素材庫原型的本層內容；已建立的當次副本保持原樣。子項可在 Canvas 調整後另存新素材。')
-            if dialog.exec()==QDialog.DialogCode.Accepted:
-                value=copy.deepcopy(original['composition']); value.update(dialog.values())
-                original.update(name=value['name'],prompt=composition.render(value),composition=value)
-                self.refresh_library(); self.refresh_builder(); self.changed()
-            return
-        dialog=ItemDialog(self,original)
-        if dialog.exec()==QDialog.DialogCode.Accepted:
-            if original["module"]!=dialog.item["module"]: self.remove_selection(ident)
-            self.state["items"]=[dialog.item if i["id"]==ident else i for i in self.state["items"]]
-            self.refresh_library(); self.refresh_builder(); self.changed()
+        if not any(i['id']==ident for i in self.state['items']):
+            self.notice('素材已移除。');return None
+        self.set_interface_mode('list')
+        if self.surface_stack.currentWidget() is not getattr(self,'prompt_editor',None):return None
+        self.prompt_editor.set_destination(None)
+        return self.prompt_editor.edit_material(ident)
 
     def remove_selection(self,ident):
         for picks in [self.state["selections"]]+[w["picks"] for w in self.state["workspaces"]]:
@@ -1164,13 +1282,16 @@ class Window(QMainWindow):
             from .validation import validate_resources
             validate_resources(resources)
             if not ask(self,"匯入資料",f"以備份取代目前的素材與檔案索引？\n共 {len(state['items'])} 個提示詞、{len(resources)} 筆模型／圖片資料。\n\n會先建立 SQLite 備份；不複製、搬移或刪除外部原檔。"): return
-            self.save_timer.stop(); self.models.save(); self.changes.stop(); backup=self.store.backup()
+            if not self.flush_editor_drafts(closing=True):return
+            self.save_timer.stop(); self.models.save(); self.changes.stop();self.store.save(self.state); backup=self.store.backup()
             self.completion.serial+=1; self.completion.timer.stop()
             with self.store.db:
                 self.store.db.execute("DELETE FROM resources")
                 for r in resources: self.store.db.execute("INSERT INTO resources VALUES (?,?,?,?,?)",(r["id"],r["kind"],r["parent"],r["name"],json.dumps(r["body"],ensure_ascii=False)))
                 self.store.db.execute("INSERT OR REPLACE INTO document VALUES (1,?)",(json.dumps(state,ensure_ascii=False),))
             self.state=self.store.load(); self.current_module=self.state["modules"][0]["id"] if self.state["modules"] else None
+            from .prompt_editor import reset_editors
+            reset_editors(self)
             # JSON replaces the document, not one undoable Canvas edit. Old
             # histories/editors contain owner IDs from the previous document.
             self.canvas.undo_stack.clear(); self.canvas.redo_stack.clear(); self.canvas.last_state=None
@@ -1192,6 +1313,10 @@ class Window(QMainWindow):
         except Exception as exc: self.error(str(exc))
 
     def closeEvent(self,event):
+        sheet=getattr(self,'stage_parameter_sheet',None)
+        if sheet is not None and not getattr(sheet,'closed',False) and hasattr(sheet,'save_draft') and not sheet.save_draft():
+            event.ignore();return
+        if not self.flush_editor_drafts(closing=True):event.ignore();return
         if hasattr(self,'settings_page') and self.settings_page.manager.extension.busy:
             self.notice('配套擴充正在安裝，完成後即可關閉 PCS。');event.ignore();return
         self.close_recent_sheet()

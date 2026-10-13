@@ -1,6 +1,6 @@
 # ComfyUI 整合
 
-適用：0.8.6 Alpha 1 · [使用指南](README.md)
+適用：0.8.7 Alpha 1 · [使用指南](README.md)
 
 先確認本機 ComfyUI 與工作流能正常生成；本版需要保持該工作流網頁開啟。
 
@@ -14,7 +14,7 @@
 
 ## 手動安裝方式
 
-從 [同版 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.6-alpha.1) 取得 `PCS-v0.8.6-Alpha1-ComfyUI.zip`，解壓到 ComfyUI 安裝目錄以外。完整資料夾名稱為 `comfyui_prompt_calculus_studio`；開發原始碼中的同名資料夾缺少打包時加入的共用核心，請使用完整擴充 ZIP。
+從 [同版 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.7-alpha.1) 取得 `PCS-v0.8.7-Alpha1-ComfyUI.zip`，解壓到 ComfyUI 安裝目錄以外。完整資料夾名稱為 `comfyui_prompt_calculus_studio`；開發原始碼中的同名資料夾缺少打包時加入的共用核心，請使用完整擴充 ZIP。
 
 先啟動一次 PCS 建立資料庫，再關閉 ComfyUI。使用完整擴充包內的安裝腳本，將範例路徑改成實際位置：
 

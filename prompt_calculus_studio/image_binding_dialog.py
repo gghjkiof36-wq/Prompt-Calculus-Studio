@@ -7,6 +7,7 @@ from .generation import options
 
 class ImageBindingDialog(ClipBindingDialog):
     manual_choice=True
+    empty_target_allowed=False
     def __init__(self,canvas,key):
         self.image_binding=copy.deepcopy(canvas.window.state['canvas_functions']['images'][key].get('binding'))
         super().__init__(canvas,key); self.setWindowTitle('綁定加載圖片'); self.nodes_label.setText('圖片節點')

@@ -13,9 +13,8 @@ from .theme import visual_tokens
 from .studio_navigation import ContentStack
 
 
-SETTINGS_READING_WIDTH=740
-SETTINGS_READING_MARGIN=24
-SETTINGS_READING_NARROW_MARGIN=16
+from .management_reading import (READING_CONTENT_WIDTH as SETTINGS_READING_WIDTH,
+    READING_MARGIN as SETTINGS_READING_MARGIN, READING_NARROW_MARGIN as SETTINGS_READING_NARROW_MARGIN)
 
 
 class ReadingPage(QScrollArea):

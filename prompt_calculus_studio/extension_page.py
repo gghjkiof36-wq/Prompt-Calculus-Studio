@@ -4,10 +4,11 @@ from pathlib import Path
 
 from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QBoxLayout, QFileDialog, QCheckBox, QLineEdit
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QBoxLayout, QFileDialog
 
 from .extension_install import InstallPreferences, available_package, build_info, comfy_root, installed, update_state
-from .widgets import label, button, panel, row
+from .widgets import button, row
+from .management_reading import PREFERRED_CONTENT_WIDTH,ReadingText,ReadingPanel,ReadingPath,ReadingCheckBox,readable_control
 
 
 class ExtensionPage(QWidget):
@@ -32,32 +33,41 @@ class ExtensionPage(QWidget):
         self.retry_timer.timeout.connect(self.retry_when_stopped)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        frame, body = panel('SettingsGroup')
-        frame.setMaximumWidth(920)
-        body.addWidget(label('PCS 配套擴充', 'DialogTitle'))
-        body.addWidget(label('選擇 ComfyUI 資料夾後，自動安裝到 custom_nodes。不需要先連線或綁定工作流。', 'Subtle', True))
-        self.location = QLineEdit()
-        self.location.setReadOnly(True)
+        frame = ReadingPanel(window)
+        body = frame.body
+        frame.setMaximumWidth(PREFERRED_CONTENT_WIDTH)
+        body.addWidget(ReadingText(window,'PCS 配套擴充','panel'))
+        body.addSpacing(8)
+        body.addWidget(ReadingText(window,'選擇 ComfyUI 資料夾後，自動安裝到 custom_nodes。不需要先連線或綁定工作流。',subtle=True))
+        body.addSpacing(24)
+        self.location = ReadingPath(window)
         self.location.setPlaceholderText('尚未指定 ComfyUI 資料夾')
-        self.version = label('', None, True)
-        self.status = label('', None, True)
+        self.version = ReadingText(window)
+        self.status = ReadingText(window)
         body.addWidget(self.location)
+        body.addSpacing(16)
         body.addWidget(self.version)
+        body.addSpacing(8)
         body.addWidget(self.status)
+        body.addSpacing(24)
         self.choose = button('選擇資料夾並安裝', self.select_folder, 'Primary')
         self.update = button('安裝／更新', self.install)
         self.check = button('重新檢查', self.check_now, 'Quiet')
         self.actions = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self.actions.setSpacing(10)
         for control in (self.choose, self.update, self.check):
-            self.actions.addWidget(control)
+            self.actions.addWidget(readable_control(control))
         self.actions.addStretch()
         body.addLayout(self.actions)
-        self.automatic = QCheckBox('隨 PCS 自動更新配套擴充')
+        body.addSpacing(24)
+        self.automatic = ReadingCheckBox('隨 PCS 自動更新配套擴充')
         self.automatic.setChecked(self.preferences.value['automatic'])
         self.automatic.toggled.connect(self.set_automatic)
         body.addWidget(self.automatic)
-        body.addWidget(label('自動更新只在 ComfyUI 關閉時進行，會先備份原擴充並保留設定。完成後請啟動 ComfyUI，並重新整理已開啟的頁面。', 'Subtle', True))
-        self.log = button('檢視安裝紀錄', self.open_log, 'Quiet')
+        body.addSpacing(10)
+        body.addWidget(ReadingText(window,'自動更新只在 ComfyUI 關閉時進行，會先備份原擴充並保留設定。完成後請啟動 ComfyUI，並重新整理已開啟的頁面。',subtle=True))
+        body.addSpacing(20)
+        self.log = readable_control(button('檢視安裝紀錄', self.open_log, 'Quiet'))
         body.addLayout(row(self.log, None))
         layout.addWidget(frame)
         layout.addStretch()
@@ -201,6 +211,8 @@ class ExtensionPage(QWidget):
     def finished(self, code, status):
         self.read_output()
         self.busy = False
+        self.waiting = False
+        self.retry_timer.stop()
         if code == 20 and status == QProcess.ExitStatus.NormalExit:
             self.message = '請先關閉 ComfyUI；關閉後會自動接續安裝。' if self.preferences.value['automatic'] else '請先關閉 ComfyUI，再按安裝／更新。'
             self.waiting = self.preferences.value['automatic']
@@ -209,7 +221,7 @@ class ExtensionPage(QWidget):
         elif code == 0 and status == QProcess.ExitStatus.NormalExit:
             self.message = '配套擴充已安裝；請啟動 ComfyUI 並重新整理頁面。'
         elif code == 21:
-            self.message = '上次安裝結果尚未確認，請檢視安裝紀錄與備份；已停止自動更新。'
+            self.message = '安裝或回復結果尚未確認；請保留備份與現有擴充，檢視安裝紀錄後再處理。已停止自動更新。'
         else:
             self.message = '安裝未完成，請查看安裝紀錄；不會自動重試。'
         try:

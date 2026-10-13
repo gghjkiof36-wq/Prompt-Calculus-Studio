@@ -1,17 +1,17 @@
 # 開始使用
 
-[回首頁](../../README.md) · 適用：0.8.6 Alpha 1
+[回首頁](../../README.md) · 適用：0.8.7 Alpha 1
 
 ## 下載與安裝
 
-從[0.8.6 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.6-alpha.1)取得 `PCS-v0.8.6-Alpha1-source.zip`，完整解壓到新資料夾。內含 `run.py`、`Start.cmd`、配套擴充及安裝腳本；請保留整個資料夾。本次提供來源版，沒有 Windows EXE 下載。
+從[0.8.7 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.7-alpha.1)取得 `PCS-v0.8.7-Alpha1-source.zip`，完整解壓到新資料夾。內含 `run.py`、`Start.cmd`、配套擴充及安裝腳本；請保留整個資料夾。本次提供來源版，沒有 Windows EXE 下載。
 
 準備 Windows 64 位元版 Python 3.12（含 Python Launcher），在含 `run.py` 的資料夾開啟 PowerShell：
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py --v0.8.6-alpha
+.\.venv\Scripts\python.exe run.py --v0.8.7-alpha
 ```
 
 首次安裝需要網路下載依賴。之後雙擊同資料夾的 `Start.cmd` 即可；它使用 `.venv`，啟動失敗時保留錯誤訊息。也可在 `Start.cmd` 按右鍵建立桌面捷徑。找不到 `py` 時，改用已安裝 Python 3.12 的完整路徑建立 `.venv`。
@@ -34,7 +34,7 @@ py -3.12 -m venv .venv
 3. 先關閉 ComfyUI，再安裝。完成後啟動 ComfyUI，重新整理已開啟的工作流網頁。
 4. 回 PCS 連線；在管理頁核對已安裝與實際載入版本。更新檔案不會立即改變已開啟的服務。
 
-擴充提供 PCS 連線與網頁功能，不新增生成節點，不會出現在新增節點選單。來源包已含同版擴充；另提供的 `PCS-v0.8.6-Alpha1-ComfyUI.zip` 可用於手動安裝。操作與恢復方式見[ComfyUI 整合](comfyui.md)。
+擴充提供 PCS 連線與網頁功能，不新增生成節點，不會出現在新增節點選單。來源包已含同版擴充；另提供的 `PCS-v0.8.7-Alpha1-ComfyUI.zip` 可用於手動安裝。操作與恢復方式見[ComfyUI 整合](comfyui.md)。
 
 ## 更新與資料帶入
 

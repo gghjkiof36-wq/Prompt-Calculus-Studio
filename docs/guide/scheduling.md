@@ -1,6 +1,6 @@
 # 預排程與任務管理
 
-適用：0.8.6 Alpha 1 · [使用指南](README.md)
+適用：0.8.7 Alpha 1 · [使用指南](README.md)
 
 預排程讓你先安排文字、圖片或一組 Stage，再依序執行。先確認[Stage 接線](stage.md)正確；排入等待不等於凍結整張 ComfyUI 工作流。
 

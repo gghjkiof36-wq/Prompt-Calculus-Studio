@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
-from PySide6.QtWidgets import QApplication,QDialog
+from PySide6.QtWidgets import QApplication,QDialog,QPlainTextEdit,QPushButton
 from PySide6.QtCore import QPointF
 from PySide6.QtTest import QTest
 from prompt_calculus_studio.window import Window
@@ -21,17 +21,36 @@ class InputCanvasTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'});self.env.start();self.addCleanup(self.env.stop)
-        self.w=Window(self.tmp.name);self.w.comfy.enabled=False;self.w.comfy.timer.stop();self.notices=[];self.w.notice=self.notices.append
+        self.w=Window(self.tmp.name);self.addCleanup(self.close_window,self.w)
+        self.w.comfy.enabled=False;self.w.comfy.timer.stop();self.notices=[];self.w.notice=self.notices.append
+        request=patch.object(self.w.comfy,'request');self.request=request.start();self.addCleanup(request.stop)
         self.w.state['settings'].update(online=False,material='solid');self.w.show();self.w.set_interface_mode('canvas');QTest.qWait(30)
         self.c=self.w.canvas;self.cid=next(iter(self.c.data()['canvases']));self.out=self.c.data()['current_output']
-    def tearDown(self):self.w.close();APP.processEvents()
+        from prompt_calculus_studio.canvas_starter import guide
+        self.starter=guide(self.w.state);self.assertIsNotNone(self.starter)
+
+    def close_window(self,window):
+        try:window.close();APP.processEvents()
+        finally:window.store.close()
 
     def scheduler(self):
-        self.c.add_flow_node('schedulers',QPointF(1100,100));self.sid=next(iter(self.c.data()['schedulers']));return self.sid
+        before=set(self.c.data()['schedulers']);self.c.add_flow_node('schedulers',QPointF(1100,100))
+        added=set(self.c.data()['schedulers'])-before;self.assertEqual(len(added),1);self.sid=added.pop();return self.sid
 
     def profile(self):
         p=workflow();p['frontend_id']='native-A';p['graph']['20']=dict(class_type='LoadImage',inputs={'image':'input.png'})
-        self.w.generation_panel.save_profile(p);return p
+        self.w.generation_panel.save_profile(p)
+        from prompt_calculus_studio.stage_model import choose
+        self.assertTrue(self.c.commit(lambda s:choose(s,self.starter['stage'],'flow')))
+        return p
+
+    def enqueue_waiting(self,count=1):
+        runner=self.w.comfy.input_flow.chain
+        runner.store.set_scheduler_paused(self.w.state['workspace'],self.sid,True)
+        self.w.comfy.connected=True;self.w.comfy.running=1
+        self.w.comfy.input_flow.execute(count);QTest.qWait(10)
+        self.request.assert_not_called()
+        return runner
 
     def test_canvas_nodes_visible_edit_waiting_remove_undo_does_not_execute(self):
         self.profile();self.c.add_tag('first',self.c.containers[self.cid].pos()+QPointF(50,160));self.scheduler()
@@ -41,14 +60,28 @@ class InputCanvasTests(unittest.TestCase):
         self.c.commit(lambda s:model.connect(s,endpoint(self.sid,'clip1'),clip,'clip'))
         self.c.commit(lambda s:clip_flow.set_binding(s,'flow',clip,('6','text')))
         self.assertIn(self.sid,self.c.flow_cards);panel=self.c.flow_cards[self.sid].panel
-        self.w.comfy.connected=True;self.w.comfy.running=1;self.w.comfy.input_flow.execute(2);panel.refresh();self.assertEqual(panel.listing.count(),2)
-        panel.listing.setCurrentRow(1);panel.selection_changed();panel.editor.setPlainText('edited waiting');panel.save_text()
-        rows=self.w.comfy.input_flow.store.rows(self.sid)
-        self.assertEqual(rows[1]['inputs'][endpoint(self.sid,'clip1')]['value'],'edited waiting')
-        self.c.remove_flow_node('schedulers',self.sid);self.assertTrue(self.w.comfy.input_flow.store.control(self.sid)['paused'])
-        self.c.undo();self.assertIn(self.sid,self.c.data()['schedulers']);self.assertEqual(len(self.w.comfy.input_flow.store.rows(self.sid)),2)
-        self.assertIsNone(self.w.comfy.input_flow.current);self.assertFalse(hasattr(self.w,'canvas_queue'))
-        self.assertEqual(self.notices,['已保存 2 項至預排程。','已保存這一項的修改。'])
+        runner=self.enqueue_waiting(2);panel.refresh();self.assertEqual(panel.list.count(),2)
+        panel.list.setCurrentRow(1);entry=panel.selected();first=panel.entries()[0];port=endpoint(self.sid,'clip1')
+        def edit(dialog):
+            from prompt_calculus_studio.widgets import ComboBox
+            picker=dialog.findChild(ComboBox)
+            choices=[picker.itemData(i) for i in range(picker.count())]
+            self.assertIn(('inputs',port),choices)
+            picker.setCurrentIndex(choices.index(('inputs',port)))
+            self.assertEqual(picker.currentData(),('inputs',port))
+            dialog.findChild(QPlainTextEdit).setPlainText('edited waiting')
+            next(b for b in dialog.findChildren(QPushButton) if b.text()=='保存此項').click()
+            return QDialog.DialogCode.Accepted
+        with patch('prompt_calculus_studio.stage_widgets.StudioDialog.exec',edit):panel.detail()
+        self.assertEqual(runner.store.read(entry['id'])['saved']['inputs'][port]['value'],'edited waiting')
+        self.assertEqual(runner.store.read(first['id'])['saved'],first['saved'])
+        self.c.remove_flow_node('schedulers',self.sid)
+        self.assertEqual(runner.store.read(entry['run'])['status'],'paused')
+        self.c.undo();self.assertIn(self.sid,self.c.data()['schedulers'])
+        rows=[r for r in runner.store.rows('entry',self.w.state['workspace']) if r['scheduler']==self.sid]
+        self.assertEqual(len(rows),2);self.assertEqual(runner.store.read(entry['id'])['saved']['inputs'][port]['value'],'edited waiting')
+        self.assertFalse(runner.store.rows('attempt',self.w.state['workspace']));self.request.assert_not_called()
+        self.assertFalse(hasattr(self.w,'canvas_queue'))
 
     def test_image_source_raw_metadata_canvas_and_single_file_controls(self):
         path=Path(self.tmp.name)/'test.png';png(path,{'prompt':{'s':dict(inputs={'positive':['p',0]}),'p':dict(inputs={'text':'opaque, natural sentence'})}})
@@ -59,7 +92,9 @@ class InputCanvasTests(unittest.TestCase):
         root=self.w.state['uses'][members[0]]
         self.assertEqual(root['name'],'test.png');self.assertEqual(root['prompt'],'opaque, natural sentence')
         self.assertIn(members[0],self.c.cards)
-        self.assertTrue(self.c.functions.cards[key].panel.source_controls.isVisible())
+        panel=self.c.functions.cards[key].panel
+        self.assertFalse(panel.source_controls.isVisible())
+        panel.toggle_management();self.assertTrue(panel.source_controls.isVisible())
         self.c.functions.cards[key].panel.live_control('pause')
         self.assertFalse(self.notices,self.notices)
 
@@ -70,7 +105,7 @@ class InputCanvasTests(unittest.TestCase):
         self.assertEqual([dialog.target.itemData(i) for i in range(dialog.target.count())],[None,'20'])
         dialog.target.setCurrentIndex(1);dialog.apply();dialog.close()
         self.assertEqual(self.c.data()['image_inputs'][key]['node'],'20')
-        self.w.persist();self.w.close();APP.processEvents();self.w=Window(self.tmp.name);self.c=self.w.canvas
+        self.w.persist();self.w.close();APP.processEvents();self.w=Window(self.tmp.name);self.addCleanup(self.close_window,self.w);self.c=self.w.canvas
         self.assertIn(self.sid,self.c.data()['schedulers']);self.assertEqual(self.c.data()['image_inputs'][key]['node'],'20')
 
     def test_execute_button_accepts_more_while_native_running(self):
@@ -82,21 +117,30 @@ class InputCanvasTests(unittest.TestCase):
         controls.refresh();self.assertTrue(controls.run_button.isEnabled());self.assertEqual(controls.run_button.text(),'執行')
 
     def test_retained_inputs_can_restore_removed_panel_without_submission(self):
-        from prompt_calculus_studio.flow_widgets import retained_records
-        from PySide6.QtWidgets import QPushButton
+        from prompt_calculus_studio.stage_widgets import entry_detail
         self.profile();self.scheduler();port=endpoint(self.sid,'clip1')
         self.c.commit(lambda s:model.connect(s,self.out,port,'clip'))
         clip=next(iter(self.c.data()['clip_inputs']))
         self.c.commit(lambda s:model.connect(s,port,clip,'clip'))
         self.c.commit(lambda s:clip_flow.set_binding(s,'flow',clip,('6','text')))
-        self.w.comfy.connected=True;self.w.comfy.running=1;self.w.comfy.input_flow.execute();self.c.remove_flow_node('schedulers',self.sid)
+        runner=self.enqueue_waiting();entry=next(r for r in runner.store.rows('entry',self.w.state['workspace']) if r['scheduler']==self.sid)
+        self.c.remove_flow_node('schedulers',self.sid)
+        self.assertEqual(runner.store.read(entry['id'])['status'],'retained')
+        self.assertNotIn(self.sid,self.c.data()['schedulers'])
+        # Stage v7 retains queue records separately; restoring the document by
+        # Undo must not resume these retained inputs or create a native job.
+        self.c.undo();self.assertIn(self.sid,self.c.data()['schedulers'])
+        retained=runner.store.read(entry['id']);self.assertEqual(retained['saved'],entry['saved'])
+        self.assertEqual(retained['status'],'retained')
         def display(dialog):
-            next(b for b in dialog.findChildren(QPushButton) if b.text()=='顯示／恢復這份預排程').click()
+            self.assertTrue(dialog.findChild(QPlainTextEdit).isReadOnly())
+            self.assertFalse(next(b for b in dialog.findChildren(QPushButton) if b.text()=='保存此項').isEnabled())
+            dialog.accept()
             return QDialog.DialogCode.Accepted
-        with patch('prompt_calculus_studio.flow_widgets.StudioDialog.exec',display):retained_records(self.w)
-        self.assertIn(self.sid,self.c.data()['schedulers']);self.assertIsNone(self.w.comfy.input_flow.current)
-        self.assertTrue(self.w.comfy.input_flow.store.control(self.sid)['paused'])
-        self.assertEqual(len(self.w.comfy.input_flow.store.rows(self.sid)),1)
+        with patch('prompt_calculus_studio.stage_widgets.StudioDialog.exec',display):entry_detail(self.w,retained)
+        self.assertEqual(runner.store.read(entry['run'])['status'],'paused')
+        self.assertEqual(len([r for r in runner.store.rows('entry',self.w.state['workspace']) if r['scheduler']==self.sid]),1)
+        self.assertFalse(runner.store.rows('attempt',self.w.state['workspace']));self.request.assert_not_called()
 
     def test_completed_result_view_rejects_foreign_result_and_displays_whole_own_batch(self):
         from prompt_calculus_studio.flow_widgets import show_job_images

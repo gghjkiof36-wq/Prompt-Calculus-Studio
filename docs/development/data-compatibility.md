@@ -1,8 +1,30 @@
 # 資料與相容性
 
-適用：0.8.6 Alpha 1。Stage 參數沿用 0.8.5 的保存與覆寫規則。
+適用：0.8.7 Alpha 1，沿用修訂 12 的啟動及回復修正。Stage 執行參數仍使用既有明確覆寫規則。
 
-## 導覽、起始流程與更新設定
+## 素材、文字草稿與內容歷史
+
+- 候選26新增可選的庫級 `material_navigation` version 1，保存資料夾、分類ID歸屬及側欄順序；`settings.material_folder_collapsed` 保存收合偏好。缺欄位時全部分類在外層，不在refresh写入，不重排原`modules`或Canvas輸出。新增、改名、移動及移除沿既有Undo交易，僅收合不新增內容交易。已刪除分類的舊引用在顯示時忽略，下一次明確收納操作才清除；不支援的收納版本拒絕載入。資料夾不屬於工作區場景，也不寫進PNG生成快照；恢復快照保留目前庫的收納關係。
+- `items` 保存素材原件，`uses` 是每份畫布的獨立內容樹。新增 `content_kind`（tags/text/markdown）、`pinned`、`last_used`、`source_revision` 與 `collapsed` 為可選欄位；既有內容缺欄不強制改写收合狀態。未知內容格式拒絕，不回退成 tags 清理。
+- `multi_output.outputs` 的 Canvas 與 list 草稿保留分隔，`None` 與 `""` 不可互換。Editor 切頁、切工作區及退出前同步目前副本，素材原件仍需明確保存；舊 list 的內容與次序可透過取回入口查看，不自動生成新流程。
+- `content_history.version=1` 保存最多 200 筆／4 MiB 的內容及操作紀錄。素材、文字樹與 output 草稿的 before/after 分開記錄，output 帶 canvas/list scope。還原內容經 Canvas transaction 產生新的歷史；不改外部提交、圖片歷史或非目標輸出。
+- Stage 未套用草稿放同資料庫的附加 `stage_editor_local` 表，按工作區、server、Stage、等待項目分隔。這不是 Stage 執行參數；提醒偏好與草稿保存不會套用或提交生成。
+- Undo 為工作階段內 100 步／約 32 MB 的有界快照。未提交等待項目採紀錄身分與完整值比對，已嘗試／已提交／外部修改不復原成 waiting；成功復原保持原 run 暫停。
+- 新 PNG 快照使用 `formatter_version=2`。無標記的舊快照以舊分隔規則精確重算驗證；新規則不同時，還原保留歷史 final 為手動稿，不拿新版輸出覆寫。portable 快照排除本機預覽路徑、釘選、使用時間及內容歷史。
+- 舊 `workspace_scenes` 在載入副本內依完整 multi-output→CLIP→flow→Stage 次序升級，原件先備份；再次載入不得製造相同轉換備份。場景遷移不保留 runtime execution-input 或 Stage-result 暫存。
+
+新增資料仍保留既有 `prompt_studio` 儲存與協定名稱。回退使用相容舊程式和原資料副本，不將新版編輯直接交回舊程式。具體已驗條件見[0.8.7 驗證範圍](../releases/0.8.7/validation/alpha.1.md)。
+
+## 沿用 0.8.6 的導覽、起始流程與更新設定
+
+修訂 12 不修改文件或 SQLite 格式。與本次修复直接相關的持久化界線如下；既有 Stage 相容表及較早格式說明保留。
+
+| 資料 | 寫入者與用途 | 回復界線 |
+|---|---|---|
+| 資料目錄的 `extension-install.json` | PCS 擴充管理頁保存選定 ComfyUI 路徑與自動更新偏好 | 不從服務回傳路徑改寫；更新回復不重設此設定。 |
+| `.pcs-program-backups/install-state.json` | 安裝器保存本次替換位置、備份位置與交易狀態 | `completed` 是完成替換；`rolled_back` 僅在原樹核對成功且沒有競爭 target 時成立；`replacing`／`rollback_unconfirmed` 或未知狀態阻擋下一次安裝，不自動重試。 |
+| `.pcs-program-backups/*-rollback.json` 與 `previous-*` | 安裝器保存原安裝相對路徑／大小／雜湊及完整原樹 | `local_library.json` 與其他原檔保留；競爭時不覆寫外來樹。復原未確認時保留所有仍存在的備份，供人工檢查。 |
+| Canvas 配置與排程 journal | 原有保存／Undo／Redo與生成流程 | 卡片布局計時器沒有資料所有權；移除畫面卡片不由舊回呼改寫新卡片或生成紀錄。 |
 
 0.8.6 沿用 Stage 明確覆寫與等待項保存規則，沒有把介面改版當成新生成命令。新資料與明確新增的工作區可建立六節點起始流程；既有布局、空手動稿、綁定及刪除結果不因載入而回填預設流程。
 
@@ -12,6 +34,12 @@
 
 操作見[入門指南](../guide/getting-started.md)與[Stage 參數](../guide/stage-parameters.md)，0.8.6 的證據見[0.8.6 驗證範圍](../releases/0.8.6/validation/alpha.1.md)。更新和回退仍以資料副本與相容主程式／擴充為單位。
 
+
+## 0.8.7 Canvas 模組顯示與負權重
+
+模組權重沿用十倍整數儲存，合法範圍擴為 `-1000` 至 `1000`（介面 `-100.0` 至 `100.0`）。父卡仍作用於整組，子元素、副本與原件的歸屬不變；修改經既有 Canvas 交易保存及復原。既有非負權重無需轉換。舊版本的驗證器可能拒絕負權重，因此含負值的新資料不能交回舊版；回退時使用保留的舊版程式與原資料副本。
+
+功能模組新增可選的 `collapsed` 顯示欄位；缺值視為展開。預覽卡使用 `canvas_functions.preview_display.collapsed`，其餘放在對應模組資料內。收合不改原尺寸、文字內容、連線、綁定或生成提交，也不建立執行任務。新增功能頁的節點預覽使用隔離的預設資料和實際卡片元件，不能保存或讀取使用者的任務紀錄。
 
 ## Stage 參數與執行紀錄
 

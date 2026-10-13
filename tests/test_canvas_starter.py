@@ -183,13 +183,28 @@ class CanvasStarterUiTests(unittest.TestCase):
     def test_saved_legacy_default_is_preserved_until_user_creates_a_new_workspace(self):
         from prompt_calculus_studio.window import Window
         from prompt_calculus_studio.workspace_scene import scene
-        with tempfile.TemporaryDirectory() as folder:
+        from prompt_calculus_studio.core import activate_selection_view
+        from prompt_calculus_studio.drafts import edit
+        from prompt_calculus_studio.editor_legacy import documents
+        from prompt_calculus_studio.composition import instance
+        for manual in ('retained legacy draft',''):
+          with self.subTest(manual=manual),tempfile.TemporaryDirectory() as folder:
             state=fresh();state['generation']=dict(mode='txt2img',profiles=[],chosen={},source=None);state['output_order']=[]
-            store=Storage(folder);store.save(state);before=scene(state);store.db.close()
+            item=state['items'][0];state['selections']={item['module']:[item['id']]}
+            instance(state,item['id'])
+            state['output_order']=[item['module']]
+            edit(state,manual)
+            legacy=copy.deepcopy(documents(state));expected=copy.deepcopy(state)
+            activate_selection_view(expected,'canvas')
+            store=Storage(folder);store.save(state);store.db.close()
             window=Window(folder)
             try:
                 self.assertFalse(window.fresh_install);self.assertIsNone(guide(window.state))
-                self.assertEqual(scene(window.state),before)
+                self.assertEqual(window.state['selection_view'],'canvas')
+                self.assertEqual(scene(window.state),scene(expected))
+                self.assertEqual(documents(window.state),legacy)
+                self.assertEqual(legacy[0]['manual'],manual)
+                self.assertTrue(legacy[0]['generated'])
                 self.assertFalse(window.state['multi_output']['stages'])
                 self.assertFalse(window.state['multi_output']['schedulers'])
             finally:window.close();self.app.processEvents()
@@ -267,7 +282,8 @@ class CanvasStarterUiTests(unittest.TestCase):
             self.assertLessEqual(bar.width(),view.viewport().width()-24)
             self.assertLessEqual(bar.height(),96)
             self.assertEqual(bar.controls.count.suffix(),' 次')
-            self.assertEqual(bar.controls.stop.text(),'取消');self.assertFalse(bar.controls.stop.icon().isNull())
+            self.assertEqual(bar.controls.stop.text(),'');self.assertFalse(bar.controls.stop.icon().isNull())
+            self.assertEqual(bar.controls.stop.accessibleName(),'取消執行')
             self.assertTrue(all(port.caption.font().pixelSize()*view.transform().m11()>=12 for port in self.canvas.ports.values()))
         self.assertEqual(self.canvas.data()['canvases'][self.refs['canvas']]['display_size'],original)
 
@@ -279,12 +295,14 @@ class CanvasStarterUiTests(unittest.TestCase):
         self.canvas.commit(lambda state:add_stage(state,(2600,600)));self.wait();controls.refresh()
         self.assertEqual(controls.count.suffix(),' 輪');self.assertEqual(controls.count.accessibleName(),'流程輪數')
         self.assertEqual(controls.count.value(),3);self.assertEqual(controls.stop.accessibleName(),'取消執行')
-        self.assertEqual(controls.stop.fontMetrics().height(),controls.run_button.fontMetrics().height())
+        self.assertEqual(controls.stop.iconSize(),controls.run_button.iconSize())
+        self.assertGreaterEqual(controls.stop.height(),controls.stop.iconSize().height()+8)
         client.connected=True
         with patch.object(client.input_flow,'has_work',return_value=True),patch.object(client,'interrupt') as cancel:
             controls.refresh();self.assertTrue(controls.stop.isEnabled());controls.stop.click()
             cancel.assert_called_once_with()
-        self.assertIn('取消本次流程',controls.stop.toolTip())
+        self.assertIn('取消目前項目',controls.stop.toolTip())
+        self.assertIn('其他等待項目保留並暫停',controls.stop.toolTip())
 
     def test_edit_undo_and_reopen_keep_manual_empty_and_start_connections(self):
         from PySide6.QtCore import QPointF

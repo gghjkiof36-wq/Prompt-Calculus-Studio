@@ -2,7 +2,7 @@
 
 [完整文件目錄：使用指南、版本、測試與歷史紀錄](docs/README.md)
 
-把常用提示詞整理成模組，選取素材、調整順序與權重，再送入 ComfyUI 工作流。PCS 是 Windows 桌面工具，提供清單與 Canvas 兩種編輯方式，角色、風格、場景與工作區都保存在本機。
+用 Prompt Editor 整理常用文字與素材，在 Canvas 挑選模組、調整順序與權重，再送入 ComfyUI 工作流。PCS 是 Windows 桌面工具，提供 Prompt Editor 與 Canvas 編輯方式，角色、風格、場景與工作區都保存在本機。
 
 **化繁為簡，從混亂中找出秩序。**
 
@@ -10,6 +10,7 @@
 
 ## 能做什麼
 
+- **管理文字素材**：在 Prompt Editor 搜尋、釘選與編輯，以資料夾整理分類；Canvas 與 Editor 共用分類瀏覽。
 - **組合提示詞**：保存常用文字，調整順序、權重與排除 Tag，隨時加入臨時片段或手動修改。
 - **設定每一步的參數**：雙擊 Stage 選取節點，修改 CFG、步數、尺寸或種子；等待中的任務也能各自保存不同設定。
 - **安排生成流程**：在 Canvas 用「執行階段（Stage）」選擇工作流，將前一步的圖片送入下一步，設定整串流程重複的次數。
@@ -20,22 +21,30 @@
 
 ## Canvas 畫面
 
-![PCS 0.8.6 實際 Canvas](docs/images/canvas-0.8.6.png)
+![PCS 0.8.7 實際 Canvas](docs/images/canvas-0.8.7.png)
 
-0.8.6 實際程式 Canvas，使用公開範例資料；展示文字組合、起始接線與待設定提示，尚未連接 ComfyUI。
+0.8.7 實際產品畫面，使用獨立合成示例資料；未連接 ComfyUI。
+
+## Prompt Editor 畫面
+
+![PCS 0.8.7 Prompt Editor](docs/images/editor-0.8.7.png)
+
+實際產品頁面，使用相同隔離範例素材。
 
 ## 這版更新
 
-新版整理畫布、媒體庫、探索、匯出與設定的共同導覽和配色。新工作區提供六個已接線的起始節點，依提示完成文字、CLIP 和 Stage 設定；原工作區的布局保留。媒體詳情更清楚區分正在檢視與多選圖片，預排程可單筆移除或取消，並新增配套擴充安裝入口及 Manager 套件管理。
+Prompt Editor 集中管理 tags、一般文字與 Markdown，以資料夾整理分類；Canvas 文字挑選沿用同一份分類與收合狀態。加入畫布建立獨立副本，保留素材原件；權重可在卡片上直接輸入，Prompt 輸出可展開来源並排列文字模組。新版也加入框選、多選操作，改善 Prompt、圖片來源、單張載入與預排程的新增頁和預覽。
+
+[完整發布說明](docs/releases/0.8.7/alpha.1.md)
 
 ## 下載與啟動
 
-本文件適用：**[0.8.6 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.6-alpha.1)**。
+本文件適用：**[0.8.7 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.7-alpha.1)**。
 
 | 附件 | 用途 |
 |---|---|
-| `PCS-v0.8.6-Alpha1-source.zip` | PCS 原始碼版主程式 |
-| `PCS-v0.8.6-Alpha1-ComfyUI.zip` | 配套 ComfyUI 擴充，另供手動安裝使用 |
+| `PCS-v0.8.7-Alpha1-source.zip` | PCS 原始碼版主程式 |
+| `PCS-v0.8.7-Alpha1-ComfyUI.zip` | 配套 ComfyUI 擴充，另供手動安裝使用 |
 | `SHA256SUMS.txt` | 下載完整性校驗 |
 
 安裝 Windows 64 位元版 Python 3.12，解壓來源包，在包含 `run.py` 的資料夾開啟 PowerShell：
@@ -43,7 +52,7 @@
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py --v0.8.6-alpha
+.\.venv\Scripts\python.exe run.py --v0.8.7-alpha
 ```
 
 首次安裝需要網路下載套件；完成後雙擊來源包內的 `Start.cmd` 即可啟動，也可將它的捷徑放到桌面。本次提供原始碼版，需先安裝 Python，不提供 Windows EXE 下載。
@@ -72,7 +81,7 @@ py -3.12 -m venv .venv
 | 模組、工作區與圖片操作 | [操作指南](docs/guide/README.md) |
 | 綁定工作流與生成 | [ComfyUI 整合](docs/guide/comfyui.md) |
 | 資料位置、備份與聯網 | [資料與隱私](docs/guide/data-backup-privacy.md) |
-| 查看版本更新 | [發布說明](docs/releases/0.8.6/alpha.1.md)、[更新紀錄](CHANGELOG.md) |
+| 查看版本更新 | [發布說明](docs/releases/0.8.7/alpha.1.md)、[更新紀錄](CHANGELOG.md) |
 | 回報問題或參與開發 | [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues)、[貢獻指南](CONTRIBUTING.md)、[安全回報](SECURITY.md) |
 
 ## 授權
