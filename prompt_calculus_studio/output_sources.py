@@ -1,5 +1,6 @@
 """Inline source groups and owner-preserving text module ordering."""
 import uuid
+from shiboken6 import isValid
 from PySide6.QtCore import Qt,QSize,QMimeData,QTimer,QSignalBlocker
 from PySide6.QtGui import QDrag,QPainter,QPen,QColor,QBrush
 from PySide6.QtWidgets import QTreeWidget,QTreeWidgetItem,QAbstractItemView,QApplication
@@ -170,8 +171,14 @@ class OutputSources(QTreeWidget):
         old=before.index(key);index=max(0,min(len(before),index))-int(old<index)
         if old==index:return
         ordered=list(before);ordered.insert(index,ordered.pop(old));canvas=self.canvas;output=self.output
+        window=canvas.window;store=window.store;workspace=window.state['workspace']
+        context=window.canvas_edit_context;card=canvas.outputs.get(output)
+        container=canvas.containers.get(owner) if kind=='member' else None
         def apply(state):
             current=state['multi_output']
+            target=current['outputs'].get(output)
+            if target is None or (kind=='member' and owner not in text_sources(target)):
+                raise ValueError('排序來源已移除，請重新選擇。')
             value=current['outputs'].get(output) if kind=='source' else current['canvases'].get(owner)
             actual=text_sources(value) if kind=='source' and value else value.get('members') if value else None
             if actual!=before:raise ValueError('排序內容已更新，請重新拖曳。')
@@ -179,7 +186,18 @@ class OutputSources(QTreeWidget):
                 canvases=[k for k in ordered if k in current['canvases']]
                 value.update(text_sources=ordered,canvases=canvases,canvas=canvases[0] if canvases else None)
             else:value['members']=ordered
-        QTimer.singleShot(0,lambda:canvas.commit(apply,label='排列文字來源' if kind=='source' else '排列文字模組'))
+        def commit_if_current():
+            # IDs can survive workspace copies and whole-document imports.
+            # Keep normal transactions valid, but never revive an old UI visit.
+            if (not isValid(window) or not isValid(canvas) or window.closing
+                    or window.store is not store or window.canvas is not canvas
+                    or window.canvas_edit_context is not context or window.state['workspace']!=workspace
+                    or card is None or canvas.outputs.get(output) is not card or not isValid(card)
+                    or card.panel.order is not self):return
+            if kind=='member' and (container is None or canvas.containers.get(owner) is not container
+                                   or not isValid(container)):return
+            canvas.commit(apply,label='排列文字來源' if kind=='source' else '排列文字模組')
+        QTimer.singleShot(0,self,commit_if_current)
 
     def paintEvent(self,event):
         super().paintEvent(event)

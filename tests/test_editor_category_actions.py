@@ -10,6 +10,7 @@ import test_editor_folders as fixture
 from prompt_calculus_studio import materials, material_navigation as nav
 from prompt_calculus_studio.material_folder_navigation import ROW
 from prompt_calculus_studio.core import validate_state, initial_state, Storage
+from prompt_calculus_studio.multi_output import capture_current
 from prompt_calculus_studio.theme import visual_tokens
 from prompt_calculus_studio.color_roles import contrast
 
@@ -73,6 +74,9 @@ class CategoryActionsTests(unittest.TestCase):
     def test_delete_category_cancel_accept_undo_redo_and_reopen_preserves_content(self):
         fid = self.create(); self.move_menu(self.cat, fid); self.page.set_browser_category(self.cat)
         self.w.state.update(draft='', draft_base='manual base')
+        # Seed the active output projection as well as the root draft before
+        # comparing a library-only transaction against its original state.
+        capture_current(self.w.state)
         before = copy.deepcopy(self.w.state); undo = len(self.w.canvas.undo_stack)
         self.choose(self.cat, '刪除分類', accept=False)
         self.assertEqual(self.w.state['modules'], before['modules']); self.assertEqual(len(self.w.canvas.undo_stack), undo)
