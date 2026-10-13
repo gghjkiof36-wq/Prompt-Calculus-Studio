@@ -114,9 +114,17 @@ class SourceLifecycleTests(StageFixture):
         self.assertIn('排序來源已移除，請重新選擇。', self.notices)
 
     def test_deleted_source_panel_cancels_callback(self):
-        tree = self.prepare(); self.queue(tree); tree.deleteLater()
+        from prompt_calculus_studio.output_sources import OutputSources
+        tree = self.prepare(); self.queue(tree)
+        # Replace the parent's live control before deleting the old context;
+        # display/font recovery must not be left with a dangling panel.order.
+        panel = self.c.outputs[self.out].panel
+        panel.order = OutputSources(self.c, self.out)
+        self.assertIsNotNone(tree.parentWidget().layout().replaceWidget(tree, panel.order))
+        tree.hide(); tree.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         self.assertFalse(isValid(tree))
+        self.w.display_recovery.refresh()
         self.assert_unchanged_after_callbacks()
 
     def test_window_close_cancels_callback_before_closed_store_use(self):
