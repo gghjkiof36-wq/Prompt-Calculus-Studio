@@ -2,7 +2,7 @@
 
 ## 被測版本與提交
 
-固定功能來源：Candidate28 `c66c7b4c73b6ace4e649c6f6cd4379f0fd1b79b1`。公開整合提交、來源与附件依[來源對照](../source-provenance.md)及包內清單核對。
+固定功能來源：Candidate28 後的排序歸屬修復 `62aabb4a4043dab206571d0005c5ae0166435363`。公開整合提交、來源与附件依[來源對照](../source-provenance.md)及包內清單核對。
 
 ## 環境
 

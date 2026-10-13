@@ -52,6 +52,8 @@ class Window(QMainWindow):
         self.setWindowIcon(QIcon(str(Path(__file__).parent/"assets"/"studio.ico")))
         self.resize(1440,900); self.setMinimumSize(640,480)
         self.store=Storage(data_dir)
+        # A queued Canvas edit belongs to this document/workspace visit.
+        self.canvas_edit_context=object()
         self.fresh_install=self.store.db.execute('SELECT 1 FROM document WHERE id=1').fetchone() is None
         self.state=self.store.load_current(multi=os.environ.get('PROMPT_STUDIO_V08')=='1'); self.catalog=Catalog(self.store)
         from .canvas_starter import initialize
@@ -779,6 +781,7 @@ class Window(QMainWindow):
 
     def change_workspace(self,target):
         if not self.flush_editor_drafts():return
+        self.canvas_edit_context=object()
         previous=self.state['workspace'];self.remember_canvas_view()
         editor=getattr(self.canvas,'editor_page',None)
         if editor is not None:
@@ -1283,6 +1286,7 @@ class Window(QMainWindow):
             validate_resources(resources)
             if not ask(self,"匯入資料",f"以備份取代目前的素材與檔案索引？\n共 {len(state['items'])} 個提示詞、{len(resources)} 筆模型／圖片資料。\n\n會先建立 SQLite 備份；不複製、搬移或刪除外部原檔。"): return
             if not self.flush_editor_drafts(closing=True):return
+            self.canvas_edit_context=object()
             self.save_timer.stop(); self.models.save(); self.changes.stop();self.store.save(self.state); backup=self.store.backup()
             self.completion.serial+=1; self.completion.timer.stop()
             with self.store.db:
@@ -1339,6 +1343,7 @@ class Window(QMainWindow):
             self.error(str(exc)); event.ignore(); return
         self.save_timer.stop()
         if not self.persist(): event.ignore(); return
+        self.canvas_edit_context=object()
         self.comfy.shutdown(); self.recent.refresh_timer.stop(); self.display_recovery.stop()
         self.copy_timer.stop(); self.filter_timer.stop()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.shutdown()
