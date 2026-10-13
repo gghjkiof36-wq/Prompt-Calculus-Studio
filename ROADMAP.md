@@ -1,34 +1,34 @@
 # 開發方向
 
-[回首頁](README.md) · 更新：2026-10-03（Asia/Taipei）
+[回首頁](README.md) · 更新：2026-10-13（Asia/Taipei）
 
-## 已公開
+## 目前公開：0.8.7 Alpha 1
 
-- [0.8.1 Alpha 2 UI Repair 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.1-alpha.2.ui-repair.1)：來源、ComfyUI 擴充與校驗檔；Canvas、CivitAI 及該版介面修正。
-- 早期 main 提供模組化提示詞、手動稿、素材管理與 ComfyUI 整合，保留公開提交紀錄。
+0.8.7 Alpha 1 於 2026-10-13 發布，提供主程式來源版、同版 ComfyUI 擴充與校驗檔。這版把素材管理與畫布編輯串在一起：
 
-## 已公開的0.8.2預覽版
+- **Prompt Editor**：搜尋、分類、釘選與編輯文字素材，支援 tags、一般文字及 Markdown；以一層資料夾整理分類。
+- **Editor 與 Canvas 共用分類瀏覽**：兩頁同步展開／收合狀態，挑選素材加入畫布時建立獨立副本。
+- **畫布編輯**：原位權重輸入、框選與多選、Prompt 來源排序，以及四個常用模組的新增頁與實際卡片預覽。
+- **保存與切換**：保留編輯草稿與文字歷史，修正切換工作區後延遲排序可能改到其他工作區的問題。
 
-0.8.2 Alpha 1 Repair 5 的產品來源固定為 `5c621ec`，使用者人工校驗已通過；公開狀態以 [Repair 5 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.2-alpha.1.repair.5) 為準。包括 Canvas／CLIP 綁定、明確文字來源、原生單工作流提交、圖片輸入及整批預覽。詳見 [更新紀錄](CHANGELOG.md) 與 [QA 範圍](docs/releases/0.8.2/validation/repair-5.md)。
+[下載](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.7-alpha.1) · [發布說明](docs/releases/0.8.7/alpha.1.md) · [使用指南](docs/guide/README.md)
 
-## 0.8.4 預覽版
+## 目前待改善
 
-Stage生成、線性跨工作流及本輪圖片傳遞、分層預排程、種子與流程恢復。固定ea7df89，發布以 [Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.4-alpha.1) 為準。操作見 [發布說明](docs/releases/0.8.4/alpha.1.md)。0.8.3的單工作流限制不直接套用本版。
+- 圖片來源卡的預覽尚無法點擊開啟原圖，目前可從檔案位置用圖片檢視器開啟。
+- 窄視窗搭配大字級時，模組新增頁可能重疊，目前可放大視窗或降低字級。
+- 新素材加入畫布仍需先在 Editor 保存，再到 Canvas 挑選；素材分類目前從分類及素材編輯入口管理，尚未提供跨分類拖放。
 
-## 0.8.5 預覽版
+完整問題與處理方式見[本版已知問題](docs/releases/0.8.7/alpha.1.md#已知問題)及[疑難排解](docs/guide/troubleshooting.md)。
 
-在 Stage 內編輯節點參數，讓每筆等待任務保存自己的設定，並改善參數面板、模型下拉及種子控制。操作見[Stage 參數指南](docs/guide/stage-parameters.md)，下載及重要問題見[發布說明](docs/releases/0.8.5/alpha.1.md)。
+## 後續方向
 
-## 本次 0.8.6 預覽版
+關閉 ComfyUI 網頁後繼續執行、AI 轉譯、條件分支、循環、影音、跨服務派送及全局視覺重整仍屬後續方向。現在生成時需保持 ComfyUI 工作流網頁開啟。
 
-共同導覽與配色、六節點起始流程、媒體檢視與匯出整理、Manager 套件管理、配套擴充安裝及單筆排程操作。用途與問題處理見[發布說明](docs/releases/0.8.6/alpha.1.md)。
+更完整的觸發條件、歷史回溯與流程範本、進階 Canvas、區域生成與圖片編排、Manager 相容、局部控制及本機 AI 等中期方向，仍需逐項定義與驗收。
 
-## 仍未納入
+更遠期的社群整合、影片與 3D 流程屬探索。歡迎在 [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues) 提供具體使用情境。
 
-關頁執行、AI轉譯、條件分支、循環、影音、跨服務派送及全局視覺重整。切換工作流後若一直載入，保存工作流並重新整理 ComfyUI 網頁；具體處理見[疑難排解](docs/guide/troubleshooting.md)。未列明的擴展沒有日期承諾。
+## 過往版本
 
-## 中期與探索
-
-Trigger／History／Recipe、進階 Canvas、區域生成與圖片編排、更完整的 Manager 相容、局部控制及本機 AI 等方向仍需逐項定義與驗收。品牌中的微積分是組織思路的隱喻，不保證生成品質或空間精準控制。
-
-更遠期的社群整合、影片與 3D 流程屬探索，沒有在本版完成，也不承諾開源申請結果。歡迎在 [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues) 提供具體使用情境。
+0.8.1～0.8.6 的更新、下載及驗證紀錄集中在[版本總覽](docs/releases/README.md)；主要變更見[更新紀錄](CHANGELOG.md)。
