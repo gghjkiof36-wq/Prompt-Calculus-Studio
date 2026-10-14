@@ -48,10 +48,11 @@ class GroupSourceDialog(StudioDialog):
         self.modules.activatedRow.connect(self.open_module)
         self.modules.reorderRequested.connect(lambda before,after:self.reorder(self.current_group['modules'],before,after))
         self.preview_toggle=Disclosure('Prompt 預覽');detail.addWidget(self.preview_toggle)
+        self.preview_toggle.setIcon(icon('chevron-right'))
+        self.preview_holder,preview_layout=page();self.preview_holder.setParent(self);self.preview_holder.hide()
         self.preview=QPlainTextEdit();self.preview.setReadOnly(True);self.preview.setAccessibleName('本輪 Prompt 預覽')
-        self.preview.setMinimumHeight(150);self.preview.setMaximumHeight(230);detail.addWidget(self.preview);self.preview.hide()
-        from .module_chrome import toggle_prompt_panel
-        self.preview_toggle.toggled.connect(lambda opened:toggle_prompt_panel(self,self.preview,opened,self.fit_editor))
+        self.preview.setMinimumHeight(240);preview_layout.addWidget(self.preview,1)
+        self.preview_toggle.toggled.connect(self.show_preview)
         self.scroll=QScrollArea();self.scroll.setWidgetResizable(True);self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setWidget(self.stack);self.body.addWidget(self.scroll,1)
         self.stack.setAutoFillBackground(False)
@@ -66,24 +67,33 @@ class GroupSourceDialog(StudioDialog):
         self.body.addWidget(prompt_divider())
         self.body.addLayout(row(None,self.cancel_button,self.apply_button,self.done_button))
         self.resize(min(720,max(380,canvas.window.width()-24)),min(600,max(380,canvas.window.height()-24)))
+        from .material_editor_panels import MaterialPanels
+        self.panels=MaterialPanels(self,self.preview_holder,lambda:self.preview_toggle.setChecked(False),
+            title='Prompt 預覽',content=self.stack,scroll=self.scroll)
+        self.panels.set_main_width(720)
         self.refresh_overview();self.page_changed(0)
 
     def fit_editor(self,*_):
-        from .module_chrome import fit_prompt_form
-        fit_prompt_form(self,self.scroll,340)
+        self.panels.fit_content()
+
+    def show_preview(self,opened):
+        self.preview_toggle.setIcon(icon('chevron-left' if opened else 'chevron-right'))
+        self.panels.set_open(opened)
 
     def page_changed(self,index):
         inside=index==1
+        self.preview_toggle.setChecked(False);self.panels.set_open(False,animate=False)
         self.back_button.setVisible(inside);self.done_button.setVisible(inside);self.apply_button.setVisible(not inside)
         self.heading.setText(self.current_group['name'] if inside else '讀取組合')
         self.scroll.verticalScrollBar().setValue(0)
-        QTimer.singleShot(0,self.fit_editor)
+        self.fit_editor()
 
     def back(self):
         self.refresh_overview();self.stack.setCurrentIndex(0)
 
     def showEvent(self,event):
-        super().showEvent(event);QTimer.singleShot(0,self.fit_editor)
+        self.panels.fit_content(before_show=True)
+        super().showEvent(event)
 
     def load_material(self):
         if self.loading:return

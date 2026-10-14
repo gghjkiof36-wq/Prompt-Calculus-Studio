@@ -105,7 +105,7 @@ class GroupUITests(unittest.TestCase):
         self.assertIn(fid,self.w.store.load()['settings']['material_folder_collapsed'])
         dialog.reject()
 
-    def test_group_preview_is_collapsed_below_full_width_modules(self):
+    def test_group_preview_opens_right_without_resizing_module_list(self):
         self.w.resize(1440,1000)
         dialog,ed=self.create();ed.edit_group(ed.sequence['groups'][0]['id']);ed.input_tabs.setCurrentIndex(0)
         for count in (2,6):
@@ -114,15 +114,18 @@ class GroupUITests(unittest.TestCase):
             for _ in range(3):self.app.processEvents()
             dialog.fit_page();self.app.processEvents()
             self.assertEqual(ed.group_name.height(),ed.repeat.height())
-            self.assertTrue(ed.preview.isHidden());self.assertFalse(ed.preview_toggle.isChecked())
+            self.assertFalse(ed.preview.isVisible());self.assertFalse(ed.preview_toggle.isChecked())
+            closed=dialog.geometry();width=ed.modules.width()
             QTest.mouseClick(ed.preview_toggle,Qt.MouseButton.LeftButton)
-            for _ in range(3):self.app.processEvents()
+            QTest.qWait(320)
             self.assertTrue(ed.preview.isVisible())
             listing=ed.modules.mapTo(dialog,QPoint(0,0));preview=ed.preview.mapTo(dialog,QPoint(0,0))
-            self.assertGreater(preview.y(),listing.y()+ed.modules.height())
-            self.assertEqual(preview.x(),listing.x());self.assertEqual(ed.preview.width(),ed.modules.width())
+            self.assertGreater(preview.x(),listing.x()+ed.modules.width())
+            self.assertEqual(ed.modules.width(),width);self.assertEqual(dialog.height(),closed.height())
+            self.assertEqual(dialog.panels.side.y(),dialog.panels.main.y())
             self.assertEqual(dialog.form_scroll.horizontalScrollBar().maximum(),0)
-            QTest.mouseClick(ed.preview_toggle,Qt.MouseButton.LeftButton);self.app.processEvents()
+            QTest.mouseClick(ed.preview_toggle,Qt.MouseButton.LeftButton);QTest.qWait(260)
+            self.assertEqual(dialog.geometry(),closed)
         dialog.reject()
 
     def test_round_dialog_overrides_only_first_repetition_and_keeps_other_group_draft(self):

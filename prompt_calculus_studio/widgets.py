@@ -212,11 +212,13 @@ class StudioDialog(QDialog):
         screen=self.screen().availableGeometry()
         self.resize(min(self.width(),screen.width()-40),min(self.height(),screen.height()-40))
         center=self.parentWidget().mapToGlobal(self.parentWidget().rect().center()) if self.parentWidget() else screen.center()
-        self.move(max(screen.left()+12,min(center.x()-self.width()//2,screen.right()-self.width()-12)),
-                  max(screen.top()+12,min(center.y()-self.height()//2,screen.bottom()-self.height()-12)))
+        if getattr(self,'panels',None) is not None:self.panels.center_frame(self.width(),self.height())
+        else:
+            self.move(max(screen.left()+12,min(center.x()-self.width()//2,screen.right()-self.width()-12)),
+                      max(screen.top()+12,min(center.y()-self.height()//2,screen.bottom()-self.height()-12)))
         from .dialog_presentation import reduced_motion
         self.reveal.stop()
-        if reduced_motion(self):self.setWindowOpacity(1.0)
+        if reduced_motion(self) or getattr(self,'_prompt_instant_show',False):self.setWindowOpacity(1.0)
         else:self.reveal.setStartValue(0.88); self.reveal.setEndValue(1.0); self.reveal.start()
 
     def hideEvent(self,event):

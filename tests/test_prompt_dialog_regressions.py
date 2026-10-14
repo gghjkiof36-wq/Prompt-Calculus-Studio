@@ -36,13 +36,32 @@ class PromptDialogTests(unittest.TestCase):
             self.assertEqual(dialog.height(),closed)
             QTest.qWait(20);self.assertEqual(dialog.height(),closed)
 
+    def side_cycle(self,dialog,toggle):
+        closed=dialog.geometry();main_width=dialog.panels.main.width()
+        def settle():
+            for _ in range(60):
+                if dialog.panels.motion.state()==dialog.panels.motion.State.Stopped:return
+                QTest.qWait(10)
+            self.fail('side-card animation did not finish')
+        for _ in range(3):
+            QTest.mouseClick(toggle,Qt.MouseButton.LeftButton)
+            settle()
+            self.assertEqual(dialog.height(),closed.height())
+            self.assertEqual(dialog.panels.main.width(),main_width)
+            self.assertGreater(dialog.width(),closed.width())
+            self.assertEqual(dialog.panels.side.x()-dialog.panels.main.geometry().right()-1,14)
+            QTest.mouseClick(toggle,Qt.MouseButton.LeftButton)
+            settle()
+            self.assertEqual(dialog.geometry(),closed)
+            self.assertFalse(dialog.panels.side.isVisible())
+
     def test_overview_and_group_collapse_return_to_content_height(self):
         dialog,ed=self.populated()
         self.assertFalse(hasattr(ed,'overview_preview_toggle'))
         self.assertEqual([c for c in dialog.pages.findChildren(QCheckBox) if c.isVisible()],[])
         self.assertEqual(ed.listing.height(),ed.listing.sizeHint().height())
         ed.edit_group(ed.sequence['groups'][0]['id']);QTest.qWait(30)
-        self.cycle(dialog,ed.preview_toggle)
+        self.side_cycle(dialog,ed.preview_toggle)
         ed.back();QTest.qWait(30)
         self.assertEqual(ed.listing.height(),ed.listing.sizeHint().height())
         self.assertEqual(dialog.form_scroll.verticalScrollBar().maximum(),0)
@@ -137,7 +156,7 @@ class PromptDialogTests(unittest.TestCase):
         self.w.canvas.commit(lambda state:keys.append(sources.add(state,root=root)))
         self.w.enter_canvas();dialog=GroupSourceDialog(self.w.canvas,keys[0]);dialog.show()
         dialog.open_group(root['sequence']['groups'][0]['id']);QTest.qWait(40)
-        self.cycle(dialog,dialog.preview_toggle)
+        self.side_cycle(dialog,dialog.preview_toggle)
         self.assertEqual(dialog.preview.toPlainText(),comp.render(root));dialog.reject()
 
     def test_single_material_grows_right_without_compressing_prompt(self):
@@ -182,7 +201,7 @@ class PromptDialogTests(unittest.TestCase):
 
     def test_direct_input_preview_collapse_restores_editor_height(self):
         dialog,ed=self.populated();ed.edit_group(ed.sequence['groups'][1]['id']);QTest.qWait(30)
-        height=ed.direct_text.height();self.cycle(dialog,ed.preview_toggle)
+        height=ed.direct_text.height();self.side_cycle(dialog,ed.preview_toggle)
         self.assertEqual(ed.direct_text.height(),height)
         self.assertEqual(ed.direct_text.toPlainText(),'garden, garden');dialog.reject()
 

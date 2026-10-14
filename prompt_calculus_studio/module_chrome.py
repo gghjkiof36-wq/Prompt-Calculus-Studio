@@ -73,6 +73,9 @@ def apply_module_dialog(dialog, colors, heading_size):
 def apply_prompt_dialog(dialog, window):
     """Use the same sheet, fields and typography as CanvasPalette."""
     suppress_prompt_tooltips(dialog)
+    # Only the deliberate side-card transition animates. A whole-window fade
+    # exposes the old/native backing surface while these editors are opening.
+    dialog._prompt_instant_show = True
     from .theme import visual_tokens,font_pixels,widget_palette
     from PySide6.QtGui import QPalette
     from PySide6.QtWidgets import QFrame

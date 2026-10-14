@@ -101,7 +101,7 @@ class EntryDelegate(QStyledItemDelegate):
 
     def paint(self, painter, option, index):
         owner = self.parent(); data = index.data(DATA); colors = dialog_colors(widget_colors(owner))
-        rect=option.rect.adjusted(1,0,-1,-8)
+        rect=option.rect.adjusted(1,1,-1,-8)
         painter.save();painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         keyboard=owner.keyboard_focus and owner.hasFocus()
         active=(index==owner.currentIndex()) if keyboard else index.data(Qt.ItemDataRole.UserRole)==owner.hovered_id
@@ -256,6 +256,7 @@ class GroupEditor(QWidget):
         self.stack = PageStack(); layout.addWidget(self.stack)
         self.stack.currentChanged.connect(self.pageChanged)
         self._overview(); self._group(); self._picker(); self.refresh_overview()
+        self.stack.currentChanged.connect(lambda index:self.preview_toggle.setChecked(False) if index!=1 else None)
 
     def _overview(self):
         widget, layout = page(); self.stack.addWidget(widget)
@@ -359,7 +360,7 @@ class GroupEditor(QWidget):
         self.repeat = QSpinBox(); self.repeat.setRange(1, groups.MAX_REPEAT); self.repeat.setSuffix(' 次'); self.repeat.setMaximumWidth(112)
         layout.addLayout(row(field('組合名稱',self.group_name),field('重複次數',self.repeat)))
         self.group_name.textChanged.connect(self.update_group); self.repeat.valueChanged.connect(self.update_group)
-        # Editing owns the full width; the optional rendered Prompt stays below.
+        # The preview opens in a separate side card without growing this page.
         self.input_tabs = QTabBar(); self.input_tabs.setExpanding(False); self.input_tabs.setDrawBase(False)
         self.input_tabs.addTab('模組組合'); self.input_tabs.addTab('直接輸入'); layout.addWidget(self.input_tabs)
         self.input_pages = PageStack()
@@ -396,9 +397,20 @@ class GroupEditor(QWidget):
         self.input_tabs.currentChanged.connect(self.update_group)
         layout.addWidget(self.input_pages,1)
         self.preview_toggle = Disclosure('Prompt 預覽');layout.addWidget(self.preview_toggle)
+        self.preview_toggle.setIcon(icon('chevron-right'))
+        self.preview_holder,preview_layout=page();self.preview_holder.setParent(self);self.preview_holder.hide()
         self.preview = QPlainTextEdit(); self.preview.setReadOnly(True); self.preview.setAccessibleName('本組實際 Prompt')
-        self.preview.setMinimumHeight(120);self.preview.setMaximumHeight(200);layout.addWidget(self.preview);self.preview.hide()
-        self.preview_toggle.toggled.connect(lambda opened:self.toggle_preview(self.preview,opened))
+        self.preview.setMinimumHeight(240);preview_layout.addWidget(self.preview,1)
+        self.preview_toggle.toggled.connect(self.show_preview)
+
+    def show_preview(self,opened):
+        panels=getattr(self.window(),'panels',None)
+        if panels is None:return
+        self.preview_toggle.setIcon(icon('chevron-left' if opened else 'chevron-right'))
+        if opened:
+            panels.set_content(self.preview_holder,'Prompt 預覽',lambda:self.preview_toggle.setChecked(False))
+            panels.set_open(True)
+        elif panels.side_pages.currentWidget() is self.preview_holder:panels.set_open(False)
 
     def edit_group(self, ident):
         self.loading = True; self.current_group = next(g for g in self.sequence['groups'] if g['id'] == ident)
@@ -502,6 +514,12 @@ class GroupEditor(QWidget):
         nested=GroupEditor(self.host,target['sequence'])
         nested.layoutChanged.connect(self.layoutChanged.emit)
         def finish():
+            nested.preview_toggle.setChecked(False)
+            panels=getattr(self.window(),'panels',None)
+            if panels and panels.side_pages.indexOf(nested.preview_holder)>=0:
+                panels.set_open(False,animate=False)
+                panels.side_pages.removeWidget(nested.preview_holder)
+                nested.preview_holder.setParent(nested)
             target['sequence']=copy.deepcopy(nested.sequence);self.stack.setCurrentIndex(1)
             self.stack.removeWidget(widget);widget.deleteLater();self.refresh_modules();self.changed.emit()
         layout.addLayout(row(tool('back','返回父組合',finish),label(target['name'],'SectionTitle'),None,button('完成',finish,'Quiet')))
@@ -689,7 +707,11 @@ class MaterialPages(QWidget):
         sl.setContentsMargins(0,0,0,0)
         self.details_container,details_body=page();self.details_container.setParent(self);self.details_container.hide()
         details_body.addWidget(self.details,1)
-        info, il = page(); fields = QFormLayout(); il.addLayout(fields)
+        info, il = page(); info_form=QWidget(info)
+        info_form.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed)
+        fields = QFormLayout(info_form);fields.setContentsMargins(0,0,0,0);fields.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        fields.setVerticalSpacing(10);fields.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        il.addWidget(info_form)
         dialog.require_category = not dialog.target_id and nav.is_folder(dialog.page.get_browser_category())
         if dialog.require_category:
             f.edit_category.insertItem(0, '選擇分類…', None); f.edit_category.setCurrentIndex(0)
@@ -697,7 +719,10 @@ class MaterialPages(QWidget):
         else: fields.addRow('分類', f.edit_category)
         self.info_fields=fields
         fields.addRow('格式', f.kind)
-        self.group_format=label('組合');fields.addRow('格式',self.group_format)
+        self.group_format=QLineEdit('組合');self.group_format.setReadOnly(True)
+        self.group_format.setFocusPolicy(Qt.FocusPolicy.NoFocus);self.group_format.setAccessibleName('格式')
+        self.group_format.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed)
+        fields.addRow('格式',self.group_format)
         fields.addRow('別名', f.aliases); fields.addRow('備註', f.notes)
         self.lookup_controls,ll=page();f.lookup.setText('標籤查詢');f.lookup_hint.setText('在 Prompt 中輸入標籤以查詢。')
         ll.addWidget(f.lookup);ll.addWidget(f.lookup_hint);il.addWidget(self.lookup_controls)
@@ -751,6 +776,7 @@ class MaterialPages(QWidget):
         dialog=self.dialog
         if hasattr(dialog,'done_button'):
             if index!=0:self.close_group_details(animate=False)
+            if self.group_editor and index!=1:self.group_editor.preview_toggle.setChecked(False)
             desired=880 if self.is_group and index==2 else 760 if self.is_group else 580
             dialog.panels.set_main_width(desired)
             inside=self.is_group and index!=0
@@ -763,7 +789,8 @@ class MaterialPages(QWidget):
                 dialog.identity.setText('第 '+str(self.group_editor.sequence['groups'].index(group)+1)+' 組 / '+str(len(self.group_editor.sequence['groups'])))
             else:
                 dialog.heading.setText('編輯素材' if dialog.target_id else '新增素材');dialog.identity.setText('')
-            QTimer.singleShot(0,dialog.fit_page)
+            dialog.form_scroll.verticalScrollBar().setValue(0)
+            dialog.fit_page()
 
     def back(self):
         if self.group_editor.stack.currentIndex()==2:self.group_editor.stack.setCurrentIndex(1)
@@ -780,6 +807,7 @@ class MaterialPages(QWidget):
 
     def show_group_details(self):
         self.group_details.setChecked(not self.dialog.panels.opened)
+        self.dialog.panels.set_content(self.details_container,'進階功能',self.close_group_details)
         self.dialog.panels.set_open(self.group_details.isChecked());self.layout_limits()
 
     def close_group_details(self,animate=True):
@@ -799,6 +827,7 @@ class MaterialPages(QWidget):
         self.group_details.setIcon(icon('chevron-left' if self.group_details.isChecked() else 'chevron-right'))
 
     def expand_advanced(self,opened):
+        self.dialog.panels.set_content(self.details_container,'進階功能',self.close_group_details)
         self.dialog.panels.set_open(opened);self.layout_limits()
 
     def value(self, value):

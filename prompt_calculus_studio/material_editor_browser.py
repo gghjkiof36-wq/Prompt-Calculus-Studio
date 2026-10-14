@@ -808,6 +808,10 @@ class MaterialEditDialog(StudioDialog):
     def fit_page(self):
         self.panels.fit_content()
 
+    def showEvent(self,event):
+        self.panels.fit_content(before_show=True)
+        super().showEvent(event)
+
     def set_destination(self, canvas_id):
         self.form.set_destination(canvas_id)
         value = self.page.window.state.get('multi_output', {}).get('canvases', {}).get(canvas_id)
