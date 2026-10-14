@@ -33,7 +33,7 @@ class PagePromptText(QTextEdit):
         self.cursorPositionChanged.connect(self.schedule)
 
     def lookup_active(self):
-        return self.owner.lookup.isChecked() and self.owner.kind.currentData() == 'tags' and self.hasFocus() and not self.composing
+        return not getattr(self.owner, 'group_mode', False) and self.owner.lookup.isChecked() and self.owner.kind.currentData() == 'tags' and self.hasFocus() and not self.composing
 
     def schedule(self):
         from .completion import PromptEdit

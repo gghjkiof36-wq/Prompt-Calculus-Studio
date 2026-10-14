@@ -47,6 +47,26 @@ def terminals(state):
     data=state['multi_output'];return {**data['clip_inputs'],**data.get('image_inputs',{})}
 
 
+def binding_routes(state, key, seen=None):
+    """Expand binding wires without changing their typed terminal or target."""
+    from .module_contracts import binding_scheduler, binding_sources
+    if key in terminals(state):return {key: ()}
+    seen=set(seen or ())
+    if key in seen:raise ValueError('輸入綁定連線形成循環。')
+    seen.add(key);scheduler=binding_scheduler(state,key)
+    sources=binding_sources(state,scheduler) if scheduler else controls(state,key)
+    result={}
+    for source in sources:
+        for terminal,path in binding_routes(state,source,seen).items():
+            route=((scheduler,) if scheduler else ())+path
+            result[terminal]=tuple(dict.fromkeys((*result.get(terminal,()),*route)))
+    return result
+
+
+def connected_terminals(state):
+    return {key for stage in state['multi_output'].get('stages',{}) for key in binding_routes(state,stage)}
+
+
 def validate(state):
     data=state['multi_output'];stages=data.get('stages')
     if not isinstance(stages,dict) or len(stages)>100:raise ValueError('Stage 數量無效。')
@@ -74,6 +94,10 @@ def sources(state,key):
         found.add(source)
         # A Stage is a result boundary. Its internal bindings belong to that Stage.
         if source in data.get('stages',{}):continue
+        from .module_contracts import binding_scheduler, binding_sources
+        scheduler=binding_scheduler(state,source)
+        if scheduler:
+            found.add(scheduler);todo.extend(binding_sources(state,scheduler))
         route=channel(state,source)
         if route:found.add(route[0])
         ref=images.get(source,{}).get('stage_reference')
@@ -111,8 +135,10 @@ def compile_plan(state):
         if missing:raise ValueError(stage['name']+'：上游 Stage 尚未接入流程。')
         dependencies[key]|=nodes&stages.keys()
         dependencies[key].update(c['source'] for c in data['connections'] if c['kind']=='done' and c['destination']==key)
+        routes=binding_routes(state,key)
+        if cs and not routes:raise ValueError(stage['name']+'：預排程尚未接入已綁定的輸入。')
         bound=[]
-        for terminal in cs:
+        for terminal,route in routes.items():
             target=terminals(state)[terminal]
             if not target.get('workflow'):raise ValueError(stage['name']+'：輸入尚未綁定工作流。')
             if terminal in data['clip_inputs']:
@@ -123,6 +149,7 @@ def compile_plan(state):
             else:
                 if not target.get('node'):raise ValueError(stage['name']+'：請選擇 LoadImage。')
                 bound.append(dict(key=terminal,kind='image',source=incoming(state,terminal,'image'),target=copy.deepcopy(target)))
+            if route:bound[-1]['scheduler']=route[0]
         used={s for s in nodes&schedulers.keys() if schedulers[s].get('mode','data')=='data'}
         if len(used)>1:raise ValueError(stage['name']+'：同一階段的資料請接入同一份預排程。')
         auto=[];suppliers=[]
@@ -216,17 +243,19 @@ def execution_signature(plan):
             binding['target']={field:binding['target'][field] for field in ('workflow','node','field') if field in binding['target']}
         return result
     needed={b['key'] for stage in stages.values() for b in stage['bindings']}
+    needed.update(c['source'] for c in connections if c['kind']=='control' and c['destination'] in stages)
     todo=list(needed);visited=set()
     while todo:
         key=todo.pop()
         if key in visited or key in stages:continue
         visited.add(key);needed.add(key.split('::')[0])
-        todo.extend(c['source'] for c in connections if c['destination']==key and c['kind'] not in ('control','done','flow'))
+        todo.extend(c['source'] for c in connections if c['destination']==key and
+                    (c['kind'] not in ('control','done','flow') or key.endswith('::bindings') and c['kind']=='control'))
     needed.update(visited)
     edges=[]
     for c in connections:
         kind=c['kind'];src=c['source'];dst=c['destination']
-        if ((kind=='control' and dst in stages) or (kind=='done' and src in stages and dst in stages)
+        if ((kind=='control' and (dst in stages or dst in needed and dst.endswith('::bindings'))) or (kind=='done' and src in stages and dst in stages)
             or (kind=='flow' and dst.split('::')[0] in scopes)
             or (kind not in ('control','done','flow') and dst in needed)):
             edges.append((src,dst,kind))

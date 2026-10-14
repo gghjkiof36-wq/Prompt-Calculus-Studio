@@ -197,7 +197,8 @@ class FlowFunctions(CanvasFunctions):
     def dropped(self,card,position): return False
     def mode_changed(self): pass
     def set_attachment(self,state,key,attached):
-        if key=='__result_preview__': return
+        from .preview_nodes import contains
+        if contains(state,key): return
         if attached:
             target=state['multi_output']['current_output']
             if not target: raise ValueError('請先新增 Prompt 輸出。')
@@ -224,16 +225,14 @@ class FlowFunctions(CanvasFunctions):
             card=self.cards[key]; card.attach()
             card.setPos(*self.window.state.get('text_positions',{}).get(key,[450,850+index*300]))
     def remove(self,key):
-        def apply(s):
-            if key=='__result_preview__':
-                self.data(s)['preview']=False
-                s['multi_output']['connections']=[c for c in s['multi_output']['connections'] if c['destination']!=key]
-            else:
-                for line in list(s['multi_output']['connections']):
-                    if line['source']==key or line['destination']==key: model.disconnect(s,line['id'])
-                self.data(s)['images'].pop(key,None)
-                self.data(s).get('text_sources',{}).pop(key,None)
-        self.canvas.commit(apply)
+        from .canvas_operations import remove
+        self.canvas.commit(lambda s:remove(s,[key]))
+    def show_preview(self,position=None):
+        from .preview_nodes import add
+        position=position or self.canvas.view.mapToScene(self.canvas.view.viewport().rect().center())
+        result=[]
+        if self.canvas.commit(lambda state:result.append(add(state,(position.x(),position.y())))):
+            return result[0]
     def source_position(self,output):
         card=self.canvas.outputs.get(output)
         rect=card.sceneBoundingRect() if card else QRectF(*self.window.state.get('text_positions',{}).get(output,[650,100]),540,650)
@@ -241,7 +240,7 @@ class FlowFunctions(CanvasFunctions):
         candidates=[QRectF(rect.left()-width-gap,rect.top(),width,height),QRectF(rect.left(),rect.bottom()+gap,width,height),
                     QRectF(rect.right()+gap,rect.top(),width,height),QRectF(rect.left(),rect.top()-height-gap,width,height)]
         others=[c.sceneBoundingRect() for c in list(self.canvas.containers.values())+list(self.canvas.outputs.values())+list(self.cards.values())
-                +list(self.canvas.clips.values())+[c for c in (self.canvas.preview_card,) if c]]
+                +list(self.canvas.clips.values())+list(self.canvas.preview_cards.values())]
         def overlap(candidate):
             return sum(max(0,r.width())*max(0,r.height()) for r in (candidate.intersected(other) for other in others))
         return min(candidates,key=overlap).topLeft()
@@ -274,7 +273,7 @@ class FlowFunctions(CanvasFunctions):
                     source=lambda:self.add_image(position=position),single=lambda:self.add_image(position=position,enhanced=False),
                     **{'image-input':lambda:self.canvas.add_flow_node('image_inputs',position)},
                     schedule=lambda:self.canvas.add_flow_node('schedulers',position),
-                    stage=lambda:self.canvas.add_flow_node('stages',position),preview=self.show_preview)
+                    stage=lambda:self.canvas.add_flow_node('stages',position),preview=lambda:self.show_preview(position))
     def add_group_source(self,position=None):
         from .prompt_sources import add
         position=position or self.canvas.view.mapToScene(self.canvas.view.viewport().rect().center())
@@ -298,7 +297,7 @@ class FlowFunctions(CanvasFunctions):
 class MultiCanvas(TextCanvas):
     def __init__(self,window):
         super().__init__(window); self.functions=FlowFunctions(self); self.containers={}; self.outputs={}; self.ports={}; self.lines={}
-        self.clips={}; self.flow_cards={}; self.order_card=None; self.execution_bar=ExecutionBar(self)
+        self.clips={}; self.flow_cards={}; self.preview_cards={}; self.order_card=None; self.execution_bar=ExecutionBar(self)
         self.insertion_canvas=None; self.image_previews={}; self.editor_page=None; self.z_counter=-.9; self.refreshing=False
         from .flow_items import ConnectionGesture
         self.connection_gesture=ConnectionGesture(self)
@@ -423,6 +422,7 @@ class MultiCanvas(TextCanvas):
         flow_keys={key for kind in ('schedulers','image_inputs','stages') for key in data.get(kind,{})}
         for collection,keys in ((self.containers,data['canvases']), (self.outputs,data['outputs']),
                 (self.clips,data['clip_inputs']), (self.flow_cards,flow_keys), (self.cards,node_keys),
+                (self.preview_cards,{model.PREVIEW,*state.get('canvas_functions',{}).get('previews',{})}),
                 (self.functions.cards,{**state.get('canvas_functions',{}).get('images',{}), **state.get('canvas_functions',{}).get('text_sources',{})})):
             for key in list(collection):
                 if key not in keys:removed.add(collection.pop(key))
@@ -456,8 +456,8 @@ class MultiCanvas(TextCanvas):
         for card in self.flow_cards.values():card.update_text()
         for card in self.functions.cards.values():card.update_text()
         if self.order_card: self.order_card.update_text()
-        if self.preview_card: self.preview_card.update_text()
-        preview_links=tuple(sorted(model.connected_outputs(self.window.state,'preview')))
+        for card in self.preview_cards.values():card.update_text()
+        preview_links=tuple(sorted((c['destination'],c['source'],c['kind']) for c in self.data()['connections'] if c['destination'] in self.preview_cards))
         if self.preview_card and getattr(self,'preview_links',None)!=preview_links:
             self.preview_links=preview_links; self.results.refresh()
         self.update_lines()
@@ -466,7 +466,7 @@ class MultiCanvas(TextCanvas):
         self.prune_cards()
         if self.isVisible():super().refresh_layout()
         for container in self.containers.values():container.refresh()
-        for card in [*self.outputs.values(),*self.clips.values(),*self.flow_cards.values(),*self.functions.cards.values(),self.preview_card,self.order_card]:
+        for card in [*self.outputs.values(),*self.clips.values(),*self.flow_cards.values(),*self.functions.cards.values(),*self.preview_cards.values(),self.order_card]:
             if card is not None:card.sync_bounds()
         self.update_lines()
     def refresh(self):
@@ -527,8 +527,18 @@ class MultiCanvas(TextCanvas):
                 if self.order_card is None: self.order_card=WorkflowOrderCard(self); self.view.scene().addItem(self.order_card)
                 self.order_card.attach(); self.order_card.setPos(*state.get('text_positions',{}).get(self.order_card.key,[1100,450])); self.order_card.show()
             elif self.order_card: self.order_card.hide()
-            if self.preview_card is None: self.preview_card=PreviewCard(self); self.view.scene().addItem(self.preview_card)
-            self.preview_card.attach(); self.preview_card.setPos(*state.get('text_positions',{}).get('__result_preview__',[600,450])); self.results.refresh()
+            from .preview_nodes import keys as preview_keys
+            from .canvas_results import CanvasResults
+            active_previews=preview_keys(state)
+            for key in set(self.preview_cards)-set(active_previews):
+                card=self.preview_cards.pop(key);self.view.scene().removeItem(card);card.deleteLater()
+            for index,key in enumerate(active_previews):
+                if key not in self.preview_cards:
+                    panel=self.results if key==model.PREVIEW else CanvasResults(self.window,key)
+                    self.preview_cards[key]=PreviewCard(self,key,panel);self.view.scene().addItem(self.preview_cards[key])
+                card=self.preview_cards[key];card.attach();card.setSelected(key in selected)
+                card.setPos(*state.get('text_positions',{}).get(key,[600+index*540,450]))
+            self.preview_card=self.preview_cards[model.PREVIEW];self.results.refresh()
             self.functions.refresh()
             for key,container in self.containers.items():
                 self.add_port(container,key,'text',True); self.add_port(container,key,'image',True,index=1); self.add_port(container,key,'image',False)
@@ -563,12 +573,11 @@ class MultiCanvas(TextCanvas):
                     self.add_port(card,key,'control',False,index=len(connected))
                     for index,kind in enumerate(('flow','image','clip')):self.add_port(card,key,kind,True,index=index)
                 else:
-                    for index,channel in enumerate(self.data()['schedulers'][key]['channels']):
-                        for output in (False,True):self.add_port(card,endpoint(key,channel['id']),channel['type'],output,index=index)
-                    if self.data()['version']>=7:
-                        index=len(self.data()['schedulers'][key]['channels'])
-                        for output in (False,True):self.add_port(card,key+'::flow','flow',output,index=index)
-            if self.data()['version']>=4:self.add_port(self.preview_card,model.PREVIEW,'image',False)
+                    from .module_contracts import scheduler_port_specs
+                    for endpoint,kind,output,slot,index in scheduler_port_specs(state,key):
+                        self.add_port(card,endpoint,kind,output,slot=slot,index=index)
+            if self.data()['version']>=4:
+                for key,card in self.preview_cards.items():self.add_port(card,key,'image',False)
             if self.order_card and self.data()['workflow_order'].get('visible'):
                 from .chain_connections import endpoint as stage_endpoint,ADD
                 from .chain_model import definition
@@ -607,7 +616,9 @@ class MultiCanvas(TextCanvas):
     def line_port(self,value,output):
         key=value['source'] if output else value['destination']; kind=value['kind']
         if kind=='done' and self.data()['version']>=7:kind='flow' if output else 'control'
-        return self.ports.get((key,kind,output,value['source']) if not output and (kind in ('execution','preview','text') or kind=='control' and key in self.data().get('stages',{}) or kind=='clip' and key in self.outputs) else (key,kind,output))
+        from .module_contracts import binding_scheduler
+        multiple=kind in ('execution','preview','text') or kind=='control' and (key in self.data().get('stages',{}) or binding_scheduler(self.window.state,key)) or kind=='clip' and key in self.outputs
+        return self.ports.get((key,kind,output,value['source']) if not output and multiple else (key,kind,output))
     def update_lines(self):
         if not hasattr(self,'ports'): return
         for port in self.ports.values():
@@ -616,7 +627,7 @@ class MultiCanvas(TextCanvas):
             if self.data()['version']>=5:y=58+port.index*24
             if port.key in self.data().get('stages',{}) or port.key in self.clips:y+=24
             port.setPos(parent.width if port.output else 0,y)
-        for card in [*self.outputs.values(),*self.clips.values(),*self.flow_cards.values(),*self.functions.cards.values(),self.preview_card,self.order_card]:
+        for card in [*self.outputs.values(),*self.clips.values(),*self.flow_cards.values(),*self.functions.cards.values(),*self.preview_cards.values(),self.order_card]:
             if card is not None and card.collapsed:
                 card.prepareGeometryChange();card.apply_fold();card.update()
         for line in self.lines.values():

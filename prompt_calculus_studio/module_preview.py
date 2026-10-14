@@ -48,7 +48,7 @@ class PreviewCanvas:
         self.font = actual.font
         self.cards = {}; self.containers = {}; self.outputs = {}; self.clips = {}; self.flow_cards = {}
         self.ports = {}; self.lines = {}; self.image_previews = {}; self.active_keys = set()
-        self.preview_card = None; self.order_card = None
+        self.preview_card = None; self.preview_cards={}; self.order_card = None
         self.functions = FlowFunctions(self)
 
     def data(self): return self.window.state['multi_output']
@@ -95,7 +95,7 @@ class PreviewCanvas:
         elif kind == 'preview':
             from .canvas_results import CanvasResults
             self.results = CanvasResults(self.window)
-            card = PreviewCard(self); key = card.key; self.preview_card = card; contract = 'preview'
+            card = PreviewCard(self); key = card.key; self.preview_card = card; self.preview_cards[key]=card; contract = 'preview'
         else:
             value = dict(source=None, attached=False, enhanced=kind == 'source')
             if kind == 'reader': value.update(reader='text', name='讀取文字', show_image=False)
@@ -114,13 +114,9 @@ class PreviewCanvas:
                 self.ports[(key, wire, output)] = Port(self, card, key, wire, output, index=index)
         # Schedulers have typed channel endpoints in the real graph.
         if kind == 'schedule':
-            for index, channel in enumerate(data['schedulers'][key]['channels']):
-                for output in (False, True):
-                    endpoint = key + '::' + channel['id']
-                    self.ports[(endpoint, channel['type'], output)] = Port(self, card, endpoint, channel['type'], output, index=index)
-            for output in (False,True):
-                endpoint=key+'::flow'
-                self.ports[(endpoint,'flow',output)] = Port(self,card,endpoint,'flow',output,index=len(data['schedulers'][key]['channels']))
+            from .module_contracts import scheduler_port_specs
+            for endpoint,wire,output,slot,index in scheduler_port_specs(state,key):
+                self.ports[(endpoint,wire,output,slot)] = Port(self,card,endpoint,wire,output,slot=slot,index=index)
         self.update_lines()
         return card
 

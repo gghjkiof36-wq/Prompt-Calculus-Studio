@@ -60,8 +60,9 @@ class NodeDialog(StudioDialog):
         self.excludes.setAccessibleName('排除 Tag');self.excludes.setPlaceholderText('每行一項')
         excludes_layout.addWidget(self.excludes)
         self.dedupe=QCheckBox('去重');self.dedupe.setChecked(self.value.get('deduplicate',False));excludes_layout.addWidget(self.dedupe)
-        form.addWidget(self.excludes_panel);self.excludes_panel.hide();self.excludes_toggle.toggled.connect(self.excludes_panel.setVisible)
-        self.excludes_toggle.toggled.connect(lambda:QTimer.singleShot(0,self.fit_page))
+        form.addWidget(self.excludes_panel);self.excludes_panel.hide()
+        from .module_chrome import toggle_prompt_panel
+        self.excludes_toggle.toggled.connect(lambda opened:toggle_prompt_panel(self,self.excludes_panel,opened,self.fit_page))
         self.error=label('','Draft',True);self.body.addWidget(self.error);self.error.hide()
         self.body.addWidget(prompt_divider())
         self.body.addLayout(row(None,button('取消',self.reject,'Quiet'),button('套用' if value else '加入畫布',self.save,'Primary')))
@@ -81,11 +82,8 @@ class NodeDialog(StudioDialog):
         self.resize(min(580,max(360,parent.width()-24)),min(600,max(340,parent.height()-24)))
 
     def fit_page(self):
-        if not self.isVisible():return
-        self.form_scroll.widget().layout().activate();self.layout().activate()
-        content=self.form_scroll.widget().sizeHint().height()
-        available=min(self.parentWidget().height()-24,self.screen().availableGeometry().height()-40)
-        self.resize(self.width(),min(available,max(440,content+self.height()-self.form_scroll.height())))
+        from .module_chrome import fit_prompt_form
+        fit_prompt_form(self,self.form_scroll,440)
 
     def showEvent(self,event):
         super().showEvent(event);QTimer.singleShot(0,self.fit_page)
@@ -332,6 +330,7 @@ class TextCanvas(QWidget):
         for item in getattr(self,'containers',{}).values():item.refresh()
         cards=list(self.cards.values())+list(self.functions.cards.values())+list(getattr(self,'outputs',{}).values())+list(getattr(self,'clips',{}).values())
         cards.extend(getattr(self,'flow_cards',{}).values())
+        cards.extend(getattr(self,'preview_cards',{}).values())
         cards.extend(c for c in (self.output,self.preview_card,getattr(self,'generator',None),getattr(self,'order_card',None)) if c is not None)
         for card in set(cards):
             key=card.key; card.restore_size(); card.layout_card()
@@ -598,7 +597,7 @@ class TextCanvas(QWidget):
         self.commit(apply)
 
     def size_dialog(self,key):
-        card = getattr(self,'outputs',{}).get(key) or getattr(self,'clips',{}).get(key) or getattr(self,'flow_cards',{}).get(key) or (getattr(self,'order_card',None) if key=='__workflow_order__' else self.output if key=='__text_output__' else self.preview_card if key=='__result_preview__' else self.functions.cards.get(key) or self.cards.get(key))
+        card = getattr(self,'outputs',{}).get(key) or getattr(self,'clips',{}).get(key) or getattr(self,'flow_cards',{}).get(key) or getattr(self,'preview_cards',{}).get(key) or (getattr(self,'order_card',None) if key=='__workflow_order__' else self.output if key=='__text_output__' else self.preview_card if key=='__result_preview__' else self.functions.cards.get(key) or self.cards.get(key))
         card=card or getattr(self,'containers',{}).get(key)
         if card is None: return
         dialog = StudioDialog(self.window); dialog.setWindowTitle('調整模組尺寸')

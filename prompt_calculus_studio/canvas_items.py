@@ -348,10 +348,10 @@ class TextCard(ResizableCard):
 
 class PreviewCard(TextCard):
     default_size=(500,660)
-    def __init__(self,canvas):
-        super().__init__(canvas); self.key='__result_preview__'; self.title='預覽圖片'
+    def __init__(self,canvas,key='__result_preview__',panel=None):
+        super().__init__(canvas); self.key=key; self.title='預覽圖片'
         self.module_icon='scan-eye'
-        self.panel=canvas.results; self.init_interaction()
+        self.panel=panel if panel is not None else canvas.results; self.init_interaction()
 
     def attach(self):
         if self.proxy.widget() is not self.panel: self.proxy.setWidget(self.panel)

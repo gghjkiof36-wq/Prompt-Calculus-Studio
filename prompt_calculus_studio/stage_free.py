@@ -5,11 +5,11 @@ result must not write into a newly wired terminal or borrow another run's previe
 """
 import copy
 from .flow_data import incoming,resolve
-from .stage_model import terminals,controls,input_nodes
+from .stage_model import terminals,connected_terminals,input_nodes
 
 
 def bindings(state):
-    data=state['multi_output'];used={k for stage in data.get('stages',{}) for k in controls(state,stage)}
+    data=state['multi_output'];used=connected_terminals(state)
     for key,target in terminals(state).items():
         if key in used or not target.get('workflow'):continue
         kind='clip' if key in data['clip_inputs'] else 'image';source=incoming(state,key,kind)

@@ -11,7 +11,7 @@ import uuid
 from urllib.parse import quote
 from PySide6.QtCore import QObject,QTimer
 from .stage_store import StageStore
-from .stage_model import compile_plan,execution_signature,terminals,controls,input_nodes as upstream
+from .stage_model import compile_plan,execution_signature,terminals,controls,connected_terminals,input_nodes as upstream
 from .stage_context import capture,project,image_list,merge_saved,prepare_state
 from .flow_data import incoming
 
@@ -77,10 +77,10 @@ class StageRunner(QObject):
     def scope_keys(self,plan,node):
         return plan['scopes'][node['key']]['stages'] if node['kind']=='scope' else [node['stage']]
 
-    def capture_scope(self,plan,node,state=None):
+    def capture_scope(self,plan,node,state=None,per_round=False):
         state=state or self.context();keys=self.scope_keys(plan,node)
         policies=plan['scopes'][node['key']]['policies'] if node['kind']=='scope' else {b['key']:'live' for k in keys for b in plan['stages'][k]['bindings']}
-        saved=capture(state,plan,keys,self.window.store.directory,policies)
+        saved=capture(state,plan,keys,self.window.store.directory,policies,per_round=per_round)
         if node['kind']=='scope':
             from .workspace_scene import scene
             saved['scene']=scene(state)
@@ -368,7 +368,7 @@ class StageRunner(QObject):
                 from .workspace_scene import load
                 base=copy.deepcopy(base);load(base,frame['ctx']['scene'])
             state=project(base,self.window.store.directory,frame['ctx']['results'],sources,frame['ctx'].get('saved',{}).get('readers'))
-            saved=self.capture_scope(run['plan'],frame['node'],state)
+            saved=self.capture_scope(run['plan'],frame['node'],state,per_round=True)
             # A refill resolves one image's data, never recaptures the Stage
             # intentions or task target already owned by the outer item.
             inherited=frame['ctx'].get('saved',{})
@@ -399,7 +399,7 @@ class StageRunner(QObject):
                     positions[key]=dict(kind='text',plan=frozen['id'],signature=spec['signature'],group=following[key]['group'])
             sources=dict(frame['ctx'].get('sources',{}));sources.update(images)
             state=project(base,self.window.store.directory,frame['ctx']['results'],sources,frame['ctx'].get('saved',{}).get('readers'))
-            saved=self.capture_scope(run['plan'],node,state)
+            saved=self.capture_scope(run['plan'],node,state,per_round=True)
             inherited=frame['ctx'].get('saved',{})
             saved['parameters']=copy.deepcopy(inherited.get('parameters',{}))
             for kind in ('parameter_overrides','parameter_profiles'):saved[kind]=copy.deepcopy(inherited.get(kind,{}))
@@ -778,7 +778,7 @@ class StageRunner(QObject):
         return finish(self,run)
 
     def sync_free(self,all_inputs=False):
-        state=self.context();data=state['multi_output'];used={key for stage in data.get('stages',{}) for key in controls(state,stage)}
+        state=self.context();data=state['multi_output'];used=connected_terminals(state)
         groups={}
         for key,target in terminals(state).items():
             if key in used and not all_inputs or not target.get('workflow'):continue

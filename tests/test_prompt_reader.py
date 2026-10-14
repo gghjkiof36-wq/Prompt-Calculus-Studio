@@ -35,7 +35,7 @@ class ReaderTests(unittest.TestCase):
 
     def click_row(self,listing,at=0,double=False):
         self.app.processEvents();rect=listing.regions(listing.visualItemRect(listing.item(at)))['name']
-        action=QTest.mouseDClick if double else QTest.mouseClick
+        action=QTest.mouseDClick if double or listing.kind=='groups' else QTest.mouseClick
         action(listing.viewport(),Qt.MouseButton.LeftButton,pos=rect.center());self.app.processEvents()
 
     def edit_child(self,owner,text,accept=True):
@@ -183,11 +183,11 @@ class ReaderTests(unittest.TestCase):
         group_ids=[g['id'] for g in sequence['groups']];module_ids=[m['id'] for m in sequence['groups'][0]['modules']]
         def reorder(dialog):
             self.assertEqual(dialog.listing.item(1).data(DATA)['subtitle'],'')
-            fixture.EditorReorderTests.drag(self,dialog.listing,group_ids[1],group_ids[0],grip=True)
+            fixture.EditorReorderTests.drag(self,dialog.listing,group_ids[1],group_ids[0])
             self.assertEqual(dialog.stack.currentIndex(),0)
             self.assertEqual(dialog.listing.order_ids(),group_ids[::-1])
             self.click_row(dialog.listing,1);self.assertLess(dialog.width(),800)
-            fixture.EditorReorderTests.drag(self,dialog.modules,module_ids[1],module_ids[0],grip=True)
+            fixture.EditorReorderTests.drag(self,dialog.modules,module_ids[1],module_ids[0])
             self.assertEqual(dialog.modules.order_ids(),module_ids[::-1]);self.assertIsNone(dialog.active_node_dialog)
             self.assertEqual(dialog.preview.toPlainText(),'white shirt, red dress')
             seq=dialog.root['sequence'];self.assertEqual(seq['start'],sequence['start']);self.assertEqual(seq['selected'],sequence['selected'])

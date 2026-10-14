@@ -64,7 +64,7 @@ def sync_result_view(state,directory,results):
     return changed
 
 
-def capture(state,plan,keys,directory,policies=None):
+def capture(state,plan,keys,directory,policies=None,per_round=False):
     """A deferred upstream reference is never replaced with the last preview."""
     saved=dict(values={},inputs={},batches={},source_positions={},readers={})
     from .stage_parameters import capture as capture_parameters
@@ -73,7 +73,7 @@ def capture(state,plan,keys,directory,policies=None):
         stage=plan['stages'][key]
         for binding in stage['bindings']:
             source=binding['source'];policy=(policies or {}).get(binding['key'],'saved')
-            if policy=='live' or binding.get('text_source')=='web' or not source:continue
+            if (policy=='live' and not binding.get('scheduler')) or binding.get('text_source')=='web' or not source:continue
             nodes=upstream(state,[source]);future=nodes&plan['stages'].keys()
             for node in nodes:
                 ref=state.get('canvas_functions',{}).get('images',{}).get(node,{}).get('stage_reference')
@@ -100,7 +100,7 @@ def capture(state,plan,keys,directory,policies=None):
             except ValueError:
                 # Deferred Stage results are read only once this parent iteration reaches them.
                 if not any((upstream(state,[b['source']])&plan['stages'].keys()) for b in stage['bindings'] if b['source']):raise
-        for source in (stage.get('suppliers') or [stage['auto']]) if stage['auto'] else []:
+        for source in (stage.get('suppliers') or [stage['auto']]) if stage['auto'] and not per_round else []:
             image=state.get('canvas_functions',{}).get('images',{}).get(source)
             if image and not incoming(state,source,'image') and not image.get('stage_reference'):
                 saved['batches'][source]=copy.deepcopy(image.get('items') or ([image['source']] if image.get('source') else []))

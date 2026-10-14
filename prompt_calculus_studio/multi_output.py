@@ -127,8 +127,11 @@ def connect(state,source,destination,kind):
     data=state['multi_output']; canvases=data['canvases']; outputs=data['outputs']
     if not valid_edge(state,source,destination,kind): raise ValueError('這兩個端口無法連接。')
     if kind=='control' and data['version']>=7:
-        from .stage_model import choose,terminals
-        if not data['stages'][destination].get('workflow'):choose(state,destination,terminals(state)[source].get('workflow'))
+        from .stage_model import choose,terminals,binding_routes
+        if destination in data['stages'] and not data['stages'][destination].get('workflow'):
+            targets=terminals(state)
+            workflow=next((targets[key].get('workflow') for key in binding_routes(state,source) if targets[key].get('workflow')),None)
+            if workflow:choose(state,destination,workflow)
     elif kind=='control':
         from .chain_connections import connect as control_connect
         destination=control_connect(state,source,destination)
@@ -148,6 +151,9 @@ def connect(state,source,destination,kind):
     slot=input_slot(source,destination,kind,slots)
     data['connections']=[c for c in data['connections'] if input_slot(c['source'],c['destination'],c['kind'],slots)!=slot]
     data['connections'].append(dict(id=ident('line_'),source=source,destination=destination,kind=kind))
+    if kind=='control':
+        from .state_schema import mark_version
+        mark_version(state)
     if data['version']>=6 and destination in outputs and kind in ('text','clip'):
         ids=outputs[destination].setdefault('text_sources',list(outputs[destination].get('canvases',[])))
         if source not in ids:ids.append(source)

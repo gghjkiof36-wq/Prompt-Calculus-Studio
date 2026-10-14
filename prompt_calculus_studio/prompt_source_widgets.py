@@ -50,8 +50,8 @@ class GroupSourceDialog(StudioDialog):
         self.preview_toggle=Disclosure('Prompt 預覽');detail.addWidget(self.preview_toggle)
         self.preview=QPlainTextEdit();self.preview.setReadOnly(True);self.preview.setAccessibleName('本輪 Prompt 預覽')
         self.preview.setMinimumHeight(150);self.preview.setMaximumHeight(230);detail.addWidget(self.preview);self.preview.hide()
-        self.preview_toggle.toggled.connect(self.preview.setVisible)
-        self.preview_toggle.toggled.connect(lambda:QTimer.singleShot(0,self.fit_editor))
+        from .module_chrome import toggle_prompt_panel
+        self.preview_toggle.toggled.connect(lambda opened:toggle_prompt_panel(self,self.preview,opened,self.fit_editor))
         self.scroll=QScrollArea();self.scroll.setWidgetResizable(True);self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setWidget(self.stack);self.body.addWidget(self.scroll,1)
         self.stack.setAutoFillBackground(False)
@@ -69,11 +69,8 @@ class GroupSourceDialog(StudioDialog):
         self.refresh_overview();self.page_changed(0)
 
     def fit_editor(self,*_):
-        if not self.isVisible():return
-        self.stack.currentWidget().layout().activate();self.layout().activate()
-        wanted=self.stack.sizeHint().height()+self.height()-self.scroll.height()
-        limit=min(self.canvas.window.height()-24,self.screen().availableGeometry().height()-40)
-        self.resize(self.width(),max(340,min(wanted,limit)))
+        from .module_chrome import fit_prompt_form
+        fit_prompt_form(self,self.scroll,340)
 
     def page_changed(self,index):
         inside=index==1

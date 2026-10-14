@@ -103,8 +103,9 @@ class EntryDelegate(QStyledItemDelegate):
         owner = self.parent(); data = index.data(DATA); colors = dialog_colors(widget_colors(owner))
         rect=option.rect.adjusted(1,0,-1,-8)
         painter.save();painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        active=bool(option.state & QStyle.StateFlag.State_Selected);hover=bool(option.state & QStyle.StateFlag.State_MouseOver)
-        painter.setPen(QPen(QColor(colors['accent' if active else 'line']),1));painter.setBrush(QColor(colors['selected' if active else 'hover' if hover else 'surface']))
+        keyboard=owner.keyboard_focus and owner.hasFocus()
+        active=(index==owner.currentIndex()) if keyboard else index.data(Qt.ItemDataRole.UserRole)==owner.hovered_id
+        painter.setPen(QPen(QColor(colors['accent' if active else 'line']),1));painter.setBrush(QColor(colors['selected' if active else 'surface']))
         painter.drawRoundedRect(rect,8,8)
         painter.setPen(QColor(colors['text'])); painter.setFont(option.font)
         regions = owner.regions(rect)
@@ -137,7 +138,7 @@ class EntryList(ReorderableList):
 
     def __init__(self, kind, *, readonly=False, reorderable=None):
         super().__init__(); self.kind = kind; self.readonly=readonly; self._handle = False;self._skip_release=False;self.setObjectName('PromptEntryList')
-        self.setMouseTracking(True)
+        self.setMouseTracking(True);self.keyboard_focus=False;self.hovered_id=None
         self.setItemDelegate(EntryDelegate(self)); self.setMinimumHeight(90); self.setSpacing(0)
         self.setVerticalScrollMode(self.ScrollMode.ScrollPerPixel)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -158,9 +159,12 @@ class EntryList(ReorderableList):
         if self._handle: super().startDrag(actions)
 
     def mousePressEvent(self, event):
+        self.keyboard_focus=False;self.viewport().update()
         self._skip_release=False
         item = self.itemAt(event.position().toPoint())
-        self._handle = bool(self.reorder_enabled and item and self.regions(self.visualItemRect(item))['grip'].contains(event.position().toPoint()))
+        self.hovered_id=item.data(Qt.ItemDataRole.UserRole) if item else None
+        regions=self.regions(self.visualItemRect(item)) if item else {}
+        self._handle=bool(self.reorder_enabled and item and not any(regions[name].contains(event.position().toPoint()) for name in ('open','more')))
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -168,7 +172,7 @@ class EntryList(ReorderableList):
             self._skip_release=False;event.accept();return
         suppressed = self._suppress_release
         super().mouseReleaseEvent(event)
-        if suppressed or event.button() != Qt.MouseButton.LeftButton or self._handle: return
+        if suppressed or event.button() != Qt.MouseButton.LeftButton: return
         item = self.itemAt(event.position().toPoint())
         if item is None: return
         ident = item.data(Qt.ItemDataRole.UserRole); regions = self.regions(self.visualItemRect(item))
@@ -176,18 +180,19 @@ class EntryList(ReorderableList):
             self.menuRow.emit(ident, self.viewport().mapToGlobal(regions['more'].bottomLeft()))
         elif self.kind != 'picker' and not self.readonly and regions['value'].contains(event.position().toPoint()):
             self.valueRow.emit(ident, regions['value'])
-        elif self.kind!='modules' or regions['open'].contains(event.position().toPoint()):self.activatedRow.emit(ident)
+        elif self.kind=='picker' or (self.kind=='modules' and regions['open'].contains(event.position().toPoint())):self.activatedRow.emit(ident)
 
     def mouseDoubleClickEvent(self,event):
         item=self.itemAt(event.position().toPoint())
-        if self.kind=='modules' and item and event.button()==Qt.MouseButton.LeftButton:
+        if self.kind in ('groups','modules') and item and event.button()==Qt.MouseButton.LeftButton:
             regions=self.regions(self.visualItemRect(item))
-            if regions['name'].contains(event.position().toPoint()):
+            if not any(regions[name].contains(event.position().toPoint()) for name in ('value','more')):
                 self._skip_release=True;event.accept()
                 self.activatedRow.emit(item.data(Qt.ItemDataRole.UserRole));return
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event):
+        self.keyboard_focus=True;self.viewport().update()
         item = self.currentItem()
         if item and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
             self.activatedRow.emit(item.data(Qt.ItemDataRole.UserRole)); event.accept(); return
@@ -195,12 +200,28 @@ class EntryList(ReorderableList):
             self.menuRow.emit(item.data(Qt.ItemDataRole.UserRole), self.mapToGlobal(self.rect().center())); return
         super().keyPressEvent(event)
 
+    def focusInEvent(self,event):
+        if event.reason() in (Qt.FocusReason.TabFocusReason,Qt.FocusReason.BacktabFocusReason,Qt.FocusReason.ShortcutFocusReason):
+            self.keyboard_focus=True
+        super().focusInEvent(event);self.viewport().update()
+
+    def mouseMoveEvent(self,event):
+        item=self.itemAt(event.position().toPoint())
+        self.hovered_id=item.data(Qt.ItemDataRole.UserRole) if item else None
+        self.keyboard_focus=False;self.viewport().update()
+        super().mouseMoveEvent(event)
+
+    def viewportEvent(self,event):
+        if event.type()==QEvent.Type.Leave:
+            self.hovered_id=None;self.viewport().update()
+        return super().viewportEvent(event)
+
     def fill(self, rows):
         current = self.currentItem().data(Qt.ItemDataRole.UserRole) if self.currentItem() else None
         scroll = self.verticalScrollBar().value(); self.clear()
         for data in rows:
             item = QListWidgetItem(data['name']); item.setData(Qt.ItemDataRole.UserRole, data['id']); item.setData(DATA, data)
-            item.setToolTip(data.get('subtitle', '')); self.addItem(item)
+            self.addItem(item)
             if data['id'] == current: self.setCurrentItem(item)
         self.verticalScrollBar().setValue(scroll)
         if self.kind!='picker':
@@ -223,9 +244,11 @@ class EntryList(ReorderableList):
 class GroupEditor(QWidget):
     changed = Signal()
     pageChanged = Signal(int)
+    layoutChanged = Signal()
 
-    def __init__(self, window, sequence):
+    def __init__(self, window, sequence, preview_renderer=None):
         super().__init__(); self.host = window; self.sequence = copy.deepcopy(sequence)
+        self.preview_renderer=preview_renderer or groups.render_group
         self.current_group = None; self.current_module = None; self.loading = False
         self.category = getattr(window,'_material_browser_category',None)
         self.collapsed = set(window.state['settings'].get('material_folder_collapsed',[]))
@@ -246,11 +269,7 @@ class GroupEditor(QWidget):
         self.listing.activatedRow.connect(self.edit_group); self.listing.menuRow.connect(self.group_menu)
         self.listing.valueRow.connect(self.repeat_inline)
         self.listing.reorderRequested.connect(lambda before, after: self.reorder(self.sequence['groups'], before, after))
-        self.overview_preview_toggle = Disclosure('Prompt 預覽'); layout.addWidget(self.overview_preview_toggle)
-        self.overview_preview = QPlainTextEdit(); self.overview_preview.setReadOnly(True); self.overview_preview.setMaximumHeight(140)
-        layout.addWidget(self.overview_preview); self.overview_preview.hide()
-        self.overview_preview_toggle.toggled.connect(self.overview_preview.setVisible)
-        self.overview_options=row();layout.addLayout(self.overview_options)
+        layout.addSpacing(24)
 
     def refresh_overview(self):
         self.loading = True
@@ -262,8 +281,16 @@ class GroupEditor(QWidget):
             if group['id'] == self.sequence['start']: subtitle = ' · '.join(filter(None,(subtitle,'起始')))
             rows.append(dict(group, subtitle=subtitle))
         self.start.setCurrentIndex(self.start.findData(self.sequence['start'])); self.listing.fill(rows)
-        self.overview_preview.setPlainText(groups.render_group(groups.selected(self.sequence)))
         self.loading = False
+
+    def toggle_preview(self,panel,opened):
+        from .module_chrome import toggle_prompt_panel
+        def fit():
+            self.fit_content();self.layoutChanged.emit()
+        toggle_prompt_panel(self,panel,opened,fit)
+
+    def refresh_previews(self):
+        if self.current_group:self.preview.setPlainText(self.preview_renderer(self.current_group))
 
     def mode_changed(self):
         if not self.loading: self.sequence['mode'] = self.mode.currentData(); self.changed.emit()
@@ -354,7 +381,7 @@ class GroupEditor(QWidget):
         self.excludes = QPlainTextEdit(); self.excludes.setPlaceholderText('每行一項'); self.excludes.setMaximumHeight(80)
         excludes_layout.addWidget(self.excludes)
         self.module_dedupe=QCheckBox('去重');excludes_layout.addWidget(self.module_dedupe)
-        self.excludes_toggle.toggled.connect(self.excludes_panel.setVisible)
+        self.excludes_toggle.toggled.connect(lambda opened:self.toggle_preview(self.excludes_panel,opened))
         self.inspector_layout.addLayout(row(button('新增子項', self.add_child, 'Quiet'), None, tool('chevron-up', '收起編輯', self.close_inspector)))
         self.nested_button=button('編輯子組合',self.edit_nested,'Quiet');self.inspector_layout.addWidget(self.nested_button);self.nested_button.hide()
         for signal in (self.module_name.textChanged, self.module_text.textChanged, self.excludes.textChanged): signal.connect(self.update_module)
@@ -371,8 +398,7 @@ class GroupEditor(QWidget):
         self.preview_toggle = Disclosure('Prompt 預覽');layout.addWidget(self.preview_toggle)
         self.preview = QPlainTextEdit(); self.preview.setReadOnly(True); self.preview.setAccessibleName('本組實際 Prompt')
         self.preview.setMinimumHeight(120);self.preview.setMaximumHeight(200);layout.addWidget(self.preview);self.preview.hide()
-        self.preview_toggle.toggled.connect(self.preview.setVisible)
-        self.preview_toggle.toggled.connect(self.fit_content); self.excludes_toggle.toggled.connect(self.fit_content)
+        self.preview_toggle.toggled.connect(lambda opened:self.toggle_preview(self.preview,opened))
 
     def edit_group(self, ident):
         self.loading = True; self.current_group = next(g for g in self.sequence['groups'] if g['id'] == ident)
@@ -381,20 +407,20 @@ class GroupEditor(QWidget):
         self.direct_kind.setCurrentIndex(self.direct_kind.findData(group['content_kind'])); self.direct_text.setPlainText(group['text'])
         self.input_tabs.setCurrentIndex(0 if group['input'] == 'modules' else 1)
         self.current_module = None; self.inspector.hide(); self.refresh_modules(); self.loading = False
-        self.preview.setPlainText(groups.render_group(group)); self.stack.setCurrentIndex(1)
+        self.preview.setPlainText(self.preview_renderer(group)); self.stack.setCurrentIndex(1)
 
     def update_group(self, *_):
         if self.loading or self.current_group is None: return
         self.current_group.update(name=self.group_name.text(), repeat=self.repeat.value(),
             input='modules' if self.input_tabs.currentIndex() == 0 else 'text', text=self.direct_text.toPlainText(), content_kind=self.direct_kind.currentData())
-        self.preview.setPlainText(groups.render_group(self.current_group)); self.changed.emit()
+        self.preview.setPlainText(self.preview_renderer(self.current_group)); self.changed.emit()
         self.fit_content()
 
     def refresh_modules(self):
         if self.current_group is None: return
         rows = [dict(m, subtitle=('已停用 · ' if not m['enabled'] else '')+comp.render(m).replace('\n', ' ')) for m in self.current_group['modules']]
         self.modules.fill(rows)
-        if hasattr(self, 'preview'): self.preview.setPlainText(groups.render_group(self.current_group))
+        if hasattr(self, 'preview'): self.preview.setPlainText(self.preview_renderer(self.current_group))
         if hasattr(self,'preview_toggle'):self.fit_content()
 
     def edit_module(self, ident):
@@ -404,14 +430,18 @@ class GroupEditor(QWidget):
         self.module_path.blockSignals(False); self.inspector.show(); self.select_part()
 
     def open_module(self, ident):
-        from .text_canvas import NodeDialog
         part=next(m for m in self.current_group['modules'] if m['id']==ident)
-        dialog=NodeDialog(self.host,part,title='編輯文字模組');self.active_node_dialog=dialog
+        values=self.edit_node(part,'編輯文字模組')
+        if values is not None:
+            part.update(values);self.inspector.hide();self.current_module=None
+            self.refresh_modules();self.changed.emit()
+
+    def edit_node(self,part,title):
+        from .text_canvas import NodeDialog
+        dialog=NodeDialog(self.host,part,title=title);self.active_node_dialog=dialog
         try:accepted=dialog.exec()==QDialog.DialogCode.Accepted
         finally:self.active_node_dialog=None
-        if accepted:
-            part.update(dialog.values());self.inspector.hide();self.current_module=None
-            self.refresh_modules();self.changed.emit()
+        return dialog.values() if accepted else None
 
     def select_part(self):
         part = self.module_path.currentData()
@@ -470,6 +500,7 @@ class GroupEditor(QWidget):
         if not self.current_module or not self.current_module.get('sequence'):return
         target=self.current_module;widget,layout=page()
         nested=GroupEditor(self.host,target['sequence'])
+        nested.layoutChanged.connect(self.layoutChanged.emit)
         def finish():
             target['sequence']=copy.deepcopy(nested.sequence);self.stack.setCurrentIndex(1)
             self.stack.removeWidget(widget);widget.deleteLater();self.refresh_modules();self.changed.emit()
@@ -477,8 +508,10 @@ class GroupEditor(QWidget):
         layout.addWidget(nested,1);self.stack.addWidget(widget);self.stack.setCurrentWidget(widget)
 
     def add_empty(self):
-        node = comp.node('新模組'); self.current_group['modules'].append(node)
-        self.refresh_modules(); self.edit_module(node['id']); self.changed.emit()
+        node=comp.node('新模組');values=self.edit_node(node,'新增文字模組')
+        if values is None:return
+        node.update(values);self.current_group['modules'].append(node)
+        self.refresh_modules();self.changed.emit();self.layoutChanged.emit()
 
     def module_menu(self, ident, position):
         rows = self.current_group['modules']; at = next(i for i, m in enumerate(rows) if m['id'] == ident); target = rows[at]
@@ -516,10 +549,9 @@ class GroupEditor(QWidget):
         self.candidates.installEventFilter(self)
         self.candidates.viewport().installEventFilter(self);right.addWidget(self.candidates, 1)
         self.empty = label('沒有符合的素材', 'Subtle'); right.addWidget(self.empty)
-        self.added = label('', 'Subtle'); layout.addWidget(self.added)
         self.folders.currentItemChanged.connect(self.scope_changed); self.folders.toggleRequested.connect(self.toggle_folder)
         self.search.textChanged.connect(self.refresh_picker)
-        self.candidates.itemClicked.connect(lambda item:self.add_material(item.data(Qt.ItemDataRole.UserRole)))
+        self.candidates.itemClicked.connect(lambda item:self.pick_material(item.data(Qt.ItemDataRole.UserRole),getattr(self.candidates,'release_global',None)))
         self.category_combo.currentIndexChanged.connect(self.combo_scope_changed)
         self.picker_split.setSizes([220, 550]); self.refresh_folders()
 
@@ -582,7 +614,7 @@ class GroupEditor(QWidget):
         scroll=self.candidates.verticalScrollBar().value();self.candidates.clear()
         for item in rows:
             entry=QListWidgetItem(item['name']+'\n'+item['prompt'].replace('\n',' '));entry.setData(Qt.ItemDataRole.UserRole,item['id'])
-            entry.setToolTip(item['name']+'\n'+item['prompt']);self.candidates.addItem(entry)
+            self.candidates.addItem(entry)
         self.candidates.verticalScrollBar().setValue(scroll);self.empty.setVisible(not rows)
         category=folder['name'] if folder else '未分類' if self.category=='@uncategorized' else next((m['name'] for m in self.host.state['modules'] if m['id']==self.category),'全部分類')
         self.picker_heading.setText(f'{category} · {len(rows)} 個模組')
@@ -599,7 +631,7 @@ class GroupEditor(QWidget):
         if hasattr(self,'candidates') and watched is self.candidates.viewport() and event.type()==QEvent.Type.Resize:self.align_picker()
         if hasattr(self,'candidates') and watched is self.candidates and event.type()==QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Return,Qt.Key.Key_Enter,Qt.Key.Key_Space):
             item=self.candidates.currentItem()
-            if item:self.add_material(item.data(Qt.ItemDataRole.UserRole))
+            if item:self.pick_material(item.data(Qt.ItemDataRole.UserRole))
             return True
         return super().eventFilter(watched,event)
 
@@ -609,8 +641,15 @@ class GroupEditor(QWidget):
     def add_material(self, ident):
         item = materials.item(self.host.state, ident); node = comp.clone_node(comp.prototype(item))
         node.update(source_id=ident, source_module=item['module'], source_revision=materials.fingerprint(item))
-        self.current_group['modules'].append(node); self.added.setText(f"已加入 {item['name']}")
+        self.current_group['modules'].append(node)
         self.refresh_modules(); self.changed.emit()
+
+    def pick_material(self,ident,position=None):
+        if self.stack.currentIndex()!=2:return
+        self.add_material(ident);self.stack.setCurrentIndex(1)
+        if position is not None:
+            from .palette_cards import ClosingClickGuard
+            ClosingClickGuard(self.modules.viewport(),position)
 
     def back(self):
         self.module_weight_edit.submit(); self.refresh_overview(); self.stack.setCurrentIndex(0)
@@ -631,66 +670,75 @@ class MaterialPages(QWidget):
         root = copy.deepcopy(comp.prototype(f.base)); root['name'] = root['name'] or '組合 1'
         self.group_editor = None; self.is_group = bool(root.get('sequence')); self.root = root
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 8, 0, 4); layout.setSpacing(12)
-        self.type_picker = ComboBox(); self.type_picker.addItem('單模組', False); self.type_picker.addItem('組合', True)
+        self.type_picker = ComboBox(self); self.type_picker.addItem('單模組', False); self.type_picker.addItem('組合', True)
         self.type_picker.setCurrentIndex(1 if self.is_group else 0); self.type_picker.setAccessibleName('素材類型')
         self.type_picker.setMaximumWidth(156)
         # Existing grouped materials cannot silently discard their definition.
         self.type_picker.setVisible(dialog.was_new or not self.is_group)
         self.type_picker.currentIndexChanged.connect(self.switch_type)
-        dialog.name_label = label('名稱', 'Subtle'); layout.addLayout(row(dialog.name_label,None,self.type_picker)); layout.addWidget(f.name)
+        dialog.name_label = label('名稱', 'Subtle');self.name_row=row(dialog.name_label,None,self.type_picker)
+        layout.addLayout(self.name_row); layout.addWidget(f.name)
         f.name.setPlaceholderText('素材名稱')
         self.stack = PageStack(); layout.addWidget(self.stack, 1)
         self.single, sl = page(); self.stack.addWidget(self.single)
-        sl.addLayout(row(label('Prompt', 'Subtle'), None, button('展開長文', dialog.expand_text, 'Quiet')))
-        f.prompt.setMinimumHeight(140); sl.addWidget(f.prompt, 1)
+        sl.addWidget(label('Prompt', 'Subtle'))
+        f.prompt.setMinimumHeight(280); sl.addWidget(f.prompt, 1)
         self.details_toggle = Disclosure('進階功能'); sl.addWidget(self.details_toggle)
-        self.details = QTabWidget(); self.details.setDocumentMode(True); self.details.tabBar().setDrawBase(False);self.details.hide()
-        self.details_toggle.toggled.connect(self.details.setVisible)
+        self.details = QTabWidget(self); self.details.setDocumentMode(True); self.details.tabBar().setDrawBase(False)
         self.details_toggle.toggled.connect(self.expand_advanced)
-        self.single_split = QuietSplitter(); self.stack.removeWidget(self.single)
         sl.setContentsMargins(0,0,0,0)
-        self.details_pane,details_layout=page();details_layout.setContentsMargins(12,0,0,0);details_layout.addWidget(self.details)
-        self.single_split.setChildrenCollapsible(False)
-        self.single_split.addWidget(self.single); self.single_split.addWidget(self.details_pane); self.stack.insertWidget(0, self.single_split)
-        self.details_pane.hide();self.details_toggle.toggled.connect(self.details_pane.setVisible)
-        self.single.show()
-        self.single_split.setSizes([470, 310])
+        self.details_container,details_body=page();self.details_container.setParent(self);self.details_container.hide()
+        details_body.addWidget(self.details,1)
         info, il = page(); fields = QFormLayout(); il.addLayout(fields)
         dialog.require_category = not dialog.target_id and nav.is_folder(dialog.page.get_browser_category())
         if dialog.require_category:
             f.edit_category.insertItem(0, '選擇分類…', None); f.edit_category.setCurrentIndex(0)
             category = QFormLayout(); category.addRow('分類', f.edit_category); layout.insertLayout(2, category)
         else: fields.addRow('分類', f.edit_category)
-        fields.addRow('格式', f.kind); fields.addRow('別名', f.aliases); fields.addRow('備註', f.notes); il.addStretch()
-        lookup, ll = page(); ll.addWidget(f.lookup); ll.addWidget(f.lookup_hint); ll.addStretch()
-        relation, rl = page(); rl.addWidget(label('排除 Tag', 'Subtle')); rl.addWidget(f.excludes); rl.addWidget(f.preview)
-        rl.addLayout(row(button('選擇預覽圖', f.choose_image, 'Quiet'), button('移除預覽', f.clear_image, 'Quiet')))
-        history, hl = page(); dialog.history_button = button('查看內容歷史', f.history, 'Quiet'); hl.addWidget(dialog.history_button); hl.addStretch()
-        for name, widget in [('資訊', info), ('查詢', lookup), ('關係', relation), ('歷史', history)]:
+        self.info_fields=fields
+        fields.addRow('格式', f.kind)
+        self.group_format=label('組合');fields.addRow('格式',self.group_format)
+        fields.addRow('別名', f.aliases); fields.addRow('備註', f.notes)
+        self.lookup_controls,ll=page();f.lookup.setText('標籤查詢');f.lookup_hint.setText('在 Prompt 中輸入標籤以查詢。')
+        ll.addWidget(f.lookup);ll.addWidget(f.lookup_hint);il.addWidget(self.lookup_controls)
+        il.addStretch()
+        from .material_editor_panels import MaterialPreviewImage
+        f.preview.hide();f.preview.deleteLater();f.preview=MaterialPreviewImage(f.window.store)
+        f.preview.pathReady.connect(f.receive_image);f.preview.failed.connect(f.window.notice)
+        self.image_controls,images=page();images.addWidget(f.preview,1)
+        images.addLayout(row(button('選擇圖片',f.choose_image,'Quiet'),None,button('移除',f.clear_image,'Quiet')))
+        f.show_preview()
+        relation, rl = page();rl.setSpacing(8);rl.addWidget(label('排除 Tag','Subtle'))
+        f.excludes.setPlaceholderText('');f.excludes.setMinimumHeight(120);f.excludes.setMaximumHeight(120)
+        rl.addWidget(f.excludes);rl.addStretch()
+        dialog.history_button=button('內容與操作歷史',f.history,'Quiet');details_body.addWidget(dialog.history_button,0,Qt.AlignmentFlag.AlignLeft)
+        for name, widget in [('資訊', info), ('排除 Tag', relation), ('預覽圖',self.image_controls)]:
             widget.layout().setContentsMargins(0,8,0,0);self.details.addTab(widget, name)
         dialog.advanced_toggle = self.details_toggle; dialog.advanced = self.details
         # Kept as aliases for code that opens the established advanced entry.
         dialog.info_toggle = dialog.lookup_toggle = dialog.relation_toggle = dialog.history_toggle = self.details_toggle
         dialog.intro = label(''); dialog.intro.hide()
         self.group_container, self.gl = page(); self.stack.addWidget(self.group_container)
-        self.dedupe = QCheckBox('去重',self.group_container); self.dedupe.setChecked(root.get('deduplicate', False))
-        self.group_details=button('進階功能',self.show_group_details,'Quiet');self.group_details.setParent(self.group_container)
-        self.advanced_page,self.al=page();self.stack.addWidget(self.advanced_page)
-        self.al.addLayout(row(tool('back','返回組合總覽',self.close_group_details),label('進階功能','SectionTitle'),None))
+        self.group_details=button('進階功能',self.show_group_details,'Quiet');self.group_details.setCheckable(True);self.name_row.addWidget(self.group_details)
         self.details_toggle.toggled.connect(self.layout_limits)
         self.switch_type()
 
     def switch_type(self):
+        if hasattr(self.dialog,'panels'):self.close_group_details(animate=False)
         self.is_group = bool(self.type_picker.currentData())
+        self.dialog.form.group_mode=self.is_group
+        self.lookup_controls.setVisible(not self.is_group)
+        self.info_fields.setRowVisible(self.dialog.form.kind,not self.is_group)
+        self.info_fields.setRowVisible(self.group_format,self.is_group)
+        self.dialog.form.prompt.schedule()
         if self.is_group and self.group_editor is None:
             root = copy.deepcopy(self.root); root['prompt'] = self.dialog.prompt.toPlainText(); root['name'] = self.dialog.name.text() or '組合 1'
             self.group_editor = GroupEditor(self.dialog.page.window, groups.from_node(root)); self.gl.insertWidget(0, self.group_editor, 1)
+            self.group_editor.preview_renderer=self.render_preview
+            self.group_editor.refresh_previews()
             self.group_editor.pageChanged.connect(self.page_changed)
-            for toggle in (self.group_editor.preview_toggle,self.group_editor.overview_preview_toggle):
-                toggle.toggled.connect(lambda:QTimer.singleShot(0,self.dialog.fit_page))
+            self.group_editor.layoutChanged.connect(self.dialog.fit_page)
             self.group_editor.group_navigation.hide();self.group_editor.picker_navigation.hide()
-            self.group_editor.overview_options.addWidget(self.dedupe);self.group_editor.overview_options.addStretch()
-            self.group_editor.overview_options.addWidget(self.group_details)
         self.stack.setCurrentIndex(1 if self.is_group else 0)
         self.dialog.name.setVisible(not self.is_group or self.group_editor.stack.currentIndex() == 0)
         self.layout_limits()
@@ -699,10 +747,12 @@ class MaterialPages(QWidget):
     def page_changed(self,index):
         self.dialog.name.setVisible(index==0);self.dialog.name_label.setVisible(index==0)
         self.type_picker.setVisible(index==0 and self.dialog.was_new)
-        self.dedupe.setVisible(self.is_group and index==0)
         self.group_details.setVisible(self.is_group and index==0);self.layout_limits()
         dialog=self.dialog
         if hasattr(dialog,'done_button'):
+            if index!=0:self.close_group_details(animate=False)
+            desired=880 if self.is_group and index==2 else 760 if self.is_group else 580
+            dialog.panels.set_main_width(desired)
             inside=self.is_group and index!=0
             dialog.back_button.setVisible(inside);dialog.done_button.setVisible(inside)
             dialog.save_button.setVisible(not inside);dialog.save_button.setDefault(not inside);dialog.done_button.setDefault(inside)
@@ -719,39 +769,42 @@ class MaterialPages(QWidget):
         if self.group_editor.stack.currentIndex()==2:self.group_editor.stack.setCurrentIndex(1)
         else:self.group_editor.back()
 
-    def show_group_details(self):
-        self.al.addWidget(self.details,1);self.details.show();self.stack.setCurrentIndex(2);self.layout_limits()
+    def render_preview(self,group):
+        root=copy.deepcopy(self.root)
+        root.update(sequence=copy.deepcopy(self.group_editor.sequence))
+        root['sequence']['selected']=group['id'];root.pop('round_override',None)
+        return comp.render(root)
 
-    def close_group_details(self):
-        self.al.removeWidget(self.details);self.details_pane.layout().addWidget(self.details);self.details.hide()
-        self.details_toggle.setChecked(False);self.stack.setCurrentIndex(1);self.layout_limits()
+    def refresh_previews(self,*_):
+        if self.group_editor:self.group_editor.refresh_previews()
+
+    def show_group_details(self):
+        self.group_details.setChecked(not self.dialog.panels.opened)
+        self.dialog.panels.set_open(self.group_details.isChecked());self.layout_limits()
+
+    def close_group_details(self,animate=True):
+        self.details_toggle.blockSignals(True);self.details_toggle.setChecked(False);self.details_toggle.blockSignals(False)
+        self.group_details.setChecked(False);self.dialog.panels.set_open(False,animate=animate);self.layout_limits()
 
     def layout_limits(self,*_):
         narrow=self.width()<680
         if self.is_group:
             self.setMinimumHeight(0)
         else:
-            minimum=390 if self.details_toggle.isChecked() else 330
-            if getattr(self.dialog,'_text_expanded',False):minimum+=170
-            self.setMinimumHeight(minimum)
+            # The scroll area must scroll the whole form, never compress the
+            # disclosure over the Prompt field in a short window.
+            self.setMinimumHeight(self.layout().minimumSize().height())
         self.stack.updateGeometry();self.updateGeometry()
-        self.details_toggle.setIcon(icon('chevron-right'))
+        self.details_toggle.setIcon(icon('chevron-left' if self.details_toggle.isChecked() else 'chevron-right'))
+        self.group_details.setIcon(icon('chevron-left' if self.group_details.isChecked() else 'chevron-right'))
 
     def expand_advanced(self,opened):
-        # The established advanced pane opens beside the Prompt. Grow the sheet
-        # when the desktop has room, instead of moving the pane below it.
-        if opened:
-            available=min(self.dialog.page.window.width()-24,self.dialog.screen().availableGeometry().width()-40)
-            self.dialog.setMinimumWidth(min(740,available))
-            self.dialog.resize(max(self.dialog.width(),min(820,available)),self.dialog.height())
-        else:self.dialog.setMinimumWidth(340)
-        self.single.layout().setContentsMargins(0,0,12 if opened else 0,0)
-        self.single_split.setSizes([500,320]);self.layout_limits()
+        self.dialog.panels.set_open(opened);self.layout_limits()
 
     def value(self, value):
         if self.is_group:
             self.group_editor.module_weight_edit.submit()
-            root = copy.deepcopy(self.root); root.update(name=self.dialog.name.text().strip(), sequence=copy.deepcopy(self.group_editor.sequence), deduplicate=self.dedupe.isChecked(),excludes=copy.deepcopy(value['excludes']),preview=value.get('preview',''))
+            root = copy.deepcopy(self.root); root.update(name=self.dialog.name.text().strip(), sequence=copy.deepcopy(self.group_editor.sequence),excludes=copy.deepcopy(value['excludes']),preview=value.get('preview',''))
             root.pop('round_override', None); comp.validate_node(root)
             value.update(composition=root, prompt=comp.render(root), content_kind=groups.output_kind(root))
         elif self.dialog.was_new and 'sequence' in value.get('composition', {}):
@@ -760,6 +813,4 @@ class MaterialPages(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if hasattr(self, 'single_split'):
-            self.single_split.setOrientation(Qt.Orientation.Horizontal)
         if hasattr(self,'group_details'):self.layout_limits()

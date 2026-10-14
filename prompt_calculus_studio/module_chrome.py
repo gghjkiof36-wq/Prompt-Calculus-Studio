@@ -72,6 +72,7 @@ def apply_module_dialog(dialog, colors, heading_size):
 
 def apply_prompt_dialog(dialog, window):
     """Use the same sheet, fields and typography as CanvasPalette."""
+    suppress_prompt_tooltips(dialog)
     from .theme import visual_tokens,font_pixels,widget_palette
     from PySide6.QtGui import QPalette
     from PySide6.QtWidgets import QFrame
@@ -92,7 +93,7 @@ def apply_prompt_dialog(dialog, window):
         QTabWidget::pane {{background:transparent;border:0;top:0;}}
         QTabBar::tab {{background:transparent;color:{colors['secondary']};border:0;border-bottom:2px solid {colors['line']};border-radius:0;padding:10px 12px;margin:0;}}
         QTabBar::tab:selected {{border-bottom-color:{colors['accent']};color:{colors['text']};}}
-        QTabBar::tab:hover {{background:{colors['hover']};}}
+        QTabBar::tab:hover {{background:transparent;color:{colors['text']};}}
     ''')
     surface=dialog.findChild(QFrame,'DialogSurface')
     surface.layout().setContentsMargins(24,24,24,20)
@@ -100,6 +101,55 @@ def apply_prompt_dialog(dialog, window):
     surface.layout().insertWidget(1,prompt_divider())
     dialog.body.setSpacing(12)
     return colors
+
+
+def suppress_prompt_tooltips(root):
+    """Keep this editor's labels and accessible names without floating hints."""
+    from PySide6.QtCore import QObject, QEvent
+    from PySide6.QtWidgets import QApplication, QWidget, QToolTip
+    class EditorHints(QObject):
+        def eventFilter(self, watched, event):
+            if event.type()==QEvent.Type.ToolTip and isinstance(watched,QWidget) and (watched is root or root.isAncestorOf(watched)):
+                QToolTip.hideText();event.accept();return True
+            return False
+    if not hasattr(root,'_prompt_hints'):
+        root._prompt_hints=EditorHints(root)
+        QApplication.instance().installEventFilter(root._prompt_hints)
+
+
+def fit_prompt_form(dialog, scroll, minimum_height=480):
+    """Measure the current page after invalidating hidden-page layout caches."""
+    if not dialog.isVisible() or getattr(dialog,'_fitting_prompt_form',False):return
+    from PySide6.QtWidgets import QLayout,QWidget
+    dialog._fitting_prompt_form=True
+    try:
+        content=scroll.widget()
+        for layout in reversed(content.findChildren(QLayout)):layout.invalidate()
+        for widget in reversed(content.findChildren(QWidget)):widget.updateGeometry()
+        content.layout().activate();content.updateGeometry();dialog.layout().activate()
+        chrome=dialog.height()-scroll.height()
+        bounds=dialog.screen().availableGeometry().adjusted(20,20,-20,-20)
+        parent=dialog.parentWidget()
+        parent_bounds=parent.rect().adjusted(12,12,-12,-12)
+        parent_bounds.moveTopLeft(parent.mapToGlobal(parent_bounds.topLeft()))
+        bounds=bounds.intersected(parent_bounds)
+        width=min(dialog.width(),bounds.width())
+        height=min(bounds.height(),max(minimum_height,content.sizeHint().height()+chrome))
+        dialog.setGeometry(max(bounds.left(),min(dialog.x(),bounds.right()-width+1)),
+                           max(bounds.top(),min(dialog.y(),bounds.bottom()-height+1)),width,height)
+        dialog.layout().activate();content.layout().activate()
+    finally:dialog._fitting_prompt_form=False
+
+
+def toggle_prompt_panel(owner, panel, opened, fit):
+    """Publish disclosure visibility and final geometry in the same paint."""
+    window=owner.window();updates=window.updatesEnabled()
+    window.setUpdatesEnabled(False)
+    try:
+        panel.setVisible(opened);fit()
+    finally:
+        window.setUpdatesEnabled(updates)
+        if updates and window.isVisible():window.repaint()
 
 
 def prompt_divider():
@@ -144,9 +194,8 @@ def module_value(canvas, key, state=None):
     for kind in ('canvases', 'outputs', 'clip_inputs', 'image_inputs', 'schedulers', 'stages'):
         if key in data.get(kind, {}):
             return data[kind][key]
-    if key == '__result_preview__':
-        if writing:return state.setdefault('canvas_functions', {}).setdefault('preview_display', {})
-        return state.get('canvas_functions', {}).get('preview_display', {})
+    from .preview_nodes import contains,display
+    if contains(state,key):return display(state,key,writing)
     if key == '__workflow_order__':
         return data.get('workflow_order', {})
     return state.get('canvas_functions', {}).get('text_sources', {}).get(key) or state.get('canvas_functions', {}).get('images', {}).get(key, {})

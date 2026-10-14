@@ -90,6 +90,9 @@ class Port(QGraphicsObject):
             from .chain_connections import caption
             name=caption(canvas.window.state,key)
         if kind in ('control','flow','done') and canvas.data()['version']>=7:name='輸出' if output else '輸入'
+        from .module_contracts import binding_scheduler
+        if kind=='control' and binding_scheduler(canvas.window.state,key):
+            name=source_name(canvas.window.state,slot) if slot else '綁定'
         self.setToolTip(name+('輸出' if output else '輸入')+' · 拖曳或點擊連線')
         self.caption=QGraphicsSimpleTextItem(name[:12],self); self.caption.setBrush(caption_color(canvas,kind)); self.caption.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         # The default Canvas zoom remains readable without scaling the graph

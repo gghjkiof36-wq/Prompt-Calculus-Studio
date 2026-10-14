@@ -57,8 +57,9 @@ class ResultImage(QPushButton):
 
 
 class CanvasResults(QFrame):
-    def __init__(self,window):
+    def __init__(self,window,key='__result_preview__'):
         super().__init__(); self.window=window; self.record=None; self.ids=[]; self.loading=False; self.image_key=None; self.input_active=False; self.input_record=None;self.input_signature=None; self.input_records=[]
+        self.key=key
         self.setObjectName('CanvasModuleBody'); layout=QVBoxLayout(self); layout.setContentsMargins(4,8,4,4); layout.setSpacing(10)
         self.preview=ResultImage(); self.preview.clicked.connect(self.show_image); self.preview.imageActivated.connect(self.show_image); layout.addWidget(self.preview,1)
         self.images=QListWidget(self); self.images.hide(); self.images.currentItemChanged.connect(self.select)
@@ -79,6 +80,9 @@ class CanvasResults(QFrame):
         self.refresh()
 
     def refresh(self):
+        if self.key=='__result_preview__':
+            for key,card in getattr(getattr(self.window,'canvas',None),'preview_cards',{}).items():
+                if key!=self.key:card.panel.refresh()
         if self.refresh_input():return
         # Canvas v4 displays only its image input, never the global catalog.
         if self.window.state.get('multi_output',{}).get('version',1)>=4:
@@ -131,7 +135,7 @@ class CanvasResults(QFrame):
     def refresh_input(self):
         if self.window.state.get('multi_output',{}).get('version',0)>=7:return self.refresh_stage_input()
         data=self.window.state.get('multi_output',{})
-        line=next((c for c in data.get('connections',[]) if c['destination']=='__result_preview__' and c['kind']=='image'),None)
+        line=next((c for c in data.get('connections',[]) if c['destination']==self.key and c['kind']=='image'),None)
         was_input=self.input_active;self.input_active=bool(line); self.input_record=None; self.input_records=[]
         if not line:
             if was_input:self.ids=[];self.input_signature=None;self.image_key=None
@@ -185,7 +189,7 @@ class CanvasResults(QFrame):
     def refresh_stage_input(self):
         data=self.window.state['multi_output'];self.recent_button.hide()
         for widget in (self.images,self.destination,self.choose_folder,self.save_button,self.reuse,self.feedback):widget.hide()
-        line=next((c for c in data['connections'] if c['destination']=='__result_preview__' and c['kind']=='image'),None)
+        line=next((c for c in data['connections'] if c['destination']==self.key and c['kind']=='image'),None)
         self.input_active=True;self.input_records=[];self.input_record=None
         if not line:self.preview.set_picture(QPixmap());self.preview.setText('');self.preview.setEnabled(False);self.image_key=None;return True
         key=line['source'];images=self.window.comfy.images

@@ -27,13 +27,15 @@ def capture(state, keys):
     collections={name:{key:copy.deepcopy(value) for key,value in data.get(name,{}).items() if key in selected} for name in COLLECTIONS}
     images={key:copy.deepcopy(value) for key,value in state.get('canvas_functions',{}).get('images',{}).items() if key in selected}
     sources={key:copy.deepcopy(value) for key,value in state.get('canvas_functions',{}).get('text_sources',{}).items() if key in selected}
-    included=set(roots)|set(nodes)|set(images)|set(sources)|set().union(*(set(v) for v in collections.values()))
+    from .preview_nodes import contains,display
+    previews={key:copy.deepcopy(display(state,key)) for key in selected if contains(state,key)}
+    included=set(roots)|set(nodes)|set(images)|set(sources)|set(previews)|set().union(*(set(v) for v in collections.values()))
     positions={key:copy.deepcopy(state.get('text_positions',{}).get(key,[0,0])) for key in included}
     for key,value in collections['canvases'].items():positions[key]=list(value['position'])
     for key,value in collections.get('clip_inputs',{}).items():
         value['binding_template']=[copy.deepcopy(b) for b in data.get('bindings',[]) if b.get('clip')==key]
     edges=[copy.deepcopy(edge) for edge in data['connections'] if edge['source'].split('::')[0] in included and edge['destination'].split('::')[0] in included]
-    return dict(format='pcs-canvas-selection',version=1,roots=roots,nodes=nodes,collections=collections,images=images,text_sources=sources,
+    return dict(format='pcs-canvas-selection',version=1,roots=roots,nodes=nodes,collections=collections,images=images,text_sources=sources,previews=previews,
                 positions=positions,sizes={k:copy.deepcopy(v) for k,v in state.get('text_sizes',{}).items() if k in included},connections=edges)
 
 
@@ -44,7 +46,7 @@ def paste(state, payload, position, canvas=None):
     if not positions:return []
     if len(positions)>500:raise ValueError('一次最多貼上 500 個模組。')
     dx=position[0]-min(p[0] for p in positions.values());dy=position[1]-min(p[1] for p in positions.values())
-    mapping={key:uid() for key in positions}
+    mapping={key:('__source_' if key in payload.get('images',{}) else '')+uid() for key in positions}
     def endpoint(key):
         root,sep,part=key.partition('::')
         return mapping.get(root,root)+(sep+part if sep else '')
@@ -69,13 +71,15 @@ def paste(state, payload, position, canvas=None):
         if not any(mapping[key] in c['members'] for c in data['canvases'].values()) and canvas in data['canvases']:
             model.assign(state,mapping[key],canvas)
     for key,value in payload.get('images',{}).items():
-        item=copy.deepcopy(value);item.pop('binding',None);item.pop('legacy_binding',None)
+        item=copy.deepcopy(value);item.pop('binding',None);item.pop('legacy_binding',None);item['attached']=False
         if item.get('stage_reference') in mapping:item['stage_reference']=mapping[item['stage_reference']]
         else:item.pop('stage_reference',None)
         state.setdefault('canvas_functions',{}).setdefault('images',{})[mapping[key]]=item
     for key,value in payload.get('text_sources',{}).items():
         item=copy.deepcopy(value);item['root']=comp.clone_node(item['root']);item['root'].pop('supply_cursor',None)
         state.setdefault('canvas_functions',{}).setdefault('text_sources',{})[mapping[key]]=item
+    for key,value in payload.get('previews',{}).items():
+        state.setdefault('canvas_functions',{}).setdefault('previews',{})[mapping[key]]=copy.deepcopy(value)
     for key,pos in positions.items():state.setdefault('text_positions',{})[mapping[key]]=[pos[0]+dx,pos[1]+dy]
     for key,size in payload.get('sizes',{}).items():state.setdefault('text_sizes',{})[mapping[key]]=copy.deepcopy(size)
     for edge in payload.get('connections',[]):model.connect(state,endpoint(edge['source']),endpoint(edge['destination']),edge['kind'])
@@ -120,6 +124,7 @@ def remove(state, keys):
             if key in data.get(name,{}):data[name].pop(key);removed.add(key)
         if key in state.get('canvas_functions',{}).get('images',{}):state['canvas_functions']['images'].pop(key);removed.add(key)
         if key in state.get('canvas_functions',{}).get('text_sources',{}):state['canvas_functions']['text_sources'].pop(key);removed.add(key)
+        if key in state.get('canvas_functions',{}).get('previews',{}):state['canvas_functions']['previews'].pop(key);removed.add(key)
         if key=='__result_preview__':state.setdefault('canvas_functions',{})['preview']=False
     for edge in list(data['connections']):
         if edge['id'] in selected or edge['source'].split('::')[0] in removed or edge['destination'].split('::')[0] in removed:

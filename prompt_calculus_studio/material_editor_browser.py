@@ -90,6 +90,8 @@ class PromptEditor(QWidget):
 
     def __init__(self, window, compact=False):
         super().__init__()
+        from .module_chrome import suppress_prompt_tooltips
+        suppress_prompt_tooltips(self)
         self.window = window; self.compact = False; self.destination_id = None
         self.active_dialog = None; self.preview_id = None; self._refreshing = False
         self.narrow = False; self._keyboard_selection = False
@@ -764,7 +766,7 @@ class MaterialEditDialog(StudioDialog):
         self.name, self.prompt = f.name, f.prompt
         self.prompt.setProperty('modulePrompt',True)
         self.setWindowTitle('編輯素材' if ident else '新增素材')
-        self.resize(820, 660); self.body.setSpacing(10)
+        self.resize(580, 660); self.body.setSpacing(10)
         from .prompt_group_editor import MaterialPages
         self.pages = MaterialPages(self)
         self.form_scroll = QScrollArea(); self.form_scroll.setWidgetResizable(True)
@@ -787,12 +789,14 @@ class MaterialEditDialog(StudioDialog):
         self.body.addWidget(prompt_divider())
         footer=QWidget();details=QVBoxLayout(footer);details.setContentsMargins(8,0,0,0);details.setSpacing(4);details.addWidget(self.error);details.addWidget(self.identity)
         self.body.addLayout(row(footer, None, self.cancel_button, self.save_button, self.add_button,self.done_button))
+        from .material_editor_panels import MaterialPanels
+        self.panels=MaterialPanels(self,self.pages.details_container,self.pages.close_group_details)
         self.set_destination(page.destination_id)
         self.prompt.textChanged.connect(lambda: apply_line_spacing(f)); sync_prompt_style(f); apply_line_spacing(f)
         self.error.setText('')
         bounds = page.window.size()
         if bounds.width() > 0 and bounds.height() > 0:
-            self.resize(min(820, max(340, bounds.width()-24)), min(660, max(400, bounds.height()-24)))
+            self.resize(min(760 if self.pages.is_group else 580, max(340, bounds.width()-24)), min(660, max(400, bounds.height()-24)))
         from .material_editor_documents import ModalNativeHistory
         self.native_history = ModalNativeHistory(f)
         # QDialog otherwise chooses the header's close button for Return.
@@ -802,12 +806,7 @@ class MaterialEditDialog(StudioDialog):
         self.pages.page_changed(0)
 
     def fit_page(self):
-        if not self.isVisible():return
-        self.pages.layout().activate();self.layout().activate()
-        content=self.pages.sizeHint().height()
-        chrome=self.height()-self.form_scroll.height()
-        available=min(self.page.window.height()-24,self.screen().availableGeometry().height()-40)
-        self.resize(self.width(),max(400,min(max(480,content+chrome),available)))
+        self.panels.fit_content()
 
     def set_destination(self, canvas_id):
         self.form.set_destination(canvas_id)
@@ -818,14 +817,6 @@ class MaterialEditDialog(StudioDialog):
         self.destination_label.setText('加入畫布：'+value['name'] if value else '')
         if self.receipt and canvas_id != self.receipt['destination']:
             self.error.setText('加入目的地已改變；再次保存並加入會使用新的目的地。')
-
-    def expand_text(self):
-        expanded = not getattr(self,'_text_expanded',False);self._text_expanded=expanded
-        self.prompt.setFixedHeight(340 if expanded else 170)
-        self.pages.layout_limits()
-        available = max(400, self.page.window.height()-24)
-        if self.screen(): available = min(available, self.screen().availableGeometry().height()-40)
-        self.resize(self.width(), min(780 if expanded else 610, available))
 
     def _value(self):
         f = self.form; value = copy.deepcopy(f.base or {}); fields = f.form_values()

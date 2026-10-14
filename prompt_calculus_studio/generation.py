@@ -325,6 +325,8 @@ def uploaded_image(value):
 
 
 def validate_canvas_functions(value):
+    from .preview_nodes import validate as validate_previews
+    if isinstance(value,dict):validate_previews(value)
     from .prompt_sources import validate as validate_sources
     validate_sources(value.get('text_sources', {}) if isinstance(value, dict) else None)
     if not isinstance(value,dict) or not isinstance(value.get('images'),dict) or len(value['images'])>100:

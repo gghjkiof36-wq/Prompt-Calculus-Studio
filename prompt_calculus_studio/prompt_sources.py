@@ -85,8 +85,10 @@ def connected(state, keys):
 
 def scheduler_sources(state, scheduler):
     from .flow_data import incoming
-    return connected(state, [origin for ch in state['multi_output']['schedulers'][scheduler]['channels']
-        if (origin := incoming(state, scheduler+'::'+ch['id'], ch['type']))])
+    from .module_contracts import binding_sources
+    origins=[origin for ch in state['multi_output']['schedulers'][scheduler]['channels']
+        if (origin := incoming(state, scheduler+'::'+ch['id'], ch['type']))]
+    return connected(state,origins+binding_sources(state,scheduler))
 
 
 def automatic(state, ids):

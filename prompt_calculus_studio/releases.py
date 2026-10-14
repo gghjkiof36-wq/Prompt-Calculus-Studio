@@ -90,6 +90,7 @@ RELEASES={r.flag:r for r in (
     Release('--v0.8.8-preparation.2','v0.8.8-preparation.2','v0.8.8 前置驗證 2（本機）','Start-PCS-v0.8.8-Preparation2','--v0.8.7-alpha'),
     Release('--v0.8.8-preparation.3','v0.8.8-preparation.3','v0.8.8 前置驗證 3（本機）','Start-PCS-v0.8.8-Preparation3','--v0.8.7-alpha'),
     Release('--v0.8.8-preparation.4','v0.8.8-preparation.4','v0.8.8 Prompt 組合前置驗證 4（本機）','Start-PCS-v0.8.8-Preparation4','--v0.8.7-alpha'),
+    Release('--v0.8.8-preparation.5','v0.8.8-preparation.5','v0.8.8 綁定排程與圖片預覽前置驗證 5（本機）','Start-PCS-v0.8.8-Preparation5','--v0.8.7-alpha'),
 )}
 CURRENT=RELEASES['--v0.8.7-alpha.1']
 # Historical build flags remain readable; new metadata uses explicit dotted version identifiers.
@@ -104,7 +105,7 @@ RELEASE_ALIASES={
 APP_BASENAME='PromptCalculusStudio'
 EXTENSION_FOLDER='comfyui_prompt_calculus_studio'
 SOURCE_ARCHIVE='PromptCalculusStudio-source.zip'
-SHARED_MODULES=('core','snapshots','pnginfo','exclusions','composition','prompt_groups','prompt_tags','prompt_sources','generation','multi_output','clip_flow','workflow_flow','flow_data','composition_image','workflow_transfer','workflow_import','state_loading','queued_work','native_graph','workspace_scene','canvas_starter','chain_model','chain_connections','stage_model','stage_parameters','module_contracts','result_data','materials','content_history','material_navigation')
+SHARED_MODULES=('core','snapshots','pnginfo','exclusions','composition','prompt_groups','prompt_tags','prompt_sources','generation','multi_output','clip_flow','workflow_flow','flow_data','composition_image','workflow_transfer','workflow_import','state_loading','queued_work','native_graph','workspace_scene','canvas_starter','chain_model','chain_connections','stage_model','stage_parameters','module_contracts','result_data','materials','content_history','material_navigation','state_schema','preview_nodes')
 
 def select_release(arguments):
     # Preserve historical last-version-flag precedence in build_windows.py.

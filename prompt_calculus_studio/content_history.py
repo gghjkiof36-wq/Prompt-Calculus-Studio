@@ -9,7 +9,8 @@ import uuid
 LIMIT = 200
 BYTE_LIMIT = 4 * 1024 * 1024
 CONTENT_FIELDS = ('name', 'prompt', 'content_kind', 'children', 'overlays', 'enabled', 'weight', 'grouped',
-                  'excludes', 'composition', 'aliases', 'notes', 'module', 'preview')
+                  'excludes', 'composition', 'aliases', 'notes', 'module', 'preview',
+                  'sequence', 'disabled_tags', 'deduplicate', 'round_override', 'round_drafts')
 
 
 def _content(value):

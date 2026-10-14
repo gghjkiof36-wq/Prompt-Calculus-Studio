@@ -28,7 +28,8 @@ def requires_version_five(state):
 
 
 def mark_version(state):
-    if requires_version_five(state):state['version']=max(5,state['version'])
+    from .state_schema import mark_version as mark
+    mark(state)
 
 
 def new_group(name='組合 1', text='', modules=None, content_kind='tags'):

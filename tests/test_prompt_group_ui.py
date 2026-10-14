@@ -26,7 +26,10 @@ class GroupUITests(unittest.TestCase):
         before=copy.deepcopy(self.w.state);dialog,ed=self.create()
         dialog.prompt.setPlainText('single draft')
         ed.edit_group(ed.sequence['groups'][0]['id']);ed.direct_text.setPlainText('group text')
-        ed.input_tabs.setCurrentIndex(0);ed.add_empty();ed.module_text.setPlainText('module draft')
+        ed.input_tabs.setCurrentIndex(0)
+        def fill_new():
+            ed.active_node_dialog.prompt.setPlainText('module draft');ed.active_node_dialog.save()
+        QTimer.singleShot(0,fill_new);ed.add_empty()
         ed.input_tabs.setCurrentIndex(1);self.assertEqual(ed.direct_text.toPlainText(),'group text')
         self.assertEqual(ed.current_group['modules'][0]['prompt'],'module draft')
         ed.back();dialog.pages.type_picker.setCurrentIndex(0);self.assertEqual(dialog.prompt.toPlainText(),'single draft')
@@ -52,7 +55,7 @@ class GroupUITests(unittest.TestCase):
         original=copy.deepcopy(materials.item(self.w.state,self.ids[0]));ed.open_picker();ed.search.setText('Bravo')
         self.app.processEvents();self.assertEqual(ed.candidates.count(),1)
         rect=ed.candidates.visualItemRect(ed.candidates.item(0));QTest.mouseClick(ed.candidates.viewport(),Qt.MouseButton.LeftButton,pos=rect.center())
-        self.assertEqual(len(ed.current_group['modules']),1);self.assertEqual(ed.stack.currentIndex(),2)
+        self.assertEqual(len(ed.current_group['modules']),1);self.assertEqual(ed.stack.currentIndex(),1)
         node=ed.current_group['modules'][0];self.assertEqual(node['source_id'],self.ids[0]);self.assertNotEqual(node['id'],comp.prototype(original)['id'])
         ed.stack.setCurrentIndex(1);ed.open_picker();self.assertEqual(ed.search.text(),'Bravo')
         ed.current_group['modules'][0]['prompt']='local';self.assertEqual(materials.item(self.w.state,self.ids[0]),original)
@@ -215,9 +218,13 @@ class GroupUITests(unittest.TestCase):
         prose=comp.node('prose','cat, cat');prose.update(content_kind='text',deduplicate=True,disabled_tags=['cat'])
         dialog=NodeDialog(self.w,prose);dialog.show()
         self.assertEqual(comp.render(dict(prose,**dialog.values())),'cat, cat');dialog.reject()
-        dialog,ed=self.create();ed.edit_group(ed.sequence['groups'][0]['id']);ed.input_tabs.setCurrentIndex(0);ed.add_empty()
-        self.assertFalse(hasattr(ed,'tag_list'));self.assertFalse(ed.module_dedupe.isVisible())
-        ed.excludes_toggle.setChecked(True);ed.module_dedupe.setChecked(True)
+        dialog,ed=self.create();ed.edit_group(ed.sequence['groups'][0]['id']);ed.input_tabs.setCurrentIndex(0)
+        def fill_new():
+            modal=ed.active_node_dialog
+            self.assertFalse(modal.dedupe.isVisible());modal.excludes_toggle.setChecked(True)
+            modal.dedupe.setChecked(True);modal.save()
+        QTimer.singleShot(0,fill_new);ed.add_empty()
+        self.assertFalse(hasattr(ed,'tag_list'))
         self.assertTrue(ed.current_group['modules'][0]['deduplicate']);dialog.reject()
 
     def test_compact_text_controls_keep_edits_and_canvas_uses_same_dialog(self):

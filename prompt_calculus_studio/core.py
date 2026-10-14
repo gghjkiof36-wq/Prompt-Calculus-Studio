@@ -61,7 +61,7 @@ def local_address(value):
 
 
 def validate_state(state):
-    if not isinstance(state, dict) or type(state.get("version")) is not int or state.get("version") not in (1, 2, 3, 4, 5):
+    if not isinstance(state, dict) or type(state.get("version")) is not int or state.get("version") not in (1, 2, 3, 4, 5, 6):
         raise ValueError("不支援的備份版本。")
     ids = set()
     for name in ("modules", "items", "workspaces"):
@@ -212,6 +212,9 @@ def validate_state(state):
     from .prompt_groups import requires_version_five
     if state['version'] < 5 and requires_version_five(state):
         raise ValueError('文字組合與局部 Tag 設定需要第 5 版資料格式，原資料保留。')
+    from .state_schema import required_version
+    if state['version'] < required_version(state):
+        raise ValueError('綁定排程與多圖片預覽需要第 6 版資料格式，原資料保留。')
     return state
 
 

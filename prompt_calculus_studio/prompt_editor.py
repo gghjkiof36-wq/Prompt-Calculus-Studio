@@ -252,7 +252,7 @@ class MaterialText(PromptEdit):
         self.owner = owner
 
     def lookup_active(self):
-        return self.owner.lookup.isChecked() and self.owner.kind.currentData() == 'tags' and super().lookup_active()
+        return not getattr(self.owner,'group_mode',False) and self.owner.lookup.isChecked() and self.owner.kind.currentData() == 'tags' and super().lookup_active()
 
     def schedule(self):
         if self.lookup_active(): super().schedule()
@@ -266,35 +266,43 @@ class HistoryPanel(QWidget):
         super().__init__(parent)
         self.window, self.target = window, target
         self.rows = []
-        body = QVBoxLayout(self)
-        self.only_content = QCheckBox('只看內容版本')
-        self.only_content.setChecked(target is not None)
-        body.addWidget(self.only_content)
+        body = QVBoxLayout(self);body.setContentsMargins(0,0,0,0);body.setSpacing(12)
+        self.filter=ComboBox();self.filter.addItem('內容版本',True);self.filter.addItem('所有操作',False)
+        self.filter.setCurrentIndex(0 if target is not None else 1);self.filter.setAccessibleName('歷史範圍')
+        from .quiet_splitter import QuietSplitter
+        self.split=QuietSplitter();self.split.setChildrenCollapsible(False);body.addWidget(self.split,1)
+        sidebar=QWidget();left=QVBoxLayout(sidebar);left.setContentsMargins(0,0,12,0);left.setSpacing(12)
+        left.addWidget(self.filter);self.split.addWidget(sidebar)
         self.listing = QListWidget()
-        body.addWidget(self.listing, 1)
+        self.listing.setObjectName('HistoryEntries');self.listing.setSpacing(4);self.listing.setMinimumWidth(210)
+        left.addWidget(self.listing,1)
+        self.empty=label('尚無紀錄','Subtle');left.addWidget(self.empty)
+        content=QWidget();right=QVBoxLayout(content);right.setContentsMargins(12,0,0,0);right.setSpacing(12);self.split.addWidget(content)
+        self.targets = ComboBox();self.targets.setAccessibleName('歷史項目');right.addWidget(self.targets)
         self.detail = QPlainTextEdit()
         self.detail.setReadOnly(True)
-        self.detail.setPlaceholderText('選擇時間紀錄查看變更。')
-        body.addWidget(self.detail, 1)
-        self.targets = ComboBox()
-        body.addWidget(self.targets)
+        self.detail.setMinimumSize(300,260);right.addWidget(self.detail,1)
         self.restore_before = button('還原修改前內容', lambda: self.restore(True), 'Quiet')
         self.restore_after = button('還原此版本內容', lambda: self.restore(False), 'Quiet')
-        body.addLayout(row(self.restore_before, self.restore_after))
+        right.addLayout(row(self.restore_before,self.restore_after,None))
+        self.split.setSizes([250,520])
         self.listing.currentRowChanged.connect(self.select)
-        self.only_content.toggled.connect(self.refresh)
+        self.filter.currentIndexChanged.connect(self.refresh)
         self.targets.currentIndexChanged.connect(self.show_detail)
         self.refresh()
 
     def refresh(self):
         self.rows = content_history.entries(self.window.state, target=self.target,
                     workspace=self.window.state['workspace'] if self.target is None else None,
-                    content_only=self.only_content.isChecked())
+                    content_only=self.filter.currentData())
         self.listing.clear()
         for value in self.rows:
             stamp = datetime.datetime.fromtimestamp(value['time']).strftime('%m/%d %H:%M:%S')
-            self.listing.addItem(stamp + ' · ' + value['label'] + (' · 內容' if value['content_changed'] else ' · 操作'))
-        self.select(-1)
+            item=QListWidgetItem(value['label']+'\n'+stamp)
+            item.setSizeHint(QSize(210,max(64,self.fontMetrics().height()*2+24)));self.listing.addItem(item)
+        self.empty.setVisible(not self.rows)
+        if self.rows:self.listing.setCurrentRow(0)
+        else:self.select(-1)
 
     def select(self, index):
         self.targets.blockSignals(True)
@@ -305,6 +313,7 @@ class HistoryPanel(QWidget):
                 suffix = (' · 舊清單手稿' if change.get('scope') == 'list' else ' · 畫布手稿') if change['kind'] == 'output' else ''
                 self.targets.addItem(value.get('name', change['target']) + suffix, (change['target'], change.get('scope')))
         self.targets.blockSignals(False)
+        self.targets.setVisible(self.targets.count()>1)
         self.show_detail()
 
     def show_detail(self, *_):
@@ -323,6 +332,12 @@ class HistoryPanel(QWidget):
                     text = '自動組合（沒有手動草稿）' if draft is None else '（空手動草稿）' if draft == '' else draft
                     return text + '\n\n當時的草稿基準：\n' + data.get('draft_base', '')
                 root = data.get('composition', data)
+                if root.get('sequence'):
+                    blocks=[]
+                    for group in root['sequence']['groups']:
+                        preview=copy.deepcopy(root);preview['sequence']['selected']=group['id']
+                        blocks.append(group['name']+f" · {group['repeat']} 次\n"+composition.render(preview))
+                    return data.get('name','')+'\n\n'+'\n\n'.join(blocks)
                 return data.get('name', '') + '\n\n' + root.get('prompt', '') + ('\n\n子項：\n' +
                     json.dumps(root['children'], ensure_ascii=False, indent=2) if root.get('children') else '')
             self.detail.setPlainText('修改前\n' + describe(change['before']) + '\n\n────────\n修改後\n' + describe(change['after']))
@@ -340,10 +355,18 @@ class HistoryPanel(QWidget):
 
 def show_history(window, target=None):
     dialog = StudioDialog(window)
+    from .module_chrome import apply_prompt_dialog,prompt_divider,dialog_colors
+    from .theme import visual_tokens
+    apply_prompt_dialog(dialog,window);colors=dialog_colors(visual_tokens(window.state['settings']))
+    dialog.setStyleSheet(dialog.styleSheet()+f'''
+        QListWidget#HistoryEntries {{background:transparent;border:0;outline:0;}}
+        QListWidget#HistoryEntries::item {{border:1px solid transparent;border-radius:8px;padding:8px;}}
+        QListWidget#HistoryEntries::item:selected {{background:{colors['selected']};border-color:{colors['accent']};color:{colors['text']};}}
+    ''')
     dialog.setWindowTitle('內容與操作歷史')
-    dialog.resize(780, 740)
+    dialog.resize(min(880,window.width()-24),min(580,window.height()-24))
     dialog.body.addWidget(HistoryPanel(window, target), 1)
-    dialog.body.addWidget(button('關閉', dialog.accept, 'Quiet'))
+    dialog.body.addWidget(prompt_divider());dialog.body.addLayout(row(None,button('關閉',dialog.accept,'Quiet')))
     dialog.exec()
 
 
@@ -1077,6 +1100,8 @@ class MaterialEditorForm(QWidget):
         self.edited()
 
     def show_preview(self):
+        if hasattr(self.preview,'set_source'):
+            self.preview.set_source(self.preview_path);return
         set_preview(self.preview, self.window.store, self.preview_path, 130)
         self.preview.setVisible(bool(self.preview_path))
         if not self.preview_path: self.preview.setText('')

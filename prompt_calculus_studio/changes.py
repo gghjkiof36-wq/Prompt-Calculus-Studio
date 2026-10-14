@@ -27,6 +27,7 @@ def layout_only(before,after):
         if 'canvas_functions' in value:
             functions=without(value['canvas_functions'],('preview_display',));result['canvas_functions']=functions
             if 'images' in functions:functions['images']={k:without(v,('collapsed','management_collapsed')) for k,v in functions['images'].items()}
+            if 'previews' in functions:functions['previews']={k:without(v,('collapsed',)) for k,v in functions['previews'].items()}
         return result
     return content(before)==content(after)
 

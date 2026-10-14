@@ -351,8 +351,10 @@ class FlowCard(TextCard):
             from .stage_model import controls
             dependencies=sum(c['kind']=='done' and c['destination']==self.key for c in self.canvas.data()['connections'])
             top=max(160,106+24*(len(controls(self.canvas.window.state,self.key))+dependencies+1))
-        if self.kind=='schedulers':top=60+24*len(self.canvas.data()[self.kind][self.key]['channels'])
-        if self.kind=='schedulers' and self.canvas.data()['version']>=7:top+=24
+        if self.kind=='schedulers':
+            from .module_contracts import scheduler_port_specs
+            specs=scheduler_port_specs(self.canvas.window.state,self.key)
+            top=60+24*(max(p[4] for p in specs)+1)
         w,h=self.requested_size;minimum=self.panel.minimumSizeHint()
         self.proxy.setGeometry(QRectF(14,top,max(290,w-28,minimum.width()),max(h-top-14,minimum.height())));self.sync_bounds()
     def update_text(self):self.panel.refresh();super().update_text()

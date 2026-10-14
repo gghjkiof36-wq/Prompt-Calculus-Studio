@@ -36,6 +36,8 @@ def source_name(state,key):
     if key in data['canvases']:return data['canvases'][key]['name']
     if key in data['outputs']:return data['outputs'][key]['name']
     if key in data.get('stages',{}):return data['stages'][key]['name']
+    for collection in ('clip_inputs','image_inputs'):
+        if key in data.get(collection,{}):return data[collection][key]['name']
     route=channel(state,key)
     if route:return data['schedulers'][route[0]]['name']+' · '+route[1]['name']
     image=state.get('canvas_functions',{}).get('images',{}).get(key,{})
@@ -271,7 +273,8 @@ def capture_inputs(state, scheduler, image_resolver=None):
                     captured['origin']['canvas_records']={cid:dict(canvas=copy.deepcopy(state['multi_output']['canvases'][cid]),
                         roots={rid:copy.deepcopy(state['uses'][rid]) for rid in state['multi_output']['canvases'][cid]['members']}) for cid in canvas_ids(current)}
             result[key] = captured
-    if not result:
+    from .module_contracts import binding_sources
+    if not result and not binding_sources(state,scheduler):
         raise ValueError('請先將文字、圖片或文字組合接入預排程。')
     return result
 
@@ -286,6 +289,9 @@ def upstream(state, keys):
         route = channel(state, key)
         if route:
             seen.add(route[0])
+        from .module_contracts import binding_scheduler
+        scheduler=binding_scheduler(state,key)
+        if scheduler:seen.add(scheduler)
         todo.extend(c['source'] for c in state['multi_output']['connections'] if c['destination'] == key)
         if key in state['multi_output']['outputs']:
             todo.extend(canvas_ids(state['multi_output']['outputs'][key]))
@@ -389,7 +395,7 @@ def validate(state):
             raise ValueError('預排程端口數量無效。')
         ids = set()
         for item in channels:
-            if not isinstance(item, dict) or item.get('type') not in TYPES or not isinstance(item.get('id'), str) or not item['id'] or '::' in item['id'] or item['id'] in ids:
+            if not isinstance(item, dict) or item.get('type') not in TYPES or not isinstance(item.get('id'), str) or not item['id'] or item['id'] in ('bindings','flow') or '::' in item['id'] or item['id'] in ids:
                 raise ValueError('預排程端口格式無效。')
             ids.add(item['id'])
     targets = set()
