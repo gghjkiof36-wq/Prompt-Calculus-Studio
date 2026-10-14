@@ -108,12 +108,13 @@ class EntryDelegate(QStyledItemDelegate):
         painter.drawRoundedRect(rect,8,8)
         painter.setPen(QColor(colors['text'])); painter.setFont(option.font)
         regions = owner.regions(rect)
-        if owner.kind != 'picker' and not owner.readonly:
+        if owner.reorder_enabled:
             grip = regions['grip']; icon('grip-vertical', colors['secondary']).paint(painter, QRect(grip.center().x()-7, grip.center().y()-9, 14, 18))
         name = data['name']; subtitle = data.get('subtitle', '')
         rect = regions['name']; font=QFont(option.font); font.setWeight(QFont.Weight.DemiBold); painter.setFont(font); metrics=QFontMetrics(font)
         height=metrics.height()
-        painter.drawText(QRect(rect.left(), rect.top()+10, rect.width(), height+2), Qt.AlignmentFlag.AlignVCenter,
+        title_top = rect.top()+10 if subtitle else rect.center().y()-height//2
+        painter.drawText(QRect(rect.left(), title_top, rect.width(), height+2), Qt.AlignmentFlag.AlignVCenter,
                          metrics.elidedText(name, Qt.TextElideMode.ElideRight, rect.width()))
         painter.setFont(option.font); metrics=option.fontMetrics
         painter.setPen(QColor(colors['secondary']))
@@ -134,19 +135,19 @@ class EntryList(ReorderableList):
     menuRow = Signal(str, object)
     valueRow = Signal(str, object)
 
-    def __init__(self, kind, *, readonly=False):
+    def __init__(self, kind, *, readonly=False, reorderable=None):
         super().__init__(); self.kind = kind; self.readonly=readonly; self._handle = False;self._skip_release=False;self.setObjectName('PromptEntryList')
         self.setMouseTracking(True)
         self.setItemDelegate(EntryDelegate(self)); self.setMinimumHeight(90); self.setSpacing(0)
         self.setVerticalScrollMode(self.ScrollMode.ScrollPerPixel)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        if kind != 'picker' and not readonly: self.enable_reordering()
+        if kind != 'picker' and (not readonly if reorderable is None else reorderable): self.enable_reordering()
         self.setAccessibleName({'groups': '組合清單', 'modules': '本組模組', 'picker': '可加入的素材'}[kind])
 
     def regions(self, rect):
         right = rect.right()+1; more = 34 if self.kind != 'picker' and not self.readonly else 0
         value = 72 if self.kind != 'picker' else 0
-        grip = 36 if self.kind != 'picker' and not self.readonly else 14
+        grip = 36 if self.reorder_enabled else 14
         return dict(grip=QRect(rect.left(), rect.top(), grip, rect.height()),
             name=QRect(rect.left()+grip, rect.top(), max(1, rect.width()-grip-value-more-42), rect.height()),
             value=QRect(right-more-34-value, rect.top(), value, rect.height()),
@@ -159,7 +160,7 @@ class EntryList(ReorderableList):
     def mousePressEvent(self, event):
         self._skip_release=False
         item = self.itemAt(event.position().toPoint())
-        self._handle = bool(not self.readonly and item and self.regions(self.visualItemRect(item))['grip'].contains(event.position().toPoint()))
+        self._handle = bool(self.reorder_enabled and item and self.regions(self.visualItemRect(item))['grip'].contains(event.position().toPoint()))
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -257,8 +258,8 @@ class GroupEditor(QWidget):
         rows = []
         for group in self.sequence['groups']:
             self.start.addItem(group['name'], group['id'])
-            subtitle = f"{len(group['modules'])} 個模組" if group['input'] == 'modules' else '整段 Prompt'
-            if group['id'] == self.sequence['start']: subtitle += ' · 起始'
+            subtitle = f"{len(group['modules'])} 個模組" if group['input'] == 'modules' else ''
+            if group['id'] == self.sequence['start']: subtitle = ' · '.join(filter(None,(subtitle,'起始')))
             rows.append(dict(group, subtitle=subtitle))
         self.start.setCurrentIndex(self.start.findData(self.sequence['start'])); self.listing.fill(rows)
         self.overview_preview.setPlainText(groups.render_group(groups.selected(self.sequence)))
@@ -348,15 +349,17 @@ class GroupEditor(QWidget):
         self.module_name = QLineEdit(); self.module_weight_edit = WeightField()
         self.inspector_layout.addLayout(row(self.module_name, self.module_weight_edit))
         self.module_text = QPlainTextEdit(); self.module_text.setMaximumHeight(115); self.inspector_layout.addWidget(self.module_text)
-        self.local_toggle = Disclosure('Tag 與排除'); self.inspector_layout.addWidget(self.local_toggle)
-        self.local_panel, local = page(); self.inspector_layout.addWidget(self.local_panel); self.local_panel.hide()
-        self.local_toggle.toggled.connect(self.local_panel.setVisible)
-        self.tag_list = ReorderableList(); self.tag_list.setMaximumHeight(100); self.tag_list.itemChanged.connect(self.tags_changed); local.addWidget(self.tag_list)
-        self.excludes = QPlainTextEdit(); self.excludes.setPlaceholderText('排除 Tag，每行一項'); self.excludes.setMaximumHeight(80); local.addWidget(self.excludes)
+        self.excludes_toggle = Disclosure('排除 Tag'); self.inspector_layout.addWidget(self.excludes_toggle)
+        self.excludes_panel,excludes_layout=page();self.inspector_layout.addWidget(self.excludes_panel);self.excludes_panel.hide()
+        self.excludes = QPlainTextEdit(); self.excludes.setPlaceholderText('每行一項'); self.excludes.setMaximumHeight(80)
+        excludes_layout.addWidget(self.excludes)
+        self.module_dedupe=QCheckBox('去重');excludes_layout.addWidget(self.module_dedupe)
+        self.excludes_toggle.toggled.connect(self.excludes_panel.setVisible)
         self.inspector_layout.addLayout(row(button('新增子項', self.add_child, 'Quiet'), None, tool('chevron-up', '收起編輯', self.close_inspector)))
         self.nested_button=button('編輯子組合',self.edit_nested,'Quiet');self.inspector_layout.addWidget(self.nested_button);self.nested_button.hide()
         for signal in (self.module_name.textChanged, self.module_text.textChanged, self.excludes.textChanged): signal.connect(self.update_module)
         self.module_weight_edit.committed.connect(self.update_module)
+        self.module_dedupe.toggled.connect(self.update_module)
         self.direct_kind = ComboBox()
         for name, kind in [('Tag', 'tags'), ('一般文字', 'text'), ('Markdown', 'markdown')]: self.direct_kind.addItem(name, kind)
         self.direct_toolbar,dt=page();dt.addLayout(row(label('內容','Subtle'),None,self.direct_kind));dl.addWidget(self.direct_toolbar)
@@ -369,7 +372,7 @@ class GroupEditor(QWidget):
         self.preview = QPlainTextEdit(); self.preview.setReadOnly(True); self.preview.setAccessibleName('本組實際 Prompt')
         self.preview.setMinimumHeight(120);self.preview.setMaximumHeight(200);layout.addWidget(self.preview);self.preview.hide()
         self.preview_toggle.toggled.connect(self.preview.setVisible)
-        self.preview_toggle.toggled.connect(self.fit_content); self.local_toggle.toggled.connect(self.fit_content)
+        self.preview_toggle.toggled.connect(self.fit_content); self.excludes_toggle.toggled.connect(self.fit_content)
 
     def edit_group(self, ident):
         self.loading = True; self.current_group = next(g for g in self.sequence['groups'] if g['id'] == ident)
@@ -421,28 +424,15 @@ class GroupEditor(QWidget):
         self.nested_button.setVisible(bool(part.get('sequence')))
         self.module_weight_edit.saved = part['weight']; self.module_weight_edit.setText(f"{part['weight']/10:.1f}")
         self.excludes.setPlainText('\n'.join(part['excludes']))
-        self.refresh_tags(); self.loading = False
+        self.module_dedupe.setChecked(part.get('deduplicate',False))
+        self.loading = False
         self.fit_content()
-
-    def refresh_tags(self):
-        from .prompt_tags import tokens
-        part = self.current_module; self.tag_list.blockSignals(True); self.tag_list.clear()
-        if groups.output_kind(part) == 'tags':
-            raw = copy.deepcopy(part); raw.pop('disabled_tags', None);raw.update(weight=10,grouped=False,enabled=True)
-            for text in dict.fromkeys(tokens(comp.render(raw))):
-                item = QListWidgetItem(text); item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(Qt.CheckState.Unchecked if text in part.get('disabled_tags', []) else Qt.CheckState.Checked); self.tag_list.addItem(item)
-        self.tag_list.blockSignals(False)
-
-    def tags_changed(self):
-        if self.loading or self.current_module is None: return
-        self.current_module['disabled_tags'] = [self.tag_list.item(i).text() for i in range(self.tag_list.count()) if self.tag_list.item(i).checkState() == Qt.CheckState.Unchecked]
-        self.refresh_modules(); self.changed.emit()
 
     def update_module(self, *_):
         if self.loading or self.current_module is None: return
         part = self.current_module; part.update(name=self.module_name.text(),
-            weight=self.module_weight_edit.saved, excludes=[v.strip() for v in self.excludes.toPlainText().splitlines() if v.strip()])
+            weight=self.module_weight_edit.saved, excludes=[v.strip() for v in self.excludes.toPlainText().splitlines() if v.strip()],
+            deduplicate=self.module_dedupe.isChecked())
         if not part.get('sequence'): part['prompt'] = self.module_text.toPlainText()
         self.refresh_modules(); self.changed.emit()
 

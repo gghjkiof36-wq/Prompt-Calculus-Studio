@@ -37,14 +37,16 @@ class GroupSourceDialog(StudioDialog):
         self.start=ComboBox();self.start.setMinimumWidth(140)
         self.variables,variables=page();variables.addLayout(row(field('變量',self.mode),None,field('起始組合',self.start)))
         overview.addWidget(self.variables);overview.addWidget(label('輪次','SectionTitle'))
-        self.listing=EntryList('groups',readonly=True);self.listing.setAccessibleName('輪次總覽')
+        self.listing=EntryList('groups',readonly=True,reorderable=True);self.listing.setAccessibleName('輪次總覽')
         overview.addWidget(self.listing,1);self.listing.activatedRow.connect(self.open_group)
+        self.listing.reorderRequested.connect(lambda before,after:self.reorder(self.root['sequence']['groups'],before,after))
         self.empty=label('素材庫尚無組合' if not self.library.count() else '尚未選擇組合','Subtle');overview.addWidget(self.empty)
         self.detail,detail=page();self.stack.addWidget(self.detail)
         self.detail_meta=label('','Subtle');detail.addWidget(self.detail_meta)
         self.modules_label=label('使用的模組','SectionTitle');detail.addWidget(self.modules_label)
-        self.modules=EntryList('modules',readonly=True);detail.addWidget(self.modules,1)
+        self.modules=EntryList('modules',readonly=True,reorderable=True);detail.addWidget(self.modules,1)
         self.modules.activatedRow.connect(self.open_module)
+        self.modules.reorderRequested.connect(lambda before,after:self.reorder(self.current_group['modules'],before,after))
         self.preview_toggle=Disclosure('Prompt 預覽');detail.addWidget(self.preview_toggle)
         self.preview=QPlainTextEdit();self.preview.setReadOnly(True);self.preview.setAccessibleName('本輪 Prompt 預覽')
         self.preview.setMinimumHeight(150);self.preview.setMaximumHeight(230);detail.addWidget(self.preview);self.preview.hide()
@@ -63,7 +65,7 @@ class GroupSourceDialog(StudioDialog):
         self.done_button=button('完成',self.back,'Primary');self.cancel_button=button('取消',self.reject,'Quiet')
         self.body.addWidget(prompt_divider())
         self.body.addLayout(row(None,self.cancel_button,self.apply_button,self.done_button))
-        self.resize(min(820,max(380,canvas.window.width()-24)),min(600,max(380,canvas.window.height()-24)))
+        self.resize(min(720,max(380,canvas.window.width()-24)),min(600,max(380,canvas.window.height()-24)))
         self.refresh_overview();self.page_changed(0)
 
     def fit_editor(self,*_):
@@ -113,9 +115,20 @@ class GroupSourceDialog(StudioDialog):
             self.mode.setCurrentIndex(self.mode.findData(seq['mode']))
             for group in seq['groups']:self.start.addItem(group['name'],group['id'])
             self.start.setCurrentIndex(self.start.findData(seq['start']))
-            self.listing.fill([dict(g,subtitle=(f"{len(g['modules'])} 個模組" if g['input']=='modules' else '整段 Prompt')+
-                (' · 起始' if g['id']==seq['start'] else '')) for g in seq['groups']])
+            self.listing.fill([dict(g,subtitle=' · '.join(filter(None,(
+                f"{len(g['modules'])} 個模組" if g['input']=='modules' else '',
+                '起始' if g['id']==seq['start'] else '')))) for g in seq['groups']])
         self.loading=False;QTimer.singleShot(0,self.fit_editor)
+
+    def preserve_position(self):
+        if self.root.get('supply_cursor'):
+            self.root['supply_cursor']['signature']=sources.signature(self.root)
+
+    def reorder(self,rows,before,after):
+        if [item['id'] for item in rows]!=before or len(after)!=len(before) or set(before)!=set(after):return
+        mapping={item['id']:item for item in rows};rows[:]=[mapping[ident] for ident in after]
+        self.preserve_position();self.refresh_overview()
+        if self.stack.currentIndex()==1:self.refresh_group()
 
     def configure(self):
         if self.loading or not self.root:return
@@ -144,8 +157,7 @@ class GroupSourceDialog(StudioDialog):
         finally:self.active_node_dialog=None
         if accepted:
             part.update(dialog.values())
-            if self.root.get('supply_cursor'):
-                self.root['supply_cursor']['signature']=sources.signature(self.root)
+            self.preserve_position()
             self.refresh_group()
 
     def save(self):

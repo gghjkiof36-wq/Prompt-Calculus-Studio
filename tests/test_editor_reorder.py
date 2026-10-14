@@ -62,12 +62,13 @@ class EditorReorderTests(unittest.TestCase):
         self.folder.cleanup()
         self.assertEqual(self.errors, [], 'No Qt callback exceptions')
 
-    def drag(self, listing, source_id, target_id, after=False):
+    def drag(self, listing, source_id, target_id, after=False, *, grip=False):
         """Only replace the native OS drag loop; deliver real Qt viewport events."""
         source = next(listing.item(i) for i in range(listing.count()) if listing.item(i).data(Qt.ItemDataRole.UserRole) == source_id)
         target = next(listing.item(i) for i in range(listing.count()) if listing.item(i).data(Qt.ItemDataRole.UserRole) == target_id)
         listing.scrollToItem(source); self.app.processEvents()
         start = listing.visualItemRect(source).center()
+        if grip:start=listing.regions(listing.visualItemRect(source))['grip'].center()
         received = []
         def execute(drag, actions, default):
             listing.scrollToItem(target); self.app.processEvents()

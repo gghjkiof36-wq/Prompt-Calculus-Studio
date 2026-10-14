@@ -26,7 +26,6 @@ class NodeDialog(StudioDialog):
         from . import prompt_groups as groups
         self.value=copy.deepcopy(value or comp.node('')); self.sequence=self.value.get('sequence')
         self.original_selected=self.sequence.get('selected') if self.sequence else None
-        self.disabled_tags=set(self.value.get('disabled_tags',[]))
         self.loading=True; self.active_group=None; self.drafts=copy.deepcopy(self.value.get('round_drafts',{}))
         content=QWidget();form=QVBoxLayout(content);form.setContentsMargins(0,8,0,4);form.setSpacing(12)
         self.form_scroll=QScrollArea();self.form_scroll.setWidgetResizable(True);self.form_scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -49,21 +48,19 @@ class NodeDialog(StudioDialog):
         self.previous=tool('chevron-left','上一組',lambda:self.index.setValue(self.index.value()-1))
         self.next=tool('chevron-right','下一組',lambda:self.index.setValue(self.index.value()+1))
         form.addWidget(label('Prompt','Subtle'))
-        self.prompt=QPlainTextEdit();self.prompt.setMinimumHeight(130);form.addWidget(self.prompt,1)
+        self.prompt=QPlainTextEdit();self.prompt.setMinimumHeight(192);form.addWidget(self.prompt,1)
         self.navigation=QWidget();navigation=QVBoxLayout(self.navigation);navigation.setContentsMargins(0,0,0,0)
         navigation.addLayout(row(None,self.previous,self.index,self.next,None));form.addWidget(self.navigation)
         self.navigation.setVisible(bool(self.sequence and len(self.sequence['groups'])>1))
         self.enabled=QCheckBox('啟用');self.enabled.setChecked(self.value['enabled']);form.addWidget(self.enabled)
-        self.local_toggle=Disclosure('Tag 控制');form.addWidget(self.local_toggle)
-        self.local_panel=QWidget();local=QVBoxLayout(self.local_panel);local.setContentsMargins(0,0,0,0)
-        self.tags=QListWidget();self.tags.setMaximumHeight(110);local.addWidget(self.tags)
-        self.dedupe=QCheckBox('去重');self.dedupe.setChecked(self.value.get('deduplicate',False));local.addWidget(self.dedupe)
-        form.addWidget(self.local_panel);self.local_panel.hide();self.local_toggle.toggled.connect(self.local_panel.setVisible)
-        self.tags.itemChanged.connect(self.tag_changed)
         self.excludes_toggle=Disclosure('排除 Tag');form.addWidget(self.excludes_toggle)
-        self.excludes=QPlainTextEdit('\n'.join(self.value['excludes']));self.excludes.setMaximumHeight(80)
-        form.addWidget(self.excludes);self.excludes.hide();self.excludes_toggle.toggled.connect(self.excludes.setVisible)
-        self.local_toggle.toggled.connect(lambda:QTimer.singleShot(0,self.fit_page))
+        self.excludes_panel=QWidget();excludes_layout=QVBoxLayout(self.excludes_panel)
+        excludes_layout.setContentsMargins(0,0,0,0);excludes_layout.setSpacing(12)
+        self.excludes=QPlainTextEdit('\n'.join(self.value['excludes']));self.excludes.setMinimumHeight(80);self.excludes.setMaximumHeight(120)
+        self.excludes.setAccessibleName('排除 Tag');self.excludes.setPlaceholderText('每行一項')
+        excludes_layout.addWidget(self.excludes)
+        self.dedupe=QCheckBox('去重');self.dedupe.setChecked(self.value.get('deduplicate',False));excludes_layout.addWidget(self.dedupe)
+        form.addWidget(self.excludes_panel);self.excludes_panel.hide();self.excludes_toggle.toggled.connect(self.excludes_panel.setVisible)
         self.excludes_toggle.toggled.connect(lambda:QTimer.singleShot(0,self.fit_page))
         self.error=label('','Draft',True);self.body.addWidget(self.error);self.error.hide()
         self.body.addWidget(prompt_divider())
@@ -78,7 +75,9 @@ class NodeDialog(StudioDialog):
             for control in (self.previous,self.index,self.next):control.hide()
         self.loading=False;self.index.valueChanged.connect(self.select_group)
         self.mode.currentIndexChanged.connect(self.mode_changed);self.repeat.valueChanged.connect(self.repeat_changed)
-        self.prompt.textChanged.connect(self.refresh_tags);self.refresh_tags()
+        controls=(self.name,self.weight,self.mode,self.repeat,self.prompt,self.previous,self.index,self.next,
+                  self.enabled,self.excludes_toggle,self.excludes,self.dedupe)
+        for before,after in zip(controls,controls[1:]):self.setTabOrder(before,after)
         self.resize(min(580,max(360,parent.width()-24)),min(600,max(340,parent.height()-24)))
 
     def fit_page(self):
@@ -90,29 +89,6 @@ class NodeDialog(StudioDialog):
 
     def showEvent(self,event):
         super().showEvent(event);QTimer.singleShot(0,self.fit_page)
-
-    def refresh_tags(self):
-        from .prompt_tags import tokens
-        from .prompt_groups import output_kind
-        self.tags.blockSignals(True);self.tags.clear()
-        raw=copy.deepcopy(self.value);raw.update(weight=10,enabled=True,grouped=False)
-        raw.pop('disabled_tags',None);raw.pop('deduplicate',None)
-        available=output_kind(raw)=='tags'
-        self.local_toggle.setVisible(available)
-        if not available:self.local_panel.hide()
-        else:
-            if self.sequence:
-                raw.setdefault('round_drafts',{})[self.active_group['id']]=self.prompt.toPlainText()
-            else:raw['prompt']=self.prompt.toPlainText()
-            for text in dict.fromkeys(tokens(comp.render(raw))):
-                item=QListWidgetItem(text);item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(Qt.CheckState.Unchecked if text in self.disabled_tags else Qt.CheckState.Checked);self.tags.addItem(item)
-            self.local_panel.setVisible(self.local_toggle.isChecked())
-        self.tags.blockSignals(False)
-
-    def tag_changed(self,item):
-        if item.checkState()==Qt.CheckState.Unchecked:self.disabled_tags.add(item.text())
-        else:self.disabled_tags.discard(item.text())
 
     def remember(self):
         if self.active_group:
@@ -144,7 +120,7 @@ class NodeDialog(StudioDialog):
     def values(self):
         value=dict(name=self.name.text().strip(),weight=self.weight.saved,enabled=self.enabled.isChecked(),
                    excludes=[v.strip() for v in self.excludes.toPlainText().splitlines() if v.strip()],
-                   disabled_tags=sorted(self.disabled_tags),deduplicate=self.dedupe.isChecked())
+                   deduplicate=self.dedupe.isChecked())
         if self.sequence:
             self.remember()
             value.update(sequence=copy.deepcopy(self.sequence),round_drafts=copy.deepcopy(self.drafts))

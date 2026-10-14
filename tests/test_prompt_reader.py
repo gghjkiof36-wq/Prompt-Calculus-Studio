@@ -174,5 +174,39 @@ class ReaderTests(unittest.TestCase):
         self.edit_child(editor,'editor child');self.assertEqual(editor.current_group['modules'][0]['prompt'],'editor child')
         dialog.reject();self.assertEqual(materials.item(self.w.state,ids['material']),original)
 
+    def test_drag_rounds_and_modules_preserves_cursor_and_is_one_copy_transaction(self):
+        from prompt_calculus_studio.prompt_group_editor import DATA
+        ids=self.setup_reader();plan=sources.build(self.w.state,[ids['key']],count=1)
+        self.w.canvas.commit(lambda state:sources.reserve(state,plan))
+        original=copy.deepcopy(materials.item(self.w.state,ids['material']))
+        before=copy.deepcopy(sources.definitions(self.w.state)[ids['key']]);sequence=before['root']['sequence']
+        group_ids=[g['id'] for g in sequence['groups']];module_ids=[m['id'] for m in sequence['groups'][0]['modules']]
+        def reorder(dialog):
+            self.assertEqual(dialog.listing.item(1).data(DATA)['subtitle'],'')
+            fixture.EditorReorderTests.drag(self,dialog.listing,group_ids[1],group_ids[0],grip=True)
+            self.assertEqual(dialog.stack.currentIndex(),0)
+            self.assertEqual(dialog.listing.order_ids(),group_ids[::-1])
+            self.click_row(dialog.listing,1);self.assertLess(dialog.width(),800)
+            fixture.EditorReorderTests.drag(self,dialog.modules,module_ids[1],module_ids[0],grip=True)
+            self.assertEqual(dialog.modules.order_ids(),module_ids[::-1]);self.assertIsNone(dialog.active_node_dialog)
+            self.assertEqual(dialog.preview.toPlainText(),'white shirt, red dress')
+            seq=dialog.root['sequence'];self.assertEqual(seq['start'],sequence['start']);self.assertEqual(seq['selected'],sequence['selected'])
+            self.assertEqual(dialog.root['supply_cursor']['position'],before['root']['supply_cursor']['position'])
+            self.assertEqual(dialog.root['supply_cursor']['signature'],sources.signature(dialog.root))
+        dialog=self.show_reader(ids['key']);reorder(dialog);dialog.reject()
+        self.assertEqual(sources.definitions(self.w.state)[ids['key']],before)
+        dialog=self.show_reader(ids['key']);reorder(dialog)
+        QTest.mouseClick(dialog.done_button,Qt.MouseButton.LeftButton);QTest.mouseClick(dialog.apply_button,Qt.MouseButton.LeftButton)
+        saved=copy.deepcopy(sources.definitions(self.w.state)[ids['key']])
+        self.assertEqual(materials.item(self.w.state,ids['material']),original)
+        self.assertEqual(comp.render(saved['root']),'white shirt, red dress')
+        # Old queued content stays frozen and cannot advance the newly ordered copy.
+        projected=copy.deepcopy(self.w.state);sources.project(projected,plan,plan['rounds'][0])
+        self.assertEqual(comp.render(sources.definitions(projected)[ids['key']]['root']),'red dress, white shirt')
+        sources.reserve(self.w.state,plan);self.assertEqual(sources.definitions(self.w.state)[ids['key']],saved)
+        self.w.canvas.undo();self.assertEqual(sources.definitions(self.w.state)[ids['key']],before)
+        self.w.canvas.redo();self.w.persist();self.assertEqual(sources.definitions(self.w.store.load())[ids['key']],saved)
+        dialog=self.show_reader(ids['key']);self.assertEqual(dialog.root,saved['root']);dialog.reject()
+
 
 if __name__=='__main__':unittest.main()

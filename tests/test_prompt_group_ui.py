@@ -2,7 +2,7 @@ import copy
 import unittest
 from PySide6.QtCore import Qt, QCoreApplication, QEvent,QPointF,QPoint,QTimer
 from PySide6.QtGui import QFontDatabase
-from PySide6.QtWidgets import QApplication,QLineEdit
+from PySide6.QtWidgets import QApplication,QLineEdit,QCheckBox,QListWidget
 from PySide6.QtTest import QTest
 import test_editor_reorder as fixture
 from prompt_calculus_studio import materials, composition as comp, prompt_groups as groups
@@ -196,17 +196,85 @@ class GroupUITests(unittest.TestCase):
         self.assertEqual(groups.selected(self.w.state['uses'][key]['sequence'])['name'],'B')
         canvas.undo();self.assertEqual(groups.selected(self.w.state['uses'][key]['sequence'])['name'],'A')
 
-    def test_local_tags_reversible_exact_match_and_prose_untouched(self):
+    def test_deduplication_is_inside_excludes_without_per_tag_controls(self):
         root=comp.node('tags','cat, cat ears, cat, (cat:1.2)')
-        dialog=NodeDialog(self.w,root);dialog.show();dialog.local_toggle.setChecked(True)
-        dialog.tags.item(0).setCheckState(Qt.CheckState.Unchecked)
-        local=dict(root,**dialog.values());self.assertEqual(comp.render(local),'cat ears, (cat:1.2)')
+        dialog=NodeDialog(self.w,root);dialog.show();self.app.processEvents()
+        self.assertFalse(dialog.findChildren(QListWidget));self.assertFalse(dialog.excludes_panel.isVisible())
+        self.assertEqual([c.text() for c in dialog.findChildren(QCheckBox) if c.isVisible()],['啟用'])
+        QTest.mouseClick(dialog.excludes_toggle,Qt.MouseButton.LeftButton);self.app.processEvents()
+        self.assertTrue(dialog.excludes.isVisible());self.assertTrue(dialog.dedupe.isVisible())
+        QTest.mouseClick(dialog.dedupe,Qt.MouseButton.LeftButton,pos=QPoint(10,dialog.dedupe.height()//2))
+        self.assertTrue(dialog.dedupe.isChecked())
+        self.assertEqual(comp.render(dict(root,**dialog.values())),'cat, cat ears, (cat:1.2)')
+        QTest.mouseClick(dialog.excludes_toggle,Qt.MouseButton.LeftButton);self.app.processEvents()
+        self.assertFalse(dialog.dedupe.isVisible());self.assertTrue(dialog.values()['deduplicate']);dialog.reject()
         self.assertEqual(root['prompt'],'cat, cat ears, cat, (cat:1.2)')
-        dialog.tags.item(0).setCheckState(Qt.CheckState.Checked);dialog.dedupe.setChecked(True)
-        self.assertEqual(comp.render(dict(root,**dialog.values())),'cat, cat ears, (cat:1.2)');dialog.reject()
+        # Existing optional fields remain readable; removing controls must not erase old data.
+        legacy=dict(root,disabled_tags=['cat'],deduplicate=True)
+        dialog=NodeDialog(self.w,legacy);self.assertEqual(comp.render(dict(legacy,**dialog.values())),comp.render(legacy));dialog.reject()
         prose=comp.node('prose','cat, cat');prose.update(content_kind='text',deduplicate=True,disabled_tags=['cat'])
         dialog=NodeDialog(self.w,prose);dialog.show()
-        self.assertTrue(dialog.local_toggle.isHidden());self.assertEqual(comp.render(prose),'cat, cat');dialog.reject()
+        self.assertEqual(comp.render(dict(prose,**dialog.values())),'cat, cat');dialog.reject()
+        dialog,ed=self.create();ed.edit_group(ed.sequence['groups'][0]['id']);ed.input_tabs.setCurrentIndex(0);ed.add_empty()
+        self.assertFalse(hasattr(ed,'tag_list'));self.assertFalse(ed.module_dedupe.isVisible())
+        ed.excludes_toggle.setChecked(True);ed.module_dedupe.setChecked(True)
+        self.assertTrue(ed.current_group['modules'][0]['deduplicate']);dialog.reject()
+
+    def test_compact_text_controls_keep_edits_and_canvas_uses_same_dialog(self):
+        root=comp.node('文字模組','cat, garden, cat ears')
+        dialog=NodeDialog(self.w,root);dialog.show()
+        dialog.excludes_toggle.setChecked(True);dialog.dedupe.setChecked(True)
+        dialog.excludes.setPlainText('garden');dialog.enabled.setChecked(False)
+        expected=dialog.values()
+        for width in (580,430,580):
+            dialog.resize(width,760)
+            for _ in range(4):self.app.processEvents()
+            self.assertGreater(dialog.enabled.y(),dialog.prompt.geometry().bottom())
+            self.assertGreater(dialog.excludes_panel.y(),dialog.enabled.geometry().bottom())
+            self.assertEqual(dialog.excludes_panel.width(),dialog.prompt.width())
+            self.assertEqual(dialog.form_scroll.horizontalScrollBar().maximum(),0)
+            self.assertEqual(dialog.values(),expected)
+        dialog.resize(430,440)
+        for _ in range(4):self.app.processEvents()
+        self.assertGreater(dialog.form_scroll.verticalScrollBar().maximum(),0)
+        for control in (dialog.enabled,dialog.excludes,dialog.dedupe):
+            dialog.form_scroll.ensureWidgetVisible(control)
+            self.app.processEvents()
+            point=control.mapTo(dialog.form_scroll.viewport(),control.rect().center())
+            self.assertTrue(dialog.form_scroll.viewport().rect().contains(point))
+        dialog.reject();self.assertTrue(root['enabled']);self.assertEqual(root['excludes'],[])
+        use=[];target=next(iter(self.w.state['multi_output']['canvases']))
+        self.w.canvas.commit(lambda state:use.append(materials.add_to_canvas(state,self.ids[0],target)))
+        self.w.enter_canvas();self.app.processEvents();canvas=self.w.canvas
+        key=next(k for k,(ident,_) in canvas.entries.items() if ident==use[0])
+        saved=[]
+        def fill():
+            current=canvas.active_node_dialog
+            saved.append(isinstance(current,NodeDialog));current.prompt.setPlainText('Canvas edit')
+            current.enabled.setChecked(False);current.excludes_toggle.setChecked(True);current.dedupe.setChecked(True);current.save()
+        QTimer.singleShot(0,fill);canvas.edit(key)
+        self.assertEqual(saved,[True]);self.assertFalse(self.w.state['uses'][use[0]]['enabled'])
+        self.assertEqual(self.w.state['uses'][use[0]]['prompt'],'Canvas edit')
+        self.assertTrue(self.w.state['uses'][use[0]]['deduplicate'])
+        canvas.undo();self.assertTrue(self.w.state['uses'][use[0]]['enabled'])
+        canvas.redo();self.w.persist();self.assertEqual(self.w.store.load()['uses'][use[0]]['prompt'],'Canvas edit')
+
+    def test_authoring_rounds_and_modules_drag_order_is_saved(self):
+        dialog,ed=self.create();first=ed.sequence['groups'][0]
+        second=groups.new_group('第二輪','B');ed.sequence['groups'].append(second);ed.refresh_overview()
+        fixture.EditorReorderTests.drag(self,ed.listing,second['id'],first['id'],grip=True)
+        self.assertEqual([g['id'] for g in ed.sequence['groups']],[second['id'],first['id']])
+        ed.edit_group(first['id']);ed.input_tabs.setCurrentIndex(0)
+        ed.add_material(self.ids[0]);ed.add_material(self.ids[2]);self.app.processEvents()
+        modules=first['modules'];before=[m['id'] for m in modules]
+        fixture.EditorReorderTests.drag(self,ed.modules,before[1],before[0],grip=True)
+        self.assertEqual([m['id'] for m in modules],before[::-1])
+        expected=copy.deepcopy(ed.sequence);ed.back();ident=dialog.form.base['id']
+        QTest.mouseClick(dialog.save_button,Qt.MouseButton.LeftButton)
+        self.assertEqual(materials.item(self.w.state,ident)['composition']['sequence'],expected)
+        self.w.canvas.undo();self.assertFalse(any(i['id']==ident for i in self.w.state['items']))
+        self.w.canvas.redo();self.w.persist()
+        self.assertEqual(materials.item(self.w.store.load(),ident)['composition']['sequence'],expected)
 
 
 if __name__=='__main__':unittest.main()
