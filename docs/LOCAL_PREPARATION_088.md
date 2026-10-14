@@ -1,6 +1,8 @@
 # 0.8.8 本機前置驗證
 
-此文件記錄本機 `--v0.8.8-preparation.4` 的候選實作，目前供 UI 檢視、尚未封裝，不表示已發布 0.8.8。公開 0.8.7 Alpha 1 的版本與下載內容未更新。
+此文件記錄本機 `--v0.8.8-preparation.4` 的候選實作與試用方式，不表示已發布 0.8.8。公開 0.8.7 Alpha 1 的版本與下載內容未更新。
+
+在 Windows 候選包內執行 `Start-PCS-v0.8.8-Preparation4.cmd`，資料保存在同一資料夾下的 `data`，與其他版本分開。配套擴充位於 `extensions/PromptCalculusStudio-ComfyUI.zip`；本機程式和擴充使用同一提交。實際版本、來源與編譯提交見包內 `BUILD_INFO.json`。
 
 ## 前置驗證 4：Prompt 組合與供應
 
