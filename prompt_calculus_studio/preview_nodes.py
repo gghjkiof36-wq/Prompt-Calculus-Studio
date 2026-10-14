@@ -14,7 +14,7 @@ def keys(state):
 
 def add(state,position=(600,450)):
     key='preview_'+uid()
-    state.setdefault('canvas_functions',{}).setdefault('previews',{})[key]=dict(collapsed=False)
+    state.setdefault('canvas_functions',dict(images={},preview=True,preview_attached=False)).setdefault('previews',{})[key]=dict(collapsed=False)
     state.setdefault('text_positions',{})[key]=list(position)
     from .state_schema import mark_version
     mark_version(state)

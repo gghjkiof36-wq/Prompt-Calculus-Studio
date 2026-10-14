@@ -11,6 +11,19 @@ from prompt_calculus_studio.module_chrome import toggle_module
 from prompt_calculus_studio.canvas_operations import capture,paste
 
 
+class PreviewStateTests(unittest.TestCase):
+    def test_first_preview_initializes_a_valid_document_and_snapshot(self):
+        from prompt_calculus_studio.core import initial_state,validate_state
+        from prompt_calculus_studio.preview_nodes import add
+        from prompt_calculus_studio.snapshots import make_snapshot,restore_snapshot
+        state=initial_state();key=add(state)
+        validate_state(state)
+        self.assertEqual(state['version'],6)
+        restored=restore_snapshot(state,make_snapshot(state))
+        self.assertIn(key,restored['canvas_functions']['previews'])
+        self.assertEqual(restored['canvas_functions']['images'],{})
+
+
 class PreviewTests(unittest.TestCase):
     setUp=prior.StageTests.setUp
     def tearDown(self):
