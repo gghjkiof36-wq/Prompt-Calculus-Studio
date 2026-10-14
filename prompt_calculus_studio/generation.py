@@ -325,6 +325,8 @@ def uploaded_image(value):
 
 
 def validate_canvas_functions(value):
+    from .prompt_sources import validate as validate_sources
+    validate_sources(value.get('text_sources', {}) if isinstance(value, dict) else None)
     if not isinstance(value,dict) or not isinstance(value.get('images'),dict) or len(value['images'])>100:
         raise ValueError('圖片模組資料無效。')
     if any(type(value.get(key,False)) is not bool for key in ('preview','preview_attached')): raise ValueError('圖片模組狀態無效。')
@@ -335,6 +337,11 @@ def validate_canvas_functions(value):
         if not isinstance(key,str) or not key.startswith('__source_') or not isinstance(item,dict) or type(item.get('attached')) is not bool:
             raise ValueError('圖片模組格式無效。')
         if type(item.get('collapsed',False)) is not bool:raise ValueError('圖片模組收合狀態無效。')
+        if item.get('supply','batch') not in ('step','batch'):raise ValueError('圖片供應方式無效。')
+        if 'supply_reservation' in item:
+            pos=item['supply_reservation']
+            if (not isinstance(pos,dict) or not isinstance(pos.get('plan'),str) or
+                    type(pos.get('next')) is not int or pos['next']<0):raise ValueError('圖片供應位置無效。')
         validate_generation(dict(mode='img2img',profiles=[],chosen={},source=item.get('source')))
         if item.get('reader') not in (None,'text'):raise ValueError('讀取模塊類型無效。')
         if item.get('output_node') is not None and not isinstance(item['output_node'],str):raise ValueError('圖片結果節點無效。')

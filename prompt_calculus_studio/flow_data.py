@@ -30,6 +30,8 @@ def text_sources(output):return output.get('text_sources',canvas_ids(output))
 
 
 def source_name(state,key):
+    from .prompt_sources import definitions
+    if key in definitions(state): return definitions(state)[key]['name']
     data=state['multi_output']
     if key in data['canvases']:return data['canvases'][key]['name']
     if key in data['outputs']:return data['outputs'][key]['name']
@@ -187,6 +189,8 @@ def resolve(state, key, kind, seen=None):
         result = compile_output(state, key)
         return value(kind, result['final_prompt'], output=key, canvases=canvas_ids(data['outputs'][key]),
                      canvas_names=[data['canvases'][cid]['name'] for cid in canvas_ids(data['outputs'][key])],manual_draft=result['manual_draft'])
+    from .prompt_sources import definitions, resolved_value
+    if key in definitions(state): return resolved_value(state, key, kind)
     images = state.get('canvas_functions', {}).get('images', {})
     if key in images:
         if kind=='clip' and (images[key].get('reader')=='text' or images[key].get('text_field')):

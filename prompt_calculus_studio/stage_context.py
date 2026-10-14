@@ -100,9 +100,9 @@ def capture(state,plan,keys,directory,policies=None):
             except ValueError:
                 # Deferred Stage results are read only once this parent iteration reaches them.
                 if not any((upstream(state,[b['source']])&plan['stages'].keys()) for b in stage['bindings'] if b['source']):raise
-        if stage['auto']:
-            source=stage['auto'];image=state['canvas_functions']['images'][source]
-            if not incoming(state,source,'image') and not image.get('stage_reference'):
+        for source in (stage.get('suppliers') or [stage['auto']]) if stage['auto'] else []:
+            image=state.get('canvas_functions',{}).get('images',{}).get(source)
+            if image and not incoming(state,source,'image') and not image.get('stage_reference'):
                 saved['batches'][source]=copy.deepcopy(image.get('items') or ([image['source']] if image.get('source') else []))
             # Per-image text must be evaluated from each image, not the first one.
             for binding in stage['bindings']:
@@ -113,7 +113,7 @@ def capture(state,plan,keys,directory,policies=None):
         for binding in stage['bindings']:
             for source in upstream(state,[binding['source']]) if binding['source'] else []:
                 image=state.get('canvas_functions',{}).get('images',{}).get(source,{})
-                if image.get('iterate'):saved['source_positions'][source]=dict(batch=image.get('batch_id'),index=image.get('index',0))
+                if image.get('iterate'):saved['source_positions'][source]=copy.deepcopy(image.get('supply_position') or dict(batch=image.get('batch_id'),index=image.get('index',0)))
     return saved
 
 

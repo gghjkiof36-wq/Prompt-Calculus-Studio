@@ -164,7 +164,7 @@ class ModuleRedesignTests(StageFixture):
         before=copy.deepcopy(self.w.state); count=len(self.c.undo_stack)
         dialog=FunctionPicker(self.c,QPointF(2100,1200));dialog.show();QTest.qWait(15)
         try:
-            self.assertEqual(dialog.list.count(),10)
+            self.assertEqual(dialog.list.count(),11)
             for i,kind in enumerate(FUNCTIONS):
                 dialog.list.setCurrentRow(i);QTest.qWait(5)
                 self.assertIsInstance(dialog.preview.card,(TextCard,CanvasContainer))
@@ -210,6 +210,10 @@ class ModuleRedesignTests(StageFixture):
         self.w.state['settings']['reduce_motion']=True
         container=self.c.containers[self.cid]
         center=container.mapToScene(container.actions()['editor'].center())
+        footer=container.mapRectToScene(container.actions()['editor'])
+        for key in self.c.data()['canvases'][self.cid]['members']:
+            card=self.c.cards[key]
+            self.assertFalse(card.mapRectToScene(card.shape().boundingRect()).intersects(footer))
         self.view.centerOn(center);QTest.qWait(10)
         QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=self.view.mapFromScene(center));QTest.qWait(20)
         self.assertIsNone(self.view.pan)

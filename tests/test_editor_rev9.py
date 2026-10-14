@@ -564,7 +564,7 @@ class EditorRev9Tests(unittest.TestCase):
         listing.verticalScrollBar().setValue(100)
         self.assertFalse(actions.isVisible())
 
-    def test_advanced_sections_use_one_scroll_and_keep_footer_reachable(self):
+    def test_advanced_tabs_keep_drafts_and_footer_reachable(self):
         from PySide6.QtWidgets import QScrollArea
         for size in ((1440, 900), (640, 480)):
             with self.subTest(size=size):
@@ -574,28 +574,33 @@ class EditorRev9Tests(unittest.TestCase):
                 def reveal(control):
                     dialog.form_scroll.ensureWidgetVisible(control, 8, 8)
                     self.app.processEvents(); QTest.qWait(10)
+                    # Qt's ensureWidgetVisible follows a text edit's cursor,
+                    # which can leave its bottom clipped. Exercise the outer
+                    # scrollbar to reveal the complete active field as well.
+                    center=control.mapTo(dialog.pages,control.rect().center())
+                    dialog.form_scroll.ensureVisible(center.x(),center.y(),8,control.height()//2+8)
+                    self.app.processEvents()
                     position = control.mapTo(viewport, control.rect().center())
-                    self.assertTrue(viewport.rect().contains(position), (control.text() if hasattr(control, 'text') else type(control).__name__, position))
+                    self.assertTrue(viewport.rect().contains(position), type(control).__name__)
                     return control
                 QTest.mouseClick(reveal(dialog.advanced_toggle), Qt.MouseButton.LeftButton)
-                for toggle in (dialog.info_toggle, dialog.lookup_toggle, dialog.relation_toggle, dialog.history_toggle):
-                    QTest.mouseClick(reveal(toggle), Qt.MouseButton.LeftButton)
-                self.app.processEvents()
+                tabs=dialog.pages.details
+                for index,controls in enumerate(((dialog.form.edit_category,dialog.form.kind,dialog.form.aliases,dialog.form.notes),
+                                                (dialog.form.lookup,), (dialog.form.excludes,), (dialog.history_button,))):
+                    tabs.setCurrentIndex(index); self.app.processEvents()
+                    for control in controls:
+                        self.assertTrue(control.isVisible()); reveal(control)
                 self.assertEqual(dialog.form_scroll.findChildren(QScrollArea), [])
-                self.assertGreater(dialog.form_scroll.verticalScrollBar().maximum(), 0)
-                for control in (dialog.form.edit_category, dialog.form.kind, dialog.form.aliases,
-                                dialog.form.notes, dialog.form.lookup, dialog.form.excludes, dialog.history_button):
-                    self.assertTrue(control.isVisible())
-                    reveal(control)
                 for control in (dialog.save_button, dialog.cancel_button):
                     self.assertFalse(dialog.form_scroll.isAncestorOf(control))
                     self.assertTrue(dialog.rect().contains(control.mapTo(dialog, control.rect().center())))
                 self.assertFalse(dialog.form_scroll.isAncestorOf(dialog.error))
-                self.assertFalse(dialog.form_scroll.isAncestorOf(dialog.destination_label))
+                tabs.setCurrentIndex(0); self.app.processEvents()
                 QTest.mouseClick(reveal(dialog.form.aliases), Qt.MouseButton.LeftButton)
                 dialog.form.aliases.selectAll(); QTest.keyClicks(dialog.form.aliases, 'advanced aliases')
                 QTest.mouseClick(reveal(dialog.form.notes), Qt.MouseButton.LeftButton)
                 dialog.form.notes.selectAll(); QTest.keyClicks(dialog.form.notes, 'advanced notes')
+                tabs.setCurrentIndex(2); self.app.processEvents()
                 QTest.mouseClick(reveal(dialog.form.excludes), Qt.MouseButton.LeftButton)
                 dialog.form.excludes.selectAll(); QTest.keyClicks(dialog.form.excludes, 'excluded_tag')
                 self.assertEqual(dialog._value()['aliases'], ['advanced aliases'])

@@ -75,6 +75,18 @@ s=prepare_state(initial_state(),multi=True)
 workspace=create(s,'Packaged starter'); switch(s,workspace)
 assert len(s['multi_output']['schedulers'])==1 and len(s['multi_output']['stages'])==1
 assert len(s['multi_output']['connections'])==5
+from shared.prompt_sources import add,definitions,build,reserve,read_library
+from shared.prompt_groups import new_group
+from shared.composition import node
+from shared.materials import save,add_category
+root=node('group material');group=new_group('one','exact group text')
+root['sequence']=dict(version=1,mode='increment',start=group['id'],selected=group['id'],groups=[group])
+material=save(s,dict(name='group material',prompt='',module=add_category(s,'groups'),composition=root))
+key=add(s);read_library(s,key,material);root=definitions(s)[key]['root']
+snapshot=make_snapshot(s);assert snapshot['schema_version']==5
+restored=restore_snapshot(s,snapshot);assert definitions(restored)[key]['root']['sequence']==root['sequence']
+plan=build(restored,[key],count=1);reserve(restored,plan)
+assert definitions(restored)[key]['root']['supply_cursor']['position']['exhausted']
 """
             run=subprocess.run([sys.executable,'-c',code,*SHARED_MODULES],cwd=destination,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=30)
             self.assertEqual(run.returncode,0,run.stdout.decode('utf-8',errors='replace'))

@@ -113,6 +113,8 @@ class ResizableCard(QGraphicsObject):
             elif action in ('minus','plus'):
                 delta=-1 if action=='minus' else 1
                 QTimer.singleShot(0,lambda:canvas.change_weight(key,delta=delta))
+            elif action.startswith('group_'):
+                QTimer.singleShot(0,lambda:self.group_action(action))
         self.update(); event.accept(); return True
 
     def draw_controls(self,painter):
@@ -120,6 +122,11 @@ class ResizableCard(QGraphicsObject):
         for action,rect in self.actions().items():
             if action in ('collapse','more'):continue
             painter.setPen(Qt.PenStyle.NoPen)
+            if action=='group_mode':
+                painter.setPen(QPen(QColor(colors['line']),1))
+                painter.setBrush(QColor(colors['field']))
+                painter.drawRoundedRect(rect,6,6)
+                painter.setPen(Qt.PenStyle.NoPen)
             if self.pressed==action or self.hot==action:
                 painter.setBrush(QColor(colors['selected'] if self.pressed==action else colors['hover']))
                 painter.drawRoundedRect(rect,6,6)
@@ -133,6 +140,16 @@ class ResizableCard(QGraphicsObject):
                 # The transparent inline editor owns the number while editing.
                 if getattr(self,'weight_editor',None) is not None:continue
                 text=f"{self.value['weight']/10:.1f}"
+            if action.startswith('group_'):
+                seq=self.value['sequence'];index=next(i for i,g in enumerate(seq['groups'],1) if g['id']==seq['selected'])
+                if action in ('group_previous','group_next'):
+                    from .ui_icons import icon
+                    center=rect.center();icon('chevron-left' if action=='group_previous' else 'chevron-right',colors['secondary']).paint(painter,QRect(round(center.x()-8),round(center.y()-8),16,16));continue
+                if action=='group_mode':
+                    from .ui_icons import icon,MODE_ICONS
+                    center=rect.center();icon(MODE_ICONS[seq['mode']],colors['text']).paint(painter,QRect(round(center.x()-8),round(center.y()-8),16,16))
+                    continue
+                text=f'{index} / {len(seq["groups"])}'
             painter.drawText(rect,Qt.AlignmentFlag.AlignCenter,text)
 
 
@@ -303,8 +320,7 @@ class TextCard(ResizableCard):
         self.draw_controls(painter)
 
     def update_text(self):
-        if self.proxy.widget() is not None and self.panel.styleSheet()!=self.canvas.window.styleSheet():
-            self.panel.setStyleSheet(self.canvas.window.styleSheet())
+        if self.proxy.widget() is not None:self.sync_panel_style()
         # The proxy owns its actual bounds. Different cards have different port
         # header heights; a fixed +60 comparison incorrectly relaid them out.
         if self.proxy.widget() is not None: self.sync_bounds()
@@ -374,18 +390,27 @@ class NodeCard(ResizableCard):
                 if inactive: title+=' · 未生效'
                 child=NodeCard(canvas,ident+':'+part['id'],part,title,inactive,self); self.parts.append(child)
         self.compact=parent is not None and not self.parts
-        self.own=value['prompt'] if not self.collapsed and value['prompt'].strip()!=value['name'].strip() else ''
+        self.own=comp.render(value)
         self.layout_card(propagate=False)
 
     def natural_width(self):
-        return max(320,self.requested_size[0],max((p.natural_width()+28 for p in self.parts),default=0),
+        controls=0
+        if self.value.get('sequence') and len(self.value['sequence']['groups'])>1:
+            height,index,weight=self.group_control_sizes();controls=5*height+index+weight+52
+        return max(320,controls,self.requested_size[0],max((p.natural_width()+28 for p in self.parts),default=0),
                    (self.drop_size[0]+28) if self.drop_size else 0)
+
+    def group_control_sizes(self):
+        metrics=QFontMetricsF(self.canvas.font());count=len(self.value['sequence']['groups'])
+        return (max(32,math.ceil(metrics.height())+12),
+                max(48,math.ceil(metrics.horizontalAdvance(f'{count} / {count}'))+12),
+                max(48,math.ceil(metrics.horizontalAdvance(f"{self.value['weight']/10:.1f}"))+16))
 
     def layout_card(self,propagate=True,available_width=0):
         self.prepareGeometryChange(); requested_w,requested_h=self.requested_size
         self.width=max(self.natural_width(),available_width)
         metrics=QFontMetricsF(self.canvas.font())
-        self.text_height=math.ceil(metrics.boundingRect(QRectF(0,0,self.width-28,100000),Qt.TextFlag.TextWordWrap,self.own).height()) if self.own else 0
+        self.text_height=self.line if self.own else 0
         status=[]
         if '覆蓋' in self.subtitle or '未生效' in self.subtitle or self.subtitle=='未分配':status.append(self.subtitle)
         if not self.value['enabled']:status.append('停用')
@@ -395,17 +420,33 @@ class NodeCard(ResizableCard):
         self.header_height=self.body_top+(self.text_height+8 if self.own else 0)
         ident=self.canvas.entries[self.key][0]
         weight_y=self.header_height+6
+        self.group_rects={};self.group_bar=QRectF()
+        self.minus_rect=QRectF(14,weight_y,28,28)
+        self.weight_rect=QRectF(46,weight_y,70,28)
+        self.plus_rect=QRectF(120,weight_y,28,28)
+        self.add_rect=QRectF(160,weight_y,self.width-174,28) if ident is not None else QRectF()
         y=weight_y+(40 if ident is not None else 0)
+        if self.value.get('sequence') and len(self.value['sequence']['groups'])>1:
+            height,index_width,weight_width=self.group_control_sizes();control_y=self.header_height+12
+            index_x=14+height+12;weight_x=self.width-14-2*height-weight_width
+            self.group_rects=dict(group_mode=QRectF(14,control_y,height,height),
+                group_previous=QRectF(index_x,control_y,height,height),
+                group_index=QRectF(index_x+height,control_y,index_width,height),
+                group_next=QRectF(index_x+height+index_width,control_y,height,height))
+            self.minus_rect=QRectF(weight_x,control_y,height,height)
+            self.weight_rect=QRectF(weight_x+height,control_y,weight_width,height)
+            self.plus_rect=QRectF(self.width-14-height,control_y,height,height)
+            self.group_bar=QRectF(0,control_y-8,self.width,height+16)
+            y=control_y+height+4
+            self.add_rect=QRectF()
+            if ident is not None and not self.collapsed:
+                y+=12;self.add_rect=QRectF(14,y,self.width-28,28);y+=36
         for child in self.parts:
             child.layout_card(propagate=False,available_width=self.width-28)
             child.setPos(14,y); y+=child.height+10
         self.drop_y=y
         if self.drop_size: y+=self.drop_size[1]+12
         self.height=y+8 if self.collapsed else max(requested_h,y+8)
-        self.minus_rect=QRectF(14,weight_y,28,28)
-        self.weight_rect=QRectF(46,weight_y,70,28)
-        self.plus_rect=QRectF(120,weight_y,28,28)
-        self.add_rect=QRectF(160,weight_y,self.width-174,28) if ident is not None else QRectF()
         from .module_chrome import header_rects
         font=self.canvas.font();font.setBold(True)
         self.title_text,self.title_rect,header=header_rects(self.width,self.value['name'],font,False)
@@ -415,7 +456,7 @@ class NodeCard(ResizableCard):
 
     def actions(self):
         if self.canvas.entries[self.key][0] is None: return {}
-        result=dict(minus=self.minus_rect,weight=self.weight_rect,plus=self.plus_rect,collapse=self.collapse_rect,more=self.more_rect)
+        result=dict(minus=self.minus_rect,weight=self.weight_rect,plus=self.plus_rect,collapse=self.collapse_rect,more=self.more_rect,**self.group_rects)
         if not self.collapsed:result['add']=self.add_rect
         return result
 
@@ -432,7 +473,7 @@ class NodeCard(ResizableCard):
         affected=getattr(self.canvas,'affected_nodes',{}).get(self.key,{})
         active=getattr(self.canvas.window,'_material_editor_session',{}).get('active')
         from .canvas_raster import paint_cached
-        key=('text-surface',self.width,self.height,tuple(sorted(colors.items())),
+        key=('text-surface',self.width,self.height,tuple(sorted(colors.items())),self.group_bar.top(),self.group_bar.height(),
              self.muted,self.parentItem() is not None,self.isSelected(),
              bool(affected),bool(affected.get('all')),self.key in getattr(self.canvas,'active_keys',set()),
              active==('canvas',self.key,self.canvas.window.state.get('workspace')))
@@ -457,6 +498,12 @@ class NodeCard(ResizableCard):
             painter.restore();painter.setBrush(Qt.BrushStyle.NoBrush);painter.drawRoundedRect(surface,12,12)
             painter.save();painter.setPen(QPen(QColor(colors['canvas_line']),1))
             painter.drawLine(QPointF(0,44),QPointF(self.width,44));painter.restore()
+        if not self.group_bar.isEmpty():
+            painter.save();painter.setClipPath(self.shape())
+            painter.fillRect(self.group_bar,QColor(colors['field']))
+            painter.setPen(QPen(QColor(colors['canvas_line']),1))
+            painter.drawLine(self.group_bar.topLeft(),self.group_bar.topRight())
+            painter.restore()
         if self.isSelected():
             painter.save();pen=QPen(QColor(colors['accent']),2);pen.setCosmetic(True);painter.setPen(pen);painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(surface.adjusted(4,4,-4,-4),9,9);painter.restore()
@@ -476,16 +523,62 @@ class NodeCard(ResizableCard):
             painter.drawText(QRectF(14,42,available,self.line),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(self.status,Qt.TextElideMode.ElideRight,available))
         if self.own:
             painter.setPen(QColor(colors['text']))
-            painter.drawText(QRectF(14,self.body_top,available,self.text_height),Qt.TextFlag.TextWordWrap,self.own)
+            painter.drawText(QRectF(14,self.body_top,available,self.text_height),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(self.own.replace('\n',' '),Qt.TextElideMode.ElideRight,available))
         self.draw_controls(painter)
         if self.drop_size:
             painter.setOpacity(1); painter.setPen(QPen(QColor(colors['accent']),1,Qt.PenStyle.DashLine)); painter.setBrush(QColor(colors['selected']))
             rect=QRectF(14,self.drop_y,self.width-28,self.drop_size[1]); painter.drawRoundedRect(rect,8,8)
             painter.drawText(rect,Qt.AlignmentFlag.AlignCenter,'放開以加入')
+
+    def hoverMoveEvent(self,event):
+        super().hoverMoveEvent(event)
+        from .prompt_groups import MODES
+        tip=({'group_mode':'變量：'+MODES[self.value['sequence']['mode']],
+              'group_previous':'上一組','group_next':'下一組','group_index':'切換組合',
+              'weight':'調整權重','minus':'減少權重','plus':'增加權重'}.get(self.hot,'')
+             if self.value.get('sequence') else '')
+        if self.toolTip()!=tip:self.setToolTip(tip)
+
     def mousePressEvent(self,event):
         self.start=self.pos(); self.canvas.view.setFocus(); self.scene().clearFocus()
         if self.press_control(event): return
         super().mousePressEvent(event)
+
+    def group_action(self,action):
+        from .prompt_groups import MODES
+        seq=self.value['sequence'];at=next(i for i,g in enumerate(seq['groups']) if g['id']==seq['selected'])
+        def change(index=None,mode=None):
+            def apply(state):
+                root=self.canvas.selected_node(state,self.key)[2];current=root['sequence']
+                if mode:current['mode']=mode
+                if index is not None:current['selected']=current['groups'][max(0,min(len(current['groups'])-1,index))]['id']
+                root.pop('supply_cursor',None);root.pop('round_override',None)
+                from .prompt_sources import signature
+                from .prompt_groups import cursor
+                root['supply_cursor']=dict(signature=signature(root),position=cursor(current,start=current['selected']))
+            self.canvas.commit(apply,label='切換文字組合')
+        if action in ('group_previous','group_next'):
+            change(at+(-1 if action=='group_previous' else 1));return
+        if action=='group_mode':
+            from .widgets import RoundMenu
+            from .ui_icons import icon,MODE_ICONS
+            menu=RoundMenu(self.canvas.window)
+            for mode,name in MODES.items():
+                choice=menu.addAction(icon(MODE_ICONS[mode]),name,lambda checked=False,m=mode:change(mode=m))
+                choice.setCheckable(True);choice.setChecked(mode==seq['mode'])
+            menu.exec(self.canvas.view.mapToGlobal(self.canvas.view.mapFromScene(self.mapToScene(self.group_rects[action].bottomLeft()))));return
+        from PySide6.QtWidgets import QSpinBox
+        proxy=QGraphicsProxyWidget(self);edit=QSpinBox();edit.setRange(1,len(seq['groups']));edit.setValue(at+1)
+        proxy.setWidget(edit);proxy.setGeometry(self.group_rects['group_index']);edit.setFocus();edit.selectAll();done=[False]
+        def finish():
+            if done[0]:return
+            done[0]=True;value=edit.value();proxy.hide();proxy.deleteLater();QTimer.singleShot(0,lambda:change(value-1))
+        edit.editingFinished.connect(finish)
+
+    def wheelEvent(self,event):
+        if self.value.get('sequence') and self.group_rects.get('group_index',QRectF()).contains(event.pos()):
+            self.group_action('group_previous' if event.delta()>0 else 'group_next');event.accept();return
+        event.ignore()
 
     def mouseReleaseEvent(self,event):
         if self.release_control(event): return

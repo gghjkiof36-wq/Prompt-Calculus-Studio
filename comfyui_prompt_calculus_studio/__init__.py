@@ -141,7 +141,7 @@ async def desktop_status(request):
     status=bridge.status()
     running,queued=PromptServer.instance.prompt_queue.get_current_queue_volatile()
     status.update(running=len(running),pending=len(queued))
-    status.update(capabilities=['direct_generation_v1','multi_text_v1','flow_connections_v2','clip_inputs_v3','workflow_images_v1','workflow_transfer_v1'],snapshot_versions=[1,2,3,4],running_ids=[item[1] for item in running],queued_ids=[item[1] for item in queued])
+    status.update(capabilities=['direct_generation_v1','multi_text_v1','flow_connections_v2','clip_inputs_v3','workflow_images_v1','workflow_transfer_v1'],snapshot_versions=[1,2,3,4,5],running_ids=[item[1] for item in running],queued_ids=[item[1] for item in queued])
     status['executing_node']=str(PromptServer.instance.last_node_id) if running and PromptServer.instance.last_node_id is not None else None
     status['capabilities'].append('workflow_sync_v1')
     if service.native_queue.available():status['capabilities'].extend(['native_queue_v1','native_open_v1','native_bindings_v1','frozen_queue_v1','typed_inputs_v1','typed_inputs_v2','stage_execution_v1','targeted_cancel_v1','input_run_bridge_v1'])

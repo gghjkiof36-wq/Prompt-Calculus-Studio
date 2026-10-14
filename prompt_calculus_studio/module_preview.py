@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QFrame, QSizePolicy
 # Catalog geometry for the other modules. The four reviewed cards use their
 # production defaults so the picker and a newly inserted card have one layout.
 PREVIEW_SIZES = {
+    'groups': (360, 250),
     'canvas': (360, 340), 'output': (378, 340), 'clip': (360, 174),
     'reader': (360, 180), 'source': (360, 380), 'single': (360, 380),
     'image-input': (360, 180), 'preview': (368, 336),
@@ -87,6 +88,10 @@ class PreviewCanvas:
                 'image-input':('image_inputs', add_image_input, 'image_input')}[kind]
             key = factory(state)
             card = FlowCard(self, key, collection); self.flow_cards[key] = card
+        elif kind == 'groups':
+            from .prompt_sources import add
+            from .prompt_source_widgets import GroupSourceCard
+            key=add(state);card=GroupSourceCard(self.functions,key);self.functions.cards[key]=card;contract='group_source'
         elif kind == 'preview':
             from .canvas_results import CanvasResults
             self.results = CanvasResults(self.window)

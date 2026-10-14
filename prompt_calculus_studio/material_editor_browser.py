@@ -151,7 +151,7 @@ class PromptEditor(QWidget):
         self.header_layout.setContentsMargins(1, 0, 13, 0); self.header_layout.setSpacing(14)
         content.addWidget(self.browser_header)
         self.title = label('全部模組', 'DialogTitle', True); self.count = label('', 'Subtle')
-        self.new_button = button('新增模組', self.new_material, 'Primary')
+        self.new_button = button('新增', self.new_material, 'Primary')
         self.new_button.setCursor(Qt.CursorShape.PointingHandCursor)
         from .ui_icons import icon
         self.new_button.setIcon(icon('plus', 'on-accent'))
@@ -187,7 +187,7 @@ class PromptEditor(QWidget):
         self.listing.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.listing.customContextMenuRequested.connect(self.material_menu)
         content.addWidget(self.listing, 1)
-        self.empty_results = label('這個分類還沒有模組，可按「新增模組」開始。', 'Subtle', True)
+        self.empty_results = label('這個分類還沒有模組，可按「新增」開始。', 'Subtle', True)
         content.addWidget(self.empty_results)
         self.preview_card = QFrame(self.shell); self.preview_card.setObjectName('InsetPanel')
         preview = QVBoxLayout(self.preview_card); preview.setContentsMargins(18, 18, 18, 18); preview.setSpacing(12)
@@ -601,7 +601,7 @@ class PromptEditor(QWidget):
         self.listing.blockSignals(False); self.listing.verticalScrollBar().setValue(scroll)
         self.listing.setVisible(bool(rows))
         self.count.setText(f'{len(rows)} 個模組'); self.empty_results.setVisible(not rows)
-        self.empty_results.setText('找不到符合搜尋的模組。' if self.search.text() else '這個資料夾還沒有模組，可先移入分類。' if folder else '這個分類還沒有模組，可按「新增模組」開始。')
+        self.empty_results.setText('找不到符合搜尋的模組。' if self.search.text() else '這個資料夾還沒有模組，可先移入分類。' if folder else '這個分類還沒有模組，可按「新增」開始。')
         self._layout()
 
     def selected_id(self):
@@ -750,6 +750,8 @@ class MaterialEditDialog(StudioDialog):
     """Only explicit save crosses from this dialog's draft to canonical data."""
     def __init__(self, page, ident, text=''):
         super().__init__(page.window)
+        from .module_chrome import apply_prompt_dialog, prompt_divider
+        apply_prompt_dialog(self,page.window)
         from .prompt_editor import MaterialEditorForm
         self.page = page; self.target_id = ident; self.busy = False; self.receipt = None; self.committed = False; self.was_new = ident is None
         self.form = MaterialEditorForm(page.window, compact=True, isolated=True); self.form.setParent(self); self.form.hide()
@@ -760,82 +762,52 @@ class MaterialEditDialog(StudioDialog):
         else: f.new_material(text=text)
         self.initial_id = f.base['id']
         self.name, self.prompt = f.name, f.prompt
-        self.setWindowTitle('編輯素材原件' if ident else '新增文字素材'); self.resize(600, 610)
-        self.body.setSpacing(10)
-        self.intro = label('保存供下次使用；既有畫布副本保持原樣。', 'Subtle', True); self.body.addWidget(self.intro)
-        self.name_label = label('名稱', 'Subtle'); self.body.addWidget(self.name_label); self.body.addWidget(self.name)
-        self.name.setPlaceholderText('素材名稱'); self.name.setAccessibleName('素材名稱')
-        expand = button('展開長文', self.expand_text, 'Quiet')
-        self.body.addLayout(row(label('Prompt', 'Subtle'), None, expand))
-        self.prompt.setMinimumHeight(100); self.prompt.setFixedHeight(170); self.body.addWidget(self.prompt)
-        self.advanced_toggle = Disclosure('進階功能 · 4 項'); self.body.addWidget(self.advanced_toggle)
-        self.advanced = QWidget(); self.advanced.setObjectName('MaterialDialogAdvanced')
-        advanced_layout = QVBoxLayout(self.advanced); advanced_layout.setContentsMargins(0, 0, 0, 0); advanced_layout.setSpacing(8)
-        self.body.addWidget(self.advanced); self.advanced.hide()
-        self.advanced_toggle.toggled.connect(self.advanced.setVisible)
-        def group(title):
-            toggle = Disclosure(title); panel = QWidget(); layout = QVBoxLayout(panel); layout.setContentsMargins(8, 4, 8, 10)
-            advanced_layout.addWidget(toggle); advanced_layout.addWidget(panel); panel.hide(); toggle.toggled.connect(panel.setVisible)
-            return toggle, layout
-        self.info_toggle, info = group('素材資訊')
-        self.require_category = not ident and navigation.is_folder(page.get_browser_category())
-        fields = QFormLayout()
-        if self.require_category:
-            f.edit_category.insertItem(0, '選擇分類…', None); f.edit_category.setCurrentIndex(0)
-            destination = QFormLayout(); destination.addRow('分類', f.edit_category)
-            self.body.insertLayout(3, destination)
-        else: fields.addRow('分類', f.edit_category)
-        fields.addRow('格式', f.kind); fields.addRow('別名', f.aliases); fields.addRow('備註', f.notes); info.addLayout(fields)
-        self.lookup_toggle, lookup = group('標籤查詢'); lookup.addWidget(f.lookup); lookup.addWidget(f.lookup_hint)
-        self.relation_toggle, relation = group('關係與預覽'); relation.addWidget(label('停用的完整 Tag，每行一項', 'Subtle')); relation.addWidget(f.excludes); relation.addWidget(f.preview)
-        relation.addLayout(row(button('選擇預覽圖', f.choose_image, 'Quiet'), button('移除預覽', f.clear_image, 'Quiet')))
-        self.history_toggle, history = group('內容歷史')
-        self.history_button = button('查看內容歷史', f.history, 'Quiet'); history.addWidget(self.history_button)
+        self.prompt.setProperty('modulePrompt',True)
+        self.setWindowTitle('編輯素材' if ident else '新增素材')
+        self.resize(820, 660); self.body.setSpacing(10)
+        from .prompt_group_editor import MaterialPages
+        self.pages = MaterialPages(self)
+        self.form_scroll = QScrollArea(); self.form_scroll.setWidgetResizable(True)
+        self.form_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.form_scroll.setStyleSheet('QScrollArea { background:transparent; border:0; }')
+        self.form_scroll.viewport().setAutoFillBackground(False)
+        self.form_scroll.setWidget(self.pages); self.body.addWidget(self.form_scroll, 1)
+        self.pages.setAutoFillBackground(False)
         self.error = StatusLabel(); f.status = self.error
         self.destination_label = label('', 'Subtle', True)
         self.cancel_button = button('取消', self.reject, 'Quiet')
         self.save_button = button('保存', lambda: self.save(bool(self.form.destination_id) and not self.target_id), 'Primary')
         self.add_button = button('保存並加入畫布', lambda: self.save(True), 'Quiet')
-        self.identity = label('素材原件' if ident else '新素材', 'Subtle')
-        self.body.addLayout(row(self.identity, None, self.cancel_button, self.save_button, self.add_button))
-        self.form_scroll = QScrollArea(); self.form_scroll.setWidgetResizable(True); self.form_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        self.form_scroll.setMinimumHeight(0)
-        self.form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        form_content = QWidget(); form_content.setObjectName('MaterialDialogBody')
-        self.form_scroll.setStyleSheet('QScrollArea { background:transparent; border:0; } QWidget#MaterialDialogBody, QWidget#MaterialDialogAdvanced { background:transparent; }')
-        self.form_scroll.viewport().setObjectName('MaterialDialogViewport')
-        self.form_scroll.viewport().setStyleSheet('QWidget#MaterialDialogViewport { background:transparent; }')
-        form_layout = QVBoxLayout(form_content); form_layout.setContentsMargins(0, 0, 0, 0); form_layout.setSpacing(10)
-        # The single outer viewport follows every disclosure's natural height.
-        # A second scroll area here compressed expanded fields into its own
-        # viewport, leaving two competing scrollbars and clipped form rows.
-        form_layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetMinimumSize)
-        while self.body.count() > 1:
-            item = self.body.takeAt(0)
-            if item.widget(): form_layout.addWidget(item.widget())
-            elif item.layout(): form_layout.addLayout(item.layout())
-        form_layout.addStretch(); self.form_scroll.setWidget(form_content); self.body.insertWidget(0, self.form_scroll, 1)
-        self.body.insertWidget(1, self.error); self.body.insertWidget(2, self.destination_label)
+        self.identity = label('', 'Subtle')
+        from .prompt_group_editor import tool
+        self.back_button=tool('back','返回',self.pages.back);self.heading_row.insertWidget(0,self.back_button);self.back_button.hide()
+        self.done_button=button('完成',self.pages.back,'Primary');self.done_button.hide()
+        self.body.addWidget(self.destination_label)
+        self.body.addWidget(prompt_divider())
+        footer=QWidget();details=QVBoxLayout(footer);details.setContentsMargins(8,0,0,0);details.setSpacing(4);details.addWidget(self.error);details.addWidget(self.identity)
+        self.body.addLayout(row(footer, None, self.cancel_button, self.save_button, self.add_button,self.done_button))
         self.set_destination(page.destination_id)
         self.prompt.textChanged.connect(lambda: apply_line_spacing(f)); sync_prompt_style(f); apply_line_spacing(f)
         self.error.setText('')
         bounds = page.window.size()
         if bounds.width() > 0 and bounds.height() > 0:
-            self.resize(min(600, max(340, bounds.width()-24)), min(610, max(400, bounds.height()-24)))
-        if self.height() < 560:
-            surface = self.layout().itemAt(0).widget().layout()
-            surface.setContentsMargins(16, 12, 16, 12); surface.setSpacing(8); self.body.setSpacing(6)
-            self.intro.hide(); self.name_label.hide(); form_layout.setSpacing(6)
-            expand.setStyleSheet('min-height:0;padding:2px;'); expand.setFixedHeight(34)
-            self.advanced_toggle.setStyleSheet('text-align:left;min-height:0;padding:2px;'); self.advanced_toggle.setFixedHeight(40)
-            if self.width()<500: self.identity.hide()
-            self.prompt.setFixedHeight(max(140, int(self.prompt.fontMetrics().lineSpacing()*3*1.65)+20))
+            self.resize(min(820, max(340, bounds.width()-24)), min(660, max(400, bounds.height()-24)))
         from .material_editor_documents import ModalNativeHistory
         self.native_history = ModalNativeHistory(f)
         # QDialog otherwise chooses the header's close button for Return.
         # Let text editors and completion popups consume their own keys first.
         for control in self.findChildren(QPushButton): control.setAutoDefault(False)
         self.save_button.setDefault(True)
+        self.pages.page_changed(0)
+
+    def fit_page(self):
+        if not self.isVisible():return
+        self.pages.layout().activate();self.layout().activate()
+        content=self.pages.sizeHint().height()
+        chrome=self.height()-self.form_scroll.height()
+        available=min(self.page.window.height()-24,self.screen().availableGeometry().height()-40)
+        self.resize(self.width(),max(400,min(max(480,content+chrome),available)))
 
     def set_destination(self, canvas_id):
         self.form.set_destination(canvas_id)
@@ -848,8 +820,9 @@ class MaterialEditDialog(StudioDialog):
             self.error.setText('加入目的地已改變；再次保存並加入會使用新的目的地。')
 
     def expand_text(self):
-        expanded = self.prompt.height() < 300
+        expanded = not getattr(self,'_text_expanded',False);self._text_expanded=expanded
         self.prompt.setFixedHeight(340 if expanded else 170)
+        self.pages.layout_limits()
         available = max(400, self.page.window.height()-24)
         if self.screen(): available = min(available, self.screen().availableGeometry().height()-40)
         self.resize(self.width(), min(780 if expanded else 610, available))
@@ -859,7 +832,7 @@ class MaterialEditDialog(StudioDialog):
         if 'composition' in value: value['composition'].update(fields)
         value.update(fields, module=f.edit_category.currentData(), notes=f.notes.toPlainText(),
             aliases=list(dict.fromkeys(v.strip() for v in f.aliases.text().replace(',', '、').replace('，', '、').split('、') if v.strip())))
-        return value
+        return self.pages.value(value)
 
     def save(self, add=False):
         if self.busy: return False
@@ -868,7 +841,10 @@ class MaterialEditDialog(StudioDialog):
             self.error.setText('請選擇素材所屬的分類。'); f.edit_category.setFocus(); return False
         destination = f.destination_id if add else None
         if add and destination is None: self.error.setText('請先選擇要加入的畫布。'); return False
-        value = self._value(); signature = json.dumps(value, sort_keys=True, ensure_ascii=False)
+        try:
+            value = self._value(); signature = json.dumps(value, sort_keys=True, ensure_ascii=False)
+        except ValueError as exc:
+            self.error.setText(str(exc)); return False
         receipt = self.receipt
         retry = bool(add and receipt and signature == receipt['signature'] and destination == receipt['destination'])
         if retry and receipt.get('added'): self.accept(); return True

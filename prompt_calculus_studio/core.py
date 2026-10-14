@@ -61,7 +61,7 @@ def local_address(value):
 
 
 def validate_state(state):
-    if not isinstance(state, dict) or type(state.get("version")) is not int or state.get("version") not in (1, 2, 3, 4):
+    if not isinstance(state, dict) or type(state.get("version")) is not int or state.get("version") not in (1, 2, 3, 4, 5):
         raise ValueError("不支援的備份版本。")
     ids = set()
     for name in ("modules", "items", "workspaces"):
@@ -209,6 +209,9 @@ def validate_state(state):
         validate_scenes(state)
     from .material_navigation import validate as validate_navigation
     validate_navigation(state)
+    from .prompt_groups import requires_version_five
+    if state['version'] < 5 and requires_version_five(state):
+        raise ValueError('文字組合與局部 Tag 設定需要第 5 版資料格式，原資料保留。')
     return state
 
 

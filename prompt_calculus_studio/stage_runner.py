@@ -86,6 +86,29 @@ class StageRunner(QObject):
             saved['scene']=scene(state)
         return saved
 
+    def manual_rounds(self,plan,keys,count,state=None):
+        from . import prompt_sources as supply
+        state=state or self.context()
+        origins=[b['source'] for k in keys for b in plan['stages'][k]['bindings'] if b['source']]
+        ids=[key for key in supply.connected(state,origins) if supply.source(state,key)]
+        for key in keys:
+            if not plan['stages'][key]['auto']:
+                ids.extend(source for source in plan['stages'][key].get('suppliers',[]) if source not in ids)
+        auto={key for k in keys if plan['stages'][k]['auto'] for key in plan['stages'][k].get('suppliers',[])}
+        ids=[key for key in ids if key not in auto]
+        if not ids:return [state for _ in range(count)],None
+        frozen=supply.build(state,ids,count=count);states=[]
+        for picks in frozen['rounds']:
+            current=copy.deepcopy(state);images,_=supply.project(current,frozen,picks)
+            states.append(project(current,self.window.store.directory,source_values=images))
+        return states,frozen
+
+    def reserve_supply(self,plan,select_next=True):
+        if not plan:return
+        from .prompt_sources import reserve
+        reserve(self.window.state,plan,select_next=select_next)
+        self.window.changed('prompt',refresh=False)
+
     def start(self,count=1):
         if not self.client.connected:raise ValueError('請先連線至 ComfyUI。')
         if type(count) is not int or not 1<=count<=100:raise ValueError('次數須為 1–100。')
@@ -101,39 +124,55 @@ class StageRunner(QObject):
             frame=next(iter(candidates),None)
             if frame:
                 self.check_route(active)
-                saved=self.capture_scope(plan,frame['node'])
+                states,supply=self.manual_rounds(plan,self.scope_keys(plan,frame['node']),count)
                 rows=[r for r in self.store.rows('entry',self.window.state['workspace'],active=True) if r['scheduler']==frame['node']['key']]
-                if len(rows)+count>10:raise ValueError('預排程最多十項；這次尚未加入。')
-                for _ in range(count):self.add_entry(active,frame['owner'],frame['node'],saved)
-                self.notify('已保存 '+str(count)+' 項至 '+self.window.state['multi_output']['schedulers'][frame['node']['key']]['name']);self.later();return
-            if any(f.get('auto') for f in active['stack']):self.notify('這批圖片已在供應，不會重建同一批清單。');return
+                if len(rows)+len(states)>10:raise ValueError('預排程最多十項；這次尚未加入。')
+                saved=[self.capture_scope(plan,frame['node'],state) for state in states]
+                for value in saved:self.add_entry(active,frame['owner'],frame['node'],value)
+                self.reserve_supply(supply)
+                self.notify('已保存 '+str(len(states))+' 項至 '+self.window.state['multi_output']['schedulers'][frame['node']['key']]['name']);self.later();return
+            if any(f.get('auto') for f in active['stack']):self.notify('這批內容已在供應。');return
             # A scope already left is not re-entered in the same execution.
             self.create_run(plan,count,status='waiting');self.notify('已保存為下一次完整流程。');return
         if active and len(plan['order'])>1:
             self.sync_free();self.notify('這條流程尚未結束；目前點擊不追加相同流程。');return
         if len(plan['order'])==1 and not scheduling:
-            for _ in range(count):self.create_run(plan,1,direct=True)
+            states,supply=self.manual_rounds(plan,plan['order'],count)
+            for state in states:self.create_run(plan,1,direct=True,frozen_state=state)
+            self.reserve_supply(supply)
         else:self.create_run(plan,count)
         self.sync_free();self.later()
 
-    def create_run(self,plan,count,direct=False,status='running'):
-        state=self.context();initial={}
+    def create_run(self,plan,count,direct=False,status='running',frozen_state=None):
+        state=frozen_state if frozen_state is not None else self.context();initial={}
+        states,supply=([state],None) if frozen_state is not None else self.manual_rounds(plan,plan['order'],count,state)
+        state=states[0]
         paused=any(self.store.scheduler_paused(state['workspace'],key) for key in self.scheduler_keys(plan))
         if paused and status=='running':status='paused'
         def first(nodes):
             for node in nodes:
                 if node['kind'] in ('scope','data'):
-                    initial[node['key']]=[self.capture_scope(plan,node,state) for _ in range(count if node['kind']=='scope' or not node.get('auto') else 1)]
+                    initial[node['key']]=[self.capture_scope(plan,node,current) for current in (states if node['kind']=='scope' or not node.get('auto') else [state])]
         first(plan['tree'])
+        # Reject an already exhausted local source before creating a journal
+        # run. Future Stage results are checked when their scope is reached.
+        from .prompt_sources import build as build_supply
+        for node in plan['tree']:
+            if node['kind']!='data' or not node.get('auto'):continue
+            stage=plan['stages'][node['stage']]
+            future=any(upstream(state,[b['source']])&plan['stages'].keys() for b in stage['bindings'] if b['source'])
+            if not future:build_supply(state,stage.get('suppliers') or [stage['auto']],count_only=True)
         pending=self.store.rows('entry',state['workspace'],active=True)
         if any(len(items)+sum(r['scheduler']==key for r in pending)>10 for key,items in initial.items()):
             raise ValueError('預排程最多十項，這次尚未加入。')
-        saved=capture(state,plan,plan['order'],self.window.store.directory) if direct else {}
+        saved=capture(state,plan,plan['order'],self.window.store.directory) if direct or (supply and not initial) else {}
+        round_saved=[capture(current,plan,plan['order'],self.window.store.directory) for current in states] if supply and not initial and not direct else []
         from .stage_parameters import capture as capture_parameters
         saved['parameters']=capture_parameters(state,plan['order'])
         ctx=dict(results={},saved=saved,sources={})
-        run=self.store.add('run',state['workspace'],server=self.client.url,plan=copy.deepcopy(plan),status=status,
-            direct=direct,round=1,rounds=1 if initial or direct else count,initial=initial,parameters=copy.deepcopy(saved['parameters']),
+        from .workspace_scene import scene
+        run=self.store.add('run',state['workspace'],server=self.client.url,plan=copy.deepcopy(plan),status=status,frozen_scene=scene(state),round_saved=round_saved,
+            direct=direct,round=1,rounds=1 if initial or direct else len(states),initial=initial,parameters=copy.deepcopy(saved['parameters']),
             stack=[dict(kind='seq',nodes=plan['tree'],index=0,ctx=ctx,produced={})],message='已暫停後續派送。' if paused else '',pause_reason='manual' if paused else '',revision=uuid.uuid4().hex)
         self.capture_free(run)
         # Show saved outer items immediately, even while an earlier Stage runs.
@@ -144,6 +183,7 @@ class StageRunner(QObject):
             for value in run['initial'][node['key']]:self.add_entry(run,owner,node,value)
             run['initial'][node['key']]=dict(owner=owner)
         self.save(run)
+        self.reserve_supply(supply)
         return run
 
     def add_entry(self,run,owner,node,saved,source=None,parent=None):
@@ -215,7 +255,9 @@ class StageRunner(QObject):
             stack=run['stack']
             if not stack:
                 if run['round']<run['rounds']:
-                    run['round']+=1;stack.append(dict(kind='seq',nodes=run['plan']['tree'],index=0,ctx=dict(results={},saved=dict(parameters=copy.deepcopy(run.get('parameters',{}))),sources={}),produced={}))
+                    run['round']+=1
+                    saved=copy.deepcopy(run['round_saved'][run['round']-1]) if run.get('round_saved') else dict(parameters=copy.deepcopy(run.get('parameters',{})))
+                    stack.append(dict(kind='seq',nodes=run['plan']['tree'],index=0,ctx=dict(results={},saved=saved,sources={}),produced={}))
                 else:
                     self.complete(run);return
             frame=stack[-1]
@@ -233,6 +275,7 @@ class StageRunner(QObject):
                 self.fill(run,frame)
                 entries=self.store.rows('entry',owner=frame['owner'],active=True)
                 if not entries:
+                    if frame.get('feed') and frame['feed']['next']<frame['feed']['total']:return
                     self.pop(run,frame['produced']);continue
                 item=entries[0]
                 if item['status']!='waiting':return
@@ -240,6 +283,7 @@ class StageRunner(QObject):
                 ctx=copy.deepcopy(frame['ctx']);ctx['saved']=merge_saved(ctx.get('saved',{}),item['saved'])
                 if item['saved'].get('scene'):ctx['scene']=item['saved']['scene']
                 if item.get('source'):ctx.setdefault('sources',{})[frame['auto']]=item['source']
+                if item.get('supply_images'):ctx.setdefault('sources',{}).update(item['supply_images'])
                 ctx['parent']=item['id']
                 stack.append(dict(kind='seq',nodes=frame['node']['children'],index=0,ctx=ctx,produced={}))
                 self.save(run);continue
@@ -275,6 +319,27 @@ class StageRunner(QObject):
         if frame['auto']:
             initial=run['initial'].pop(node['key'],None)
             if initial:frame['ctx']['saved']=merge_saved(frame['ctx'].get('saved',{}),initial[0])
+            stage=run['plan']['stages'][node['stage']]
+            if stage.get('suppliers'):
+                from . import prompt_sources as supply
+                from .workspace_scene import scene,load
+                base=copy.deepcopy(self.window.state)
+                load(base,frame['ctx'].get('scene') or run.get('frozen_scene') or scene(base))
+                for key,items in frame['ctx'].get('saved',{}).get('batches',{}).items():
+                    if key in base.get('canvas_functions',{}).get('images',{}):
+                        image=base['canvas_functions']['images'][key];image['items']=copy.deepcopy(items)
+                        if frame['ctx'].get('parent'):
+                            image['index']=0;image.pop('supply_reservation',None)
+                        if items:image['source']=copy.deepcopy(items[min(image.get('index',0),len(items)-1)])
+                state=project(base,self.window.store.directory,frame['ctx']['results'],frame['ctx'].get('sources'),frame['ctx'].get('saved',{}).get('readers'))
+                frozen=supply.build(state,stage['suppliers'])
+                # Freeze bypass inputs once for the whole batch. They advance
+                # only after this scope finishes, while participating inputs zip.
+                outer=capture(state,run['plan'],[node['stage']],self.window.store.directory)
+                frame['ctx']['saved']=merge_saved(frame['ctx'].get('saved',{}),outer)
+                frame['feed']=dict(plan=frozen,scene=scene(state),next=0,total=len(frozen['rounds']))
+                self.reserve_supply(frozen,select_next=False)
+                return
             state=self.context(frame['ctx']['results'],frame['ctx'].get('sources'),frame['ctx'].get('saved',{}).get('readers'))
             saved=frame['ctx'].get('saved',{})
             images=saved.get('batches',{}).get(frame['auto'])
@@ -294,6 +359,8 @@ class StageRunner(QObject):
     def fill(self,run,frame):
         feed=frame.get('feed')
         if not feed:return
+        if feed.get('plan'):
+            return self.fill_supply(run,frame)
         while sum(r['scheduler']==frame['node']['key'] for r in self.store.rows('entry',run['workspace'],active=True))<10 and feed['next']<feed['total']:
             source=feed['items'][feed['next']];sources=dict(frame['ctx'].get('sources',{}));sources[frame['auto']]=source
             base=self.window.state
@@ -318,6 +385,31 @@ class StageRunner(QObject):
             feed['next']+=1
         self.save(run)
 
+    def fill_supply(self,run,frame):
+        from . import prompt_sources as supply
+        from .workspace_scene import load
+        from .flow_data import capture_inputs
+        feed=frame['feed'];frozen=feed['plan'];node=frame['node']
+        while sum(r['scheduler']==node['key'] for r in self.store.rows('entry',run['workspace'],active=True))<10 and feed['next']<feed['total']:
+            base=copy.deepcopy(self.window.state);load(base,feed['scene'])
+            images,positions=supply.project(base,frozen,frozen['rounds'][feed['next']])
+            following=frozen['rounds'][min(feed['next']+1,feed['total']-1)]
+            for key,spec in frozen['sources'].items():
+                if spec['kind']=='text':
+                    positions[key]=dict(kind='text',plan=frozen['id'],signature=spec['signature'],group=following[key]['group'])
+            sources=dict(frame['ctx'].get('sources',{}));sources.update(images)
+            state=project(base,self.window.store.directory,frame['ctx']['results'],sources,frame['ctx'].get('saved',{}).get('readers'))
+            saved=self.capture_scope(run['plan'],node,state)
+            inherited=frame['ctx'].get('saved',{})
+            saved['parameters']=copy.deepcopy(inherited.get('parameters',{}))
+            for kind in ('parameter_overrides','parameter_profiles'):saved[kind]=copy.deepcopy(inherited.get(kind,{}))
+            saved['batches']={};saved['inputs']=capture_inputs(state,node['key'])
+            saved['source_positions'].update(positions)
+            entry=self.add_entry(run,frame['owner'],node,saved,parent=frame['ctx'].get('parent'))
+            self.store.update(entry['id'],supply_images=images,supply_plan=frozen['id'],supply_round=feed['next'])
+            feed['next']+=1
+        self.save(run)
+
     def pop(self,run,results):
         run['stack'].pop()
         if run['workspace']==self.window.state['workspace'] and results:
@@ -332,7 +424,8 @@ class StageRunner(QObject):
                     item=self.store.update(parent['active'],status='complete',results=results)
                     if parent.get('auto') and run['workspace']==self.window.state['workspace']:
                         positions=item['saved'].get('source_positions',{})
-                        self.advance_sources(dict(sources={k:v for k,v in positions.items() if k==parent['auto']}))
+                        participants=set(parent.get('feed',{}).get('plan',{}).get('sources',{})) or {parent['auto']}
+                        self.advance_sources(dict(sources={k:v for k,v in positions.items() if k in participants}))
                 parent['active']=None;parent['done']+=1
         elif run['workspace']==self.window.state['workspace']:
             self.advance_sources(dict(sources=run.get('source_positions',{})));run['source_positions']={}
@@ -464,7 +557,7 @@ class StageRunner(QObject):
                 frame=next((f for f in current['stack'] if f.get('job')==attempt['id']),None)
                 if frame and current['status']!='cancelled':
                     merge_results(frame['produced'],{stage['id']:result});frame['job']=None;frame['index']+=1
-                    autos={s['auto'] for s in current['plan']['stages'].values() if s['auto']}
+                    autos={key for s in current['plan']['stages'].values() if s['auto'] for key in (s.get('suppliers') or [s['auto']])}
                     for key,value in attempt.get('sources',{}).items():
                         if key not in autos:current.setdefault('source_positions',{}).setdefault(key,value)
                     self.save(current)
@@ -481,9 +574,23 @@ class StageRunner(QObject):
     def advance_sources(self,attempt):
         from .image_source import select
         for key,position in attempt.get('sources',{}).items():
+            if position.get('kind')=='text':
+                from .prompt_sources import source,signature
+                current=source(self.window.state,key)
+                if current and current['root'].get('supply_cursor',{}).get('plan')==position['plan'] and signature(current['root'])==position['signature']:
+                    current['root']['sequence']['selected']=position['group']
+                    self.window.changed('prompt',refresh=False)
+                continue
             value=self.window.state.get('canvas_functions',{}).get('images',{}).get(key,{})
-            if value.get('batch_id')==position.get('batch') and value.get('index')==position.get('index') and value['index']+1<len(value.get('items',[])):
-                select(self.window.state,key,value['index']+1,self.window.store.directory)
+            if value.get('batch_id')!=position.get('batch'):continue
+            index=position.get('index',0);reservation=value.get('supply_reservation',{})
+            if position.get('plan'):
+                # A cancelled row leaves a gap; a later completed row still
+                # advances. Manual selection/new batches invalidate this token.
+                if reservation.get('plan')!=position['plan'] or value.get('index',0)>index:continue
+            elif value.get('index')!=index:continue
+            if index+1<len(value.get('items',[])):
+                select(self.window.state,key,index+1,self.window.store.directory,preserve_reservation=True)
                 self.window.changed('prompt',refresh=False)
 
     def refresh_results(self):
@@ -513,7 +620,7 @@ class StageRunner(QObject):
         run=self.store.read(ident)
         if not run or run['status'] in ('cancelled','complete'):return
         for frame in run['stack']:
-            if frame.get('auto')==source and frame.get('feed'):
+            if frame.get('auto') and frame.get('feed') and (frame['auto']==source or source in frame['feed'].get('plan',{}).get('sources',{})):
                 frame['feed']['next']=frame['feed']['total']
         self.save(run);self.pause(ident,'已停止這批補入；已保存項目保留並暫停。',reason='manual')
 
@@ -535,6 +642,17 @@ class StageRunner(QObject):
         for run in runs:
             if not run:continue
             self.store.update(run['id'],status='cancelled',message='已取消，保留結果與紀錄。')
+            if run['workspace']==self.window.state['workspace']:
+                # Whole-batch cancellation releases its future image range.
+                # Keep the visible next image, and never reset another batch.
+                released=False
+                for frame in run['stack']:
+                    plan=frame.get('feed',{}).get('plan',{})
+                    for key,spec in plan.get('sources',{}).items():
+                        image=self.window.state.get('canvas_functions',{}).get('images',{}).get(key,{})
+                        if spec['kind']=='image' and image.get('supply_reservation',{}).get('plan')==plan['id']:
+                            image.pop('supply_reservation',None);released=True
+                if released:self.window.changed('prompt',refresh=False)
             self.cancel_inputs(run)
             for item in self.store.rows('entry',active=True):
                 if item['run']==run['id']:
@@ -639,12 +757,14 @@ class StageRunner(QObject):
         pieces=[];total=0;uncertain=False
         for key in keys:
             stage=plan['stages'][key];source=stage['auto'];number=1
-            if source and scheduler in plan['scopes']:
-                try:number=len(image_list(self.context(self.results),source))
+            if source:
+                try:
+                    from .prompt_sources import build
+                    number=build(self.context(self.results),stage.get('suppliers') or [source],count_only=True)
                 except ValueError:number=None
             elif any((upstream(self.window.state,[b['source']])&plan['stages'].keys()) for b in stage['bindings'] if b['source']):number=None
-            if number is None:pieces.append(stage['name']+'：依本輪上游圖片展開');uncertain=True
-            else:pieces.append(stage['name']+'：'+str(number)+(' 張' if source else ' 次'));total+=number
+            if number is None:pieces.append(stage['name']+'：依本輪來源展開');uncertain=True
+            else:pieces.append(stage['name']+'：'+str(number)+' 輪');total+=number
         text='；'.join(pieces)
         if not uncertain and total:text+=f'\n{count} 個項目 × 每項 {total} 次生成 = {count*total} 次'
         return text or '接入資料，或以流程引用指定 Stage 範圍。'

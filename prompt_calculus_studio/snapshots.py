@@ -101,7 +101,7 @@ def make_snapshot(state, library_id='', library_revision=''):
 
 
 def validate_snapshot(snapshot):
-    if not isinstance(snapshot, dict) or type(snapshot.get('schema_version')) is not int or snapshot.get('schema_version') not in (1, 2, 3, 4):
+    if not isinstance(snapshot, dict) or type(snapshot.get('schema_version')) is not int or snapshot.get('schema_version') not in (1, 2, 3, 4, 5):
         raise ValueError('不支援的 Prompt Studio 快照版本。')
     if len(json.dumps(snapshot, ensure_ascii=False).encode('utf-8')) > MAX_SNAPSHOT_BYTES:
         raise ValueError('模組快照過大。')

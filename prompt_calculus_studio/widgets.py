@@ -166,7 +166,7 @@ class StudioDialog(QDialog):
         content=QVBoxLayout(surface); content.setContentsMargins(26,22,26,24); content.setSpacing(20)
         self.heading=label("","DialogTitle")
         close=button("×",self.reject,"DialogClose"); close.setFixedSize(40,40); close.setToolTip("關閉"); close.setAccessibleName('關閉視窗')
-        content.addLayout(row(self.heading,None,close))
+        self.heading_row=row(self.heading,None,close);content.addLayout(self.heading_row)
         self.body=QVBoxLayout(); self.body.setSpacing(16); content.addLayout(self.body,1)
         self.windowTitleChanged.connect(self.heading.setText)
         self.reveal=QVariantAnimation(self); self.reveal.setDuration(140)

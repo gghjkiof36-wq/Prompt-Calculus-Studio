@@ -23,8 +23,9 @@ ICON_NAMES = frozenset({
     'package','download','check','clock','info','close','play','pause','stop','lock','pin','menu',
     'workflow','history','external-link','alert','server','check-circle',
     'folder','plus','minus','copy','trash','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal',
-    'panel-left','type','file-text','list-ordered','arrow-down-up','image-single','scan-eye','link-2','maximize','grip-vertical',
+    'panel-left','type','file-text','list-ordered','arrow-down-up','arrow-up','arrow-down','shuffle','image-single','scan-eye','link-2','maximize','grip-vertical',
 })
+MODE_ICONS={'fixed':'pin','increment':'arrow-up','decrement':'arrow-down','random':'shuffle'}
 _STYLE_RESOURCES = {}
 
 
@@ -102,6 +103,13 @@ def _draw(painter, name):
     elif name == 'arrow-down-up':
         line(8,4,8,20);poly((4,8),(8,4),(12,8))
         line(16,4,16,20);poly((12,16),(16,20),(20,16))
+    elif name in ('arrow-up','arrow-down'):
+        line(12,4,12,20)
+        if name=='arrow-up':poly((6,10),(12,4),(18,10))
+        else:poly((6,14),(12,20),(18,14))
+    elif name=='shuffle':
+        poly((3,5),(6,5),(18,19),(21,19));poly((17,15),(21,19),(17,23))
+        poly((3,19),(6,19),(10,14));poly((14,10),(18,5),(21,5));poly((17,1),(21,5),(17,9))
     elif name == 'link-2':
         painter.drawArc(QRectF(2,7,12,10),90*16,180*16)
         painter.drawArc(QRectF(10,7,12,10),-90*16,180*16);line(8,12,16,12)

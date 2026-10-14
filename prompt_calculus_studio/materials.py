@@ -39,10 +39,16 @@ def validate_fields(value):
 
 def search(state, query='', category=None, *, pinned=False, order='name'):
     query = query.strip().casefold()
+    def searchable(value):
+        texts=[value['name'],value['prompt'],value.get('notes',''),*value.get('aliases',[])]
+        if value.get('composition'):
+            for part in comp.walk(value['composition']):
+                texts.extend((part['name'],part['prompt']))
+                for group in part.get('sequence',{}).get('groups',[]):texts.extend((group['name'],group['text']))
+        return ' '.join(texts).casefold()
     found = [value for value in state['items'] if (not category or value['module'] == category)
              and (not pinned or value.get('pinned', False))
-             and (not query or query in ' '.join([value['name'], value['prompt'], value.get('notes', ''),
-                                                 *value.get('aliases', [])]).casefold())]
+             and (not query or query in searchable(value))]
     if order == 'recent':
         return sorted(found, key=lambda v: (-v.get('last_used', 0), v['name'].casefold()))
     return sorted(found, key=lambda v: (not v.get('pinned', False), v['name'].casefold()))
@@ -77,6 +83,8 @@ def save(state, value):
         state['items'].append(result)
     else:
         state['items'][state['items'].index(current)] = result
+    from .prompt_groups import mark_version
+    mark_version(state)
     return result['id']
 
 

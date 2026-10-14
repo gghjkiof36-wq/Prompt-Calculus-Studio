@@ -208,14 +208,21 @@ class FlowFunctions(CanvasFunctions):
     def attach(self,key,attached=True): self.canvas.commit(lambda s:self.set_attachment(s,key,attached)); self.window.generation_panel.changed()
     def refresh(self):
         data=self.data()
+        available={**data['images'], **data.get('text_sources', {})}
         for key in list(self.cards):
-            if key not in data['images']:
+            if key not in available:
                 card=self.cards.pop(key); self.canvas.view.scene().removeItem(card); card.deleteLater()
         for index,key in enumerate(data['images']):
             if key not in self.cards: self.cards[key]=SourceCard(self,key); self.canvas.view.scene().addItem(self.cards[key])
             card=self.cards[key]; card.panel.attach_button.hide()
             card.attach(); card.setPos(*self.window.state.get('text_positions',{}).get(key,[900,850+index*390]))
         if self.canvas.preview_card: self.canvas.preview_card.setVisible(data.get('preview',True))
+        from .prompt_source_widgets import GroupSourceCard
+        for index, key in enumerate(data.get('text_sources', {})):
+            if key not in self.cards:
+                self.cards[key]=GroupSourceCard(self,key); self.canvas.view.scene().addItem(self.cards[key])
+            card=self.cards[key]; card.attach()
+            card.setPos(*self.window.state.get('text_positions',{}).get(key,[450,850+index*300]))
     def remove(self,key):
         def apply(s):
             if key=='__result_preview__':
@@ -225,6 +232,7 @@ class FlowFunctions(CanvasFunctions):
                 for line in list(s['multi_output']['connections']):
                     if line['source']==key or line['destination']==key: model.disconnect(s,line['id'])
                 self.data(s)['images'].pop(key,None)
+                self.data(s).get('text_sources',{}).pop(key,None)
         self.canvas.commit(apply)
     def source_position(self,output):
         card=self.canvas.outputs.get(output)
@@ -261,12 +269,16 @@ class FlowFunctions(CanvasFunctions):
         actions=self.insertion_callbacks(position)
         return [(title,actions[key]) for key,title,*_ in FUNCTIONS]+[('依現有綁定補建 Stage',self.canvas.migrate_stages)]
     def insertion_callbacks(self,position=None):
-        return dict(canvas=lambda:self.canvas.add_canvas(position),output=lambda:self.canvas.add_output(position),
+        return dict(groups=lambda:self.add_group_source(position),canvas=lambda:self.canvas.add_canvas(position),output=lambda:self.canvas.add_output(position),
                     clip=lambda:self.canvas.add_clip(position),reader=lambda:self.add_text_reader(position),
                     source=lambda:self.add_image(position=position),single=lambda:self.add_image(position=position,enhanced=False),
                     **{'image-input':lambda:self.canvas.add_flow_node('image_inputs',position)},
                     schedule=lambda:self.canvas.add_flow_node('schedulers',position),
                     stage=lambda:self.canvas.add_flow_node('stages',position),preview=self.show_preview)
+    def add_group_source(self,position=None):
+        from .prompt_sources import add
+        position=position or self.canvas.view.mapToScene(self.canvas.view.viewport().rect().center())
+        return self.canvas.commit(lambda state:add(state,(position.x(),position.y())))
     def add_text_reader(self,position=None):
         from .result_data import add_text_reader
         position=position or self.canvas.view.mapToScene(self.canvas.view.viewport().rect().center())
@@ -411,7 +423,7 @@ class MultiCanvas(TextCanvas):
         flow_keys={key for kind in ('schedulers','image_inputs','stages') for key in data.get(kind,{})}
         for collection,keys in ((self.containers,data['canvases']), (self.outputs,data['outputs']),
                 (self.clips,data['clip_inputs']), (self.flow_cards,flow_keys), (self.cards,node_keys),
-                (self.functions.cards,state.get('canvas_functions',{}).get('images',{}))):
+                (self.functions.cards,{**state.get('canvas_functions',{}).get('images',{}), **state.get('canvas_functions',{}).get('text_sources',{})})):
             for key in list(collection):
                 if key not in keys:removed.add(collection.pop(key))
         if not removed:return
@@ -532,6 +544,8 @@ class MultiCanvas(TextCanvas):
             for key,card in self.clips.items():
                 self.add_port(card,key,'clip',False);self.add_port(card,key,'control',True)
             for key,card in self.functions.cards.items():
+                if key in state['canvas_functions'].get('text_sources',{}):
+                    self.add_port(card,key,'content',True);self.add_port(card,key,'clip',True,index=1);continue
                 if state['canvas_functions']['images'][key].get('reader')=='text':
                     self.add_port(card,key,'clip',False);self.add_port(card,key,'clip',True);continue
                 self.add_port(card,key,'image',True)
@@ -611,16 +625,18 @@ class MultiCanvas(TextCanvas):
             if source and dest: line.setPath(curve(source.scenePos(),dest.scenePos(),self.window.state['settings'].get('connection_style','curve')))
     def minimum_canvas(self,key):
         cards=[self.cards[k] for k in self.data()['canvases'][key]['members'] if k in self.cards]
-        return max([360]+[c.width+48 for c in cards]),max([230]+[c.height+132 for c in cards])
+        return max([360]+[c.width+48 for c in cards]),max([230]+[c.height+186 for c in cards])
     def ensure_bounds(self):
         state=self.window.state
         for key,container in self.containers.items():
             value=self.data()['canvases'][key]; width,height=value['display_size']; x,y=value['position']
             for member in value['members']:
-                card=self.cards[member]; width=max(width,card.width+48); height=max(height,card.height+132)
+                # Reserve the port area above and the editor button plus its
+                # gap below. Taller text/group controls must not cover it.
+                card=self.cards[member]; width=max(width,card.width+48); height=max(height,card.height+186)
             value['display_size']=[width,height]; container.refresh()
             for member in value['members']:
-                card=self.cards[member]; px=max(x+24,min(card.x(),x+width-card.width-24)); py=max(y+108,min(card.y(),y+height-card.height-24))
+                card=self.cards[member]; px=max(x+24,min(card.x(),x+width-card.width-24)); py=max(y+108,min(card.y(),y+height-card.height-78))
                 card.setPos(px,py); state.setdefault('text_positions',{})[member]=[px,py]
     def canvas_at(self,position):
         candidates=[c for c in self.containers.values() if c.sceneBoundingRect().contains(position)]

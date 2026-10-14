@@ -146,7 +146,7 @@ def read_content(path, choice=None):
     return dict(kind='raw',text=positive)
 
 
-def select(state, key, index, directory):
+def select(state, key, index, directory, *, preserve_reservation=False):
     source = state['canvas_functions']['images'][key]
     items = source.get('items') or ([source['source']] if source.get('source') else [])
     if type(index) is not int or not 0<=index<len(items):
@@ -156,6 +156,8 @@ def select(state, key, index, directory):
     if not path.is_relative_to(Path(directory).resolve()) or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=image['sha256']:
         raise ValueError('來源圖片遺失或內容已變更，已停止這一項。')
     source.update(source=image,index=index)
+    if not preserve_reservation:
+        source.pop('supply_reservation',None);source.pop('supply_position',None)
     source.pop('content',None); source.pop('content_error',None)
     try:source['content']=read_content(path,source.get('prompt_choice'))
     except (ValueError,OSError) as exc:source['content_error']=str(exc)

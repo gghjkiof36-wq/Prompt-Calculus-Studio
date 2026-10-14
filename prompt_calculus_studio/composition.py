@@ -61,6 +61,32 @@ def validate_node(root):
                 raise ValueError('複合模組子項清單無效。')
             for child in value[key]:
                 visit(child, depth + 1)
+        if 'sequence' in value:
+            from . import prompt_groups
+            prompt_groups.validate(value['sequence'], visit, depth)
+        if ('disabled_tags' in value and
+                (not isinstance(value['disabled_tags'], list) or
+                 any(not isinstance(t, str) or not t.strip() for t in value['disabled_tags']))):
+            raise ValueError('局部停用 Tag 格式無效。')
+        if type(value.get('deduplicate', False)) is not bool:
+            raise ValueError('去重設定無效。')
+        if 'round_override' in value:
+            override = value['round_override']
+            if (not isinstance(override, dict) or not isinstance(override.get('text'), str) or
+                    not isinstance(override.get('round'), str) or not override['round'] or
+                    override.get('group') not in {g['id'] for g in value.get('sequence', {}).get('groups', [])}):
+                raise ValueError('當輪覆寫格式無效。')
+        if 'round_drafts' in value:
+            drafts = value['round_drafts']; group_ids = {g['id'] for g in value.get('sequence', {}).get('groups', [])}
+            if not isinstance(drafts, dict) or any(k not in group_ids or not isinstance(v, str) for k, v in drafts.items()):
+                raise ValueError('當輪文字草稿格式無效。')
+        if 'supply_cursor' in value:
+            saved=value['supply_cursor'];pos=saved.get('position') if isinstance(saved,dict) else None
+            if (not isinstance(saved,dict) or not isinstance(saved.get('signature'),str) or
+                    not isinstance(pos,dict) or not isinstance(pos.get('group'),str) or
+                    type(pos.get('repeat')) is not int or not 0<=pos['repeat']<10000 or
+                    type(pos.get('exhausted')) is not bool or type(pos.get('draws')) is not int or pos['draws']<0):
+                raise ValueError('文字供應位置無效。')
     visit(root, 0)
     return root
 
@@ -203,6 +229,9 @@ def walk(root):
     yield root
     for child in root['children'] + root['overlays']:
         yield from walk(child)
+    for group in root.get('sequence', {}).get('groups', []):
+        for child in group['modules']:
+            yield from walk(child)
 
 
 def find(root, ident):
@@ -215,6 +244,9 @@ def container(root, ident):
             for child in parent[key]:
                 if child['id'] == ident:
                     return parent[key]
+        for group in parent.get('sequence', {}).get('groups', []):
+            if any(child['id'] == ident for child in group['modules']):
+                return group['modules']
     raise ValueError('找不到子項；整組請使用「移除當次組合」。')
 
 
@@ -238,6 +270,13 @@ def effective_nodes(root):
         yield from effective_nodes(overlay)
     else:
         yield root
+        if root.get('sequence'):
+            from .prompt_groups import selected
+            group = selected(root['sequence'])
+            if group['input'] == 'modules' and not root.get('round_override'):
+                for child in group['modules']:
+                    yield from effective_nodes(child)
+            return
         for child in root['children']:
             yield from effective_nodes(child)
 
@@ -274,13 +313,17 @@ def render(root, transform=None, *, grouped=None):
         return ''
     grouped = root.get('grouped', False) if grouped is None else grouped
     overlay = active_overlay(root)
+    from .prompt_groups import output_kind, render_body
+    result_kind = root.get('content_kind', 'tags') if using_legacy_format() else output_kind(root)
     if overlay is not None:
         text = render(overlay, transform)
+    elif root.get('sequence'):
+        text = render_body(root, transform)
     else:
         kind = 'tags' if using_legacy_format() else root.get('content_kind', 'tags')
         own = transform(root['prompt']) if transform and kind == 'tags' else root['prompt']
         parts = [(own.strip() if kind == 'tags' else own, kind)] if own.strip() else []
-        parts.extend((text, child.get('content_kind', 'tags')) for child in root['children'] if (text := render(child, transform)))
+        parts.extend((text, output_kind(child)) for child in root['children'] if (text := render(child, transform)))
         if using_legacy_format():
             text = ''
             for part, _ in parts:
@@ -294,7 +337,10 @@ def render(root, transform=None, *, grouped=None):
                 else: text = part
         else:
             text = join_fragments(parts) if len(parts) > 1 else trim_tag_boundary(parts[0][0]) if parts and kind == 'tags' else parts[0][0] if parts else ''
-    return f"({text}:{root['weight'] / 10:.1f})" if text and root.get('content_kind', 'tags') == 'tags' and (grouped or root['weight'] != 10) else text
+    if result_kind == 'tags' and not using_legacy_format():
+        from .prompt_tags import apply
+        text = apply(text, root.get('disabled_tags', []), root.get('deduplicate', False))
+    return f"({text}:{root['weight'] / 10:.1f})" if text and result_kind == 'tags' and (grouped or root['weight'] != 10) else text
 
 
 def detach(root, ident):

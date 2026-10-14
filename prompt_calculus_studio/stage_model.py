@@ -125,16 +125,14 @@ def compile_plan(state):
                 bound.append(dict(key=terminal,kind='image',source=incoming(state,terminal,'image'),target=copy.deepcopy(target)))
         used={s for s in nodes&schedulers.keys() if schedulers[s].get('mode','data')=='data'}
         if len(used)>1:raise ValueError(stage['name']+'：同一階段的資料請接入同一份預排程。')
-        auto=[]
+        auto=[];suppliers=[]
         if used:
             scheduler=next(iter(used))
-            for ch in schedulers[scheduler]['channels']:
-                source=incoming(state,scheduler+'::'+ch['id'],ch['type'])
-                # Automatic supply is opt-in by a direct source connection.
-                image=state.get('canvas_functions',{}).get('images',{}).get(source,{})
-                if image.get('iterate') and source not in auto:auto.append(source)
-            if len(auto)>1:raise ValueError(stage['name']+'：一個批次只允許一個自動圖片來源。')
+            from .prompt_sources import scheduler_sources, automatic
+            suppliers=scheduler_sources(state,scheduler)
+            if automatic(state,suppliers):auto=suppliers[:1]
         plans[key]=dict(stage,id=key,bindings=bound,scheduler=next(iter(used),None),auto=next(iter(auto),None),
+            suppliers=suppliers,
             identity=dict(frontend_id=profile['frontend_id'],origin=profile.get('origin',{})))
     order=[];pending=set(stages)
     while pending:
@@ -210,6 +208,8 @@ def execution_signature(plan):
     stages=plan['stages'];scopes=plan['scopes'];connections=plan.get('connections',[])
     def stage_signature(value):
         result={field:copy.deepcopy(value.get(field)) for field in ('id','workflow','bindings','scheduler','auto','identity')}
+        # Source routing is immutable for a run; source edits are frozen content.
+        if value.get('suppliers') and value['suppliers'] != [value.get('auto')]:result['suppliers']=value['suppliers']
         # Old journals include the image input card's display name in target.
         # Compare only its destination, so renaming remains an editing action.
         for binding in result['bindings']:

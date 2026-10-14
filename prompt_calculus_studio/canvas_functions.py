@@ -36,6 +36,11 @@ class SourcePanel(QFrame):
         self.counter=label('','Subtle')
         self.previous=button('',lambda:step(self,-1));self.next=button('',lambda:step(self,1))
         body.addLayout(row(self.name,None,self.counter,self.previous,self.next))
+        from .widgets import ComboBox
+        self.supply_row=QFrame();supply_layout=QVBoxLayout(self.supply_row);supply_layout.setContentsMargins(0,0,0,0)
+        self.supply=ComboBox();self.supply.addItem('逐輪','step');self.supply.addItem('批次','batch')
+        supply_layout.addLayout(row(label('供應','Subtle'),self.supply));body.addWidget(self.supply_row)
+        self.supply.currentIndexChanged.connect(self.set_supply)
         self.choose=SourceMenuButton('選擇圖片');self.choose.clicked.connect(self.source_menu)
         self.attach_button=button('接到 Prompt',self.toggle_attachment,'Quiet')
         body.addWidget(self.choose);body.addWidget(self.attach_button)
@@ -79,7 +84,11 @@ class SourcePanel(QFrame):
 
     def feed_runs(self):
         chain=self.owner.window.comfy.input_flow.chain
-        return [run for run in chain.runs(True) if any(s.get('auto')==self.key for s in run['plan']['stages'].values())]
+        return [run for run in chain.runs(True) if any(s.get('auto') and self.key in (s.get('suppliers') or [s['auto']]) for s in run['plan']['stages'].values())]
+
+    def set_supply(self):
+        mode=self.supply.currentData()
+        self.owner.canvas.commit(lambda state:state['canvas_functions']['images'][self.key].update(supply=mode),label='設定圖片供應')
 
     def toggle_feed(self):
         self.live_control('resume' if self.pause_button.property('feedPaused') else 'pause')
@@ -94,7 +103,7 @@ class SourcePanel(QFrame):
         if self.owner.window.state['multi_output']['version']>=7:
             try:
                 for run in flow.chain.runs(True):
-                    if any(s.get('auto')==self.key for s in run['plan']['stages'].values()):
+                    if any(s.get('auto') and self.key in (s.get('suppliers') or [s['auto']]) for s in run['plan']['stages'].values()):
                         if action=='stop_feed':flow.chain.stop_feed(run['id'],self.key)
                         else:getattr(flow.chain,action)(run['id'])
             except ValueError as exc:self.owner.window.notice(str(exc))
@@ -150,6 +159,8 @@ class SourcePanel(QFrame):
         style_action(self.binding,canvas_colors(self.owner.canvas),pending=not binding or not profile)
         advanced=self.owner.window.state.get('multi_output',{}).get('version',1)>=4
         enhanced=value.get('enhanced',False)
+        self.supply_row.setVisible(enhanced and value.get('iterate',False))
+        self.supply.blockSignals(True);self.supply.setCurrentIndex(self.supply.findData(value.get('supply','batch')));self.supply.blockSignals(False)
         expanded=not value.get('management_collapsed',True)
         self.management.setVisible(enhanced);self.management.setChecked(expanded)
         self.source_controls.setVisible(enhanced and expanded)

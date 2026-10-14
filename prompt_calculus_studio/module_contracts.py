@@ -39,6 +39,7 @@ MODULES = {
     'image': ModuleType('source', ('image',), ('image', 'content', 'clip')),
     'image_source': ModuleType('source', ('image',), ('image', 'content', 'clip')),
     'text_reader': ModuleType('source', ('clip',), ('clip',)),
+    'group_source': ModuleType('source', (), ('content', 'clip')),
     'canvas': ModuleType('composition', ('image', 'content', 'clip'), ('text', 'image')),
     'prompt': ModuleType('transform', ('text', 'clip', 'image'), ('clip',)),
     'clip_input': ModuleType('binding', ('clip',), ('control',)),
@@ -53,6 +54,7 @@ COLLECTIONS = {'canvases': 'canvas', 'outputs': 'prompt', 'clip_inputs': 'clip_i
 
 def module_kind(state, key):
     parent = key.split('::')[0]
+    if parent in state.get('canvas_functions', {}).get('text_sources', {}): return 'group_source'
     if parent == '__result_preview__': return 'preview'
     data = state.get('multi_output', {})
     for collection, kind in COLLECTIONS.items():

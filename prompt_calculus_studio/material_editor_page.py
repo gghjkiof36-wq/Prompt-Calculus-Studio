@@ -363,6 +363,10 @@ def sync_prompt_style(e):
     from .theme import font_pixels
     colors = widget_colors(e); size = e.window.state['settings']['prompt_size']
     style = "QTextEdit#Prompt { font-family:'Cascadia Mono','Consolas','Microsoft JhengHei'; font-size:%dpx; background:%s; border:0; border-radius:8px; padding:10px; }" % (font_pixels(size), colors['field'])
+    if e.prompt.property('modulePrompt'):
+        from .module_chrome import dialog_colors
+        colors=dialog_colors(colors)
+        style += "QTextEdit#Prompt {background:%s;border:1px solid %s;} QTextEdit#Prompt:focus {border-color:%s;}" % (colors['surface'],colors['line'],colors['accent'])
     if e.prompt.styleSheet() != style: e.prompt.setStyleSheet(style)
     e.prompt.ensurePolished()
     e.prompt.document().setDefaultFont(e.prompt.font())

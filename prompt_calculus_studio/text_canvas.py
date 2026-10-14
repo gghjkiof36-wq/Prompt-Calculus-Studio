@@ -3,7 +3,7 @@ import copy
 import time
 from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit, QFormLayout,
-    QDoubleSpinBox, QCheckBox, QDialog, QListWidget, QListWidgetItem)
+    QDoubleSpinBox, QCheckBox, QDialog, QListWidget, QListWidgetItem, QScrollArea, QFrame)
 
 from . import composition as comp
 from .canvas_palette import CanvasPalette
@@ -14,33 +14,146 @@ from .error_dialog import import_error
 
 
 class NodeDialog(StudioDialog):
-    def __init__(self, parent, value=None, title='新增模組'):
-        super().__init__(parent); self.setWindowTitle(title); self.resize(550, 550)
-        value = value or comp.node('')
-        editor=self.editor_area() if hasattr(self,'_module_dialog_context') else self.body
-        self.description = label('只修改這次組合；素材庫原文保留。', 'Subtle', True)
-        editor.addWidget(self.description)
-        form = QFormLayout(); editor.addLayout(form)
-        self.name = QLineEdit(value['name']); form.addRow('名稱', self.name)
-        self.prompt = QPlainTextEdit(value['prompt']); self.prompt.setPlaceholderText('可留空作為群組，再加入子模組。')
-        editor.addWidget(self.prompt, 1)
-        self.weight = QDoubleSpinBox(); self.weight.setRange(-100, 100); self.weight.setDecimals(1); self.weight.setSingleStep(.1)
-        self.weight.setValue(value['weight'] / 10); form.addRow('整組權重', self.weight)
-        self.enabled = QCheckBox('啟用'); self.enabled.setChecked(value['enabled']); form.addRow(self.enabled)
-        self.excludes = QPlainTextEdit('\n'.join(value['excludes'])); self.excludes.setMaximumHeight(75)
-        self.excludes.setPlaceholderText('使用時排除的完整 Tag，每行一項。')
-        editor.addWidget(self.excludes)
-        self.error = label('', 'Draft', True); editor.addWidget(self.error)
-        self.body.addWidget(dialog_buttons(self, self.save))
+    def __init__(self, parent, value=None, title=None):
+        title=title or ('編輯當輪' if value and value.get('sequence') else '編輯畫布模組' if value else '新增畫布模組')
+        super().__init__(parent); self.setWindowTitle(title); self.resize(540, 480)
+        from .module_chrome import apply_prompt_dialog, prompt_divider
+        apply_prompt_dialog(self,parent)
+        from .prompt_group_editor import WeightField, tool, field, mode_options
+        from .material_editor_page import Disclosure
+        from .widgets import ComboBox
+        from PySide6.QtWidgets import QSpinBox, QAbstractSpinBox
+        from . import prompt_groups as groups
+        self.value=copy.deepcopy(value or comp.node('')); self.sequence=self.value.get('sequence')
+        self.original_selected=self.sequence.get('selected') if self.sequence else None
+        self.disabled_tags=set(self.value.get('disabled_tags',[]))
+        self.loading=True; self.active_group=None; self.drafts=copy.deepcopy(self.value.get('round_drafts',{}))
+        content=QWidget();form=QVBoxLayout(content);form.setContentsMargins(0,8,0,4);form.setSpacing(12)
+        self.form_scroll=QScrollArea();self.form_scroll.setWidgetResizable(True);self.form_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.form_scroll.viewport().setAutoFillBackground(False)
+        self.form_scroll.setWidget(content);content.setAutoFillBackground(False);self.body.addWidget(self.form_scroll,1)
+        self.name=QLineEdit(self.value['name']); self.name.setPlaceholderText('名稱')
+        self.weight=WeightField(self.value['weight'])
+        form.addLayout(row(field('名稱',self.name),field('權重',self.weight)))
+        self.mode=ComboBox()
+        self.mode.setMinimumWidth(82)
+        mode_options(self.mode)
+        self.repeat=QSpinBox();self.repeat.setRange(1,groups.MAX_REPEAT);self.repeat.setSuffix(' 次');self.repeat.setMaximumWidth(108)
+        self.variables=QWidget();variable_layout=QVBoxLayout(self.variables);variable_layout.setContentsMargins(0,0,0,0)
+        variable_layout.addLayout(row(field('變量',self.mode),None,field('重複次數',self.repeat)))
+        form.addWidget(self.variables);self.variables.setVisible(bool(self.sequence and len(self.sequence['groups'])>1))
+        self.index=QSpinBox();self.index.setMinimum(1);self.index.setAccessibleName('組合序號')
+        self.index.setObjectName('PromptPager');self.index.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.index.setAlignment(Qt.AlignmentFlag.AlignCenter);self.index.setFixedWidth(80);self.index.setToolTip('輸入序號跳至組合')
+        self.previous=tool('chevron-left','上一組',lambda:self.index.setValue(self.index.value()-1))
+        self.next=tool('chevron-right','下一組',lambda:self.index.setValue(self.index.value()+1))
+        form.addWidget(label('Prompt','Subtle'))
+        self.prompt=QPlainTextEdit();self.prompt.setMinimumHeight(130);form.addWidget(self.prompt,1)
+        self.navigation=QWidget();navigation=QVBoxLayout(self.navigation);navigation.setContentsMargins(0,0,0,0)
+        navigation.addLayout(row(None,self.previous,self.index,self.next,None));form.addWidget(self.navigation)
+        self.navigation.setVisible(bool(self.sequence and len(self.sequence['groups'])>1))
+        self.enabled=QCheckBox('啟用');self.enabled.setChecked(self.value['enabled']);form.addWidget(self.enabled)
+        self.local_toggle=Disclosure('Tag 控制');form.addWidget(self.local_toggle)
+        self.local_panel=QWidget();local=QVBoxLayout(self.local_panel);local.setContentsMargins(0,0,0,0)
+        self.tags=QListWidget();self.tags.setMaximumHeight(110);local.addWidget(self.tags)
+        self.dedupe=QCheckBox('去重');self.dedupe.setChecked(self.value.get('deduplicate',False));local.addWidget(self.dedupe)
+        form.addWidget(self.local_panel);self.local_panel.hide();self.local_toggle.toggled.connect(self.local_panel.setVisible)
+        self.tags.itemChanged.connect(self.tag_changed)
+        self.excludes_toggle=Disclosure('排除 Tag');form.addWidget(self.excludes_toggle)
+        self.excludes=QPlainTextEdit('\n'.join(self.value['excludes']));self.excludes.setMaximumHeight(80)
+        form.addWidget(self.excludes);self.excludes.hide();self.excludes_toggle.toggled.connect(self.excludes.setVisible)
+        self.local_toggle.toggled.connect(lambda:QTimer.singleShot(0,self.fit_page))
+        self.excludes_toggle.toggled.connect(lambda:QTimer.singleShot(0,self.fit_page))
+        self.error=label('','Draft',True);self.body.addWidget(self.error);self.error.hide()
+        self.body.addWidget(prompt_divider())
+        self.body.addLayout(row(None,button('取消',self.reject,'Quiet'),button('套用' if value else '加入畫布',self.save,'Primary')))
+        if self.sequence:
+            self.mode.setCurrentIndex(self.mode.findData(self.sequence['mode']))
+            self.index.setMaximum(len(self.sequence['groups']));self.index.setSuffix(' / '+str(len(self.sequence['groups'])))
+            index=next(i for i,g in enumerate(self.sequence['groups'],1) if g['id']==self.sequence['selected'])
+            self.index.setValue(index);self.select_group(index)
+        else:
+            self.prompt.setPlainText(self.value['prompt'])
+            for control in (self.previous,self.index,self.next):control.hide()
+        self.loading=False;self.index.valueChanged.connect(self.select_group)
+        self.mode.currentIndexChanged.connect(self.mode_changed);self.repeat.valueChanged.connect(self.repeat_changed)
+        self.prompt.textChanged.connect(self.refresh_tags);self.refresh_tags()
+        self.resize(min(580,max(360,parent.width()-24)),min(600,max(340,parent.height()-24)))
+
+    def fit_page(self):
+        if not self.isVisible():return
+        self.form_scroll.widget().layout().activate();self.layout().activate()
+        content=self.form_scroll.widget().sizeHint().height()
+        available=min(self.parentWidget().height()-24,self.screen().availableGeometry().height()-40)
+        self.resize(self.width(),min(available,max(440,content+self.height()-self.form_scroll.height())))
+
+    def showEvent(self,event):
+        super().showEvent(event);QTimer.singleShot(0,self.fit_page)
+
+    def refresh_tags(self):
+        from .prompt_tags import tokens
+        from .prompt_groups import output_kind
+        self.tags.blockSignals(True);self.tags.clear()
+        raw=copy.deepcopy(self.value);raw.update(weight=10,enabled=True,grouped=False)
+        raw.pop('disabled_tags',None);raw.pop('deduplicate',None)
+        available=output_kind(raw)=='tags'
+        self.local_toggle.setVisible(available)
+        if not available:self.local_panel.hide()
+        else:
+            if self.sequence:
+                raw.setdefault('round_drafts',{})[self.active_group['id']]=self.prompt.toPlainText()
+            else:raw['prompt']=self.prompt.toPlainText()
+            for text in dict.fromkeys(tokens(comp.render(raw))):
+                item=QListWidgetItem(text);item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Unchecked if text in self.disabled_tags else Qt.CheckState.Checked);self.tags.addItem(item)
+            self.local_panel.setVisible(self.local_toggle.isChecked())
+        self.tags.blockSignals(False)
+
+    def tag_changed(self,item):
+        if item.checkState()==Qt.CheckState.Unchecked:self.disabled_tags.add(item.text())
+        else:self.disabled_tags.discard(item.text())
+
+    def remember(self):
+        if self.active_group:
+            from .prompt_groups import render_group
+            text=self.prompt.toPlainText()
+            if text!=render_group(self.active_group):self.drafts[self.active_group['id']]=text
+            else:self.drafts.pop(self.active_group['id'],None)
+
+    def select_group(self,index):
+        if not self.loading:self.remember()
+        self.loading=True;self.active_group=self.sequence['groups'][index-1];self.sequence['selected']=self.active_group['id']
+        from .prompt_groups import render_body
+        self.value['round_drafts']=self.drafts
+        self.prompt.setPlainText(render_body(self.value));self.repeat.setValue(self.active_group['repeat'])
+        self.previous.setEnabled(index>1);self.next.setEnabled(index<len(self.sequence['groups']))
+        self.loading=False
+
+    def mode_changed(self):
+        if self.sequence and not self.loading:self.sequence['mode']=self.mode.currentData()
+
+    def repeat_changed(self):
+        if self.active_group and not self.loading:self.active_group['repeat']=self.repeat.value()
 
     def save(self):
-        if not self.name.text().strip(): self.error.setText('請填寫模組名稱。'); return
-        self.accept()
+        self.weight.submit()
+        if not self.name.text().strip():self.error.setText('請填寫模組名稱。');self.error.show();self.fit_page();return
+        self.remember();self.accept()
 
     def values(self):
-        return dict(name=self.name.text().strip(), prompt=self.prompt.toPlainText(),
-                    weight=round(self.weight.value() * 10), enabled=self.enabled.isChecked(),
-                    excludes=[v.strip() for v in self.excludes.toPlainText().splitlines() if v.strip()])
+        value=dict(name=self.name.text().strip(),weight=self.weight.saved,enabled=self.enabled.isChecked(),
+                   excludes=[v.strip() for v in self.excludes.toPlainText().splitlines() if v.strip()],
+                   disabled_tags=sorted(self.disabled_tags),deduplicate=self.dedupe.isChecked())
+        if self.sequence:
+            self.remember()
+            value.update(sequence=copy.deepcopy(self.sequence),round_drafts=copy.deepcopy(self.drafts))
+            if self.sequence['selected']!=self.original_selected:
+                from . import prompt_sources as sources, prompt_groups as groups
+                root=dict(self.value,sequence=self.sequence)
+                value['supply_cursor']=dict(signature=sources.signature(root),position=groups.cursor(self.sequence,start=self.sequence['selected']))
+        else:value['prompt']=self.prompt.toPlainText()
+        return value
 
 
 class AssetDialog(StudioDialog):
@@ -180,6 +293,8 @@ class TextCanvas(QWidget):
         try:
             from .material_navigation import navigation_only
             operation(value)
+            from .prompt_groups import mark_version
+            mark_version(value)
             library_only = navigation_only(self.window.state, value)
             if not library_only:
                 comp.prune_instances(value)
@@ -551,8 +666,6 @@ class TextCanvas(QWidget):
 
     def add_new(self, position=None):
         dialog = NodeDialog(self.window)
-        if self.root_id is None:
-            dialog.description.setText('建立當次使用的模組；需要重複使用時，可另存到素材庫。')
         self.active_node_dialog=dialog
         try: accepted=dialog.exec()==QDialog.DialogCode.Accepted
         finally: self.active_node_dialog=None
@@ -627,7 +740,7 @@ class TextCanvas(QWidget):
         if value is None:return False
         is_root = node_id == root['id'] and ident not in self.window.state.get('uses',{})
         if is_root: value['weight'] = self.window.state.get('weights', {}).get(ident, 10)
-        dialog = NodeDialog(self.window, value, '編輯當次模組')
+        dialog = NodeDialog(self.window, value)
         dialog.use_id=ident;dialog.node_id=node_id
         self.active_node_dialog=dialog
         try: accepted=dialog.exec()==QDialog.DialogCode.Accepted

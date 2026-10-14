@@ -399,7 +399,7 @@ def migrate(state):
     for key,value in images.items():
         if value.get('attached'): connect(result,key,GENERATOR,'image')
         value['attached']=False
-    result['version']=4
+    result['version']=max(4,result['version'])
     if result.get('selection_view')=='canvas': result.update(draft=output['draft'],draft_base=output['draft_base'])
     capture_current(result)
     checked_state=copy.deepcopy(result); activate_selection_view(checked_state,'canvas')

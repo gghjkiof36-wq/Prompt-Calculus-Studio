@@ -70,6 +70,56 @@ def apply_module_dialog(dialog, colors, heading_size):
     return t['base'],t['line']
 
 
+def apply_prompt_dialog(dialog, window):
+    """Use the same sheet, fields and typography as CanvasPalette."""
+    from .theme import visual_tokens,font_pixels,widget_palette
+    from PySide6.QtGui import QPalette
+    from PySide6.QtWidgets import QFrame
+    tokens=visual_tokens(window.state['settings'])
+    colors=dialog_colors(tokens)
+    apply_module_dialog(dialog,tokens,max(16,font_pixels(window.state['settings']['ui_size'])))
+    palette=widget_palette(window.state['settings'])
+    palette.setColor(QPalette.ColorRole.Window,QColor(colors['base']))
+    palette.setColor(QPalette.ColorRole.Base,QColor(colors['surface']))
+    dialog.setPalette(palette)
+    dialog.setStyleSheet(dialog.styleSheet()+f'''
+        QFrame#PromptDivider {{background:{colors['line']};border:0;}}
+        QSpinBox#PromptPager {{background:transparent;border:1px solid transparent;padding:4px;color:{colors['text']};}}
+        QSpinBox#PromptPager:focus {{border-color:{colors['accent']};}}
+        QStackedWidget, QScrollArea {{background:transparent;border:0;}}
+        QListWidget#PromptEntryList {{background:transparent;border:0;padding:0;outline:0;}}
+        QListWidget#PromptEntryList::item {{padding:0;border:0;background:transparent;}}
+        QTabWidget::pane {{background:transparent;border:0;top:0;}}
+        QTabBar::tab {{background:transparent;color:{colors['secondary']};border:0;border-bottom:2px solid {colors['line']};border-radius:0;padding:10px 12px;margin:0;}}
+        QTabBar::tab:selected {{border-bottom-color:{colors['accent']};color:{colors['text']};}}
+        QTabBar::tab:hover {{background:{colors['hover']};}}
+    ''')
+    surface=dialog.findChild(QFrame,'DialogSurface')
+    surface.layout().setContentsMargins(24,24,24,20)
+    surface.layout().setSpacing(16)
+    surface.layout().insertWidget(1,prompt_divider())
+    dialog.body.setSpacing(12)
+    return colors
+
+
+def prompt_divider():
+    from PySide6.QtWidgets import QFrame
+    divider=QFrame();divider.setObjectName('PromptDivider');divider.setFixedHeight(1)
+    return divider
+
+
+def source_controls_style(colors):
+    """Compact source controls use the established Canvas color roles."""
+    t=matte_colors(colors)
+    return f'''
+        QFrame#CanvasModuleBody QSpinBox#SourcePager {{background:transparent;border:1px solid transparent;padding:4px;color:{t['text']};}}
+        QFrame#CanvasModuleBody QSpinBox#SourcePager:focus {{border-color:{t['accent']};}}
+        QFrame#CanvasModuleBody QPushButton#SourceMode {{background:{t['field']};border:1px solid {t['line']};border-radius:8px;padding:0;}}
+        QFrame#CanvasModuleBody QPushButton#SourceMode:hover {{background:{t['hover']};border-color:{t['accent']};}}
+        QFrame#CanvasModuleBody QPushButton#SourceMode:pressed {{background:{t['selected']};}}
+    '''
+
+
 def matte_colors(colors):
     """One finish for Canvas cards, controls and their real-node previews."""
     result = dict(colors)
@@ -99,7 +149,7 @@ def module_value(canvas, key, state=None):
         return state.get('canvas_functions', {}).get('preview_display', {})
     if key == '__workflow_order__':
         return data.get('workflow_order', {})
-    return state.get('canvas_functions', {}).get('images', {}).get(key, {})
+    return state.get('canvas_functions', {}).get('text_sources', {}).get(key) or state.get('canvas_functions', {}).get('images', {}).get(key, {})
 
 
 def toggle_module(canvas, key):
