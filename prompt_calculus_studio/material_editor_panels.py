@@ -43,8 +43,8 @@ class MaterialPanels(QWidget):
         super().__init__(dialog)
         self.dialog = dialog; self.opened = False; self.preferred_width = 580
         self.progress = 0.; self._fitting = False; self._envelope = False
-        self.content = content if content is not None else dialog.pages
-        self.form_scroll = scroll if scroll is not None else dialog.form_scroll
+        self.content = content if content is not None else getattr(dialog,'pages',None)
+        self.form_scroll = scroll if scroll is not None else getattr(dialog,'form_scroll',None)
         self.minimum_height = minimum_height; self.close_side = close
         self.main = dialog.findChild(QFrame, 'DialogSurface')
         dialog.layout().removeWidget(self.main)
@@ -65,7 +65,7 @@ class MaterialPanels(QWidget):
         self.scroll.setWidget(self.side_pages)
         self.scroll.viewport().setAutoFillBackground(False)
         content.addWidget(self.scroll, 1)
-        self.set_content(details, title, close)
+        if details is not None:self.set_content(details, title, close)
         self.main.show(); self.main.raise_(); self.side.hide()
         self.motion = QVariantAnimation(self); self.motion.setDuration(220)
         self.motion.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -125,12 +125,9 @@ class MaterialPanels(QWidget):
                 self.motion.stop(); self.place(1. if opened else 0.); self.finished()
             return
         self.motion.blockSignals(True); self.motion.stop(); self.opened = opened
-        dialog = self.dialog; updates = dialog.updatesEnabled(); dialog.setUpdatesEnabled(False)
+        dialog = self.dialog
         try:
-            if opened and not self._envelope:
-                total = self.expanded_width(); self._envelope = True
-                self.center_frame(total, dialog.height())
-                dialog.layout().activate(); self.place()
+            if opened:
                 self.side.show(); self.main.raise_()
             self.motion.setDuration(max(1, round((220 if opened else 180)*abs((1. if opened else 0.)-self.progress))))
             self.motion.setStartValue(self.progress); self.motion.setEndValue(1. if opened else 0.)
@@ -140,27 +137,23 @@ class MaterialPanels(QWidget):
                 self.place(1. if opened else 0.); self.finished()
         finally:
             self.motion.blockSignals(False)
-            dialog.setUpdatesEnabled(updates)
-            if updates: dialog.repaint()
+            dialog.update()
 
     def finished(self):
         if not self.opened:
-            updates = self.dialog.updatesEnabled(); self.dialog.setUpdatesEnabled(False)
-            try:
-                self.side.hide(); self._envelope = False; self.progress = 0.
-                self.center_frame(self.preferred_width, self.dialog.height())
-                self.dialog.layout().activate(); self.place()
-            finally:
-                self.dialog.setUpdatesEnabled(updates)
+            self.side.hide(); self.progress = 0.; self.place()
         self.dialog.update()
 
     def fit_content(self, *, before_show=False):
         dialog = self.dialog
-        if self._fitting or (not before_show and not dialog.isVisible()) or self.motion.state() == QVariantAnimation.State.Running: return
+        if self.content is None or self._fitting or (not before_show and not dialog.isVisible()) or self.motion.state() == QVariantAnimation.State.Running: return
         self._fitting = True
         try:
             dialog.ensurePolished(); content = self.content
-            width = self.expanded_width() if self._envelope else min(self.preferred_width,self.bounds().width())
+            # Reserve the union of both cards before the first native paint.
+            # Opening/closing only moves child surfaces; resizing a translucent
+            # top-level HWND at either endpoint flashes its backing store.
+            width = self.expanded_width(); self._envelope = True
             dialog.resize(width,dialog.height());dialog.layout().activate();self.place();self.main.layout().activate()
             for layout in reversed(content.findChildren(QLayout)): layout.invalidate()
             for widget in reversed(content.findChildren(QWidget)): widget.updateGeometry()

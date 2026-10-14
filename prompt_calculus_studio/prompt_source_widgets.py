@@ -12,9 +12,12 @@ from . import composition as comp, prompt_groups as groups, prompt_sources as so
 
 class GroupSourceDialog(StudioDialog):
     def __init__(self, canvas, key):
-        super().__init__(canvas.window); self.canvas=canvas; self.key=key
+        super().__init__(canvas.window,defer_style=True); self.canvas=canvas; self.key=key
         from .module_chrome import apply_prompt_dialog, prompt_divider
         apply_prompt_dialog(self,canvas.window)
+        from .material_editor_panels import MaterialPanels
+        self.panels=MaterialPanels(self,None,lambda:self.preview_toggle.setChecked(False),title='Prompt 預覽')
+        self.panels.set_main_width(720)
         self.setWindowTitle('讀取組合');self.loading=False;self.current_group=None;self.active_node_dialog=None
         original=sources.definitions(canvas.window.state)[key]
         self.root=None if original.get('unselected') else copy.deepcopy(original['root'])
@@ -67,10 +70,8 @@ class GroupSourceDialog(StudioDialog):
         self.body.addWidget(prompt_divider())
         self.body.addLayout(row(None,self.cancel_button,self.apply_button,self.done_button))
         self.resize(min(720,max(380,canvas.window.width()-24)),min(600,max(380,canvas.window.height()-24)))
-        from .material_editor_panels import MaterialPanels
-        self.panels=MaterialPanels(self,self.preview_holder,lambda:self.preview_toggle.setChecked(False),
-            title='Prompt 預覽',content=self.stack,scroll=self.scroll)
-        self.panels.set_main_width(720)
+        self.panels.content=self.stack;self.panels.form_scroll=self.scroll
+        self.panels.set_content(self.preview_holder,'Prompt 預覽',lambda:self.preview_toggle.setChecked(False))
         self.refresh_overview();self.page_changed(0)
 
     def fit_editor(self,*_):

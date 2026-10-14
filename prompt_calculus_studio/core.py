@@ -11,6 +11,8 @@ from urllib.parse import urlsplit
 from .exclusions import filter_tags, exclusion_rules, tag_key
 from .composition import validate_compositions, root_for, render, effective_nodes, join_fragments, using_legacy_format
 
+SUPPORTED_STATE_VERSIONS=(1,2,3,4,5,6)
+
 
 DEFAULT_SETTINGS = dict(ui_size=11, prompt_size=12, density="comfortable",
                         context_sidebar_width=240, gallery_columns=12,
@@ -61,7 +63,7 @@ def local_address(value):
 
 
 def validate_state(state):
-    if not isinstance(state, dict) or type(state.get("version")) is not int or state.get("version") not in (1, 2, 3, 4, 5, 6):
+    if not isinstance(state, dict) or type(state.get("version")) is not int or state.get("version") not in SUPPORTED_STATE_VERSIONS:
         raise ValueError("不支援的備份版本。")
     ids = set()
     for name in ("modules", "items", "workspaces"):

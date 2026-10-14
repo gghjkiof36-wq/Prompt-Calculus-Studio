@@ -151,7 +151,7 @@ def dialog_buttons(dialog, save=None):
 
 class StudioDialog(QDialog):
     """A lightweight in-app sheet with the same typography and rounded surface."""
-    def __init__(self,parent=None):
+    def __init__(self,parent=None,*,defer_style=False):
         from .module_chrome import canvas_dialog_context,apply_module_dialog
         context=canvas_dialog_context(parent)
         if context:
@@ -174,7 +174,7 @@ class StudioDialog(QDialog):
         self.reveal.valueChanged.connect(self.setWindowOpacity)
         self._outside_dismiss=False
         self._backdrop=None
-        if context:apply_module_dialog(self,*context)
+        if context and not defer_style:apply_module_dialog(self,*context)
 
     def editor_area(self):
         """Shared inset for multi-field editors; footer actions stay on the shell."""

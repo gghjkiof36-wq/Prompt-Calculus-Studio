@@ -55,6 +55,31 @@ class SideCardTests(unittest.TestCase):
         self.assertEqual(dialog.geometry(),closed)
         self.assertFalse(panels.side.isVisible());dialog.reject()
 
+    def test_all_side_cards_animate_without_native_move_resize_or_empty_paint(self):
+        self.w.resize(1440,1000)
+        for grouped in (False,True):
+            dialog=self.page.edit_material(self.grouped()) if grouped else self.page.new_material()
+            QTest.qWait(30);panels=dialog.panels;events=[];frames=[]
+            class Probe(QObject):
+                def eventFilter(probe,widget,event):
+                    if event.type() in (QEvent.Type.Move,QEvent.Type.Resize):events.append(event.type())
+                    if event.type()==QEvent.Type.Paint:frames.append(panels.main.isVisible())
+                    return False
+            probe=Probe(dialog);dialog.installEventFilter(probe)
+            for _ in range(2):
+                panels.set_open(True);QTest.qWait(80)
+                panels.set_open(False);QTest.qWait(210)
+            if grouped:
+                ed=dialog.pages.group_editor;ed.edit_group(ed.sequence['groups'][0]['id']);QTest.qWait(30)
+                events.clear();ed.preview_toggle.setChecked(True);QTest.qWait(240)
+                ed.input_tabs.setCurrentIndex(1);QTest.qWait(30)
+                events.clear();ed.preview_toggle.setChecked(False);QTest.qWait(210)
+            self.assertEqual(events,[]);self.assertTrue(frames);self.assertTrue(all(frames))
+            self.assertFalse(panels.side.isVisible())
+            center=panels.main.mapToGlobal(panels.main.rect().center())
+            self.assertLessEqual((center-panels.bounds().center()).manhattanLength(),2)
+            dialog.reject()
+
     def test_group_format_is_a_compact_aligned_field(self):
         dialog=self.page.edit_material(self.grouped());dialog.pages.show_group_details();QTest.qWait(240)
         value=dialog.pages.group_format;fields=dialog.pages.info_fields

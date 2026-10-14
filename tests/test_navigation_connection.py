@@ -69,6 +69,27 @@ class NavigationConnectionTests(unittest.TestCase):
                                   capabilities=['native_queue_v1','native_bindings_v1','stage_execution_v1'],
                                   snapshot_versions=[self.w.state['version']]))
 
+    def test_old_extension_never_receives_new_library_and_can_recover_after_update(self):
+        client=self.client;client.enabled=True;client.token='fixture-token';client.register_library=True
+        self.w.state['version']=6
+        status=dict(ready=True,lease='lease',running=0,pending=0,
+            capabilities=['native_queue_v1','native_bindings_v1','stage_execution_v1','workflow_transfer_v1'],
+            snapshot_versions=[1,2,3,4],extension={'version':'舊擴充'})
+        before=copy.deepcopy(self.w.state)
+        with patch.object(client,'receive_workflow') as transfer,patch.object(self.w,'notice') as notice:
+            client.poll();self.calls[-1]['done'](status)
+            self.assertTrue(client.connected);self.assertFalse(client.can_run)
+            self.assertTrue(client.register_library);self.assertIn('更新配套擴充',client.message)
+            self.assertFalse(any(c['route']=='config' and c['data'] for c in self.calls))
+            transfer.assert_not_called();self.assertFalse(client.sync_timer.isActive())
+            client.run();notice.assert_called_once_with(client.compatibility_message)
+            self.assertEqual(self.w.state,before)
+            status['snapshot_versions']=[1,2,3,4,5,6]
+            client.poll();self.calls[-1]['done'](status)
+            self.assertTrue(client.snapshot_compatible);self.assertFalse(client.register_library)
+            self.assertEqual(len([c for c in self.calls if c['route']=='config' and c['data']]),1)
+            transfer.assert_called_once()
+
     def test_header_connects_saved_endpoint_and_debounces_clicks(self):
         before_page=self.w.tabs.currentWidget();self.client.url='http://127.0.0.1:8199'
         self.w.state['settings']['comfy_url']=self.client.url

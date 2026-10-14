@@ -9,7 +9,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from .shared.core import validate_state
+from .shared.core import validate_state,SUPPORTED_STATE_VERSIONS
 from .shared.snapshots import portable_state, revision, validate_snapshot, image_snapshots
 from .shared.pnginfo import png_metadata
 
@@ -79,7 +79,12 @@ class Service:
             row = connection.execute('SELECT body FROM document WHERE id=1').fetchone()
             if not row:
                 raise ValueError('素材庫尚未保存資料。')
-            state = validate_state(json.loads(row[0]))
+            document=json.loads(row[0])
+            version=document.get('version') if isinstance(document,dict) else None
+            if type(version) is not int or version not in SUPPORTED_STATE_VERSIONS:
+                shown=version if type(version) is int else '未知'
+                raise ValueError(f'PCS 擴充不支援素材庫資料版本 {shown}；請更新配套擴充後重新啟動 ComfyUI。原資料未修改。')
+            state = validate_state(document)
             result=dict(state=portable_state(state), library_id=str(uuid.uuid5(uuid.NAMESPACE_URL, str(path.resolve()).casefold())),
                         library_revision=revision(state))
             if include_connection:

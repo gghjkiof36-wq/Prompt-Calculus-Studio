@@ -22,11 +22,13 @@ export async function openNativeWorkflow(app,target,guard,timeoutMs=12000) {
     if(!source||app.graph!==graph||app.configuringGraph||graph.id!==source.activeState?.id||typeof app.loadGraphData!=='function'||
         trackers.some(t=>!t||t.changeCount!==0||t._restoringState||!Array.isArray(t.undoQueue)||!Array.isArray(t.redoQueue)||
             t.constructor?.isLoadingGraph===true||
-            ['checkState','updateState','updateModified','store'].some(key=>typeof t[key]!=='function')))
+            (typeof t.captureCanvasState!=='function'&&typeof t.checkState!=='function')||
+            ['updateState','updateModified','store'].some(key=>typeof t[key]!=='function')))
         throw new Error('原生工作流正在編輯或版本不支援安全切換，請完成操作後再試。');
     globalThis.document?.activeElement?.blur?.();
     guard();
-    source.changeTracker.checkState();
+    const capture=source.changeTracker.captureCanvasState??source.changeTracker.checkState;
+    capture.call(source.changeTracker);
     source.changeTracker.store();
     if(graphFingerprint(source.activeState)!==graphFingerprint(graph.serialize()))
         throw new Error('目前原生草稿尚未保存至工作流，未切換。');
@@ -35,6 +37,7 @@ export async function openNativeWorkflow(app,target,guard,timeoutMs=12000) {
         cache:Object.fromEntries(['ds','nodeOutputs','subgraphState'].map(key=>[key,w.changeTracker[key]]))}));
     const sourceState=copy(source.activeState),destinationState=copy(destination.activeState);
     const loader=app.loadGraphData,restore=[];
+    const loadingClasses=[...new Set(trackers.map(t=>t.constructor).filter(c=>typeof c?.isLoadingGraph==='boolean'))];
     function replace(object,key,value) {
         const descriptor=Object.getOwnPropertyDescriptor(object,key);
         Object.defineProperty(object,key,{configurable:true,writable:true,value});
@@ -54,6 +57,10 @@ export async function openNativeWorkflow(app,target,guard,timeoutMs=12000) {
     }
     const load=async state=>{
         let timer;
+        // New frontends can have an already queued squash callback. Their
+        // native loading flag also protects the clean-before-await interval,
+        // including a rollback after the first loader cleared that flag.
+        for(const cls of loadingClasses)cls.isLoadingGraph=true;
         const pending=Promise.resolve().then(()=>loader.call(app,state,true,true,state===destinationState?destination:source,
             {checkForRerouteMigration:false,deferWarnings:true,skipAssetScans:true}));
         pendingLoad=pending;
@@ -64,7 +71,11 @@ export async function openNativeWorkflow(app,target,guard,timeoutMs=12000) {
         },timeoutMs);})]);}finally{clearTimeout(timer);}
     };
     try {
-        for(const t of trackers){replace(t,'checkState',()=>{});replace(t,'updateState',async()=>{});}
+        for(const cls of loadingClasses)replace(cls,'isLoadingGraph',true);
+        for(const t of trackers){
+            for(const key of ['checkState','captureCanvasState'])if(typeof t[key]==='function')replace(t,key,()=>{});
+            replace(t,'updateState',async()=>{});
+        }
         replace(app,'loadGraphData',blocked);
         for(const name of events)surface?.addEventListener?.(name,blockEvent,{capture:true,passive:false});
         try {

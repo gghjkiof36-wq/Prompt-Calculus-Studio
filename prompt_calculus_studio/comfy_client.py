@@ -85,6 +85,11 @@ class ComfyClient(QObject):
     def snapshot_compatible(self):
         return (self.snapshot_versions is None or self.window.state['version'] in self.snapshot_versions) and not (self.window.state.get('multi_output',{}).get('version',1)>=2 and self.flow_supported is False)
 
+    @property
+    def compatibility_message(self):
+        version=self.extension_info.get('version','未知版本')
+        return f'目前載入的 PCS 擴充（{version}）不支援這份資料。請在連線設定更新配套擴充，再重新啟動 ComfyUI 並重新整理工作流頁面。'
+
     def request(self,route,data=None,done=None,failed=None,raw=None,content_type='application/json'):
         if self.stopped: return
         epoch=self.epoch
@@ -202,10 +207,10 @@ class ComfyClient(QObject):
             version=self.window.state.get('multi_output',{}).get('version',1)
             required='stage_execution_v1' if version>=7 else 'typed_inputs_v2' if version>=6 else 'typed_inputs_v1' if version>=5 else 'workflow_images_v1' if version>=4 else 'clip_inputs_v3' if version>=3 else 'flow_connections_v2'
             self.flow_supported=required in status.get('capabilities',[])
-            if self.register_library and self.flow_supported and self.window.state.get('multi_output',{}).get('version',1)>=2:
+            self.snapshot_versions=status.get('snapshot_versions',[1,2,3] if self.direct_supported else [1])
+            if self.register_library and self.snapshot_compatible and self.flow_supported and self.window.state.get('multi_output',{}).get('version',1)>=2:
                 self.register_library=False; self.window.persist()
                 self.request('config',dict(library=str(self.window.store.directory/'studio.sqlite3')),failed=self.window.notice)
-            self.snapshot_versions=status.get('snapshot_versions',[1,2,3] if self.direct_supported else [1])
             self.message=('已連線 · '+self.target) if self.ready else status.get('reason','請在 ComfyUI 啟用桌面版控制。')
             if direct_mode(self.window.state):
                 self.message='已連線 · 工作流直接生成' if self.direct_supported else '請更新 ComfyUI 擴充以啟用工作流直接生成。'
@@ -215,15 +220,15 @@ class ComfyClient(QObject):
                 self.control_interrupted=False
             if version>=5 and not self.flow_supported:self.message='請安裝本次配套 ComfyUI 擴充並重新整理網頁，以啟用圖片來源與預排程。'
             if not self.snapshot_compatible:
-                self.message='ComfyUI 仍載入舊快照版本；請重啟 ComfyUI 後端以載入已更新的擴充。'
+                self.message=self.compatibility_message
                 self.control_interrupted=True; self.sync_timer.stop()
             self.stateChanged.emit()
             self.generation.observe(status)
             self.input_flow.observe(status)
             self.queue.observe()
             self.images.poll()
-            if 'workflow_transfer_v1' in status.get('capabilities',[]) and 'multi_output' in self.window.state: self.receive_workflow()
-            if self.ready and old!=self.lease and not direct_mode(self.window.state): self.last_signature=''; self.sync_timer.start()
+            if self.snapshot_compatible and 'workflow_transfer_v1' in status.get('capabilities',[]) and 'multi_output' in self.window.state: self.receive_workflow()
+            if self.snapshot_compatible and self.ready and old!=self.lease and not direct_mode(self.window.state): self.last_signature=''; self.sync_timer.start()
             if self.run_id and not self.generation.batch: self.check_run()
             if time.monotonic()-self.last_results>3:
                 self.last_results=time.monotonic(); self.request('desktop/results',done=self.resultsReceived.emit,failed=self.window.notice)
@@ -277,7 +282,7 @@ class ComfyClient(QObject):
 
     def run(self,count=1):
         if not self.snapshot_compatible:
-            self.window.notice('請先重啟 ComfyUI 後端，載入支援 Canvas 快照的擴充。'); return
+            self.window.notice(self.compatibility_message); return
         if direct_mode(self.window.state):
             if not self.can_run or (self.run_id and self.window.state.get('multi_output',{}).get('version',1)<5): return
             self.sync_timer.stop()

@@ -728,8 +728,9 @@ class MaterialPages(QWidget):
         ll.addWidget(f.lookup);ll.addWidget(f.lookup_hint);il.addWidget(self.lookup_controls)
         il.addStretch()
         from .material_editor_panels import MaterialPreviewImage
-        f.preview.hide();f.preview.deleteLater();f.preview=MaterialPreviewImage(f.window.store)
-        f.preview.pathReady.connect(f.receive_image);f.preview.failed.connect(f.window.notice)
+        if not isinstance(f.preview,MaterialPreviewImage):
+            f.preview.hide();f.preview.deleteLater();f.preview=MaterialPreviewImage(f.window.store)
+            f.preview.pathReady.connect(f.receive_image);f.preview.failed.connect(f.window.notice)
         self.image_controls,images=page();images.addWidget(f.preview,1)
         images.addLayout(row(button('選擇圖片',f.choose_image,'Quiet'),None,button('移除',f.clear_image,'Quiet')))
         f.show_preview()

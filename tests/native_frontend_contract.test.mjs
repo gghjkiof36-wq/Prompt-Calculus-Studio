@@ -20,15 +20,23 @@ test('installed native ChangeTracker survives inspect A to B, unsaved edits, swi
     const plain=nodeModule.stripTypeScriptTypes(source.replace(/^import[\s\S]*? from ['"][^'"]+['"]\s*$/gm,''),{mode:'transform'}).replace('export class ChangeTracker','class ChangeTracker');
     const copy=value=>structuredClone(value),store={workflows:[],activeWorkflow:null,getWorkflowByPath(path){return this.workflows.find(w=>w.path===path);}};
     const graph={state:null,get id(){return this.state.id;},serialize(){return copy(this.state);}};
-    const app={graph,rootGraph:graph,canvas:{ds:{scale:1,offset:[0,0]},setGraph(g){app.graph=g;}},extensionManager:{workflow:store},processingQueue:false,queueItems:[]};
+    const app={graph,rootGraph:graph,isGraphReady:true,ui:{autoQueueEnabled:false},canvas:{ds:{scale:1,offset:[0,0]},setGraph(g){app.graph=g;}},extensionManager:{workflow:store},processingQueue:false,queueItems:[]};
     globalThis.document=new EventTarget();globalThis.window=new EventTarget();
     const sent=[],api=Object.assign(new EventTarget(),{clientId:'live-session',dispatchCustomEvent(name,value){this.dispatchEvent(new CustomEvent(name,{detail:value}));},
         async queuePrompt(_number,payload){sent.push(copy(payload));return {prompt_id:'job-'+sent.length};}});
     const log={getLogger(){return {setLevel(){},debug(){},getLevel(){return 1;},levels:{DEBUG:0}};}};
     const lodash={isEqual:isDeepStrictEqual,isEqualWith:isDeepStrictEqual,omit(value,keys){return Object.fromEntries(Object.entries(value).filter(([key])=>!keys.includes(key)));}};
     const outputs={snapshotOutputs:()=>({oldPreview:'kept'}),restoreOutputs(){}},navigation={exportState:()=>[],restoreState(){}};
-    const Tracker=Function('app','api','useWorkflowStore','useNodeOutputStore','useSubgraphNavigationStore','_','log',plain+';return ChangeTracker;')(
-        app,api,()=>store,()=>outputs,()=>navigation,lodash,log);
+    // Frontends 1.53.10 and 1.55.17 add deferred state squashing and explicit
+    // readiness/queue-store guards. Preserve that timing; don't rewrite the
+    // real tracker or bypass its active-workflow checks to make this pass.
+    const timers=new Set();
+    const debounce=(fn,delay)=>{let timer;return (...args)=>{
+        clearTimeout(timer);timers.delete(timer);
+        timer=setTimeout(()=>{timers.delete(timer);fn(...args);},delay);timers.add(timer);
+    };};
+    const Tracker=Function('app','api','useWorkflowStore','useNodeOutputStore','useSubgraphNavigationStore','_','log','useDebounceFn','useQueueSettingsStore','assert',plain+';return ChangeTracker;')(
+        app,api,()=>store,()=>outputs,()=>navigation,lodash,log,debounce,()=>({mode:'disabled'}),assert.ok);
     for(const name of ['A','B']){
         const w={path:'workflows/'+name+'.json',isLoaded:true,get activeState(){return this.changeTracker.activeState;}};
         w.changeTracker=new Tracker(w,{id:'native-'+name,nodes:[{id:1,type:'CLIPTextEncode',widgets_values:['saved '+name]}]});
@@ -39,7 +47,17 @@ test('installed native ChangeTracker survives inspect A to B, unsaved edits, swi
     let adapter;
     app.loadGraphData=async(state,clean,restore,destination)=>{
         store.activeWorkflow.changeTracker.store();
-        if(clean)graph.state={id:state.id,nodes:[]};
+        if(clean){
+            const leaving=store.activeWorkflow.changeTracker;
+            const draft=copy(leaving.activeState),undo=copy(leaving.undoQueue);
+            graph.state={id:state.id,nodes:[]};
+            // Native callbacks now call captureCanvasState directly. A squash
+            // scheduled before the switch may also fire during async clean.
+            leaving.captureCanvasState?.();
+            await new Promise(resolve=>setTimeout(resolve,65));
+            assert.deepEqual(leaving.activeState,draft,'clean interval must not replace the departing draft');
+            assert.deepEqual(leaving.undoQueue,undo,'clean interval must not change undo history');
+        }
         await Promise.resolve(); // Native clean happens before its await/configure.
         Tracker.isLoadingGraph=true;app.configuringGraph=true;
         try {
@@ -58,6 +76,7 @@ test('installed native ChangeTracker survives inspect A to B, unsaved edits, swi
         graph.state.nodes.push({id:2,type:'CLIPTextEncode',widgets_values:['new unsaved CLIP']});
         const read=await adapter.execute({id:'read-B',epoch:0,identity:nativeIdentity(a),target:nativeIdentity(b),action:'inspect'});
         assert.equal(read.error,undefined);assert.equal(read.inspection.output['1'].inputs.text,'unsaved B');assert.equal(sent.length,0);
+        assert.equal(Tracker.isLoadingGraph,false,'native editing must be released after the switch');
         assert.equal(a.activeState.nodes.length,2);assert.equal(a.changeTracker.undoQueue.length,1);
         assert.equal(a.changeTracker.initialState.nodes[0].widgets_values[0],'saved A');
         assert.equal(b.changeTracker.initialState.nodes[0].widgets_values[0],'saved B');
@@ -67,5 +86,5 @@ test('installed native ChangeTracker survives inspect A to B, unsaved edits, swi
         assert.equal(a.changeTracker.redoQueue.length,1);
         assert.equal(requests.filter(r=>r.route==='workflow/native/prepare').length,1);
         await app.queuePrompt();assert.equal(sent.length,2);
-    } finally {adapter.stop();}
+    } finally {adapter.stop();for(const timer of timers)clearTimeout(timer);}
 });

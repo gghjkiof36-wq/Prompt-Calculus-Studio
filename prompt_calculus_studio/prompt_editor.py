@@ -372,8 +372,8 @@ def show_history(window, target=None):
 
 class MaterialEditorForm(QWidget):
     """`target` identifies a material original or a workspace-local node copy."""
-    def __init__(self, window, compact=False, isolated=False):
-        super().__init__()
+    def __init__(self, window, compact=False, isolated=False, parent=None):
+        super().__init__(parent)
         self.isolated = isolated
         self.document_scope = uid() if isolated else None
         self.window, self.compact = window, compact
@@ -396,6 +396,10 @@ class MaterialEditorForm(QWidget):
         self.timer.setSingleShot(True)
         self.timer.setInterval(350)
         self.timer.timeout.connect(self.flush_canvas)
+        if isolated:
+            from .material_modal_fields import build_fields
+            build_fields(self)
+            return
         if not compact:
             from .material_editor_page import build_page
             build_page(self)
@@ -631,6 +635,7 @@ class MaterialEditorForm(QWidget):
             sync_prompt_style(self)
 
     def refresh_list(self, *_):
+        if self.isolated:return
         selected = self.listing.currentItem()
         ident = selected.data(Qt.ItemDataRole.UserRole) if selected else None
         if not self.compact and self.target and self.target[0] == 'material': ident = self.target[1]
@@ -819,7 +824,7 @@ class MaterialEditorForm(QWidget):
         if not self.can_leave(): return
         try: value = materials.item(self.window.state, ident)
         except ValueError as exc: self.window.notice(str(exc)); return
-        for index in range(self.listing.count()):
+        for index in range(self.listing.count() if not self.isolated else 0):
             entry = self.listing.item(index)
             if entry.data(Qt.ItemDataRole.UserRole) == ident:
                 if entry is not self.listing.currentItem():
@@ -863,33 +868,37 @@ class MaterialEditorForm(QWidget):
         self.show_preview()
         self.more.setChecked(False)
         is_canvas = mode == 'canvas'
+        if not self.isolated:self.update_legacy_identity(mode)
+        self.aliases.setEnabled(not is_canvas)
+        self.notes.setEnabled(not is_canvas)
+        self.edit_category.setEnabled(not is_canvas)
+        self.status.setText('')
+        self.dirty = False
+        self.loading = False
+        if self.compact and not self.isolated:
+            if self.narrow: self.stack.setCurrentIndex(1)
+        elif not self.compact:
+            from .material_editor_page import update_page
+            update_page(self)
+        history = getattr(self.prompt, 'history', None)
+        if history is not None and history.identity != self.base['id']: history.bind()
+        self._publish(force=True)
+
+    def update_legacy_identity(self, mode):
+        is_canvas = mode == 'canvas'
         self.heading.setText('畫布文字副本' if is_canvas else '新建文字素材' if mode == 'new' else '素材原件')
         if is_canvas and self.destination_id:
             canvas = self.window.state.get('multi_output', {}).get('canvases', {}).get(self.destination_id, {})
             self.heading.setText('畫布副本 · ' + canvas.get('name', ''))
         self.scope_hint.setText('修改立即套用目前畫布；素材原件與其他副本保持原樣。' if is_canvas
                               else '保存供下次使用；既有畫布副本保持原樣。')
-        self.aliases.setEnabled(not is_canvas)
-        self.notes.setEnabled(not is_canvas)
-        self.edit_category.setEnabled(not is_canvas)
         self.save_button.setVisible(not is_canvas)
         self.use_button.setVisible(self.compact and not is_canvas)
         self.edit_destination.setVisible(self.compact and not is_canvas)
         self.variant_button.setVisible(self.compact and mode != 'new')
         self.delete_button.setVisible(self.compact and mode == 'material')
         self.history_button.setVisible(self.compact and mode != 'new')
-        self.status.setText('')
         self.detail.setEnabled(True)
-        self.dirty = False
-        self.loading = False
-        if self.compact:
-            if self.narrow: self.stack.setCurrentIndex(1)
-        else:
-            from .material_editor_page import update_page
-            update_page(self)
-        history = getattr(self.prompt, 'history', None)
-        if history is not None and history.identity != self.base['id']: history.bind()
-        self._publish(force=True)
 
     def form_values(self):
         return dict(name=self.name.text().strip(), prompt=self.prompt.toPlainText(),

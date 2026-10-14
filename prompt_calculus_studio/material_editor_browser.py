@@ -751,12 +751,16 @@ class PromptEditor(QWidget):
 class MaterialEditDialog(StudioDialog):
     """Only explicit save crosses from this dialog's draft to canonical data."""
     def __init__(self, page, ident, text=''):
-        super().__init__(page.window)
+        super().__init__(page.window,defer_style=True)
         from .module_chrome import apply_prompt_dialog, prompt_divider
         apply_prompt_dialog(self,page.window)
+        # Assemble the empty shell first. Moving a populated, styled widget
+        # tree between parents synchronously repolishes every descendant.
+        from .material_editor_panels import MaterialPanels
+        self.panels=MaterialPanels(self,None,lambda:self.pages.close_group_details())
         from .prompt_editor import MaterialEditorForm
         self.page = page; self.target_id = ident; self.busy = False; self.receipt = None; self.committed = False; self.was_new = ident is None
-        self.form = MaterialEditorForm(page.window, compact=True, isolated=True); self.form.setParent(self); self.form.hide()
+        self.form = MaterialEditorForm(page.window, compact=True, isolated=True, parent=self); self.form.hide()
         f = self.form
         f.set_destination(page.destination_id)
         f.category.setCurrentIndex(max(0, f.category.findData(page.get_browser_category())))
@@ -789,8 +793,8 @@ class MaterialEditDialog(StudioDialog):
         self.body.addWidget(prompt_divider())
         footer=QWidget();details=QVBoxLayout(footer);details.setContentsMargins(8,0,0,0);details.setSpacing(4);details.addWidget(self.error);details.addWidget(self.identity)
         self.body.addLayout(row(footer, None, self.cancel_button, self.save_button, self.add_button,self.done_button))
-        from .material_editor_panels import MaterialPanels
-        self.panels=MaterialPanels(self,self.pages.details_container,self.pages.close_group_details)
+        self.panels.content=self.pages;self.panels.form_scroll=self.form_scroll
+        self.panels.set_content(self.pages.details_container,'進階功能',self.pages.close_group_details)
         self.set_destination(page.destination_id)
         self.prompt.textChanged.connect(lambda: apply_line_spacing(f)); sync_prompt_style(f); apply_line_spacing(f)
         self.error.setText('')
