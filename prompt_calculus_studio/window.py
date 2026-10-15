@@ -807,7 +807,7 @@ class Window(QMainWindow):
     def workspace_menu(self):
         menu=QMenu(self); menu.addAction("工作區設定",self.workspace_settings); menu.addAction("新增預設流程工作區…",self.new_workspace)
         menu.addAction('複製目前工作區…',lambda:self.new_workspace(duplicate=True))
-        menu.addSeparator(); menu.addAction("刪除目前工作區…",self.delete_workspace); menu.open_at(self.cursor().pos())
+        menu.addSeparator(); menu.add_destructive_action("刪除目前工作區…",self.delete_workspace); menu.open_at(self.cursor().pos())
 
     def new_workspace(self,checked=False,duplicate=False):
         name,ok=QInputDialog.getText(self,"新增工作區","名稱，例如：Anima2")
@@ -896,7 +896,7 @@ class Window(QMainWindow):
         menu.addAction("複製本模組全部提示詞",lambda:self.copy_module(self.current_module,True))
         menu.addSeparator()
         menu.addAction('向上移動',lambda:self.move_module(-1)); menu.addAction('向下移動',lambda:self.move_module(1)); menu.addAction('移到最上方',lambda:self.move_module(-10000))
-        menu.addSeparator(); menu.addAction("編輯名稱與選擇模式",self.edit_module); menu.addAction("清除此模組選擇",self.clear_module); menu.addAction("刪除模組…",self.delete_module)
+        menu.addSeparator(); menu.addAction("編輯名稱與選擇模式",self.edit_module); menu.addAction("清除此模組選擇",self.clear_module); menu.add_destructive_action("刪除模組…",self.delete_module)
         menu.open_at(self.module_list.viewport().mapToGlobal(pos))
 
     def copy_module(self,mid,all_items=False):
@@ -1011,7 +1011,7 @@ class Window(QMainWindow):
         menu=QMenu(self); menu.addAction("複製此提示詞",lambda:self.copy_text(item["prompt"])); menu.addAction("加入／取消選擇",lambda:self.toggle_item(widget))
         menu.addSeparator(); menu.addAction('向上移動',lambda:self.move_library_item(ident,-1)); menu.addAction('向下移動',lambda:self.move_library_item(ident,1)); menu.addAction('移到最上方',lambda:self.move_library_item(ident,-10000))
         menu.addSeparator()
-        menu.addAction("編輯提示詞與預覽圖",lambda:self.edit_item(ident)); menu.addSeparator(); menu.addAction("刪除項目…",lambda:self.delete_item(ident)); menu.open_at(self.library.viewport().mapToGlobal(pos))
+        menu.addAction("編輯提示詞與預覽圖",lambda:self.edit_item(ident)); menu.addSeparator(); menu.add_destructive_action("刪除項目…",lambda:self.delete_item(ident)); menu.open_at(self.library.viewport().mapToGlobal(pos))
 
     def accept_quick(self,_row):
         self.add_temporary(self.quick.toPlainText(),clear=True)
@@ -1167,7 +1167,7 @@ class Window(QMainWindow):
             prompt=self.state["temporary"][ident]; menu.addAction("複製",lambda:self.copy_text(prompt)); menu.addAction("存入素材庫",lambda:self.new_item(prompt))
             def remove_temp():
                 self.state["temporary"].pop(ident); self.refresh_builder(); self.changed()
-            menu.addAction("移除此片段",remove_temp)
+            menu.add_destructive_action("移除此片段",remove_temp)
         menu.open_at(position)
 
     def reorder_builder(self,source,target,after=False):

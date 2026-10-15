@@ -116,6 +116,22 @@ def shell_color(settings):
     return f'rgba({rgb},{round(255-0.55*value)})'
 
 
+def destructive_button_styles(tokens):
+    """Keep destructive text visible in both application and local dialog QSS."""
+    from .color_roles import readable
+    foreground = readable(tokens['error'], tuple(tokens[key] for key in
+        ('base', 'surface', 'raised', 'field', 'hover', 'selected')))
+    return f'''
+    QPushButton#Danger, QPushButton#DangerQuiet, QPushButton#DeleteWorkflow, QPushButton#ClearDraft {{ color:{foreground}; }}
+    QPushButton#DangerQuiet, QPushButton#DeleteWorkflow, QPushButton#ClearDraft {{ background:transparent; border:1px solid transparent; }}
+    QPushButton#DangerQuiet:hover {{ background:{tokens['hover']}; border-color:transparent; }}
+    QPushButton#DeleteWorkflow:hover, QPushButton#ClearDraft:hover {{ background:{tokens['hover']}; border-color:{foreground}; }}
+    QPushButton#DangerQuiet:pressed, QPushButton#DeleteWorkflow:pressed, QPushButton#ClearDraft:pressed {{ background:{tokens['selected']}; }}
+    QPushButton#Danger:disabled, QPushButton#DangerQuiet:disabled, QPushButton#DeleteWorkflow:disabled, QPushButton#ClearDraft:disabled {{ color:{tokens['disabled_text']}; }}
+    QPushButton#DangerQuiet:disabled, QPushButton#DeleteWorkflow:disabled, QPushButton#ClearDraft:disabled {{ background:transparent; border-color:transparent; }}
+    '''
+
+
 def stylesheet(settings):
     from .ui_icons import stylesheet_icon_paths
     t = visual_tokens(settings)
@@ -224,11 +240,7 @@ def stylesheet(settings):
     QPushButton#Quiet:disabled {{ color:{t['control']}; background:transparent; border-color:transparent; }}
     QPushButton#DialogClose {{ background:transparent; border:1px solid transparent; font-size:24px; padding:0; }}
     QPushButton#DialogClose:hover {{ background:{t['hover']}; border-color:{t['control']}; }}
-    QPushButton#Danger {{ color:{t['error']}; }}
-    QPushButton#DeleteWorkflow, QPushButton#ClearDraft {{ background:transparent; border:1px solid transparent; color:{t['error']}; }}
-    QPushButton#DeleteWorkflow:hover, QPushButton#ClearDraft:hover {{ background:{t['hover']}; border-color:{t['error']}; color:{t['error']}; }}
-    QPushButton#DeleteWorkflow:pressed, QPushButton#ClearDraft:pressed {{ background:{t['selected']}; }}
-    QPushButton#DeleteWorkflow:disabled, QPushButton#ClearDraft:disabled {{ color:{t['disabled_text']}; background:transparent; border-color:transparent; }}
+    {destructive_button_styles(t)}
     QLineEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {{ background:{t['field']}; border:1px solid {t['line']}; border-radius:8px; padding:7px 10px; selection-background-color:{t['selected']}; selection-color:{t['text']}; }}
     QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{ border-color:{accent}; }}
     QLineEdit:disabled, QPlainTextEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {{ background:{t['disabled_bg']}; color:{t['disabled_text']}; border-color:{t['line']}; }}

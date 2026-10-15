@@ -339,8 +339,8 @@ class GroupEditor(MaterialPickerMixin,QWidget):
         menu.addAction('下移', lambda: move(1)).setEnabled(at+1 < len(rows))
         menu.addAction('複製', lambda: self.copy_group(ident))
         menu.addAction('設為起始組合', lambda: self.set_start(ident))
-        menu.addAction('刪除', lambda: self.delete_group(ident)).setEnabled(len(rows) > 1)
-        menu.exec(position)
+        menu.add_destructive_action('移除', lambda: self.delete_group(ident)).setEnabled(len(rows) > 1)
+        menu.open_at(position)
 
     def copy_group(self, ident):
         groups.duplicate(self.sequence, ident); self.refresh_overview(); self.changed.emit()
@@ -356,7 +356,7 @@ class GroupEditor(MaterialPickerMixin,QWidget):
             for group in self.sequence['groups']:
                 if group['id'] != ident: combo.addItem(group['name'], group['id'])
             combo.setCurrentIndex(-1); dialog.body.addWidget(combo)
-            confirm = button('刪除並替換', dialog.accept, 'Primary'); confirm.setEnabled(False)
+            confirm = button('移除並替換', dialog.accept, 'Danger'); confirm.setEnabled(False)
             combo.currentIndexChanged.connect(lambda: confirm.setEnabled(combo.currentData() is not None))
             dialog.body.addLayout(row(None, button('取消', dialog.reject, 'Quiet'), confirm))
             if not dialog.exec(): return
@@ -565,7 +565,7 @@ class GroupEditor(MaterialPickerMixin,QWidget):
         menu.addAction('停用' if target['enabled'] else '啟用', lambda: change('enable'))
         menu.addAction('上移', lambda: change(-1)).setEnabled(at > 0)
         menu.addAction('下移', lambda: change(1)).setEnabled(at+1 < len(rows))
-        menu.addAction('複製', lambda: change('duplicate')); menu.addAction('移除', lambda: change('remove')); menu.exec(position)
+        menu.addAction('複製', lambda: change('duplicate')); menu.add_destructive_action('移除', lambda: change('remove')); menu.open_at(position)
 
     def open_picker(self):
         self.picker_kind='text'
@@ -673,7 +673,7 @@ class MaterialPages(QWidget):
             f.preview.hide();f.preview.deleteLater();f.preview=MaterialPreviewImage(f.window.store)
             f.preview.pathReady.connect(f.receive_image);f.preview.failed.connect(f.window.notice)
         self.image_controls,images=page();images.addWidget(f.preview,1)
-        images.addLayout(row(button('選擇圖片',f.choose_image,'Quiet'),None,button('移除',f.clear_image,'Quiet')))
+        images.addLayout(row(button('選擇圖片',f.choose_image,'Quiet'),None,button('移除',f.clear_image,'DangerQuiet')))
         f.show_preview()
         relation, rl = page();rl.setSpacing(8);rl.addWidget(label('排除 Tag','Subtle'))
         f.excludes.setPlaceholderText('');f.excludes.setMinimumHeight(120);f.excludes.setMaximumHeight(120)

@@ -25,10 +25,10 @@ class QueueDialog(StudioDialog):
         self.items = QListWidget()
         self.items.currentItemChanged.connect(self.details)
         self.body.addWidget(self.items, 1)
-        self.body.addLayout(row(*[button(title, lambda checked=False, a=action:self.edit(a), 'Quiet')
+        self.body.addLayout(row(*[button(title, lambda checked=False, a=action:self.edit(a), 'DangerQuiet' if action == 'remove' else 'Quiet')
                                  for title, action in (('移至下一項','next'),('上移','up'),('下移','down'),('移除等待項','remove'))],
                                 button('重試已確認失敗', self.retry, 'Quiet'), None))
-        self.body.addLayout(row(button('移除選定的已結案紀錄',self.remove_finished,'Quiet'),
+        self.body.addLayout(row(button('移除選定的已結案紀錄',self.remove_finished,'DangerQuiet'),
                                 button('查看這項結果',self.show_results,'Quiet'),
                                 label('原始圖片、生成歷史與資產副本保留。','Subtle'),None))
         self.detail = QPlainTextEdit()

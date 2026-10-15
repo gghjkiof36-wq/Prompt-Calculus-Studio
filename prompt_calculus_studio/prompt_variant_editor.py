@@ -261,7 +261,7 @@ class VariantEditor(QWidget):
         menu.addAction('上移',lambda:self.move(-1)).setEnabled(at>0)
         menu.addAction('下移',lambda:self.move(1)).setEnabled(at+1<len(self.sequence['groups']))
         menu.add_destructive_action('刪除變體',self.remove).setEnabled(len(self.sequence['groups'])>1)
-        menu.exec(self.actions.mapToGlobal(self.actions.rect().bottomLeft()))
+        menu.open_for(self.actions)
         return menu
 
     def set_start(self,ident=None):

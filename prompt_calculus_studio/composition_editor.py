@@ -226,7 +226,7 @@ class CompositionEditor(QWidget):
         self.sidebar_scroll=QScrollArea(); self.sidebar_scroll.viewport().setObjectName('ScrollViewport'); self.sidebar_scroll.setWidgetResizable(True); self.sidebar_scroll.setWidget(self.sidebar); self.sidebar_scroll.setMinimumWidth(200); self.sidebar_scroll.setMaximumWidth(300); self.sidebar_scroll.setFrameShape(QFrame.Shape.NoFrame); center.addWidget(self.sidebar_scroll)
         self.layer_toggle.toggled.connect(self.sidebar_scroll.setVisible)
         self.layers=QListWidget(); self.layers.setMinimumHeight(130); self.layers.currentItemChanged.connect(self.selected_changed); side.addWidget(self.layers,1)
-        side.addLayout(row(button('上移',lambda:self.stack(1),'Quiet'),button('下移',lambda:self.stack(-1),'Quiet'),button('刪除',self.remove_layer,'Quiet')))
+        side.addLayout(row(button('上移',lambda:self.stack(1),'Quiet'),button('下移',lambda:self.stack(-1),'Quiet'),button('刪除',self.remove_layer,'DangerQuiet')))
         self.properties=QWidget(); form=QFormLayout(self.properties); form.setContentsMargins(0,0,0,0); self.fields={}
         for field,title in [('x','X'),('y','Y'),('width','寬度'),('height','高度')]:
             box=QDoubleSpinBox(); box.setDecimals(1); box.setRange(1 if field in ('width','height') else -100000,100000); box.editingFinished.connect(lambda f=field:self.change_geometry(f)); self.fields[field]=box; form.addRow(title,box)

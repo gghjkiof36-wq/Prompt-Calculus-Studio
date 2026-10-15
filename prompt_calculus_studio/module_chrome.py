@@ -33,6 +33,7 @@ def dialog_colors(colors):
 
 
 def module_dialog_styles(colors, heading_size):
+    from .theme import destructive_button_styles
     t=dialog_colors(colors)
     return f'''
         QFrame#DialogSurface {{background:{t['base']};border:1px solid {t['line']};border-radius:14px;}}
@@ -48,6 +49,7 @@ def module_dialog_styles(colors, heading_size):
         QPushButton#Quiet:hover, QPushButton#DialogClose:hover {{background:{t['hover']};}}
         QPushButton#Primary {{background:{t['accent']};border-color:{t['accent']};color:{t['on_accent']};}}
         QPushButton:disabled {{background:{t['field']};color:{t['secondary']};border-color:{t['line']};}}
+        {destructive_button_styles(t)}
         QListWidget[moduleChoices="true"] {{background:transparent;border:0;padding:0;outline:0;}}
         QListWidget[moduleChoices="true"]::item {{padding:8px 10px;border:0;border-radius:8px;}}
         QListWidget[moduleChoices="true"]::item:hover {{background:{t['hover']};}}

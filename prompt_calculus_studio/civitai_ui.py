@@ -242,7 +242,7 @@ class CivitAIPage(QFrame):
         try:self.token.setText(load_token(self.window.store.directory))
         except ValueError as exc:self.window.notice(str(exc))
         self.token.textChanged.connect(self.token_changed)
-        body.addLayout(row(self.token,button('測試並儲存',self.test_connection),button('清除',self.clear_token,'Quiet')))
+        body.addLayout(row(self.token,button('測試並儲存',self.test_connection),button('清除',self.clear_token,'DangerQuiet')))
         self.connection=selectable('Token 由 Windows 目前帳號加密保存，不寫入資料庫或一般備份。'); body.addWidget(self.connection); self.tabs.addTab(box,'連線設定')
         self.filter_minor=QCheckBox('隱藏未成年／兒童主題'); self.filter_minor.setChecked(self.window.state['settings'].get('civitai_filter_minor',True)); body.addWidget(self.filter_minor)
         self.nsfw=QCheckBox('包含成人內容'); self.nsfw.setChecked(self.window.state['settings'].get('civitai_mature',True)); body.addWidget(self.nsfw)

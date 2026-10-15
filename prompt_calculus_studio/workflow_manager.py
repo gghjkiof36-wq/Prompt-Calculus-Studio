@@ -85,7 +85,7 @@ class WorkflowManager(QWidget):
         menu=RoundMenu(self)
         for control in (self.rename_button,self.reimport_button,self.delete_button,self.undo_button):
             if control is self.delete_button:menu.addSeparator()
-            action=menu.addAction(control.text(),control.click); action.setEnabled(control.isEnabled())
+            action=(menu.add_destructive_action if control is self.delete_button else menu.addAction)(control.text(),control.click); action.setEnabled(control.isEnabled())
         menu.open_for(self.more_button)
 
     def resizeEvent(self,event):

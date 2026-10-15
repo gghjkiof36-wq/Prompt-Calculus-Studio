@@ -27,7 +27,7 @@ class ImageIterationDialog(StudioDialog):
         self.input=ComboBox();self.target=ComboBox()
         form.addRow('執行工作流',self.workflow);form.addRow('接收圖片節點',self.input)
         content.addLayout(row(button('加入圖片…',self.choose_files,'Quiet'),button('加入資料夾…',self.choose_folder,'Quiet'),
-                                button('清空清單',self.clear,'Quiet'),None))
+                                button('清空清單',self.clear,'DangerQuiet'),None))
         self.collection=ComboBox();self.collection.addItem('選擇已取得的圖片集合',None)
         for key in window.state.get('canvas_functions',{}).get('images',{}):
             collection=window.comfy.images.collection(key)

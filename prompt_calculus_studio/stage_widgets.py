@@ -141,7 +141,7 @@ class SchedulePanel(QFrame):
         if self.canvas.data()['schedulers'].get(self.key,{}).get('mode')=='stage':menu.addAction('輸入取值',self.policies)
         menu.addSeparator()
         selected=self.selected();ident=selected['id'] if selected else None
-        remove=menu.addAction('移除選取項目',lambda:self.remove(ident));remove.setEnabled(bool(ident and self.runner.can_remove_entry(ident)))
+        remove=menu.add_destructive_action('移除選取項目',lambda:self.remove(ident));remove.setEnabled(bool(ident and self.runner.can_remove_entry(ident)))
         cancel=menu.addAction('取消目前項目',lambda:self.cancel_current());cancel.setEnabled(bool(self.rows))
         menu.addSeparator()
         all_runs=menu.addAction('取消此處所有流程（含等待項目）',lambda:self.action('cancel'));all_runs.setEnabled(bool(self.rows))
@@ -152,7 +152,7 @@ class SchedulePanel(QFrame):
         if not item:return
         menu=RoundMenu(self)
         menu.addAction('查看此項內容',lambda:entry_detail(self.canvas.window,self.runner.store.read(ident)))
-        remove=menu.addAction('移除此項',lambda:self.remove(ident));remove.setEnabled(self.runner.can_remove_entry(ident))
+        remove=menu.add_destructive_action('移除此項',lambda:self.remove(ident));remove.setEnabled(self.runner.can_remove_entry(ident))
         cancel=menu.addAction('取消此項',lambda:self.cancel_current(ident))
         cancel.setEnabled(item['status']=='running')
         menu.open_at(position)

@@ -167,7 +167,7 @@ class SchedulePanel(QFrame):
         body.addWidget(label('拖曳等待項目調整順序；點擊查看完整內容。','Subtle',True))
         self.failure_button=button('處理失敗項目',self.failure_menu,'Quiet')
         body.addLayout(row(button('上移',lambda:self.move('up'),'Quiet'),button('下移',lambda:self.move('down'),'Quiet'),
-                           button('移除',lambda:self.move('remove'),'Quiet'),self.failure_button))
+                           button('移除',lambda:self.move('remove'),'DangerQuiet'),self.failure_button))
         self.detail_id=None;self.detail_state=None
         self.detail=InputDetailDialog(canvas.window);self.detail.setWindowTitle('預排程完整內容');self.detail.resize(720,580)
         self.destroyed.connect(self.detail.deleteLater)
@@ -384,5 +384,5 @@ class FlowCard(TextCard):
         menu.addAction('調整模組尺寸…',lambda:self.canvas.size_dialog(self.key))
         menu.addAction('恢復自動尺寸',lambda:self.canvas.reset_size(self.key))
         menu.addAction('重新命名',lambda:self.canvas.rename_function(self.kind,self.key))
-        menu.addAction('移除模塊（保留並暫停等待項目）',lambda:self.canvas.remove_flow_node(self.kind,self.key))
+        menu.add_destructive_action('移除模塊（保留並暫停等待項目）',lambda:self.canvas.remove_flow_node(self.kind,self.key))
         menu.open_at(position)

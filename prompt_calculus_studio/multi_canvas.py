@@ -84,7 +84,7 @@ class OutputPanel(QFrame):
     def more_actions(self):
         menu=RoundMenu(self)
         menu.addAction('存入素材庫',lambda:self.canvas.window.new_item(self.editor.toPlainText()))
-        clear=menu.addAction('清除手動內容',self.clear_draft);clear.setEnabled(self.clear.isEnabled())
+        clear=menu.add_destructive_action('清除手動內容',self.clear_draft);clear.setEnabled(self.clear.isEnabled())
         menu.open_for(self.save_material,self.canvas.view)
     def save_ratio(self,*_):
         sizes=self.split.sizes()
@@ -291,7 +291,7 @@ class FlowFunctions(CanvasFunctions):
             if self.data()['images'][key].get('reader')!='text':
                 embed=menu.addMenu('嵌入畫布')
                 for cid,value in self.canvas.data()['canvases'].items(): embed.addAction(value['name'],lambda checked=False,c=cid:self.canvas.embed_source(key,c))
-        menu.addAction('移除',lambda:self.remove(key)); menu.open_at(position)
+        menu.add_destructive_action('移除',lambda:self.remove(key)); menu.open_at(position)
 
 
 class MultiCanvas(TextCanvas):
@@ -827,7 +827,7 @@ class MultiCanvas(TextCanvas):
         menu=RoundMenu(self.window); menu.addAction('綁定工作流文字欄',lambda:self.bind_dialog(key))
         menu.addAction('調整模組尺寸…',lambda:self.size_dialog(key));menu.addAction('恢復自動尺寸',lambda:self.reset_size(key))
         menu.addAction('重新命名',lambda:self.rename_function('clip_inputs',key))
-        menu.addAction('移除 CLIP 輸入',lambda:self.commit(lambda s:clip_flow.remove(s,key))); menu.open_at(position)
+        menu.add_destructive_action('移除 CLIP 輸入',lambda:self.commit(lambda s:clip_flow.remove(s,key))); menu.open_at(position)
     def container_menu(self,key,position):
         menu=RoundMenu(self.window); menu.addAction('展開畫布「'+self.data()['canvases'][key]['name']+'」',lambda:self.open_editor(key))
         menu.addAction('調整模組尺寸…',lambda:self.size_dialog(key));menu.addAction('恢復自動尺寸',lambda:self.reset_size(key))
@@ -839,7 +839,7 @@ class MultiCanvas(TextCanvas):
         menu.addAction('重新命名',rename)
         menu.addAction('新增 Prompt 輸出並連接',lambda:self.create_connected_output(key))
         menu.addAction('嵌入圖片…',lambda:self.import_canvas_image(key))
-        menu.addAction('移除畫布，保留素材',lambda:self.remove_container(key)); menu.addSeparator(); menu.addAction('復原',self.undo).setEnabled(bool(self.undo_stack)); menu.open_at(position)
+        menu.add_destructive_action('移除畫布，保留素材',lambda:self.remove_container(key)); menu.addSeparator(); menu.addAction('復原',self.undo).setEnabled(bool(self.undo_stack)); menu.open_at(position)
     def create_connected_output(self,key):
         container=self.containers[key]; output=self.add_output(QPointF(container.x()+container.width+90,container.y()))
         self.commit(lambda s:model.connect(s,key,output,'text'))
@@ -849,7 +849,7 @@ class MultiCanvas(TextCanvas):
         menu.addAction('重新命名',lambda:self.rename_function('outputs',key))
         if self.data().get('version',0)<7:menu.addAction('排列文字來源',lambda:self.order_sources(key))
         menu.addAction('新增 CLIP 輸入並連接',lambda:self.add_clip(self.outputs[key].pos()+QPointF(self.outputs[key].width+90,0),key))
-        menu.addAction('設為目前輸出',lambda:self.set_current(key)); menu.addAction('移除輸出',lambda:self.remove_output(key)); menu.open_at(position)
+        menu.addAction('設為目前輸出',lambda:self.set_current(key)); menu.add_destructive_action('移除輸出',lambda:self.remove_output(key)); menu.open_at(position)
     def rename_function(self,collection,key):
         text,ok=InputDialog.getText(self.window,'模組名稱','名稱',text=self.data()[collection][key]['name'])
         if ok and text.strip(): self.commit(lambda s:s['multi_output'][collection][key].update(name=text.strip()))

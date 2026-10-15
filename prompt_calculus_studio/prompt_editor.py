@@ -496,7 +496,7 @@ class MaterialEditorForm(QWidget):
         self.preview.pathReady.connect(self.receive_image)
         self.preview.failed.connect(window.notice)
         extra.addRow(self.preview)
-        extra.addRow(row(button('選擇預覽圖', self.choose_image, 'Quiet'), button('移除預覽', self.clear_image, 'Quiet')))
+        extra.addRow(row(button('選擇預覽圖', self.choose_image, 'Quiet'), button('移除預覽', self.clear_image, 'DangerQuiet')))
         detail.addWidget(self.extras)
         self.extras.hide()
         self.status = label('', 'Subtle', True)
@@ -508,7 +508,7 @@ class MaterialEditorForm(QWidget):
         self.use_button = button('保存並加入畫布', lambda: self.save_material(True), 'Quiet')
         self.variant_button = button('另存為新素材', self.save_variant, 'Quiet')
         self.history_button = button('內容歷史', self.history, 'Quiet')
-        self.delete_button = button('刪除素材', self.delete_material, 'Quiet')
+        self.delete_button = button('刪除', self.delete_material, 'DangerQuiet')
         detail.addLayout(row(self.save_button, self.use_button))
         detail.addLayout(row(self.variant_button, self.history_button, self.delete_button))
 

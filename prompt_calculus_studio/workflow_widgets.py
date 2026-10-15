@@ -19,7 +19,7 @@ class WorkflowOrderPanel(QFrame):
         self.list.setAccessibleName('工作流執行順序'); self.list.setMinimumSize(260,160); body.addWidget(self.list)
         self.list.model().rowsMoved.connect(self.reordered)
         self.list.itemDoubleClicked.connect(lambda _:self.edit())
-        body.addLayout(row(button('新增階段',lambda:self.edit(True),'Quiet'),button('編輯',self.edit,'Quiet'),button('移除',self.remove,'Quiet')))
+        body.addLayout(row(button('新增階段',lambda:self.edit(True),'Quiet'),button('編輯',self.edit,'Quiet'),button('移除',self.remove,'DangerQuiet')))
         self.source=ComboBox();self.source.setAccessibleName('串接入口圖片清單');body.addWidget(self.source)
         self.source.currentIndexChanged.connect(lambda:self.change(lambda p:p.update(source=self.source.currentData())))
         body.addLayout(row(button('暫停',lambda:self.control('pause'),'Quiet'),button('繼續',lambda:self.control('resume'),'Quiet'),

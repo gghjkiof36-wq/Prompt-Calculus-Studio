@@ -310,4 +310,4 @@ class GroupSourceCard(TextCard):
 
     def open_menu(self,position):
         menu=RoundMenu(self.canvas.window);menu.addAction('選擇流程',self.panel.edit)
-        menu.addAction('移除',lambda:self.owner.remove(self.key));menu.exec(position)
+        menu.add_destructive_action('移除',lambda:self.owner.remove(self.key));menu.open_at(position)

@@ -373,4 +373,4 @@ class CanvasFunctions:
             menu.addAction('選擇圖片…',self.cards[key].panel.choose_file)
             source=self.data()['images'][key].get('source')
             if source: menu.addAction('載入圖片提示詞…',lambda:self.window.generation_panel.load_image_prompt(source))
-        menu.addAction('移除',lambda:self.remove(key)); menu.open_at(position)
+        menu.add_destructive_action('移除',lambda:self.remove(key)); menu.open_at(position)

@@ -50,7 +50,7 @@ class ExportPage(QFrame):
         self.add_files_button=button('選擇圖片…',self.choose_files)
         self.add_folder_button=button('選擇資料夾…',lambda:self.folder_menu(self.add_folder_button))
         self.recursive=QCheckBox('包含子資料夾'); self.recursive.toggled.connect(self.rescan)
-        self.clear_button=button('清空',self.clear,'Quiet'); self.rescan_button=button('重新掃描',self.rescan,'Quiet')
+        self.clear_button=button('清空',self.clear,'DangerQuiet'); self.rescan_button=button('重新掃描',self.rescan,'Quiet')
         self.source_tools=QWidget(); source_tools=QVBoxLayout(self.source_tools); source_tools.setContentsMargins(0,0,0,0)
         source_tools.addWidget(self.add_files_button);source_tools.addWidget(self.add_folder_button)
         source_tools.addWidget(self.recursive);source_tools.addWidget(self.rescan_button);source_tools.addWidget(self.clear_button)

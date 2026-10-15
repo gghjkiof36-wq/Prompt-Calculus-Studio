@@ -123,7 +123,7 @@ class ModelPage(QFrame):
         self.preview_actions=QWidget(); preview_actions=row(); preview_actions.setContentsMargins(0,0,0,0); self.preview_actions.setLayout(preview_actions)
         self.preview_buttons=[]
         for title,callback,symbol in (('設定預覽圖',self.choose_image,'media'),('移除預覽',self.clear_preview,'trash')):
-            control=button(title,callback,'Quiet'); control.setToolTip(title); control.setAccessibleName(title)
+            control=button(title,callback,'DangerQuiet' if symbol == 'trash' else 'Quiet'); control.setToolTip(title); control.setAccessibleName(title)
             control.setIcon(icon(symbol)); preview_actions.addWidget(control); self.preview_buttons.append(control)
         self.compact_preview=None
         right.addWidget(label('本機資料','Heading'))
@@ -180,7 +180,7 @@ class ModelPage(QFrame):
         menu=QMenu(self)
         menu.addAction('CivitAI 搜尋',lambda:self.window.settings('civitai')); menu.addSeparator()
         menu.addAction('辨識來源',self.identify_civitai); menu.addAction('管理分類',self.manage_categories)
-        menu.addSeparator(); menu.addAction('清除缺失項目',self.clean_missing); menu.addAction('還原已清除',self.restore_missing)
+        menu.addSeparator(); menu.add_destructive_action('清除缺失項目',self.clean_missing); menu.addAction('還原已清除',self.restore_missing)
         menu.open_at(self.model_more.mapToGlobal(self.model_more.rect().bottomLeft()))
 
     def refresh_detail_layout(self):
@@ -487,7 +487,7 @@ class ModelPage(QFrame):
         if not item: return
         self.list.setCurrentItem(item)
         menu=QMenu(self); menu.addAction("複製觸發詞",lambda:self.window.copy_text(self.trigger.toPlainText())); menu.addAction("加入目前組合",lambda:self.window.add_temporary(self.trigger.toPlainText()))
-        menu.addAction("設定預覽圖",self.choose_image); menu.addAction("顯示檔案位置",self.reveal); menu.addSeparator(); menu.addAction("移至資源回收筒…",self.recycle)
+        menu.addAction("設定預覽圖",self.choose_image); menu.addAction("顯示檔案位置",self.reveal); menu.addSeparator(); menu.add_destructive_action("移至資源回收筒…",self.recycle)
         menu.open_at(self.list.viewport().mapToGlobal(pos))
 
 
@@ -797,7 +797,7 @@ class GalleryPage(QFrame):
         menu=QMenu(self)
         menu.addAction('新增資料夾',self.add_album)
         for text,callback in (('重新命名',self.rename_album),('設定收藏儲存位置…',self.set_album_directory),('匯出資料夾圖片…',self.export_album),('移除資料夾…',self.delete_album)):
-            action=menu.addAction(text,callback); action.setEnabled(self.album is not None)
+            action=(menu.add_destructive_action if callback == self.delete_album else menu.addAction)(text,callback); action.setEnabled(self.album is not None)
         trigger=trigger or self.folder_more
         menu.open_at(trigger.mapToGlobal(trigger.rect().bottomLeft()))
 
@@ -810,7 +810,7 @@ class GalleryPage(QFrame):
         menu.addSeparator()
         for text,callback in (('重新連結原圖',self.relink),('附上目前工作區資料',self.attach),('編輯備註',self.edit_notes),('移至其它資料夾',self.move_album)):
             menu.addAction(text,callback)
-        menu.addSeparator(); menu.addAction('移除圖片紀錄…',self.remove)
+        menu.addSeparator(); menu.add_destructive_action('移除圖片紀錄…',self.remove)
         menu.open_at(self.detail_more.mapToGlobal(self.detail_more.rect().bottomLeft()))
 
     def import_menu(self):
@@ -847,7 +847,7 @@ class GalleryPage(QFrame):
             menu.addAction('重新命名',self.rename_album)
             menu.addAction('設定收藏儲存位置…',self.set_album_directory)
             menu.addAction('匯出資料夾圖片…',self.export_album)
-            menu.addAction('移除資料夾…',self.delete_album)
+            menu.add_destructive_action('移除資料夾…',self.delete_album)
             menu.addSeparator()
         menu.addAction('新增資料夾',self.add_album)
         menu.open_at(self.albums.viewport().mapToGlobal(pos))
@@ -1102,7 +1102,7 @@ class GalleryPage(QFrame):
         path=self.record['path']
         menu.addAction('顯示檔案位置',lambda:reveal_file(self,path))
         menu.addAction('複製檔案路徑',lambda:QApplication.clipboard().setText(path))
-        menu.addAction("開啟原圖",self.open_original); menu.addAction("附上目前工作區資料",self.attach); menu.addAction("移至其它資料夾",self.move_album); menu.addAction("移除紀錄…",self.remove)
+        menu.addAction("開啟原圖",self.open_original); menu.addAction("附上目前工作區資料",self.attach); menu.addAction("移至其它資料夾",self.move_album); menu.add_destructive_action("移除紀錄…",self.remove)
         menu.open_at(self.images.viewport().mapToGlobal(pos))
 
     def export_selected(self):

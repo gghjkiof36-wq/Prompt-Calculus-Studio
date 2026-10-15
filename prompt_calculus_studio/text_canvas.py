@@ -899,7 +899,7 @@ class TextCanvas(QWidget):
             index=int(key.split(':')[1]); menu=RoundMenu(self.window)
             menu.addAction('複製片段',lambda:self.window.copy_text(self.window.state['temporary'][index]))
             menu.addAction('存入素材庫',lambda:self.window.new_item(self.window.state['temporary'][index]))
-            menu.addAction('移除此片段',lambda:self.remove_keys([key])); menu.open_at(position); return
+            menu.add_destructive_action('移除此片段',lambda:self.remove_keys([key])); menu.open_at(position); return
         menu = RoundMenu(self.window)
         menu.addAction('編輯當次內容…', lambda: self.edit(key))
         menu.addAction('調整權重…', lambda: self.weight_dialog(key))
@@ -911,8 +911,8 @@ class TextCanvas(QWidget):
         menu.addAction('將選取項目組合', self.group)
         menu.addAction('拆解群組', lambda: self.detach(key))
         menu.addAction('另存為複合素材…', lambda: self.save_prototype(key)); menu.addSeparator()
-        menu.addAction('移除當次組合', lambda: self.remove(key))
-        menu.addAction('刪除選取項目 · Del / Backspace',self.delete_selected if selected_keys is None else lambda:self.remove_keys(selected_keys))
+        menu.add_destructive_action('移除當次組合', lambda: self.remove(key))
+        menu.add_destructive_action('刪除選取項目 · Del / Backspace',self.delete_selected if selected_keys is None else lambda:self.remove_keys(selected_keys))
         menu.open_at(position)
 
     def tools_menu(self,position=None):
@@ -923,7 +923,7 @@ class TextCanvas(QWidget):
         menu.addAction('新增模組',self.add_new)
         menu.addSeparator()
         menu.addAction('將選取項目組合', self.group)
-        menu.addAction('刪除選取項目 · Del / Backspace',self.delete_selected)
+        menu.add_destructive_action('刪除選取項目 · Del / Backspace',self.delete_selected)
         menu.addAction('復原',self.undo).setEnabled(bool(self.undo_stack))
         menu.addAction('重做',self.redo).setEnabled(bool(self.redo_stack))
         menu.addAction('顯示全部模組與輸出',self.fit)
@@ -932,7 +932,7 @@ class TextCanvas(QWidget):
         menu.addAction('調整圖片預覽尺寸…',lambda:self.size_dialog('__result_preview__'))
         menu.addSeparator()
         menu.addAction('複製完整 Prompt',lambda:self.window.copy_text(self.window.final.toPlainText()))
-        menu.addAction('清除手動稿，恢復組合',self.window.regenerate).setEnabled(self.window.state['draft'] is not None)
+        menu.add_destructive_action('清除手動稿，恢復組合',self.window.regenerate).setEnabled(self.window.state['draft'] is not None)
         menu.addAction('運行 ComfyUI',self.window.copy_final).setEnabled(hasattr(self.window,'comfy') and self.window.comfy.can_run)
         menu.open_at(position if position is not None else self.view.viewport().mapToGlobal(self.view.viewport().rect().center()))
 

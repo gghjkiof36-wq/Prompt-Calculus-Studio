@@ -243,7 +243,7 @@ def build_page(e):
     e.preview_section = QWidget(); preview_layout = QVBoxLayout(e.preview_section); preview_layout.setContentsMargins(0, 0, 0, 0)
     e.preview = ImageDropLabel(e.window.store); e.preview.setMaximumHeight(140); e.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
     e.preview.pathReady.connect(e.receive_image); e.preview.failed.connect(e.window.notice); preview_layout.addWidget(e.preview)
-    preview_layout.addLayout(row(button('選擇預覽圖', e.choose_image, 'Quiet'), button('移除預覽', e.clear_image, 'Quiet'), None))
+    preview_layout.addLayout(row(button('選擇預覽圖', e.choose_image, 'Quiet'), button('移除預覽', e.clear_image, 'DangerQuiet'), None))
     extra.addWidget(e.preview_section); e.preview_section.hide(); e.preview_toggle.toggled.connect(e.preview_section.setVisible)
     e.content_layout.addWidget(e.extras); e.extras.hide(); e.content_layout.addStretch()
     e.scroll.setWidget(content); detail.addWidget(e.scroll, 1)
@@ -252,7 +252,7 @@ def build_page(e):
     e.destination = ComboBox(e); e.edit_destination = ComboBox(e)
     e.use_button = button('保存並加入畫布', lambda: e.save_material(True), 'Quiet')
     e.variant_button = button('另存為新素材', e.save_variant, 'Quiet')
-    e.history_button = button('內容歷史', e.history, 'Quiet'); e.delete_button = button('刪除素材', e.delete_material, 'Quiet')
+    e.history_button = button('內容歷史', e.history, 'Quiet'); e.delete_button = button('刪除', e.delete_material, 'DangerQuiet')
     for widget in (e.heading, e.scope_hint, e.back_button, e.destination, e.edit_destination, e.use_button, e.variant_button, e.history_button, e.delete_button): widget.setParent(e); widget.hide()
     e.more.toggled.connect(lambda opened: toggle_information(e, opened))
     e.more.toggled.connect(lambda _: e._publish(force=True))
@@ -304,7 +304,7 @@ def action_menu(e):
             from .materials import item
             ident = e.target[1]; pinned = item(e.window.state, ident).get('pinned', False)
             menu.addAction('取消釘選' if pinned else '釘選素材', lambda: e.pin_material(ident))
-            menu.addSeparator(); menu.addAction('刪除素材', e.delete_material)
+            menu.addSeparator(); menu.add_destructive_action('刪除', e.delete_material)
     menu.open_at(e.actions_button.mapToGlobal(e.actions_button.rect().bottomLeft()))
 
 

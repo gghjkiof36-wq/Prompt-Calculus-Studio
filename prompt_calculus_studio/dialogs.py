@@ -89,7 +89,7 @@ class ItemDialog(StudioDialog):
         set_preview(self.preview,window.store,self.item.get("preview"),120)
         if not self.item.get('preview'): self.preview.setText('')
         layout.addWidget(self.preview)
-        layout.addLayout(row(button("選擇預覽圖",self.choose_image),button("移除預覽",self.clear_image),None))
+        layout.addLayout(row(button("選擇預覽圖",self.choose_image),button("移除預覽",self.clear_image,"Danger"),None))
         layout.addWidget(dialog_buttons(self,self.save))
 
     def choose_image(self):
@@ -511,7 +511,7 @@ class CategoryDialog(StudioDialog):
         self.list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         for i in range(self.list.count()): self.list.item(i).setFlags(self.list.item(i).flags() & ~Qt.ItemFlag.ItemIsDropEnabled)
         self.mapping={name:name for name in window.state["settings"]["model_categories"]}
-        layout.addLayout(row(button("新增",self.add),button("重新命名",self.rename),button("刪除",self.remove)))
+        layout.addLayout(row(button("新增",self.add),button("重新命名",self.rename),button("刪除",self.remove,"Danger")))
         layout.addLayout(row(button("上移",lambda:self.move_category(-1)),button("下移",lambda:self.move_category(1)),None))
         layout.addWidget(dialog_buttons(self))
 
