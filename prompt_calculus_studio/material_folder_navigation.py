@@ -12,12 +12,14 @@ ROW = Qt.ItemDataRole.UserRole + 1
 
 class FolderDelegate(QStyledItemDelegate):
     def sizeHint(self, option, index):
-        return QSize(180, option.fontMetrics.height()+20+(16 if index.data(Qt.ItemDataRole.UserRole) is None else 0))
+        data = index.data(ROW)
+        return QSize(180, option.fontMetrics.height()+20+(16 if data.get('divider_after', data['id'] is None) else 0))
 
     def paint(self, painter, option, index):
         entry = QStyleOptionViewItem(option); self.initStyleOption(entry, index)
         data = index.data(ROW); rect = QRect(option.rect)
-        if data['id'] is None: rect.adjust(0, 0, 0, -16)
+        divider = data.get('divider_after', data['id'] is None)
+        if divider: rect.adjust(0, 0, 0, -16)
         entry.rect = rect; entry.text = ''
         self.parent().style().drawControl(QStyle.ControlElement.CE_ItemViewItem, entry, painter, self.parent())
         colors = self.parent().colors(); painter.save(); painter.setFont(option.font)
@@ -32,7 +34,7 @@ class FolderDelegate(QStyledItemDelegate):
         painter.drawText(count, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, str(data['count']))
         if self.parent().manage and data['kind'] != 'shortcut':
             icon('more-horizontal', colors['secondary']).paint(painter, more.adjusted(6, 6, -6, -6))
-        if data['id'] is None:
+        if divider:
             painter.setPen(QPen(QColor(colors.get('divider', colors['line'])), 1))
             painter.drawLine(option.rect.left()+10, option.rect.bottom()-8, option.rect.right()-10, option.rect.bottom()-8)
         painter.restore()
@@ -131,7 +133,7 @@ class FolderNavigation(ReorderableList):
         if data['kind'] == 'shortcut':
             first = next((self.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.count())
                           if self.item(i).data(ROW)['kind'] != 'shortcut' and not self.item(i).data(ROW)['parent']), None)
-            return (None, first if data['id'] is None else None, None)
+            return (None, first if data.get('fixed_top', data['id'] is None) else None, None)
         after = position.y() > rect.center().y()
         if (data['kind'] == 'folder' and not nav.is_folder(self._drag_ident)
                 and rect.top()+rect.height()//4 <= position.y() <= rect.bottom()-rect.height()//4):

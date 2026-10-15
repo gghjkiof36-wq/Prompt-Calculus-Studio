@@ -256,7 +256,7 @@ class GroupSourcePanel(QFrame):
             for enabled,name in ((True,'允許重複'),(False,'一輪內不重複')):
                 action=menu.addAction(name,lambda checked=False,v=enabled:self.set_random_repeats(v))
                 action.setCheckable(True);action.setChecked(self.value()['root']['sequence'].get('random_repeats',True)==enabled)
-        menu.exec(self.mode.mapToGlobal(self.mode.rect().bottomLeft()))
+        menu.open_for(self.mode,self.owner.canvas.view)
 
     def set_mode(self,mode):
         def apply(state):

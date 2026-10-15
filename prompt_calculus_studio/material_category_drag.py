@@ -45,7 +45,7 @@ class EditorCategoryNavigation(FolderNavigation):
     def destination(self, position):
         if not self.viewport().rect().contains(position):return None
         item=self.itemAt(position); data=item.data(ROW) if item else None
-        if data and data['id'] is not None and data['kind']!='folder':return data['id']
+        if data and data['kind']!='folder' and (data['id']=='@uncategorized' or data['id'] in {v['id'] for v in self.page.window.state['modules']}):return data['id']
         return None
 
     def dragEnterEvent(self,event):

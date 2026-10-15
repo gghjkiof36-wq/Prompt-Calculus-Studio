@@ -1,5 +1,5 @@
 """Canvas dialog depth and a bounded, dismissible function sheet."""
-from PySide6.QtCore import Qt, QEvent, QPoint, QRect, QSize
+from PySide6.QtCore import Qt, QEvent, QPoint, QRect, QSize, QObject, QVariantAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QWidget, QDialog, QFrame, QLayout, QApplication
 
@@ -38,6 +38,96 @@ class DialogShade(QWidget):
 
     def paintEvent(self,event):
         painter=QPainter(self);painter.fillRect(self.rect(),QColor(0,0,0,120))
+
+
+class CenteredPromptForm(QObject):
+    """Resize a centered child sheet inside a stable transparent native window."""
+    def __init__(self,dialog,scroll,minimum_height=440):
+        super().__init__(dialog)
+        self.dialog=dialog;self.scroll=scroll;self.minimum_height=minimum_height
+        self.surface=dialog.findChild(QFrame,'DialogSurface')
+        self.preferred_width=dialog.width();self._fitting=False;self._prepared=False
+        self.scroll_policy=scroll.verticalScrollBarPolicy()
+        dialog.layout().removeWidget(self.surface)
+        dialog.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        dialog.layout().setEnabled(False)
+        self.surface.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        self.motion=QVariantAnimation(self);self.motion.setDuration(180)
+        self.motion.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.motion.valueChanged.connect(self.place)
+        self.motion.finished.connect(self.finished)
+        dialog.installEventFilter(self)
+        if dialog.parentWidget():dialog.parentWidget().installEventFilter(self)
+
+    def bounds(self):
+        parent=self.dialog.parentWidget()
+        screen=(parent.screen() if parent else self.dialog.screen()).availableGeometry().adjusted(20,20,-20,-20)
+        if parent is None:return screen
+        bounds=QRect(parent.mapToGlobal(QPoint(12,12)),parent.size()-QSize(24,24))
+        return bounds.intersected(screen)
+
+    def frame(self):
+        bounds=self.bounds()
+        rect=QRect(QPoint(),QSize(min(self.preferred_width,bounds.width()),bounds.height()))
+        rect.moveCenter(bounds.center());self.dialog.setGeometry(rect)
+
+    def target(self):
+        content=self.scroll.widget()
+        self.surface.resize(max(1,self.dialog.width()-12),max(1,self.surface.height()))
+        for layout in reversed(content.findChildren(QLayout)):layout.invalidate()
+        for widget in reversed(content.findChildren(QWidget)):widget.updateGeometry()
+        content.layout().activate();content.updateGeometry();self.surface.layout().activate()
+        chrome=self.surface.height()-self.scroll.height()
+        height=max(self.minimum_height-12,content.sizeHint().height()+chrome)
+        rect=QRect(0,0,max(1,self.dialog.width()-12),min(height,max(1,self.dialog.height()-12)))
+        rect.moveCenter(self.dialog.rect().center())
+        return rect
+
+    def place(self,rect):
+        self.surface.setGeometry(rect);self.surface.layout().activate();self.dialog.update()
+
+    def finished(self):
+        self.scroll.setVerticalScrollBarPolicy(self.scroll_policy)
+        self.surface.layout().activate();self.dialog.update()
+
+    def fit(self,*,animate=False,before_show=False,reframe=False):
+        if self._fitting or (not before_show and not self.dialog.isVisible()):return
+        self._fitting=True
+        try:
+            self.motion.stop()
+            if not self._prepared or reframe:
+                self.frame();self._prepared=True
+                self.place(QRect(6,6,max(1,self.dialog.width()-12),max(1,self.dialog.height()-12)))
+                animate=False
+            start=QRect(self.surface.geometry())
+            end=self.target()
+            if animate and start!=end and not reduced_motion(self.dialog):
+                # Only the rounded child moves. Resizing a translucent HWND
+                # while it is visible can expose the native backing surface.
+                self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                self.place(start)
+                self.motion.setDuration(max(70,min(180,abs(end.height()-start.height())*2)))
+                self.motion.setStartValue(start);self.motion.setEndValue(end);self.motion.start()
+            else:
+                self.place(end)
+                # Child layouts can publish a changed minimum after their
+                # first geometry. Settle synchronously before the first paint.
+                self.place(self.target());self.finished()
+        finally:self._fitting=False
+
+    def toggle(self,panel,opened):
+        panel.setVisible(opened);self.fit(animate=True)
+
+    def eventFilter(self,watched,event):
+        from shiboken6 import isValid
+        if not isValid(self.dialog) or not isValid(self.surface) or not isValid(self.scroll):return False
+        if watched is self.dialog and event.type()==QEvent.Type.Hide:
+            self.motion.stop();self.finished();self._prepared=False
+        elif watched is self.dialog and event.type()==QEvent.Type.Resize and self._prepared and not self._fitting:
+            self.fit()
+        elif watched is self.dialog.parentWidget() and self.dialog.isVisible() and event.type() in (QEvent.Type.Resize,QEvent.Type.Move):
+            self.fit(reframe=True)
+        return False
 
 
 # Imported here rather than by widgets.py: StudioDialog loads only the small

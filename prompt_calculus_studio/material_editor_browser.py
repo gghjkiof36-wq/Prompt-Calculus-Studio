@@ -14,6 +14,8 @@ from .views import widget_colors
 from .material_editor_page import Disclosure, sync_prompt_style, apply_line_spacing
 from .management_reading import READING_CONTENT_WIDTH, READING_MARGIN, READING_NARROW_MARGIN
 
+TYPE_SHORTCUTS = {None: 'text', '@material-type:combination': 'combination', '@material-type:flow': 'flow'}
+
 
 def _replace_visible_order(state, field, before, after):
     """Keep hidden records in their slots, with every record and field intact."""
@@ -154,7 +156,7 @@ class PromptEditor(QWidget):
         self.header_layout = QVBoxLayout(self.browser_header)
         self.header_layout.setContentsMargins(1, 0, 13, 0); self.header_layout.setSpacing(14)
         content.addWidget(self.browser_header)
-        self.title = label('全部素材', 'DialogTitle', True); self.count = label('', 'Subtle')
+        self.title = label('文字模塊', 'DialogTitle', True); self.count = label('', 'Subtle')
         self.new_button = button('新增', self.new_material, 'Primary')
         self.new_button.setCursor(Qt.CursorShape.PointingHandCursor)
         from .ui_icons import icon
@@ -418,6 +420,7 @@ class PromptEditor(QWidget):
     def set_browser_category(self, ident):
         if ident == '@uncategorized':
             ident = next((v['id'] for v in self.window.state['modules'] if v['name']=='未分類'), ident)
+        ident = getattr(self, '_category_type_aliases', {}).get(ident, ident)
         index = self.category.findData(ident)
         self.category.setCurrentIndex(max(0, index))
         self.window._material_browser_category = self.category.currentData()
@@ -430,8 +433,15 @@ class PromptEditor(QWidget):
 
     def _category_changed(self):
         self.window._material_browser_category = self.category.currentData()
-        self.category_more.setEnabled(self.get_browser_category() not in (None, '@uncategorized') and self.category.currentText() != '未分類')
+        self.category_more.setEnabled(self.get_browser_category() not in TYPE_SHORTCUTS and self.get_browser_category() != '@uncategorized' and self.category.currentText() != '未分類')
+        self._sync_type_filter()
         self.title.setText(self.category.currentText()); self.refresh_list()
+
+    def _sync_type_filter(self):
+        fixed = self.get_browser_category() in TYPE_SHORTCUTS
+        if fixed:
+            self.type_filter.blockSignals(True); self.type_filter.setCurrentIndex(0); self.type_filter.blockSignals(False)
+        self.type_filter.setVisible(not fixed)
 
     def _order_changed(self):
         self.window.state['settings']['material_library_order'] = self.order.currentData()
@@ -451,7 +461,10 @@ class PromptEditor(QWidget):
         root = navigation.view(self.window.state)['order']
         original = [ident for ident in before if ident in root]
         reordered = [ident for ident in after if ident in root]
-        def apply(state): navigation.reorder_root(state, original, reordered)
+        # Dedicated type categories can be hidden here; retain their stored slots.
+        visible = set(original); replacement = iter(reordered)
+        complete = [next(replacement) if ident in visible else ident for ident in root]
+        def apply(state): navigation.reorder_root(state, root, complete)
         self._commit_navigation(apply, '調整分類順序')
 
     def _commit_navigation(self, operation, label):
@@ -482,6 +495,7 @@ class PromptEditor(QWidget):
         return menu
 
     def category_row_menu(self, ident, position):
+        if ident in TYPE_SHORTCUTS: return
         menu = RoundMenu(self)
         if navigation.is_folder(ident):
             menu.addAction('重新命名', lambda: self.rename_folder(ident))
@@ -561,6 +575,7 @@ class PromptEditor(QWidget):
         self.refresh_workspace()
         self._refresh_categories()
         self._refreshing = False
+        self._sync_type_filter()
         self.title.setText(self.category.currentText()); self.refresh_list()
         if self.preview_id: self.preview_material(self.preview_id)
 
@@ -571,23 +586,38 @@ class PromptEditor(QWidget):
         value = navigation.view(state); folders = {v['id']: v for v in value['folders']}
         categories = {v['id']: v for v in state['modules']}
         counts = {ident: 0 for ident in categories}
-        for item in state['items']: counts[item['module']] = counts.get(item['module'], 0)+1
+        type_counts = dict.fromkeys(pm.TYPES, 0); category_types = {ident: set() for ident in categories}
+        for item in state['items']:
+            counts[item['module']] = counts.get(item['module'], 0)+1
+            material_type = pm.kind(item); type_counts[material_type] += 1
+            category_types.setdefault(item['module'], set()).add(material_type)
+        self._category_type_aliases = {}
+        for ident, category in categories.items():
+            for shortcut, material_type in TYPE_SHORTCUTS.items():
+                if material_type != 'text' and category['name'] == pm.TYPES[material_type] and category_types[ident] <= {material_type}:
+                    self._category_type_aliases[ident] = shortcut
         collapsed = set(state['settings'].get('material_folder_collapsed', []))
         self.categories.has_folders = bool(folders)
         def add(name, ident, count, kind='category', parent=None, visible=True):
             self.category.addItem(name, ident)
             if visible: self.categories.add_row(ident, name, count, kind, parent, ident in collapsed)
-        add('全部素材', None, len(state['items']), 'shortcut')
+        from .material_folder_navigation import ROW
+        for shortcut, material_type in TYPE_SHORTCUTS.items():
+            add(pm.TYPES[material_type], shortcut, type_counts[material_type], 'shortcut')
+            entry = self.categories.item(self.categories.count()-1); data = entry.data(ROW)
+            data.update(fixed_top=True, divider_after=material_type == 'flow'); entry.setData(ROW, data)
         for ident in value['order']:
             if ident in folders:
                 folder = folders[ident]
                 add(folder['name'], ident, sum(counts[v] for v in folder['categories']), 'folder')
                 for cid in folder['categories']:
+                    if cid in self._category_type_aliases: continue
                     add(categories[cid]['name'], cid, counts[cid], parent=ident, visible=ident not in collapsed)
-            else: add(categories[ident]['name'], ident, counts[ident])
+            elif ident not in self._category_type_aliases: add(categories[ident]['name'], ident, counts[ident])
         unclassified = next((v['id'] for v in state['modules'] if v['name'] == '未分類'), '@uncategorized')
         add('未分類', unclassified, counts.get(unclassified, 0), 'shortcut')
         if selected == '@uncategorized': selected = unclassified
+        selected = self._category_type_aliases.get(selected, selected)
         self.category.setCurrentIndex(max(0, self.category.findData(selected)))
         selected = self.category.currentData()
         for index in range(self.categories.count()):
@@ -595,7 +625,7 @@ class PromptEditor(QWidget):
                 self.categories.setCurrentRow(index); break
         self.category.blockSignals(False); self.categories.blockSignals(False)
         self.window._material_browser_category = self.category.currentData()
-        self.category_more.setEnabled(selected not in (None, '@uncategorized') and self.category.currentText() != '未分類')
+        self.category_more.setEnabled(selected not in TYPE_SHORTCUTS and selected != '@uncategorized' and self.category.currentText() != '未分類')
 
     def refresh_list(self, *_):
         self.preview_click.cancel()
@@ -605,8 +635,9 @@ class PromptEditor(QWidget):
         self.listing.blockSignals(True); self.listing.clear()
         category = self.get_browser_category()
         folder = navigation.folder(self.window.state, category) if navigation.is_folder(category) else None
-        self.search.setPlaceholderText('搜尋此資料夾的名稱、別名或內容' if folder else '搜尋目前分類的名稱、別名或內容')
-        rows = [] if category == '@uncategorized' else materials.search(self.window.state, self.search.text(), None if folder else category, pinned=self.pins.isChecked(), order=self.order.currentData(),material_type=self.type_filter.currentData())
+        material_type = TYPE_SHORTCUTS.get(category, self.type_filter.currentData())
+        self.search.setPlaceholderText('搜尋'+pm.TYPES[material_type]+'的名稱、別名或內容' if category in TYPE_SHORTCUTS else '搜尋此資料夾的名稱、別名或內容' if folder else '搜尋目前分類的名稱、別名或內容')
+        rows = [] if category == '@uncategorized' else materials.search(self.window.state, self.search.text(), None if folder or category in TYPE_SHORTCUTS else category, pinned=self.pins.isChecked(), order=self.order.currentData(),material_type=material_type)
         if folder: rows = [v for v in rows if v['module'] in folder['categories']]
         if self.order.currentData() == 'manual':
             visible = {value['id'] for value in rows}
@@ -618,7 +649,7 @@ class PromptEditor(QWidget):
         self.listing.blockSignals(False); self.listing.verticalScrollBar().setValue(scroll)
         self.listing.setVisible(bool(rows))
         self.count.setText(f'{len(rows)} 個素材'); self.empty_results.setVisible(not rows)
-        self.empty_results.setText('找不到符合搜尋的素材。' if self.search.text() else '這個資料夾還沒有素材，可先移入分類。' if folder else '這個分類還沒有素材，可按「新增」開始。')
+        self.empty_results.setText('找不到符合搜尋的素材。' if self.search.text() else '還沒有'+pm.TYPES[material_type]+'，可按「新增」開始。' if category in TYPE_SHORTCUTS else '這個資料夾還沒有素材，可先移入分類。' if folder else '這個分類還沒有素材，可按「新增」開始。')
         self._layout()
 
     def selected_id(self):
@@ -706,6 +737,14 @@ class PromptEditor(QWidget):
         if self.active_dialog: self.active_dialog.set_destination(canvas_id)
 
     def new_material(self, add_to_canvas=False, text=''):
+        material_type = TYPE_SHORTCUTS.get(self.get_browser_category())
+        if material_type in ('combination', 'flow') and not text:
+            category = next((ident for ident, shortcut in self._category_type_aliases.items()
+                             if shortcut == self.get_browser_category()), None)
+            value = dict(id=uid(), name='', prompt=text, aliases=[], notes='', excludes=[], preview='',
+                         module=category, content_kind='tags', material_type=material_type,
+                         composition=pm.new(material_type, ''))
+            return self._open_dialog(None, text, initial_value=value)
         return self._open_dialog(None, text)
 
     def edit_material(self, ident): return self._open_dialog(ident)

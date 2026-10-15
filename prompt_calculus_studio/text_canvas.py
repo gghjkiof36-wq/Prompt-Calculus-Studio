@@ -16,7 +16,7 @@ from .error_dialog import import_error
 
 class NodeDialog(StudioDialog):
     def __init__(self, parent, value=None, title=None):
-        title=title or ('編輯當輪' if value and pm.sequence(value) else '編輯畫布模組' if value else '新增畫布模組')
+        title=title or ('編輯當輪' if value and pm.sequence(value) else '編輯文字模組' if value else '新增畫布模組')
         super().__init__(parent); self.setWindowTitle(title); self.resize(540, 480)
         from .module_chrome import apply_prompt_dialog, prompt_divider
         apply_prompt_dialog(self,parent)
@@ -66,8 +66,6 @@ class NodeDialog(StudioDialog):
         self.dedupe=QCheckBox('去重');self.dedupe.setChecked(self.value.get('deduplicate',False));excludes_layout.addWidget(self.dedupe)
         self.dedupe.hide()  # Legacy values remain readable; new deduplication belongs to a combination.
         form.addWidget(self.excludes_panel);self.excludes_panel.hide()
-        from .module_chrome import toggle_prompt_panel
-        self.excludes_toggle.toggled.connect(lambda opened:toggle_prompt_panel(self,self.excludes_panel,opened,self.fit_page))
         self.error=label('','Draft',True);self.body.addWidget(self.error);self.error.hide()
         self.body.addWidget(prompt_divider())
         self.body.addLayout(row(None,button('取消',self.reject,'Quiet'),button('套用' if value else '加入畫布',self.save,'Primary')))
@@ -88,13 +86,15 @@ class NodeDialog(StudioDialog):
                   self.enabled,self.excludes_toggle,self.excludes,self.dedupe)
         for before,after in zip(controls,controls[1:]):self.setTabOrder(before,after)
         self.resize(min(580,max(360,parent.width()-24)),min(600,max(340,parent.height()-24)))
+        from .dialog_presentation import CenteredPromptForm
+        self.presentation=CenteredPromptForm(self,self.form_scroll,440)
+        self.excludes_toggle.toggled.connect(lambda opened:self.presentation.toggle(self.excludes_panel,opened))
 
     def fit_page(self):
-        from .module_chrome import fit_prompt_form
-        fit_prompt_form(self,self.form_scroll,440)
+        self.presentation.fit()
 
     def showEvent(self,event):
-        super().showEvent(event);QTimer.singleShot(0,self.fit_page)
+        super().showEvent(event);self.presentation.fit(before_show=True)
 
     def remember(self):
         if self.active_group:
@@ -119,6 +119,7 @@ class NodeDialog(StudioDialog):
         if self.sequence and not self.loading:
             self.sequence.update(mode=self.mode.currentData(),random_repeats=self.random_repeats.isChecked())
             self.random_repeats.setVisible(self.sequence['mode']=='random')
+            if hasattr(self,'presentation'):self.fit_page()
 
     def repeat_changed(self):
         if self.active_group and not self.loading:self.active_group['repeat']=self.repeat.value()
@@ -221,7 +222,11 @@ class TextCanvas(QWidget):
         for item in self.view.scene().items():
             if isinstance(item,QGraphicsProxyWidget) and item.widget() is not None:
                 panel=item.widget();panel.setPalette(self.window.palette())
-                if panel.styleSheet()!=sheet:panel.setStyleSheet(sheet)
+                owner=item.parentItem();sync_style=getattr(owner,'sync_panel_style',None)
+                # Cards may add control-specific styling to the shared theme.
+                # Reuse that hook without refreshing values or pending edits.
+                if callable(sync_style) and getattr(owner,'panel',None) is panel:sync_style()
+                elif panel.styleSheet()!=sheet:panel.setStyleSheet(sheet)
             item.update()
         for port in getattr(self,'ports',{}).values():
             from .flow_items import caption_color

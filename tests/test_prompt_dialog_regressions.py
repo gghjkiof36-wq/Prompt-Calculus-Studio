@@ -35,15 +35,17 @@ class PromptDialogTests(unittest.TestCase):
         return dialog,ed
 
     def cycle(self,dialog,toggle):
-        closed=dialog.height()
+        # Disclosure motion now belongs to the centered child surface; its
+        # transparent native envelope stays fixed to prevent backing flicker.
+        surface=dialog.presentation.surface;closed=QRect(surface.geometry());native=QRect(dialog.geometry())
         for _ in range(3):
             QTest.mouseClick(toggle,Qt.MouseButton.LeftButton)
-            expanded=dialog.height();QTest.qWait(20)
-            self.assertEqual(dialog.height(),expanded,'no second geometry change after the disclosure paints')
-            self.assertGreater(expanded,closed)
+            QTest.qWait(220)
+            self.assertGreater(surface.height(),closed.height())
+            self.assertEqual(dialog.geometry(),native,'disclosure must not move or resize the native window')
             QTest.mouseClick(toggle,Qt.MouseButton.LeftButton)
-            self.assertEqual(dialog.height(),closed)
-            QTest.qWait(20);self.assertEqual(dialog.height(),closed)
+            QTest.qWait(220);self.assertEqual(surface.geometry(),closed)
+            self.assertEqual(dialog.geometry(),native)
 
     def side_cycle(self,dialog,toggle):
         closed=dialog.geometry();main_width=dialog.panels.main.width()
