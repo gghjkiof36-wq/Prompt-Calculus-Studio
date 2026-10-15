@@ -96,6 +96,13 @@ class StageRunner(QObject):
             if not plan['stages'][key]['auto']:
                 ids.extend(source for source in plan['stages'][key].get('suppliers',[]) if source not in ids)
         auto={key for k in keys if plan['stages'][k]['auto'] for key in plan['stages'][k].get('suppliers',[])}
+        if auto:
+            # In mixed routes the direct Stage expands its own actual inputs.
+            # Do not pre-consume its independent readers in a discarded outer
+            # manual batch before the shared automatic source is reached.
+            for k in keys:
+                if not plan['stages'][k]['scheduler']:
+                    auto.update(supply.connected(state,[b['source'] for b in plan['stages'][k]['bindings'] if b['source']]))
         ids=[key for key in ids if key not in auto]
         if not ids:return [state for _ in range(count)],None
         working=copy.deepcopy(state);states=[];batches=[]
@@ -229,7 +236,7 @@ class StageRunner(QObject):
         current=compile_plan(self.window.state)
         if execution_signature(current)!=execution_signature(run['plan']):raise ValueError('Stage 或接線已修改；原項目保留，恢復接線後可繼續。')
 
-    def save(self,run):self.store.update(run['id'],stack=run['stack'],initial=run['initial'],round=run['round'],source_positions=run.get('source_positions',{}),supply_progress=run.get('supply_progress',{}),supply_images=run.get('supply_images',{}))
+    def save(self,run):self.store.update(run['id'],stack=run['stack'],initial=run['initial'],round=run['round'],source_positions=run.get('source_positions',{}),supply_progress=run.get('supply_progress',{}),supply_images=run.get('supply_images',{}),supply_shared=run.get('supply_shared',{}))
 
     def pump(self):
         if self.closed or self.pumping or not self.client.connected:return
@@ -322,7 +329,7 @@ class StageRunner(QObject):
                 self.save(run);continue
             if frame['kind']=='stage':
                 stage=run['plan']['stages'][frame['key']]
-                if 'variants' not in frame:frame['variants']=self.variants(run,stage,frame['ctx']);self.save(run)
+                if 'variants' not in frame:frame['variants']=self.variants(run,stage,frame['ctx'],frame);self.save(run)
                 if frame['index']>=len(frame['variants']):self.pop(run,frame['produced']);continue
                 if frame.get('job'):return
                 self.dispatch(run,frame,stage);return
@@ -373,7 +380,13 @@ class StageRunner(QObject):
                             image['index']=0;image.pop('supply_reservation',None)
                         if items:image['source']=copy.deepcopy(items[min(image.get('index',0),len(items)-1)])
                 state=project(base,self.window.store.directory,frame['ctx']['results'],frame['ctx'].get('sources'),frame['ctx'].get('saved',{}).get('readers'))
-                frozen=supply.build(state,stage['suppliers'])
+                # Separate Stage routes can fan out from the same placement.
+                # One parent iteration shares its choices, while a later batch
+                # or a different parent gets a new independent selection set.
+                shared_key=str(run['round'])+':'+str(frame['ctx'].get('parent') or '')
+                shared=run.setdefault('supply_shared',{}).setdefault(shared_key,{})
+                frozen=supply.build(state,stage['suppliers'],shared=shared)
+                frozen['shared_key']=shared_key
                 # Freeze bypass inputs once for the whole batch. They advance
                 # only after this scope finishes, while participating inputs zip.
                 outer=capture(state,run['plan'],[node['stage']],self.window.store.directory)
@@ -454,18 +467,22 @@ class StageRunner(QObject):
             self.store.update(entry['id'],supply_images=images,supply_plan=frozen['id'],supply_round=feed['next'])
             feed['next']+=1
             if frozen.get('version')==2:
-                supply.reserve(self.window.state,frozen,through=feed['next'])
-                for key,record in frozen['rounds'][feed['next']-1].items():
-                    for ident,fields in record.get('progress',{}).items():
-                        run.setdefault('supply_progress',{}).setdefault(key,{}).setdefault(ident,{}).update(copy.deepcopy(fields))
-                    spec=frozen['sources'][key]
-                    if spec['kind']=='image':
-                        run.setdefault('supply_images',{})[key]=dict(batch=spec['batch'],plan=frozen['id'],next=(record['index']+1)%len(spec['items']))
+                shared=run.get('supply_shared',{}).get(frozen.get('shared_key'))
+                accepted=supply.reserve(self.window.state,frozen,through=feed['next'],shared=shared)
+                self.remember_supply_progress(run,frozen,accepted)
         self.save(run)
         if frozen.get('version')==2:
             self.refresh_reserved_images(frozen)
             self.window.store.save(self.window.state,commit=False)
             self.refresh_results();self.window.changed('prompt')
+
+    def remember_supply_progress(self,run,frozen,accepted):
+        for key,record in accepted.items():
+            for ident,fields in record.get('progress',{}).items():
+                run.setdefault('supply_progress',{}).setdefault(key,{}).setdefault(ident,{}).update(copy.deepcopy(fields))
+            spec=frozen['sources'][key]
+            if spec['kind']=='image':
+                run.setdefault('supply_images',{})[key]=dict(batch=spec['batch'],plan=frozen['id'],next=(record['index']+1)%len(spec['items']))
 
     def pop(self,run,results):
         run['stack'].pop()
@@ -488,14 +505,45 @@ class StageRunner(QObject):
             self.advance_sources(dict(sources=run.get('source_positions',{})));run['source_positions']={}
         self.save(run)
 
-    def variants(self,run,stage,ctx):
+    def direct_supply_variants(self,run,stage,ctx,frame,minimum=1):
+        """A direct Stage shares an existing automatic batch without a fake queue."""
+        if frame is None or stage['scheduler']:return None
+        from . import prompt_sources as supply
+        from .prompt_materials import apply_progress
+        from .workspace_scene import load,scene
+        if not any(other['auto'] for other in run['plan']['stages'].values()):return None
+        ids=supply.connected(self.window.state,[b['source'] for b in stage['bindings'] if b['source']])
+        if not ids:return None
+        base=copy.deepcopy(self.window.state)
+        load(base,ctx.get('scene') or run.get('frozen_scene') or scene(base))
+        for key,progress in run.get('supply_progress',{}).items():
+            definition=supply.source(base,key)
+            if definition:apply_progress(definition['root'],progress)
+        for key,progress in run.get('supply_images',{}).items():
+            image=base.get('canvas_functions',{}).get('images',{}).get(key)
+            if image and image.get('batch_id')==progress['batch']:
+                image['index']=progress['next'];image['supply_reservation']=copy.deepcopy(progress)
+        state=project(base,self.window.store.directory,ctx['results'],ctx.get('sources'),ctx.get('saved',{}).get('readers'))
+        shared_key=str(run['round'])+':'+str(ctx.get('parent') or '')
+        shared=run.setdefault('supply_shared',{}).setdefault(shared_key,{})
+        total=supply.build(state,ids,shared=shared,count_only=True) if supply.automatic(state,ids) else 1
+        frozen=supply.build(state,ids,shared=shared,count=max(total,minimum));frozen['shared_key']=shared_key
+        frame['supply_plan']=frozen;variants=[]
+        for index,picks in enumerate(frozen['rounds']):
+            current=copy.deepcopy(state);images,positions=supply.project(current,frozen,picks)
+            current=project(current,self.window.store.directory,ctx['results'],dict(ctx.get('sources',{}),**images),ctx.get('saved',{}).get('readers'))
+            saved=capture(current,run['plan'],[stage['id']],self.window.store.directory,per_round=True)
+            variants.append(dict(values=saved['values'],sources=images,results={},source_positions=positions,supply_round=index))
+        return variants
+
+    def variants(self,run,stage,ctx,frame=None):
         state=self.context(ctx['results'],ctx.get('sources'),ctx.get('saved',{}).get('readers'));collections=[]
         for binding in stage['bindings']:
             if binding['kind']!='image' or not binding['source'] or binding['key'] in ctx.get('saved',{}).get('values',{}):continue
             nodes=upstream(state,[binding['source']]);refs=nodes&run['plan']['stages'].keys()
             refs|={state.get('canvas_functions',{}).get('images',{}).get(k,{}).get('stage_reference') for k in nodes}-{None}
             if refs and not any(k in ctx.get('sources',{}) for k in nodes):collections.append((binding['key'],image_list(state,binding['source']),nodes,refs))
-        if not collections:return [dict(values={},sources={},results={})]
+        if not collections:return self.direct_supply_variants(run,stage,ctx,frame) or [dict(values={},sources={},results={})]
         sizes=[len(v) for k,v,n,r in collections]
         if not all(sizes):raise ValueError('圖片來源沒有可供應的圖片。')
         variants=[]
@@ -509,12 +557,19 @@ class StageRunner(QObject):
                     record=next((r for r in original.get('records',[]) if r['attempt']==image.get('reference',{}).get('attempt')),None)
                     if record:variant['results'][ref]=dict(original,images=[image],text=record['text'],texts=copy.deepcopy(record.get('texts',[])),selected=True)
             variants.append(variant)
-        return variants
+        supplied=self.direct_supply_variants(run,stage,ctx,frame,minimum=len(variants))
+        if not supplied:return variants
+        paired=[]
+        for i in range(max(len(supplied),len(variants))):
+            value=copy.deepcopy(supplied[i%len(supplied)]);image=variants[i%len(variants)]
+            for field in ('values','sources','results'):value[field].update(copy.deepcopy(image[field]))
+            paired.append(value)
+        return paired
 
     def dispatch(self,run,frame,stage):
         from .native_submission import prepare
         ctx=copy.deepcopy(frame['ctx']);variant=frame['variants'][frame['index']]
-        ctx['saved']=merge_saved(ctx.get('saved',{}),dict(values=variant['values']))
+        ctx['saved']=merge_saved(ctx.get('saved',{}),dict(values=variant['values'],source_positions=variant.get('source_positions',{})))
         ctx.setdefault('sources',{}).update(variant['sources']);ctx['results'].update(variant['results'])
         from .stage_parameters import effective
         parameters=effective(ctx['saved'],stage['id'])
@@ -525,10 +580,20 @@ class StageRunner(QObject):
         retry=frame.pop('retry',None)
         if retry:state,images=retry['snapshot_state'],retry['images']
         else:cfg['parameters']=self.store.resolve_parameters(run['workspace'],stage['id'],cfg.get('parameters'))
-        attempt=self.store.add('attempt',run['workspace'],run['id'],status='preparing',stage=stage['id'],parent=ctx.get('parent'),
-            round=run['round'],position=frame['index'],snapshot_state=state,images=images,error='',sources=ctx.get('saved',{}).get('source_positions',{}),parameter_replay=bool(retry))
+        with self.accepting():
+            attempt=self.store.add('attempt',run['workspace'],run['id'],status='preparing',stage=stage['id'],parent=ctx.get('parent'),
+                round=run['round'],position=frame['index'],snapshot_state=state,images=images,error='',sources=ctx.get('saved',{}).get('source_positions',{}),parameter_replay=bool(retry))
+            if frame.get('supply_plan'):
+                from .prompt_sources import reserve
+                frozen=frame['supply_plan'];shared=run.get('supply_shared',{}).get(frozen.get('shared_key'))
+                through=max(frozen.get('committed',0),variant['supply_round']+1)
+                accepted=reserve(self.window.state,frozen,through=through,shared=shared)
+                self.remember_supply_progress(run,frozen,accepted);self.refresh_reserved_images(frozen)
+                self.window.store.save(self.window.state,commit=False)
+            frame['job']=attempt['id'];self.save(run)
+        self.preparing=attempt['id']
         if run['workspace']==self.window.state['workspace']:self.remember_preview(attempt,dict(images=[],attempts=[],records=[]))
-        frame['job']=attempt['id'];self.save(run);self.preparing=attempt['id']
+        if frame.get('supply_plan'):self.refresh_results();self.window.changed('prompt')
         def valid():
             if self.closed or self.preparing!=attempt['id'] or not self.client.connected:return False
             try:self.check_route(run)

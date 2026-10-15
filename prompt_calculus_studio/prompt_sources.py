@@ -106,12 +106,18 @@ def position(root, *, restart=False):
     return pm.position(root, restart)
 
 
-def build(state, ids, *, count=None, restart=False, count_only=False):
+def build(state, ids, *, count=None, restart=False, count_only=False, shared=None):
     """Freeze choices now, including random draws, repeats and both draft forms."""
     from .flow_data import image_list
     specs, lengths, working = {}, [], {}
     for key in dict.fromkeys(ids):
+        cached = shared.get(key) if shared is not None else None
+        if cached:
+            specs[key] = copy.deepcopy(cached['spec'])
+            if cached['length'] is not None: lengths.append(cached['length'])
+            continue
         definition = source(state, key)
+        length = None
         if definition:
             if definition.get('unselected'):
                 raise ValueError('請先選擇要讀取的流程。')
@@ -121,7 +127,8 @@ def build(state, ids, *, count=None, restart=False, count_only=False):
             specs[key] = dict(kind='text', root=root, batch=batched, signature=signature(root))
             working[key] = copy.deepcopy(root)
             if batched:
-                lengths.append(definition['limit'] if definition.get('count_mode') == 'specified' else pm.cycle_length(root))
+                length = definition['limit'] if definition.get('count_mode') == 'specified' else pm.cycle_length(root)
+                lengths.append(length)
         else:
             image = state['canvas_functions']['images'][key]; items = image_list(state, key)
             index = image.get('index', 0)
@@ -135,7 +142,10 @@ def build(state, ids, *, count=None, restart=False, count_only=False):
             batched = image.get('supply', 'batch') == 'batch'
             index %= len(items)
             specs[key] = dict(kind='image', items=items, index=index, batch=image.get('batch_id'), batched=batched)
-            if batched: lengths.append(len(items))
+            if batched: length = len(items); lengths.append(length)
+        if shared is not None and not count_only:
+            shared[key] = dict(spec=copy.deepcopy(specs[key]), length=length, records=[],
+                               following=copy.deepcopy(working.get(key)), committed=0)
     total = groups.paired_length(lengths, count)
     if not total: raise ValueError('來源已供應完畢，請選擇下一個起點。')
     if count_only:return total
@@ -143,6 +153,21 @@ def build(state, ids, *, count=None, restart=False, count_only=False):
     for index in range(total):
         picks = {}
         for key, spec in specs.items():
+            if shared is not None:
+                cached = shared[key]
+                batched = spec['batch'] if spec['kind'] == 'text' else spec['batched']
+                at = index if batched else 0
+                if at >= len(cached['records']):
+                    if spec['kind'] == 'text':
+                        before = cached['following']; current, after = pm.resolve(before)
+                        record = dict(selections=pm.view(current), progress=pm.progress(before, after))
+                        if current.get('sequence'): record['group'] = current['sequence']['selected']
+                        cached['following'] = after
+                    else: record = dict(index=(spec['index']+at) % len(spec['items']))
+                    cached['records'].append(record)
+                picks[key] = copy.deepcopy(cached['records'][at])
+                if index and not batched and spec['kind'] == 'text': picks[key]['progress'] = {}
+                continue
             if spec['kind'] == 'text':
                 if index and not spec['batch']:
                     picks[key] = dict(constants[key], progress={})
@@ -176,8 +201,8 @@ def project(state, plan, picks):
     return images, positions
 
 
-def reserve(state, plan, select_next=True, through=None):
-    """Advance reservation positions only after the entire enqueue is accepted."""
+def reserve(state, plan, select_next=True, through=None, shared=None):
+    """Commit persisted choices; shared placements consume each prefix once."""
     if 'batches' in plan:
         for batch in plan['batches']: reserve(state, batch, select_next)
         return
@@ -185,9 +210,18 @@ def reserve(state, plan, select_next=True, through=None):
         end = len(plan['rounds']) if through is None else through
         if not plan.get('committed', 0) <= end <= len(plan['rounds']):
             raise ValueError('批次保存進度無效。')
-        for picks in plan['rounds'][plan.get('committed', 0):end]:
+        accepted = {}
+        for at in range(plan.get('committed', 0), end):
+            picks = plan['rounds'][at]
             for key, record in picks.items():
                 spec = plan['sources'][key]
+                if shared is not None:
+                    cached = shared[key]
+                    batched = spec['batch'] if spec['kind'] == 'text' else spec['batched']
+                    position = at if batched else 0
+                    if position < cached['committed']: continue
+                    cached['committed'] = position+1
+                accepted[key] = record
                 if spec['kind'] == 'text':
                     value = source(state, key)
                     if value and value['root']['id'] == spec['root']['id'] and signature(value['root']) == spec['signature']:
@@ -200,7 +234,7 @@ def reserve(state, plan, select_next=True, through=None):
                         image['index'] = index; image['source'] = copy.deepcopy(spec['items'][index])
         plan['committed'] = end
         groups.mark_version(state)
-        return
+        return accepted
     for key, spec in plan['sources'].items():
         if spec['kind'] == 'image':
             image = state.get('canvas_functions', {}).get('images', {}).get(key)

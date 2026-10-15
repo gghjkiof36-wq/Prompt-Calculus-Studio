@@ -19,13 +19,27 @@ def kind(value):
         'flow' if root.get('sequence') else 'combination' if root.get('combination') or root.get('children') or root.get('overlays') else 'text')
 
 
-def as_group(root):
+def as_group(root, *, preserve_outer=True):
     from .composition import clone_node
     from .prompt_groups import new_group
-    if root.get('combination'):return copy.deepcopy(root['combination'])
+    if root.get('combination'):
+        # A group has no owner for composition-level exclusion/weight/overlay
+        # rules. Flatten only a plain wrapper; otherwise retain the detached
+        # composition as a member so adding it to a flow keeps its meaning.
+        has_outer_rules = (not root.get('enabled', True) or root.get('weight', 10) != 10 or
+                           root.get('grouped', False) or root.get('excludes') or
+                           root.get('overlays') or root.get('disabled_tags') or root.get('deduplicate'))
+        if not preserve_outer or not has_outer_rules:return copy.deepcopy(root['combination'])
+        result=new_group(root['name'],modules=[clone_node(root)])
+        result['repeat']=root['combination']['repeat']
+        return result
     if not root.get('prompt') and not root.get('children') and not root.get('overlays') and not root.get('variants'):
         result=new_group(root['name']);result['input']='modules';return result
     body=clone_node(root)
+    if not preserve_outer:
+        # An editor retaining the original root already owns these rules.
+        body.update(weight=10,enabled=True,excludes=[],grouped=False)
+        for field in ('disabled_tags','deduplicate'):body.pop(field,None)
     return new_group(root['name'], modules=[body])
 
 

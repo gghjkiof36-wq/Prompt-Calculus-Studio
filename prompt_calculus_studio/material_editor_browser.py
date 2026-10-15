@@ -199,6 +199,16 @@ class PromptEditor(QWidget):
         preview = QVBoxLayout(self.preview_card); preview.setContentsMargins(18, 18, 18, 18); preview.setSpacing(12)
         preview.addLayout(row(label('素材預覽', 'Subtle'), None, button('×', self.close_preview, 'Quiet')))
         self.preview_name = label('', '', True); preview.addWidget(self.preview_name)
+        from .prompt_group_editor import tool
+        self.preview_variant_id = None
+        self.variant_previous = tool('chevron-left', '上一個變體', lambda: self.move_preview_variant(-1))
+        self.variant_next = tool('chevron-right', '下一個變體', lambda: self.move_preview_variant(1))
+        self.variant_position = label('', 'Subtle', True)
+        self.variant_position.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.variant_navigation = QWidget()
+        variant_row = QHBoxLayout(self.variant_navigation); variant_row.setContentsMargins(0, 0, 0, 0)
+        variant_row.addWidget(self.variant_previous); variant_row.addWidget(self.variant_position, 1); variant_row.addWidget(self.variant_next)
+        preview.addWidget(self.variant_navigation); self.variant_navigation.hide()
         self.preview_text = QTextEdit(); self.preview_text.setReadOnly(True); self.preview_text.setAcceptRichText(False)
         self.preview_text.setObjectName('MaterialPreviewPrompt'); self.preview_text.setUndoRedoEnabled(False)
         self.preview_text.setFrameShape(QTextEdit.Shape.NoFrame)
@@ -635,16 +645,47 @@ class PromptEditor(QWidget):
         for i in range(self.listing.count()):
             if self.listing.item(i).data(Qt.ItemDataRole.UserRole) == ident: self.listing.setCurrentRow(i); break
         self.listing.blockSignals(False)
-        self.preview_id = ident; self.preview_name.setText(value['name']); self.preview_text.setPlainText(pm.summary(value,detail=True))
+        if self.preview_id != ident: self.preview_variant_id = None
+        self.preview_id = ident; self.preview_name.setText(value['name'])
+        self.refresh_preview_content(value)
         image_path = preview_path(self.window.store, value.get('preview'))
         has_image = bool(image_path)
         self.preview_image.setVisible(has_image)
         self._preview_pixmap = QPixmap(str(image_path)) if has_image else QPixmap()
         self.preview_card.show(); self._layout()
 
+    def refresh_preview_content(self, value):
+        """Browse a detached variant without changing its execution selection."""
+        root = value.get('composition', {})
+        seq = root.get('variants')
+        self.variant_navigation.setVisible(bool(seq))
+        if not seq:
+            self.preview_variant_id = None
+            self.preview_text.setPlainText(pm.summary(value, detail=True)); return
+        rows = seq['groups']; ids = [v['id'] for v in rows]
+        if self.preview_variant_id not in ids:
+            self.preview_variant_id = seq['selected'] if seq['selected'] in ids else ids[0]
+        at = ids.index(self.preview_variant_id)
+        self.variant_position.setText(f"{rows[at]['name']}\n{at+1} / {len(rows)}")
+        self.variant_previous.setEnabled(at > 0); self.variant_next.setEnabled(at+1 < len(rows))
+        from .composition import render
+        preview = copy.deepcopy(root); preview['variants']['selected'] = self.preview_variant_id
+        self.preview_text.setPlainText(render(preview))
+
+    def move_preview_variant(self, step):
+        if not self.preview_id: return
+        try: value = materials.item(self.window.state, self.preview_id)
+        except ValueError: self.close_preview(); return
+        seq = value.get('composition', {}).get('variants')
+        if not seq: self.refresh_preview_content(value); return
+        ids = [v['id'] for v in seq['groups']]
+        at = ids.index(self.preview_variant_id) if self.preview_variant_id in ids else 0
+        if 0 <= at+step < len(ids): self.preview_variant_id = ids[at+step]
+        self.refresh_preview_content(value); self._layout()
+
     def close_preview(self):
         self.preview_click.cancel()
-        self.preview_id = None; self.preview_card.hide(); self._layout()
+        self.preview_id = None; self.preview_variant_id = None; self.preview_card.hide(); self._layout()
 
     def enlarge_preview(self):
         if not self.preview_id: return
@@ -674,10 +715,10 @@ class PromptEditor(QWidget):
         ident = self.selected_id() or self.preview_id
         if ident: return self.edit_material(ident)
 
-    def _open_dialog(self, ident, text=''):
+    def _open_dialog(self, ident, text='', initial_value=None):
         if self.active_dialog:
             self.active_dialog.raise_(); return self.active_dialog
-        dialog = MaterialEditDialog(self, ident, text)
+        dialog = MaterialEditDialog(self, ident, text, initial_value=initial_value)
         self.active_dialog = dialog
         dialog.finished.connect(lambda _: self._dialog_finished(dialog))
         dialog.show(); dialog.prompt.setFocus()
@@ -729,8 +770,8 @@ class PromptEditor(QWidget):
     def duplicate_material(self, ident):
         value = copy.deepcopy(materials.item(self.window.state, ident)); value['id'] = uid()
         value.pop('last_used', None); value['pinned'] = False
-        dialog = self.new_material(); dialog.form.target = None
-        dialog.form.load_value(value, 'new'); dialog.initial_id = value['id']; dialog.form.edited()
+        dialog = self._open_dialog(None, initial_value=value)
+        dialog.form.edited()
         dialog.name.selectAll(); dialog.name.setFocus()
         return dialog
 
@@ -755,7 +796,7 @@ class PromptEditor(QWidget):
 
 class MaterialEditDialog(StudioDialog):
     """Only explicit save crosses from this dialog's draft to canonical data."""
-    def __init__(self, page, ident, text=''):
+    def __init__(self, page, ident, text='', initial_value=None):
         super().__init__(page.window,defer_style=True)
         from .module_chrome import apply_prompt_dialog, prompt_divider
         apply_prompt_dialog(self,page.window)
@@ -771,6 +812,9 @@ class MaterialEditDialog(StudioDialog):
         f.category.setCurrentIndex(max(0, f.category.findData(page.get_browser_category())))
         if ident: f.open_material(ident)
         else: f.new_material(text=text)
+        if initial_value is not None:
+            f.target = None
+            f.load_value(copy.deepcopy(initial_value), 'new')
         self.initial_id = f.base['id']
         self.name, self.prompt = f.name, f.prompt
         self.prompt.setProperty('modulePrompt',True)
@@ -799,7 +843,7 @@ class MaterialEditDialog(StudioDialog):
         footer=QWidget();details=QVBoxLayout(footer);details.setContentsMargins(8,0,0,0);details.setSpacing(4);details.addWidget(self.error);details.addWidget(self.identity)
         self.body.addLayout(row(footer, None, self.cancel_button, self.save_button, self.add_button,self.done_button))
         self.panels.content=self.pages;self.panels.form_scroll=self.form_scroll
-        self.panels.set_content(self.pages.details_container,'進階功能',self.pages.close_group_details)
+        self.panels.set_content(self.pages.details_container,'管理',self.pages.close_group_details)
         self.set_destination(page.destination_id)
         self.prompt.textChanged.connect(lambda: apply_line_spacing(f)); sync_prompt_style(f); apply_line_spacing(f)
         self.error.setText('')
@@ -818,7 +862,11 @@ class MaterialEditDialog(StudioDialog):
         self.panels.fit_content()
 
     def showEvent(self,event):
-        self.panels.fit_content(before_show=True)
+        # The first geometry pass gives nested group pages their final width;
+        # their resize handlers then update toolbar and list minimum heights.
+        # Settle those constraints before the first paint, not with a later
+        # timer that would resize the visible native window and flash.
+        for _ in range(2):self.panels.fit_content(before_show=True)
         super().showEvent(event)
 
     def set_destination(self, canvas_id):

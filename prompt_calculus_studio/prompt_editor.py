@@ -332,12 +332,15 @@ class HistoryPanel(QWidget):
                     text = '自動組合（沒有手動草稿）' if draft is None else '（空手動草稿）' if draft == '' else draft
                     return text + '\n\n當時的草稿基準：\n' + data.get('draft_base', '')
                 root = data.get('composition', data)
-                if root.get('sequence'):
+                if root.get('sequence') or root.get('variants'):
+                    sequence_field='sequence' if root.get('sequence') else 'variants'
                     blocks=[]
-                    for group in root['sequence']['groups']:
-                        preview=copy.deepcopy(root);preview['sequence']['selected']=group['id']
+                    for group in root[sequence_field]['groups']:
+                        preview=copy.deepcopy(root);preview[sequence_field]['selected']=group['id']
                         blocks.append(group['name']+f" · {group['repeat']} 次\n"+composition.render(preview))
                     return data.get('name','')+'\n\n'+'\n\n'.join(blocks)
+                if root.get('combination'):
+                    return data.get('name','')+'\n\n'+composition.render(root)
                 return data.get('name', '') + '\n\n' + root.get('prompt', '') + ('\n\n子項：\n' +
                     json.dumps(root['children'], ensure_ascii=False, indent=2) if root.get('children') else '')
             self.detail.setPlainText('修改前\n' + describe(change['before']) + '\n\n────────\n修改後\n' + describe(change['after']))

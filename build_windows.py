@@ -74,7 +74,7 @@ from build_comfyui import build as build_companion
 from prompt_calculus_studio.releases import EXTENSION_FOLDER
 build_companion(package/'extensions'/EXTENSION_FOLDER,
                 package/'extensions'/'PromptCalculusStudio-ComfyUI.zip',release=release)
-if release.flag in ('--v0.8.8-preparation.7','--v0.8.8-preparation.8','--v0.8.8-preparation.9','--v0.8.8-preparation.10','--v0.8.8-candidate.1'):
+if release.flag in ('--v0.8.8-preparation.7','--v0.8.8-preparation.8','--v0.8.8-preparation.9','--v0.8.8-preparation.10','--v0.8.8-candidate.1','--v0.8.8-candidate.2'):
     from prompt_calculus_studio.releases import COMFYUI_COMPATIBILITY_PROFILES
     for profile in COMFYUI_COMPATIBILITY_PROFILES:
         build_companion(package/'extensions'/profile/EXTENSION_FOLDER,

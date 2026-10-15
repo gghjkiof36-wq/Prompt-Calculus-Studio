@@ -407,10 +407,12 @@ class GroupEditor(MaterialPickerMixin,QWidget):
         self.direct_kind.currentIndexChanged.connect(self.update_group); self.direct_text.textChanged.connect(self.update_group)
         self.input_tabs.currentChanged.connect(self.input_pages.setCurrentIndex)
         self.input_tabs.currentChanged.connect(self.update_group)
+        self.input_tabs.currentChanged.connect(lambda _:self.layoutChanged.emit())
         layout.addWidget(self.input_pages,1)
         self.deduplicate=QCheckBox('去重');self.deduplicate.setAccessibleName('目前組合去重')
         self.deduplicate.toggled.connect(self.update_group)
-        self.preview_toggle = Disclosure('Prompt 預覽');layout.addLayout(row(self.preview_toggle,None,self.deduplicate))
+        self.preview_toggle = Disclosure('Prompt 預覽');self.preview_row=row(self.preview_toggle,None,self.deduplicate)
+        layout.addLayout(self.preview_row)
         self.preview_toggle.setIcon(icon('chevron-right'))
         self.preview_holder,preview_layout=page();self.preview_holder.setParent(self);self.preview_holder.hide()
         self.preview = QPlainTextEdit(); self.preview.setReadOnly(True); self.preview.setAccessibleName('本組實際 Prompt')
@@ -422,6 +424,11 @@ class GroupEditor(MaterialPickerMixin,QWidget):
         if panels is None:return
         self.preview_toggle.setIcon(icon('chevron-left' if opened else 'chevron-right'))
         if opened:
+            pages=getattr(self.window(),'pages',None)
+            if pages is not None:
+                pages.group_details.setChecked(False)
+                pages.details_toggle.blockSignals(True);pages.details_toggle.setChecked(False);pages.details_toggle.blockSignals(False)
+                pages.layout_limits()
             panels.set_content(self.preview_holder,'Prompt 預覽',lambda:self.preview_toggle.setChecked(False))
             panels.set_open(True)
         elif panels.side_pages.currentWidget() is self.preview_holder:panels.set_open(False)
@@ -458,7 +465,7 @@ class GroupEditor(MaterialPickerMixin,QWidget):
 
     def open_module(self, ident):
         part=next(m for m in self.current_group['modules'] if m['id']==ident)
-        values=self.edit_node(part,'編輯流程' if part.get('sequence') else '編輯文字模塊')
+        values=self.edit_node(part,'編輯'+pm.TYPES[pm.kind(part)])
         if values is not None:
             part.update(values);self.inspector.hide();self.current_module=None
             self.refresh_modules();self.changed.emit()
@@ -596,6 +603,12 @@ class GroupEditor(MaterialPickerMixin,QWidget):
     def back(self):
         self.module_weight_edit.submit(); self.refresh_overview(); self.stack.setCurrentIndex(0)
 
+    def keyPressEvent(self,event):
+        if event.key()==Qt.Key.Key_Escape and self.stack.currentIndex()==2:
+            self.stack.setCurrentIndex(0 if self.picker_kind=='combination' else 1)
+            event.accept();return
+        super().keyPressEvent(event)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         narrow = self.width() < 680
@@ -625,10 +638,11 @@ class MaterialPages(QWidget):
         self.stack = PageStack(); layout.addWidget(self.stack, 1)
         self.single, sl = page(); self.stack.addWidget(self.single)
         self.single_layout=sl
-        self.add_variants=button('新增變體',self.enable_variants,'Quiet')
+        self.add_variants=button('新增變體',self.add_variant,'Quiet')
+        self.add_variants.setIcon(icon('plus'))
         sl.addLayout(row(label('Prompt', 'Subtle'),None,self.add_variants))
         f.prompt.setMinimumHeight(280); sl.addWidget(f.prompt, 1)
-        self.details_toggle = Disclosure('進階功能'); sl.addWidget(self.details_toggle)
+        self.details_toggle = Disclosure('管理'); sl.addWidget(self.details_toggle)
         self.details = QTabWidget(self); self.details.setDocumentMode(True); self.details.tabBar().setDrawBase(False)
         self.details_toggle.toggled.connect(self.expand_advanced)
         sl.setContentsMargins(0,0,0,0)
@@ -672,7 +686,7 @@ class MaterialPages(QWidget):
         dialog.info_toggle = dialog.lookup_toggle = dialog.relation_toggle = dialog.history_toggle = self.details_toggle
         dialog.intro = label(''); dialog.intro.hide()
         self.group_container, self.gl = page(); self.stack.addWidget(self.group_container)
-        self.group_details=button('進階功能',self.show_group_details,'Quiet');self.group_details.setCheckable(True);self.name_row.addWidget(self.group_details)
+        self.group_details=button('管理',self.show_group_details,'Quiet');self.group_details.setCheckable(True);self.name_row.addWidget(self.group_details)
         self.details_toggle.toggled.connect(self.layout_limits)
         self.switch_type()
         if root.get('variants'):self.enable_variants(existing=True)
@@ -683,15 +697,27 @@ class MaterialPages(QWidget):
         root=copy.deepcopy(self.root);root['prompt']=self.dialog.prompt.toPlainText()
         self.variant_editor=VariantEditor(root.get('variants') or pm.variants(root),self.single)
         self.variant_editor.changed.connect(self.dialog.form.edited)
+        self.variant_editor.layoutChanged.connect(self.dialog.fit_page)
         self.single_layout.insertWidget(1,self.variant_editor,1)
-        self.dialog.prompt.hide();self.add_variants.hide()
+        self.variant_editor.choose.setMaximumWidth(156)
+        self.variant_label=label('變體','Subtle')
+        self.name_row.insertWidget(2,self.variant_label);self.name_row.insertWidget(3,self.variant_editor.choose)
+        self.variant_editor.choose.show()
+        self.details.insertTab(0,self.variant_editor.management,'變體')
+        self.details.setCurrentWidget(self.variant_editor.management)
+        self.dialog.prompt.hide()
         if not existing:self.variant_editor.add()
         self.variant_editor.show()
         self.layout_limits()
         if hasattr(self.dialog,'form_scroll'):self.dialog.fit_page()
 
+    def add_variant(self):
+        if self.variant_editor is None:self.enable_variants()
+        else:self.variant_editor.add()
+
     def switch_type(self):
         if hasattr(self.dialog,'panels'):self.close_group_details(animate=False)
+        if self.group_editor:self.group_editor.preview_toggle.setChecked(False)
         self.material_type=self.type_picker.currentData();self.is_group=self.material_type!='text'
         self.dialog.name_label.setText(pm.TYPES[self.material_type]+'名稱')
         self.group_format.setText(pm.TYPES[self.material_type])
@@ -705,7 +731,7 @@ class MaterialPages(QWidget):
         if self.is_group and self.group_editor is None:
             root = copy.deepcopy(self.root); root['prompt'] = self.dialog.prompt.toPlainText(); root['name'] = self.dialog.name.text() or '組合 1'
             standalone=self.material_type=='combination'
-            group=pm.as_group(root) if standalone else None
+            group=pm.as_group(root,preserve_outer=False) if standalone else None
             sequence=(dict(version=1,mode='fixed',start=group['id'],selected=group['id'],groups=[group]) if standalone else groups.from_node(root))
             self.group_editor = GroupEditor(self.dialog.page.window, sequence, standalone=standalone);self.gl.insertWidget(0,self.group_editor,1)
             self.group_editors[self.material_type]=self.group_editor
@@ -716,16 +742,39 @@ class MaterialPages(QWidget):
             self.group_editor.group_navigation.hide()
             self.group_editor.changed.connect(self.dialog.form.edited)
         if self.group_editor:self.group_editor.show()
+        self.place_group_actions()
         self.stack.setCurrentIndex(1 if self.is_group else 0)
+        if self.variant_editor:
+            self.variant_editor.choose.setVisible(not self.is_group);self.variant_label.setVisible(not self.is_group)
+            tab=self.details.indexOf(self.variant_editor.management)
+            if self.is_group and tab>=0:self.details.removeTab(tab)
+            elif not self.is_group and tab<0:self.details.insertTab(0,self.variant_editor.management,'變體')
         self.dialog.name.setVisible(not self.is_group or self.group_editor.stack.currentIndex() == 0)
         self.layout_limits()
         if hasattr(self.dialog,'done_button'):self.page_changed(self.group_editor.stack.currentIndex() if self.is_group else 0)
+
+    def place_group_actions(self):
+        combination=self.group_editors.get('combination')
+        if combination is None:return
+        if self.material_type=='combination':
+            self.name_row.removeWidget(self.group_details)
+            combination.preview_row.removeWidget(combination.preview_toggle)
+            self.name_row.addWidget(combination.preview_toggle)
+            combination.preview_row.insertWidget(0,self.group_details)
+        elif combination.preview_row.indexOf(self.group_details)>=0:
+            combination.preview_row.removeWidget(self.group_details)
+            self.name_row.removeWidget(combination.preview_toggle)
+            combination.preview_row.insertWidget(0,combination.preview_toggle)
+            self.name_row.addWidget(self.group_details)
 
     def page_changed(self,index):
         home=index==0 or self.material_type=='combination' and index==1
         self.dialog.name.setVisible(home);self.dialog.name_label.setVisible(home)
         self.type_picker.setVisible(home and self.dialog.was_new)
+        if self.variant_editor:
+            self.variant_editor.choose.setVisible(home and not self.is_group);self.variant_label.setVisible(home and not self.is_group)
         self.group_details.setVisible(self.is_group and home);self.layout_limits()
+        if self.material_type=='combination':self.group_editor.preview_toggle.setVisible(home)
         dialog=self.dialog
         if hasattr(dialog,'done_button'):
             if not home:self.close_group_details(animate=False)
@@ -763,13 +812,18 @@ class MaterialPages(QWidget):
         if self.group_editor:self.group_editor.refresh_previews()
 
     def show_group_details(self):
-        self.group_details.setChecked(not self.dialog.panels.opened)
-        self.dialog.panels.set_content(self.details_container,'進階功能',self.close_group_details)
+        panels=self.dialog.panels
+        self.group_details.setChecked(not (panels.opened and panels.side_pages.currentWidget() is self.details_container))
+        if self.group_editor:
+            toggle=self.group_editor.preview_toggle
+            toggle.blockSignals(True);toggle.setChecked(False);toggle.blockSignals(False);toggle.setIcon(icon('chevron-right'))
+        self.dialog.panels.set_content(self.details_container,'管理',self.close_group_details)
         self.dialog.panels.set_open(self.group_details.isChecked());self.layout_limits()
 
     def close_group_details(self,animate=True):
         self.details_toggle.blockSignals(True);self.details_toggle.setChecked(False);self.details_toggle.blockSignals(False)
-        self.group_details.setChecked(False);self.dialog.panels.set_open(False,animate=animate);self.layout_limits()
+        self.group_details.setChecked(False)
+        self.dialog.panels.set_open(False,animate=animate);self.layout_limits()
 
     def layout_limits(self,*_):
         narrow=self.width()<680
@@ -784,7 +838,7 @@ class MaterialPages(QWidget):
         self.group_details.setIcon(icon('chevron-left' if self.group_details.isChecked() else 'chevron-right'))
 
     def expand_advanced(self,opened):
-        self.dialog.panels.set_content(self.details_container,'進階功能',self.close_group_details)
+        self.dialog.panels.set_content(self.details_container,'管理',self.close_group_details)
         self.dialog.panels.set_open(opened);self.layout_limits()
 
     def value(self, value):
