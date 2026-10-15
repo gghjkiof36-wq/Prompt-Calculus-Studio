@@ -58,7 +58,8 @@ class SnapshotPrivacyTests(unittest.TestCase):
         state=prepare_state(initial_state(),multi=True);state['draft']=''
         snapshot=make_snapshot(state)
         # This is the pre-fix wire shape: the whole library in a valid snapshot.
-        snapshot['state']['items']=portable_state(state)['items']
+        full=portable_state(state)
+        for field in ('items','modules'):snapshot['state'][field]=full[field]
         validate_snapshot(snapshot)
         restored=restore_snapshot(initial_state(),snapshot)
         self.assertEqual(restored['draft'],'');self.assertTrue(snapshot['manual_draft'])

@@ -76,6 +76,10 @@ def validate_state(state):
             if not isinstance(entry.get("name"), str) or not entry["name"].strip():
                 raise ValueError("名稱不能空白。")
     modules = {m["id"]: m for m in state["modules"]}
+    positions=state.get('category_positions',{})
+    if not isinstance(positions,dict) or any(not isinstance(key,str) or not key or type(value) is not int
+            or not 0<=value<=1000000 for key,value in positions.items()):
+        raise ValueError('快照分類位置無效。')
     items = {i["id"]: i for i in state["items"]}
     for m in modules.values():
         if m.get("mode") not in ("single", "multiple"):
@@ -277,7 +281,7 @@ def output_groups(state, include_hidden=False):
         return visible([mid for mid in order if mid in active] + uses)
     order=[mid for mid in state["output_order"] if mid in active]
     for index,mid in enumerate(modules):
-        if mid in active and mid not in order: order.insert(min(index,len(order)),mid)
+        if mid in active and mid not in order: order.insert(min(state.get('category_positions',{}).get(mid,index),len(order)),mid)
     if TEMPORARY_GROUP in active and TEMPORARY_GROUP not in order: order.append(TEMPORARY_GROUP)
     order.extend(ident for ident in uses if ident not in order)
     return visible(order)

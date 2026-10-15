@@ -19,6 +19,30 @@ class StageSnapshotPrivacyTests(unittest.TestCase):
     group_source=bound.BoundSchedulerTests.group_source
     bound_text=bound.BoundSchedulerTests.bound_text
 
+    def test_unused_category_and_folder_labels_do_not_enter_actual_envelope_or_png(self):
+        from prompt_calculus_studio import material_navigation as nav
+        self.bound_text();markers=['SYNTHETIC_PRIVATE_'+name for name in ('EMPTY_CATEGORY','FOLDER','SIBLING_CATEGORY')]
+        def setup(state):
+            unused=materials.add_category(state,markers[0]);sibling=materials.add_category(state,markers[2])
+            nav.add_folder(state,markers[1]);needed=materials.add_category(state,'needed source category')
+            folder=nav.add_folder(state,'needed folder');nav.move(state,needed,folder);nav.move(state,sibling,folder)
+            for value in state['canvas_functions']['text_sources'].values():value['root']['source_module']=needed
+            state['selections'][unused]=[]
+            active=next(w for w in state['workspaces'] if w['id']==state['workspace'])
+            active['fixed'].append(unused);active['picks'][unused]=[]
+        self.assertTrue(self.c.commit(setup));before=copy.deepcopy(self.w.state);self.click()
+        payload=self.executor.submissions[0];snap=payload['extra_data']['extra_pnginfo']['prompt_studio']['bindings'][0]['snapshot']
+        self.assertTrue(any(m['name']=='needed source category' for m in snap['state']['modules']))
+        self.assertTrue(any(f['name']=='needed folder' for f in snap['state'][nav.FIELD]['folders']))
+        restore_snapshot(initial_state(),snap);self.executor.finish()
+        image=next((Path(self.tmp.name)/'stages-executor').glob('*.png'));metadata=png_metadata(image)
+        for marker in markers:
+            self.assertNotIn(marker,json.dumps(payload));self.assertNotIn(marker,json.dumps(metadata))
+            self.assertIn(marker,json.dumps(portable_state(self.w.state)))
+        self.w.persist()
+        for key in ('modules','items',nav.FIELD):
+            self.assertEqual(self.w.state[key],before[key]);self.assertEqual(self.w.store.load()[key],before[key])
+
     def test_unconnected_text_notes_alias_variants_and_combination_never_leave_library(self):
         self.bound_text();markers=['SYNTHETIC_PRIVATE_'+field for field in ('PROMPT','NOTE','ALIAS','VARIANT','COMBINATION')]
         def setup(state):

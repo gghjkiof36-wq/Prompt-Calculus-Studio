@@ -43,6 +43,73 @@ def _referenced_items(state):
     return chosen
 
 
+def _project_categories(state, source):
+    """Prune library labels and empty references on the generation copy only."""
+    owners=[state,*state['workspaces'],
+            *[o.get('list_state',{}) for o in state.get('multi_output',{}).get('outputs',{}).values()]]
+    needed={item['module'] for item in state['items']}
+    roots=[item['composition'] for item in state['items'] if item.get('composition')]
+    for owner in owners:
+        roots.extend(owner.get('uses',{}).values());roots.extend(owner.get('instances',{}).values())
+        roots.extend(v['root'] for v in owner.get('canvas_functions',{}).get('text_sources',{}).values())
+    needed.update(part.get('source_module') for root in roots for part in walk(root))
+    state['modules']=[m for m in state['modules'] if m['id'] in needed]
+    known={m['id'] for m in state['modules']}
+    state['category_positions']={m['id']:source.get('category_positions',{}).get(m['id'],index)
+        for index,m in enumerate(source['modules']) if m['id'] in known}
+    for key,output in state.get('multi_output',{}).get('outputs',{}).items():
+        # Keep fallback insertion positions without retaining the intervening
+        # unused categories' names or IDs. Normal documents need no such map.
+        from .multi_output import LIST_FIELDS,canvas_projection
+        previous=source['multi_output']['outputs'][key].get('list_state',{})
+        positions={m['id']:previous.get('category_positions',{}).get(m['id'],index)
+                   for index,m in enumerate(source['modules']) if m['id'] in known}
+        projection=None
+        if source.get('selection_view')=='list' and separate_selections(source):
+            projection=dict(source,uses={},selections={},weights={},instances={},temporary=[])
+            projection.pop('multi_output',None);projection.update(previous)
+            if key==source['multi_output']['current_output']:
+                projection.update({k:source[k] for k in LIST_FIELDS if k in source})
+        elif not separate_selections(source) and output.get('canvas') in source['multi_output']['canvases']:
+            projection=canvas_projection(source,output['canvas'])
+            if source['multi_output']['version']>=5:
+                projection['uses']={k:v for k,v in projection['uses'].items() if not v.get('opaque_source')}
+                projection['output_order']=[k for k in projection['output_order'] if k in projection['uses']]
+        if projection is not None:
+            positions.update({mid:index for index,mid in enumerate(output_groups(projection,include_hidden=True)) if mid in known})
+        output.setdefault('list_state',{})['category_positions']=positions
+    for owner in owners:
+        for field in ('selections','picks'):
+            if field in owner:owner[field]={m:values for m,values in owner[field].items() if m in known}
+        if 'fixed' in owner:owner['fixed']=[m for m in owner['fixed'] if m in known]
+        if 'output_order' in owner:
+            allowed=known|state.get('uses',{}).keys()|{TEMPORARY_GROUP}
+            owner['output_order']=[key for key in owner['output_order'] if key in allowed]
+        if owner.get('temporary_before') not in known and 'temporary_before' in owner:
+            owner['temporary_before']=None
+    from . import material_navigation as navigation
+    if navigation.FIELD in state:
+        value=navigation.view(state)
+        folders=[dict(id=f['id'],name=f['name'],categories=f['categories'])
+                 for f in value['folders'] if f['categories']]
+        visible=known|{f['id'] for f in folders}
+        state[navigation.FIELD]=dict(version=1,folders=folders,order=[key for key in value['order'] if key in visible])
+
+
+def _restore_category_folders(result, source, module_map, original_modules):
+    """Place newly imported categories without moving the local library."""
+    from . import material_navigation as navigation
+    if navigation.FIELD not in source:return
+    for folder in navigation.view(source)['folders']:
+        members=[module_map[key] for key in folder['categories']
+                 if key in module_map and module_map[key] not in original_modules]
+        if not members:continue
+        target=next((f for f in navigation.view(result)['folders']
+                     if f['name'].casefold()==folder['name'].casefold()),None)
+        ident=target['id'] if target else navigation.add_folder(result,folder['name'])
+        for key in members:navigation.move(result,key,ident)
+
+
 def portable_state(state, selected_only=False):
     validate_state(state)
     if selected_only and separate_selections(state) and 'multi_output' not in state:
@@ -91,6 +158,8 @@ def portable_state(state, selected_only=False):
         temporary_before=state.get('temporary_before'), draft=state['draft'],
         draft_base=state.get('draft_base', ''), selection_view=state.get('selection_view','list'),
         settings={'separate_selections':separate_selections(state)}, dictionary={})
+    for key in ('material_navigation','category_positions'):
+        if key in state:result[key]=copy.deepcopy(state[key])
     if any('pcs_effective' in p for p in state.get('generation',{}).get('profiles',[])):
         result['generation']=copy.deepcopy(state['generation'])
     if 'multi_output' in state:
@@ -101,13 +170,14 @@ def portable_state(state, selected_only=False):
         for output in result['multi_output']['outputs'].values():
             saved=output.get('list_state',{})
             if 'instances' in saved:saved['instances']=_portable_uses({k:v for k,v in saved['instances'].items() if not selected_only or k in allowed})
-        result['output_order']=output_groups(state,include_hidden=True)
+        result['output_order']=copy.deepcopy(state.get('output_order',output_groups(state,include_hidden=True))) if selected_only else output_groups(state,include_hidden=True)
     if not selected_only and 'workspace_scenes' in state:
         from .workspace_scene import capture
         result['workspace_scenes']=copy.deepcopy(state['workspace_scenes']);capture(result)
         for entry in result['workspace_scenes']['items'].values():
             for key in ('uses','instances'):
                 if key in entry:entry[key]=_portable_uses(entry[key])
+    if selected_only:_project_categories(result,state)
     return result
 
 
@@ -200,6 +270,7 @@ def restore_snapshot(current, snapshot):
             target = dict(m, id=uid(), name=m['name'] + ' · 歷史快照')
             result['modules'].append(target)
         module_map[m['id']] = target['id']
+    _restore_category_folders(result,source,module_map,set(modules))
     for i in source['items']:
         target = items.get(i['id'])
         mid = module_map[i['module']]
@@ -255,6 +326,8 @@ def restore_snapshot(current, snapshot):
         for output in result['multi_output']['outputs'].values():
             saved=output.get('list_state',{})
             saved['selections']={module_map[m]:[item_map[i] for i in picks] for m,picks in saved.get('selections',{}).items()}
+            if 'category_positions' in saved:
+                saved['category_positions']={module_map[key]:value for key,value in saved['category_positions'].items()}
             for field in ('weights','instances'):
                 saved[field]={item_map.get(k,k):v for k,v in saved.get(field,{}).items()}
             if saved.get('temporary_before') is not None: saved['temporary_before']=module_map.get(saved['temporary_before'])

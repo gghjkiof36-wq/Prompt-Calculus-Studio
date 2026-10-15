@@ -98,7 +98,9 @@ def capture_current(state):
         output.update(draft=state.get('draft'), draft_base=state.get('draft_base',''))
     else:
         output['list_draft']=dict(draft=state.get('draft'),draft_base=state.get('draft_base',''))
+    positions=output.get('list_state',{}).get('category_positions')
     output['list_state']={key:copy.deepcopy(state[key]) for key in LIST_FIELDS if key in state}
+    if positions is not None:output['list_state']['category_positions']=copy.deepcopy(positions)
 
 
 def select_output(state,key):
@@ -108,7 +110,7 @@ def select_output(state,key):
     saved=output.get('list_state',{})
     for field in LIST_FIELDS: state.pop(field,None)
     state.update(selections={},weights={},instances={},temporary=[])
-    state.update(copy.deepcopy(saved))
+    state.update(copy.deepcopy({k:v for k,v in saved.items() if k!='category_positions'}))
     draft=output.get('list_draft',{}) if state.get('selection_view')=='list' and state['settings'].get('separate_selections',True) else output
     state.update(draft=draft.get('draft'),draft_base=draft.get('draft_base',''))
 
@@ -230,6 +232,8 @@ def canvas_projection(state,canvas_id):
         saved=output.get('list_state',{})
         if output is active_output(state): saved={key:state[key] for key in LIST_FIELDS if key in state}
         result.update(saved)
+        positions=output.get('list_state',{}).get('category_positions')
+        if positions is not None:result['category_positions']=positions
         from .core import output_groups
         result['output_order']=list(canvas['members'])+[key for key in output_groups(state,include_hidden=True) if key not in state.get('uses',{})]
     return result
@@ -347,6 +351,10 @@ def validate_multi(state):
             validate_image(c['image'])
     if data.get('current_output') is not None and data['current_output'] not in data['outputs']: raise ValueError('目前輸出不存在。')
     for output in data['outputs'].values():
+        positions=output.get('list_state',{}).get('category_positions',{})
+        if not isinstance(positions,dict) or any(not isinstance(key,str) or not key
+                or type(value) is not int or not 0<=value<=1000000 for key,value in positions.items()):
+            raise ValueError('快照分類位置無效。')
         ratio=output.get('panel_ratio',.45)
         if type(ratio) not in (float,int) or not math.isfinite(ratio) or not 0<=ratio<=1: raise ValueError('文字欄比例無效。')
         if output.get('canvas') is not None and output['canvas'] not in data['canvases']: raise ValueError('來源畫布不存在。')
