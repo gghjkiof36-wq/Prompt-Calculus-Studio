@@ -23,6 +23,26 @@ def _portable_uses(values):
     return {key: _portable_tree(value) for key, value in values.items()}
 
 
+def _referenced_items(state):
+    """Close over the included composition, never other workspace/library roots."""
+    owners=[state,*[o.get('list_state',{}) for o in state.get('multi_output',{}).get('outputs',{}).values()]]
+    chosen=set();roots=list(state.get('uses',{}).values())
+    roots.extend(v['root'] for v in state.get('canvas_functions',{}).get('text_sources',{}).values())
+    for owner in owners:
+        selected={key for values in owner.get('selections',{}).values() for key in values}
+        chosen.update(selected)
+        roots.extend(root for key,root in owner.get('instances',{}).items() if key in selected)
+    for root in roots:chosen.update(part.get('source_id') for part in walk(root))
+    library={item['id']:item for item in state['items']};pending=list(chosen)
+    while pending:
+        item=library.get(pending.pop(),{})
+        if not item.get('composition'):continue
+        for part in walk(item['composition']):
+            key=part.get('source_id')
+            if key and key not in chosen:chosen.add(key);pending.append(key)
+    return chosen
+
+
 def portable_state(state, selected_only=False):
     validate_state(state)
     if selected_only and separate_selections(state) and 'multi_output' not in state:
@@ -34,19 +54,23 @@ def portable_state(state, selected_only=False):
             state['uses']={}
             for workspace in state['workspaces']: workspace.update(uses={},fixed_uses=[])
         state['output_order']=output_groups(state)
-    chosen = {i for values in state['selections'].values() for i in values}
-    chosen.update(n.get('source_id') for owner in [state,*state['workspaces']] for root in owner.get('uses',{}).values() for n in walk(root))
+    chosen = _referenced_items(state) if selected_only else set()
     items = [dict(id=i['id'], module=i['module'], name=i['name'], prompt=i['prompt'],
                   aliases=list(i['aliases']), notes=i['notes'], excludes=list(i.get('excludes',[])),
                   **({'content_kind':i['content_kind']} if 'content_kind' in i else {}),
                   **({'material_type':i['material_type']} if 'material_type' in i else {}),
                   **({'composition':_portable_tree(i['composition'])} if 'composition' in i else {})) for i in state['items']
-             if not selected_only or 'multi_output' in state or i['id'] in chosen]
+             if not selected_only or i['id'] in chosen]
     allowed = {i['id'] for i in items}
     workspaces = []
     for w in state['workspaces']:
         if selected_only and w['id'] != state['workspace']:
             continue
+        if selected_only:
+            # Fixed-workspace caches can contain roots absent from this run's
+            # projected Stage. Only the included composition travels with it.
+            w=dict(w,uses=state.get('uses',{}),fixed_uses=[key for key in w.get('fixed_uses',[]) if key in state.get('uses',{})])
+            if 'canvas_owners' in w:w['canvas_owners']={key:cid for key,cid in w['canvas_owners'].items() if key in w['uses']}
         workspaces.append(dict(id=w['id'], name=w['name'], fixed=list(w['fixed']),
             picks={m: [i for i in values if i in allowed] for m, values in w['picks'].items()},
             weights={k:v for k,v in w.get('weights',{}).items() if k in allowed},
@@ -76,7 +100,7 @@ def portable_state(state, selected_only=False):
         capture_current(result)
         for output in result['multi_output']['outputs'].values():
             saved=output.get('list_state',{})
-            if 'instances' in saved:saved['instances']=_portable_uses(saved['instances'])
+            if 'instances' in saved:saved['instances']=_portable_uses({k:v for k,v in saved['instances'].items() if not selected_only or k in allowed})
         result['output_order']=output_groups(state,include_hidden=True)
     if not selected_only and 'workspace_scenes' in state:
         from .workspace_scene import capture

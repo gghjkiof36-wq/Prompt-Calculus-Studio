@@ -154,6 +154,11 @@ def prepare_state(runner,run,stage,context,source_values=None):
         if b['source']:used|=upstream(state,[b['source']])
     keep_canvases=set(data['canvases'])&used
     data['canvases']={k:v for k,v in data['canvases'].items() if k in keep_canvases}
+    # These roots are the saved input, not a live reader cache. The reader and
+    # its incoming wires are omitted below; restore must not delete its roots
+    # as disconnected derived content. Exact manual text is retained in texts.
+    for canvas in data['canvases'].values():
+        for field in ('source_members','source_revision','raw_prompt','source_error'):canvas.pop(field,None)
     roots={k for c in data['canvases'].values() for k in c['members']}
     state['uses']={k:v for k,v in state.get('uses',{}).items() if k in roots}
     state['output_order']=[k for k in state.get('output_order',[]) if k in roots]
