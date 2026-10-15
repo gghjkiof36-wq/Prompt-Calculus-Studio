@@ -109,7 +109,10 @@ class MaterialLevelsUITests(unittest.TestCase):
         def setup(state):
             refs['item']=materials.save(state,dict(name='搜尋流程',prompt='',module=self.cat,composition=flow(),aliases=['find flow']))
             refs['reader']=sources.add(state)
-        self.w.canvas.commit(setup);before=copy.deepcopy(self.w.state)
+        self.w.canvas.commit(setup)
+        # Settle the setup's pending workspace snapshot, so a later autosave
+        # cannot be mistaken for a mutation caused by browsing the picker.
+        self.w.persist();before=copy.deepcopy(self.w.state)
         dialog=GroupSourceDialog(self.w.canvas,refs['reader']);dialog.show();self.app.processEvents()
         self.assertLess(dialog.panels.main.width(),480);self.assertTrue(dialog.footer_divider.isHidden())
         dialog.open_picker()

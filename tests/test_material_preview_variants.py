@@ -34,5 +34,23 @@ class VariantPreviewTests(unittest.TestCase):
         self.w.persist();self.assertEqual(materials.item(self.w.store.load(),ident[0]),materials.item(before,ident[0]))
         self.page.preview_material(self.ids[0]);self.assertTrue(self.page.variant_navigation.isHidden())
 
+    def test_flow_preview_pages_and_shared_order_never_mutate_source(self):
+        from test_prompt_material_resolution import flow
+        from prompt_calculus_studio import prompt_materials as pm
+        root=flow();ident=materials.save(self.w.state,dict(name='流程預覽',module=self.cat,prompt='',composition=root))
+        self.page.refresh();before=copy.deepcopy(materials.item(self.w.state,ident))
+        self.page.preview_material(ident);self.app.processEvents()
+        layout=self.page.preview_card.layout()
+        controls=(self.page.preview_name,self.page.preview_image,self.page.preview_text,self.page.variant_navigation,self.page.edit_button)
+        self.assertEqual([layout.indexOf(c) for c in controls],sorted(layout.indexOf(c) for c in controls))
+        self.assertEqual(self.page.edit_button.text(),'編輯');self.assertFalse(self.page.edit_button.icon().isNull())
+        self.assertTrue(self.page.preview_image.isHidden())
+        for at,group in enumerate(pm.sequence(root)['groups']):
+            expected=copy.deepcopy(root);pm.sequence(expected)['selected']=group['id']
+            if at:self.page.move_preview_variant(1)
+            self.assertEqual(self.page.preview_text.toPlainText(),comp.render(expected))
+            self.assertEqual(self.page.variant_position.text(),f'{at+1} / {len(pm.sequence(root)["groups"])}')
+        self.assertEqual(materials.item(self.w.state,ident),before)
+
 
 VariantPreviewTests.setUpClass=classmethod(VariantPreviewTests.setUpClass)

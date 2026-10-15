@@ -20,7 +20,7 @@ ALIASES = {
 }
 ICON_NAMES = frozenset({
     'canvas','media','explore','export','settings','back','forward','search','update',
-    'package','download','check','clock','info','close','play','pause','stop','lock','pin','menu',
+    'package','download','check','clock','info','close','play','pause','stop','lock','pin','pin-filled','menu','pencil',
     'workflow','history','external-link','alert','server','check-circle',
     'folder','plus','minus','copy','trash','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal',
     'panel-left','type','file-text','list-ordered','arrow-down-up','arrow-up','arrow-down','shuffle','image-single','scan-eye','link-2','maximize','grip-vertical',
@@ -171,9 +171,13 @@ def _draw(painter, name):
         rect(5,11,14,10,2);painter.drawArc(QRectF(8,2,8,14),0,180*16);line(12,15,12,17)
     elif name in ('chevron-left','chevron-right'):
         poly((15,5),(8,12),(15,19)) if name=='chevron-left' else poly((9,5),(16,12),(9,19))
-    elif name == 'pin':
+    elif name in ('pin','pin-filled'):
+        if name == 'pin-filled': painter.setBrush(painter.pen().color())
         poly((8,3),(16,3),(15,10),(18,14),(6,14),(9,10),closed=True)
         line(12,14,12,21)
+    elif name == 'pencil':
+        poly((4,15),(15,4),(20,9),(9,20),(3,21),closed=True)
+        line(12,7,17,12);line(4,15,9,20)
     elif name == 'grid':
         for x in (4,14):
             for y in (4,14): rect(x,y,6,6,1)

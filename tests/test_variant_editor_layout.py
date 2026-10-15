@@ -49,7 +49,7 @@ class VariantEditorLayoutTests(unittest.TestCase):
             self.assertEqual(self.editor.width(),width)
             self.assertGreaterEqual(self.editor.stack.height(),390)
             self.assertEqual(self.side.width(),width)
-            controls=(self.editor.listing,self.editor.pin,self.editor.actions)
+            controls=(self.editor.listing,self.editor.actions)
             for control in controls:
                 visible=QRect(control.mapTo(self.side,QPoint()),control.size())
                 self.assertTrue(self.side.rect().contains(visible),(width,control.accessibleName(),visible))
@@ -59,9 +59,8 @@ class VariantEditorLayoutTests(unittest.TestCase):
             self.editor.open_details();self.app.processEvents()
             for control in (self.editor.name,self.editor.repeat):
                 self.assertTrue(self.side.rect().contains(QRect(control.mapTo(self.side,QPoint()),control.size())))
-            detail_top=self.editor.details.mapTo(self.side,QPoint()).y()
-            list_bottom=self.editor.listing.mapTo(self.side,QPoint(0,self.editor.listing.height())).y()
-            self.assertLessEqual(detail_top-list_bottom,12,'Secondary edit controls stay beside the selected rows')
+            self.assertFalse(self.editor.listing.isVisible())
+            self.assertTrue(self.editor.back_button.isVisible())
             self.editor.close_details()
 
     def test_list_selection_and_dropdown_follow_without_changing_start(self):
@@ -73,13 +72,13 @@ class VariantEditorLayoutTests(unittest.TestCase):
         self.assertEqual(self.editor.value('tags')['start'],first)
         self.editor.choose.setCurrentIndex(1)
         self.assertEqual(self.editor.listing.currentRow(),1)
-        QTest.mouseClick(self.editor.pin,Qt.MouseButton.LeftButton)
+        pin=self.editor.listing.row_regions(self.editor.listing.item(1))['pin'].center()
+        QTest.mouseClick(self.editor.listing.viewport(),Qt.MouseButton.LeftButton,pos=pin)
         self.assertEqual(self.editor.sequence['start'],self.editor.choose.currentData())
         self.assertTrue(self.editor.listing.item(1).data(START_ROLE))
         self.assertFalse(self.editor.listing.item(0).data(START_ROLE))
         self.assertEqual(self.editor.listing.item(1).text(),'夕陽')
-        self.assertEqual(self.editor.pin.text(),'');self.assertTrue(self.editor.pin.accessibleName())
-        self.assertFalse(self.editor.pin.isEnabled())
+        self.assertFalse(hasattr(self.editor,'pin'))
 
     def test_row_repeats_are_right_aligned_and_names_leave_room_for_maximum(self):
         self.editor.repeat.setValue(groups.MAX_REPEAT)
@@ -90,7 +89,8 @@ class VariantEditorLayoutTests(unittest.TestCase):
             self.assertEqual(item.data(REPEAT_ROLE),groups.MAX_REPEAT)
             self.assertEqual(item.data(Qt.ItemDataRole.AccessibleTextRole),item.text()+f'，{groups.MAX_REPEAT} 次')
             self.assertLess(regions['marker'].right(),regions['name'].left())
-            self.assertLess(regions['name'].right(),regions['repeat'].left())
+            self.assertLess(regions['name'].right(),regions['pin'].left())
+            self.assertLess(regions['pin'].right(),regions['repeat'].left())
             self.assertLess(regions['repeat'].right(),self.editor.listing.viewport().width())
             self.assertGreaterEqual(regions['repeat'].width(),self.editor.listing.fontMetrics().horizontalAdvance('10000 次'))
 
@@ -128,7 +128,8 @@ class VariantEditorLayoutTests(unittest.TestCase):
         self.assertEqual(self.editor.choose.currentText(),'Golden sunset')
         self.assertIn('Golden sunset',self.editor.listing.currentItem().text())
         self.assertIn('Golden sunset',self.editor.choose.toolTip())
-        self.editor.choose.setCurrentIndex(0);self.assertTrue(self.editor.details.isHidden())
+        self.editor.choose.setCurrentIndex(0);self.assertTrue(self.editor.details.isVisible())
+        self.assertEqual(self.editor.name.text(),'晴天')
         self.editor.choose.setCurrentIndex(1);self.editor.open_details()
         self.assertEqual(self.editor.name.text(),'Golden sunset');self.assertEqual(self.editor.repeat.value(),3)
         self.editor.name.selectAll();QTest.keyClick(self.editor.name,Qt.Key.Key_Backspace)
@@ -136,8 +137,8 @@ class VariantEditorLayoutTests(unittest.TestCase):
         self.editor.name.undo();self.assertEqual(self.editor.name.text(),'Golden sunset')
         self.editor.close_details();self.editor.listing.setFocus()
         QTest.keyClick(self.editor.listing,Qt.Key.Key_Return);self.assertTrue(self.editor.details.isVisible())
-        self.assertEqual(self.editor.collapse_details.text(),'收合編輯')
-        QTest.mouseClick(self.editor.collapse_details,Qt.MouseButton.LeftButton)
+        self.assertEqual(self.editor.back_button.text(),'返回')
+        QTest.mouseClick(self.editor.back_button,Qt.MouseButton.LeftButton)
         self.assertTrue(self.editor.details.isHidden())
 
     def test_long_variant_list_scrolls_without_pushing_details_away(self):
@@ -147,7 +148,7 @@ class VariantEditorLayoutTests(unittest.TestCase):
         self.assertLessEqual(self.editor.listing.height(),maximum)
         self.assertGreater(self.editor.listing.verticalScrollBar().maximum(),0)
         self.editor.open_details();self.app.processEvents()
-        self.assertLessEqual(self.editor.details.y()-self.editor.listing.geometry().bottom(),13)
+        self.assertFalse(self.editor.listing.isVisible());self.assertTrue(self.editor.back_button.isVisible())
 
     def test_delete_start_falls_back_without_losing_other_drafts(self):
         first=self.editor.sequence['start'];second=self.editor.sequence['groups'][1]['id']

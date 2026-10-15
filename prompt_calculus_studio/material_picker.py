@@ -9,6 +9,7 @@ from .theme import visual_tokens
 from .quiet_splitter import QuietSplitter
 from .palette_cards import PickerCardDelegate
 from .stacked_card_list import StackedCardList
+from .material_scope import MaterialScope, populate
 
 
 class MaterialPickerMixin:
@@ -51,32 +52,13 @@ class MaterialPickerMixin:
         self.picker_split.setSizes([220, 550]); self.refresh_folders()
 
     def refresh_folders(self):
-        state = self.host.state; view = nav.view(state); folders = {f['id']: f for f in view['folders']}
-        self.collapsed=set(state['settings'].get('material_folder_collapsed',[]))
-        categories = {m['id']: m for m in state['modules']}; counts = {k: sum(i['module'] == k for i in state['items']) for k in categories}
-        unclassified=next((m['id'] for m in state['modules'] if m['name']=='未分類'),'@uncategorized')
-        if self.category=='@uncategorized':self.category=unclassified
-        self.folders.has_folders=bool(folders)
-        self.folders.blockSignals(True); self.folders.clear(); self.folders.add_row(None, '全部素材', len(state['items']), 'shortcut')
-        for ident in view['order']:
-            if ident in folders:
-                folder = folders[ident]; self.folders.add_row(ident, folder['name'], sum(counts[k] for k in folder['categories']), 'folder', collapsed=ident in self.collapsed)
-                if ident not in self.collapsed:
-                    for key in folder['categories']: self.folders.add_row(key, categories[key]['name'], counts[key], parent=ident)
-            else: self.folders.add_row(ident, categories[ident]['name'], counts[ident])
-        unclassified_count=counts.get(unclassified,sum(i['module'] not in categories for i in state['items']))
-        self.folders.add_row(unclassified,'未分類',unclassified_count,'shortcut')
+        self.scope=MaterialScope(self.host.state,(self.picker_kind,))
+        self.collapsed=self.scope.collapsed;self.category=self.scope.normalize(self.category)
+        self.folders.blockSignals(True);self.category_combo.blockSignals(True)
+        populate(self.scope,self.folders,self.category_combo)
         for at in range(self.folders.count()):
-            if self.folders.item(at).data(Qt.ItemDataRole.UserRole) == self.category: self.folders.setCurrentRow(at)
-        self.category_combo.blockSignals(True);self.category_combo.clear()
-        self.category_combo.addItem('全部素材',None)
-        for ident in view['order']:
-            if ident in folders:
-                folder=folders[ident];self.category_combo.addItem(folder['name'],ident)
-                for key in folder['categories']:self.category_combo.addItem('  '+categories[key]['name'],key)
-            else:self.category_combo.addItem(categories[ident]['name'],ident)
-        self.category_combo.addItem('未分類',unclassified)
-        self.category_combo.setCurrentIndex(max(0,self.category_combo.findData(self.category)));self.category_combo.blockSignals(False)
+            if self.folders.item(at).data(Qt.ItemDataRole.UserRole)==self.category:self.folders.setCurrentRow(at)
+        self.category_combo.setCurrentIndex(self.category_combo.findData(self.category));self.category_combo.blockSignals(False)
         self.folders.blockSignals(False); self.refresh_picker()
 
     def toggle_folder(self, ident):
@@ -100,18 +82,15 @@ class MaterialPickerMixin:
         self.category=self.category_combo.currentData();self.host._material_browser_category=self.category;self.refresh_folders()
 
     def refresh_picker(self):
-        folder = nav.folder(self.host.state, self.category) if nav.is_folder(self.category) else None
-        rows = materials.search(self.host.state, self.search.text(), None if folder or self.category=='@uncategorized' else self.category, material_type=self.picker_kind)
-        if folder: rows = [r for r in rows if r['module'] in folder['categories']]
-        if self.category=='@uncategorized':
-            known={m['id'] for m in self.host.state['modules']};rows=[r for r in rows if r['module'] not in known]
+        rows=[item for item in materials.search(self.host.state,self.search.text(),material_type=self.picker_kind)
+              if self.scope.matches(item,self.category)]
         matches={r['id'] for r in rows};rows=[r for r in self.host.state['items'] if r['id'] in matches]
         scroll=self.candidates.verticalScrollBar().value();self.candidates.clear()
         for item in rows:
             entry=QListWidgetItem(item['name']+'\n'+pm.summary(item).replace('\n',' '));entry.setData(Qt.ItemDataRole.UserRole,item['id'])
             self.candidates.addItem(entry)
         self.candidates.verticalScrollBar().setValue(scroll);self.picker_empty.setVisible(not rows)
-        category=folder['name'] if folder else '未分類' if self.category=='@uncategorized' else next((m['name'] for m in self.host.state['modules'] if m['id']==self.category),'全部分類')
+        category=self.scope.name(self.category)
         self.picker_heading.setText(f'{category} · {len(rows)} 個素材')
         self.candidates.doItemsLayout();self.align_picker()
 

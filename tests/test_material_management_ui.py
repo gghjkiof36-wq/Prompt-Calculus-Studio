@@ -63,7 +63,7 @@ class MaterialManagementUITests(unittest.TestCase):
         self.assertTrue(editor.name.isVisible());self.assertTrue(editor.repeat.isVisible())
         self.assertEqual(editor.choose.currentIndex(),1)
         self.assertTrue(dialog.panels.side.isAncestorOf(editor.name))
-        self.click(editor.collapse_details);self.assertTrue(editor.details.isHidden());dialog.reject()
+        self.click(editor.back_button);self.assertTrue(editor.details.isHidden());dialog.reject()
 
     def test_typical_windows_keep_outer_form_still_and_scroll_only_long_prompt(self):
         for width,height in ((1700,980),(980,740)):
@@ -80,7 +80,8 @@ class MaterialManagementUITests(unittest.TestCase):
     def test_variant_management_save_reopen_cancel_undo_redo_preserves_native_drafts(self):
         dialog,editor=self.variants();self.click(dialog.pages.details_toggle)
         editor.choose.setCurrentIndex(1);editor.open_details();editor.name.selectAll()
-        QTest.keyClicks(editor.name,'Laughter');editor.repeat.setValue(2);self.click(editor.pin)
+        QTest.keyClicks(editor.name,'Laughter');editor.repeat.setValue(2);self.click(editor.back_button)
+        QTest.mouseClick(editor.listing.viewport(),Qt.MouseButton.LeftButton,pos=editor.listing.row_regions(editor.listing.item(1))['pin'].center())
         editor.mode.setCurrentIndex(editor.mode.findData('decrement'))
         ident=dialog.form.base['id'];self.click(dialog.save_button)
         self.assertIsNone(self.page.active_dialog)
@@ -88,6 +89,11 @@ class MaterialManagementUITests(unittest.TestCase):
         self.assertEqual(variant['mode'],'decrement');self.assertEqual(variant['groups'][1]['name'],'Laughter')
         self.assertEqual(variant['groups'][1]['repeat'],2);self.assertEqual(variant['start'],variant['groups'][1]['id'])
         dialog=self.page.edit_material(ident);editor=dialog.pages.variant_editor
+        self.settle();self.assertTrue(dialog.error.isHidden())
+        editor.set_start(editor.sequence['groups'][0]['id']);self.app.processEvents()
+        self.assertFalse(dialog.error.isHidden())
+        self.assertEqual(dialog.form_scroll.verticalScrollBar().maximum(),0)
+        self.assertFalse(dialog.form_scroll.verticalScrollBar().isVisible())
         editor.choose.setCurrentIndex(1);document=editor.stack.currentWidget();document.insertPlainText('bright, ')
         editor.choose.setCurrentIndex(0);editor.choose.setCurrentIndex(1);document.undo()
         self.assertEqual(document.toPlainText(),'laughing');document.redo();self.assertEqual(document.toPlainText(),'bright, laughing')

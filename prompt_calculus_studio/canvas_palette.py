@@ -12,6 +12,7 @@ from .palette_cards import PickerCardDelegate, ClosingClickGuard
 from .ui_icons import icon
 from .module_chrome import dialog_colors, module_dialog_styles
 from .stacked_card_list import StackedCardList
+from .material_scope import MaterialScope, populate
 
 
 class PaletteGrip(QSizeGrip):
@@ -165,30 +166,10 @@ class CanvasPalette(QDialog):
     def populate_categories(self):
         selected=(self.get_browser_category() if self.category.count() else
                   getattr(self.canvas.window,'_material_browser_category',None))
-        state=self.canvas.window.state
-        if selected==self.UNCATEGORIZED:
-            selected=next((m['id'] for m in state['modules'] if m['name']=='未分類'),selected)
+        self.scope=MaterialScope(self.canvas.window.state)
+        selected=self.scope.normalize(selected)
         blocked=QSignalBlocker(self.modules); combo_blocked=QSignalBlocker(self.category)
-        self.modules.clear(); self.category.clear()
-        value=navigation.view(state); folders={v['id']:v for v in value['folders']}
-        categories={v['id']:v for v in state['modules']}
-        collapsed=set(state['settings'].get('material_folder_collapsed',[]))
-        self.modules.has_folders=bool(folders)
-        def add(name,ident,kind='category',parent=None):
-            count=sum(1 for item in state['items'] if self.in_category(item,ident))
-            caption=f'{folders[parent]["name"]} / {name}' if parent else name
-            self.category.addItem(f'{caption} · {count}',ident)
-            if kind=='folder': self.category.setItemIcon(self.category.count()-1,icon('folder',self.colors['secondary']))
-            if parent not in collapsed:
-                self.modules.add_row(ident,name,count,kind,parent,ident in collapsed)
-        add('全部素材',None,'shortcut')
-        for ident in value['order']:
-            if ident in folders:
-                folder=folders[ident]; add(folder['name'],ident,'folder')
-                for cid in folder['categories']: add(categories[cid]['name'],cid,parent=ident)
-            else: add(categories[ident]['name'],ident)
-        unclassified=next((m['id'] for m in state['modules'] if m['name']=='未分類'),self.UNCATEGORIZED)
-        add('未分類',unclassified,'shortcut')
+        populate(self.scope,self.modules,self.category,counts_in_combo=True)
         self.category.setCurrentIndex(max(0,self.category.findData(selected)))
         self.restore_selection(self.modules,self.category.currentData())
         del blocked,combo_blocked
@@ -206,23 +187,10 @@ class CanvasPalette(QDialog):
         self.populate_categories(); window.changed('settings',refresh=False)
 
     def in_category(self,item,ident):
-        if ident is None: return True
-        if navigation.is_folder(ident):
-            folder=navigation.folder(self.canvas.window.state,ident)
-            return folder is not None and item.get('module') in folder['categories']
-        if ident==self.UNCATEGORIZED:
-            known={m['id'] for m in self.canvas.window.state['modules']}
-            return item.get('module') in self.uncategorized_ids() or item.get('module') not in known
-        return item.get('module')==ident
+        return self.scope.matches(item,ident)
 
     def category_name(self):
-        ident=self.get_browser_category()
-        if ident is None: return '全部分類'
-        if ident==self.UNCATEGORIZED: return '未分類'
-        if navigation.is_folder(ident):
-            folder=navigation.folder(self.canvas.window.state,ident)
-            return folder['name'] if folder else '目前資料夾'
-        return next((m['name'] for m in self.canvas.window.state['modules'] if m['id']==ident),'目前分類')
+        return self.scope.name(self.get_browser_category())
 
     def category_changed(self):
         blocked=QSignalBlocker(self.category)
@@ -235,8 +203,7 @@ class CanvasPalette(QDialog):
         return self.category.currentData()
 
     def set_browser_category(self,ident):
-        if ident==self.UNCATEGORIZED:
-            ident=next((m['id'] for m in self.canvas.window.state['modules'] if m['name']=='未分類'),ident)
+        ident=self.scope.normalize(ident)
         blocked=QSignalBlocker(self.modules); combo_blocked=QSignalBlocker(self.category)
         self.category.setCurrentIndex(max(0,self.category.findData(ident)))
         self.restore_selection(self.modules,self.category.currentData())

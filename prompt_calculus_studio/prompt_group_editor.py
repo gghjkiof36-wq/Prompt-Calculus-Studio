@@ -782,6 +782,7 @@ class MaterialPages(QWidget):
             desired=880 if self.is_group and index==2 else 760 if self.is_group else 580
             dialog.panels.set_main_width(desired)
             inside=self.is_group and not home
+            dialog.identity.setVisible(inside)
             dialog.back_button.setVisible(inside);dialog.done_button.setVisible(inside)
             dialog.save_button.setVisible(not inside);dialog.save_button.setDefault(not inside);dialog.done_button.setDefault(inside)
             dialog.add_button.setVisible(not inside and bool(dialog.form.destination_id) and dialog.target_id is not None)

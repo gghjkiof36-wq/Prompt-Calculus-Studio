@@ -14,7 +14,7 @@ from .views import widget_colors
 from .material_editor_page import Disclosure, sync_prompt_style, apply_line_spacing
 from .management_reading import READING_CONTENT_WIDTH, READING_MARGIN, READING_NARROW_MARGIN
 
-TYPE_SHORTCUTS = {None: 'text', '@material-type:combination': 'combination', '@material-type:flow': 'flow'}
+from .material_scope import TYPE_SHORTCUTS, MaterialScope, populate
 
 
 def _replace_visible_order(state, field, before, after):
@@ -36,6 +36,7 @@ class LibraryDelegate(QStyledItemDelegate):
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         actions = self.parent().row_actions
         action_row = actions.ident == index.data(Qt.ItemDataRole.UserRole)
+        pinned = bool(index.data(Qt.ItemDataRole.UserRole+1))
         hover = bool(option.state & QStyle.StateFlag.State_MouseOver) or action_row
         focused = bool(option.state & QStyle.StateFlag.State_HasFocus)
         depth = getattr(self.parent(), 'stack_depth', lambda _: 0)(index)
@@ -54,7 +55,7 @@ class LibraryDelegate(QStyledItemDelegate):
         if depth:
             painter.setOpacity(max(0., 1-depth/.4))
         left = rect.left() + 16
-        width = max(10, int(rect.right()-left-16)-(actions.width()+8 if action_row else 0))
+        width = max(10, int(rect.right()-left-16)-(actions.width()+8 if action_row else 40 if pinned else 0))
         name, _, prompt = str(index.data(Qt.ItemDataRole.DisplayRole)).partition('\n')
         font = QFont(option.font); font.setWeight(QFont.Weight.DemiBold)
         metrics = QFontMetrics(font); height = metrics.height()
@@ -65,6 +66,10 @@ class LibraryDelegate(QStyledItemDelegate):
         painter.setPen(QColor(colors['secondary']))
         painter.drawText(QRectF(left, rect.top()+16+height, width, height+2), Qt.AlignmentFlag.AlignVCenter,
                          metrics.elidedText(prompt, Qt.TextElideMode.ElideRight, width))
+        if pinned and not action_row:
+            from .ui_icons import icon
+            icon('pin-filled', colors['secondary']).paint(painter,
+                QRectF(rect.right()-35, rect.center().y()-9, 18, 18).toRect())
         painter.restore()
 
 
@@ -210,19 +215,20 @@ class PromptEditor(QWidget):
         self.variant_navigation = QWidget()
         variant_row = QHBoxLayout(self.variant_navigation); variant_row.setContentsMargins(0, 0, 0, 0)
         variant_row.addWidget(self.variant_previous); variant_row.addWidget(self.variant_position, 1); variant_row.addWidget(self.variant_next)
-        preview.addWidget(self.variant_navigation); self.variant_navigation.hide()
+        self.variant_navigation.hide()
         self.preview_text = QTextEdit(); self.preview_text.setReadOnly(True); self.preview_text.setAcceptRichText(False)
         self.preview_text.setObjectName('MaterialPreviewPrompt'); self.preview_text.setUndoRedoEnabled(False)
         self.preview_text.setFrameShape(QTextEdit.Shape.NoFrame)
         self.preview_text.document().setDocumentMargin(0)
         self.preview_text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        preview.addWidget(self.preview_text)
         self.preview_image = PreviewImage(); self.preview_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_image.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self._preview_pixmap = QPixmap()
         self.preview_image.setCursor(Qt.CursorShape.PointingHandCursor); self.preview_image.clicked.connect(self.enlarge_preview)
         preview.addWidget(self.preview_image)
-        self.edit_button = button('編輯素材', lambda: self.edit_material(self.preview_id)); preview.addWidget(self.edit_button)
+        preview.addWidget(self.preview_text); preview.addWidget(self.variant_navigation)
+        self.edit_button = button('編輯', lambda: self.edit_material(self.preview_id))
+        self.edit_button.setIcon(icon('pencil')); preview.addWidget(self.edit_button)
         self.preview_card.hide()
         self.scroll.verticalScrollBar().rangeChanged.connect(self._queue_layout)
         self.listing.verticalScrollBar().rangeChanged.connect(self._queue_layout)
@@ -581,43 +587,15 @@ class PromptEditor(QWidget):
 
     def _refresh_categories(self):
         selected = self.get_browser_category(); state = self.window.state
+        scope=MaterialScope(state)
+        if getattr(self, '_category_rows', None) == scope.rows:
+            return
+        self._category_rows=copy.deepcopy(scope.rows)
         self.category.blockSignals(True); self.categories.blockSignals(True)
         self.category.clear(); self.categories.clear()
-        value = navigation.view(state); folders = {v['id']: v for v in value['folders']}
-        categories = {v['id']: v for v in state['modules']}
-        counts = {ident: 0 for ident in categories}
-        type_counts = dict.fromkeys(pm.TYPES, 0); category_types = {ident: set() for ident in categories}
-        for item in state['items']:
-            counts[item['module']] = counts.get(item['module'], 0)+1
-            material_type = pm.kind(item); type_counts[material_type] += 1
-            category_types.setdefault(item['module'], set()).add(material_type)
-        self._category_type_aliases = {}
-        for ident, category in categories.items():
-            for shortcut, material_type in TYPE_SHORTCUTS.items():
-                if material_type != 'text' and category['name'] == pm.TYPES[material_type] and category_types[ident] <= {material_type}:
-                    self._category_type_aliases[ident] = shortcut
-        collapsed = set(state['settings'].get('material_folder_collapsed', []))
-        self.categories.has_folders = bool(folders)
-        def add(name, ident, count, kind='category', parent=None, visible=True):
-            self.category.addItem(name, ident)
-            if visible: self.categories.add_row(ident, name, count, kind, parent, ident in collapsed)
-        from .material_folder_navigation import ROW
-        for shortcut, material_type in TYPE_SHORTCUTS.items():
-            add(pm.TYPES[material_type], shortcut, type_counts[material_type], 'shortcut')
-            entry = self.categories.item(self.categories.count()-1); data = entry.data(ROW)
-            data.update(fixed_top=True, divider_after=material_type == 'flow'); entry.setData(ROW, data)
-        for ident in value['order']:
-            if ident in folders:
-                folder = folders[ident]
-                add(folder['name'], ident, sum(counts[v] for v in folder['categories']), 'folder')
-                for cid in folder['categories']:
-                    if cid in self._category_type_aliases: continue
-                    add(categories[cid]['name'], cid, counts[cid], parent=ident, visible=ident not in collapsed)
-            elif ident not in self._category_type_aliases: add(categories[ident]['name'], ident, counts[ident])
-        unclassified = next((v['id'] for v in state['modules'] if v['name'] == '未分類'), '@uncategorized')
-        add('未分類', unclassified, counts.get(unclassified, 0), 'shortcut')
-        if selected == '@uncategorized': selected = unclassified
-        selected = self._category_type_aliases.get(selected, selected)
+        self._category_type_aliases=scope.aliases
+        populate(scope,self.categories,self.category)
+        selected=scope.normalize(selected)
         self.category.setCurrentIndex(max(0, self.category.findData(selected)))
         selected = self.category.currentData()
         for index in range(self.categories.count()):
@@ -632,7 +610,6 @@ class PromptEditor(QWidget):
         self.listing.row_actions.clear()
         self.listing.stop_scroll()
         selected = self.selected_id(); scroll = self.listing.verticalScrollBar().value()
-        self.listing.blockSignals(True); self.listing.clear()
         category = self.get_browser_category()
         folder = navigation.folder(self.window.state, category) if navigation.is_folder(category) else None
         material_type = TYPE_SHORTCUTS.get(category, self.type_filter.currentData())
@@ -642,11 +619,31 @@ class PromptEditor(QWidget):
         if self.order.currentData() == 'manual':
             visible = {value['id'] for value in rows}
             rows = [value for value in self.window.state['items'] if value['id'] in visible]
-        for value in rows:
-            entry = QListWidgetItem(value['name']+'\n'+pm.summary(value).replace('\n', ' '))
-            entry.setData(Qt.ItemDataRole.UserRole, value['id']); self.listing.addItem(entry)
-            if value['id'] == selected: self.listing.setCurrentItem(entry)
-        self.listing.blockSignals(False); self.listing.verticalScrollBar().setValue(scroll)
+        # Preserve row objects and scroll geometry for metadata-only edits.
+        # In particular, pinning must not briefly turn this into an empty list.
+        listing=self.listing; listing.blockSignals(True); listing.setUpdatesEnabled(False)
+        try:
+            changed=listing.order_ids()!=[value['id'] for value in rows]
+            wanted={value['id'] for value in rows}
+            for index in range(listing.count()-1,-1,-1):
+                if listing.item(index).data(Qt.ItemDataRole.UserRole) not in wanted:
+                    listing.takeItem(index)
+            entries={listing.item(i).data(Qt.ItemDataRole.UserRole):listing.item(i) for i in range(listing.count())}
+            for position,value in enumerate(rows):
+                ident=value['id'];entry=entries.get(ident)
+                if entry is None:
+                    entry=QListWidgetItem();entry.setData(Qt.ItemDataRole.UserRole,ident)
+                    listing.insertItem(position,entry)
+                elif listing.row(entry)!=position:
+                    listing.insertItem(position,listing.takeItem(listing.row(entry)))
+                text=value['name']+'\n'+pm.summary(value).replace('\n',' ')
+                if entry.text()!=text:entry.setText(text)
+                entry.setData(Qt.ItemDataRole.UserRole+1,bool(value.get('pinned')))
+            if selected in entries:listing.setCurrentItem(entries[selected])
+            if changed:listing.doItemsLayout()
+            listing.verticalScrollBar().setValue(scroll)
+        finally:
+            listing.blockSignals(False); listing.setUpdatesEnabled(True)
         self.listing.setVisible(bool(rows))
         self.count.setText(f'{len(rows)} 個素材'); self.empty_results.setVisible(not rows)
         self.empty_results.setText('找不到符合搜尋的素材。' if self.search.text() else '還沒有'+pm.TYPES[material_type]+'，可按「新增」開始。' if category in TYPE_SHORTCUTS else '這個資料夾還沒有素材，可先移入分類。' if folder else '這個分類還沒有素材，可按「新增」開始。')
@@ -686,28 +683,35 @@ class PromptEditor(QWidget):
         self.preview_card.show(); self._layout()
 
     def refresh_preview_content(self, value):
-        """Browse a detached variant without changing its execution selection."""
-        root = value.get('composition', {})
-        seq = root.get('variants')
+        """Browse detached contents without changing execution selection."""
+        from .composition import render, prototype
+        root = prototype(value)
+        seq = pm.sequence(root)
         self.variant_navigation.setVisible(bool(seq))
         if not seq:
             self.preview_variant_id = None
-            self.preview_text.setPlainText(pm.summary(value, detail=True)); return
+            text=render(root)
+            if self.preview_text.toPlainText()!=text:self.preview_text.setPlainText(text)
+            return
         rows = seq['groups']; ids = [v['id'] for v in rows]
         if self.preview_variant_id not in ids:
             self.preview_variant_id = seq['selected'] if seq['selected'] in ids else ids[0]
         at = ids.index(self.preview_variant_id)
-        self.variant_position.setText(f"{rows[at]['name']}\n{at+1} / {len(rows)}")
+        self.variant_position.setText(f"{at+1} / {len(rows)}")
+        self.variant_position.setToolTip(rows[at]['name'])
+        noun='組合' if root.get('sequence') else '變體'
+        for control,direction in ((self.variant_previous,'上一個'),(self.variant_next,'下一個')):
+            control.setAccessibleName(direction+noun);control.setToolTip(direction+noun)
         self.variant_previous.setEnabled(at > 0); self.variant_next.setEnabled(at+1 < len(rows))
-        from .composition import render
-        preview = copy.deepcopy(root); preview['variants']['selected'] = self.preview_variant_id
-        self.preview_text.setPlainText(render(preview))
+        preview = copy.deepcopy(root); pm.sequence(preview)['selected'] = self.preview_variant_id
+        text=render(preview)
+        if self.preview_text.toPlainText()!=text:self.preview_text.setPlainText(text)
 
     def move_preview_variant(self, step):
         if not self.preview_id: return
         try: value = materials.item(self.window.state, self.preview_id)
         except ValueError: self.close_preview(); return
-        seq = value.get('composition', {}).get('variants')
+        seq = pm.sequence(value.get('composition', {}))
         if not seq: self.refresh_preview_content(value); return
         ids = [v['id'] for v in seq['groups']]
         at = ids.index(self.preview_variant_id) if self.preview_variant_id in ids else 0
@@ -792,7 +796,7 @@ class PromptEditor(QWidget):
         menu.addAction('另存為新素材', lambda: self.duplicate_material(ident))
         from .prompt_editor import show_history
         menu.addAction('內容歷史', lambda: show_history(self.window, ident))
-        menu.addAction('刪除素材', lambda: self.delete_material(ident))
+        menu.add_destructive_action('刪除', lambda: self.delete_material(ident))
         menu.open_at(position)
 
     def pin_material(self, ident):
@@ -864,6 +868,7 @@ class MaterialEditDialog(StudioDialog):
         self.form_scroll = QScrollArea(); self.form_scroll.setWidgetResizable(True)
         self.form_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self.form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.form_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.form_scroll.setStyleSheet('QScrollArea { background:transparent; border:0; }')
         self.form_scroll.viewport().setAutoFillBackground(False)
         self.form_scroll.setWidget(self.pages); self.body.addWidget(self.form_scroll, 1)

@@ -107,9 +107,10 @@ class MaterialRowActions(QWidget):
                 'QToolButton { background: transparent; border: 0; border-radius: 6px; padding: 0; } '
                 f'QToolButton:hover {{ background: {colors["selected"]}; }}')
             self.more.setIcon(icon('more-horizontal', colors['secondary']))
-            self.pin.setIcon(icon('pin', colors['accent'] if value.get('pinned') else colors['secondary']))
-            title = '取消釘選' if value.get('pinned') else '釘選素材'
-            self.pin.setToolTip(title); self.pin.setAccessibleName(title)
+            pinned = bool(value.get('pinned'))
+            self.pin.setIcon(icon('pin-filled' if pinned else 'pin', colors['secondary']))
+            self.pin.setToolTip('已釘選' if pinned else '釘選')
+            self.pin.setAccessibleName('取消釘選' if pinned else '釘選')
         self.move(rect.right()-self.width()-10, rect.center().y()-self.height()//2)
         self.show(); self.raise_(); viewport.update()
 

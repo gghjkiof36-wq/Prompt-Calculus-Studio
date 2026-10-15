@@ -98,6 +98,24 @@ class NodeDialogMotionTests(unittest.TestCase):
         dialog.excludes_toggle.setChecked(False);self.settle(dialog)
         self.assertEqual(sheet.geometry(),closed);self.assertEqual(dialog.geometry(),native);dialog.reject()
 
+    def test_first_disclosure_reveals_only_with_sheet_without_scroll_or_content_jump(self):
+        for value in (comp.node('文字','smile'),self.flow()):
+            dialog=NodeDialog(self.w,value);dialog.show();QTest.qWait(20)
+            closed=QRect(dialog.presentation.surface.geometry());native=QRect(dialog.geometry())
+            panel=dialog.excludes_panel;prompt_height=dialog.prompt.height();frames=[]
+            dialog.presentation.motion.valueChanged.connect(lambda _,d=dialog,p=panel:frames.append(
+                (p.height(),d.form_scroll.verticalScrollBar().maximum(),d.prompt.height())))
+            dialog.excludes_toggle.setChecked(True)
+            self.assertEqual(panel.height(),0,'The first paint must not contain a full-height panel in a collapsed sheet')
+            self.assertEqual(dialog.presentation.surface.geometry(),closed)
+            self.settle(dialog)
+            self.assertTrue(frames);self.assertEqual([f[0] for f in frames],sorted(f[0] for f in frames))
+            self.assertTrue(all(f[1]==0 for f in frames),frames)
+            self.assertTrue(all(abs(f[2]-prompt_height)<=2 for f in frames),frames)
+            self.assertEqual(dialog.geometry(),native)
+            dialog.excludes_toggle.setChecked(False);self.settle(dialog)
+            self.assertEqual(dialog.presentation.surface.geometry(),closed);dialog.reject()
+
     def test_small_parent_resize_reduced_motion_and_error_keep_footer_reachable(self):
         dialog=NodeDialog(self.w,self.flow());dialog.show();QTest.qWait(30)
         dialog.excludes_toggle.setChecked(True);QTest.qWait(40)

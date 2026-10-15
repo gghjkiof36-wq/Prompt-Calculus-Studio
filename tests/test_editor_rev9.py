@@ -542,7 +542,7 @@ class EditorRev9Tests(unittest.TestCase):
         QTest.mouseMove(listing.viewport(), listing.visualItemRect(entry).center()); self.app.processEvents()
         QTest.mouseClick(actions.more, Qt.MouseButton.LeftButton); self.app.processEvents()
         menu = QApplication.activePopupWidget(); self.assertIsNotNone(menu)
-        self.assertEqual([a.text() for a in menu.actions()], ['編輯素材', '取消釘選' if not pinned else '釘選素材', '另存為新素材', '內容歷史', '刪除素材'])
+        self.assertEqual([a.text() for a in menu.actions()], ['編輯素材', '取消釘選' if not pinned else '釘選素材', '另存為新素材', '內容歷史', '刪除'])
         menu.hide(); menu.actions()[0].trigger(); self.app.processEvents()
         self.assertEqual(self.page.active_dialog.target_id, target)
         self.page.active_dialog.reject(); self.app.processEvents()

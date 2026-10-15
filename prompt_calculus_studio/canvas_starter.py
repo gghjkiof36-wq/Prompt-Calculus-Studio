@@ -48,14 +48,14 @@ def _populate_pristine(state):
     from .stage_model import add as add_stage
     result=state;data=result['multi_output']
     canvas=next(iter(data['canvases']));output=next(iter(data['outputs']));clip=next(iter(data['clip_inputs']))
-    data['canvases'][canvas].update(name='畫布',position=[0,0],display_size=[960,560])
+    data['canvases'][canvas].update(name='畫布',position=[0,0],display_size=[1000,740])
     data['outputs'][output]['name']='Prompt 輸出'
     data['clip_inputs'][clip]['name']='CLIP 輸入'
-    scheduler=add_scheduler(result,(2060,0));data['schedulers'][scheduler]['mode']='data'
-    stage=add_stage(result,(2620,0))
-    positions={output:[1080,0],clip:[1620,0],stage:[2620,0],PREVIEW:[3080,0]}
+    scheduler=add_scheduler(result,(2128,0));data['schedulers'][scheduler]['mode']='data'
+    stage=add_stage(result,(2724,0))
+    positions={output:[1096,0],clip:[1672,0],stage:[2724,0],PREVIEW:[3180,0]}
     result.setdefault('text_positions',{}).update(positions)
-    result.setdefault('text_sizes',{}).update({output:[440,450],scheduler:[460,400],clip:[360,180],stage:[360,245],PREVIEW:[420,450]})
+    result.setdefault('text_sizes',{}).update({output:[480,740],scheduler:[500,740],clip:[360,180],stage:[360,245],PREVIEW:[660,740]})
     data['connections']=[]
     connect(result,canvas,output,'text')
     connect(result,output,clip,'clip')

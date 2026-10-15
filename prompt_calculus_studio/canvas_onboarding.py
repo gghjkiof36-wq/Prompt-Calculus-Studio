@@ -204,10 +204,11 @@ class CanvasOnboarding(QFrame):
         view=self.canvas.view
         execution=getattr(self.canvas,'execution_bar',None)
         bottom=execution.height()+24 if execution is not None and execution.isVisible() else 80
-        scale=min(.86,max(.8,(view.viewport().height()-12-bottom)/max(1,card.height)))
+        bounds=self.canvas.content_bounds()
+        scale=min(.86,view.viewport().width()*.82/max(1,bounds.width()),
+                  max(1,view.viewport().height()-bottom-24)*.65/max(1,bounds.height()))
         view.resetTransform();view.scale(scale,scale)
-        # Keep the starting canvas readable; later steps and the overview move
-        # through the same left-to-right graph without changing saved positions.
-        view.centerOn(card.x()+view.viewport().width()/scale/2-48,
-                      card.y()+view.viewport().height()/scale/2-12/scale)
+        # Only the first presentation uses this overview. Focus actions zoom to
+        # an individual task; saved/manual views retain their own pan and zoom.
+        view.centerOn(bounds.center())
         return True

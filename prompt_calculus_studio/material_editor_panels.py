@@ -160,7 +160,7 @@ class MaterialPanels(QWidget):
             for layout in reversed(content.findChildren(QLayout)): layout.invalidate()
             for widget in reversed(content.findChildren(QWidget)): widget.updateGeometry()
             content.layout().activate(); content.updateGeometry(); self.main.layout().activate()
-            chrome = self.main.height() - self.form_scroll.height() + 12
+            chrome = self.main.height() - self.form_scroll.viewport().height() + 12
             height = max(self.minimum_height, content.sizeHint().height() + chrome)
             bounds = self.bounds(); height = min(height, bounds.height())
             self.center_frame(width, height)

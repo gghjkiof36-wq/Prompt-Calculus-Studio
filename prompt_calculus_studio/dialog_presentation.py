@@ -46,7 +46,7 @@ class CenteredPromptForm(QObject):
         super().__init__(dialog)
         self.dialog=dialog;self.scroll=scroll;self.minimum_height=minimum_height
         self.surface=dialog.findChild(QFrame,'DialogSurface')
-        self.preferred_width=dialog.width();self._fitting=False;self._prepared=False
+        self.preferred_width=dialog.width();self._fitting=False;self._prepared=False;self._disclosure=None;self._prompt_limits=None
         self.scroll_policy=scroll.verticalScrollBarPolicy()
         dialog.layout().removeWidget(self.surface)
         dialog.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
@@ -77,24 +77,36 @@ class CenteredPromptForm(QObject):
         for layout in reversed(content.findChildren(QLayout)):layout.invalidate()
         for widget in reversed(content.findChildren(QWidget)):widget.updateGeometry()
         content.layout().activate();content.updateGeometry();self.surface.layout().activate()
-        chrome=self.surface.height()-self.scroll.height()
+        chrome=self.surface.height()-self.scroll.viewport().height()
         height=max(self.minimum_height-12,content.sizeHint().height()+chrome)
         rect=QRect(0,0,max(1,self.dialog.width()-12),min(height,max(1,self.dialog.height()-12)))
         rect.moveCenter(self.dialog.rect().center())
         return rect
 
     def place(self,rect):
+        if self._disclosure:
+            panel,start,end,opened,first,last=self._disclosure
+            progress=max(0.,min(1.,(rect.height()-first)/(last-first))) if last!=first else 1.
+            panel.setFixedHeight(round(start+(end-start)*progress))
         self.surface.setGeometry(rect);self.surface.layout().activate();self.dialog.update()
 
     def finished(self):
+        if self._disclosure:
+            panel,_,end,opened,_,_=self._disclosure;self._disclosure=None
+            panel.setVisible(opened);panel.setMinimumHeight(0);panel.setMaximumHeight(16777215)
+        if self._prompt_limits:
+            minimum,maximum=self._prompt_limits;self._prompt_limits=None
+            self.dialog.prompt.setMinimumHeight(minimum);self.dialog.prompt.setMaximumHeight(maximum)
         self.scroll.setVerticalScrollBarPolicy(self.scroll_policy)
         self.surface.layout().activate();self.dialog.update()
 
-    def fit(self,*,animate=False,before_show=False,reframe=False):
+    def fit(self,*,animate=False,before_show=False,reframe=False,disclosure=None):
         if self._fitting or (not before_show and not self.dialog.isVisible()):return
         self._fitting=True
         try:
             self.motion.stop()
+            if self._disclosure and disclosure is None:self.finished()
+            self._disclosure=None
             if not self._prepared or reframe:
                 self.frame();self._prepared=True
                 self.place(QRect(6,6,max(1,self.dialog.width()-12),max(1,self.dialog.height()-12)))
@@ -105,10 +117,12 @@ class CenteredPromptForm(QObject):
                 # Only the rounded child moves. Resizing a translucent HWND
                 # while it is visible can expose the native backing surface.
                 self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                if disclosure:self._disclosure=(*disclosure,start.height(),end.height())
                 self.place(start)
                 self.motion.setDuration(max(70,min(180,abs(end.height()-start.height())*2)))
                 self.motion.setStartValue(start);self.motion.setEndValue(end);self.motion.start()
             else:
+                if disclosure:self._disclosure=(*disclosure,start.height(),end.height())
                 self.place(end)
                 # Child layouts can publish a changed minimum after their
                 # first geometry. Settle synchronously before the first paint.
@@ -116,7 +130,26 @@ class CenteredPromptForm(QObject):
         finally:self._fitting=False
 
     def toggle(self,panel,opened):
-        panel.setVisible(opened);self.fit(animate=True)
+        # Revealing the whole editor before growing the sheet briefly overflows
+        # the scroll viewport. Measure without painting, then reveal the clipped
+        # panel in step with the sheet, including on its first style polish.
+        self.dialog.setUpdatesEnabled(False)
+        try:
+            if self._prompt_limits is None:
+                prompt=self.dialog.prompt
+                self._prompt_limits=(prompt.minimumHeight(),prompt.maximumHeight())
+                prompt.setFixedHeight(prompt.height())
+            start=0 if panel.isHidden() else panel.height()
+            self.motion.stop();self._disclosure=None
+            panel.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+            panel.setMinimumHeight(0);panel.setMaximumHeight(16777215)
+            panel.ensurePolished()
+            for child in panel.findChildren(QWidget):child.ensurePolished()
+            panel.layout().invalidate();panel.layout().activate()
+            end=panel.sizeHint().height() if opened else 0
+            panel.setFixedHeight(end);panel.show()
+            self.fit(animate=True,disclosure=(panel,start,end,opened))
+        finally:self.dialog.setUpdatesEnabled(True)
 
     def eventFilter(self,watched,event):
         from shiboken6 import isValid

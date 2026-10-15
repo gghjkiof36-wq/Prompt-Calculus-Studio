@@ -99,6 +99,7 @@ RELEASES={r.flag:r for r in (
     Release('--v0.8.8-candidate.1','v0.8.8-candidate.1','v0.8.8 Prompt Editor 候選 1（本機）','Start-PCS-v0.8.8-Candidate1','--v0.8.7-alpha'),
     Release('--v0.8.8-candidate.2','v0.8.8-candidate.2','v0.8.8 素材管理與分線修正候選 2（本機）','Start-PCS-v0.8.8-Candidate2','--v0.8.7-alpha'),
     Release('--v0.8.8-candidate.3','v0.8.8-candidate.3','v0.8.8 素材管理與畫布互動候選 3（本機）','Start-PCS-v0.8.8-Candidate3','--v0.8.7-alpha'),
+    Release('--v0.8.8-candidate.4','v0.8.8-candidate.4','v0.8.8 素材預覽與變體操作候選 4（本機）','Start-PCS-v0.8.8-Candidate4','--v0.8.7-alpha'),
 )}
 
 COMFYUI_COMPATIBILITY_PROFILES={

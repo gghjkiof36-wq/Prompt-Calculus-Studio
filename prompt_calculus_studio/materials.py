@@ -182,9 +182,9 @@ def category_metadata_only(before, after):
     fields = {'modules', 'items', 'material_navigation'}
     if {k: v for k, v in before.items() if k not in fields} != {k: v for k, v in after.items() if k not in fields}:
         return False
-    def without(values, field):
-        return [{k: v for k, v in value.items() if k != field} for value in values]
-    if without(before.get('items', []), 'module') != without(after.get('items', []), 'module'):
+    def without(values, *fields):
+        return [{k: v for k, v in value.items() if k not in fields} for value in values]
+    if without(before.get('items', []), 'module', 'pinned') != without(after.get('items', []), 'module', 'pinned'):
         return False
     prior = {v['id']: v for v in before.get('modules', [])}
     later = {v['id']: v for v in after.get('modules', [])}

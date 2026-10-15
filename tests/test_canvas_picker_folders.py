@@ -48,11 +48,7 @@ class PickerFolderTests(unittest.TestCase):
 
     def test_editor_order_folder_aggregate_search_empty_and_read_only(self):
         self.folders(); self.p.reject(); self.w.leave_canvas()
-        from prompt_calculus_studio.material_editor_browser import TYPE_SHORTCUTS
-        # Type shortcuts belong to the full library. The picker keeps its
-        # all-material view and the shared editable category/folder ordering.
-        expected = [key for key in self.w.prompt_editor.categories.order_ids()
-                    if key is None or key not in TYPE_SHORTCUTS]
+        expected=self.w.prompt_editor.categories.order_ids()
         self.w.enter_canvas(); self.open(); before = self.c.history_state()
         self.assertEqual(self.p.modules.order_ids(), expected)
         self.click_row(self.fid)

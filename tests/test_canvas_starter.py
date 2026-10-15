@@ -143,7 +143,8 @@ class CanvasStarterUiTests(unittest.TestCase):
 
     def test_readable_start_and_responsive_guide_do_not_rearrange_nodes(self):
         before=copy.deepcopy(self.window.state['text_positions']);guidebar=self.canvas.onboarding
-        self.assertTrue(guidebar.isVisible());self.assertGreaterEqual(self.canvas.view.transform().m11(),.8)
+        self.assertTrue(guidebar.isVisible());self.assertGreater(self.canvas.view.transform().m11(),0)
+        self.assertLessEqual(self.canvas.view.transform().m11(),.86)
         for width,height in [(1440,900),(960,620),(1200,760)]:
             self.window.resize(width,height);self.wait()
             self.assertEqual(self.window.state['text_positions'],before)
@@ -155,6 +156,18 @@ class CanvasStarterUiTests(unittest.TestCase):
             self.assertGreaterEqual(guidebar.width()-card.right()-1,12)
             self.assertGreaterEqual(guidebar.height()-card.bottom()-1,12)
             self.assertLessEqual(guidebar.card.height(),guidebar.card.sizeHint().height()+2)
+
+    def test_fresh_overview_matches_balanced_node_proportions_and_all_nodes_fit(self):
+        self.window.resize(1700,1000);self.wait();self.canvas.onboarding.first_view()
+        data=self.canvas.data();sizes=self.window.state['text_sizes'];canvas=data['canvases'][self.refs['canvas']]
+        height=canvas['display_size'][1]
+        self.assertAlmostEqual(canvas['display_size'][0]/height,1.35,delta=.05)
+        for key in (self.refs['output'],self.refs['scheduler'],PREVIEW):self.assertEqual(sizes[key][1],height)
+        self.assertGreater(sizes[PREVIEW][0],sizes[self.refs['output']][0])
+        self.assertLess(sizes[self.refs['clip']][1],height/3)
+        view=self.canvas.view;rect=view.mapFromScene(self.canvas.content_bounds()).boundingRect()
+        self.assertTrue(view.viewport().rect().contains(rect))
+        self.assertAlmostEqual(rect.width()/view.viewport().width(),.82,delta=.03)
 
     def test_compact_guide_emphasizes_only_the_current_step(self):
         from PySide6.QtCore import QPointF
@@ -177,12 +190,14 @@ class CanvasStarterUiTests(unittest.TestCase):
             window.state['settings'].update(online=False,material='solid')
             window.settings('appearance');window.resize(640,640);window.show();self.wait()
             window.enter_canvas();window.persist();self.wait()
-            refs=guide(window.state);card=window.canvas.containers[refs['canvas']]
-            corner=window.canvas.view.mapFromScene(card.scenePos())
-            self.assertGreaterEqual(corner.x(),0);self.assertLess(corner.x(),80)
-            self.assertGreaterEqual(corner.y(),0);self.assertLess(corner.y(),80)
-            self.assertGreaterEqual(window.canvas.view.transform().m11(),.8)
-            window.close();self.app.processEvents()
+            try:
+                refs=guide(window.state);self.assertIsNotNone(refs)
+                view=window.canvas.view
+                overview=view.mapFromScene(window.canvas.content_bounds()).boundingRect()
+                self.assertTrue(view.viewport().rect().contains(overview))
+                self.assertAlmostEqual(overview.width()/view.viewport().width(),.82,delta=.03)
+                self.assertGreater(view.transform().m11(),0)
+            finally:window.close();self.app.processEvents()
 
     def test_database_without_a_saved_document_still_gets_the_six_node_starter(self):
         from prompt_calculus_studio.window import Window
@@ -237,8 +252,8 @@ class CanvasStarterUiTests(unittest.TestCase):
             self.assertLessEqual(bar.card.height(),bar.card.sizeHint().height()+2)
             node=self.canvas.containers[self.refs['canvas']]
             top=self.canvas.view.mapFromScene(node.scenePos()).y()
-            self.assertGreaterEqual(top,0);self.assertLess(top,80)
-            self.assertGreaterEqual(self.canvas.view.transform().m11(),.8)
+            self.assertGreaterEqual(top,0);self.assertLess(top,self.canvas.view.viewport().height())
+            self.assertGreater(self.canvas.view.transform().m11(),0)
             self.assertGreaterEqual(node.height,520)
 
     def test_guide_actions_open_real_entries_without_submitting(self):
@@ -290,10 +305,10 @@ class CanvasStarterUiTests(unittest.TestCase):
             card=self.canvas.containers[self.refs['canvas']]
             top=view.mapFromScene(card.scenePos()).y()
             self.assertGreaterEqual(top,0)
-            # The larger workspace can extend below a short viewport. Retain
-            # readable text and pan access instead of shrinking its contents.
+            # Resizing does not rewrite node sizes. Overview is compact;
+            # the guide's focus action provides a readable editing scale.
             self.assertGreaterEqual(card.height,520)
-            self.assertGreaterEqual(view.transform().m11(),.8)
+            self.assertGreater(view.transform().m11(),0)
             self.assertLess(top,bar.y())
             self.assertFalse(hasattr(self.canvas,'recent_corner'))
             self.assertTrue(bar.more.isVisible())
@@ -304,7 +319,11 @@ class CanvasStarterUiTests(unittest.TestCase):
             self.assertEqual(bar.controls.count.suffix(),' 次')
             self.assertEqual(bar.controls.stop.text(),'');self.assertFalse(bar.controls.stop.icon().isNull())
             self.assertEqual(bar.controls.stop.accessibleName(),'取消執行')
+            scale=view.transform().m11()
+            self.canvas.onboarding.focus(self.refs['canvas'])
+            self.assertGreaterEqual(view.transform().m11(),.9)
             self.assertTrue(all(port.caption.font().pixelSize()*view.transform().m11()>=12 for port in self.canvas.ports.values()))
+            view.resetTransform();view.scale(scale,scale)
         self.assertEqual(self.canvas.data()['canvases'][self.refs['canvas']]['display_size'],original)
 
     def test_run_controls_keep_count_and_cancel_scope_with_clear_labels(self):

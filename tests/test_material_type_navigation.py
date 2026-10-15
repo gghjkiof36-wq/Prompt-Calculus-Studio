@@ -125,19 +125,49 @@ class MaterialTypeNavigationTests(unittest.TestCase):
         self.assertEqual(dialog.prompt.toPlainText(), 'output prompt')
         dialog.reject(); self.app.processEvents()
 
-    def test_canvas_picker_retains_all_types_and_ordinary_category_rows(self):
+    def test_canvas_picker_shares_three_type_shortcuts_and_counts_with_library(self):
         from prompt_calculus_studio.canvas_palette import CanvasPalette
         self.page.set_browser_category('@material-type:flow')
         self.w.enter_canvas(); self.app.processEvents()
-        picker = CanvasPalette(self.w.canvas, QPoint())
+        picker=CanvasPalette(self.w.canvas,QPoint())
+        before=copy.deepcopy(self.w.state)
         try:
-            picker.set_browser_category(None)
-            self.assertEqual(set(picker.assets.item(i).data(Qt.ItemDataRole.UserRole) for i in range(picker.assets.count())),
-                             {v['id'] for v in self.w.state['items']})
-            keys = [picker.modules.item(i).data(ROW)['id'] for i in range(picker.modules.count())]
-            self.assertIn(self.flow_category, keys); self.assertIn(self.combination_category, keys)
-            self.assertNotIn('@material-type:flow', keys)
-        finally: picker.reject(); picker.deleteLater(); self.app.processEvents()
+            self.assertEqual(picker.get_browser_category(),'@material-type:flow')
+            self.assertEqual([picker.modules.item(i).data(ROW)['name'] for i in range(3)],['文字模塊','組合','流程'])
+            for shortcut,kind in TYPE_SHORTCUTS.items():
+                picker.set_browser_category(shortcut)
+                expected={v['id'] for v in self.w.state['items'] if pm.kind(v)==kind}
+                self.assertEqual({picker.assets.item(i).data(Qt.ItemDataRole.UserRole) for i in range(picker.assets.count())},expected)
+                self.assertEqual(picker.assets_heading.text(),f'{pm.TYPES[kind]} · {len(expected)} 個素材')
+            self.assertEqual(self.w.state,before)
+        finally:picker.reject();picker.deleteLater();self.app.processEvents()
+
+    def test_new_edit_and_nested_flow_picker_types_counts_and_escape_return(self):
+        from PySide6.QtTest import QTest
+        for kind,ident in (('combination',self.combination),('flow',self.flow)):
+            for editing in (False,True):
+                with self.subTest(kind=kind,editing=editing):
+                    self.page.set_browser_category('@material-type:'+kind)
+                    dialog=self.page.edit_material(ident) if editing else self.page.new_material()
+                    editor=dialog.pages.group_editor
+                    before=copy.deepcopy(editor.sequence)
+                    def verify(allowed):
+                        top=[editor.folders.item(i).data(ROW) for i in range(editor.folders.count()) if editor.folders.item(i).data(ROW).get('fixed_top')]
+                        self.assertEqual([r['name'] for r in top],[pm.TYPES[allowed]])
+                        expected={v['id'] for v in self.w.state['items'] if pm.kind(v)==allowed}
+                        self.assertEqual(top[0]['count'],len(expected))
+                        editor.category_combo.setCurrentIndex(0)
+                        self.assertEqual({editor.candidates.item(i).data(Qt.ItemDataRole.UserRole) for i in range(editor.candidates.count())},expected)
+                        self.assertEqual(editor.picker_heading.text(),f'{pm.TYPES[allowed]} · {len(expected)} 個素材')
+                    if kind=='flow':
+                        editor.open_combination_picker();verify('combination')
+                        QTest.keyClick(editor.search,Qt.Key.Key_Escape)
+                        self.assertEqual(editor.stack.currentIndex(),0);self.assertTrue(dialog.isVisible())
+                        editor.edit_group(editor.sequence['groups'][0]['id'])
+                    editor.open_picker();verify('text')
+                    QTest.keyClick(editor.search,Qt.Key.Key_Escape)
+                    self.assertEqual(editor.stack.currentIndex(),1);self.assertTrue(dialog.isVisible())
+                    self.assertEqual(editor.sequence,before);dialog.reject();self.app.processEvents()
 
     def test_type_create_save_reopen_undo_redo_uses_real_or_uncategorized_membership(self):
         # The combination has a dedicated category; the flow intentionally has none.

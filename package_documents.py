@@ -64,6 +64,7 @@ def validation_reference(release, paths):
         '--v0.8.8-candidate.1':'docs/releases/0.8.8/development/candidate1.md',
         '--v0.8.8-candidate.2':'docs/releases/0.8.8/development/candidate2.md',
         '--v0.8.8-candidate.3':'docs/releases/0.8.8/development/candidate3.md',
+        '--v0.8.8-candidate.4':'docs/releases/0.8.8/development/candidate4.md',
         '--v0.8.8-preparation.8':'docs/releases/0.8.8/development/preparation8.md',
         '--v0.8.8-preparation.9':'docs/releases/0.8.8/development/preparation9.md',
         '--v0.8.8-preparation.10':'docs/releases/0.8.8/development/preparation10.md',
