@@ -50,7 +50,15 @@ def remove_entry(runner,ident):
 
 def finish_cancel(runner,attempt):
     if not attempt.get('cancel_requested'):return
-    if attempt.get('parent'):
+    run=runner.store.read(attempt['owner'])
+    if run['status']=='cancelled':
+        # Stopping a run does not erase a result that finished in the meantime.
+        job=runner.client.generation.record(attempt['id'])
+        if job and job['state']=='complete':
+            runner.store.update(attempt['id'],cancel_requested=False)
+            runner.collect(runner.store.read(attempt['id']),job)
+        else:runner.store.update(attempt['id'],status='cancelled',cancel_requested=False)
+    elif attempt.get('parent'):
         runner.store.update(attempt['id'],status='cancelled',cancel_requested=False)
         finish_entry(runner,attempt['parent'],'cancelled')
     else:
@@ -58,7 +66,8 @@ def finish_cancel(runner,attempt):
         # since downstream cannot continue without its required result.
         runner.store.update(attempt['id'],status='failed',cancel_requested=False,error='使用者取消目前工作；後續已暫停。')
     if runner.preparing==attempt['id']:runner.preparing=None
-    runner.notify('已取消目前項目；其他等待項目保留並暫停。')
+    runner.notify('原任務已結案；已停止的流程不再派送後續項目。' if run['status']=='cancelled' else
+                  '已取消目前項目；其他等待項目保留並暫停。')
 
 
 def cancel_attempt(runner,attempt):
@@ -69,9 +78,19 @@ def cancel_attempt(runner,attempt):
     runner.pause(run['id']);runner.store.update(attempt['id'],cancel_requested=True)
     if runner.preparing==attempt['id']:runner.preparing=None
     runner.cancel_inputs(run)
+    request_cancel(runner,runner.store.read(attempt['id']))
+
+
+def request_cancel(runner,attempt):
+    """Reconcile an owned operation after its local cancellation was saved."""
+    if not attempt or not attempt.get('cancel_requested'):return
+    run=runner.store.read(attempt['owner'])
     job=runner.client.generation.record(attempt['id'])
     if not job or job['state'] in ('complete','failed'):
         finish_cancel(runner,runner.store.read(attempt['id']));return
+    if (runner.client.stopped or run['server']!=runner.client.url or job['server']!=run['server'] or
+            job.get('workspace')!=run['workspace'] or job.get('native_operation')!=attempt['id']):
+        runner.notify('已停止後續流程；請連線至原服務核對這項工作的取消結果。');return
     store=runner.store
     def received(result):
         if runner.closed or runner.store is not store:return
@@ -80,7 +99,7 @@ def cancel_attempt(runner,attempt):
         if result.get('state')=='abandoned':runner.client.generation.retired(attempt['id'],result)
         elif result.get('state')=='failed':
             generation=runner.client.generation;original=generation.jobs.get(attempt['id']) or generation.record(attempt['id'])
-            if original:
+            if original and original['state'] not in ('complete','failed'):
                 original.update(state='failed',terminal_action='cancel',error='使用者取消目前項目。')
                 generation.save(original);generation.jobs.pop(attempt['id'],None);generation.native_waiting.discard(attempt['id'])
             finish_cancel(runner,current)
@@ -90,7 +109,10 @@ def cancel_attempt(runner,attempt):
             runner.notify('已要求取消這一項，等待原任務確認；後續項目保留。')
     def failed(error):
         if not runner.closed and runner.store is store:
-            store.update(attempt['id'],cancel_requested=False)
+            current=store.read(attempt['id'])
+            if not current or not current.get('cancel_requested'):return
+            # A lost reply is not proof that cancellation failed or completed.
+            store.update(attempt['id'],cancel_error=str(error))
             runner.notify('取消尚未確認：'+str(error)+'；後續項目保留並暫停。')
     runner.client.request('workflow/native/cancel',dict(id=attempt['id']),done=received,failed=failed)
 

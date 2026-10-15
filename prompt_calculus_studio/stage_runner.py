@@ -763,37 +763,42 @@ class StageRunner(QObject):
         self.store.update(ident,status='running',message='',pause_reason='');self.later();self.notify('已繼續這份流程。')
 
     def cancel(self,ident=None):
-        if ident is None:
-            workspace=self.window.state['workspace']
-            self.apply_queue=[item for item in self.apply_queue if item[7][1]!=workspace]
-            if self.apply_operation and self.apply_operation['workspace']==workspace:self.cancel_apply('已取消這次輸入同步。')
         runs=[self.store.read(ident)] if ident else self.runs(True)
-        for run in runs:
-            if not run:continue
-            self.store.update(run['id'],status='cancelled',message='已取消，保留結果與紀錄。')
-            if run['workspace']==self.window.state['workspace']:
+        runs=[run for run in runs if run and run['status'] not in ('complete','cancelled')]
+        workspace=self.window.state['workspace']
+        if any(run['workspace']!=workspace for run in runs):raise ValueError('工作區已切換，未取消其他工作。')
+        attempts=[];released=False
+        # Commit the stop, queue dispositions and cancellation intentions before
+        # sending anything. A callback may run synchronously during a request.
+        with self.accepting():
+            for run in runs:
+                self.store.update(run['id'],status='cancelled',message='已停止後續流程；已送出的工作仍須核對取消結果。')
                 # Whole-batch cancellation releases its future image range.
                 # Keep the visible next image, and never reset another batch.
-                released=False
                 for frame in run['stack']:
-                    plan=frame.get('feed',{}).get('plan',{})
+                    plan=(frame.get('feed') or {}).get('plan') or {}
                     for key,spec in plan.get('sources',{}).items():
                         image=self.window.state.get('canvas_functions',{}).get('images',{}).get(key,{})
                         if spec['kind']=='image' and image.get('supply_reservation',{}).get('plan')==plan['id']:
                             image.pop('supply_reservation',None);released=True
-                if released:self.window.changed('prompt',refresh=False)
-            self.cancel_inputs(run)
-            for item in self.store.rows('entry',active=True):
-                if item['run']==run['id']:
+                for item in self.store.rows('entry',workspace,active=True):
+                    if item['run']!=run['id']:continue
                     # The native attempt continues to reconcile independently.
                     # Ended schedule entries must not occupy the next batch's slots.
                     self.store.update(item['id'],status='retained' if item['status']=='waiting' else 'cancelled')
-            for attempt in self.store.rows('attempt',owner=run['id'],active=True):
-                if self.client.generation.record(attempt['id']):
-                    self.client.request('workflow/native/cancel',dict(id=attempt['id']),done=lambda r:self.notify('已送出指定工作取消要求。'),failed=lambda e:self.notify(str(e)))
-                else:self.store.update(attempt['id'],status='cancelled')
-                if self.preparing==attempt['id']:self.preparing=None
-        self.notify('已取消 PCS 流程；其他來源任務保留。');self.later()
+                for attempt in self.store.rows('attempt',owner=run['id'],active=True):
+                    self.store.update(attempt['id'],cancel_requested=True)
+                    attempts.append(attempt['id'])
+            if released:self.window.store.save(self.window.state,commit=False)
+        if self.preparing in attempts:self.preparing=None
+        if ident is None:
+            self.apply_queue=[item for item in self.apply_queue if item[7][1]!=workspace]
+            if self.apply_operation and self.apply_operation['workspace']==workspace:self.cancel_apply('已取消這次輸入同步。')
+        for run in runs:self.cancel_inputs(run)
+        from .stage_queue_actions import request_cancel
+        for key in attempts:request_cancel(self,self.store.read(key))
+        if released:self.window.changed('prompt',refresh=False)
+        self.notify('已停止此工作區的後續流程；已送出的工作依原任務回覆確認取消。');self.later()
 
     def retry(self,ident,reprepare=False,allow_unknown=False):
         item=self.store.read(ident);run=self.store.read(item['owner']);self.check_route(run)
