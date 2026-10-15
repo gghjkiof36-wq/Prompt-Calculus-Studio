@@ -9,7 +9,7 @@ from . import composition as comp
 from . import prompt_materials as pm
 from .canvas_palette import CanvasPalette
 from .canvas_items import TextCard, PreviewCard, NodeCard, CanvasView
-from .core import uid, validate_state, output_groups, TEMPORARY_GROUP
+from .core import uid, validate_state, output_groups, prune_output_order, TEMPORARY_GROUP
 from .widgets import label, button, row, StudioDialog, dialog_buttons, RoundMenu, InputDialog
 from .error_dialog import import_error
 
@@ -303,7 +303,7 @@ class TextCanvas(QWidget):
             if not library_only:
                 comp.prune_instances(value)
                 if value.get('uses'): value.setdefault('prompt_layout','paragraphs')
-                value['output_order']=output_groups(value,include_hidden=True)
+                prune_output_order(value)
             validate_state(value)
             if value == self.window.state: return
             if value['version'] > self.window.state['version']:

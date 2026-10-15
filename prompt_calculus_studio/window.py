@@ -1028,7 +1028,8 @@ class Window(QMainWindow):
         if not hasattr(self,"selected"): return
         composition.prune_instances(self.state)
         if self.state.get('uses'): self.state.setdefault('prompt_layout','paragraphs')
-        self.state["output_order"]=output_groups(self.state,include_hidden=True)
+        # Refreshing one output must not discard the order of another output's
+        # categories or temporary text, including when this list is empty.
         self.reset_copy_feedback()
         collapsed={self.selected.topLevelItem(i).data(0,Qt.ItemDataRole.UserRole)[1] for i in range(self.selected.topLevelItemCount()) if not self.selected.topLevelItem(i).isExpanded()}
         self.selected.clear(); items={i["id"]:i for i in self.state["items"]}

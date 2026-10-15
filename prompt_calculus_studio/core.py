@@ -259,9 +259,24 @@ def set_selection_separation(state,enabled):
     state['settings']['separate_selections']=enabled
 
 
+def prune_output_order(state):
+    """Drop deleted identities, not groups absent from the active output.
+
+    Fallback positions are resolved by output_groups for each output. Turning
+    that filtered view into the stored order would reorder other outputs.
+    """
+    if 'output_order' in state:
+        known={m['id'] for m in state['modules']} | set(state.get('uses',{})) | {TEMPORARY_GROUP}
+        state['output_order']=[key for key in state['output_order'] if key in known]
+
+
 def output_groups(state, include_hidden=False):
     """Keep output independent; new groups enter at their sidebar position."""
     modules=[m["id"] for m in state["modules"]]
+    positions=state.get('category_positions',{})
+    if 'multi_output' in state and state.get('selection_view')=='list' and separate_selections(state):
+        from .multi_output import active_output
+        positions=(active_output(state) or {}).get('list_state',{}).get('category_positions',positions)
     active={mid for mid in modules if state["selections"].get(mid)}
     uses = list(state.get('uses', {})); active.update(uses)
     if state.get("temporary"): active.add(TEMPORARY_GROUP)
@@ -281,7 +296,7 @@ def output_groups(state, include_hidden=False):
         return visible([mid for mid in order if mid in active] + uses)
     order=[mid for mid in state["output_order"] if mid in active]
     for index,mid in enumerate(modules):
-        if mid in active and mid not in order: order.insert(min(state.get('category_positions',{}).get(mid,index),len(order)),mid)
+        if mid in active and mid not in order: order.insert(min(positions.get(mid,index),len(order)),mid)
     if TEMPORARY_GROUP in active and TEMPORARY_GROUP not in order: order.append(TEMPORARY_GROUP)
     order.extend(ident for ident in uses if ident not in order)
     return visible(order)

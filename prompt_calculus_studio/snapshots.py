@@ -170,7 +170,7 @@ def portable_state(state, selected_only=False):
         for output in result['multi_output']['outputs'].values():
             saved=output.get('list_state',{})
             if 'instances' in saved:saved['instances']=_portable_uses({k:v for k,v in saved['instances'].items() if not selected_only or k in allowed})
-        result['output_order']=copy.deepcopy(state.get('output_order',output_groups(state,include_hidden=True))) if selected_only else output_groups(state,include_hidden=True)
+        result['output_order']=copy.deepcopy(state.get('output_order',output_groups(state,include_hidden=True)))
     if not selected_only and 'workspace_scenes' in state:
         from .workspace_scene import capture
         result['workspace_scenes']=copy.deepcopy(state['workspace_scenes']);capture(result)
@@ -285,8 +285,11 @@ def restore_snapshot(current, snapshot):
             if part.get('source_id') in item_map: part['source_id']=item_map[part['source_id']]
             if part.get('source_module') in module_map: part['source_module']=module_map[part['source_module']]
         result['uses'][ident]=root
+    # The active list can be empty while other outputs still use the saved
+    # order. Restore the complete multi-output order, with identities remapped.
+    order=source.get('output_order',output_groups(source,include_hidden=True)) if 'multi_output' in source else output_groups(source)
     result['output_order'] = [TEMPORARY_GROUP if mid == TEMPORARY_GROUP else use_map[mid] if mid in use_map else module_map[mid]
-                              for mid in output_groups(source)]
+                              for mid in order]
     result['selections'] = {module_map[m]: [item_map[i] for i in values]
                             for m, values in source['selections'].items()}
     result['weights'] = {item_map[k]: v for k, v in source.get('weights', {}).items() if k in item_map}

@@ -380,8 +380,8 @@ def materialize(state):
         canvas['members'] = new+canvas['members']
         canvas.update(source_members=new, source_revision=signature,
                       raw_prompt=content.get('text') if content['kind']=='raw' and data['version']<6 else content.get('manual_text'))
-    from .core import output_groups
-    if 'output_order' in state:state['output_order']=output_groups(state,include_hidden=True)
+    from .core import prune_output_order
+    prune_output_order(state)
     return state
 
 
