@@ -1,0 +1,422 @@
+{
+  "legacy_commit": "84fee6698094083bc02e3d58714696ae5acd5623",
+  "roots": {
+    "increment": {
+      "id": "1962f8d6d1584f45a3496a0143c7596b",
+      "name": "increment",
+      "prompt": "",
+      "enabled": true,
+      "weight": 10,
+      "children": [],
+      "overlays": [],
+      "excludes": [],
+      "grouped": false,
+      "collapsed": true,
+      "content_kind": "tags",
+      "sequence": {
+        "version": 1,
+        "mode": "increment",
+        "start": "4fa56162503f4a599e08ee92f1d019ff",
+        "selected": "4fa56162503f4a599e08ee92f1d019ff",
+        "groups": [
+          {
+            "id": "4fa56162503f4a599e08ee92f1d019ff",
+            "name": "A",
+            "repeat": 3,
+            "input": "modules",
+            "text": "",
+            "content_kind": "tags",
+            "modules": [
+              {
+                "id": "2ea177d7fb6d49fab486840b564bbe7a",
+                "name": "inner",
+                "prompt": "",
+                "enabled": true,
+                "weight": 10,
+                "children": [],
+                "overlays": [],
+                "excludes": [],
+                "grouped": false,
+                "collapsed": true,
+                "content_kind": "tags",
+                "sequence": {
+                  "version": 1,
+                  "mode": "increment",
+                  "start": "6814a75b3db5499eb5a328a57c52f97a",
+                  "selected": "6814a75b3db5499eb5a328a57c52f97a",
+                  "groups": [
+                    {
+                      "id": "6814a75b3db5499eb5a328a57c52f97a",
+                      "name": "A",
+                      "repeat": 3,
+                      "input": "modules",
+                      "text": "",
+                      "content_kind": "tags",
+                      "modules": [
+                        {
+                          "id": "07426c00f2fd41e4a9414d2b024387d4",
+                          "name": "legacy leaf",
+                          "prompt": "synthetic old text",
+                          "enabled": true,
+                          "weight": 10,
+                          "children": [],
+                          "overlays": [],
+                          "excludes": [],
+                          "grouped": false,
+                          "collapsed": true,
+                          "content_kind": "tags"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "dc8e3ea95d6b47619b7a6c52c5c04513",
+                      "name": "B",
+                      "repeat": 3,
+                      "input": "modules",
+                      "text": "",
+                      "content_kind": "tags",
+                      "modules": [
+                        {
+                          "id": "4a5de0d892a84979b55cb468d80aab0c",
+                          "name": "other",
+                          "prompt": "synthetic other",
+                          "enabled": true,
+                          "weight": 10,
+                          "children": [],
+                          "overlays": [],
+                          "excludes": [],
+                          "grouped": false,
+                          "collapsed": true,
+                          "content_kind": "tags"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "supply_cursor": {
+                  "signature": "ee8f47fafb4a683f7ecc0269b5ec6fac07189cc95c7384d819e55f70cf8d0513",
+                  "position": {
+                    "group": "6814a75b3db5499eb5a328a57c52f97a",
+                    "repeat": 1,
+                    "exhausted": false,
+                    "draws": 0
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "3f119019c0cf4ccf8930aecdf4d35433",
+            "name": "B",
+            "repeat": 3,
+            "input": "modules",
+            "text": "",
+            "content_kind": "tags",
+            "modules": [
+              {
+                "id": "95aa8ca5d97141c2ad46eaaeadb85637",
+                "name": "other",
+                "prompt": "synthetic other",
+                "enabled": true,
+                "weight": 10,
+                "children": [],
+                "overlays": [],
+                "excludes": [],
+                "grouped": false,
+                "collapsed": true,
+                "content_kind": "tags"
+              }
+            ]
+          }
+        ]
+      },
+      "supply_cursor": {
+        "signature": "fc1b8a6eaa7344ddaf2fb776c19ed81815fccf149da6d74ff5fbc654e3b9eab7",
+        "position": {
+          "group": "4fa56162503f4a599e08ee92f1d019ff",
+          "repeat": 1,
+          "exhausted": false,
+          "draws": 0
+        }
+      }
+    },
+    "decrement": {
+      "id": "e51b964c197044de851ea5e413bcb54c",
+      "name": "decrement",
+      "prompt": "",
+      "enabled": true,
+      "weight": 10,
+      "children": [],
+      "overlays": [],
+      "excludes": [],
+      "grouped": false,
+      "collapsed": true,
+      "content_kind": "tags",
+      "sequence": {
+        "version": 1,
+        "mode": "decrement",
+        "start": "3abf13a0f0d447c8b157cc04066be694",
+        "selected": "3abf13a0f0d447c8b157cc04066be694",
+        "groups": [
+          {
+            "id": "3abf13a0f0d447c8b157cc04066be694",
+            "name": "A",
+            "repeat": 3,
+            "input": "modules",
+            "text": "",
+            "content_kind": "tags",
+            "modules": [
+              {
+                "id": "75c5aad8a81948418bbd745bb88d4fa5",
+                "name": "inner",
+                "prompt": "",
+                "enabled": true,
+                "weight": 10,
+                "children": [],
+                "overlays": [],
+                "excludes": [],
+                "grouped": false,
+                "collapsed": true,
+                "content_kind": "tags",
+                "sequence": {
+                  "version": 1,
+                  "mode": "increment",
+                  "start": "3c07cb5aaa0a4558a22865073f72993b",
+                  "selected": "3c07cb5aaa0a4558a22865073f72993b",
+                  "groups": [
+                    {
+                      "id": "3c07cb5aaa0a4558a22865073f72993b",
+                      "name": "A",
+                      "repeat": 3,
+                      "input": "modules",
+                      "text": "",
+                      "content_kind": "tags",
+                      "modules": [
+                        {
+                          "id": "bf9a5177316b46b0b324d2176faeefba",
+                          "name": "legacy leaf",
+                          "prompt": "synthetic old text",
+                          "enabled": true,
+                          "weight": 10,
+                          "children": [],
+                          "overlays": [],
+                          "excludes": [],
+                          "grouped": false,
+                          "collapsed": true,
+                          "content_kind": "tags"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "ebe98b276add412e932443ec5844797b",
+                      "name": "B",
+                      "repeat": 3,
+                      "input": "modules",
+                      "text": "",
+                      "content_kind": "tags",
+                      "modules": [
+                        {
+                          "id": "c28be8bebb38411f9002c61fdc5afda9",
+                          "name": "other",
+                          "prompt": "synthetic other",
+                          "enabled": true,
+                          "weight": 10,
+                          "children": [],
+                          "overlays": [],
+                          "excludes": [],
+                          "grouped": false,
+                          "collapsed": true,
+                          "content_kind": "tags"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "supply_cursor": {
+                  "signature": "53b5ae4ceeca2bb2492678d383fae3bd0c727b9903d4ede52d42351aee3223bf",
+                  "position": {
+                    "group": "3c07cb5aaa0a4558a22865073f72993b",
+                    "repeat": 1,
+                    "exhausted": false,
+                    "draws": 0
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "210ba7ae033546af93f266381d434169",
+            "name": "B",
+            "repeat": 3,
+            "input": "modules",
+            "text": "",
+            "content_kind": "tags",
+            "modules": [
+              {
+                "id": "77aae0b61a454de9807ad91c85734cdd",
+                "name": "other",
+                "prompt": "synthetic other",
+                "enabled": true,
+                "weight": 10,
+                "children": [],
+                "overlays": [],
+                "excludes": [],
+                "grouped": false,
+                "collapsed": true,
+                "content_kind": "tags"
+              }
+            ]
+          }
+        ]
+      },
+      "supply_cursor": {
+        "signature": "217c3a69dd7623912f0c6fcf1d81c93b5cee1e17a84cc927629fc00da5f650f4",
+        "position": {
+          "group": "3abf13a0f0d447c8b157cc04066be694",
+          "repeat": 1,
+          "exhausted": false,
+          "draws": 0
+        }
+      }
+    },
+    "random": {
+      "id": "46359ea23cd34a80b882c9c1335d57c1",
+      "name": "random",
+      "prompt": "",
+      "enabled": true,
+      "weight": 10,
+      "children": [],
+      "overlays": [],
+      "excludes": [],
+      "grouped": false,
+      "collapsed": true,
+      "content_kind": "tags",
+      "sequence": {
+        "version": 1,
+        "mode": "random",
+        "start": "e6fdd4e1df3243c99ed9ad46a7eece47",
+        "selected": "e6fdd4e1df3243c99ed9ad46a7eece47",
+        "groups": [
+          {
+            "id": "e6fdd4e1df3243c99ed9ad46a7eece47",
+            "name": "A",
+            "repeat": 3,
+            "input": "modules",
+            "text": "",
+            "content_kind": "tags",
+            "modules": [
+              {
+                "id": "ffd5fab524b1480fa459e711ce6570d2",
+                "name": "inner",
+                "prompt": "",
+                "enabled": true,
+                "weight": 10,
+                "children": [],
+                "overlays": [],
+                "excludes": [],
+                "grouped": false,
+                "collapsed": true,
+                "content_kind": "tags",
+                "sequence": {
+                  "version": 1,
+                  "mode": "increment",
+                  "start": "090e5b375262420c8308e9332f75546e",
+                  "selected": "090e5b375262420c8308e9332f75546e",
+                  "groups": [
+                    {
+                      "id": "090e5b375262420c8308e9332f75546e",
+                      "name": "A",
+                      "repeat": 3,
+                      "input": "modules",
+                      "text": "",
+                      "content_kind": "tags",
+                      "modules": [
+                        {
+                          "id": "566554bb7d8e462aa14fd21a188f0dbd",
+                          "name": "legacy leaf",
+                          "prompt": "synthetic old text",
+                          "enabled": true,
+                          "weight": 10,
+                          "children": [],
+                          "overlays": [],
+                          "excludes": [],
+                          "grouped": false,
+                          "collapsed": true,
+                          "content_kind": "tags"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "c474d1de7f834ee4a1709812712c8a21",
+                      "name": "B",
+                      "repeat": 3,
+                      "input": "modules",
+                      "text": "",
+                      "content_kind": "tags",
+                      "modules": [
+                        {
+                          "id": "53e131deafb04659bfae8d7eda6da38b",
+                          "name": "other",
+                          "prompt": "synthetic other",
+                          "enabled": true,
+                          "weight": 10,
+                          "children": [],
+                          "overlays": [],
+                          "excludes": [],
+                          "grouped": false,
+                          "collapsed": true,
+                          "content_kind": "tags"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "supply_cursor": {
+                  "signature": "74912855e8460bd592d6a56b7717073ca3c364fc513895b8270c7a15275a6425",
+                  "position": {
+                    "group": "090e5b375262420c8308e9332f75546e",
+                    "repeat": 1,
+                    "exhausted": false,
+                    "draws": 0
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "59a2a1ca32d14cf8ae9011b0e556ab61",
+            "name": "B",
+            "repeat": 3,
+            "input": "modules",
+            "text": "",
+            "content_kind": "tags",
+            "modules": [
+              {
+                "id": "609ff34c62be4fd1ba23807a30979bf5",
+                "name": "other",
+                "prompt": "synthetic other",
+                "enabled": true,
+                "weight": 10,
+                "children": [],
+                "overlays": [],
+                "excludes": [],
+                "grouped": false,
+                "collapsed": true,
+                "content_kind": "tags"
+              }
+            ]
+          }
+        ]
+      },
+      "supply_cursor": {
+        "signature": "ddf623aa9a800bf09ec4e313699ea1037bb432bfc5abdc507a6354a7668872ba",
+        "position": {
+          "group": "e6fdd4e1df3243c99ed9ad46a7eece47",
+          "repeat": 1,
+          "exhausted": false,
+          "draws": 1
+        }
+      }
+    }
+  }
+}

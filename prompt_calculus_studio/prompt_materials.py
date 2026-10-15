@@ -107,19 +107,40 @@ def reset(root):
 def migrate(state):
     """Run only at load/import boundaries. Keep legacy bodies and all IDs intact."""
     from .composition import walk
+    from .prompt_sources import legacy_signature
     changed = False
     for owner in [state, *state.get('workspaces', []), *state.get('workspace_scenes', {}).get('items', {}).values()]:
         if not isinstance(owner, dict): continue
         roots = [*owner.get('uses', {}).values(), *owner.get('instances', {}).values()]
         roots += [v['root'] for v in owner.get('canvas_functions', {}).get('text_sources', {}).values()]
+        roots += [root for output in owner.get('multi_output',{}).get('outputs',{}).values()
+                  for root in output.get('list_state',{}).get('instances',{}).values()]
         for item in owner.get('items', []):
             if 'material_type' not in item:
                 item['material_type'] = kind(item); changed = True
             if item.get('composition'): roots.append(item['composition'])
         for root in roots:
-            for part in walk(root):
+            parts=list(walk(root));positions=[];untyped=any('material_type' not in part for part in parts)
+            # Check the exact old definition before annotating any descendant.
+            # Legacy signatures include nested modules, so even adding their
+            # material_type would otherwise invalidate a saved repeat offset.
+            for part in parts:
+                current=part.get('selection_cursor')
+                if current and current.get('signature')==signature(part):
+                    if untyped:positions.append((part,copy.deepcopy(current['position'])))
+                    continue
+                saved=part.get('supply_cursor')
+                if part.get('sequence') and saved and saved.get('signature')==legacy_signature(part):
+                    position=copy.deepcopy(saved['position'])
+                    if part['sequence']['mode']=='random' and position['repeat']>0:
+                        position['ready']=True  # This legacy random group was already drawn.
+                    positions.append((part,position))
+            for part in parts:
                 if 'material_type' not in part:
                     part['material_type'] = kind(part); changed = True
+            for part,position in positions:
+                part['selection_cursor']=dict(signature=signature(part),position=position)
+                part.pop('supply_cursor',None);changed=True
     if changed: state['version'] = max(7, state['version'])
     return state
 
