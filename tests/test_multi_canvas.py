@@ -137,7 +137,10 @@ class MultiCanvasTests(unittest.TestCase):
                 QTest.mouseClick(button,Qt.MouseButton.LeftButton)
                 return QDialog.DialogCode.Accepted
             with patch.object(StudioDialog,'exec',inspect),patch.object(self.w,'copy_text',wraps=self.w.copy_text) as copied:
-                self.w.prompt_editor.legacy_content()
+                QTest.mouseClick(self.w.prompt_editor.library_more,Qt.MouseButton.LeftButton)
+                menu=QApplication.activePopupWidget();self.assertIsNotNone(menu)
+                action=next(a for a in menu.actions() if a.text()=='取回舊清單內容')
+                menu.setActiveAction(action);QTest.keyClick(menu,Qt.Key.Key_Return)
             self.assertEqual(recovered,[manual]);copied.assert_called_once_with(manual)
             # Empty manual text remains distinct from the generated text;
             # the common copy action intentionally leaves the clipboard alone.
@@ -205,8 +208,9 @@ class MultiCanvasTests(unittest.TestCase):
         from prompt_calculus_studio.core import initial_state
         from prompt_calculus_studio.composition import node
         old=initial_state(); old.update(version=3,uses={'old':node('old','original text')},selection_view='canvas',draft='old manual')
-        path=Path(self.tmp.name)/'legacy.json'; path.write_text(json.dumps(old),encoding='utf-8')
+        path=Path(self.tmp.name)/'legacy.json'; path.write_text(json.dumps(old),encoding='utf-8');original_bytes=path.read_bytes()
         with patch('prompt_calculus_studio.window.QFileDialog.getOpenFileName',return_value=(str(path),'')),patch('prompt_calculus_studio.window.ask',return_value=True): self.w.import_json()
-        self.assertEqual(self.w.state['version'],4); self.assertEqual(self.w.state['draft'],'old manual')
+        self.assertEqual(self.w.state['version'],7); self.assertEqual(self.w.state['draft'],'old manual')
+        self.assertEqual(build_prompt(self.w.state),'original text');self.assertEqual(path.read_bytes(),original_bytes)
         self.assertEqual(model.compile_output(self.w.state,self.w.state['multi_output']['current_output'])['final_prompt'],'old manual')
         self.w.canvas.refresh(); self.assertTrue(self.w.canvas.containers)

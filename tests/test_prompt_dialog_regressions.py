@@ -44,7 +44,12 @@ class PromptDialogTests(unittest.TestCase):
             self.assertGreater(surface.height(),closed.height())
             self.assertEqual(dialog.geometry(),native,'disclosure must not move or resize the native window')
             QTest.mouseClick(toggle,Qt.MouseButton.LeftButton)
-            QTest.qWait(220);self.assertEqual(surface.geometry(),closed)
+            QTest.qWait(220)
+            # Fractional DPI can round the centered child by one logical pixel.
+            # Compare every edge to the original, so repeated cycles cannot drift.
+            actual=surface.geometry()
+            for edge in ('left','top','right','bottom'):
+                self.assertLessEqual(abs(getattr(actual,edge)()-getattr(closed,edge)()),1)
             self.assertEqual(dialog.geometry(),native)
 
     def side_cycle(self,dialog,toggle):
@@ -68,13 +73,23 @@ class PromptDialogTests(unittest.TestCase):
 
     def test_overview_and_group_collapse_return_to_content_height(self):
         dialog,ed=self.populated()
+        def listing_fits():
+            # The style's frame/focus margin can add up to four logical pixels
+            # beyond sizeHint. Actual rows must remain fully visible.
+            self.assertTrue(ed.listing.isVisible())
+            self.assertGreaterEqual(ed.listing.height(),ed.listing.sizeHint().height())
+            self.assertLessEqual(ed.listing.height()-ed.listing.sizeHint().height(),4)
+            self.assertGreater(ed.listing.count(),0)
+            for index in range(ed.listing.count()):
+                self.assertTrue(ed.listing.viewport().rect().contains(ed.listing.visualItemRect(ed.listing.item(index))))
+            self.assertEqual(ed.listing.verticalScrollBar().maximum(),0)
         self.assertFalse(hasattr(ed,'overview_preview_toggle'))
         self.assertEqual([c for c in dialog.pages.findChildren(QCheckBox) if c.isVisible()],[])
-        self.assertEqual(ed.listing.height(),ed.listing.sizeHint().height())
+        listing_fits()
         ed.edit_group(ed.sequence['groups'][0]['id']);QTest.qWait(30)
         self.side_cycle(dialog,ed.preview_toggle)
         ed.back();QTest.qWait(30)
-        self.assertEqual(ed.listing.height(),ed.listing.sizeHint().height())
+        listing_fits()
         self.assertEqual(dialog.form_scroll.verticalScrollBar().maximum(),0)
         dialog.reject()
 

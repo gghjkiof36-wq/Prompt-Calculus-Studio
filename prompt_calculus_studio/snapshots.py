@@ -246,13 +246,68 @@ def image_snapshots(metadata):
     return found
 
 
+def _legacy_stage_source(snapshot):
+    """Recognize the schema-7 Stage projection that retained cache markers.
+
+    Its Reader is deliberately absent: the roots are the already submitted
+    value. Only this self-contained projection can turn derived cache members
+    into ordinary frozen Canvas members. Root provenance and cursors stay intact.
+    The caller validates the original snapshot first and every restored output
+    afterwards; this is not a fallback for arbitrary disconnected documents.
+    """
+    source=snapshot['state'];data=source.get('multi_output',{})
+    canvases=data.get('canvases',{});outputs=data.get('outputs',{})
+    functions=source.get('canvas_functions',{})
+    if (snapshot.get('schema_version')!=7 or snapshot.get('formatter_version')!=2
+            or data.get('version')!=7 or source.get('selection_view')!='canvas'
+            or len(data.get('stages',{}))!=1 or data.get('schedulers')
+            or functions.get('images') or functions.get('text_sources')
+            or source.get('_execution_inputs') or source.get('workspace_scenes')
+            or not outputs or set(outputs)!={f'stage_text_{i}' for i in range(len(outputs))}
+            or data.get('workflow_order')!=dict(visible=False,items=[],established=[])):
+        return source
+    stage=next(iter(data['stages'].values()))
+    workflow=stage.get('workflow');clips=data.get('clip_inputs',{});bindings=data.get('bindings',[])
+    if not workflow or len(bindings)!=len(outputs) or {b['clip'] for b in bindings}!=set(clips):return source
+    if any(b['workflow']!=workflow or clips[b['clip']].get('workflow')!=workflow for b in bindings):return source
+    expected=[];referenced=set()
+    from .flow_data import canvas_ids
+    for index,binding in enumerate(bindings):
+        key=f'stage_text_{index}';ids=canvas_ids(outputs[key]);referenced.update(ids)
+        expected.extend((cid,key,'text') for cid in ids)
+        expected.append((key,binding['clip'],'clip'))
+    actual=[(c['source'],c['destination'],c['kind']) for c in data.get('connections',[])]
+    if sorted(actual)!=sorted(expected) or referenced!=set(canvases):return source
+    marked=[];members=[]
+    for cid,canvas in canvases.items():
+        members.extend(canvas['members'])
+        if 'source_members' not in canvas:continue
+        derived=canvas['source_members'];signature=canvas.get('source_revision','')
+        if (not derived or not isinstance(signature,str) or len(signature)!=64 or any(c not in '0123456789abcdef' for c in signature)
+                or canvas.get('raw_prompt') is not None or canvas.get('source_error')
+                or len(set(canvas['members']))!=len(canvas['members'])
+                or canvas['members'][:len(derived)]!=derived):return source
+        # Verify the historical materialize identity, not just an ID prefix.
+        if derived!=['image_text_'+hashlib.sha256((cid+signature+str(i)).encode()).hexdigest()[:24]
+                     for i in range(len(derived))]:return source
+        marked.append(cid)
+    if not marked or set(members)!=set(source.get('uses',{})) or len(members)!=len(set(members)):return source
+    converted=copy.deepcopy(source)
+    for cid in marked:
+        canvas=converted['multi_output']['canvases'][cid]
+        for field in ('source_members','source_revision','raw_prompt','source_error'):canvas.pop(field,None)
+    # Removing inert cache bookkeeping must not change any frozen value.
+    validate_snapshot(dict(snapshot,state=converted))
+    return converted
+
+
 def restore_snapshot(current, snapshot):
     """Create a new workspace; preserve library entries and historical text."""
     validate_snapshot(snapshot)
     result = copy.deepcopy(current)
     from .workspace_scene import capture,scene
     capture(result)
-    source = snapshot['state']
+    source = _legacy_stage_source(snapshot)
     isolated=separate_selections(source)
     view=source.get('selection_view','canvas' if source.get('uses') and not any(source['selections'].values()) else 'list')
     result['settings']['separate_selections']=isolated
@@ -369,4 +424,8 @@ def restore_snapshot(current, snapshot):
         validate_state(result)
     elif build_prompt(result) != snapshot['generated_prompt']:
         raise ValueError('恢復後的組合不一致，原狀態未變更。')
+    if source is not snapshot['state']:
+        from .multi_output import compiled_outputs
+        if compiled_outputs(result)!=snapshot['outputs']:
+            raise ValueError('恢復後的多輸出組合不一致，原狀態未變更。')
     return result

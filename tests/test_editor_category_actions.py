@@ -56,20 +56,34 @@ class CategoryActionsTests(unittest.TestCase):
             QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(action).center())
         QTest.qWait(40); self.assertEqual(len(answered), 1)
 
+    def reopen(self):
+        from prompt_calculus_studio.window import Window
+        self.w.close(); self.w.deleteLater(); self.app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.w = Window(self.folder.name); self.w.show(); self.w.leave_canvas()
+        self.page = self.w.prompt_editor; self.app.processEvents()
+
     def test_rename_from_menu_keeps_id_membership_and_can_undo_redo(self):
         fid = self.create(); self.move_menu(self.cat, fid); self.page.set_browser_category(self.cat)
         original = copy.deepcopy(self.w.state['items']); order = [v['id'] for v in self.w.state['modules']]
         with patch.object(self.w.comfy.input_flow.chain, 'route_changed') as route:
             self.choose(self.cat, '重新命名', name='新角色分類')
             self.assertEqual(materials.category(self.w.state, self.cat)['name'], '新角色分類')
-            self.assertEqual(self.page.title.text(), '新角色分類')
+            self.assertEqual(self.page.title.text(), '人物 / 新角色分類')
             self.w.canvas.undo(); self.assertEqual(materials.category(self.w.state, self.cat)['name'], 'Order A')
+            self.assertEqual(self.page.title.text(), '人物 / Order A')
             self.w.canvas.redo(); self.assertEqual(materials.category(self.w.state, self.cat)['name'], '新角色分類')
+            self.assertEqual(self.page.title.text(), '人物 / 新角色分類')
             route.assert_not_called()
         self.assertEqual(nav.parent(self.w.state, self.cat), fid)
         self.assertEqual([v['id'] for v in self.w.state['modules']], order)
         self.assertEqual(self.w.state['items'], original)
         self.w.persist(); self.assertEqual(self.w.store.load()['modules'], self.w.state['modules'])
+        self.reopen(); self.page.set_browser_category(self.cat)
+        self.assertEqual(self.page.title.text(), '人物 / 新角色分類')
+        self.assertEqual(nav.parent(self.w.state, self.cat), fid)
+        self.assertEqual([v['id'] for v in self.w.state['modules']], order)
+        self.assertEqual(self.w.state['items'], original)
 
     def test_delete_category_cancel_accept_undo_redo_and_reopen_preserves_content(self):
         fid = self.create(); self.move_menu(self.cat, fid); self.page.set_browser_category(self.cat)
@@ -137,22 +151,42 @@ class CategoryActionsTests(unittest.TestCase):
         QTest.keyClick(menu, Qt.Key.Key_Escape)
 
     def test_deletion_undo_restores_old_workspace_selection_references(self):
-        from prompt_calculus_studio.workspace_scene import capture
-        state = self.w.state
-        state['selections'] = {self.cat: [self.ids[0]]}; state['temporary_before'] = self.cat
-        workspace = state['workspaces'][0]
-        workspace['picks'] = {self.cat: [self.ids[0]]}; workspace['fixed'] = [self.cat]
-        from prompt_calculus_studio.composition import prune_instances
-        from prompt_calculus_studio.multi_output import capture_current
-        prune_instances(state); capture_current(state)
-        capture(state); validate_state(state)
-        before = copy.deepcopy(state)
+        from prompt_calculus_studio import workspace_scene as scenes
+        def seed(state):
+            state['selections'] = {self.cat: [self.ids[0]]}; state['temporary_before'] = self.cat
+            state['workspaces'][0].update(picks={self.cat: [self.ids[0]]}, fixed=[self.cat])
+        self.assertTrue(self.w.canvas.commit(seed))
+        state = self.w.state; capture_current(state); scenes.capture(state)
+        inactive = scenes.create(state, '另一測試工作區', duplicate=True)
+        scenes.capture(state); validate_state(state)
+        before = copy.deepcopy(state); active = state['workspace']
         self.choose(self.cat, '刪除分類')
         validate_state(self.w.state)
         self.w.canvas.undo(); validate_state(self.w.state)
-        for field in ('modules', 'items', 'workspaces', 'workspace_scenes', 'multi_output', 'temporary_before', 'selections'):
+        for field in ('modules', 'items', 'workspaces', 'multi_output', 'temporary_before', 'selections',
+                      'uses', 'instances', 'output_order', 'draft', 'draft_base', 'canvas_view', 'selection_view'):
             self.assertEqual(self.w.state.get(field), before.get(field), field)
-        self.w.canvas.redo(); self.w.persist(); validate_state(self.w.store.load())
+        caches = self.w.state['workspace_scenes']['items']
+        self.assertEqual(caches[inactive], before['workspace_scenes']['items'][inactive])
+        # History omits only the active scene's redundant view fields. The
+        # authoritative top-level views above and all other content stay exact.
+        expected_cache = copy.deepcopy(before['workspace_scenes']['items'][active])
+        for field in ('canvas_view', 'selection_view'): expected_cache.pop(field, None)
+        self.assertEqual(caches[active], expected_cache)
+        scenes.capture(self.w.state)
+        self.assertEqual(self.w.state['workspace_scenes'], before['workspace_scenes'])
+        self.w.canvas.redo(); validate_state(self.w.state)
+        self.assertNotIn(self.cat,[m['id'] for m in self.w.state['modules']])
+        self.assertIn(self.ids[0],[key for values in self.w.state['selections'].values() for key in values])
+        self.w.canvas.undo();scenes.capture(self.w.state)
+        self.assertEqual(self.w.state['workspace_scenes'],before['workspace_scenes'])
+        self.w.persist(); saved = self.w.store.load(); validate_state(saved)
+        self.assertEqual(saved['workspace_scenes'], before['workspace_scenes'])
+        self.reopen()
+        self.assertEqual(self.w.state['selections'], before['selections'])
+        self.assertEqual(self.w.state['workspace_scenes']['items'][inactive], before['workspace_scenes']['items'][inactive])
+        self.w.change_workspace(inactive); validate_state(self.w.state)
+        self.assertEqual(self.w.state['selections'], before['workspace_scenes']['items'][inactive]['selections'])
 
 
 class CategoryModelTests(unittest.TestCase):

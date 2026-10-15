@@ -1,0 +1,457 @@
+{
+  "schema_version": 7,
+  "formatter_version": 2,
+  "library_id": "",
+  "library_revision": "",
+  "state": {
+    "version": 7,
+    "modules": [
+      {
+        "id": "c076720ce4764146b23fbf999b5c8261",
+        "name": "LoRA",
+        "mode": "multiple"
+      },
+      {
+        "id": "366fd4f8ac764e85bed3579bcefcad36",
+        "name": "Artist",
+        "mode": "multiple"
+      },
+      {
+        "id": "f02ba7bbfef4437fb55c680c1faeab54",
+        "name": "角色",
+        "mode": "single"
+      },
+      {
+        "id": "7b7305d2378d4381882ae1cc477c5949",
+        "name": "動作",
+        "mode": "single"
+      },
+      {
+        "id": "3b92913e29c6470789c0a99019041f11",
+        "name": "表情",
+        "mode": "multiple"
+      },
+      {
+        "id": "75a861053d254d5f82a577f4892017a8",
+        "name": "場景",
+        "mode": "single"
+      }
+    ],
+    "items": [
+      {
+        "id": "fd97ee59c5774f0bac7e7e575c36853a",
+        "module": "f02ba7bbfef4437fb55c680c1faeab54",
+        "name": "紅色洋裝女孩",
+        "prompt": "1girl, red dress",
+        "aliases": [
+          "紅裙",
+          "紅色衣服",
+          "女孩"
+        ],
+        "notes": "可修改或刪除的範例",
+        "excludes": [],
+        "material_type": "text"
+      },
+      {
+        "id": "b0543445d58246f4828ea2188d972b8f",
+        "module": "f02ba7bbfef4437fb55c680c1faeab54",
+        "name": "白襯衫女孩",
+        "prompt": "1girl, white shirt",
+        "aliases": [
+          "白衣",
+          "女孩"
+        ],
+        "notes": "可修改或刪除的範例",
+        "excludes": [],
+        "material_type": "text"
+      },
+      {
+        "id": "38f330cb45e34b0fab7936a2ec2f0371",
+        "module": "7b7305d2378d4381882ae1cc477c5949",
+        "name": "自然站立",
+        "prompt": "standing, hands behind back",
+        "aliases": [
+          "站立",
+          "手放身後"
+        ],
+        "notes": "可修改或刪除的範例",
+        "excludes": [],
+        "material_type": "text"
+      },
+      {
+        "id": "1a02f48ecf724c9c8aa1eb533edc7395",
+        "module": "7b7305d2378d4381882ae1cc477c5949",
+        "name": "坐姿",
+        "prompt": "sitting",
+        "aliases": [
+          "坐下",
+          "坐著"
+        ],
+        "notes": "可修改或刪除的範例",
+        "excludes": [],
+        "material_type": "text"
+      },
+      {
+        "id": "4e4354ab5b4f424a8f79545b23c85157",
+        "module": "3b92913e29c6470789c0a99019041f11",
+        "name": "微笑",
+        "prompt": "smile",
+        "aliases": [
+          "微笑",
+          "笑容"
+        ],
+        "notes": "可修改或刪除的範例",
+        "excludes": [],
+        "material_type": "text"
+      },
+      {
+        "id": "1a794fcaea5745c6a72d9eade94a6255",
+        "module": "3b92913e29c6470789c0a99019041f11",
+        "name": "看向鏡頭",
+        "prompt": "looking at viewer",
+        "aliases": [
+          "看鏡頭",
+          "看向觀眾"
+        ],
+        "notes": "可修改或刪除的範例",
+        "excludes": [],
+        "material_type": "text"
+      },
+      {
+        "id": "a8534cff0b8d4e6f957f35c17b146e4c",
+        "module": "75a861053d254d5f82a577f4892017a8",
+        "name": "夜晚街道",
+        "prompt": "street, night, city lights",
+        "aliases": [
+          "夜景",
+          "街道"
+        ],
+        "notes": "可修改或刪除的範例",
+        "excludes": [],
+        "material_type": "text"
+      }
+    ],
+    "workspaces": [
+      {
+        "id": "576d7c3aa0c04c1f8fa47190c82530ad",
+        "name": "預設工作區",
+        "fixed": [
+          "c076720ce4764146b23fbf999b5c8261",
+          "366fd4f8ac764e85bed3579bcefcad36"
+        ],
+        "picks": {},
+        "weights": {},
+        "uses": {},
+        "fixed_uses": [],
+        "parameters": {}
+      }
+    ],
+    "workspace": "576d7c3aa0c04c1f8fa47190c82530ad",
+    "selections": {},
+    "temporary": [],
+    "weights": {},
+    "uses": {
+      "image_text_66e630b6a58cf27f05311ce2": {
+        "id": "5fc35695dda64dd781d1206f1b51427b",
+        "name": "組合來源",
+        "prompt": "",
+        "enabled": true,
+        "weight": 10,
+        "children": [],
+        "overlays": [],
+        "excludes": [],
+        "grouped": false,
+        "collapsed": true,
+        "content_kind": "tags",
+        "sequence": {
+          "version": 1,
+          "mode": "increment",
+          "start": "d2f814b679a24a15b0eab230dd787dd4",
+          "selected": "d2f814b679a24a15b0eab230dd787dd4",
+          "groups": [
+            {
+              "id": "d2f814b679a24a15b0eab230dd787dd4",
+              "name": "A",
+              "repeat": 2,
+              "input": "text",
+              "text": "prompt 0",
+              "content_kind": "tags",
+              "modules": []
+            },
+            {
+              "id": "e9cf8e25e93e48249dfa06c5d16b1bfa",
+              "name": "B",
+              "repeat": 1,
+              "input": "text",
+              "text": "prompt 1",
+              "content_kind": "tags",
+              "modules": []
+            },
+            {
+              "id": "2c6220481a6241198d5b42f059716033",
+              "name": "C",
+              "repeat": 3,
+              "input": "text",
+              "text": "prompt 2",
+              "content_kind": "tags",
+              "modules": []
+            }
+          ]
+        },
+        "round_id": "ab98bf467b1f4159aa5b440a6042967b",
+        "supply_origin": "groups_7e793b8a6a9140f39460ddcbb6b81ba6"
+      }
+    },
+    "prompt_layout": "paragraphs",
+    "output_order": [
+      "image_text_66e630b6a58cf27f05311ce2"
+    ],
+    "temporary_before": null,
+    "draft": null,
+    "draft_base": "",
+    "selection_view": "canvas",
+    "settings": {
+      "separate_selections": true
+    },
+    "dictionary": {},
+    "multi_output": {
+      "version": 7,
+      "canvases": {
+        "canvas_1e2a03c50c51463da46cc8114dc0c985": {
+          "name": "畫布1",
+          "members": [
+            "image_text_66e630b6a58cf27f05311ce2"
+          ],
+          "position": [
+            -900,
+            -400
+          ],
+          "display_size": [
+            760,
+            620
+          ],
+          "edit_origin": [
+            0,
+            0
+          ],
+          "image": null,
+          "source_members": [
+            "image_text_66e630b6a58cf27f05311ce2"
+          ],
+          "source_revision": "dcb6242d448bb89869796f98c8151735d3ee687b5383f53a0a3e52c2d4a5ca51",
+          "raw_prompt": null
+        }
+      },
+      "outputs": {
+        "stage_text_0": {
+          "name": "提交文字",
+          "canvas": "canvas_1e2a03c50c51463da46cc8114dc0c985",
+          "draft": null,
+          "draft_base": "",
+          "list_state": {
+            "selections": {},
+            "weights": {},
+            "temporary": [],
+            "temporary_before": null
+          },
+          "canvases": [
+            "canvas_1e2a03c50c51463da46cc8114dc0c985"
+          ],
+          "text_sources": [
+            "canvas_1e2a03c50c51463da46cc8114dc0c985"
+          ]
+        }
+      },
+      "current_output": "stage_text_0",
+      "connections": [
+        {
+          "id": "stage_text_0canvas_1e2a03c50c51463da46cc8114dc0c985",
+          "source": "canvas_1e2a03c50c51463da46cc8114dc0c985",
+          "destination": "stage_text_0",
+          "kind": "text"
+        },
+        {
+          "id": "stage_text_0clip_e038888e188f4d31ba1aa698d45e4ec0",
+          "source": "stage_text_0",
+          "destination": "clip_e038888e188f4d31ba1aa698d45e4ec0",
+          "kind": "clip"
+        }
+      ],
+      "bindings": [
+        {
+          "workflow": "flow",
+          "clip": "clip_e038888e188f4d31ba1aa698d45e4ec0",
+          "node": "6",
+          "field": "text"
+        }
+      ],
+      "clip_inputs": {
+        "clip_e038888e188f4d31ba1aa698d45e4ec0": {
+          "name": "CLIP 輸入",
+          "workflow": "flow",
+          "text_source": "pcs"
+        }
+      },
+      "workflow_order": {
+        "visible": false,
+        "items": [],
+        "established": []
+      },
+      "schedulers": {},
+      "image_inputs": {},
+      "stages": {
+        "stage_684622241aaa414f873ad63538b08ece": {
+          "name": "flow",
+          "workflow": "flow",
+          "output": "9",
+          "text_output": [
+            "6",
+            "text"
+          ],
+          "selection": "all",
+          "index": 0,
+          "parameters": null
+        }
+      }
+    },
+    "text_positions": {
+      "clip_e038888e188f4d31ba1aa698d45e4ec0": [
+        530,
+        -350
+      ],
+      "root": [
+        -876,
+        -292
+      ],
+      "stage_684622241aaa414f873ad63538b08ece": [
+        1000,
+        100
+      ],
+      "groups_7e793b8a6a9140f39460ddcbb6b81ba6": [
+        0,
+        0
+      ],
+      "schedule_07e43ea29b8f488ca4fed6bcbf9aec97": [
+        400,
+        300
+      ],
+      "image_text_49b45169b4d322b268075f37": [
+        -876,
+        -260.0
+      ]
+    },
+    "generation": {
+      "mode": "txt2img",
+      "profiles": [
+        {
+          "id": "flow",
+          "name": "flow",
+          "mode": "txt2img",
+          "prompt": [
+            "6",
+            "text"
+          ],
+          "multi_text": true,
+          "sampler": "3",
+          "size": "5",
+          "values": {},
+          "graph": {
+            "3": {
+              "class_type": "KSampler",
+              "inputs": {
+                "positive": [
+                  "6",
+                  0
+                ],
+                "negative": [
+                  "7",
+                  0
+                ],
+                "latent_image": [
+                  "5",
+                  0
+                ],
+                "seed": 2,
+                "steps": 1,
+                "cfg": 1,
+                "denoise": 1,
+                "sampler_name": "euler",
+                "scheduler": "normal"
+              }
+            },
+            "5": {
+              "class_type": "EmptyLatentImage",
+              "inputs": {
+                "width": 64,
+                "height": 64,
+                "batch_size": 1
+              }
+            },
+            "6": {
+              "class_type": "CLIPTextEncode",
+              "inputs": {
+                "text": "original positive"
+              }
+            },
+            "7": {
+              "class_type": "CLIPTextEncode",
+              "inputs": {
+                "text": "original negative"
+              }
+            },
+            "8": {
+              "class_type": "OtherText",
+              "inputs": {
+                "text_g": "third original",
+                "text_l": [
+                  "6",
+                  0
+                ]
+              }
+            },
+            "9": {
+              "class_type": "PreviewImage",
+              "inputs": {
+                "images": [
+                  "5",
+                  0
+                ]
+              }
+            }
+          },
+          "frontend_id": "native-A"
+        }
+      ],
+      "chosen": {},
+      "source": null
+    },
+    "canvas_functions": {
+      "images": {},
+      "preview": true,
+      "preview_attached": false
+    }
+  },
+  "generated_prompt": "prompt 0",
+  "final_prompt": "prompt 0",
+  "manual_draft": false,
+  "outputs": {
+    "stage_text_0": {
+      "output": "stage_text_0",
+      "name": "提交文字",
+      "canvas": "canvas_1e2a03c50c51463da46cc8114dc0c985",
+      "generated_prompt": "prompt 0",
+      "final_prompt": "prompt 0",
+      "manual_draft": false,
+      "affected": {}
+    }
+  },
+  "chain": {
+    "run": "9bdcf897e0554692bd3a47d158a66737",
+    "round": 1,
+    "stage": "stage_684622241aaa414f873ad63538b08ece",
+    "item": "c094f4b4c0a342608c93b2b4e1be0a9c",
+    "attempt": "c094f4b4c0a342608c93b2b4e1be0a9c",
+    "revision": "5df928d8bdef4691885cb24a3bfec13e",
+    "parent": "a661712884104a01b2a3eeea7233fd93"
+  }
+}

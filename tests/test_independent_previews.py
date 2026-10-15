@@ -23,6 +23,22 @@ class PreviewStateTests(unittest.TestCase):
         self.assertIn(key,restored['canvas_functions']['previews'])
         self.assertEqual(restored['canvas_functions']['images'],{})
 
+    def test_version6_preview_document_migrates_without_changing_wiring(self):
+        import tempfile
+        from prompt_calculus_studio.core import initial_state,Storage
+        from prompt_calculus_studio.preview_nodes import add
+        state=initial_state();key=add(state);original=copy.deepcopy(state)
+        self.assertEqual(state['version'],6)
+        with tempfile.TemporaryDirectory() as directory:
+            store=Storage(directory)
+            try:
+                store.save(state);current=store.load_current(multi=True)
+                self.assertEqual(current['version'],7)
+                self.assertEqual(current['canvas_functions']['previews'][key],state['canvas_functions']['previews'][key])
+                self.assertEqual(store.load_current(multi=True),current)
+            finally:store.close()
+        self.assertEqual(state,original)
+
 
 class PreviewTests(unittest.TestCase):
     setUp=prior.StageTests.setUp
@@ -117,10 +133,15 @@ class PreviewTests(unittest.TestCase):
         self.assertTrue(self.c.commit(lambda s:clones.extend(paste(s,capture(s,[LEGACY]),(1200,500)))))
         key=clones[0]
         self.assertTrue(self.c.commit(lambda s:model.connect(s,source,key,'image')))
+        expected_connections=copy.deepcopy(self.c.data()['connections'])
+        expected_previews=copy.deepcopy(self.w.state['canvas_functions'])
+        self.assertEqual(self.w.state['version'],7)
         self.w.persist();self.w.close();QTest.qWait(20)
         self.w=Window(self.tmp.name);self.w.comfy.timer.stop();self.w.comfy.enabled=False
         self.w.show();self.w.set_interface_mode('canvas');QTest.qWait(25);self.c=self.w.canvas
-        self.assertEqual(self.w.state['version'],6)
+        self.assertEqual(self.w.state['version'],7)
+        self.assertEqual(self.c.data()['connections'],expected_connections)
+        self.assertEqual(self.w.state['canvas_functions'],expected_previews)
         self.assertTrue(self.c.preview_cards[LEGACY].collapsed)
         self.assertTrue(self.c.preview_cards[key].collapsed)
         self.assertEqual(self.c.preview_cards[LEGACY].panel.input_records,self.c.preview_cards[key].panel.input_records)

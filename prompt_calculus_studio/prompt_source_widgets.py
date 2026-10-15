@@ -135,7 +135,9 @@ class GroupSourceDialog(MaterialPickerMixin,StudioDialog):
             self.listing.fill([dict(g,subtitle=' · '.join(filter(None,(
                 groups.module_summary(g['modules']) if g['input']=='modules' else '',
                 '起始' if g['id']==seq['start'] else '')))) for g in seq['groups']])
-        self.loading=False;QTimer.singleShot(0,self.fit_editor)
+        # Bind deferred layout to the dialog's QObject lifetime. A queued
+        # callback must not touch its PageStack after forced DeferredDelete.
+        self.loading=False;QTimer.singleShot(0,self,self.fit_editor)
 
     def preserve_position(self):
         if self.root.get('supply_cursor'):
@@ -166,7 +168,7 @@ class GroupSourceDialog(MaterialPickerMixin,StudioDialog):
         modules=group['input']=='modules';self.modules.setVisible(modules);self.modules_label.setVisible(modules)
         self.modules.fill([dict(m,subtitle=comp.render(m).replace('\n',' ')) for m in group['modules']])
         preview=copy.deepcopy(self.root);preview['sequence']['selected']=group['id']
-        self.preview.setPlainText(comp.render(preview));QTimer.singleShot(0,self.fit_editor)
+        self.preview.setPlainText(comp.render(preview));QTimer.singleShot(0,self,self.fit_editor)
 
     def open_module(self,ident):
         from .text_canvas import NodeDialog

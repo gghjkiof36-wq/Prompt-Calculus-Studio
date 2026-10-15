@@ -2,6 +2,8 @@
 
 現行：0.8.8 Alpha 1。固定受驗功能來源 `0d4a5f5a9ef51a98137a18522c0d2bf110ca3b61`；發布整合／實際資產見[來源對照](../releases/0.8.8/source-provenance.md)。操作見[素材與批次](../guide/prompt-materials-088.md)。
 
+後續開發維護：[舊 Stage 快照還原與視窗生命週期](legacy-stage-recovery.md)（0.8.9 第一階段來源）。
+
 ## 格式、遷移與使用位置
 
 桌面與同版通用／legacy／modern 配套支援文件及 PNG 快照格式 1–7。格式 5／6／7 與 ComfyUI 後端、前端或 PCS 發布版號分開。新類型與游標需要格式 7，舊版程式不保證可讀；回退以相容程式及原資料副本為單位。
