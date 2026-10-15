@@ -1,6 +1,6 @@
 # 使用指南
 
-適用：0.8.7 Alpha 1 · [專案首頁](../../README.md) · [完整文件目錄](../README.md)
+適用：0.8.8 Alpha 1 · [專案首頁](../../README.md) · [完整文件目錄](../README.md)
 
 第一次使用，先完成[安裝與啟動](getting-started.md)，再到 Canvas 組合提示詞；要生成圖片，接著設定 ComfyUI 與 Stage。
 
@@ -8,7 +8,9 @@
 |---|---|
 | 下載、安裝、啟動與更新 | [開始使用](getting-started.md) |
 | 認識畫布、節點與工作區 | [Canvas 與工作區](canvas.md) |
+| 文字變體、組合、流程與批次取值 | [素材與批次](prompt-materials-088.md) |
 | 整理素材、組合及編輯文字 | [Prompt Editor](prompt-editor.md) · [模組與提示詞](prompts.md) |
+| 配套版本與文件格式 1–7 | [相容指南](comfyui-compatibility.md) |
 | 連接 ComfyUI、安裝擴充與管理套件 | [ComfyUI 整合](comfyui.md) |
 | 生成圖片、串接多個工作流 | [Stage 與圖片流程](stage.md) |
 | 修改採樣參數、種子與單筆任務設定 | [Stage 參數](stage-parameters.md) |
@@ -19,6 +21,6 @@
 | 處理安裝、連線與生成問題 | [疑難排解](troubleshooting.md) |
 | 了解專案及第三方授權 | [授權說明](licensing.md) |
 
-版本變更與驗證紀錄見[0.8.7 版本主頁](../releases/0.8.7/README.md)。
+版本變更與驗證紀錄見[0.8.8 版本主頁](../releases/0.8.8/README.md)。
 
 [Prompt Editor：素材、資料夾與畫布副本](prompt-editor.md)

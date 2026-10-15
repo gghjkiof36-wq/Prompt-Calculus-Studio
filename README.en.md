@@ -1,76 +1,59 @@
 # Prompt Calculus Studio (PCS)
 
-[繁體中文](README.md)
+PCS is a Windows desktop tool for reusable prompts and ComfyUI workflows. Keep text variants, combinations and flows in a local library, arrange them on Canvas, and send text and images to your workflows. Prompt editing and copying also work on their own.
 
-PCS is a Windows desktop tool for organizing reusable prompts and running ComfyUI workflows. Save characters, styles and scenes as modules, edit them in Prompt Editor or Canvas, and keep your workspaces locally.
+[繁體中文](README.md) · [Documentation](docs/README.md)
 
 ## What it does
 
-- Combine prompts with ordering, weights, tag exclusions and manual edits.
-- Edit node parameters in a Stage, including CFG, steps, dimensions and supported seeds; save different settings for individual waiting tasks.
-- Use Stage nodes to arrange generation steps and pass images from one workflow to the next.
-- Queue different prompts, images or groups of steps; reorder or edit waiting items.
-- Preview batches, save images and reuse selected results in another workflow.
+- Organize named text variants, ordered combinations and flows with repeat settings.
+- Prepare batches with fixed Canvas text and multi-round flow readers; shorter sources cycle.
+- Bind text fields with CLIP and choose workflows and supported parameters in Stage.
+- Queue, pause, cancel and retry tasks while retaining their saved inputs.
+- Inspect results in independent image previews, export images and reuse selected outputs.
 
-Image generation uses your own ComfyUI installation, models and workflows. Prompt editing and copying can be used on their own.
+Generation requires your own ComfyUI installation, models and workflows. Keep PCS, the backend and the workflow browser page open.
 
-## Canvas
+## PCS 0.8.8
 
-![PCS 0.8.7 actual Canvas](docs/images/canvas-0.8.7.png)
+![PCS 0.8.8 Canvas](docs/images/canvas-0.8.8.png)
 
-Actual PCS 0.8.7 window with isolated synthetic sample text. ComfyUI is not connected.
+![PCS 0.8.8 Prompt Editor](docs/images/editor-0.8.8.png)
 
-## Prompt Editor
+Actual Qt screens from the fixed 0.8.8 functional source, using isolated public examples with ComfyUI disconnected. See the [capture and validation scope](docs/releases/0.8.8/validation/alpha.1.md) (Chinese).
 
-![PCS 0.8.7 Prompt Editor](docs/images/editor-0.8.7.png)
-
-Actual product page with the same isolated sample library.
-
-## What changed
-
-Prompt Editor manages reusable tags, plain text and Markdown. Organize categories in folders; the Canvas picker shares category ordering and expanded states. Adding a material creates a separate Canvas copy. Edit weights in place, reorder modules inside expanded Prompt sources, and use box selection for multiple modules. The add dialog now previews the actual Prompt, image source, single-image and scheduling cards.
-
-[Release notes](docs/releases/0.8.7/alpha.1.md)
+This release unifies selection and saved progress across text variants, combinations and flows. It adds clearer variant management and side pages, bound-input scheduling and independent image previews. It also fixes whole-workspace cancellation, migrated repeat progress, ordering across output switches, and unnecessary library content in generation snapshots. See the [full release notes](docs/releases/0.8.8/alpha.1.md) (Chinese).
 
 ## Download and start
 
-These instructions cover: **[0.8.7 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.7-alpha.1)**.
+Use **[0.8.8 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.8-alpha.1)**:
 
-- `PCS-v0.8.7-Alpha1-source.zip`: the PCS source edition.
-- `PCS-v0.8.7-Alpha1-ComfyUI.zip`: the matching ComfyUI extension.
+- `PCS-v0.8.8-Alpha1-source.zip`: source application, bundled extension and installer.
+- `PCS-v0.8.8-Alpha1-ComfyUI.zip`: universal extension for manual installation.
+- `PCS-v0.8.8-Alpha1-ComfyUI-legacy-0.39.2.zip` or `PCS-v0.8.8-Alpha1-ComfyUI-modern-0.40.0.zip`: alternative compatibility profiles; install one copy only.
 - `SHA256SUMS.txt`: download checksums.
 
-Install 64-bit Python 3.12 on Windows. Extract the source ZIP and open PowerShell beside `run.py`:
+Install 64-bit Python 3.12 on Windows. Extract the source archive and open PowerShell beside `run.py`:
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py --v0.8.7-alpha
+.\.venv\Scripts\python.exe run.py --v0.8.8-alpha
 ```
 
-The first installation downloads dependencies. Once installed, double-click `Start.cmd` from the source archive to start PCS. This release provides the source edition and requires Python; no Windows executable download is included.
+The first installation downloads dependencies. After that, double-click `Start.cmd`. Available public packages are listed on the Release page; these instructions use the source edition. No Windows executable is publicly distributed in this release.
 
-The source archive includes the matching extension. In Explore → ComfyUI → Connection and workflows, choose Install/update PCS extension and select your ComfyUI folder. Close ComfyUI for installation, then restart it and refresh its browser page. Follow the Canvas setup prompts to bind CLIP and select the Stage workflow, then press Run. Keep PCS, ComfyUI and the workflow browser page open. See [installation](docs/guide/getting-started.md) and the [ComfyUI guide](docs/guide/comfyui.md) (Chinese).
+Update both PCS and its extension. In Explore → ComfyUI → Connection and workflows, choose the extension installer. Close ComfyUI for installation, then restart it and refresh the browser page yourself. Bind CLIP and select a Stage workflow. The [setup](docs/guide/getting-started.md) and [compatibility guide](docs/guide/comfyui-compatibility.md) explain the details (Chinese).
 
-Back up your data before updating. Extract the new version into a separate folder and use a copy of your data. Use matching PCS and extension versions; see the [version table](docs/releases/README.md) for older names and downloads.
+## First use and limits
 
-## Stage parameters
+Save a text material in Prompt Editor, add a separate copy to Canvas, and copy its Prompt output. For a batch, create combinations and a flow, then connect a flow reader to Prompt output. Canvas text stays fixed within each batch. A ten-round source paired with six rounds produces ten tasks, cycling the shorter source.
 
-Double-click a Stage, select its workflow and node, edit the fields, then review the changes and Apply. Apply saves settings; Run starts generation. Individual waiting tasks can capture different values, such as CFG 3 and 4, and later edits to the Stage do not change those captured settings. See the [Stage guide](docs/guide/stage-parameters.md) (Chinese).
+Saved tasks consume selection progress even when cancelled: after saving six tasks, the next batch starts at seven. Retry retains the original task values. Previewing does not consume progress, and identical prompts remain separate tasks.
 
-## Usage notes
+Back up before upgrading and use a data copy. Current documents support schemas 1–7; older applications or extensions may not read new data. Generation metadata still includes necessary prompts and restoration references. Full backups retain the private library, so inspect files before sharing. Some Stage PNGs from older candidates remain unrestorable. Offline checks do not establish new-machine, native desktop, GPU or all third-party node compatibility.
 
-PCS sends edited text to ComfyUI when you press Run. Without a Stage connection, it only updates the bound inputs. Pause keeps waiting items; jobs already running can still finish. The bottom cancel button cancels the current item and pauses the remaining queue. Use its context menu or the scheduler’s More menu to cancel the whole flow.
-
-For read-only fields, check the displayed reason. After updating the matching extension, restart ComfyUI and refresh its browser page. Configure connected or unsupported fields in ComfyUI. Editable seeds are limited to `1125899906842624` and the node’s own range.
-
-If switching workflows gets stuck, check ComfyUI for running jobs, save the workflow, then refresh the browser page. See [troubleshooting](docs/guide/troubleshooting.md).
-
-For changes, downloads and important problems, see the [release notes](docs/releases/0.8.7/alpha.1.md) (Chinese).
-
-## Support
-
-Report issues with the version and steps at [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues). See [CONTRIBUTING](CONTRIBUTING.md) and [SECURITY](SECURITY.md) for development and private security reports.
+[Guides](docs/guide/README.md) · [Troubleshooting](docs/guide/troubleshooting.md) · [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 ## License
 
