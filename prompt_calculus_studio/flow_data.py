@@ -31,7 +31,9 @@ def text_sources(output):return output.get('text_sources',canvas_ids(output))
 
 def source_name(state,key):
     from .prompt_sources import definitions
-    if key in definitions(state): return definitions(state)[key]['name']
+    if key in definitions(state):
+        definition=definitions(state)[key]
+        return '讀取流程' if definition.get('unselected') else definition['name']
     data=state['multi_output']
     if key in data['canvases']:return data['canvases'][key]['name']
     if key in data['outputs']:return data['outputs'][key]['name']
@@ -39,7 +41,10 @@ def source_name(state,key):
     for collection in ('clip_inputs','image_inputs'):
         if key in data.get(collection,{}):return data[collection][key]['name']
     route=channel(state,key)
-    if route:return data['schedulers'][route[0]]['name']+' · '+route[1]['name']
+    if route:
+        name=route[1]['name']
+        if route[1]['type']=='content' and name=='文字組合':name=WIRES['content'].label
+        return data['schedulers'][route[0]]['name']+' · '+name
     image=state.get('canvas_functions',{}).get('images',{}).get(key,{})
     return image.get('name') or (image.get('source') or {}).get('name') or '圖片來源'
 
