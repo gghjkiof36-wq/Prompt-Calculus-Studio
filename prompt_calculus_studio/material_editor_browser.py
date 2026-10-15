@@ -152,7 +152,7 @@ class PromptEditor(QWidget):
         self.header_layout = QVBoxLayout(self.browser_header)
         self.header_layout.setContentsMargins(1, 0, 13, 0); self.header_layout.setSpacing(14)
         content.addWidget(self.browser_header)
-        self.title = label('全部模組', 'DialogTitle', True); self.count = label('', 'Subtle')
+        self.title = label('全部素材', 'DialogTitle', True); self.count = label('', 'Subtle')
         self.new_button = button('新增', self.new_material, 'Primary')
         self.new_button.setCursor(Qt.CursorShape.PointingHandCursor)
         from .ui_icons import icon
@@ -189,7 +189,7 @@ class PromptEditor(QWidget):
         self.listing.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.listing.customContextMenuRequested.connect(self.material_menu)
         content.addWidget(self.listing, 1)
-        self.empty_results = label('這個分類還沒有模組，可按「新增」開始。', 'Subtle', True)
+        self.empty_results = label('這個分類還沒有素材，可按「新增」開始。', 'Subtle', True)
         content.addWidget(self.empty_results)
         self.preview_card = QFrame(self.shell); self.preview_card.setObjectName('InsetPanel')
         preview = QVBoxLayout(self.preview_card); preview.setContentsMargins(18, 18, 18, 18); preview.setSpacing(12)
@@ -562,7 +562,7 @@ class PromptEditor(QWidget):
         def add(name, ident, count, kind='category', parent=None, visible=True):
             self.category.addItem(name, ident)
             if visible: self.categories.add_row(ident, name, count, kind, parent, ident in collapsed)
-        add('全部模組', None, len(state['items']), 'shortcut')
+        add('全部素材', None, len(state['items']), 'shortcut')
         for ident in value['order']:
             if ident in folders:
                 folder = folders[ident]
@@ -602,8 +602,8 @@ class PromptEditor(QWidget):
             if value['id'] == selected: self.listing.setCurrentItem(entry)
         self.listing.blockSignals(False); self.listing.verticalScrollBar().setValue(scroll)
         self.listing.setVisible(bool(rows))
-        self.count.setText(f'{len(rows)} 個模組'); self.empty_results.setVisible(not rows)
-        self.empty_results.setText('找不到符合搜尋的模組。' if self.search.text() else '這個資料夾還沒有模組，可先移入分類。' if folder else '這個分類還沒有模組，可按「新增」開始。')
+        self.count.setText(f'{len(rows)} 個素材'); self.empty_results.setVisible(not rows)
+        self.empty_results.setText('找不到符合搜尋的素材。' if self.search.text() else '這個資料夾還沒有素材，可先移入分類。' if folder else '這個分類還沒有素材，可按「新增」開始。')
         self._layout()
 
     def selected_id(self):

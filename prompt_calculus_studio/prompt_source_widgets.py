@@ -18,13 +18,13 @@ class GroupSourceDialog(StudioDialog):
         from .material_editor_panels import MaterialPanels
         self.panels=MaterialPanels(self,None,lambda:self.preview_toggle.setChecked(False),title='Prompt 預覽')
         self.panels.set_main_width(720)
-        self.setWindowTitle('讀取組合');self.loading=False;self.current_group=None;self.active_node_dialog=None
+        self.setWindowTitle('讀取流程');self.loading=False;self.current_group=None;self.active_node_dialog=None
         original=sources.definitions(canvas.window.state)[key]
         self.root=None if original.get('unselected') else copy.deepcopy(original['root'])
         self.material_id=self.root.get('source_id') if self.root else None;self.drafts={}
         self.stack=PageStack()
         self.overview,overview=page();self.stack.addWidget(self.overview)
-        self.library=ComboBox();self.library.setAccessibleName('素材庫組合');self.library.setPlaceholderText('選擇素材庫組合')
+        self.library=ComboBox();self.library.setAccessibleName('素材庫流程');self.library.setPlaceholderText('選擇素材庫流程')
         for item in canvas.window.state['items']:
             if item.get('composition',{}).get('sequence'): self.library.addItem(item['name'], item['id'])
         index=self.library.findData(self.material_id) if self.material_id else -1
@@ -35,18 +35,18 @@ class GroupSourceDialog(StudioDialog):
             else:self.library.setItemText(index,self.root['name'])
         self.library.setCurrentIndex(index)
         self.reload_button=tool('refresh','重新讀取素材庫原件',self.reload_material)
-        overview.addWidget(label('組合','Subtle'));overview.addLayout(row(self.library,self.reload_button))
+        overview.addWidget(label('流程','Subtle'));overview.addLayout(row(self.library,self.reload_button))
         self.mode=ComboBox();mode_options(self.mode);self.mode.setMaximumWidth(152)
         self.start=ComboBox();self.start.setMinimumWidth(140)
         self.variables,variables=page();variables.addLayout(row(field('變量',self.mode),None,field('起始組合',self.start)))
-        overview.addWidget(self.variables);overview.addWidget(label('輪次','SectionTitle'))
-        self.listing=EntryList('groups',readonly=True,reorderable=True);self.listing.setAccessibleName('輪次總覽')
+        overview.addWidget(self.variables);overview.addWidget(label('組合','SectionTitle'))
+        self.listing=EntryList('groups',readonly=True,reorderable=True);self.listing.setAccessibleName('流程內的組合')
         overview.addWidget(self.listing,1);self.listing.activatedRow.connect(self.open_group)
         self.listing.reorderRequested.connect(lambda before,after:self.reorder(self.root['sequence']['groups'],before,after))
-        self.empty=label('素材庫尚無組合' if not self.library.count() else '尚未選擇組合','Subtle');overview.addWidget(self.empty)
+        self.empty=label('素材庫尚無流程' if not self.library.count() else '尚未選擇流程','Subtle');overview.addWidget(self.empty)
         self.detail,detail=page();self.stack.addWidget(self.detail)
         self.detail_meta=label('','Subtle');detail.addWidget(self.detail_meta)
-        self.modules_label=label('使用的模組','SectionTitle');detail.addWidget(self.modules_label)
+        self.modules_label=label('組合內素材','SectionTitle');detail.addWidget(self.modules_label)
         self.modules=EntryList('modules',readonly=True,reorderable=True);detail.addWidget(self.modules,1)
         self.modules.activatedRow.connect(self.open_module)
         self.modules.reorderRequested.connect(lambda before,after:self.reorder(self.current_group['modules'],before,after))
@@ -64,7 +64,7 @@ class GroupSourceDialog(StudioDialog):
         self.library.currentIndexChanged.connect(self.load_material)
         self.mode.currentIndexChanged.connect(self.configure);self.start.currentIndexChanged.connect(self.configure)
         self.error=label('', 'Draft', True); self.body.addWidget(self.error);self.error.hide()
-        self.back_button=tool('back','返回輪次總覽',self.back);self.heading_row.insertWidget(0,self.back_button)
+        self.back_button=tool('back','返回流程',self.back);self.heading_row.insertWidget(0,self.back_button)
         self.apply_button=button('讀取' if original.get('unselected') else '套用',self.save,'Primary')
         self.done_button=button('完成',self.back,'Primary');self.cancel_button=button('取消',self.reject,'Quiet')
         self.body.addWidget(prompt_divider())
@@ -85,7 +85,7 @@ class GroupSourceDialog(StudioDialog):
         inside=index==1
         self.preview_toggle.setChecked(False);self.panels.set_open(False,animate=False)
         self.back_button.setVisible(inside);self.done_button.setVisible(inside);self.apply_button.setVisible(not inside)
-        self.heading.setText(self.current_group['name'] if inside else '讀取組合')
+        self.heading.setText(self.current_group['name'] if inside else '讀取流程')
         self.scroll.verticalScrollBar().setValue(0)
         self.fit_editor()
 
@@ -124,7 +124,7 @@ class GroupSourceDialog(StudioDialog):
             for group in seq['groups']:self.start.addItem(group['name'],group['id'])
             self.start.setCurrentIndex(self.start.findData(seq['start']))
             self.listing.fill([dict(g,subtitle=' · '.join(filter(None,(
-                f"{len(g['modules'])} 個模組" if g['input']=='modules' else '',
+                groups.module_summary(g['modules']) if g['input']=='modules' else '',
                 '起始' if g['id']==seq['start'] else '')))) for g in seq['groups']])
         self.loading=False;QTimer.singleShot(0,self.fit_editor)
 
@@ -160,7 +160,7 @@ class GroupSourceDialog(StudioDialog):
     def open_module(self,ident):
         from .text_canvas import NodeDialog
         part=next(m for m in self.current_group['modules'] if m['id']==ident)
-        dialog=NodeDialog(self.canvas.window,part,title='編輯文字模組');self.active_node_dialog=dialog
+        dialog=NodeDialog(self.canvas.window,part,title='編輯流程' if part.get('sequence') else '編輯文字模塊');self.active_node_dialog=dialog
         try:accepted=dialog.exec()==QDialog.DialogCode.Accepted
         finally:self.active_node_dialog=None
         if accepted:
@@ -175,9 +175,9 @@ class GroupSourceDialog(StudioDialog):
         except ValueError as exc:self.error.setText(str(exc));self.error.show();self.fit_editor();return
         def apply(state):
             value=sources.definitions(state).get(self.key)
-            if value is None:raise ValueError('讀取組合模組已移除。')
+            if value is None:raise ValueError('讀取流程節點已移除。')
             value.update(root=root,name=root['name'],unselected=False)
-        if self.canvas.commit(apply,label='讀取組合') is not False:self.accept()
+        if self.canvas.commit(apply,label='讀取流程') is not False:self.accept()
 
 
 class GroupSourcePanel(QFrame):
@@ -199,7 +199,7 @@ class GroupSourcePanel(QFrame):
         self.limit=QSpinBox();self.limit.setRange(1,groups.MAX_ROUNDS);self.limit.setSuffix(' 輪');self.limit.setAccessibleName('批次輪數')
         self.limit.setToolTip('沒有有限來源時的批次輪數')
         self.limit_row=field('批次輪數',self.limit);layout.addWidget(self.limit_row)
-        self.edit_button=button('選擇組合',self.edit);self.edit_button.setAccessibleName('選擇組合');layout.addWidget(self.edit_button)
+        self.edit_button=button('選擇流程',self.edit);self.edit_button.setAccessibleName('選擇流程');layout.addWidget(self.edit_button)
         self.supply.currentIndexChanged.connect(self.configure)
         self.limit.valueChanged.connect(self.configure);self.index.valueChanged.connect(self.select)
 
@@ -208,8 +208,8 @@ class GroupSourcePanel(QFrame):
     def refresh(self):
         self.loading=True;value=self.value();seq=value['root']['sequence']
         ready=not value.get('unselected');current=groups.selected(seq)
-        self.group_name.setText(current['name'] if ready else '尚未選擇組合');self.group_name.setToolTip(current['name'] if ready else '')
-        self.edit_button.setText(value['name'] if ready else '選擇組合');self.edit_button.setToolTip('選擇組合')
+        self.group_name.setText(current['name'] if ready else '尚未選擇流程');self.group_name.setToolTip(current['name'] if ready else '')
+        self.edit_button.setText(value['name'] if ready else '選擇流程');self.edit_button.setToolTip('選擇流程')
         for control in (self.index,self.previous,self.next,self.supply,self.mode):control.setEnabled(ready)
         for control in (self.index,self.previous,self.next):control.setVisible(ready)
         self.supply.setCurrentIndex(self.supply.findData(value['supply']))
@@ -228,7 +228,7 @@ class GroupSourcePanel(QFrame):
         def apply(state):
             value=sources.definitions(state)[self.key];value.update(supply=supply,limit=limit)
             value['root'].pop('supply_cursor',None)
-        self.owner.canvas.commit(apply,label='設定組合供應')
+        self.owner.canvas.commit(apply,label='設定流程供應')
 
     def choose_mode(self):
         selected=self.value()['root']['sequence']['mode'];menu=RoundMenu(self)
@@ -240,7 +240,7 @@ class GroupSourcePanel(QFrame):
     def set_mode(self,mode):
         def apply(state):
             root=sources.definitions(state)[self.key]['root'];root['sequence']['mode']=mode;root.pop('supply_cursor',None)
-        self.owner.canvas.commit(apply,label='設定組合變量')
+        self.owner.canvas.commit(apply,label='設定流程變量')
 
     def select(self,index):
         if self.loading:return
@@ -260,7 +260,7 @@ class GroupSourcePanel(QFrame):
 class GroupSourceCard(TextCard):
     default_size=(360,250)
     def __init__(self,owner,key):
-        super().__init__(owner.canvas);self.owner=owner;self.key=key;self.title='讀取組合';self.module_icon='list-ordered'
+        super().__init__(owner.canvas);self.owner=owner;self.key=key;self.title='讀取流程';self.module_icon='list-ordered'
         self.panel=GroupSourcePanel(owner,key)
 
     def sync_panel_style(self):
@@ -279,5 +279,5 @@ class GroupSourceCard(TextCard):
         self.sync_bounds()
 
     def open_menu(self,position):
-        menu=RoundMenu(self.canvas.window);menu.addAction('選擇組合',self.panel.edit)
+        menu=RoundMenu(self.canvas.window);menu.addAction('選擇流程',self.panel.edit)
         menu.addAction('移除',lambda:self.owner.remove(self.key));menu.exec(position)

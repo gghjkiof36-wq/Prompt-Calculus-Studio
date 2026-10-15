@@ -43,7 +43,7 @@ def retained_records(window):
         kind,item=entries[index]
         if kind=='typed':
             detail.setPlainText('工作流：'+item['route']['workflow']+'\n'+item.get('error','')+'\n\n'+
-                '\n'.join(str(v['value']) if v['type']=='clip' else v['value'].get('name',v['value'].get('text','文字組合')) for v in item['inputs'].values()))
+                '\n'.join(str(v['value']) if v['type']=='clip' else v['value'].get('name',v['value'].get('text','模塊內容')) for v in item['inputs'].values()))
         else:
             work=item['work'];detail.setPlainText('舊版整份工作流快照，保留閱讀；未轉成新預排程。\n工作流：'+work['generation']['workflow']+
                 '\n'+item.get('error','')+'\n\n'+work['snapshot'].get('final_prompt',''))

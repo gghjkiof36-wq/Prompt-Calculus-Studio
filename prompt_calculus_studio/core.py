@@ -213,7 +213,7 @@ def validate_state(state):
     validate_navigation(state)
     from .prompt_groups import requires_version_five
     if state['version'] < 5 and requires_version_five(state):
-        raise ValueError('文字組合與局部 Tag 設定需要第 5 版資料格式，原資料保留。')
+        raise ValueError('流程與局部 Tag 設定需要第 5 版資料格式，原資料保留。')
     from .state_schema import required_version
     if state['version'] < required_version(state):
         raise ValueError('綁定排程與多圖片預覽需要第 6 版資料格式，原資料保留。')

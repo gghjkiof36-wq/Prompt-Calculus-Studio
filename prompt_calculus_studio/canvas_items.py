@@ -556,7 +556,7 @@ class NodeCard(ResizableCard):
                 from .prompt_sources import signature
                 from .prompt_groups import cursor
                 root['supply_cursor']=dict(signature=signature(root),position=cursor(current,start=current['selected']))
-            self.canvas.commit(apply,label='切換文字組合')
+            self.canvas.commit(apply,label='切換組合')
         if action in ('group_previous','group_next'):
             change(at+(-1 if action=='group_previous' else 1));return
         if action=='group_mode':

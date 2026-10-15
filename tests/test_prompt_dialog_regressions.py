@@ -269,7 +269,7 @@ class PromptDialogTests(unittest.TestCase):
         self.assertEqual(dialog.form.kind.currentData(),'tags');single=dialog.initial_id;self.assertTrue(dialog.save())
         dialog=self.page.new_material();dialog.name.setText('組合 A');dialog.pages.type_picker.setCurrentIndex(1)
         dialog.pages.show_group_details();QTest.qWait(20)
-        self.assertTrue(dialog.pages.group_format.isVisible());self.assertEqual(dialog.pages.group_format.text(),'組合')
+        self.assertTrue(dialog.pages.group_format.isVisible());self.assertEqual(dialog.pages.group_format.text(),'流程')
         grouped=dialog.initial_id;self.assertTrue(dialog.save())
         keys=[];self.w.canvas.commit(lambda state:keys.append(sources.add(state)))
         reader=GroupSourceDialog(self.w.canvas,keys[0]);reader.show();QTest.qWait(20)

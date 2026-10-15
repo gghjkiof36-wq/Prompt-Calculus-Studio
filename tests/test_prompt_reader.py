@@ -82,7 +82,7 @@ class ReaderTests(unittest.TestCase):
         rect=dialog.modules.regions(dialog.modules.visualItemRect(dialog.modules.item(0)))['open']
         QTimer.singleShot(0,close_child)
         QTest.mouseClick(dialog.modules.viewport(),Qt.MouseButton.LeftButton,pos=rect.center())
-        self.assertEqual(opened,['編輯文字模組'])
+        self.assertEqual(opened,['編輯文字模塊'])
         self.edit_child(dialog,'local change');self.assertEqual(dialog.current_group['modules'][0]['prompt'],'local change')
         self.assertEqual(dialog.current_group['modules'][1]['prompt'],'white shirt')
         QTest.mouseClick(dialog.preview_toggle,Qt.MouseButton.LeftButton);self.app.processEvents()

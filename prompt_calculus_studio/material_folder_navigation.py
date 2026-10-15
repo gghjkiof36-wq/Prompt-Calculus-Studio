@@ -70,8 +70,8 @@ class FolderNavigation(ReorderableList):
     def add_row(self, ident, name, count, kind='category', parent=None, collapsed=False):
         entry = QListWidgetItem(name); entry.setData(Qt.ItemDataRole.UserRole, ident)
         entry.setData(ROW, dict(id=ident, name=name, count=count, kind=kind, parent=parent, collapsed=collapsed))
-        entry.setToolTip(f'{name} · {count} 個模組')
-        entry.setData(Qt.ItemDataRole.AccessibleTextRole, f'{name}，{count} 個模組')
+        entry.setToolTip(f'{name} · {count} 個素材')
+        entry.setData(Qt.ItemDataRole.AccessibleTextRole, f'{name}，{count} 個素材')
         if kind == 'shortcut' or not self.manage: entry.setFlags(entry.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
         self.addItem(entry)
 

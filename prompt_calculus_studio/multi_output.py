@@ -115,7 +115,7 @@ def select_output(state,key):
 
 def assign(state,use,canvas):
     data=state['multi_output']
-    if use not in state.get('uses',{}): raise ValueError('文字模組不存在。')
+    if use not in state.get('uses',{}): raise ValueError('文字模塊不存在。')
     if canvas is not None and canvas not in data['canvases']: raise ValueError('畫布不存在。')
     old=owner(state,use)
     if old==canvas: return

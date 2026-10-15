@@ -55,10 +55,10 @@ class PickerFolderTests(unittest.TestCase):
         expected = {v['id'] for v in self.w.state['items'] if v['module'] in (self.cat, self.other_cat)}
         self.assertEqual(set(self.ids()), expected)
         self.assertEqual(self.row(self.fid).data(ROW)['count'], len(expected))
-        self.assertEqual(self.p.assets_heading.text(), f'人物 · {len(expected)} 個模組')
+        self.assertEqual(self.p.assets_heading.text(), f'人物 · {len(expected)} 個素材')
         self.p.search.setText('rev9唯一別名'); self.assertEqual(self.ids(), [self.ident])
         self.p.search.clear(); self.click_row(self.empty_folder)
-        self.assertEqual(self.p.empty.text(), '此資料夾尚無文字模組')
+        self.assertEqual(self.p.empty.text(), '此資料夾尚無素材')
         self.assertTrue(self.p.new_button.isEnabled())
         self.assertFalse(self.p.modules.dragEnabled()); self.assertFalse(self.p.modules.acceptDrops())
         self.assertFalse(self.p.modules.manage)

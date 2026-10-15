@@ -214,7 +214,7 @@ class CompositionEditor(QWidget):
         tools.addWidget(button('匯入圖片',self.import_images,'Quiet')); self.color_button=button('顏色',self.choose_color,'Quiet'); tools.addWidget(self.color_button)
         self.thickness=QSpinBox(); self.thickness.setRange(1,300); self.thickness.setValue(12); self.thickness.setSuffix(' px'); tools.addWidget(label('筆寬／外框','Subtle')); tools.addWidget(self.thickness)
         self.outline_only=QCheckBox('只畫外框'); tools.addWidget(self.outline_only)
-        self.show_text=QCheckBox('顯示文字模組'); self.show_text.setChecked(True); self.show_text.toggled.connect(self.refresh_text); tools.addWidget(self.show_text)
+        self.show_text=QCheckBox('顯示文字模塊'); self.show_text.setChecked(True); self.show_text.toggled.connect(self.refresh_text); tools.addWidget(self.show_text)
         self.layer_toggle=QCheckBox('圖層與屬性'); self.layer_toggle.setChecked(True); tools.addWidget(self.layer_toggle); tools.addStretch()
         center=QHBoxLayout(); self.center=center; body.addLayout(center,1)
         tools_body=QWidget(); tools_body.setObjectName('ScrollContent'); tools_body.setLayout(tools); tools_scroll=QScrollArea(); tools_scroll.viewport().setObjectName('ScrollViewport'); tools_scroll.setWidgetResizable(True); tools_scroll.setWidget(tools_body); tools_scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -363,7 +363,7 @@ class CompositionEditor(QWidget):
             root=state['uses'][key]; self.text_canvas.entries[key]=(key,root['id'])
             for part in comp.walk(root):
                 if part is not root: self.text_canvas.entries[key+':'+part['id']]=(key,part['id'])
-            card=NodeCard(self.text_canvas,key,copy.deepcopy(root),'文字模組',not root['enabled']); self.view.scene().addItem(card); card.setZValue(10)
+            card=NodeCard(self.text_canvas,key,copy.deepcopy(root),'文字模塊',not root['enabled']); self.view.scene().addItem(card); card.setZValue(10)
             outer=state.get('text_positions',{}).get(key,data['position']); default=[outer[0]-data['position'][0],outer[1]-data['position'][1]]
             card.setPos(*data.get('edit_positions',{}).get(key,default))
         for key in selected:

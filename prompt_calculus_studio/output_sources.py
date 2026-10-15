@@ -196,7 +196,7 @@ class OutputSources(QTreeWidget):
                     or card.panel.order is not self):return
             if kind=='member' and (container is None or canvas.containers.get(owner) is not container
                                    or not isValid(container)):return
-            canvas.commit(apply,label='排列文字來源' if kind=='source' else '排列文字模組')
+            canvas.commit(apply,label='排列文字來源' if kind=='source' else '排列文字模塊')
         QTimer.singleShot(0,self,commit_if_current)
 
     def paintEvent(self,event):

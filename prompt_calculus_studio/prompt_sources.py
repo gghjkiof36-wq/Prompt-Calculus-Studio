@@ -12,7 +12,7 @@ def definitions(state):
 
 def add(state, position=(0, 0), root=None):
     unselected = root is None
-    root = copy.deepcopy(root or comp.node('讀取組合'))
+    root = copy.deepcopy(root or comp.node('讀取流程'))
     root.setdefault('sequence', groups.from_node(root))
     key = 'groups_' + uuid.uuid4().hex
     state.setdefault('canvas_functions', dict(images={}, preview=True, preview_attached=False)).setdefault('text_sources', {})[key] = dict(
@@ -27,7 +27,7 @@ def library_root(state, ident):
     from .materials import item, fingerprint
     material = item(state, ident)
     if not material.get('composition', {}).get('sequence'):
-        raise ValueError('請選擇素材庫裡的組合。')
+        raise ValueError('請選擇素材庫裡的流程。')
     root = comp.clone_node(comp.prototype(material))
     root.update(name=material['name'], source_id=ident, source_module=material['module'],
                 source_revision=fingerprint(material))
@@ -45,15 +45,15 @@ def read_library(state, key, ident=None):
 
 def validate(value):
     if not isinstance(value, dict) or len(value) > 100:
-        raise ValueError('組合來源清單無效。')
+        raise ValueError('流程來源清單無效。')
     for key, source in value.items():
         if (not isinstance(key, str) or not key or '::' in key or not isinstance(source, dict) or
                 not isinstance(source.get('name'), str) or not source['name'].strip() or
                 source.get('supply') not in ('step', 'batch') or type(source.get('limit')) is not int or
                 not 1 <= source['limit'] <= groups.MAX_ROUNDS or type(source.get('unselected', False)) is not bool):
-            raise ValueError('組合來源設定無效。')
+            raise ValueError('流程來源設定無效。')
         comp.validate_node(source['root'])
-        if not source['root'].get('sequence'): raise ValueError('組合來源缺少組合定義。')
+        if not source['root'].get('sequence'): raise ValueError('流程來源缺少流程定義。')
 
 
 def signature(root):
@@ -115,7 +115,7 @@ def build(state, ids, *, count=None, restart=False, count_only=False):
         definition = source(state, key)
         if definition:
             if definition.get('unselected'):
-                raise ValueError('請先選擇要讀取的組合。')
+                raise ValueError('請先選擇要讀取的流程。')
             root = copy.deepcopy(definition['root']); pos = position(root, restart=restart)
             specs[key] = dict(kind='text', root=root, position=pos, signature=signature(root))
             length = groups.remaining(root['sequence'], pos); lengths.append(length)

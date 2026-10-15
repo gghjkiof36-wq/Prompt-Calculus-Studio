@@ -111,7 +111,7 @@ def validate_snapshot(snapshot):
         raise ValueError('快照與組合資料版本不一致。')
     formatter = snapshot.get('formatter_version', 1)
     if type(formatter) is not int or formatter not in (1, 2):
-        raise ValueError('不支援的文字組合格式版本。')
+        raise ValueError('不支援的流程格式版本。')
     from .composition import legacy_format
     with legacy_format(formatter == 1):
         generated = build_prompt(state)

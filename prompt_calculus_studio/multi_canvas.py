@@ -830,7 +830,7 @@ class MultiCanvas(TextCanvas):
     def container_menu(self,key,position):
         menu=RoundMenu(self.window); menu.addAction('展開畫布「'+self.data()['canvases'][key]['name']+'」',lambda:self.open_editor(key))
         menu.addAction('調整模組尺寸…',lambda:self.size_dialog(key));menu.addAction('恢復自動尺寸',lambda:self.reset_size(key))
-        menu.addAction('加入文字模組',lambda:self.window.show_materials(key))
+        menu.addAction('加入素材',lambda:self.window.show_materials(key))
         menu.addAction('畫布歷史',lambda:self.window.show_content_history(key))
         def rename():
             text,ok=InputDialog.getText(self.window,'畫布名稱','名稱',text=self.data()['canvases'][key]['name'])
@@ -838,7 +838,7 @@ class MultiCanvas(TextCanvas):
         menu.addAction('重新命名',rename)
         menu.addAction('新增 Prompt 輸出並連接',lambda:self.create_connected_output(key))
         menu.addAction('嵌入圖片…',lambda:self.import_canvas_image(key))
-        menu.addAction('移除畫布，保留文字模組',lambda:self.remove_container(key)); menu.addSeparator(); menu.addAction('復原',self.undo).setEnabled(bool(self.undo_stack)); menu.open_at(position)
+        menu.addAction('移除畫布，保留素材',lambda:self.remove_container(key)); menu.addSeparator(); menu.addAction('復原',self.undo).setEnabled(bool(self.undo_stack)); menu.open_at(position)
     def create_connected_output(self,key):
         container=self.containers[key]; output=self.add_output(QPointF(container.x()+container.width+90,container.y()))
         self.commit(lambda s:model.connect(s,key,output,'text'))

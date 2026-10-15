@@ -324,7 +324,7 @@ def entry_detail(window,item):
             key=('batch:'+source,str(index));batch_refs[key]=(source,index)
             values[key]=dict(type='image',value=image,origin=dict(name=f'來源清單第 {index+1}／{len(images)} 張 · '+image['name']))
     picker=ComboBox();editor=QPlainTextEdit();editor.setMinimumHeight(280)
-    for key,value in values.items():picker.addItem(names.get(key[1]) or ('文字' if value['type']=='clip' else '圖片' if value['type']=='image' else '文字組合')+' · '+value.get('origin',{}).get('name','保存輸入'),key)
+    for key,value in values.items():picker.addItem(names.get(key[1]) or ('文字' if value['type']=='clip' else '圖片' if value['type']=='image' else '模塊內容')+' · '+value.get('origin',{}).get('name','保存輸入'),key)
     picture=label('');picture.setAlignment(Qt.AlignmentFlag.AlignCenter);picture.setMaximumHeight(180)
     prior=[None]
     def persist():

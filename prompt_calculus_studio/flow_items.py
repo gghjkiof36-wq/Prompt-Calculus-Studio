@@ -86,6 +86,9 @@ class Port(QGraphicsObject):
             name=(canvas.data()['clip_inputs'].get(slot) or canvas.data().get('image_inputs',{}).get(slot) or {}).get('name',name)
         typed=channel(canvas.window.state,key)
         if typed:name=typed[1]['name']
+        if kind=='content':
+            if typed and name=='文字組合':name=LABELS[kind]
+            if key in canvas.window.state.get('canvas_functions',{}).get('text_sources',{}):name='流程'
         if kind=='control' and not output and canvas.data()['version']<7:
             from .chain_connections import caption
             name=caption(canvas.window.state,key)

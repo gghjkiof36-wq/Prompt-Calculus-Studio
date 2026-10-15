@@ -13,6 +13,14 @@ MAX_REPEAT = 10000
 MAX_ROUNDS = 100000
 
 
+def module_summary(modules):
+    """Describe detached contents without calling a nested flow a text module."""
+    flows = sum(bool(module.get('sequence')) for module in modules)
+    text = len(modules) - flows
+    return ' · '.join(filter(None, (f'{text} 個文字模塊' if text or not flows else '',
+                                    f'{flows} 個流程' if flows else '')))
+
+
 def requires_version_five(state):
     """Feature opt-in, not a blanket migration of existing documents."""
     from .composition import walk
@@ -55,12 +63,12 @@ def from_node(root):
 
 def validate(sequence, visit=None, depth=0):
     if not isinstance(sequence, dict) or sequence.get('version') != 1:
-        raise ValueError('文字組合版本不支援，原資料保留。')
+        raise ValueError('流程版本不支援，原資料保留。')
     if sequence.get('mode') not in MODES:
-        raise ValueError('文字組合的變量模式無效。')
+        raise ValueError('流程的變量模式無效。')
     groups = sequence.get('groups')
     if not isinstance(groups, list) or not 1 <= len(groups) <= MAX_GROUPS:
-        raise ValueError('文字組合須包含 1–5000 組。')
+        raise ValueError('流程須包含 1–5000 個組合。')
     ids = set()
     for group in groups:
         if not isinstance(group, dict) or not isinstance(group.get('id'), str) or not group['id'] or group['id'] in ids:
@@ -75,12 +83,12 @@ def validate(sequence, visit=None, depth=0):
         if group.get('content_kind', 'tags') not in ('tags', 'text', 'markdown'):
             raise ValueError('組合文字格式不支援。')
         if not isinstance(group.get('modules'), list):
-            raise ValueError('組合模組清單無效。')
+            raise ValueError('組合內的素材清單無效。')
         if visit:
             for module in group['modules']:
                 visit(module, depth + 1)
     if sequence.get('start') not in ids or sequence.get('selected') not in ids:
-        raise ValueError('請為文字組合選擇有效的起始組合。')
+        raise ValueError('請為流程選擇有效的起始組合。')
     return sequence
 
 
@@ -182,7 +190,7 @@ def remaining(sequence, position=None):
 def take(sequence, position, rng=None):
     """Reserve exactly one round and return the next cursor, without mutation."""
     if position['exhausted']:
-        raise ValueError('這份文字組合已供應完畢。')
+        raise ValueError('這份流程已供應完畢。')
     result = copy.deepcopy(position); mode = sequence['mode']; groups = sequence['groups']
     if mode == 'random' and result['repeat'] == 0:
         result['group'] = (rng or random.SystemRandom()).choice(groups)['id']; result['draws'] += 1

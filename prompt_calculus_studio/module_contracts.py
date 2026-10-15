@@ -17,7 +17,7 @@ class WireType:
 WIRES = {
     'clip': WireType('文字', '#9cbff3', 'data'),
     'image': WireType('圖片', '#e0bb79', 'data'),
-    'content': WireType('文字組合', '#a9ceb0', 'data'),
+    'content': WireType('模塊內容', '#a9ceb0', 'data'),
     'text': WireType('文字', '#9cbff3', 'canvas_text'),
     'control': WireType('流程', '#b8a8e6', 'binding'),
     'flow': WireType('流程', '#b8a8e6', 'reference'),

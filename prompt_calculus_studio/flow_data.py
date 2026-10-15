@@ -141,7 +141,7 @@ def validate_value(item):
         validate_generation(dict(mode='img2img',profiles=[],source=content))
     if item['type'] == 'content':
         if not isinstance(content, dict) or content.get('kind') not in ('modules', 'raw'):
-            raise ValueError('圖片中的文字組合不可辨識。')
+            raise ValueError('圖片中的模塊內容不可辨識。')
         if content['kind'] == 'raw' and not isinstance(content.get('text'), str):
             raise ValueError('圖片缺少原始正面提示詞。')
         if content['kind'] == 'modules':
@@ -275,7 +275,7 @@ def capture_inputs(state, scheduler, image_resolver=None):
             result[key] = captured
     from .module_contracts import binding_sources
     if not result and not binding_sources(state,scheduler):
-        raise ValueError('請先將文字、圖片或文字組合接入預排程。')
+        raise ValueError('請先將文字、圖片或模塊內容接入預排程。')
     return result
 
 
