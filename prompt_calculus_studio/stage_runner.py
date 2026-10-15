@@ -107,7 +107,8 @@ class StageRunner(QObject):
         if not plan:return
         from .prompt_sources import reserve
         reserve(self.window.state,plan,select_next=select_next)
-        self.window.changed('prompt',refresh=False)
+        self.refresh_results()
+        self.window.changed('prompt')
 
     def start(self,count=1):
         if not self.client.connected:raise ValueError('請先連線至 ComfyUI。')
@@ -573,13 +574,14 @@ class StageRunner(QObject):
 
     def advance_sources(self,attempt):
         from .image_source import select
+        changed=False
         for key,position in attempt.get('sources',{}).items():
             if position.get('kind')=='text':
                 from .prompt_sources import source,signature
                 current=source(self.window.state,key)
                 if current and current['root'].get('supply_cursor',{}).get('plan')==position['plan'] and signature(current['root'])==position['signature']:
                     current['root']['sequence']['selected']=position['group']
-                    self.window.changed('prompt',refresh=False)
+                    changed=True
                 continue
             value=self.window.state.get('canvas_functions',{}).get('images',{}).get(key,{})
             if value.get('batch_id')!=position.get('batch'):continue
@@ -591,7 +593,12 @@ class StageRunner(QObject):
             elif value.get('index')!=index:continue
             if index+1<len(value.get('items',[])):
                 select(self.window.state,key,index+1,self.window.store.directory,preserve_reservation=True)
-                self.window.changed('prompt',refresh=False)
+                changed=True
+        if changed:
+            # Readers wired through a Canvas own derived roots as well as a
+            # source cursor. Materialize that view before publishing its Prompt.
+            self.refresh_results()
+            self.window.changed('prompt')
 
     def refresh_results(self):
         canvas=getattr(self.window,'canvas',None)

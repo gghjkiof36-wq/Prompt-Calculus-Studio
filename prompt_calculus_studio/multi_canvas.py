@@ -443,7 +443,16 @@ class MultiCanvas(TextCanvas):
     def update_output(self):
         from .canvas_exclusions import affected_nodes
         self.affected_nodes=affected_nodes(self.window.state)
-        for node in self.cards.values():node.update()
+        # Runtime supply cursors advance without an edit/undo transaction.
+        # NodeCard retains a presentation copy, so repainting alone leaves both
+        # its round number and rendered text at the previous selection.
+        for key,node in self.cards.items():
+            ident,node_id=self.entries.get(key,(None,None))
+            root=self.window.state.get('uses',{}).get(ident)
+            value=comp.find(root,node_id) if root else None
+            if value is not None and node.value!=value:
+                node.value=copy.deepcopy(value);node.own=comp.render(value);node.layout_card()
+            else:node.update()
         if not hasattr(self,'outputs'): return
         if hasattr(self,'onboarding'):self.onboarding.refresh()
         self.prune_cards()
@@ -617,7 +626,7 @@ class MultiCanvas(TextCanvas):
         key=value['source'] if output else value['destination']; kind=value['kind']
         if kind=='done' and self.data()['version']>=7:kind='flow' if output else 'control'
         from .module_contracts import binding_scheduler
-        multiple=kind in ('execution','preview','text') or kind=='control' and (key in self.data().get('stages',{}) or binding_scheduler(self.window.state,key)) or kind=='clip' and key in self.outputs
+        multiple=kind in ('execution','preview','text') or kind=='control' and (key in self.data().get('stages',{}) or binding_scheduler(self.window.state,key)) or kind=='flow' and key.endswith('::flow') or kind=='clip' and key in self.outputs
         return self.ports.get((key,kind,output,value['source']) if not output and multiple else (key,kind,output))
     def update_lines(self):
         if not hasattr(self,'ports'): return

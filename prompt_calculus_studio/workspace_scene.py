@@ -73,6 +73,10 @@ def create(state,name,duplicate=False):
     if starter:workspace['canvas_starter']=dict(starter,workspace=ident)
     state['workspaces'].append(workspace)
     state['workspace_scenes']['items'][ident]=value
+    # The new scene may introduce a binding scheduler while an older scene is
+    # still active. Its document version belongs to the entire saved document.
+    from .state_schema import mark_version
+    mark_version(state)
     return ident
 
 

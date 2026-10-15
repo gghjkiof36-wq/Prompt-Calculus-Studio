@@ -71,12 +71,24 @@ def scheduler_port_specs(state, scheduler):
         result.extend((scheduler+'::'+channel['id'],channel['type'],output,None,index) for output in (False,True))
     index=len(item['channels'])
     if data['version']>=7:
-        if item.get('mode','data')=='data':
-            endpoint=scheduler+'::'+BINDINGS_CHANNEL;sources=binding_sources(state,scheduler)
-            result.extend((endpoint,'control',False,source,index+offset) for offset,source in enumerate([*sources,None]))
-            result.append((endpoint,'control',True,None,index));index+=len(sources)+1
-        result.extend((scheduler+'::flow','flow',output,None,index) for output in (False,True))
+        # Present one input/output family. Keep the persisted binding and Stage
+        # endpoints distinct; the first wire chooses their existing semantics.
+        flow=scheduler+'::flow'
+        reference=item.get('mode','data')!='data' or any(
+            c['kind']=='flow' and flow in (c['source'],c['destination']) for c in data['connections'])
+        endpoint=flow if reference else scheduler+'::'+BINDINGS_CHANNEL
+        kind='flow' if reference else 'control'
+        sources=[c['source'] for c in data['connections'] if c['destination']==endpoint and c['kind']==kind]
+        result.extend((endpoint,kind,False,source,index+offset) for offset,source in enumerate([*sources,None]))
+        result.append((endpoint,kind,True,None,index))
     return result
+
+
+def scheduler_wire_target(state, key, kind):
+    """Resolve an uncommitted visible input without changing saved endpoints."""
+    scheduler=binding_scheduler(state,key)
+    if scheduler and kind=='flow':return scheduler+'::flow'
+    return key
 
 
 def module_kind(state, key):

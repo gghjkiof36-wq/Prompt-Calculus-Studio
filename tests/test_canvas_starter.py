@@ -14,16 +14,32 @@ def fresh():return prepare_state(initial_state(),multi=True)
 
 
 class CanvasStarterDataTests(unittest.TestCase):
+    def test_new_workspace_upgrades_the_whole_legacy_document_before_switching(self):
+        from prompt_calculus_studio.workspace_scene import create,switch,scene
+        state=fresh();self.assertLess(state['version'],6)
+        old=state['workspace'];original=scene(state)
+        created=create(state,'新的工作區')
+        self.assertEqual(state['version'],6)
+        self.assertEqual(state['workspace'],old);self.assertEqual(scene(state),original)
+        validate_state(state)
+        switch(state,created);switch(state,old);validate_state(state)
+        with tempfile.TemporaryDirectory() as folder:
+            store=Storage(folder);store.save(state);restored=store.load_current(multi=True);store.close()
+        self.assertEqual(restored,state)
+
     def test_new_layout_has_ordered_typed_path_but_no_workflow_or_private_data(self):
         original=fresh();before=copy.deepcopy(original);state=initialize(original,fresh_install=True)
         self.assertEqual(original,before);validate_state(state)
-        refs=guide(state);data=state['multi_output'];channel=refs['scheduler']+'::clip1'
+        refs=guide(state);data=state['multi_output'];channel=refs['scheduler']+'::bindings'
+        width,height=data['canvases'][refs['canvas']]['display_size']
+        self.assertGreaterEqual(width,900);self.assertGreaterEqual(height,520)
+        self.assertGreater(state['text_positions'][refs['output']][0],width+80)
         self.assertEqual(incoming(state,refs['output'],'text'),refs['canvas'])
-        self.assertEqual(incoming(state,channel,'clip'),refs['output'])
-        self.assertEqual(incoming(state,refs['clip'],'clip'),channel)
-        self.assertEqual(incoming(state,refs['stage'],'control'),refs['clip'])
+        self.assertEqual(incoming(state,refs['clip'],'clip'),refs['output'])
+        self.assertEqual(incoming(state,channel,'control'),refs['clip'])
+        self.assertEqual(incoming(state,refs['stage'],'control'),channel)
         self.assertEqual(incoming(state,PREVIEW,'image'),refs['stage'])
-        keys=[refs['output'],refs['scheduler'],refs['clip'],refs['stage'],PREVIEW]
+        keys=[refs['output'],refs['clip'],refs['scheduler'],refs['stage'],PREVIEW]
         xs=[data['canvases'][refs['canvas']]['position'][0]]+[state['text_positions'][key][0] for key in keys]
         self.assertEqual(xs,sorted(xs));self.assertEqual(len(set(xs)),6)
         self.assertFalse(state.get('generation',{}).get('profiles'));self.assertFalse(data['bindings'])
@@ -75,10 +91,10 @@ class CanvasStarterDataTests(unittest.TestCase):
         self.assertEqual(state['settings'],settings);self.assertEqual(state['generation']['profiles'],profiles)
         switch(state,created);validate_state(state);new_refs=guide(state)
         self.assertEqual(new_refs['workspace'],created);self.assertFalse(new_refs['dismissed'])
-        channel=new_refs['scheduler']+'::clip1';data=state['multi_output']
+        channel=new_refs['scheduler']+'::bindings';data=state['multi_output']
         for destination,kind,source in ((new_refs['output'],'text',new_refs['canvas']),
-                (channel,'clip',new_refs['output']),(new_refs['clip'],'clip',channel),
-                (new_refs['stage'],'control',new_refs['clip']),(PREVIEW,'image',new_refs['stage'])):
+                (new_refs['clip'],'clip',new_refs['output']),(channel,'control',new_refs['clip']),
+                (new_refs['stage'],'control',channel),(PREVIEW,'image',new_refs['stage'])):
             self.assertEqual(incoming(state,destination,kind),source)
         self.assertEqual(len(data['connections']),5);self.assertFalse(data['bindings'])
         self.assertIsNone(data['stages'][new_refs['stage']]['workflow'])
@@ -176,7 +192,7 @@ class CanvasStarterUiTests(unittest.TestCase):
             try:
                 self.assertTrue(window.fresh_install)
                 refs=guide(window.state);self.assertIsNotNone(refs)
-                self.assertEqual(incoming(window.state,refs['stage'],'control'),refs['clip'])
+                self.assertEqual(incoming(window.state,refs['stage'],'control'),refs['scheduler']+'::bindings')
                 self.assertEqual(incoming(window.state,PREVIEW,'image'),refs['stage'])
             finally:window.close();self.app.processEvents()
 
@@ -220,8 +236,10 @@ class CanvasStarterUiTests(unittest.TestCase):
             self.assertFalse(any(a.intersects(b) for index,a in enumerate(rectangles) for b in rectangles[index+1:]))
             self.assertLessEqual(bar.card.height(),bar.card.sizeHint().height()+2)
             node=self.canvas.containers[self.refs['canvas']]
-            bottom=self.canvas.view.mapFromScene(node.scenePos()+QPointF(0,node.height)).y()
-            self.assertLess(bottom,self.canvas.execution_bar.y())
+            top=self.canvas.view.mapFromScene(node.scenePos()).y()
+            self.assertGreaterEqual(top,0);self.assertLess(top,80)
+            self.assertGreaterEqual(self.canvas.view.transform().m11(),.8)
+            self.assertGreaterEqual(node.height,520)
 
     def test_guide_actions_open_real_entries_without_submitting(self):
         bar=self.canvas.onboarding
@@ -262,7 +280,7 @@ class CanvasStarterUiTests(unittest.TestCase):
         self.window.resize(1200,900);self.wait()
         self.assertLess((view.mapToScene(0,0)-origin).manhattanLength(),3)
 
-    def test_short_windows_keep_first_node_above_integrated_execution_bar(self):
+    def test_short_windows_keep_large_workspace_readable_and_execution_bar_accessible(self):
         from PySide6.QtCore import QPointF
         view=self.canvas.view;bar=self.canvas.execution_bar
         self.window.resize(1440,900);self.wait();self.canvas.onboarding.first_view()
@@ -271,10 +289,12 @@ class CanvasStarterUiTests(unittest.TestCase):
             self.window.resize(width,height);self.wait();self.window.set_interface_mode('canvas');self.wait()
             card=self.canvas.containers[self.refs['canvas']]
             top=view.mapFromScene(card.scenePos()).y()
-            bottom=view.mapFromScene(card.scenePos()+QPointF(0,card.height)).y()
             self.assertGreaterEqual(top,0)
-            self.assertGreaterEqual(view.viewport().height()-bottom,72)
-            self.assertLess(bottom,bar.y())
+            # The larger workspace can extend below a short viewport. Retain
+            # readable text and pan access instead of shrinking its contents.
+            self.assertGreaterEqual(card.height,520)
+            self.assertGreaterEqual(view.transform().m11(),.8)
+            self.assertLess(top,bar.y())
             self.assertFalse(hasattr(self.canvas,'recent_corner'))
             self.assertTrue(bar.more.isVisible())
             menu=bar.tools_menu();self.assertNotIn('最近生成',[action.text() for action in menu.actions()]);menu.deleteLater()

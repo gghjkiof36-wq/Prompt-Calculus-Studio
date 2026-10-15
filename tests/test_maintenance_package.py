@@ -83,7 +83,8 @@ root=node('group material');group=new_group('one','exact group text')
 root['sequence']=dict(version=1,mode='increment',start=group['id'],selected=group['id'],groups=[group])
 material=save(s,dict(name='group material',prompt='',module=add_category(s,'groups'),composition=root))
 key=add(s);read_library(s,key,material);root=definitions(s)[key]['root']
-snapshot=make_snapshot(s);assert snapshot['schema_version']==5
+# The new workspace includes a binding scheduler, which requires schema 6.
+snapshot=make_snapshot(s);assert snapshot['schema_version']==6
 restored=restore_snapshot(s,snapshot);assert definitions(restored)[key]['root']['sequence']==root['sequence']
 plan=build(restored,[key],count=1);reserve(restored,plan)
 assert definitions(restored)[key]['root']['supply_cursor']['position']['exhausted']

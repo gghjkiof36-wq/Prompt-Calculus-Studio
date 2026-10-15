@@ -1,7 +1,7 @@
 """Typed data ports and selectable connections; repaint only on interaction."""
 from PySide6.QtCore import Qt,QRectF,QPointF,QTimer,QObject,QEvent
 from PySide6.QtGui import QColor,QPen,QPainter,QPainterPath,QPainterPathStroker
-from PySide6.QtWidgets import QGraphicsObject,QGraphicsItem,QGraphicsPathItem,QGraphicsSimpleTextItem
+from PySide6.QtWidgets import QApplication,QGraphicsObject,QGraphicsItem,QGraphicsPathItem,QGraphicsSimpleTextItem
 from . import multi_output as model
 from .canvas_items import canvas_colors,paint_module_surface
 
@@ -90,10 +90,13 @@ class Port(QGraphicsObject):
             from .chain_connections import caption
             name=caption(canvas.window.state,key)
         if kind in ('control','flow','done') and canvas.data()['version']>=7:name='輸出' if output else '輸入'
-        from .module_contracts import binding_scheduler
-        if kind=='control' and binding_scheduler(canvas.window.state,key):
-            name=source_name(canvas.window.state,slot) if slot else '綁定'
-        self.setToolTip(name+('輸出' if output else '輸入')+' · 拖曳或點擊連線')
+        parent_key=key.split('::')[0]
+        if kind in ('control','flow') and parent_key in canvas.data().get('schedulers',{}):
+            count=sum(c['destination']==key and c['kind']==kind for c in canvas.data()['connections'])
+            offset=index-len(canvas.data()['schedulers'][parent_key]['channels'])
+            name='輸出' if output else '輸入'+(str(offset+1) if count else '')
+        direction='輸出' if output else '輸入'
+        self.setToolTip((name if name.startswith(direction) else name+direction)+' · 拖曳或點擊連線')
         self.caption=QGraphicsSimpleTextItem(name[:12],self); self.caption.setBrush(caption_color(canvas,kind)); self.caption.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         # The default Canvas zoom remains readable without scaling the graph
         # to fit: 15 scene pixels provide at least 12px at the initial .8 zoom.
@@ -120,10 +123,12 @@ class Port(QGraphicsObject):
         source,destination=(self,other) if self.output else (other,self)
         textual=destination.key in self.canvas.data()['outputs'] and self.canvas.data()['version']>=6 and {self.kind,other.kind}<= {'text','clip'}
         ordering=(source.kind=='flow' and destination.kind=='control' and source.key in self.canvas.data().get('stages',{}) and destination.key in self.canvas.data().get('stages',{}))
-        if self.kind!=other.kind and not textual and not ordering:return False
+        from .module_contracts import scheduler_wire_target
+        target=scheduler_wire_target(self.canvas.window.state,destination.key,source.kind)
+        if self.kind!=other.kind and not textual and not ordering and target==destination.key:return False
         gesture=self.canvas.connection_gesture
         if destination.slot and destination.slot!=source.key and not (gesture.original and gesture.anchor is destination): return False
-        if not model.valid_edge(self.canvas.window.state,source.key,destination.key,'done' if ordering else source.kind): return False
+        if not model.valid_edge(self.canvas.window.state,source.key,target,'done' if ordering else source.kind): return False
         if self.kind=='text' and self.canvas.data()['version']<5:
             original=getattr(self.canvas.connection_gesture,'original',None)
             return not any(c['id']!=original and c['kind']=='text' and c['source']==source.key and c['destination']!=destination.key for c in self.canvas.data()['connections'])
@@ -144,7 +149,7 @@ class ConnectionGesture(QObject):
     """Rewire atomically: blank confirms disconnection, right click preserves it."""
     def __init__(self,canvas):
         super().__init__(canvas); self.canvas=canvas; self.anchor=None; self.preview=None; self.original=None; self.target=None; self.latched=False
-        canvas.view.viewport().setMouseTracking(True); canvas.view.viewport().installEventFilter(self); canvas.view.installEventFilter(self)
+        canvas.view.viewport().setMouseTracking(True);QApplication.instance().installEventFilter(self)
     def begin(self,port,position):
         self.cancel(); self.anchor=port; self.start=QPointF(position)
         if not port.output and not (port.kind=='text' and port.slot is None and self.canvas.data()['version']>=5):
@@ -181,6 +186,9 @@ class ConnectionGesture(QObject):
         self.move(position); anchor=self.anchor; target=self.target; original=self.original; kind=anchor.kind if anchor.output or target is None else target.kind
         src,dst=((anchor.key,target.key) if anchor.output else (target.key,anchor.key)) if target else (None,None)
         if src in self.canvas.data().get('stages',{}) and dst in self.canvas.data().get('stages',{}) and kind=='flow':kind='done'
+        if dst:
+            from .module_contracts import scheduler_wire_target
+            dst=scheduler_wire_target(self.canvas.window.state,dst,kind)
         self.cancel(); canvas=self.canvas
         def apply(s):
             if original: model.disconnect(s,original)
@@ -206,6 +214,15 @@ class ConnectionGesture(QObject):
         menu.open_at(position)
     def eventFilter(self,watched,event):
         if self.anchor is None: return False
+        viewport=self.canvas.view.viewport()
+        if ((event.type()==QEvent.Type.WindowDeactivate and watched is self.canvas.window)
+                or (event.type()==QEvent.Type.Hide and watched in (self.canvas,self.canvas.view,viewport))):
+            self.cancel();return False
+        if event.type() in (QEvent.Type.MouseButtonPress,QEvent.Type.MouseButtonRelease) and watched is not viewport:
+            # A release outside the Canvas or a click elsewhere cannot leave a
+            # dashed preview active. Cancelling restores the uncommitted wire.
+            if watched.isWidgetType() and watched is not self.canvas.view:
+                self.cancel();return False
         if event.type()==QEvent.Type.KeyPress and event.key()==Qt.Key.Key_Escape: self.cancel(); return True
         if self.latched and watched is self.canvas.view.viewport():
             if event.type()==QEvent.Type.MouseMove:
