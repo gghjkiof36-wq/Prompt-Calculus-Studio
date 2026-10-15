@@ -24,7 +24,7 @@ class GroupSourceDialog(StudioDialog):
         self.material_id=self.root.get('source_id') if self.root else None;self.drafts={}
         self.stack=PageStack()
         self.overview,overview=page();self.stack.addWidget(self.overview)
-        self.library=ComboBox();self.library.setAccessibleName('素材庫流程');self.library.setPlaceholderText('選擇素材庫流程')
+        self.library=ComboBox();self.library.setAccessibleName('素材庫流程');self.library.setPlaceholderText('選擇流程')
         for item in canvas.window.state['items']:
             if item.get('composition',{}).get('sequence'): self.library.addItem(item['name'], item['id'])
         index=self.library.findData(self.material_id) if self.material_id else -1
@@ -35,11 +35,12 @@ class GroupSourceDialog(StudioDialog):
             else:self.library.setItemText(index,self.root['name'])
         self.library.setCurrentIndex(index)
         self.reload_button=tool('refresh','重新讀取素材庫原件',self.reload_material)
-        overview.addWidget(label('流程','Subtle'));overview.addLayout(row(self.library,self.reload_button))
+        self.library_label=label('流程','Subtle');overview.addWidget(self.library_label)
+        overview.addLayout(row(self.library,self.reload_button))
         self.mode=ComboBox();mode_options(self.mode);self.mode.setMaximumWidth(152)
         self.start=ComboBox();self.start.setMinimumWidth(140)
         self.variables,variables=page();variables.addLayout(row(field('變量',self.mode),None,field('起始組合',self.start)))
-        overview.addWidget(self.variables);overview.addWidget(label('組合','SectionTitle'))
+        overview.addWidget(self.variables);self.groups_label=label('組合','SectionTitle');overview.addWidget(self.groups_label)
         self.listing=EntryList('groups',readonly=True,reorderable=True);self.listing.setAccessibleName('流程內的組合')
         overview.addWidget(self.listing,1);self.listing.activatedRow.connect(self.open_group)
         self.listing.reorderRequested.connect(lambda before,after:self.reorder(self.root['sequence']['groups'],before,after))
@@ -84,7 +85,7 @@ class GroupSourceDialog(StudioDialog):
     def page_changed(self,index):
         inside=index==1
         self.preview_toggle.setChecked(False);self.panels.set_open(False,animate=False)
-        self.back_button.setVisible(inside);self.done_button.setVisible(inside);self.apply_button.setVisible(not inside)
+        self.back_button.setVisible(inside);self.done_button.setVisible(inside);self.apply_button.setVisible(not inside and bool(self.root))
         self.heading.setText(self.current_group['name'] if inside else '讀取流程')
         self.scroll.verticalScrollBar().setValue(0)
         self.fit_editor()
@@ -117,7 +118,10 @@ class GroupSourceDialog(StudioDialog):
     def refresh_overview(self):
         self.loading=True;self.start.clear()
         seq=self.root['sequence'] if self.root else None
-        self.variables.setVisible(bool(seq));self.listing.setVisible(bool(seq));self.empty.setVisible(not seq)
+        self.panels.minimum_height=480 if seq else 240
+        for control in (self.library_label,self.variables,self.groups_label,self.listing,self.reload_button):control.setVisible(bool(seq))
+        self.empty.setVisible(not seq and not self.library.count())
+        self.apply_button.setVisible(bool(seq) and self.stack.currentIndex()==0)
         self.apply_button.setEnabled(bool(seq));self.reload_button.setEnabled(bool(self.material_id))
         if seq:
             self.mode.setCurrentIndex(self.mode.findData(seq['mode']))
@@ -192,7 +196,7 @@ class GroupSourcePanel(QFrame):
         self.index.setAlignment(Qt.AlignmentFlag.AlignCenter);self.index.setFixedWidth(76);self.index.setToolTip('輸入序號跳至組合')
         layout.addLayout(row(self.group_name,self.previous,self.index,self.next))
         self.supply=ComboBox();self.supply.setAccessibleName('供應方式')
-        for name,value in (('逐輪','step'),('批次','batch')):self.supply.addItem(name,value)
+        for name,value in (('整個流程','batch'),('逐輪','step')):self.supply.addItem(name,value)
         self.mode=button('',self.choose_mode,'SourceMode');self.mode.setFixedSize(38,38)
         self.mode.setAccessibleName('變量')
         layout.addLayout(row(self.supply,self.mode))
@@ -208,10 +212,11 @@ class GroupSourcePanel(QFrame):
     def refresh(self):
         self.loading=True;value=self.value();seq=value['root']['sequence']
         ready=not value.get('unselected');current=groups.selected(seq)
-        self.group_name.setText(current['name'] if ready else '尚未選擇流程');self.group_name.setToolTip(current['name'] if ready else '')
+        self.group_name.setText(current['name'] if ready else '');self.group_name.setToolTip(current['name'] if ready else '')
+        self.group_name.setVisible(ready)
         self.edit_button.setText(value['name'] if ready else '選擇流程');self.edit_button.setToolTip('選擇流程')
         for control in (self.index,self.previous,self.next,self.supply,self.mode):control.setEnabled(ready)
-        for control in (self.index,self.previous,self.next):control.setVisible(ready)
+        for control in (self.index,self.previous,self.next,self.supply,self.mode):control.setVisible(ready)
         self.supply.setCurrentIndex(self.supply.findData(value['supply']))
         self.mode.setIcon(icon(MODE_ICONS[seq['mode']]));self.mode.setToolTip('變量：'+groups.MODES[seq['mode']])
         self.mode.setAccessibleName('變量：'+groups.MODES[seq['mode']])
@@ -219,7 +224,7 @@ class GroupSourcePanel(QFrame):
         self.index.setFixedWidth(max(64,self.index.fontMetrics().horizontalAdvance(str(len(seq['groups']))+' / '+str(len(seq['groups'])))+12))
         self.index.setValue(next(i for i,g in enumerate(seq['groups'],1) if g['id']==seq['selected']))
         self.previous.setEnabled(ready and self.index.value()>1);self.next.setEnabled(ready and self.index.value()<len(seq['groups']))
-        self.limit.setValue(value['limit']);self.limit_row.setVisible(value['supply']=='batch' and seq['mode'] in ('random','fixed'))
+        self.limit.setValue(value['limit']);self.limit_row.setVisible(ready and value['supply']=='batch' and seq['mode'] in ('random','fixed'))
         self.loading=False
 
     def configure(self):
@@ -275,6 +280,7 @@ class GroupSourceCard(TextCard):
 
     def layout_card(self):
         width,height=self.requested_size;minimum=self.panel.minimumSizeHint()
+        if self.panel.value().get('unselected'):height=min(height,174)
         self.proxy.setGeometry(QRectF(14,105,max(300,minimum.width(),width-28),max(minimum.height(),height-119)))
         self.sync_bounds()
 

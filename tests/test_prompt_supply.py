@@ -81,19 +81,18 @@ class SupplyTests(unittest.TestCase):
         self.executor.finish();self.assertEqual(seq['selected'],ids[1])
         self.executor.finish();self.assertEqual(seq['selected'],ids[2])
 
-    def test_image_and_text_zip_counts_after_repeats(self):
+    def test_unbound_side_flow_cannot_drive_image_schedule(self):
         image,items,config=self.image_batch(count=5)
         key=[]
         def setup(state):
             source=supply.add(state,root=definition((2,1)));key.append(source);supply.definitions(state)[source]['supply']='batch'
-            # The B workflow has an image binding; inspect queued text separately.
+            # Legacy files can contain this wire. It must not silently decide
+            # batch length without delivering text to a bound native field.
             model.connect(state,source,config['inner']+'::clip1','clip')
         self.assertTrue(self.c.commit(setup),self.notices);self.click()
-        entries=self.runner.store.rows('entry');self.assertEqual(len(entries),3,self.notices)
-        self.assertEqual([e['saved']['inputs'][config['inner']+'::clip1']['value'] for e in entries],['prompt 0','prompt 0','prompt 1'])
-        for _ in range(3):self.executor.finish()
-        self.assertEqual(len(self.executor.submissions),3);self.assertEqual(self.w.state['canvas_functions']['images'][image]['index'],3)
-        self.assertIsNone(self.runner.current())
+        self.assertEqual(self.runner.store.rows('entry'),[])
+        self.assertEqual(self.executor.submissions,[])
+        self.assertTrue(any('Prompt 輸出' in message for message in self.notices),self.notices)
 
     def test_bypass_image_fixed_for_whole_text_batch_then_advances_once(self):
         image,items,config=self.image_batch(count=3,auto=False)

@@ -63,6 +63,7 @@ def validation_reference(release, paths):
     reports={
         '--v0.8.8-preparation.8':'docs/releases/0.8.8/development/preparation8.md',
         '--v0.8.8-preparation.9':'docs/releases/0.8.8/development/preparation9.md',
+        '--v0.8.8-preparation.10':'docs/releases/0.8.8/development/preparation10.md',
         '--v081-maintenance':'docs/releases/0.8.1/validation/maintenance.md',
         '--v081-ui-repair1':'docs/releases/0.8.1/validation/ui-repair-1.md',
         '--v082-alpha1-repair5':'docs/releases/0.8.2/validation/repair-5.md',

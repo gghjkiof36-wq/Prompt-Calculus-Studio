@@ -52,10 +52,18 @@ class ReaderTests(unittest.TestCase):
 
     def test_select_only_existing_groups_and_cancel_save_undo_reopen(self):
         ids=self.setup_reader(False);before=copy.deepcopy(sources.definitions(self.w.state)[ids['key']])
+        self.w.enter_canvas();self.app.processEvents()
         dialog=self.show_reader(ids['key'])
         self.assertEqual({dialog.library.itemData(i) for i in range(dialog.library.count())},{ids['material'],ids['other']})
         self.assertFalse(dialog.library.isEditable());self.assertFalse(hasattr(dialog,'name'))
         self.assertFalse(dialog.apply_button.isEnabled());self.assertFalse(dialog.preview.isVisible())
+        self.assertTrue(dialog.apply_button.isHidden());self.assertTrue(dialog.groups_label.isHidden())
+        self.assertTrue(dialog.variables.isHidden());self.assertTrue(dialog.listing.isHidden())
+        self.assertTrue(dialog.reload_button.isHidden());self.assertTrue(dialog.empty.isHidden())
+        self.assertEqual(dialog.library.placeholderText(),'選擇流程')
+        panel=self.w.canvas.functions.cards[ids['key']].panel
+        self.assertEqual(panel.edit_button.text(),'選擇流程')
+        self.assertTrue(panel.group_name.isHidden());self.assertTrue(panel.supply.isHidden());self.assertTrue(panel.index.isHidden())
         dialog.library.setCurrentIndex(dialog.library.findData(ids['other']));self.app.processEvents()
         self.assertTrue(dialog.apply_button.isEnabled());dialog.reject()
         self.assertEqual(sources.definitions(self.w.state)[ids['key']],before)

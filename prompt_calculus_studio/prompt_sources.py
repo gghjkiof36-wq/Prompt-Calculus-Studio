@@ -16,7 +16,7 @@ def add(state, position=(0, 0), root=None):
     root.setdefault('sequence', groups.from_node(root))
     key = 'groups_' + uuid.uuid4().hex
     state.setdefault('canvas_functions', dict(images={}, preview=True, preview_attached=False)).setdefault('text_sources', {})[key] = dict(
-        name=root['name'], root=root, supply='step', limit=10, unselected=unselected)
+        name=root['name'], root=root, supply='batch', limit=10, unselected=unselected)
     state.setdefault('text_positions', {})[key] = list(position)
     state['version']=max(5,state['version'])
     return key

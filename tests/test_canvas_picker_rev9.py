@@ -279,6 +279,7 @@ class PickerRev9Tests(unittest.TestCase):
 
     def test_blank_dialog_cancel_stays_and_preserves_data_and_destination(self):
         self.c.add_new_with_destination=self.actual_new
+        self.w.persist()
         before=copy.deepcopy(self.w.state); shown=[]
         def cancel_blank():
             dialog=self.c.active_node_dialog
@@ -287,10 +288,28 @@ class PickerRev9Tests(unittest.TestCase):
             dialog.reject()
         QTimer.singleShot(30,cancel_blank)
         QTest.mouseClick(self.p.new_button,Qt.MouseButton.LeftButton)
-        self.assertEqual(shown,['新增模組'])
+        self.assertEqual(shown,['新增畫布模組'])
         self.assertTrue(self.p.isVisible()); self.assertFalse(self.p.inserted)
         self.assertEqual(self.p.destination_id,self.a)
         self.assertEqual(self.w.state,before); self.assertEqual(self.asset_api.call_count,0)
+
+    def test_autosave_while_browsing_does_not_create_history_and_undo_survives(self):
+        from prompt_calculus_studio import workspace_scene
+        before=self.c.history_state();stacks=copy.deepcopy((self.c.undo_stack,self.c.redo_stack))
+        original=copy.deepcopy(self.w.state)
+        self.assertEqual(self.c.history_state(),before)
+        self.assertEqual(self.w.state,original,'history reads must be side effect free')
+        self.select(self.cat);self.p.search.setText('red dress')
+        self.w.persist();QTest.qWait(400)
+        self.assertEqual(self.c.history_state(),before)
+        self.assertEqual((self.c.undo_stack,self.c.redo_stack),stacks)
+        self.p.reject();self.c.undo()
+        self.assertNotIn(self.b,self.w.state['multi_output']['canvases'])
+        self.w.persist();self.c.redo()
+        self.assertIn(self.b,self.w.state['multi_output']['canvases'])
+        self.w.persist();loaded=self.w.store.load()
+        self.assertEqual(self.c.history_projection(loaded),self.c.history_state())
+        self.assertEqual(workspace_scene.scene(loaded),loaded['workspace_scenes']['items'][loaded['workspace']])
 
     def test_backdrop_close_blocks_remaining_double_click_at_same_canvas_location(self):
         viewport=self.c.view.viewport(); global_pos=self.p.mapToGlobal(QPoint(2,2)); local=viewport.mapFromGlobal(global_pos)

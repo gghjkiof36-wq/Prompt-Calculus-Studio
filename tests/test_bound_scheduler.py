@@ -84,15 +84,25 @@ class BoundSchedulerTests(unittest.TestCase):
         self.assertEqual(len({r['prompt']['10']['inputs']['image'] for r in self.executor.submissions}),3,self.notices)
         self.assertEqual(self.w.state['canvas_functions']['images'][image]['index'],2)
 
-    def test_mixed_bound_image_and_raw_text_zip_shortest(self):
+    def test_mixed_bound_image_and_prompt_text_zip_shortest(self):
         image,items,config=self.bound_images(5)
+        clip=[]
         def setup(state):
+            from prompt_calculus_studio import clip_flow
             source=supply.add(state,root=definition((2,1)));supply.definitions(state)[source]['supply']='batch'
-            model.connect(state,source,config['scheduler']+'::clip1','clip')
+            output=model.ident('output_');state['multi_output']['outputs'][output]=model.new_output('批次 Prompt')
+            model.connect(state,source,output,'clip')
+            profile=next(p for p in state['generation']['profiles'] if p['id']=='B')
+            profile['graph']['6']=dict(class_type='CLIPTextEncode',inputs=dict(text='native B'))
+            self.executor.graphs['B']['6']=copy.deepcopy(profile['graph']['6'])
+            terminal=clip_flow.add(state);clip.append(terminal);clip_flow.set_binding(state,'B',terminal,('6','text'))
+            model.connect(state,output,terminal,'clip');model.connect(state,terminal,config['scheduler']+'::bindings','control')
         self.assertTrue(self.c.commit(setup),self.notices);self.click()
         rows=self.runner.store.rows('entry');self.assertEqual(len(rows),3,self.notices)
         self.assertEqual([r['saved']['values'][config['terminal']]['value'] for r in rows],items[:3])
+        self.assertEqual([r['saved']['values'][clip[0]]['value'] for r in rows],['prompt 0','prompt 0','prompt 1'])
         for _ in range(3):self.executor.finish()
+        self.assertEqual(self.submitted_texts(),['prompt 0','prompt 0','prompt 1'])
         self.assertEqual(self.w.state['canvas_functions']['images'][image]['index'],3)
 
     def test_same_source_two_bindings_uses_one_round(self):

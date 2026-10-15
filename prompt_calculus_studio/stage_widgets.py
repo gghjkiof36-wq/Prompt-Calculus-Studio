@@ -119,6 +119,7 @@ class SchedulePanel(QFrame):
         style_action(self.pause_button,canvas_colors(canvas))
         self.more=button('管理',self.manage,'Quiet')
         self.more.setAccessibleName('管理預排程');self.more.setToolTip('拖曳排列等待項目')
+        self.legacy_button=button('整理舊接線',self.convert_wiring,'Quiet');body.insertWidget(0,self.legacy_button)
         history=button('歷史',lambda:show_history(canvas.window),'Quiet')
         from .ui_icons import icon
         history.setIcon(icon('history'));history.setProperty('iconName','history')
@@ -136,7 +137,8 @@ class SchedulePanel(QFrame):
 
     def more_actions(self,anchor=None):
         menu=RoundMenu(anchor or self)
-        menu.addAction('增加資料接點',self.add_channel)
+        from .scheduler_wiring import legacy_edges
+        if legacy_edges(self.canvas.window.state,self.key):menu.addAction('整理舊接線',self.convert_wiring)
         if self.canvas.data()['schedulers'].get(self.key,{}).get('mode')=='stage':menu.addAction('輸入取值',self.policies)
         menu.addSeparator()
         selected=self.selected();ident=selected['id'] if selected else None
@@ -177,6 +179,10 @@ class SchedulePanel(QFrame):
         from .canvas_items import canvas_colors
         style_action(self.pause_button,canvas_colors(self.canvas))
         rows=self.entries();value=self.canvas.data()['schedulers'].get(self.key,{})
+        from .scheduler_wiring import legacy_edges
+        legacy=bool(legacy_edges(self.canvas.window.state,self.key))
+        self.legacy_button.setVisible(legacy)
+        self.empty.setText('請先整理舊接線，改由輸入模塊供應內容' if legacy else '沒有等待執行的任務')
         ids=[r['id'] for r in rows];old=[self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]
         selected=self.selected();selected=selected['id'] if selected else None
         self.list.blockSignals(True)
@@ -247,17 +253,9 @@ class SchedulePanel(QFrame):
             self.refresh()
         except ValueError as exc:self.canvas.window.notice(str(exc))
 
-    def add_channel(self):
-        from .flow_data import TYPES,TYPE_NAMES
-        menu=RoundMenu(self)
-        for kind in TYPES:
-            def add(checked=False,kind=kind):
-                def change(state):
-                    channels=state['multi_output']['schedulers'][self.key]['channels'];number=len(channels)+1
-                    channels.append(dict(id=kind+str(number),type=kind,name=TYPE_NAMES[kind]+str(number)))
-                self.canvas.commit(change)
-            menu.addAction(TYPE_NAMES[kind],add)
-        menu.open_for(self.more,self.canvas.view)
+    def convert_wiring(self):
+        from .scheduler_wiring import convert
+        self.canvas.commit(lambda state:convert(state,self.key),label='整理預排程接線')
 
     def policies(self):
         try:plan=compile_plan(self.canvas.window.state)

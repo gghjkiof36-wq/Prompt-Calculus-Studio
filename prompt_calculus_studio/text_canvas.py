@@ -260,7 +260,8 @@ class TextCanvas(QWidget):
         return self.history_projection(self.window.state)
 
     def history_projection(self, state):
-        return {k: copy.deepcopy(state[k]) for k in HISTORY_FIELDS if k in state}
+        from .workspace_scene import history_projection
+        return history_projection(state,HISTORY_FIELDS)
 
     def commit(self, operation, label='編輯', merge_key=None):
         before = self.history_state(); value = copy.deepcopy(self.window.state)

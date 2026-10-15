@@ -328,7 +328,7 @@ class MultiCanvas(TextCanvas):
     def data(self): return self.window.state['multi_output']
     def next_z(self): self.z_counter+=.0001; return min(-.2,self.z_counter)
     def history_state(self):
-        return {k:copy.deepcopy(self.window.state[k]) for k in HISTORY_FIELDS+('multi_output','draft','draft_base') if k in self.window.state}
+        return self.history_projection(self.window.state)
     def commit(self,operation,label='編輯',merge_key=None):
         from .material_navigation import navigation_only
         library_only = False
@@ -403,7 +403,8 @@ class MultiCanvas(TextCanvas):
         if canvas_focus:self.view.setFocus();self.view.scene().clearFocus()
 
     def history_projection(self,state):
-        return {k:copy.deepcopy(state[k]) for k in HISTORY_FIELDS+('multi_output','draft','draft_base') if k in state}
+        from .workspace_scene import history_projection
+        return history_projection(state,HISTORY_FIELDS+('multi_output','draft','draft_base'))
     def choose_current(self):
         key=self.output_picker.currentData()
         if key and key!=self.data()['current_output']:

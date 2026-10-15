@@ -156,7 +156,10 @@ def connect(state,source,destination,kind):
         mark_version(state)
     if data['version']>=6 and destination in outputs and kind in ('text','clip'):
         ids=outputs[destination].setdefault('text_sources',list(outputs[destination].get('canvases',[])))
-        if source not in ids:ids.append(source)
+        if source not in ids:
+            readers=state.get('canvas_functions',{}).get('text_sources',{})
+            at=next((i for i,key in enumerate(ids) if key not in readers),len(ids)) if source in readers else len(ids)
+            ids.insert(at,source)
     if kind=='text':
         if data['version']>=5:
             ids=outputs[destination].setdefault('canvases',[])

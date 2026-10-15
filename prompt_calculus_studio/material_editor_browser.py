@@ -133,8 +133,10 @@ class PromptEditor(QWidget):
         self.categories.toggleRequested.connect(self.toggle_folder)
         self.categories.menuRequested.connect(self.category_row_menu)
         self.categories.moveRequested.connect(self.move_category)
-        self.categories.undoRequested.connect(self.window.canvas.undo)
-        self.categories.redoRequested.connect(self.window.canvas.redo)
+        canvas=getattr(self.window,'canvas',None)
+        if canvas is not None:
+            self.categories.undoRequested.connect(canvas.undo)
+            self.categories.redoRequested.connect(canvas.redo)
         self.categories.setFrameShape(QListWidget.Shape.NoFrame); self.categories.setSpacing(3)
         self.categories.setResizeMode(QListWidget.ResizeMode.Adjust); category_layout.addWidget(self.categories, 1)
         self.category = ComboBox(self); self.category.hide(); self.category.installEventFilter(self)

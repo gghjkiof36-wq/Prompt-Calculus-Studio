@@ -85,7 +85,7 @@ class Port(QGraphicsObject):
         if slot and key in canvas.data().get('stages',{}) and kind=='control':
             name=(canvas.data()['clip_inputs'].get(slot) or canvas.data().get('image_inputs',{}).get(slot) or {}).get('name',name)
         typed=channel(canvas.window.state,key)
-        if typed:name=typed[1]['name']
+        if typed:name=('舊接點 · ' if canvas.data()['version']>=7 else '')+typed[1]['name']
         if kind=='content':
             if typed and name=='文字組合':name=LABELS[kind]
             if key in canvas.window.state.get('canvas_functions',{}).get('text_sources',{}):name='流程'
@@ -96,7 +96,8 @@ class Port(QGraphicsObject):
         parent_key=key.split('::')[0]
         if kind in ('control','flow') and parent_key in canvas.data().get('schedulers',{}):
             count=sum(c['destination']==key and c['kind']==kind for c in canvas.data()['connections'])
-            offset=index-len(canvas.data()['schedulers'][parent_key]['channels'])
+            from .module_contracts import scheduler_port_specs
+            offset=index-min(p[4] for p in scheduler_port_specs(canvas.window.state,parent_key) if p[1] in ('control','flow') and not p[2])
             name='輸出' if output else '輸入'+(str(offset+1) if count else '')
         direction='輸出' if output else '輸入'
         self.setToolTip((name if name.startswith(direction) else name+direction)+' · 拖曳或點擊連線')
@@ -126,8 +127,9 @@ class Port(QGraphicsObject):
         source,destination=(self,other) if self.output else (other,self)
         textual=destination.key in self.canvas.data()['outputs'] and self.canvas.data()['version']>=6 and {self.kind,other.kind}<= {'text','clip'}
         ordering=(source.kind=='flow' and destination.kind=='control' and source.key in self.canvas.data().get('stages',{}) and destination.key in self.canvas.data().get('stages',{}))
-        from .module_contracts import scheduler_wire_target
+        from .module_contracts import scheduler_wire_target,connection_error
         target=scheduler_wire_target(self.canvas.window.state,destination.key,source.kind)
+        if connection_error(self.canvas.window.state,source.key,target,source.kind):return False
         if self.kind!=other.kind and not textual and not ordering and target==destination.key:return False
         gesture=self.canvas.connection_gesture
         if destination.slot and destination.slot!=source.key and not (gesture.original and gesture.anchor is destination): return False
@@ -195,7 +197,9 @@ class ConnectionGesture(QObject):
         self.cancel(); canvas=self.canvas
         def apply(s):
             if original: model.disconnect(s,original)
-            if src: model.connect(s,src,dst,kind)
+            if src:
+                from .scheduler_wiring import connect
+                connect(s,src,dst,kind)
         if original or src: QTimer.singleShot(0,lambda:canvas.commit(apply))
     def cancel(self):
         if self.preview is not None: self.canvas.view.scene().removeItem(self.preview)

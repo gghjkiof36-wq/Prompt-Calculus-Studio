@@ -19,6 +19,22 @@ def capture(state):
         state['workspace_scenes']['items'][state['workspace']]=scene(state)
 
 
+def history_projection(state, fields):
+    """Compare the active document, not its asynchronously saved scene cache.
+
+    Autosave refreshes the active scene without making an edit. Derive that
+    duplicate from the live document in a copy; inactive workspaces still carry
+    their complete saved contents and view. Reading history must never write.
+    """
+    result={key:copy.deepcopy(state[key]) for key in fields if key in state}
+    scenes=result.get('workspace_scenes',{}).get('items',{})
+    if state.get('workspace') in scenes:
+        active=scene(state)
+        for key in ('canvas_view','selection_view'):active.pop(key,None)
+        scenes[state['workspace']]=active
+    return result
+
+
 def load(state,value):
     for key in FIELDS:state.pop(key,None)
     state.update({k:copy.deepcopy(value[k]) for k in FIELDS if k in value})

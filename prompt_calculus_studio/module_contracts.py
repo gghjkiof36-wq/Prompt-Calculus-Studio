@@ -67,9 +67,13 @@ def binding_sources(state, scheduler):
 def scheduler_port_specs(state, scheduler):
     """One layout contract for the real card and the add-menu preview."""
     data=state['multi_output'];item=data['schedulers'][scheduler];result=[]
-    for index,channel in enumerate(item['channels']):
+    # Saved legacy wires remain reachable for removal/explicit conversion.
+    # New cards expose only bound inputs and Stage references.
+    channels=[ch for ch in item['channels'] if data['version']<7 or any(
+        scheduler+'::'+ch['id'] in (c['source'],c['destination']) for c in data['connections'])]
+    for index,channel in enumerate(channels):
         result.extend((scheduler+'::'+channel['id'],channel['type'],output,None,index) for output in (False,True))
-    index=len(item['channels'])
+    index=len(channels)
     if data['version']>=7:
         # Present one input/output family. Keep the persisted binding and Stage
         # endpoints distinct; the first wire chooses their existing semantics.
@@ -82,6 +86,14 @@ def scheduler_port_specs(state, scheduler):
         result.extend((endpoint,kind,False,source,index+offset) for offset,source in enumerate([*sources,None]))
         result.append((endpoint,kind,True,None,index))
     return result
+
+
+def connection_error(state, source, destination, kind):
+    """Current editing contract; old saved wires remain valid to read/undo."""
+    if state['multi_output']['version']>=7 and kind in DATA_TYPES:
+        if 'scheduler' in (module_kind(state,source),module_kind(state,destination)):
+            return '請先將文字接到 Prompt 輸出及 CLIP 輸入，圖片接到圖片輸入，再由輸入模塊連接預排程。'
+    return None
 
 
 def scheduler_wire_target(state, key, kind):

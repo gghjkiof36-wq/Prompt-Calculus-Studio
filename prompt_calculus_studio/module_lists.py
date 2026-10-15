@@ -41,6 +41,7 @@ def source_kind(state,key):
     if key in data['canvases']:return '畫布'
     if key in data['outputs']:return 'Prompt'
     if key in data.get('stages',{}):return 'Stage'
+    if key in state.get('canvas_functions',{}).get('text_sources',{}):return '流程'
     if '::' in key:return '預排程'
     return '文字' if state.get('canvas_functions',{}).get('images',{}).get(key,{}).get('reader')=='text' else '圖片提示詞'
 

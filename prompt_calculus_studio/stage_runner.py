@@ -97,7 +97,7 @@ class StageRunner(QObject):
         auto={key for k in keys if plan['stages'][k]['auto'] for key in plan['stages'][k].get('suppliers',[])}
         ids=[key for key in ids if key not in auto]
         if not ids:return [state for _ in range(count)],None
-        frozen=supply.build(state,ids,count=count);states=[]
+        frozen=supply.build(state,ids,count=None if supply.automatic(state,ids) else count);states=[]
         for picks in frozen['rounds']:
             current=copy.deepcopy(state);images,_=supply.project(current,frozen,picks)
             states.append(project(current,self.window.store.directory,source_values=images))

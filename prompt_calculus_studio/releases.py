@@ -95,6 +95,7 @@ RELEASES={r.flag:r for r in (
     Release('--v0.8.8-preparation.7','v0.8.8-preparation.7','v0.8.8 相容與視窗效能前置驗證 7（本機）','Start-PCS-v0.8.8-Preparation7','--v0.8.7-alpha'),
     Release('--v0.8.8-preparation.8','v0.8.8-preparation.8','v0.8.8 流程預覽同步前置驗證 8（本機）','Start-PCS-v0.8.8-Preparation8','--v0.8.7-alpha'),
     Release('--v0.8.8-preparation.9','v0.8.8-preparation.9','v0.8.8 流程層級命名前置驗證 9（本機）','Start-PCS-v0.8.8-Preparation9','--v0.8.7-alpha'),
+    Release('--v0.8.8-preparation.10','v0.8.8-preparation.10','v0.8.8 Prompt 彙整與輸入排程前置驗證 10（本機）','Start-PCS-v0.8.8-Preparation10','--v0.8.7-alpha'),
 )}
 
 COMFYUI_COMPATIBILITY_PROFILES={

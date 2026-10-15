@@ -155,8 +155,13 @@ def compile_plan(state):
         auto=[];suppliers=[]
         if used:
             scheduler=next(iter(used))
-            from .prompt_sources import scheduler_sources, automatic
+            from .prompt_sources import scheduler_sources, connected, automatic
+            # Only sources that reach a bound field may determine the rounds.
+            # An old side wire must never silently drive unrelated native text.
             suppliers=scheduler_sources(state,scheduler)
+            routed=connected(state,[b['source'] for b in bound if b['source']])
+            if set(suppliers)-set(routed):
+                raise ValueError('流程或圖片來源尚未經輸入模塊接入 Stage；請在預排程管理中整理舊接線，文字先經 Prompt 輸出。')
             if automatic(state,suppliers):auto=suppliers[:1]
         plans[key]=dict(stage,id=key,bindings=bound,scheduler=next(iter(used),None),auto=next(iter(auto),None),
             suppliers=suppliers,
