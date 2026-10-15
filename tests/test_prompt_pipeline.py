@@ -46,10 +46,11 @@ class PromptPipelineTests(unittest.TestCase):
         self.assertEqual(len(entries),6,self.notices)
         self.assertEqual([e['saved']['values'][self.clip]['value'] for e in entries],expected)
         for index,text in enumerate(expected):
-            self.assertEqual(self.text(),text)
+            # All six have been saved: the next cycle is displayed immediately.
+            self.assertEqual(self.text(),'a\n1')
             self.assertEqual(self.submitted_texts()[-1],text)
             root=supply.definitions(self.w.state)[config['reader']]['root']
-            self.assertEqual(root['sequence']['selected'],root['sequence']['groups'][index]['id'])
+            self.assertEqual(root['sequence']['selected'],root['sequence']['groups'][0]['id'])
             self.executor.finish()
         self.assertEqual(self.submitted_texts(),expected)
         self.assertIsNone(self.runner.current())
@@ -99,7 +100,7 @@ class PromptPipelineTests(unittest.TestCase):
         self.assertEqual(self.runner.store.rows('entry'),[])
         def step(state):
             source=supply.definitions(state)[config['reader']];source['supply']='step'
-            root=source['root'];root['sequence']['selected']=root['sequence']['start'];root.pop('supply_cursor',None)
+            root=source['root'];root['sequence']['selected']=root['sequence']['start'];root.pop('supply_cursor',None);root.pop('selection_cursor',None)
         self.assertTrue(self.c.commit(step));self.click()
         self.assertEqual(len(self.submitted_texts()),7);self.assertEqual(self.submitted_texts()[-1],'a\n1')
 

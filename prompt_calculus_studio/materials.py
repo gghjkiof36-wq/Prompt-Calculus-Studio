@@ -18,12 +18,20 @@ def item(state, ident):
 
 
 def fingerprint(value):
-    fields = ('name', 'prompt', 'composition', 'excludes', 'content_kind')
+    fields = ('name', 'prompt', 'composition', 'excludes', 'content_kind', 'material_type')
     body = {key: value[key] for key in fields if key in value}
     return hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()
 
 
 def validate_fields(value):
+    from .prompt_materials import TYPES
+    if 'material_type' in value and value['material_type'] not in TYPES:
+        raise ValueError('素材類型不支援，原資料保留。')
+    root=value.get('composition')
+    if root and value.get('material_type') and root.get('material_type') and value['material_type']!=root['material_type']:
+        raise ValueError('素材類型與內容不符，原資料保留。')
+    if 'module' in value and not root and value.get('material_type','text')!='text':
+        raise ValueError('組合與流程缺少內容定義，原資料保留。')
     if value.get('content_kind', 'tags') not in CONTENT_KINDS:
         raise ValueError('文字內容類型不支援，原資料保留。')
     if type(value.get('pinned', False)) is not bool:
@@ -37,7 +45,8 @@ def validate_fields(value):
         raise ValueError('文字卡片收合格式無效。')
 
 
-def search(state, query='', category=None, *, pinned=False, order='name'):
+def search(state, query='', category=None, *, pinned=False, order='name', material_type=None):
+    from .prompt_materials import kind
     query = query.strip().casefold()
     def searchable(value):
         texts=[value['name'],value['prompt'],value.get('notes',''),*value.get('aliases',[])]
@@ -45,8 +54,11 @@ def search(state, query='', category=None, *, pinned=False, order='name'):
             for part in comp.walk(value['composition']):
                 texts.extend((part['name'],part['prompt']))
                 for group in part.get('sequence',{}).get('groups',[]):texts.extend((group['name'],group['text']))
+                for variant in part.get('variants',{}).get('groups',[]):texts.extend((variant['name'],variant['text']))
+                if part.get('combination'):texts.append(part['combination']['text'])
         return ' '.join(texts).casefold()
     found = [value for value in state['items'] if (not category or value['module'] == category)
+             and (material_type is None or kind(value) == material_type)
              and (not pinned or value.get('pinned', False))
              and (not query or query in searchable(value))]
     if order == 'recent':
@@ -78,7 +90,10 @@ def save(state, value):
     if 'composition' in result:
         root = result['composition']
         root.update(name=result['name'], content_kind=result['content_kind'])
+        comp.validate_node(root)
         result['prompt'] = comp.render(root)
+    from .prompt_materials import kind
+    result.setdefault('material_type',kind(result))
     if current is None:
         state['items'].append(result)
     else:
@@ -187,6 +202,8 @@ def add_to_canvas(state, ident, canvas_id, position=None):
         raise ValueError('請先選擇要加入的畫布。')
     source = item(state, ident)
     root = comp.clone_node(comp.prototype(source))
+    from .prompt_materials import reset
+    reset(root)
     root.update(source_id=source['id'], source_module=source['module'],
                 source_revision=fingerprint(source), content_kind=source.get('content_kind', 'tags'))
     root['collapsed'] = True
@@ -231,6 +248,8 @@ def from_canvas(state, key, category, name=None):
     value = dict(id=uid(), name=root['name'], prompt=comp.render(root), module=category,
                  aliases=[], notes='', excludes=[], preview=root.get('preview', ''),
                  content_kind=root.get('content_kind', 'tags'), composition=root)
+    from .prompt_materials import kind
+    value['material_type']=kind(root)
     return value
 
 

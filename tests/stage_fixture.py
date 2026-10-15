@@ -33,6 +33,8 @@ class ChainExecutor(ReceiptExecutor):
     def __init__(self,window,root):
         root.mkdir(parents=True,exist_ok=True);self.root=root
         super().__init__(window,root)
+        from prompt_calculus_studio.core import SUPPORTED_STATE_VERSIONS
+        self.client.snapshot_versions=list(SUPPORTED_STATE_VERSIONS)
         self.graphs={p['id']:copy.deepcopy(p['graph']) for p in window.state['generation']['profiles']}
         self.identities={p['id']:dict(workflow=p['id'],path=p.get('origin',{}).get('path',''),frontend_id=p['frontend_id']) for p in window.state['generation']['profiles']}
         self.live['workflows']=list(self.identities.values());self.results={};self.result_failure=False;self.cancelled=[]

@@ -1,5 +1,7 @@
 # 0.8.8 本機前置驗證
 
+本頁是前置 5 的歷史紀錄；目前本機候選的操作與規則請看[候選 1](releases/0.8.8/development/candidate1.md)，尤其三層素材、輸入接線、最大輪數循環及去重範圍。
+
 此文件記錄本機 `--v0.8.8-preparation.5` 的候選實作與試用方式，不表示已發布 0.8.8。公開 0.8.7 Alpha 1 的版本與下載內容未更新。
 
 在 Windows 候選包內執行 `Start-PCS-v0.8.8-Preparation5.cmd`，資料保存在同一資料夾下的 `data`，與其他版本分開。配套擴充位於 `extensions/PromptCalculusStudio-ComfyUI.zip`；本機程式和擴充使用同一提交。實際版本、來源與編譯提交見包內 `BUILD_INFO.json`。

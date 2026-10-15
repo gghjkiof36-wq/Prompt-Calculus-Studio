@@ -97,7 +97,9 @@ class MaterialPanels(QWidget):
 
     def expanded_width(self):
         total = min(self.preferred_width+self.GAP+self.SIDE_WIDTH, self.bounds().width())
-        self.side_width = min(self.SIDE_WIDTH, max(240, total-self.preferred_width-self.GAP))
+        # Share a constrained viewport instead of retaining a wide main card
+        # and squeezing the preview below the text editor's usable width.
+        self.side_width = min(self.SIDE_WIDTH, max(240, round(total*.38))) if total < self.preferred_width+self.GAP+self.SIDE_WIDTH else self.SIDE_WIDTH
         self.main_width = max(1, total-12-self.GAP-self.side_width)
         return total
 

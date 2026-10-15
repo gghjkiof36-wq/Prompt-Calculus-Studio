@@ -19,7 +19,7 @@ class GroupUITests(unittest.TestCase):
         for font in ('msjh.ttc','msjhbd.ttc','segoeui.ttf'):QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+font)
 
     def create(self):
-        dialog=self.page.new_material();dialog.name.setText('旅行組合');dialog.pages.type_picker.setCurrentIndex(1)
+        dialog=self.page.new_material();dialog.name.setText('旅行組合');dialog.pages.type_picker.setCurrentIndex(dialog.pages.type_picker.findData('flow'))
         return dialog,dialog.pages.group_editor
 
     def test_create_cancel_and_form_switch_retain_both_drafts(self):
@@ -33,7 +33,7 @@ class GroupUITests(unittest.TestCase):
         ed.input_tabs.setCurrentIndex(1);self.assertEqual(ed.direct_text.toPlainText(),'group text')
         self.assertEqual(ed.current_group['modules'][0]['prompt'],'module draft')
         ed.back();dialog.pages.type_picker.setCurrentIndex(0);self.assertEqual(dialog.prompt.toPlainText(),'single draft')
-        dialog.pages.type_picker.setCurrentIndex(1);self.assertEqual(ed.sequence['groups'][0]['text'],'group text')
+        dialog.pages.type_picker.setCurrentIndex(dialog.pages.type_picker.findData('flow'));self.assertEqual(ed.sequence['groups'][0]['text'],'group text')
         QTest.mouseClick(dialog.cancel_button,Qt.MouseButton.LeftButton);self.assertEqual(self.w.state,before)
 
     def test_save_reopen_undo_redo_and_original_copy_isolation(self):
@@ -166,18 +166,18 @@ class GroupUITests(unittest.TestCase):
         self.assertEqual(panel.findChildren(QPlainTextEdit),[])
         QTest.mouseClick(panel.next,Qt.MouseButton.LeftButton);self.app.processEvents()
         self.assertEqual(panel.group_name.text(),'second')
-        panel.supply.setFocus();QTest.keyClick(panel.supply,Qt.Key.Key_End);self.app.processEvents()
+        panel.supply.setCurrentIndex(panel.supply.findData('batch'));self.app.processEvents()
         self.assertEqual(sources.definitions(self.w.state)[keys[0]]['supply'],'batch')
         for mode,name in groups.MODES.items():
             def select_mode():
                 menu=self.app.activePopupWidget();action=next(a for a in menu.actions() if a.text()==name)
-                action.trigger();menu.close()
+                (action.menu().actions()[0] if action.menu() else action).trigger();menu.close()
             QTimer.singleShot(0,select_mode);QTest.mouseClick(panel.mode,Qt.MouseButton.LeftButton);self.app.processEvents()
             self.assertEqual(sources.definitions(self.w.state)[keys[0]]['root']['sequence']['mode'],mode)
             self.assertEqual(panel.mode.text(),'');self.assertEqual(panel.mode.toolTip(),'變量：'+name)
-        self.assertTrue(panel.limit_row.isVisible());panel.limit.setValue(7)
+        self.assertTrue(panel.limit_row.isVisible());panel.count_mode.setCurrentIndex(panel.count_mode.findData('specified'));panel.limit.setValue(7)
         self.assertEqual(sources.definitions(self.w.state)[keys[0]]['limit'],7)
-        panel.supply.setFocus();QTest.keyClick(panel.supply,Qt.Key.Key_Home);self.app.processEvents()
+        panel.supply.setCurrentIndex(panel.supply.findData('step'));self.app.processEvents()
         self.assertTrue(panel.limit_row.isHidden())
 
     def test_canvas_group_footer_controls_preserve_round_and_inline_weight_undo(self):
@@ -202,18 +202,16 @@ class GroupUITests(unittest.TestCase):
         self.assertEqual(groups.selected(self.w.state['uses'][key]['sequence'])['name'],'B')
         canvas.undo();self.assertEqual(groups.selected(self.w.state['uses'][key]['sequence'])['name'],'A')
 
-    def test_deduplication_is_inside_excludes_without_per_tag_controls(self):
+    def test_deduplication_moves_to_combination_and_legacy_values_survive(self):
         root=comp.node('tags','cat, cat ears, cat, (cat:1.2)')
         dialog=NodeDialog(self.w,root);dialog.show();self.app.processEvents()
         self.assertFalse(dialog.findChildren(QListWidget));self.assertFalse(dialog.excludes_panel.isVisible())
         self.assertEqual([c.text() for c in dialog.findChildren(QCheckBox) if c.isVisible()],['啟用'])
         QTest.mouseClick(dialog.excludes_toggle,Qt.MouseButton.LeftButton);self.app.processEvents()
-        self.assertTrue(dialog.excludes.isVisible());self.assertTrue(dialog.dedupe.isVisible())
-        QTest.mouseClick(dialog.dedupe,Qt.MouseButton.LeftButton,pos=QPoint(10,dialog.dedupe.height()//2))
-        self.assertTrue(dialog.dedupe.isChecked())
-        self.assertEqual(comp.render(dict(root,**dialog.values())),'cat, cat ears, (cat:1.2)')
+        self.assertTrue(dialog.excludes.isVisible());self.assertFalse(dialog.dedupe.isVisible())
+        self.assertEqual(comp.render(dict(root,**dialog.values())),root['prompt'])
         QTest.mouseClick(dialog.excludes_toggle,Qt.MouseButton.LeftButton);self.app.processEvents()
-        self.assertFalse(dialog.dedupe.isVisible());self.assertTrue(dialog.values()['deduplicate']);dialog.reject()
+        self.assertFalse(dialog.dedupe.isVisible());self.assertFalse(dialog.values()['deduplicate']);dialog.reject()
         self.assertEqual(root['prompt'],'cat, cat ears, cat, (cat:1.2)')
         # Existing optional fields remain readable; removing controls must not erase old data.
         legacy=dict(root,disabled_tags=['cat'],deduplicate=True)
@@ -225,10 +223,11 @@ class GroupUITests(unittest.TestCase):
         def fill_new():
             modal=ed.active_node_dialog
             self.assertFalse(modal.dedupe.isVisible());modal.excludes_toggle.setChecked(True)
-            modal.dedupe.setChecked(True);modal.save()
+            modal.save()
         QTimer.singleShot(0,fill_new);ed.add_empty()
         self.assertFalse(hasattr(ed,'tag_list'))
-        self.assertTrue(ed.current_group['modules'][0]['deduplicate']);dialog.reject()
+        self.assertFalse(ed.current_group['modules'][0]['deduplicate']);ed.deduplicate.setChecked(True)
+        self.assertTrue(ed.current_group['deduplicate']);dialog.reject()
 
     def test_compact_text_controls_keep_edits_and_canvas_uses_same_dialog(self):
         root=comp.node('文字模組','cat, garden, cat ears')
@@ -247,7 +246,7 @@ class GroupUITests(unittest.TestCase):
         dialog.resize(430,440)
         for _ in range(4):self.app.processEvents()
         self.assertGreater(dialog.form_scroll.verticalScrollBar().maximum(),0)
-        for control in (dialog.enabled,dialog.excludes,dialog.dedupe):
+        for control in (dialog.enabled,dialog.excludes):
             dialog.form_scroll.ensureWidgetVisible(control)
             self.app.processEvents()
             point=control.mapTo(dialog.form_scroll.viewport(),control.rect().center())

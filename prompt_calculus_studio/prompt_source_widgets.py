@@ -7,10 +7,11 @@ from .widgets import label, button, row, ComboBox, RoundMenu, StudioDialog, Elid
 from .prompt_group_editor import EntryList, PageStack, page, tool, field, mode_options
 from .material_editor_page import Disclosure
 from .ui_icons import icon, MODE_ICONS
-from . import composition as comp, prompt_groups as groups, prompt_sources as sources
+from . import composition as comp, prompt_groups as groups, prompt_sources as sources, prompt_materials as pm
+from .material_picker import MaterialPickerMixin
 
 
-class GroupSourceDialog(StudioDialog):
+class GroupSourceDialog(MaterialPickerMixin,StudioDialog):
     def __init__(self, canvas, key):
         super().__init__(canvas.window,defer_style=True); self.canvas=canvas; self.key=key
         from .module_chrome import apply_prompt_dialog, prompt_divider
@@ -22,18 +23,10 @@ class GroupSourceDialog(StudioDialog):
         original=sources.definitions(canvas.window.state)[key]
         self.root=None if original.get('unselected') else copy.deepcopy(original['root'])
         self.material_id=self.root.get('source_id') if self.root else None;self.drafts={}
+        self.host=canvas.window;self.picker_kind='flow';self.category=getattr(self.host,'_material_browser_category',None)
         self.stack=PageStack()
         self.overview,overview=page();self.stack.addWidget(self.overview)
-        self.library=ComboBox();self.library.setAccessibleName('素材庫流程');self.library.setPlaceholderText('選擇流程')
-        for item in canvas.window.state['items']:
-            if item.get('composition',{}).get('sequence'): self.library.addItem(item['name'], item['id'])
-        index=self.library.findData(self.material_id) if self.material_id else -1
-        if self.root:
-            if index<0:
-                self.library.insertItem(0,self.root['name'],self.material_id);index=0
-                self.library.model().item(0).setEnabled(False)
-            else:self.library.setItemText(index,self.root['name'])
-        self.library.setCurrentIndex(index)
+        self.library=button('選擇流程',self.open_picker);self.library.setAccessibleName('選擇素材庫流程')
         self.reload_button=tool('refresh','重新讀取素材庫原件',self.reload_material)
         self.library_label=label('流程','Subtle');overview.addWidget(self.library_label)
         overview.addLayout(row(self.library,self.reload_button))
@@ -44,7 +37,7 @@ class GroupSourceDialog(StudioDialog):
         self.listing=EntryList('groups',readonly=True,reorderable=True);self.listing.setAccessibleName('流程內的組合')
         overview.addWidget(self.listing,1);self.listing.activatedRow.connect(self.open_group)
         self.listing.reorderRequested.connect(lambda before,after:self.reorder(self.root['sequence']['groups'],before,after))
-        self.empty=label('素材庫尚無流程' if not self.library.count() else '尚未選擇流程','Subtle');overview.addWidget(self.empty)
+        self.empty=label('素材庫尚無流程','Subtle');overview.addWidget(self.empty)
         self.detail,detail=page();self.stack.addWidget(self.detail)
         self.detail_meta=label('','Subtle');detail.addWidget(self.detail_meta)
         self.modules_label=label('組合內素材','SectionTitle');detail.addWidget(self.modules_label)
@@ -62,13 +55,12 @@ class GroupSourceDialog(StudioDialog):
         self.stack.setAutoFillBackground(False)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.stack.currentChanged.connect(self.page_changed)
-        self.library.currentIndexChanged.connect(self.load_material)
         self.mode.currentIndexChanged.connect(self.configure);self.start.currentIndexChanged.connect(self.configure)
         self.error=label('', 'Draft', True); self.body.addWidget(self.error);self.error.hide()
         self.back_button=tool('back','返回流程',self.back);self.heading_row.insertWidget(0,self.back_button)
         self.apply_button=button('讀取' if original.get('unselected') else '套用',self.save,'Primary')
         self.done_button=button('完成',self.back,'Primary');self.cancel_button=button('取消',self.reject,'Quiet')
-        self.body.addWidget(prompt_divider())
+        self.footer_divider=prompt_divider();self.body.addWidget(self.footer_divider)
         self.body.addLayout(row(None,self.cancel_button,self.apply_button,self.done_button))
         self.resize(min(720,max(380,canvas.window.width()-24)),min(600,max(380,canvas.window.height()-24)))
         self.panels.content=self.stack;self.panels.form_scroll=self.scroll
@@ -76,6 +68,7 @@ class GroupSourceDialog(StudioDialog):
         self.refresh_overview();self.page_changed(0)
 
     def fit_editor(self,*_):
+        self.panels.set_main_width(880 if self.stack.currentIndex()==2 else 720 if self.root else 460)
         self.panels.fit_content()
 
     def show_preview(self,opened):
@@ -85,34 +78,44 @@ class GroupSourceDialog(StudioDialog):
     def page_changed(self,index):
         inside=index==1
         self.preview_toggle.setChecked(False);self.panels.set_open(False,animate=False)
-        self.back_button.setVisible(inside);self.done_button.setVisible(inside);self.apply_button.setVisible(not inside and bool(self.root))
-        self.heading.setText(self.current_group['name'] if inside else '讀取流程')
+        self.back_button.setVisible(index>0);self.done_button.setVisible(inside);self.apply_button.setVisible(index==0 and bool(self.root))
+        self.footer_divider.setVisible(bool(self.root))
+        self.heading.setText(self.current_group['name'] if inside else '選擇流程' if index==2 else '讀取流程')
         self.scroll.verticalScrollBar().setValue(0)
         self.fit_editor()
 
     def back(self):
         self.refresh_overview();self.stack.setCurrentIndex(0)
 
+    def open_picker(self):
+        if not hasattr(self,'candidates'):
+            self._picker();self.picker_navigation.hide()
+        self.refresh_folders();self.fit_picker();self.stack.setCurrentIndex(2);self.search.setFocus()
+
+    def pick_material(self,ident,position=None):
+        if self.load_material(ident):self.stack.setCurrentIndex(0)
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event);self.fit_picker()
+
     def showEvent(self,event):
+        self.panels.set_main_width(720 if self.root else 460)
         self.panels.fit_content(before_show=True)
         super().showEvent(event)
 
-    def load_material(self):
+    def load_material(self,ident):
         if self.loading:return
-        ident=self.library.currentData()
         if ident is None:return
         if self.root:self.drafts[self.material_id]=copy.deepcopy(self.root)
         try:root=copy.deepcopy(self.drafts[ident]) if ident in self.drafts else sources.library_root(self.canvas.window.state,ident)
         except ValueError as exc:
-            self.loading=True;self.library.setCurrentIndex(self.library.findData(self.material_id));self.loading=False
             self.error.setText(str(exc));self.error.show();self.fit_editor();return
-        self.root=root;self.material_id=ident;self.error.hide();self.refresh_overview()
+        self.root=root;self.material_id=ident;self.error.hide();self.refresh_overview();return True
 
     def reload_material(self):
         try:root=sources.library_root(self.canvas.window.state,self.material_id)
         except ValueError as exc:self.error.setText(str(exc));self.error.show();self.fit_editor();return
         self.root=root;self.drafts[self.material_id]=copy.deepcopy(root)
-        self.library.setItemText(self.library.currentIndex(),root['name'])
         self.error.hide();self.refresh_overview()
 
     def refresh_overview(self):
@@ -120,7 +123,9 @@ class GroupSourceDialog(StudioDialog):
         seq=self.root['sequence'] if self.root else None
         self.panels.minimum_height=480 if seq else 240
         for control in (self.library_label,self.variables,self.groups_label,self.listing,self.reload_button):control.setVisible(bool(seq))
-        self.empty.setVisible(not seq and not self.library.count())
+        self.library.setText(self.root['name'] if self.root else '選擇流程')
+        self.empty.hide()
+        self.footer_divider.setVisible(bool(seq))
         self.apply_button.setVisible(bool(seq) and self.stack.currentIndex()==0)
         self.apply_button.setEnabled(bool(seq));self.reload_button.setEnabled(bool(self.material_id))
         if seq:
@@ -134,7 +139,9 @@ class GroupSourceDialog(StudioDialog):
 
     def preserve_position(self):
         if self.root.get('supply_cursor'):
-            self.root['supply_cursor']['signature']=sources.signature(self.root)
+            self.root['supply_cursor']['signature']=sources.legacy_signature(self.root)
+        if self.root.get('selection_cursor'):
+            self.root['selection_cursor']['signature']=pm.signature(self.root)
 
     def reorder(self,rows,before,after):
         if [item['id'] for item in rows]!=before or len(after)!=len(before) or set(before)!=set(after):return
@@ -145,7 +152,7 @@ class GroupSourceDialog(StudioDialog):
     def configure(self):
         if self.loading or not self.root:return
         seq=self.root['sequence'];seq.update(mode=self.mode.currentData(),start=self.start.currentData())
-        seq['selected']=seq['start'];self.root.pop('supply_cursor',None)
+        seq['selected']=seq['start'];self.root.pop('supply_cursor',None);self.root.pop('selection_cursor',None)
         self.refresh_overview()
 
     def open_group(self,ident):
@@ -201,10 +208,13 @@ class GroupSourcePanel(QFrame):
         self.mode.setAccessibleName('變量')
         layout.addLayout(row(self.supply,self.mode))
         self.limit=QSpinBox();self.limit.setRange(1,groups.MAX_ROUNDS);self.limit.setSuffix(' 輪');self.limit.setAccessibleName('批次輪數')
-        self.limit.setToolTip('沒有有限來源時的批次輪數')
-        self.limit_row=field('批次輪數',self.limit);layout.addWidget(self.limit_row)
+        self.count_mode=ComboBox();self.count_mode.setAccessibleName('批次輪數模式')
+        self.count_mode.addItem('自動','auto');self.count_mode.addItem('指定數量','specified')
+        count_controls,counts=page();counts.addLayout(row(self.count_mode,self.limit))
+        self.limit_row=field('批次輪數',count_controls);layout.addWidget(self.limit_row)
         self.edit_button=button('選擇流程',self.edit);self.edit_button.setAccessibleName('選擇流程');layout.addWidget(self.edit_button)
         self.supply.currentIndexChanged.connect(self.configure)
+        self.count_mode.currentIndexChanged.connect(self.configure)
         self.limit.valueChanged.connect(self.configure);self.index.valueChanged.connect(self.select)
 
     def value(self):return sources.definitions(self.owner.window.state)[self.key]
@@ -224,15 +234,16 @@ class GroupSourcePanel(QFrame):
         self.index.setFixedWidth(max(64,self.index.fontMetrics().horizontalAdvance(str(len(seq['groups']))+' / '+str(len(seq['groups'])))+12))
         self.index.setValue(next(i for i,g in enumerate(seq['groups'],1) if g['id']==seq['selected']))
         self.previous.setEnabled(ready and self.index.value()>1);self.next.setEnabled(ready and self.index.value()<len(seq['groups']))
-        self.limit.setValue(value['limit']);self.limit_row.setVisible(ready and value['supply']=='batch' and seq['mode'] in ('random','fixed'))
+        self.limit.setValue(value['limit']);self.limit_row.setVisible(ready and value['supply']=='batch')
+        self.count_mode.setCurrentIndex(self.count_mode.findData(value.get('count_mode','auto')))
+        self.limit.setVisible(value.get('count_mode','auto')=='specified')
         self.loading=False
 
     def configure(self):
         if self.loading:return
-        supply,limit=self.supply.currentData(),self.limit.value()
+        supply,limit,count_mode=self.supply.currentData(),self.limit.value(),self.count_mode.currentData()
         def apply(state):
-            value=sources.definitions(state)[self.key];value.update(supply=supply,limit=limit)
-            value['root'].pop('supply_cursor',None)
+            value=sources.definitions(state)[self.key];value.update(supply=supply,limit=limit,count_mode=count_mode)
         self.owner.canvas.commit(apply,label='設定流程供應')
 
     def choose_mode(self):
@@ -240,19 +251,32 @@ class GroupSourcePanel(QFrame):
         for mode,name in groups.MODES.items():
             action=menu.addAction(icon(MODE_ICONS[mode]),name,lambda checked=False,m=mode:self.set_mode(m))
             action.setCheckable(True);action.setChecked(mode==selected)
+        if selected=='random':
+            menu.addSeparator()
+            for enabled,name in ((True,'允許重複'),(False,'一輪內不重複')):
+                action=menu.addAction(name,lambda checked=False,v=enabled:self.set_random_repeats(v))
+                action.setCheckable(True);action.setChecked(self.value()['root']['sequence'].get('random_repeats',True)==enabled)
         menu.exec(self.mode.mapToGlobal(self.mode.rect().bottomLeft()))
 
     def set_mode(self,mode):
         def apply(state):
-            root=sources.definitions(state)[self.key]['root'];root['sequence']['mode']=mode;root.pop('supply_cursor',None)
+            root=sources.definitions(state)[self.key]['root'];root['sequence']['mode']=mode;root.pop('supply_cursor',None);root.pop('selection_cursor',None)
         self.owner.canvas.commit(apply,label='設定流程變量')
+
+    def set_random_repeats(self,enabled):
+        def apply(state):
+            root=sources.definitions(state)[self.key]['root'];root['sequence']['random_repeats']=enabled
+            root.pop('supply_cursor',None);root.pop('selection_cursor',None);groups.mark_version(state)
+        self.owner.canvas.commit(apply,label='設定隨機重複')
 
     def select(self,index):
         if self.loading:return
         def apply(state):
             root=sources.definitions(state)[self.key]['root'];seq=root['sequence']
             seq['selected']=seq['groups'][index-1]['id'];root.pop('round_override',None)
-            root['supply_cursor']=dict(signature=sources.signature(root),position=groups.cursor(seq,start=seq['selected']))
+            root.pop('supply_cursor',None)
+            root['selection_cursor']=dict(signature=sources.signature(root),position=groups.cursor(seq,start=seq['selected']))
+            groups.mark_version(state)
         self.owner.canvas.commit(apply,label='選擇供應組合')
 
     def move(self,delta):self.index.setValue(self.index.value()+delta)

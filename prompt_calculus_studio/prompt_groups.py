@@ -15,10 +15,9 @@ MAX_ROUNDS = 100000
 
 def module_summary(modules):
     """Describe detached contents without calling a nested flow a text module."""
-    flows = sum(bool(module.get('sequence')) for module in modules)
-    text = len(modules) - flows
-    return ' · '.join(filter(None, (f'{text} 個文字模塊' if text or not flows else '',
-                                    f'{flows} 個流程' if flows else '')))
+    from .prompt_materials import kind, TYPES
+    counts={key:sum(kind(module)==key for module in modules) for key in TYPES}
+    return ' · '.join(f'{count} 個{TYPES[key]}' for key,count in counts.items() if count) or '0 個文字模塊'
 
 
 def requires_version_five(state):
@@ -66,6 +65,8 @@ def validate(sequence, visit=None, depth=0):
         raise ValueError('流程版本不支援，原資料保留。')
     if sequence.get('mode') not in MODES:
         raise ValueError('流程的變量模式無效。')
+    if type(sequence.get('random_repeats', True)) is not bool:
+        raise ValueError('隨機重複設定無效。')
     groups = sequence.get('groups')
     if not isinstance(groups, list) or not 1 <= len(groups) <= MAX_GROUPS:
         raise ValueError('流程須包含 1–5000 個組合。')
@@ -84,6 +85,8 @@ def validate(sequence, visit=None, depth=0):
             raise ValueError('組合文字格式不支援。')
         if not isinstance(group.get('modules'), list):
             raise ValueError('組合內的素材清單無效。')
+        if type(group.get('deduplicate', False)) is not bool:
+            raise ValueError('組合去重設定無效。')
         if visit:
             for module in group['modules']:
                 visit(module, depth + 1)
@@ -129,8 +132,25 @@ def render_group(group, transform=None):
     from .composition import render, join_fragments
     if group['input'] == 'text':
         text = group['text']
-        return transform(text) if transform and group.get('content_kind', 'tags') == 'tags' else text
-    return join_fragments([(render(m, transform), output_kind(m)) for m in group['modules']])
+        result = transform(text) if transform and group.get('content_kind', 'tags') == 'tags' else text
+        tag_content = group.get('content_kind', 'tags') == 'tags'
+    else:
+        fragments=[];seen=set()
+        for module in group['modules']:
+            text=render(module,transform);kind=output_kind(module)
+            if group.get('deduplicate') and kind=='tags':
+                from .prompt_tags import tokens
+                unique=[]
+                for tag in tokens(text):
+                    if tag not in seen:unique.append(tag);seen.add(tag)
+                text=', '.join(unique)
+            fragments.append((text,kind))
+        result = join_fragments(fragments)
+        tag_content = False  # Tag fragments were handled without touching prose or weights.
+    if group.get('deduplicate') and tag_content:
+        from .prompt_tags import apply
+        result = apply(result, deduplicate=True)
+    return result
 
 
 def output_kind(root):
@@ -141,8 +161,8 @@ def output_kind(root):
     overlay = active_overlay(root)
     if overlay is not None:
         return output_kind(overlay)
-    if root.get('sequence'):
-        group = selected(root['sequence'])
+    if root.get('sequence') or root.get('combination') or root.get('variants'):
+        group = root.get('combination') or selected(root.get('sequence') or root['variants'])
         if group['input'] == 'text':
             return group.get('content_kind', 'tags')
         children = group['modules']
@@ -174,26 +194,44 @@ def cursor(sequence, *, start=None):
     return dict(group=ident, repeat=0, exhausted=False, draws=0)
 
 
+def validate_cursor(position):
+    if (not isinstance(position, dict) or not isinstance(position.get('group'), str) or
+            type(position.get('repeat')) is not int or not 0 <= position['repeat'] < MAX_REPEAT or
+            type(position.get('draws')) is not int or position['draws'] < 0 or
+            type(position.get('exhausted', False)) is not bool):
+        raise ValueError('素材取值進度無效。')
+    if 'bag' in position and (not isinstance(position['bag'], list) or
+            any(not isinstance(v, str) for v in position['bag']) or
+            len(position['bag']) != len(set(position['bag'])) or
+            type(position.get('bag_index')) is not int or not 0 <= position['bag_index'] < len(position['bag'])):
+        raise ValueError('隨機取值進度無效。')
+    if 'ready' in position and type(position['ready']) is not bool:
+        raise ValueError('隨機取值進度無效。')
+
+
 def remaining(sequence, position=None):
-    """None means reusable/unbounded; a fixed value never shortens a zip."""
-    position = position or cursor(sequence)
-    if position['exhausted']:
-        return 0
+    """Length of a full automatic cycle, even when starting in its middle."""
     mode = sequence['mode']
-    if mode in ('fixed', 'random'):
+    if mode == 'fixed' or mode == 'random' and sequence.get('random_repeats', True):
         return None
-    groups = sequence['groups']; at = next(i for i, g in enumerate(groups) if g['id'] == position['group'])
-    selected_groups = groups[at:] if mode == 'increment' else groups[:at + 1]
-    return sum(g['repeat'] for g in selected_groups) - position['repeat']
+    return sum(g['repeat'] for g in sequence['groups'])
 
 
 def take(sequence, position, rng=None):
     """Reserve exactly one round and return the next cursor, without mutation."""
-    if position['exhausted']:
-        raise ValueError('這份流程已供應完畢。')
     result = copy.deepcopy(position); mode = sequence['mode']; groups = sequence['groups']
-    if mode == 'random' and result['repeat'] == 0:
-        result['group'] = (rng or random.SystemRandom()).choice(groups)['id']; result['draws'] += 1
+    result['exhausted'] = False; rng = rng or random.SystemRandom()
+    def draw():
+        if sequence.get('random_repeats', True):
+            result['group'] = rng.choice(groups)['id']
+        else:
+            bag = result.get('bag', [])
+            index = result.get('bag_index', -1) + 1
+            if set(bag) != {g['id'] for g in groups} or index >= len(bag):
+                bag = [g['id'] for g in groups]; rng.shuffle(bag); index = 0
+            result.update(bag=bag, bag_index=index, group=bag[index])
+        result['draws'] += 1; result['ready'] = True
+    if mode == 'random' and not result.get('ready'): draw()
     at = next((i for i, g in enumerate(groups) if g['id'] == result['group']), None)
     if at is None:
         raise ValueError('供應中的組合已不存在，請重新建立批次。')
@@ -204,12 +242,11 @@ def take(sequence, position, rng=None):
     result['repeat'] += 1
     if result['repeat'] >= group['repeat']:
         result['repeat'] = 0
-        if mode != 'random':
+        if mode == 'random':
+            draw()
+        else:
             following = at + (1 if mode == 'increment' else -1)
-            if 0 <= following < len(groups):
-                result['group'] = groups[following]['id']
-            else:
-                result['exhausted'] = True
+            result['group'] = groups[following % len(groups)]['id']
     return record, result
 
 
@@ -238,10 +275,8 @@ def paired_length(lengths, limit=None):
     if limit is not None:
         if type(limit) is not int or not 1 <= limit <= MAX_ROUNDS:
             raise ValueError('批次輪數須為 1–100000。')
-        finite.append(limit)
-    if not finite:
-        raise ValueError('這批沒有固定終點，請指定供應輪數。')
-    count = min(finite)
+        return limit
+    count = max(finite) if finite else 10
     if count > MAX_ROUNDS:
         raise ValueError('本批超過 100000 輪，請縮小供應範圍。')
     return count

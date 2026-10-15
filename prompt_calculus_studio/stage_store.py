@@ -3,18 +3,35 @@ import copy
 import json
 import time
 import uuid
+from contextlib import contextmanager, nullcontext
 
 ACTIVE=('waiting','running','preparing','submitted','collecting','failed','unconfirmed','result_error')
 
 
 class StageStore:
     def __init__(self,db):
-        self.db=db
+        self.db=db;self.transaction_depth=0
         with db:
             db.execute('CREATE TABLE IF NOT EXISTS stage_journal (id TEXT PRIMARY KEY, kind TEXT, workspace TEXT, owner TEXT, position INTEGER, body TEXT NOT NULL)')
             db.execute('CREATE INDEX IF NOT EXISTS stage_owner ON stage_journal(kind,workspace,owner,position)')
-        for run in self.rows('run'):
-            if run['status'] not in ('complete','cancelled'):self.update(run['id'],status='paused',pause_reason='restart',message='重新開啟後保留進度，請從紀錄繼續。')
+            db.execute("CREATE INDEX IF NOT EXISTS stage_latest ON stage_journal(kind,workspace,json_extract(body,'$.stage'),position)")
+            db.execute("CREATE INDEX IF NOT EXISTS stage_active ON stage_journal(kind,json_extract(body,'$.status'),workspace,owner,position)")
+            db.execute("CREATE INDEX IF NOT EXISTS stage_open_runs ON stage_journal(workspace,position) WHERE kind='run' AND json_extract(body,'$.status') NOT IN ('complete','cancelled')")
+        for run in self.open_runs():
+            self.update(run['id'],status='paused',pause_reason='restart',message='重新開啟後保留進度，請從紀錄繼續。')
+
+    def open_runs(self,workspace=None):
+        sql="SELECT body FROM stage_journal WHERE kind='run' AND json_extract(body,'$.status') NOT IN ('complete','cancelled')"
+        args=[]
+        if workspace is not None:sql+=' AND workspace=?';args.append(workspace)
+        return [json.loads(row[0]) for row in self.db.execute(sql+' ORDER BY position',args)]
+
+    def latest_stage_status(self,workspace,stage):
+        """Paint status without fetching or sorting complete prompt/image snapshots."""
+        row=self.db.execute("""SELECT json_extract(body,'$.status'),json_extract(body,'$.error')
+            FROM stage_journal WHERE kind='attempt' AND workspace=? AND json_extract(body,'$.stage')=?
+            ORDER BY position DESC LIMIT 1""",(workspace,stage)).fetchone()
+        return dict(status=row[0],error=row[1] or '') if row else None
 
     def rows(self,kind,workspace=None,owner=None,active=False):
         sql='SELECT body FROM stage_journal WHERE kind=?';args=[kind]
@@ -27,9 +44,18 @@ class StageStore:
         row=self.db.execute('SELECT body FROM stage_journal WHERE id=?',(ident,)).fetchone()
         return json.loads(row[0]) if row else None
 
+    @contextmanager
+    def transaction(self):
+        """Accept journal rows and their document cursor as one durable write."""
+        outer=self.transaction_depth==0
+        with self.db if outer else nullcontext():
+            self.transaction_depth+=1
+            try:yield
+            finally:self.transaction_depth-=1
+
     def add(self,kind,workspace,owner='',**values):
         item=dict(id=uuid.uuid4().hex,kind=kind,workspace=workspace,owner=owner,created=time.time(),**copy.deepcopy(values))
-        with self.db:
+        with self.transaction():
             if kind=='entry' and sum(r.get('scheduler')==item.get('scheduler') for r in self.rows(kind,workspace,active=True))>=10:
                 raise ValueError('預排程已滿十項，未加入這次要求。')
             self.db.execute('INSERT INTO stage_journal VALUES (?,?,?,?,(SELECT COALESCE(MAX(position),0)+1 FROM stage_journal),?)',
@@ -40,7 +66,7 @@ class StageStore:
         item=self.read(ident)
         if not item:raise ValueError('執行紀錄不存在。')
         item.update(copy.deepcopy(values))
-        with self.db:self.db.execute('UPDATE stage_journal SET body=? WHERE id=?',(json.dumps(item,ensure_ascii=False),ident))
+        with self.transaction():self.db.execute('UPDATE stage_journal SET body=? WHERE id=?',(json.dumps(item,ensure_ascii=False),ident))
         return item
 
     def reorder(self,owner,ids):

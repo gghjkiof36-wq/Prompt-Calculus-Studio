@@ -7,7 +7,7 @@ from PySide6.QtGui import QFont, QColor, QPen, QFontMetrics, QTextCursor, QTextB
 from PySide6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QLineEdit,
     QListWidget, QListWidgetItem, QCheckBox, QScrollArea, QTextEdit, QLabel,
     QStyledItemDelegate, QStyleOptionViewItem, QStyle, QApplication, QDialog, QSizePolicy, QPushButton)
-from . import materials, material_navigation as navigation
+from . import materials, material_navigation as navigation, prompt_materials as pm
 from .core import uid
 from .widgets import label, button, row, ComboBox, StudioDialog, RoundMenu, preview_path, set_preview, InputDialog, ask
 from .views import widget_colors
@@ -175,8 +175,10 @@ class PromptEditor(QWidget):
         self.search = QLineEdit(); self.search.setPlaceholderText('搜尋目前分類的名稱、別名或內容')
         self.pins = QCheckBox('釘選'); self.order = ComboBox(); self.order.addItem('名稱', 'name'); self.order.addItem('最近使用', 'recent')
         self.order.addItem('手動排序', 'manual')
+        self.type_filter=ComboBox();self.type_filter.setAccessibleName('素材類型篩選');self.type_filter.addItem('全部類型',None)
+        for key,name in pm.TYPES.items():self.type_filter.addItem(name,key)
         self.filter_controls = QWidget(self.browser_header)
-        filters = row(self.pins, self.order); filters.setContentsMargins(0, 0, 0, 0)
+        filters = row(self.type_filter,self.pins, self.order); filters.setContentsMargins(0, 0, 0, 0)
         self.filter_controls.setLayout(filters)
         self.search_grid = QGridLayout(); self.search_grid.setContentsMargins(0, 0, 0, 0)
         self.search_grid.setHorizontalSpacing(8); self.search_grid.setVerticalSpacing(10)
@@ -221,6 +223,7 @@ class PromptEditor(QWidget):
         self.listing.currentItemChanged.connect(self._selection_changed)
         self.f2 = QShortcut(QKeySequence(Qt.Key.Key_F2), self); self.f2.activated.connect(self.open_selected)
         self.search.textChanged.connect(self.refresh_list); self.pins.toggled.connect(self.refresh_list)
+        self.type_filter.currentIndexChanged.connect(self.refresh_list)
         self.order.currentIndexChanged.connect(self._order_changed)
         self.category.currentIndexChanged.connect(self._category_changed)
         self.categories.currentItemChanged.connect(self._category_selected)
@@ -593,13 +596,13 @@ class PromptEditor(QWidget):
         category = self.get_browser_category()
         folder = navigation.folder(self.window.state, category) if navigation.is_folder(category) else None
         self.search.setPlaceholderText('搜尋此資料夾的名稱、別名或內容' if folder else '搜尋目前分類的名稱、別名或內容')
-        rows = [] if category == '@uncategorized' else materials.search(self.window.state, self.search.text(), None if folder else category, pinned=self.pins.isChecked(), order=self.order.currentData())
+        rows = [] if category == '@uncategorized' else materials.search(self.window.state, self.search.text(), None if folder else category, pinned=self.pins.isChecked(), order=self.order.currentData(),material_type=self.type_filter.currentData())
         if folder: rows = [v for v in rows if v['module'] in folder['categories']]
         if self.order.currentData() == 'manual':
             visible = {value['id'] for value in rows}
             rows = [value for value in self.window.state['items'] if value['id'] in visible]
         for value in rows:
-            entry = QListWidgetItem(value['name']+'\n'+value['prompt'].replace('\n', ' '))
+            entry = QListWidgetItem(value['name']+'\n'+pm.summary(value).replace('\n', ' '))
             entry.setData(Qt.ItemDataRole.UserRole, value['id']); self.listing.addItem(entry)
             if value['id'] == selected: self.listing.setCurrentItem(entry)
         self.listing.blockSignals(False); self.listing.verticalScrollBar().setValue(scroll)
@@ -632,7 +635,7 @@ class PromptEditor(QWidget):
         for i in range(self.listing.count()):
             if self.listing.item(i).data(Qt.ItemDataRole.UserRole) == ident: self.listing.setCurrentRow(i); break
         self.listing.blockSignals(False)
-        self.preview_id = ident; self.preview_name.setText(value['name']); self.preview_text.setPlainText(value['prompt'])
+        self.preview_id = ident; self.preview_name.setText(value['name']); self.preview_text.setPlainText(pm.summary(value,detail=True))
         image_path = preview_path(self.window.store, value.get('preview'))
         has_image = bool(image_path)
         self.preview_image.setVisible(has_image)

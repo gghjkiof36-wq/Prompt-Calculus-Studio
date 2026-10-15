@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit, 
     QDoubleSpinBox, QCheckBox, QDialog, QListWidget, QListWidgetItem, QScrollArea, QFrame)
 
 from . import composition as comp
+from . import prompt_materials as pm
 from .canvas_palette import CanvasPalette
 from .canvas_items import TextCard, PreviewCard, NodeCard, CanvasView
 from .core import uid, validate_state, output_groups, TEMPORARY_GROUP
@@ -15,7 +16,7 @@ from .error_dialog import import_error
 
 class NodeDialog(StudioDialog):
     def __init__(self, parent, value=None, title=None):
-        title=title or ('編輯當輪' if value and value.get('sequence') else '編輯畫布模組' if value else '新增畫布模組')
+        title=title or ('編輯當輪' if value and pm.sequence(value) else '編輯畫布模組' if value else '新增畫布模組')
         super().__init__(parent); self.setWindowTitle(title); self.resize(540, 480)
         from .module_chrome import apply_prompt_dialog, prompt_divider
         apply_prompt_dialog(self,parent)
@@ -24,7 +25,8 @@ class NodeDialog(StudioDialog):
         from .widgets import ComboBox
         from PySide6.QtWidgets import QSpinBox, QAbstractSpinBox
         from . import prompt_groups as groups
-        self.value=copy.deepcopy(value or comp.node('')); self.sequence=self.value.get('sequence')
+        self.value=copy.deepcopy(value or comp.node('')); self.original=copy.deepcopy(self.value)
+        self.sequence=pm.sequence(self.value);self.sequence_field='variants' if self.value.get('variants') else 'sequence'
         self.original_selected=self.sequence.get('selected') if self.sequence else None
         self.loading=True; self.active_group=None; self.drafts=copy.deepcopy(self.value.get('round_drafts',{}))
         content=QWidget();form=QVBoxLayout(content);form.setContentsMargins(0,8,0,4);form.setSpacing(12)
@@ -38,13 +40,15 @@ class NodeDialog(StudioDialog):
         self.mode=ComboBox()
         self.mode.setMinimumWidth(82)
         mode_options(self.mode)
+        self.random_repeats=QCheckBox('允許重複');self.random_repeats.setChecked(self.sequence.get('random_repeats',True) if self.sequence else True)
         self.repeat=QSpinBox();self.repeat.setRange(1,groups.MAX_REPEAT);self.repeat.setSuffix(' 次');self.repeat.setMaximumWidth(108)
         self.variables=QWidget();variable_layout=QVBoxLayout(self.variables);variable_layout.setContentsMargins(0,0,0,0)
         variable_layout.addLayout(row(field('變量',self.mode),None,field('重複次數',self.repeat)))
+        variable_layout.addWidget(self.random_repeats);self.random_repeats.setVisible(bool(self.sequence and self.sequence['mode']=='random'))
         form.addWidget(self.variables);self.variables.setVisible(bool(self.sequence and len(self.sequence['groups'])>1))
-        self.index=QSpinBox();self.index.setMinimum(1);self.index.setAccessibleName('組合序號')
+        self.index=QSpinBox();self.index.setMinimum(1);self.index.setAccessibleName('內容序號')
         self.index.setObjectName('PromptPager');self.index.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        self.index.setAlignment(Qt.AlignmentFlag.AlignCenter);self.index.setFixedWidth(80);self.index.setToolTip('輸入序號跳至組合')
+        self.index.setAlignment(Qt.AlignmentFlag.AlignCenter);self.index.setFixedWidth(80);self.index.setToolTip('輸入序號切換內容')
         self.previous=tool('chevron-left','上一組',lambda:self.index.setValue(self.index.value()-1))
         self.next=tool('chevron-right','下一組',lambda:self.index.setValue(self.index.value()+1))
         form.addWidget(label('Prompt','Subtle'))
@@ -60,6 +64,7 @@ class NodeDialog(StudioDialog):
         self.excludes.setAccessibleName('排除 Tag');self.excludes.setPlaceholderText('每行一項')
         excludes_layout.addWidget(self.excludes)
         self.dedupe=QCheckBox('去重');self.dedupe.setChecked(self.value.get('deduplicate',False));excludes_layout.addWidget(self.dedupe)
+        self.dedupe.hide()  # Legacy values remain readable; new deduplication belongs to a combination.
         form.addWidget(self.excludes_panel);self.excludes_panel.hide()
         from .module_chrome import toggle_prompt_panel
         self.excludes_toggle.toggled.connect(lambda opened:toggle_prompt_panel(self,self.excludes_panel,opened,self.fit_page))
@@ -72,10 +77,13 @@ class NodeDialog(StudioDialog):
             index=next(i for i,g in enumerate(self.sequence['groups'],1) if g['id']==self.sequence['selected'])
             self.index.setValue(index);self.select_group(index)
         else:
-            self.prompt.setPlainText(self.value['prompt'])
+            self.prompt.setPlainText(groups.render_group(self.value['combination']) if self.value.get('combination') else self.value['prompt'])
             for control in (self.previous,self.index,self.next):control.hide()
         self.loading=False;self.index.valueChanged.connect(self.select_group)
         self.mode.currentIndexChanged.connect(self.mode_changed);self.repeat.valueChanged.connect(self.repeat_changed)
+        self.random_repeats.toggled.connect(self.mode_changed)
+        control_height=max(self.mode.sizeHint().height(),self.repeat.sizeHint().height())
+        self.mode.setFixedHeight(control_height);self.repeat.setFixedHeight(control_height)
         controls=(self.name,self.weight,self.mode,self.repeat,self.prompt,self.previous,self.index,self.next,
                   self.enabled,self.excludes_toggle,self.excludes,self.dedupe)
         for before,after in zip(controls,controls[1:]):self.setTabOrder(before,after)
@@ -92,20 +100,25 @@ class NodeDialog(StudioDialog):
         if self.active_group:
             from .prompt_groups import render_group
             text=self.prompt.toPlainText()
+            if self.sequence_field=='variants':
+                self.active_group['text']=text;return
             if text!=render_group(self.active_group):self.drafts[self.active_group['id']]=text
             else:self.drafts.pop(self.active_group['id'],None)
 
     def select_group(self,index):
         if not self.loading:self.remember()
         self.loading=True;self.active_group=self.sequence['groups'][index-1];self.sequence['selected']=self.active_group['id']
-        from .prompt_groups import render_body
-        self.value['round_drafts']=self.drafts
-        self.prompt.setPlainText(render_body(self.value));self.repeat.setValue(self.active_group['repeat'])
+        from .prompt_groups import render_body, render_group
+        if self.sequence_field=='sequence':self.value['round_drafts']=self.drafts
+        self.prompt.setPlainText(render_body(self.value) if self.sequence_field=='sequence' else render_group(self.active_group))
+        self.repeat.setValue(self.active_group['repeat'])
         self.previous.setEnabled(index>1);self.next.setEnabled(index<len(self.sequence['groups']))
         self.loading=False
 
     def mode_changed(self):
-        if self.sequence and not self.loading:self.sequence['mode']=self.mode.currentData()
+        if self.sequence and not self.loading:
+            self.sequence.update(mode=self.mode.currentData(),random_repeats=self.random_repeats.isChecked())
+            self.random_repeats.setVisible(self.sequence['mode']=='random')
 
     def repeat_changed(self):
         if self.active_group and not self.loading:self.active_group['repeat']=self.repeat.value()
@@ -121,11 +134,19 @@ class NodeDialog(StudioDialog):
                    deduplicate=self.dedupe.isChecked())
         if self.sequence:
             self.remember()
-            value.update(sequence=copy.deepcopy(self.sequence),round_drafts=copy.deepcopy(self.drafts))
-            if self.sequence['selected']!=self.original_selected:
-                from . import prompt_sources as sources, prompt_groups as groups
-                root=dict(self.value,sequence=self.sequence)
-                value['supply_cursor']=dict(signature=sources.signature(root),position=groups.cursor(self.sequence,start=self.sequence['selected']))
+            value[self.sequence_field]=copy.deepcopy(self.sequence)
+            if self.sequence_field=='sequence':value['round_drafts']=copy.deepcopy(self.drafts)
+            from . import prompt_groups as groups
+            root=dict(self.value,**value)
+            changed=self.sequence['selected']!=self.original_selected or self.sequence['mode']!=pm.sequence(self.original)['mode']
+            position=groups.cursor(self.sequence,start=self.sequence['selected']) if changed else pm.position(self.original)
+            position['repeat']=min(position.get('repeat',0),groups.selected(self.sequence)['repeat']-1)
+            value['selection_cursor']=dict(signature=pm.signature(root),position=position)
+        elif self.value.get('combination'):
+            from .prompt_groups import render_group
+            group=copy.deepcopy(self.value['combination'])
+            if self.prompt.toPlainText()!=render_group(group):group.update(input='text',text=self.prompt.toPlainText())
+            value['combination']=group
         else:value['prompt']=self.prompt.toPlainText()
         return value
 

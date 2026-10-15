@@ -18,7 +18,8 @@ def definition(counts=(2, 1, 3)):
 class SupplyTests(unittest.TestCase):
     def setUp(self):
         stage_tests.StageTests.setUp(self)
-        self.w.comfy.snapshot_versions=[1,2,3,4,5]
+        from prompt_calculus_studio.core import SUPPORTED_STATE_VERSIONS
+        self.w.comfy.snapshot_versions=list(SUPPORTED_STATE_VERSIONS)
     tearDown=stage_tests.StageTests.tearDown
     stages=stage_tests.StageTests.stages
     click=stage_tests.StageTests.click
@@ -71,15 +72,15 @@ class SupplyTests(unittest.TestCase):
         self.assertEqual(self.submitted_texts(),['prompt 0']*11,self.notices)
         self.assertIsNone(self.runner.current());self.assertEqual(self.runner.store.read(removed['id'])['status'],'removed')
 
-    def test_batch_preparation_does_not_move_visible_group_to_last_reserved(self):
+    def test_batch_acceptance_moves_to_next_cycle_and_completion_does_not_advance_again(self):
         config=self.group_source((2,1,3),batch=True)
         root=supply.definitions(self.w.state)[config['source']]['root'];seq=root['sequence']
         ids=[g['id'] for g in seq['groups']]
         self.click();self.assertEqual(len(self.runner.store.rows('entry')),6)
         self.assertEqual(seq['selected'],ids[0])
         self.executor.finish();self.assertEqual(seq['selected'],ids[0])
-        self.executor.finish();self.assertEqual(seq['selected'],ids[1])
-        self.executor.finish();self.assertEqual(seq['selected'],ids[2])
+        self.executor.finish();self.assertEqual(seq['selected'],ids[0])
+        self.executor.finish();self.assertEqual(seq['selected'],ids[0])
 
     def test_unbound_side_flow_cannot_drive_image_schedule(self):
         image,items,config=self.image_batch(count=5)
@@ -125,21 +126,24 @@ class SupplyTests(unittest.TestCase):
         self.assertEqual(resolve(state,config['source'],'clip')['value'],'prompt 0')
         self.click();self.assertEqual(len(self.runner.store.rows('entry')),6,self.notices)
 
-    def test_image_exhaustion_cancel_gap_and_explicit_restart(self):
+    def test_image_cycle_cancel_gap_and_explicit_restart(self):
         from prompt_calculus_studio.image_source import select
         image,items,config=self.image_batch(count=4)
         self.click();rows=self.runner.store.rows('entry',active=True)
         self.runner.remove_entry(rows[1]['id'])
         for _ in range(3):self.executor.finish()
         self.assertIsNone(self.runner.current());self.assertEqual(len(self.executor.submissions),3)
-        self.assertEqual(self.w.state['canvas_functions']['images'][image]['index'],3)
-        self.click();self.assertEqual(len(self.executor.submissions),3)
-        self.assertTrue(any('已供應完畢' in note for note in self.notices),self.notices)
+        self.assertEqual(self.w.state['canvas_functions']['images'][image]['index'],0)
+        self.click()
+        for _ in range(4):self.executor.finish()
+        self.assertEqual(len(self.executor.submissions),7)
         # Selecting a specific image intentionally starts a new reservation.
         self.assertTrue(self.c.commit(lambda s:select(s,image,2,self.w.store.directory)))
         self.click()
-        for _ in range(2):self.executor.finish()
-        self.assertEqual(len(self.executor.submissions),5,self.notices)
+        for _ in range(4):self.executor.finish()
+        self.assertEqual(len(self.executor.submissions),11,self.notices)
+        saved=self.runner.store.rows('entry')[-4:]
+        self.assertEqual([r['saved']['source_positions'][image]['index'] for r in saved],[2,3,0,1])
 
     def test_image_step_reserves_different_images_before_completion(self):
         image,items,config=self.image_batch(count=3)
@@ -155,10 +159,10 @@ class SupplyTests(unittest.TestCase):
 
     def test_older_extension_cannot_silently_render_group_schema(self):
         self.group_source()
-        self.assertEqual(self.w.state['version'],5)
+        self.assertEqual(self.w.state['version'],7)
         self.w.comfy.snapshot_versions=[1,2,3,4]
         self.assertFalse(self.w.comfy.can_run)
-        self.w.comfy.snapshot_versions.append(5)
+        self.w.comfy.snapshot_versions.append(7)
         self.assertTrue(self.w.comfy.can_run)
 
 

@@ -3,7 +3,7 @@ import copy
 import hashlib
 import json
 import uuid
-from . import prompt_groups as groups, composition as comp
+from . import prompt_groups as groups, composition as comp, prompt_materials as pm
 
 
 def definitions(state):
@@ -14,11 +14,12 @@ def add(state, position=(0, 0), root=None):
     unselected = root is None
     root = copy.deepcopy(root or comp.node('讀取流程'))
     root.setdefault('sequence', groups.from_node(root))
+    if 'material_type' in root: root['material_type'] = 'flow'
     key = 'groups_' + uuid.uuid4().hex
     state.setdefault('canvas_functions', dict(images={}, preview=True, preview_attached=False)).setdefault('text_sources', {})[key] = dict(
-        name=root['name'], root=root, supply='batch', limit=10, unselected=unselected)
+        name=root['name'], root=root, supply='batch', count_mode='auto', limit=10, unselected=unselected)
     state.setdefault('text_positions', {})[key] = list(position)
-    state['version']=max(5,state['version'])
+    groups.mark_version(state)
     return key
 
 
@@ -31,10 +32,7 @@ def library_root(state, ident):
     root = comp.clone_node(comp.prototype(material))
     root.update(name=material['name'], source_id=ident, source_module=material['module'],
                 source_revision=fingerprint(material))
-    for field in ('supply_cursor', 'round_override', 'round_id', 'round_drafts', 'supply_origin'):
-        root.pop(field, None)
-    root['sequence']['selected'] = root['sequence']['start']
-    return root
+    return pm.reset(root)
 
 
 def read_library(state, key, ident=None):
@@ -52,13 +50,20 @@ def validate(value):
                 source.get('supply') not in ('step', 'batch') or type(source.get('limit')) is not int or
                 not 1 <= source['limit'] <= groups.MAX_ROUNDS or type(source.get('unselected', False)) is not bool):
             raise ValueError('流程來源設定無效。')
+        if source.get('count_mode', 'auto') not in ('auto', 'specified'):
+            raise ValueError('流程來源的批次數量設定無效。')
         comp.validate_node(source['root'])
         if not source['root'].get('sequence'): raise ValueError('流程來源缺少流程定義。')
 
 
-def signature(root):
+def legacy_signature(root):
     seq = copy.deepcopy(root['sequence']); seq.pop('selected', None)
     return hashlib.sha256(json.dumps(seq, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def signature(root):
+    from .prompt_materials import signature as material_signature
+    return material_signature(root)
 
 
 def source(state, key):
@@ -76,7 +81,7 @@ def connected(state, keys):
         if key in definitions(state): found.append(key)
         if key in state.get('multi_output', {}).get('canvases', {}):
             for ident in state['multi_output']['canvases'][key]['members']:
-                if state['uses'][ident].get('sequence') and not state['uses'][ident].get('supply_origin'):
+                if not state['uses'][ident].get('supply_origin') and any(pm.sequence(n) for n in comp.walk(state['uses'][ident])):
                     found.append('use:'+ident)
         image = state.get('canvas_functions', {}).get('images', {}).get(key)
         if image and image.get('iterate'): found.append(key)
@@ -98,28 +103,25 @@ def automatic(state, ids):
 
 
 def position(root, *, restart=False):
-    if root['sequence']['mode'] == 'fixed':return groups.cursor(root['sequence'])
-    saved = root.get('supply_cursor')
-    if saved and saved.get('signature') == signature(root) and not restart:
-        result = copy.deepcopy(saved['position'])
-        if not result['exhausted']: return result
-    return groups.cursor(root['sequence'])
+    return pm.position(root, restart)
 
 
 def build(state, ids, *, count=None, restart=False, count_only=False):
     """Freeze choices now, including random draws, repeats and both draft forms."""
     from .flow_data import image_list
-    specs, lengths = {}, []
-    random_limits = []
-    for key in ids:
+    specs, lengths, working = {}, [], {}
+    for key in dict.fromkeys(ids):
         definition = source(state, key)
         if definition:
             if definition.get('unselected'):
                 raise ValueError('請先選擇要讀取的流程。')
-            root = copy.deepcopy(definition['root']); pos = position(root, restart=restart)
-            specs[key] = dict(kind='text', root=root, position=pos, signature=signature(root))
-            length = groups.remaining(root['sequence'], pos); lengths.append(length)
-            if root['sequence']['mode'] in ('random','fixed'): random_limits.append(definition['limit'])
+            root = copy.deepcopy(definition['root'])
+            if restart: pm.reset(root)
+            batched = not key.startswith('use:') and definition['supply'] == 'batch'
+            specs[key] = dict(kind='text', root=root, batch=batched, signature=signature(root))
+            working[key] = copy.deepcopy(root)
+            if batched:
+                lengths.append(definition['limit'] if definition.get('count_mode') == 'specified' else pm.cycle_length(root))
         else:
             image = state['canvas_functions']['images'][key]; items = image_list(state, key)
             index = image.get('index', 0)
@@ -129,25 +131,31 @@ def build(state, ids, *, count=None, restart=False, count_only=False):
             # Upstream Stage results are scoped collections, not the prior manual index.
             from .flow_data import incoming
             if incoming(state, key, 'image') or image.get('stage_reference'): index = 0
-            index = min(index, len(items)); specs[key] = dict(kind='image', items=items, index=index, batch=image.get('batch_id'))
-            lengths.append(len(items)-index)
-    if count is None and not any(n is not None for n in lengths):
-        count = min(random_limits) if random_limits else None
+            if not items: raise ValueError('圖片來源沒有可供應的圖片。')
+            batched = image.get('supply', 'batch') == 'batch'
+            index %= len(items)
+            specs[key] = dict(kind='image', items=items, index=index, batch=image.get('batch_id'), batched=batched)
+            if batched: lengths.append(len(items))
     total = groups.paired_length(lengths, count)
     if not total: raise ValueError('來源已供應完畢，請選擇下一個起點。')
     if count_only:return total
-    rounds = [];used = set()
+    rounds = []; constants = {}
     for index in range(total):
         picks = {}
         for key, spec in specs.items():
             if spec['kind'] == 'text':
-                record, spec['position'] = groups.take(spec['root']['sequence'], spec['position'])
-                token = (key, record['group'])
-                picks[key] = dict(record, round=uuid.uuid4().hex, override=token not in used)
-                used.add(token)
-            else: picks[key] = dict(index=spec['index']+index)
+                if index and not spec['batch']:
+                    picks[key] = dict(constants[key], progress={})
+                    continue
+                before = working[key]; current, after = pm.resolve(before)
+                record = dict(selections=pm.view(current), progress=pm.progress(before, after))
+                # Keep the outer ID available to existing history/selection views.
+                if current.get('sequence'): record['group'] = current['sequence']['selected']
+                picks[key] = record; working[key] = after
+                constants[key] = record
+            else: picks[key] = dict(index=(spec['index']+(index if spec['batched'] else 0)) % len(spec['items']))
         rounds.append(picks)
-    return dict(id=uuid.uuid4().hex, sources=specs, rounds=rounds)
+    return dict(version=2, id=uuid.uuid4().hex, sources=specs, rounds=rounds, committed=0)
 
 
 def project(state, plan, picks):
@@ -156,19 +164,43 @@ def project(state, plan, picks):
     for key, record in picks.items():
         spec = plan['sources'][key]
         if spec['kind'] == 'text':
-            root = groups.resolve_round(spec['root'], record, record['round'], use_override=record['override'])
+            root = (pm.project(spec['root'], record['selections']) if 'selections' in record else
+                    groups.resolve_round(spec['root'], record, record['round'], use_override=record['override']))
             if key.startswith('use:'): state['uses'][key[4:]] = root
             else: state['canvas_functions']['text_sources'][key]['root'] = root
         else:
             image = copy.deepcopy(spec['items'][record['index']]); images[key] = image
             state['canvas_functions']['images'][key]['index'] = record['index']
-            positions[key] = dict(batch=spec['batch'], index=record['index'], plan=plan['id'])
+            positions[key] = dict(batch=spec['batch'], index=record['index'], plan=plan['id'], accepted=plan.get('version')==2)
             state['canvas_functions']['images'][key]['supply_position'] = copy.deepcopy(positions[key])
     return images, positions
 
 
-def reserve(state, plan, select_next=True):
+def reserve(state, plan, select_next=True, through=None):
     """Advance reservation positions only after the entire enqueue is accepted."""
+    if 'batches' in plan:
+        for batch in plan['batches']: reserve(state, batch, select_next)
+        return
+    if plan.get('version') == 2:
+        end = len(plan['rounds']) if through is None else through
+        if not plan.get('committed', 0) <= end <= len(plan['rounds']):
+            raise ValueError('批次保存進度無效。')
+        for picks in plan['rounds'][plan.get('committed', 0):end]:
+            for key, record in picks.items():
+                spec = plan['sources'][key]
+                if spec['kind'] == 'text':
+                    value = source(state, key)
+                    if value and value['root']['id'] == spec['root']['id'] and signature(value['root']) == spec['signature']:
+                        pm.apply_progress(value['root'], record['progress'])
+                else:
+                    image = state.get('canvas_functions', {}).get('images', {}).get(key)
+                    if image and image.get('batch_id') == spec['batch']:
+                        index = (record['index']+1) % len(spec['items'])
+                        image['supply_reservation'] = dict(batch=spec['batch'], plan=plan['id'], next=index)
+                        image['index'] = index; image['source'] = copy.deepcopy(spec['items'][index])
+        plan['committed'] = end
+        groups.mark_version(state)
+        return
     for key, spec in plan['sources'].items():
         if spec['kind'] == 'image':
             image = state.get('canvas_functions', {}).get('images', {}).get(key)
@@ -177,7 +209,7 @@ def reserve(state, plan, select_next=True):
             continue
         current = source(state, key)
         if (not current or current['root']['id'] != spec['root']['id'] or
-                signature(current['root']) != spec['signature']): continue
+                legacy_signature(current['root']) != spec['signature']): continue
         root = current['root']; pos = copy.deepcopy(spec['position'])
         root['supply_cursor'] = dict(signature=spec['signature'], position=pos, plan=plan['id'])
         if select_next:root['sequence']['selected'] = pos['group']

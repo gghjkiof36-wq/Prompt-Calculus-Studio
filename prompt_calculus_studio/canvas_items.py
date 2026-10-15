@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QPen, QFontMetricsF, QPainter, QPainterPath, Q
 from PySide6.QtWidgets import (QGraphicsObject, QGraphicsItem, QGraphicsProxyWidget,
     QGraphicsView, QGraphicsScene, QFrame, QRubberBand, QAbstractScrollArea, QApplication, QStyle, QStyleOption, QWidget, QToolTip)
 from . import composition as comp
+from . import prompt_materials as pm
 
 
 def canvas_colors(canvas):
@@ -141,7 +142,7 @@ class ResizableCard(QGraphicsObject):
                 if getattr(self,'weight_editor',None) is not None:continue
                 text=f"{self.value['weight']/10:.1f}"
             if action.startswith('group_'):
-                seq=self.value['sequence'];index=next(i for i,g in enumerate(seq['groups'],1) if g['id']==seq['selected'])
+                seq=pm.sequence(self.value);index=next(i for i,g in enumerate(seq['groups'],1) if g['id']==seq['selected'])
                 if action in ('group_previous','group_next'):
                     from .ui_icons import icon
                     center=rect.center();icon('chevron-left' if action=='group_previous' else 'chevron-right',colors['secondary']).paint(painter,QRect(round(center.x()-8),round(center.y()-8),16,16));continue
@@ -395,13 +396,13 @@ class NodeCard(ResizableCard):
 
     def natural_width(self):
         controls=0
-        if self.value.get('sequence') and len(self.value['sequence']['groups'])>1:
-            height,index,weight=self.group_control_sizes();controls=5*height+index+weight+52
+        if pm.sequence(self.value) and len(pm.sequence(self.value)['groups'])>1:
+            height,index,weight=self.group_control_sizes();controls=3*height+index+200
         return max(320,controls,self.requested_size[0],max((p.natural_width()+28 for p in self.parts),default=0),
                    (self.drop_size[0]+28) if self.drop_size else 0)
 
     def group_control_sizes(self):
-        metrics=QFontMetricsF(self.canvas.font());count=len(self.value['sequence']['groups'])
+        metrics=QFontMetricsF(self.canvas.font());count=len(pm.sequence(self.value)['groups'])
         return (max(32,math.ceil(metrics.height())+12),
                 max(48,math.ceil(metrics.horizontalAdvance(f'{count} / {count}'))+12),
                 max(48,math.ceil(metrics.horizontalAdvance(f"{self.value['weight']/10:.1f}"))+16))
@@ -419,28 +420,26 @@ class NodeCard(ResizableCard):
         self.body_top=54+(self.line if self.status else 0)
         self.header_height=self.body_top+(self.text_height+8 if self.own else 0)
         ident=self.canvas.entries[self.key][0]
-        weight_y=self.header_height+6
         self.group_rects={};self.group_bar=QRectF()
-        self.minus_rect=QRectF(14,weight_y,28,28)
-        self.weight_rect=QRectF(46,weight_y,70,28)
-        self.plus_rect=QRectF(120,weight_y,28,28)
-        self.add_rect=QRectF(160,weight_y,self.width-174,28) if ident is not None else QRectF()
-        y=weight_y+(40 if ident is not None else 0)
-        if self.value.get('sequence') and len(self.value['sequence']['groups'])>1:
-            height,index_width,weight_width=self.group_control_sizes();control_y=self.header_height+12
-            index_x=14+height+12;weight_x=self.width-14-2*height-weight_width
-            self.group_rects=dict(group_mode=QRectF(14,control_y,height,height),
-                group_previous=QRectF(index_x,control_y,height,height),
-                group_index=QRectF(index_x+height,control_y,index_width,height),
-                group_next=QRectF(index_x+height+index_width,control_y,height,height))
-            self.minus_rect=QRectF(weight_x,control_y,height,height)
-            self.weight_rect=QRectF(weight_x+height,control_y,weight_width,height)
-            self.plus_rect=QRectF(self.width-14-height,control_y,height,height)
-            self.group_bar=QRectF(0,control_y-8,self.width,height+16)
-            y=control_y+height+4
-            self.add_rect=QRectF()
-            if ident is not None and not self.collapsed:
-                y+=12;self.add_rect=QRectF(14,y,self.width-28,28);y+=36
+        weight_width=max(42,math.ceil(metrics.horizontalAdvance(f"{self.value['weight']/10:.1f}"))+12)
+        self.header_extra=weight_width+60 if ident is not None else 0
+        weight_x=self.width-50-self.header_extra
+        self.minus_rect=QRectF(weight_x,7,28,30)
+        self.weight_rect=QRectF(weight_x+28,7,weight_width,30)
+        self.plus_rect=QRectF(weight_x+28+weight_width,7,28,30)
+        self.prompt_width=self.width-28
+        y=self.header_height+6
+        if pm.sequence(self.value) and len(pm.sequence(self.value)['groups'])>1:
+            height,index_width,_=self.group_control_sizes();height=max(28,self.line)
+            index_x=self.width-14-3*height-index_width;control_y=self.body_top-3
+            self.group_rects=dict(group_mode=QRectF(index_x,control_y,height,height),
+                group_previous=QRectF(index_x+height,control_y,height,height),
+                group_index=QRectF(index_x+2*height,control_y,index_width,height),
+                group_next=QRectF(index_x+2*height+index_width,control_y,height,height))
+            self.prompt_width=index_x-22;y=max(y,control_y+height+8)
+        self.add_rect=QRectF()
+        if ident is not None and not self.collapsed:
+            self.add_rect=QRectF(14,y,self.width-28,28);y+=36
         for child in self.parts:
             child.layout_card(propagate=False,available_width=self.width-28)
             child.setPos(14,y); y+=child.height+10
@@ -449,7 +448,7 @@ class NodeCard(ResizableCard):
         self.height=y+8 if self.collapsed else max(requested_h,y+8)
         from .module_chrome import header_rects
         font=self.canvas.font();font.setBold(True)
-        self.title_text,self.title_rect,header=header_rects(self.width,self.value['name'],font,False)
+        self.title_text,self.title_rect,header=header_rects(self.width,self.value['name'],font,False,self.header_extra)
         self.collapse_rect=header['collapse'];self.more_rect=header['more']
         if propagate and self.parentItem(): self.parentItem().layout_card()
         self.update()
@@ -517,13 +516,13 @@ class NodeCard(ResizableCard):
         painter.setFont(self.canvas.font())
         if self.muted: painter.setOpacity(.42)
         metrics=QFontMetricsF(painter.font()); available=self.width-28
-        paint_header(painter,self.width,self.value['name'],self.canvas.font(),colors,self.collapsed,hot=self.hot)
+        paint_header(painter,self.width,self.value['name'],self.canvas.font(),colors,self.collapsed,hot=self.hot,extra=self.header_extra)
         if self.status:
             painter.setPen(QColor(colors['secondary']))
             painter.drawText(QRectF(14,42,available,self.line),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(self.status,Qt.TextElideMode.ElideRight,available))
         if self.own:
             painter.setPen(QColor(colors['text']))
-            painter.drawText(QRectF(14,self.body_top,available,self.text_height),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(self.own.replace('\n',' '),Qt.TextElideMode.ElideRight,available))
+            painter.drawText(QRectF(14,self.body_top,self.prompt_width,self.text_height),Qt.AlignmentFlag.AlignVCenter,metrics.elidedText(self.own.replace('\n',' '),Qt.TextElideMode.ElideRight,self.prompt_width))
         self.draw_controls(painter)
         if self.drop_size:
             painter.setOpacity(1); painter.setPen(QPen(QColor(colors['accent']),1,Qt.PenStyle.DashLine)); painter.setBrush(QColor(colors['selected']))
@@ -533,10 +532,10 @@ class NodeCard(ResizableCard):
     def hoverMoveEvent(self,event):
         super().hoverMoveEvent(event)
         from .prompt_groups import MODES
-        tip=({'group_mode':'變量：'+MODES[self.value['sequence']['mode']],
-              'group_previous':'上一組','group_next':'下一組','group_index':'切換組合',
+        tip=({'group_mode':'變量：'+MODES[pm.sequence(self.value)['mode']],
+              'group_previous':'上一項','group_next':'下一項','group_index':'切換內容',
               'weight':'調整權重','minus':'減少權重','plus':'增加權重'}.get(self.hot,'')
-             if self.value.get('sequence') else '')
+             if pm.sequence(self.value) else '')
         if self.toolTip()!=tip:self.setToolTip(tip)
 
     def mousePressEvent(self,event):
@@ -546,17 +545,19 @@ class NodeCard(ResizableCard):
 
     def group_action(self,action):
         from .prompt_groups import MODES
-        seq=self.value['sequence'];at=next(i for i,g in enumerate(seq['groups']) if g['id']==seq['selected'])
-        def change(index=None,mode=None):
+        seq=pm.sequence(self.value);at=next(i for i,g in enumerate(seq['groups']) if g['id']==seq['selected'])
+        def change(index=None,mode=None,random_repeats=None):
             def apply(state):
-                root=self.canvas.selected_node(state,self.key)[2];current=root['sequence']
+                root=self.canvas.selected_node(state,self.key)[2];current=pm.sequence(root)
                 if mode:current['mode']=mode
+                if random_repeats is not None:current['random_repeats']=random_repeats
                 if index is not None:current['selected']=current['groups'][max(0,min(len(current['groups'])-1,index))]['id']
                 root.pop('supply_cursor',None);root.pop('round_override',None)
-                from .prompt_sources import signature
                 from .prompt_groups import cursor
-                root['supply_cursor']=dict(signature=signature(root),position=cursor(current,start=current['selected']))
-            self.canvas.commit(apply,label='切換組合')
+                root['selection_cursor']=dict(signature=pm.signature(root),position=cursor(current,start=current['selected']))
+                from .state_schema import mark_version
+                mark_version(state)
+            self.canvas.commit(apply,label='切換內容')
         if action in ('group_previous','group_next'):
             change(at+(-1 if action=='group_previous' else 1));return
         if action=='group_mode':
@@ -564,6 +565,12 @@ class NodeCard(ResizableCard):
             from .ui_icons import icon,MODE_ICONS
             menu=RoundMenu(self.canvas.window)
             for mode,name in MODES.items():
+                if mode=='random':
+                    submenu=menu.addMenu(icon(MODE_ICONS[mode]),name)
+                    for repeat,title in ((True,'允許重複'),(False,'不重複')):
+                        choice=submenu.addAction(title,lambda checked=False,r=repeat:change(mode='random',random_repeats=r))
+                        choice.setCheckable(True);choice.setChecked(seq['mode']=='random' and seq.get('random_repeats',True)==repeat)
+                    continue
                 choice=menu.addAction(icon(MODE_ICONS[mode]),name,lambda checked=False,m=mode:change(mode=m))
                 choice.setCheckable(True);choice.setChecked(mode==seq['mode'])
             menu.exec(self.canvas.view.mapToGlobal(self.canvas.view.mapFromScene(self.mapToScene(self.group_rects[action].bottomLeft()))));return
@@ -576,7 +583,7 @@ class NodeCard(ResizableCard):
         edit.editingFinished.connect(finish)
 
     def wheelEvent(self,event):
-        if self.value.get('sequence') and self.group_rects.get('group_index',QRectF()).contains(event.pos()):
+        if pm.sequence(self.value) and self.group_rects.get('group_index',QRectF()).contains(event.pos()):
             self.group_action('group_previous' if event.delta()>0 else 'group_next');event.accept();return
         event.ignore()
 

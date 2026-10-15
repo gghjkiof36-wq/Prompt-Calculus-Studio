@@ -1,5 +1,5 @@
 """Document compatibility is independent of the installed ComfyUI release."""
-import hashlib,json,sqlite3,sys,types,unittest
+import copy,hashlib,json,sqlite3,sys,types,unittest
 from contextlib import closing
 from unittest.mock import patch
 from pathlib import Path
@@ -14,17 +14,30 @@ from integration_test.compatibility import runtime_versions
 class ComfyCompatibilityTests(unittest.TestCase):
     setUp=integration.IntegrationTests.setUp
 
-    def test_both_profiles_keep_version_six_and_old_documents_readable_without_rewriting(self):
+    def test_both_profiles_read_versions_one_six_seven_without_rewriting_source(self):
+        current=prepare_state(initial_state(),multi=True)
+        legacy=copy.deepcopy(current)
+        def old_types(value):
+            if isinstance(value,dict):
+                value.pop('material_type',None)
+                for child in value.values():old_types(child)
+            elif isinstance(value,list):
+                for child in value:old_types(child)
+        old_types(legacy);legacy['version']=6
         for profile in COMFYUI_COMPATIBILITY_PROFILES:
-            for state in (initial_state(),prepare_state(initial_state(),multi=True)):
+            for state in (initial_state(),legacy,current):
                 state['draft']='';store=Storage(self.root/'library');store.save(state);store.db.close()
                 path=self.root/'library'/'studio.sqlite3';before=hashlib.sha256(path.read_bytes()).digest()
                 result=self.service.read_library(path)
                 self.assertIn(result['state']['version'],SUPPORTED_STATE_VERSIONS)
                 self.assertEqual(result['state']['draft'],'')
                 self.assertEqual(hashlib.sha256(path.read_bytes()).digest(),before,profile)
-                snapshot=make_snapshot(state);restored=restore_snapshot(state,snapshot)
-                self.assertEqual(restored['version'],state['version'])
+                snapshot=make_snapshot(state);before_snapshot=copy.deepcopy(snapshot)
+                restored=restore_snapshot(state,snapshot)
+                self.assertEqual(restored['version'],7)
+                self.assertEqual(restored['draft'],'')
+                self.assertEqual(snapshot,before_snapshot)
+                self.assertEqual(make_snapshot(restored)['final_prompt'],snapshot['final_prompt'])
 
     def test_future_document_is_rejected_with_actionable_extension_message_and_unchanged_bytes(self):
         path=self.root/'library'/'studio.sqlite3'

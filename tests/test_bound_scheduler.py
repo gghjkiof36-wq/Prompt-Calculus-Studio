@@ -82,9 +82,9 @@ class BoundSchedulerTests(unittest.TestCase):
         self.assertEqual([r['saved']['values'][config['terminal']]['value'] for r in rows],items,self.notices)
         for _ in range(3):self.executor.finish()
         self.assertEqual(len({r['prompt']['10']['inputs']['image'] for r in self.executor.submissions}),3,self.notices)
-        self.assertEqual(self.w.state['canvas_functions']['images'][image]['index'],2)
+        self.assertEqual(self.w.state['canvas_functions']['images'][image]['index'],0)
 
-    def test_mixed_bound_image_and_prompt_text_zip_shortest(self):
+    def test_mixed_bound_image_and_prompt_text_uses_larger_count_and_cycles_shorter(self):
         image,items,config=self.bound_images(5)
         clip=[]
         def setup(state):
@@ -98,12 +98,13 @@ class BoundSchedulerTests(unittest.TestCase):
             terminal=clip_flow.add(state);clip.append(terminal);clip_flow.set_binding(state,'B',terminal,('6','text'))
             model.connect(state,output,terminal,'clip');model.connect(state,terminal,config['scheduler']+'::bindings','control')
         self.assertTrue(self.c.commit(setup),self.notices);self.click()
-        rows=self.runner.store.rows('entry');self.assertEqual(len(rows),3,self.notices)
-        self.assertEqual([r['saved']['values'][config['terminal']]['value'] for r in rows],items[:3])
-        self.assertEqual([r['saved']['values'][clip[0]]['value'] for r in rows],['prompt 0','prompt 0','prompt 1'])
-        for _ in range(3):self.executor.finish()
-        self.assertEqual(self.submitted_texts(),['prompt 0','prompt 0','prompt 1'])
-        self.assertEqual(self.w.state['canvas_functions']['images'][image]['index'],3)
+        rows=self.runner.store.rows('entry');self.assertEqual(len(rows),5,self.notices)
+        self.assertEqual([r['saved']['values'][config['terminal']]['value'] for r in rows],items)
+        expected=['prompt 0','prompt 0','prompt 1','prompt 0','prompt 0']
+        self.assertEqual([r['saved']['values'][clip[0]]['value'] for r in rows],expected)
+        for _ in range(5):self.executor.finish()
+        self.assertEqual(self.submitted_texts(),expected)
+        self.assertEqual(self.w.state['canvas_functions']['images'][image]['index'],0)
 
     def test_same_source_two_bindings_uses_one_round(self):
         from prompt_calculus_studio import clip_flow
@@ -167,7 +168,7 @@ class BoundSchedulerTests(unittest.TestCase):
         drag((q,'control',True),(stage,'control',False))
         self.assertEqual(self.c.data()['stages'][stage]['workflow'],'flow',self.notices)
         self.assertEqual(stage_model.connected_terminals(self.w.state),{self.clip})
-        self.assertEqual(self.w.state['version'],6)
+        self.assertEqual(self.w.state['version'],7)
         edge=next(e for e in self.c.data()['connections'] if e['destination']==q)
         self.assertIs(self.c.line_port(edge,False),self.c.ports[(q,'control',False,self.clip)])
         view.setFocus();QTest.keyClick(view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)

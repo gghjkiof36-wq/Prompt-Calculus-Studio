@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from .exclusions import filter_tags, exclusion_rules, tag_key
 from .composition import validate_compositions, root_for, render, effective_nodes, join_fragments, using_legacy_format
 
-SUPPORTED_STATE_VERSIONS=(1,2,3,4,5,6)
+SUPPORTED_STATE_VERSIONS=(1,2,3,4,5,6,7)
 
 
 DEFAULT_SETTINGS = dict(ui_size=11, prompt_size=12, density="comfortable",
@@ -216,7 +216,7 @@ def validate_state(state):
         raise ValueError('流程與局部 Tag 設定需要第 5 版資料格式，原資料保留。')
     from .state_schema import required_version
     if state['version'] < required_version(state):
-        raise ValueError('綁定排程與多圖片預覽需要第 6 版資料格式，原資料保留。')
+        raise ValueError(f'這些功能需要第 {required_version(state)} 版資料格式，原資料保留。')
     return state
 
 
@@ -488,14 +488,15 @@ class Storage:
         state.setdefault("temporary", [])
         return state
 
-    def save(self, state):
+    def save(self, state, *, commit=True):
         if 'multi_output' in state:
             from .multi_output import capture_current
             capture_current(state)
         from .workspace_scene import capture
         capture(state)
         validate_state(state)
-        with self.db:
+        from contextlib import nullcontext
+        with self.db if commit else nullcontext():
             self.db.execute("INSERT OR REPLACE INTO document VALUES (1,?)", (json.dumps(state, ensure_ascii=False),))
 
     def load_current(self, *, multi=False):

@@ -47,6 +47,8 @@ class FlowRulesTests(unittest.TestCase):
 
 class FlowUITests(unittest.TestCase):
     def setUp(self):
+        starter=patch('prompt_calculus_studio.canvas_starter.initialize',side_effect=lambda state,**_:state)
+        starter.start();self.addCleanup(starter.stop)
         self.temp=tempfile.TemporaryDirectory(); self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'}); self.env.start()
         self.w=Window(self.temp.name); self.w.state['settings'].update(online=False,material='solid',reduce_motion=True); self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(20)
         self.c=self.w.canvas; self.cid=next(iter(self.c.containers)); self.oid=self.c.data()['current_output']; self.c.view.resetTransform()
@@ -57,14 +59,15 @@ class FlowUITests(unittest.TestCase):
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a); QTest.mouseMove(view.viewport(),b,25)
         QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b); QTest.qWait(20)
     def test_rewire_tail_to_blank_click_and_drag_then_undo(self):
-        port=self.c.ports[(self.oid,'text',False)]; a=port.scenePos(); self.drag(a,a+QPointF(-130,-120))
+        self.c.view.scale(.6,.6)
+        port=self.c.ports[(self.oid,'text',False,self.cid)]; a=port.scenePos(); self.drag(a,a+QPointF(0,-360))
         self.assertIsNone(self.c.data()['outputs'][self.oid]['canvas']); self.c.undo(); self.assertEqual(self.c.data()['outputs'][self.oid]['canvas'],self.cid)
-        port=self.c.ports[(self.oid,'text',False)]; view=self.c.view; a=port.scenePos(); view.centerOn(a)
+        port=self.c.ports[(self.oid,'text',False,self.cid)]; view=self.c.view; a=port.scenePos(); view.centerOn(a)
         QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=view.mapFromScene(a)); self.assertTrue(self.c.connection_gesture.latched)
-        QTest.mouseMove(view.viewport(),view.mapFromScene(a+QPointF(-180,-130)),15)
-        QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=view.mapFromScene(a+QPointF(-180,-130))); QTest.qWait(15)
+        QTest.mouseMove(view.viewport(),view.mapFromScene(a+QPointF(0,-360)),15)
+        QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=view.mapFromScene(a+QPointF(0,-360))); QTest.qWait(15)
         self.assertIsNone(self.c.data()['outputs'][self.oid]['canvas']); self.c.undo()
-        QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=view.mapFromScene(self.c.ports[(self.oid,'text',False)].scenePos()))
+        QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=view.mapFromScene(self.c.ports[(self.oid,'text',False,self.cid)].scenePos()))
         QTest.keyClick(view,Qt.Key.Key_Escape); self.assertEqual(self.c.data()['outputs'][self.oid]['canvas'],self.cid)
     def test_four_corners_keep_opposite_anchor_and_undo(self):
         cards=[self.c.outputs[self.oid],next(iter(self.c.clips.values())),self.c.preview_card]
@@ -84,11 +87,11 @@ class FlowUITests(unittest.TestCase):
     def test_order_ghost_scale_grab_point_and_ratio_persistence(self):
         at=self.c.containers[self.cid].pos()+QPointF(25,80)
         self.c.add_tag('first',at); self.c.add_tag('second',at+QPointF(0,100)); panel=self.c.outputs[self.oid].panel; order=panel.order
-        order.setCurrentRow(0); rect=order.visualItemRect(order.currentItem()); order._press_pos=rect.topLeft()+QPoint(23,9)
+        order.setCurrentItem(order.topLevelItem(0).child(0)); rect=order.visualItemRect(order.currentItem()); order._press_pos=rect.topLeft()+QPoint(23,9)
         for scale in (.45,1,1.8):
             self.c.view.resetTransform(); self.c.view.scale(scale,scale); image,hot=order.drag_preview()
             self.assertAlmostEqual(image.width()/image.devicePixelRatioF(),rect.width()*scale,delta=2); self.assertEqual(hot,QPoint(round(23*scale),round(9*scale)))
-        key=order.item(0).data(Qt.ItemDataRole.UserRole); order.move_row(key,2); QTest.qWait(15); self.assertEqual(self.c.data()['canvases'][self.cid]['members'][-1],key)
+        token=order.token(order.currentItem());key=token[2];order.move_entry(token,2); QTest.qWait(15); self.assertEqual(self.c.data()['canvases'][self.cid]['members'][-1],key)
         panel.split.setSizes([260,120]); panel.save_ratio(); ratio=self.c.data()['outputs'][self.oid]['panel_ratio']; self.w.persist()
         self.w.close(); APP.processEvents(); self.w=Window(self.temp.name); self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(20); self.c=self.w.canvas
         panel=self.c.outputs[self.oid].panel; sizes=panel.split.sizes(); self.assertAlmostEqual(sizes[0]/sum(sizes),ratio,delta=.02)
@@ -102,35 +105,41 @@ class FlowUITests(unittest.TestCase):
         self.c.embed_source(source,self.cid); edge=next(c for c in self.c.data()['connections'] if c['destination']==self.cid and c['kind']=='image'); self.c.commit(lambda s:model.disconnect(s,edge['id']))
         doc=canvas_document(self.w.state,self.cid); self.assertEqual(len(doc['layers']),1); self.assertEqual(render_image(doc,self.w.store.directory).pixelColor(2,2).name(),'#ff0000')
         self.assertTrue(self.c.execution_bar.isVisible()); self.assertFalse(self.w.run_controls.activity.isHidden())
-        self.assertEqual(self.w.run_controls.run_button.text(),'執行'); self.assertEqual(self.w.run_controls.stop.text(),'取消')
+        self.assertEqual(self.w.run_controls.run_button.text(),'執行'); self.assertIn('取消',self.w.run_controls.stop.accessibleName())
     def test_order_native_proxy_drop_uses_token_and_commits_new_order(self):
         at=self.c.containers[self.cid].pos()+QPointF(25,80)
         self.c.add_tag('first',at); self.c.add_tag('second',at+QPointF(0,100)); card=self.c.outputs[self.oid]; order=card.panel.order
         self.c.view.scale(.7,.7); self.c.view.centerOn(card); QTest.qWait(10)
-        source=order.item(1).data(Qt.ItemDataRole.UserRole); order._source=source; order._drag_token=b'owned'; mime=QMimeData(); mime.setData(order.mime,b'owned')
-        rect=order.visualItemRect(order.item(0)); local=rect.topLeft()+QPoint(15,3); point=self.c.view.mapFromScene(card.proxy.mapToScene(QPointF(order.viewport().mapTo(card.panel,local))))
+        source=order.token(order.topLevelItem(0).child(1)); order._source=source; order._drag_token=b'owned'; mime=QMimeData(); mime.setData(order.mime,b'owned')
+        rect=order.visualItemRect(order.topLevelItem(0).child(0)); local=rect.topLeft()+QPoint(15,3); point=self.c.view.mapFromScene(card.proxy.mapToScene(QPointF(order.viewport().mapTo(card.panel,local))))
         for cls in (QDragEnterEvent,QDragMoveEvent):
             event=cls(point,Qt.DropAction.MoveAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier); event.ignore(); APP.sendEvent(self.c.view.viewport(),event); self.assertTrue(event.isAccepted())
         event=QDropEvent(QPointF(point),Qt.DropAction.MoveAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier); APP.sendEvent(self.c.view.viewport(),event)
         self.assertTrue(event.isAccepted()); order._source=None; order._drag_token=b''; QTest.qWait(15)
-        self.assertEqual(self.c.data()['canvases'][self.cid]['members'][0],source)
+        self.assertEqual(self.c.data()['canvases'][self.cid]['members'][0],source[2])
     def test_manager_bind_switch_remove_undo_and_canvas_names(self):
         c2=self.c.add_canvas(); self.assertEqual(self.c.data()['canvases'][self.cid]['name'],'畫布1'); self.assertEqual(self.c.data()['canvases'][c2]['name'],'畫布2')
         manager=self.w.settings_page.workflow_manager; self.w.generation_panel.save_profile(workflow()); manager.refresh()
-        self.assertEqual(manager.list.count(),1); manager.bind_output('flow',next(iter(self.c.clips)),('7','text')); QTest.qWait(10)
+        self.assertEqual(manager.list.count(),1)
+        from prompt_calculus_studio.clip_flow import set_binding
+        self.c.commit(lambda s:set_binding(s,'flow',next(iter(self.c.clips)),('7','text')));QTest.qWait(10)
         self.assertEqual(self.c.data()['bindings'][0]['node'],'7'); self.w.state['settings']['skip_workflow_delete_confirmation']=True; manager.remove(); self.assertEqual(manager.list.count(),0); manager.undo_remove(); self.assertEqual(manager.list.count(),1)
         self.assertEqual(self.c.data()['bindings'][0]['node'],'7'); self.w.settings_page.open('workflow_manager'); self.assertEqual(self.w.settings_page.comfy_tabs.currentIndex(),0)
 
-    def test_preview_disconnect_gates_history_and_legacy_result_keeps_its_output(self):
+    def test_preview_requires_image_wire_and_disconnect_keeps_legacy_catalog(self):
         from prompt_calculus_studio.core import initial_state
         from prompt_calculus_studio.snapshots import make_snapshot
         path=Path(self.temp.name)/'old-result.png'; image=QImage(20,20,QImage.Format.Format_RGB32); image.fill(QColor('blue')); image.save(str(path))
         envelope=dict(schema_version=1,bindings=[dict(snapshot=make_snapshot(initial_state()))])
         self.w.catalog.put('recent',dict(id='old',name='old',path=str(path),created=1,metadata=dict(raw=dict(prompt_studio=envelope))))
-        self.c.results.refresh(); self.assertEqual(self.c.results.ids,['old'])
-        edge=next(c for c in self.c.data()['connections'] if c['kind']=='clip'); self.c.commit(lambda s:model.disconnect(s,edge['id']))
-        self.assertEqual(self.c.results.ids,[]); self.assertFalse(self.c.results.preview.isEnabled()); self.assertIsNotNone(self.w.catalog.get('old'))
-        self.c.undo(); self.assertEqual(self.c.results.ids,['old'])
+        self.c.results.refresh();self.assertFalse(self.c.results.preview.isEnabled())
+        source=self.c.functions.add_image(path=path)
+        self.c.commit(lambda s:model.connect(s,source,model.PREVIEW,'image'))
+        self.assertTrue(self.c.results.preview.isEnabled());self.assertTrue(self.c.results.input_active)
+        edge=next(c for c in self.c.data()['connections'] if c['destination']==model.PREVIEW and c['kind']=='image')
+        self.c.commit(lambda s:model.disconnect(s,edge['id']))
+        self.assertFalse(self.c.results.preview.isEnabled());self.assertIsNotNone(self.w.catalog.get('old'))
+        self.c.undo();self.assertTrue(self.c.results.preview.isEnabled());self.assertTrue(self.c.results.input_active)
 
 if __name__=='__main__': unittest.main()
 

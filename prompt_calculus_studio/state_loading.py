@@ -18,6 +18,8 @@ def prepare_state(state, *, multi=False):
     listing=any(picks for mid,picks in result['selections'].items() if mid not in legacy)
     result.setdefault('selection_view','canvas' if canvas and not listing else 'list')
     result=migrate_canvas_library(result)
+    from .prompt_materials import migrate as migrate_materials
+    result=migrate_materials(result)
     if multi or 'multi_output' in result:
         from .multi_output import migrate
         result=migrate(result)

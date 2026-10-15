@@ -34,7 +34,8 @@ class FlowConsistencyTests(unittest.TestCase):
                 model.connect(state,self.out,q+'::clip1','clip')
                 model.connect(state,q+'::clip1',self.clip,'clip')
         self.assertTrue(self.c.commit(setup),self.notices)
-        self.w.comfy.snapshot_versions=[1,2,3,4,5,6]
+        from prompt_calculus_studio.core import SUPPORTED_STATE_VERSIONS
+        self.w.comfy.snapshot_versions=list(SUPPORTED_STATE_VERSIONS)
         return result[0]
 
     def test_bound_run_reaches_connected_image_preview(self):
@@ -60,7 +61,7 @@ class FlowConsistencyTests(unittest.TestCase):
             self.assert_visible(index)
             expected.append(self.c.outputs[self.out].panel.editor.toPlainText())
             self.click()
-            self.assert_visible(min(index+1,5))
+            self.assert_visible((index+1)%6)
         for _ in range(6):self.executor.finish()
         self.assertEqual(self.submitted_texts(),expected,self.notices)
 
@@ -103,7 +104,9 @@ class FlowConsistencyTests(unittest.TestCase):
         self.assertEqual(self.c.outputs[self.out].panel.editor.toPlainText(),'prompt 0')
         self.executor.finish();self.executor.finish();QTest.qWait(30)
         root=supply.definitions(self.w.state)[config['source']]['root']
-        self.assertEqual(root['sequence']['selected'],root['sequence']['groups'][2]['id'])
+        # All three rounds were saved at Execute; completion must not consume
+        # another round. The visible live cursor already points to the next cycle.
+        self.assertEqual(root['sequence']['selected'],root['sequence']['groups'][0]['id'])
         self.assertEqual(self.c.outputs[self.out].panel.editor.toPlainText(),comp.render(root))
         self.executor.finish()
         self.assertEqual(self.submitted_texts(),['prompt 0','prompt 1','prompt 2'])

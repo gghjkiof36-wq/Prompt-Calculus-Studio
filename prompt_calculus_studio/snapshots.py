@@ -3,7 +3,7 @@ import copy
 import hashlib
 import json
 from .composition import walk
-from .core import build_prompt, validate_state, uid, output_groups, TEMPORARY_GROUP, separate_selections
+from .core import build_prompt, validate_state, uid, output_groups, TEMPORARY_GROUP, separate_selections, SUPPORTED_STATE_VERSIONS
 
 SCHEMA_VERSION = 1
 MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
@@ -39,6 +39,7 @@ def portable_state(state, selected_only=False):
     items = [dict(id=i['id'], module=i['module'], name=i['name'], prompt=i['prompt'],
                   aliases=list(i['aliases']), notes=i['notes'], excludes=list(i.get('excludes',[])),
                   **({'content_kind':i['content_kind']} if 'content_kind' in i else {}),
+                  **({'material_type':i['material_type']} if 'material_type' in i else {}),
                   **({'composition':_portable_tree(i['composition'])} if 'composition' in i else {})) for i in state['items']
              if not selected_only or 'multi_output' in state or i['id'] in chosen]
     allowed = {i['id'] for i in items}
@@ -101,7 +102,7 @@ def make_snapshot(state, library_id='', library_revision=''):
 
 
 def validate_snapshot(snapshot):
-    if not isinstance(snapshot, dict) or type(snapshot.get('schema_version')) is not int or snapshot.get('schema_version') not in (1, 2, 3, 4, 5, 6):
+    if not isinstance(snapshot, dict) or type(snapshot.get('schema_version')) is not int or snapshot.get('schema_version') not in SUPPORTED_STATE_VERSIONS:
         raise ValueError('不支援的 Prompt Studio 快照版本。')
     if len(json.dumps(snapshot, ensure_ascii=False).encode('utf-8')) > MAX_SNAPSHOT_BYTES:
         raise ValueError('模組快照過大。')

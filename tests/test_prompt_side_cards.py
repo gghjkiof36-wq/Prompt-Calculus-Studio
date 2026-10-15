@@ -84,7 +84,7 @@ class SideCardTests(unittest.TestCase):
         dialog=self.page.edit_material(self.grouped());dialog.pages.show_group_details();QTest.qWait(240)
         value=dialog.pages.group_format;fields=dialog.pages.info_fields
         caption=fields.labelForField(value)
-        self.assertTrue(value.isVisible());self.assertEqual(value.text(),'組合')
+        self.assertTrue(value.isVisible());self.assertEqual(value.text(),'流程')
         self.assertLessEqual(value.height(),dialog.form.aliases.height()+4)
         self.assertLessEqual(abs(value.geometry().center().y()-caption.geometry().center().y()),4)
         self.assertLessEqual(dialog.form.aliases.y()-value.geometry().bottom(),20)

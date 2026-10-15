@@ -5,6 +5,9 @@ from PySide6.QtCore import Qt,QPoint,QPointF,QTimer,QEvent,QObject
 from PySide6.QtGui import QMouseEvent,QHelpEvent
 from PySide6.QtWidgets import QCheckBox,QWidget,QPushButton,QToolTip
 from PySide6.QtTest import QTest
+from unittest.mock import patch
+from PySide6.QtCore import QRect
+from PySide6.QtGui import QScreen
 import test_prompt_group_ui as prior
 from prompt_calculus_studio import composition as comp, prompt_groups as groups, materials, prompt_sources as sources
 from prompt_calculus_studio.text_canvas import NodeDialog
@@ -13,7 +16,13 @@ from prompt_calculus_studio.prompt_source_widgets import GroupSourceDialog
 
 class PromptDialogTests(unittest.TestCase):
     setUpClass=classmethod(prior.GroupUITests.setUpClass.__func__)
-    setUp=prior.GroupUITests.setUp
+    def setUp(self):
+        # Wide-layout assertions need a wide available screen, not the
+        # offscreen platform's default 800x800 desktop. Narrow-window cases
+        # still constrain the real parent window below.
+        screen=patch.object(QScreen,'availableGeometry',return_value=QRect(0,0,1920,1200))
+        screen.start();self.addCleanup(screen.stop)
+        prior.GroupUITests.setUp(self)
     tearDown=prior.GroupUITests.tearDown
     create=prior.GroupUITests.create
 
@@ -267,13 +276,14 @@ class PromptDialogTests(unittest.TestCase):
     def test_material_format_tracks_type_and_reader_only_lists_groups(self):
         dialog=self.page.new_material();dialog.name.setText('單模組');dialog.prompt.setPlainText('smile')
         self.assertEqual(dialog.form.kind.currentData(),'tags');single=dialog.initial_id;self.assertTrue(dialog.save())
-        dialog=self.page.new_material();dialog.name.setText('組合 A');dialog.pages.type_picker.setCurrentIndex(1)
+        dialog=self.page.new_material();dialog.name.setText('流程 A');dialog.pages.type_picker.setCurrentIndex(dialog.pages.type_picker.findData('flow'))
         dialog.pages.show_group_details();QTest.qWait(20)
         self.assertTrue(dialog.pages.group_format.isVisible());self.assertEqual(dialog.pages.group_format.text(),'流程')
         grouped=dialog.initial_id;self.assertTrue(dialog.save())
         keys=[];self.w.canvas.commit(lambda state:keys.append(sources.add(state)))
         reader=GroupSourceDialog(self.w.canvas,keys[0]);reader.show();QTest.qWait(20)
-        found={reader.library.itemData(i) for i in range(reader.library.count())}
+        reader.open_picker()
+        found={reader.candidates.item(i).data(Qt.ItemDataRole.UserRole) for i in range(reader.candidates.count())}
         self.assertIn(grouped,found);self.assertNotIn(single,found);reader.reject()
         # Existing non-tag documents keep their format when opened and saved.
         prose=[];self.w.canvas.commit(lambda state:prose.append(materials.save(state,dict(name='文章',prompt='A sentence, with a comma.',content_kind='text',module=self.cat))))

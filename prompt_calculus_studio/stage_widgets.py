@@ -91,10 +91,8 @@ class StagePanel(QFrame):
         profile=next((p for p in self.canvas.window.state.get('generation',{}).get('profiles',[]) if p['id']==value.get('workflow')),None)
         self.edit_button.setText(profile['name']+' · 參數' if selected and profile else '工作流已移除 · 重新選擇' if value.get('workflow') else '未設定 · 選擇工作流')
         runner=self.canvas.window.comfy.input_flow.chain
-        error=next((a.get('error','') for a in reversed(runner.store.rows('attempt',self.canvas.window.state['workspace']))
-                    if a.get('stage')==self.key and a['status'] in ('failed','unconfirmed','result_error')), '')
-        latest=next((a for a in reversed(runner.store.rows('attempt',self.canvas.window.state['workspace'])) if a.get('stage')==self.key),None)
-        if latest and latest['status'] not in ('failed','unconfirmed','result_error'):error=''
+        latest=runner.store.latest_stage_status(self.canvas.window.state['workspace'],self.key)
+        error=latest['error'] if latest and latest['status'] in ('failed','unconfirmed','result_error') else ''
         if value.get('workflow') and not profile:error=error or '工作流已移除，請重新選擇。'
         self.status.setText(error);self.status.setVisible(bool(error))
 
@@ -104,6 +102,7 @@ class SchedulePanel(QFrame):
         super().__init__();self.canvas=canvas;self.key=key;self.rows=[];self.dragging=False;self.setObjectName('CanvasModuleBody')
         body=QVBoxLayout(self);body.setContentsMargins(4,4,4,4);body.setSpacing(6)
         self.summary=label('','Subtle',True)
+        self.summary.installEventFilter(self)
         self.policy_button=button('輸入取值',self.policies,'Quiet')
         self.policy_button.setParent(self);self.policy_button.hide()
         self.list=PendingList(self);self.list.setIconSize(QSize(48,48));self.list.setMinimumHeight(96);self.list.setObjectName('ModuleScheduleList')
@@ -212,7 +211,16 @@ class SchedulePanel(QFrame):
         if paused:status=' · '.join(filter(None,('已暫停',status)))
         summary=' · '.join(filter(None,(mode,status)))
         self.summary.setText(summary);self.summary.setVisible(bool(summary))
-        self.summary.setToolTip(self.runner.progress()+'\n'+self.runner.expansion(self.key,len(rows) or self.canvas.window.state['settings'].get('comfy_count',1)))
+
+    def eventFilter(self,watched,event):
+        if watched is self.summary and event.type()==QEvent.Type.ToolTip:
+            # Computing an expansion freezes a private graph. Do it only when
+            # the user asks for this explanation, never on the polling clock.
+            from PySide6.QtWidgets import QToolTip
+            text=self.runner.progress()+'\n'+self.runner.expansion(self.key,len(self.rows) or self.canvas.window.state['settings'].get('comfy_count',1))
+            QToolTip.showText(event.globalPos(),text,self.summary)
+            return True
+        return super().eventFilter(watched,event)
 
     def reordered(self):
         ids=[self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]

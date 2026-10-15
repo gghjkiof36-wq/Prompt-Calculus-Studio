@@ -83,11 +83,12 @@ root=node('group material');group=new_group('one','exact group text')
 root['sequence']=dict(version=1,mode='increment',start=group['id'],selected=group['id'],groups=[group])
 material=save(s,dict(name='group material',prompt='',module=add_category(s,'groups'),composition=root))
 key=add(s);read_library(s,key,material);root=definitions(s)[key]['root']
-# The new workspace includes a binding scheduler, which requires schema 6.
-snapshot=make_snapshot(s);assert snapshot['schema_version']==6
+# Explicit material types and independent progress require schema 7.
+snapshot=make_snapshot(s);assert snapshot['schema_version']==7
 restored=restore_snapshot(s,snapshot);assert definitions(restored)[key]['root']['sequence']==root['sequence']
 plan=build(restored,[key],count=1);reserve(restored,plan)
-assert definitions(restored)[key]['root']['supply_cursor']['position']['exhausted']
+assert definitions(restored)[key]['root']['selection_cursor']['position']['group']==root['sequence']['groups'][0]['id']
+assert not definitions(restored)[key]['root']['selection_cursor']['position']['exhausted']
 """
             run=subprocess.run([sys.executable,'-c',code,*SHARED_MODULES],cwd=destination,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=30)
             self.assertEqual(run.returncode,0,run.stdout.decode('utf-8',errors='replace'))

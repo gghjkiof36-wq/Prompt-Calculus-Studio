@@ -19,7 +19,7 @@ class Groups(unittest.TestCase):
     def test_six_reservations_retry_does_not_touch_definition(self):
         root = sample(); before = copy.deepcopy(root); seq = root['sequence']; pos = groups.cursor(seq)
         plans = []
-        while not pos['exhausted']:
+        for _ in range(groups.remaining(seq)):
             record, pos = groups.take(seq, pos)
             plans.append(groups.resolve_round(root, record, str(len(plans))))
         self.assertEqual([comp.render(r) for r in plans], ['red, (hair:1.2)'] * 2 + ['blue'] + ['green'] * 3)
@@ -51,17 +51,17 @@ class Groups(unittest.TestCase):
         comp.validate_node(one)
 
     def test_zip_expanded_counts_and_fixed_random_limits(self):
-        seq = sample()['sequence']; self.assertEqual(groups.paired_length([20, groups.remaining(seq)]), 6)
+        seq = sample()['sequence']; self.assertEqual(groups.paired_length([20, groups.remaining(seq)]), 20)
         seq['groups'][0]['repeat'] = 26
-        self.assertEqual(groups.paired_length([20, groups.remaining(seq)]), 20)
+        self.assertEqual(groups.paired_length([20, groups.remaining(seq)]), 30)
         seq['mode'] = 'fixed'; self.assertEqual(groups.paired_length([20, groups.remaining(seq)]), 20)
         seq['mode'] = 'random'
-        with self.assertRaises(ValueError): groups.paired_length([groups.remaining(seq)])
+        self.assertEqual(groups.paired_length([groups.remaining(seq)]), 10)
         self.assertEqual(groups.paired_length([None], 7), 7)
 
     def test_decrement_remaining_and_random_repeat(self):
         seq = sample()['sequence']; seq.update(mode='decrement', start=seq['groups'][1]['id'])
-        self.assertEqual(groups.remaining(seq), 3)
+        self.assertEqual(groups.remaining(seq), 6)
         seq['mode'] = 'random'; pos = groups.cursor(seq); rng = random.Random(4)
         record, pos = groups.take(seq, pos, rng)
         group = next(g for g in seq['groups'] if g['id'] == record['group'])

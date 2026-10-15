@@ -175,20 +175,31 @@ class ComfyClient(QObject):
         if hasattr(self.window,'recent'):
             self.window.recent.collecting.clear(); self.window.recent.update_save_button()
 
+    def visible_status(self):
+        """Only user-visible transport state, never request timers or receipts."""
+        names=('connection_checking','connected','ready','lease','target','message',
+               'running','pending','control_interrupted','direct_supported','queue_supported',
+               'native_supported','native_open_supported','native_inspect_supported',
+               'native_unavailable_reason','images_supported','input_bridge_supported','flow_supported')
+        return tuple(getattr(self,key,None) for key in names)+(tuple(self.snapshot_versions or ()),tuple(sorted(self.extension_info.items())))
+
     def poll(self):
         if self.stopped or not self.enabled or self.polling: return
         self.polling=True
         def fail(message):
+            before=self.visible_status()
             self.extension_info={}
             self.polling=False; self.connection_checking=False; self.connected=False; self.ready=False; self.token=''; self.last_signature=''
             self.control_interrupted=self.had_control
-            self.message=message; self.stateChanged.emit()
+            self.message=message
+            if self.visible_status()!=before:self.stateChanged.emit()
             self.generation.disconnected()
             self.input_flow.disconnected()
             self.queue.disconnected()
             if self.run_id:
                 self.window.notice('生成提交的連線中斷，結果尚未確認；請查看 ComfyUI 紀錄，不會自動重送。'); self.run_id=''
         def received(status):
+            before=self.visible_status()
             self.polling=False; self.connection_checking=False
             if not self.enabled: return
             old=self.lease; self.connected=True; self.ready=bool(status.get('ready')); self.lease=status.get('lease',''); self.target=status.get('target','')
@@ -222,7 +233,7 @@ class ComfyClient(QObject):
             if not self.snapshot_compatible:
                 self.message=self.compatibility_message
                 self.control_interrupted=True; self.sync_timer.stop()
-            self.stateChanged.emit()
+            if self.visible_status()!=before:self.stateChanged.emit()
             self.generation.observe(status)
             self.input_flow.observe(status)
             self.queue.observe()

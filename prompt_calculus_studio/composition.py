@@ -64,6 +64,8 @@ def validate_node(root):
         if 'sequence' in value:
             from . import prompt_groups
             prompt_groups.validate(value['sequence'], visit, depth)
+        from .prompt_materials import validate as validate_material
+        validate_material(value, visit, depth)
         if ('disabled_tags' in value and
                 (not isinstance(value['disabled_tags'], list) or
                  any(not isinstance(t, str) or not t.strip() for t in value['disabled_tags']))):
@@ -148,10 +150,12 @@ def prototype(item):
         root['collapsed']=True
         root.setdefault('content_kind',item.get('content_kind','tags'))
         return root
-    return dict(id='source:' + item['id'], name=item['name'], prompt=item['prompt'],
+    result = dict(id='source:' + item['id'], name=item['name'], prompt=item['prompt'],
                 enabled=True, weight=10, children=[], overlays=[], excludes=list(item.get('excludes', [])),
                 content_kind=item.get('content_kind', 'tags'), collapsed=True,
                 preview=item.get('preview', ''))
+    if 'material_type' in item: result['material_type'] = item['material_type']
+    return result
 
 
 def root_for(state, item):
@@ -232,6 +236,8 @@ def walk(root):
     for group in root.get('sequence', {}).get('groups', []):
         for child in group['modules']:
             yield from walk(child)
+    for child in root.get('combination', {}).get('modules', []):
+        yield from walk(child)
 
 
 def find(root, ident):
@@ -247,6 +253,8 @@ def container(root, ident):
         for group in parent.get('sequence', {}).get('groups', []):
             if any(child['id'] == ident for child in group['modules']):
                 return group['modules']
+        if any(child['id'] == ident for child in parent.get('combination', {}).get('modules', [])):
+            return parent['combination']['modules']
     raise ValueError('找不到子項；整組請使用「移除當次組合」。')
 
 
@@ -255,6 +263,9 @@ def clone_node(root):
     result = copy.deepcopy(root)
     for part in walk(result):
         part['id'] = uuid.uuid4().hex
+    from .prompt_materials import signature
+    for part in walk(result):
+        if part.get('selection_cursor'):part['selection_cursor']['signature']=signature(part)
     return result
 
 
@@ -277,6 +288,12 @@ def effective_nodes(root):
                 for child in group['modules']:
                     yield from effective_nodes(child)
             return
+        if root.get('combination'):
+            if root['combination']['input'] == 'modules':
+                for child in root['combination']['modules']:
+                    yield from effective_nodes(child)
+            return
+        if root.get('variants'): return
         for child in root['children']:
             yield from effective_nodes(child)
 
@@ -319,6 +336,9 @@ def render(root, transform=None, *, grouped=None):
         text = render(overlay, transform)
     elif root.get('sequence'):
         text = render_body(root, transform)
+    elif root.get('combination') or root.get('variants'):
+        from .prompt_groups import selected, render_group
+        text = render_group(root.get('combination') or selected(root['variants']), transform)
     else:
         kind = 'tags' if using_legacy_format() else root.get('content_kind', 'tags')
         own = transform(root['prompt']) if transform and kind == 'tags' else root['prompt']

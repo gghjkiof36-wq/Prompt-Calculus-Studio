@@ -32,7 +32,8 @@ class ReceiptExecutor:
         self.graph['9']=dict(class_type='PreviewImage',inputs=dict(images=['5',0]))
         self.client.request=self.request
         self.client.connected=True;self.client.native_supported=True;self.client.flow_supported=True
-        self.client.snapshot_versions=[4];self.client.direct_supported=True
+        from prompt_calculus_studio.core import SUPPORTED_STATE_VERSIONS
+        self.client.snapshot_versions=list(SUPPORTED_STATE_VERSIONS);self.client.direct_supported=True
         self.client.stateChanged.emit()
 
     def request(self,route,data=None,done=None,failed=None,**kwargs):
@@ -89,6 +90,22 @@ class ReceiptExecutor:
 class RuntimeRepairTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        # These legacy input-runner scenarios build pre-Stage graphs explicitly.
+        starter=patch('prompt_calculus_studio.canvas_starter.initialize',side_effect=lambda state,**_:state)
+        starter.start();self.addCleanup(starter.stop)
+        def legacy_state(state):
+            state['multi_output'].setdefault('stages',{})
+            return state
+        legacy=patch('prompt_calculus_studio.stage_model.upgrade',side_effect=legacy_state)
+        legacy.start();self.addCleanup(legacy.stop)
+        empty=patch('prompt_calculus_studio.canvas_starter._populate_pristine',return_value=None)
+        empty.start();self.addCleanup(empty.stop)
+        # Legacy chains have no Stage result projection; current workspace UI
+        # asks this adapter to reload it after Undo and workspace changes.
+        results=patch('prompt_calculus_studio.chain_runner.ChainRunner.load_results',create=True,return_value=None)
+        results.start();self.addCleanup(results.stop)
+        projection=patch('prompt_calculus_studio.chain_runner.ChainRunner.results',{},create=True)
+        projection.start();self.addCleanup(projection.stop)
         env=patch.dict('os.environ',{'PROMPT_STUDIO_V08':'1'});env.start();self.addCleanup(env.stop)
         self.w=Window(self.tmp.name);self.w.comfy.timer.stop();self.w.comfy.enabled=False
         self.w.state['settings'].update(online=False,material='solid');self.notices=[];self.w.notice=self.notices.append

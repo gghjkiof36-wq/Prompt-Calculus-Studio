@@ -41,6 +41,9 @@ class EditingRepairTests(unittest.TestCase):
         self.assertEqual(self.w.state['uses'],second_uses)
         self.assertEqual(len(self.w.comfy.generation.records()),0)
         self.w.persist();self.w.close();APP.processEvents();self.w=Window(self.tmp.name);self.c=self.w.canvas
+        # Reopening adds explicit types at the load boundary; all original
+        # fields, IDs and Prompt bodies must otherwise remain exactly equal.
+        for value in second_uses.values():value['material_type']='text'
         self.w.show();self.w.set_interface_mode('canvas');QTest.qWait(20)
         self.switch(first);self.assertEqual(self.w.state['uses']['test-root']['prompt'],'A');self.assertEqual(self.w.state['draft'],'')
         self.switch(second);self.assertEqual(self.w.state['uses'],second_uses)

@@ -328,7 +328,7 @@ class StageTests(unittest.TestCase):
         self.click()
         for i in range(6):self.assertTrue(self.executor.pending,(i,self.notices));self.executor.finish()
         self.assertEqual([p['prompt']['6']['inputs']['text'] for p in self.executor.submissions],['image prompt 0','image prompt 1','image prompt 2']*2)
-        self.assertEqual(self.w.state['canvas_functions']['images'][source]['index'],2)
+        self.assertEqual(self.w.state['canvas_functions']['images'][source]['index'],0)
 
 
     def test_repeated_a_stages_and_two_complete_rounds(self):
