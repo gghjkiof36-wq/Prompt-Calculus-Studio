@@ -16,11 +16,29 @@ Generation requires your own ComfyUI installation, models and workflows. Keep PC
 
 ## PCS 0.8.8
 
-![PCS 0.8.8 Canvas](docs/images/canvas-0.8.8.png)
+### Connect a Canvas workflow
 
-![PCS 0.8.8 Prompt Editor](docs/images/editor-0.8.8.png)
+Send text through Prompt output and CLIP input, then queue it for a Stage.
 
-Actual Qt screens from the fixed 0.8.8 functional source, using isolated public examples with ComfyUI disconnected. See the [capture and validation scope](docs/releases/0.8.8/validation/alpha.1.md) (Chinese).
+![PCS 0.8.8 Connect a Canvas workflow](docs/images/canvas-overview-0.8.8.png)
+
+### Add function modules
+
+Double-click an empty area of the Canvas to browse text, image and execution modules with node previews.
+
+![PCS 0.8.8 Add function modules](docs/images/canvas-functions-0.8.8.png)
+
+### Preview materials in Prompt Editor
+
+Select a material to read its full Prompt and browse each combination in a flow.
+
+![PCS 0.8.8 Preview materials in Prompt Editor](docs/images/prompt-editor-preview-0.8.8.png)
+
+### Edit Flow A
+
+Set combination order, the starting combination and repeat counts, then save the flow for reuse.
+
+![PCS 0.8.8 Edit Flow A](docs/images/prompt-editor-flow-a-0.8.8.png)
 
 This release unifies selection and saved progress across text variants, combinations and flows. It adds clearer variant management and side pages, bound-input scheduling and independent image previews. It also fixes whole-workspace cancellation, migrated repeat progress, ordering across output switches, and unnecessary library content in generation snapshots. See the [full release notes](docs/releases/0.8.8/alpha.1.md) (Chinese).
 

@@ -18,11 +18,29 @@
 
 ## 0.8.8 畫面
 
-![PCS 0.8.8 Canvas](docs/images/canvas-0.8.8.png)
+### Canvas 串接工作流程
 
-![PCS 0.8.8 Prompt Editor](docs/images/editor-0.8.8.png)
+文字經 Prompt 輸出與 CLIP 輸入綁定工作流，再由預排程交給 Stage 執行。
 
-實際 0.8.8 功能來源的 Qt 畫面，使用獨立公開範例資料；未連接 ComfyUI。[圖片來源與驗證界線](docs/releases/0.8.8/validation/alpha.1.md)。
+![PCS 0.8.8 Canvas 串接工作流程](docs/images/canvas-overview-0.8.8.png)
+
+### 雙擊 Canvas 加入功能模組
+
+雙擊 Canvas 空白處，依文字、圖片或執行分類加入模組，右側可先看節點預覽。
+
+![PCS 0.8.8 雙擊 Canvas 加入功能模組](docs/images/canvas-functions-0.8.8.png)
+
+### Prompt Editor 預覽素材
+
+點選素材查看完整 Prompt；流程可逐一預覽各個組合。
+
+![PCS 0.8.8 Prompt Editor 預覽素材](docs/images/prompt-editor-preview-0.8.8.png)
+
+### 編輯流程 A
+
+設定組合順序、起始組合與重複次數，將流程保存成可重用素材。
+
+![PCS 0.8.8 編輯流程 A](docs/images/prompt-editor-flow-a-0.8.8.png)
 
 ## 這版更新
 

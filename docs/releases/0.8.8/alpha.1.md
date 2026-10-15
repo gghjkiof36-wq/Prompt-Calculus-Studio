@@ -43,9 +43,29 @@
 
 ## 實際畫面
 
-![PCS 0.8.8 Canvas](https://raw.githubusercontent.com/gghjkiof36-wq/Prompt-Calculus-Studio/v0.8.8-alpha.1/docs/images/canvas-0.8.8.png)
+### Canvas 串接工作流程
 
-固定 0.8.8 功能來源的實際 Qt Canvas，使用公開範例資料，未連接 ComfyUI。圖片來源及驗證範圍見[驗證紀錄](validation/alpha.1.md)。
+文字經 Prompt 輸出與 CLIP 輸入綁定工作流，再由預排程交給 Stage 執行。
+
+![PCS 0.8.8 Canvas 串接工作流程](../../images/canvas-overview-0.8.8.png)
+
+### 雙擊 Canvas 加入功能模組
+
+雙擊 Canvas 空白處，依文字、圖片或執行分類加入模組，右側可先看節點預覽。
+
+![PCS 0.8.8 雙擊 Canvas 加入功能模組](../../images/canvas-functions-0.8.8.png)
+
+### Prompt Editor 預覽素材
+
+點選素材查看完整 Prompt；流程可逐一預覽各個組合。
+
+![PCS 0.8.8 Prompt Editor 預覽素材](../../images/prompt-editor-preview-0.8.8.png)
+
+### 編輯流程 A
+
+設定組合順序、起始組合與重複次數，將流程保存成可重用素材。
+
+![PCS 0.8.8 編輯流程 A](../../images/prompt-editor-flow-a-0.8.8.png)
 
 ## 下載與啟動
 
