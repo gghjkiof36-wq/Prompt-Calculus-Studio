@@ -36,6 +36,8 @@ Canvas 與 Prompt Editor 圖使用固定功能來源的真實 Qt 控件、全新
 | [canvas-0.8.8.png](../../../images/canvas-0.8.8.png) | 1920×1080 | `77aed2c6eafc03e9eda89eb7c1699f9efddf3c075b522fb269c7f43b82058774` |
 | [editor-0.8.8.png](../../../images/editor-0.8.8.png) | 1920×1031 | `0b528e9793a83b6536771aa744328ae903d75dcbc9e41eead8119d6f4c64c350` |
 
-Canvas 使用視窗擷取，Editor 使用實際頁面控件擷取。功能源與上方固定提交相同；該功能樹的 runtime 標題仍沿用 0.8.7 Alpha 1，正式發布身份由後續版本整合設定，沒有為圖片另改產品版本。擷取時使用 Microsoft JhengHei、實色材質，配套啟動探查停用，網路／服務嘗試及 Qt 回呼例外均為零；僅適用這次取圖。
+Canvas 使用視窗擷取，Editor 使用實際頁面控件擷取。此次重新取圖來源是正式版本整合提交 `11674e021c08f4ccd7a4f2965ec5993fd1f7dd3e`，執行標題為 `Prompt Calculus Studio · v0.8.8 Alpha 1`，CURRENT／build flag 為 `--v0.8.8-alpha.1`，來源啟動參數為 `--v0.8.8-alpha`。相對上方功能源，產品套件僅 releases.py 的版本身份改動，啟動入口另補正式參數，功能核心保持相同。
+
+兩張新擷取圖片與前次功能源圖片的像素／SHA256 相同，表中 hash 因此不變；介面沒有顯示 runtime 視窗標題，沒有另加版本浮水印。擷取時使用全新合成資料、Microsoft JhengHei 與實色材質，配套啟動探查停用；網路／服務嘗試及 Qt 回呼例外均為零。取圖前後正式版本來源樹保持乾淨，舊圖片與取圖紀錄保留；此結果僅適用這次取圖。
 
 公開下載及包內容以[發布頁](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.8-alpha.1)及[來源對照](../source-provenance.md)為準；來源通過與最終成品／實際環境驗證分開記錄。
