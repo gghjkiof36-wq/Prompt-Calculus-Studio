@@ -327,7 +327,7 @@ def restore_snapshot(current, snapshot):
             saved=output.get('list_state',{})
             saved['selections']={module_map[m]:[item_map[i] for i in picks] for m,picks in saved.get('selections',{}).items()}
             if 'category_positions' in saved:
-                saved['category_positions']={module_map[key]:value for key,value in saved['category_positions'].items()}
+                saved['category_positions']={module_map[key]:value for key,value in saved['category_positions'].items() if key in module_map}
             for field in ('weights','instances'):
                 saved[field]={item_map.get(k,k):v for k,v in saved.get(field,{}).items()}
             if saved.get('temporary_before') is not None: saved['temporary_before']=module_map.get(saved['temporary_before'])

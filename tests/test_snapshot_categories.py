@@ -104,6 +104,11 @@ class SnapshotCategoryTests(unittest.TestCase):
                     owner['category_positions']=invalid
                     with self.assertRaises(ValueError):restore_snapshot(state,changed)
                     self.assertEqual(state,before)
+        # A deleted category can leave a harmless historic position hint.
+        changed=copy.deepcopy(snapshot)
+        next(iter(changed['state']['multi_output']['outputs'].values()))['list_state']['category_positions']['retired-category']=1
+        restored=restore_snapshot(state,changed)
+        self.assertEqual(build_prompt(restored),snapshot['generated_prompt']);self.assertEqual(state,before)
 
     def test_legacy_shared_list_and_canvas_keep_each_outputs_original_order(self):
         state,_,_=workspace();state['settings']['separate_selections']=False
