@@ -32,15 +32,15 @@
 
 ### Prompt Editor 預覽素材
 
-點選素材查看完整 Prompt；流程可逐一預覽各個組合。
+雙擊點選素材查看完整 Prompt，右側可以自行添加有關提示詞的圖片。
 
 ![PCS 0.8.8 Prompt Editor 預覽素材](docs/images/prompt-editor-preview-0.8.8.png)
 
-### 編輯流程 A
+### 編輯流程
 
 設定組合順序、起始組合與重複次數，將流程保存成可重用素材。
 
-![PCS 0.8.8 編輯流程 A](docs/images/prompt-editor-flow-a-0.8.8.png)
+![PCS 0.8.8 編輯流程](docs/images/prompt-editor-flow-edit-0.8.8.png)
 
 ## 這版更新
 

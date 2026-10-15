@@ -30,15 +30,15 @@ Double-click an empty area of the Canvas to browse text, image and execution mod
 
 ### Preview materials in Prompt Editor
 
-Select a material to read its full Prompt and browse each combination in a flow.
+Double-click a material to view its full Prompt. You can add images related to the Prompt in the panel on the right.
 
 ![PCS 0.8.8 Preview materials in Prompt Editor](docs/images/prompt-editor-preview-0.8.8.png)
 
-### Edit Flow A
+### Edit flows
 
 Set combination order, the starting combination and repeat counts, then save the flow for reuse.
 
-![PCS 0.8.8 Edit Flow A](docs/images/prompt-editor-flow-a-0.8.8.png)
+![PCS 0.8.8 Edit flows](docs/images/prompt-editor-flow-edit-0.8.8.png)
 
 This release unifies selection and saved progress across text variants, combinations and flows. It adds clearer variant management and side pages, bound-input scheduling and independent image previews. It also fixes whole-workspace cancellation, migrated repeat progress, ordering across output switches, and unnecessary library content in generation snapshots. See the [full release notes](docs/releases/0.8.8/alpha.1.md) (Chinese).
 

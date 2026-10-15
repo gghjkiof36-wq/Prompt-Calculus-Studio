@@ -29,18 +29,18 @@
 
 ## 公開示例圖片
 
-2026-10-15 補充四張主要功能畫面，取自公開來源提交 `da13609a84ebc867ba083139aff3cc4e8d5b1c4e`，執行標題為 `Prompt Calculus Studio · v0.8.8 Alpha 1`。
+2026-10-15 補充四張主要功能畫面，取自公開來源提交 `32976d4b3a728dcdd97f294ebfdf22def499d02d`，執行標題為 `Prompt Calculus Studio · v0.8.8 Alpha 1`。
 
 | 圖片 | 尺寸 | SHA256 |
 |---|---|---|
 | [canvas-overview-0.8.8.png](../../../images/canvas-overview-0.8.8.png) | 1920×1080 | `35d3d3af5487ceb4e7720fe3f135e5dcdd4d63e40fd0911886546a24a06bff86` |
 | [canvas-functions-0.8.8.png](../../../images/canvas-functions-0.8.8.png) | 988×888 | `45bc51b97410d598ebe9956cfaae376b8bc3225ad5cf1814b11df79e995b5790` |
-| [prompt-editor-preview-0.8.8.png](../../../images/prompt-editor-preview-0.8.8.png) | 1920×1031 | `cdc822fe2abe01fa40a21062fb200e9dc38f2bb28cf28e5c762c61619a5804d8` |
-| [prompt-editor-flow-a-0.8.8.png](../../../images/prompt-editor-flow-a-0.8.8.png) | 748×681 | `6a4661267a4546dfdca81aa4eeefaf686b51f55f8883dc5653fd1d6dfbcb12be` |
+| [prompt-editor-preview-0.8.8.png](../../../images/prompt-editor-preview-0.8.8.png) | 1920×1031 | `152be41d075fd0babb94bad1bf059f031f26d560b5299cdf4bbb7c8b0397a7ad` |
+| [prompt-editor-flow-edit-0.8.8.png](../../../images/prompt-editor-flow-edit-0.8.8.png) | 748×681 | `2904d325a40f799ee09c3ca63f1006695854a3e4601bde642099f7f9918bf001` |
 
-使用實際 Qt 控件與 `QWidget.grab()` 離屏擷取，未重畫或修改圖片像素。Canvas 擷取整個視窗；功能模組頁擷取雙擊空白 Canvas 後開啟的選單面板；素材預覽擷取 Prompt Editor 頁面；流程 A 擷取點選預覽區「編輯」後的編輯面板。四圖已逐張檢視，文字與主要操作完整可見。
+使用實際 Qt 控件與 `QWidget.grab()` 離屏擷取，未重畫或修改圖片像素。Canvas 擷取整個視窗；功能模組頁擷取雙擊空白 Canvas 後開啟的選單面板；素材預覽擷取 Prompt Editor 頁面；流程編輯畫面擷取點選預覽區「編輯」後的編輯面板。四圖已逐張檢視，文字與主要操作完整可見。
 
-全新合成資料包含場景變體、文字、兩個組合及流程 A；流程 A 的三個組合分別重複 2／2／1 次。Canvas 只調整示例文件中的 CLIP 輸入與預排程位置，產品程式與預設布局未改。取圖使用 Microsoft JhengHei、實色材質，未讀取私人資料、連接 ComfyUI 或提交生成；網路／服務嘗試與 Qt 回呼例外均為零。圖片展示介面操作，沒有生成結果。
+全新合成資料包含場景變體、文字、兩個組合及「花園與海岸」示例流程；示例流程的三個組合分別重複 2／2／1 次。Canvas 只調整示例文件中的 CLIP 輸入與預排程位置，產品程式與預設布局未改。取圖使用 Microsoft JhengHei、實色材質，未讀取私人資料、連接 ComfyUI 或提交生成；網路／服務嘗試與 Qt 回呼例外均為零。圖片展示介面操作，沒有生成結果。
 
 首次發布的兩張圖片與當時取圖紀錄保留於 [v0.8.8-alpha.1 驗證紀錄](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/blob/v0.8.8-alpha.1/docs/releases/0.8.8/validation/alpha.1.md#公開示例圖片)。
 
