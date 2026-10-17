@@ -48,6 +48,8 @@ class DocumentTabBar(QTabBar):
         super().__init__()
         self.tab_width = 228
         self.tab_height = 40
+        # Keep a narrow seam while the curved feet reach into neighboring notches.
+        self.body_inset = 3
         self.workspace_active = True
         self.join_sidebar = False
         self.sidebar_fill = QColor('#151819')
@@ -102,21 +104,21 @@ class DocumentTabBar(QTabBar):
                 # Curved feet join the page below without a bottom border.
                 rect=option.rect
                 foot,shoulder=8,14
-                left,right=rect.left()+foot,rect.right()-foot
+                left,right=rect.left()+self.body_inset,rect.right()-self.body_inset
                 top,bottom=rect.top(),rect.bottom()+1
                 if self.join_sidebar and index == 0 and rect.left() == 0:
                     # The first tab's curved shoulder meets the sidebar surface,
                     # rather than revealing a sliver of the outer window frame.
                     painter.fillRect(QRectF(rect.left(), top, foot+shoulder, rect.height()), self.sidebar_fill)
                 path=QPainterPath()
-                path.moveTo(rect.left(),bottom)
+                path.moveTo(left-foot,bottom)
                 path.quadTo(left,bottom,left,bottom-foot)
                 path.lineTo(left,top+shoulder)
                 path.quadTo(left,top,left+shoulder,top)
                 path.lineTo(right-shoulder,top)
                 path.quadTo(right,top,right,top+shoulder)
                 path.lineTo(right,bottom-foot)
-                path.quadTo(right,bottom,rect.right()+1,bottom)
+                path.quadTo(right,bottom,right+foot+1,bottom)
                 path.closeSubpath()
                 painter.save()
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -130,7 +132,7 @@ class DocumentTabBar(QTabBar):
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(self.hover_fill)
-                painter.drawRoundedRect(QRectF(option.rect).adjusted(8, 3, -8, -3), 10, 10)
+                painter.drawRoundedRect(QRectF(option.rect).adjusted(self.body_inset, 3, -self.body_inset, -3), 10, 10)
                 painter.restore()
             font = QFont(self.font())
             font.setItalic(self.tabData(index) in self.preview_keys)
@@ -167,7 +169,7 @@ class DocumentTabs(QWidget):
         self.overflow.setFixedSize(28, 32)
         self.line = QHBoxLayout(self)
         self.line.setContentsMargins(0, 0, 0, 0)
-        self.line.setSpacing(3)
+        self.line.setSpacing(1)
         self.line.addWidget(self.bar)
         self.line.addWidget(self.plus)
         self.line.addWidget(self.overflow)
