@@ -206,7 +206,8 @@ class SettingsPage(QWidget):
         self.civitai.tabs.currentChanged.connect(self.civitai_tab_changed)
         self.navigation.currentRowChanged.connect(self.navigate)
         self.autosave=QTimer(self); self.autosave.setSingleShot(True); self.autosave.setInterval(350); self.autosave.timeout.connect(self.flush)
-        self.syncing=False; self.entry_appearance=None
+        self.syncing=False; self.entry_appearance=None; self.entry_navigation_position=None
+        self.navigation_position=None
         for choice in self.interface.choices.buttons():choice.toggled.connect(self.schedule_save)
         self.configure_navigation('interface')
 
@@ -335,6 +336,9 @@ class SettingsPage(QWidget):
         keys=('font_family','ui_size','prompt_size','material','visual_palette','accent','density','mica_transparency','acrylic_transparency','menu_transparency','reduce_motion','connection_style','confirm_clear_draft')
         values=self.entry_appearance if restore else DEFAULT_SETTINGS
         self.flush(); self.window.state['settings'].update({k:values[k] for k in keys if k in values})
+        workspace=getattr(self.window,'workspace_owner',None)
+        if workspace is not None:
+            workspace.set_navigation_position(self.entry_navigation_position if restore else 'side')
         self.clear_preferences(); self.open('appearance'); self.window.apply_theme(preserve_layout=True); self.window.changed('settings')
 
     def add(self,key,title,widget):
@@ -354,6 +358,20 @@ class SettingsPage(QWidget):
                 if getattr(self.window,'workspace_owner',None) is not None:
                     inner.text_controls.append(self.preferences.material)
                     self.preferences.material.currentIndexChanged.connect(lambda *_, page=inner:QTimer.singleShot(0,page.align_fields))
+                    workspace=self.window.workspace_owner
+                    if self.entry_navigation_position is None:
+                        self.entry_navigation_position=workspace.navigation_position
+                    self.navigation_position=ComboBox()
+                    self.navigation_position.setAccessibleName('入口位置')
+                    self.navigation_position.addItem('左側','side')
+                    self.navigation_position.addItem('上方','top')
+                    self.navigation_position.setCurrentIndex(self.navigation_position.findData(workspace.navigation_position))
+                    self.navigation_position.currentIndexChanged.connect(
+                        lambda:workspace.set_navigation_position(self.navigation_position.currentData()))
+                    holder=QWidget(); holder.setLayout(row(self.navigation_position,None))
+                    holder.layout().setContentsMargins(0,0,0,0)
+                    inner.forms[0].addRow('入口位置',holder)
+                    inner.text_controls.append(self.navigation_position)
                 inner.layout().insertWidget(0,label('介面個人化','DialogTitle'))
                 inner.layout().insertWidget(inner.layout().count()-1,AppearanceResetRow(button('還原開啟設定時的外觀',lambda:self.reset_appearance(True),'Quiet'),button('重設為預設外觀',self.reset_appearance,'Quiet')))
             elif key=='completion':
@@ -404,11 +422,12 @@ class SettingsPage(QWidget):
         for key,page in zip(('appearance','completion','dictionary'),self.preference_pages):
             self.pages.removeWidget(page); page.deleteLater(); self.pages.insertWidget(self.index[key],QWidget())
         self.preferences.deleteLater(); self.preferences=None; self.preference_pages=[]
+        self.navigation_position=None
 
     def reload_state(self):
         """Discard editors for the old document after an explicit data import."""
         section=self.section
-        self.autosave.stop(); self.clear_preferences(); self.entry_appearance=None
+        self.autosave.stop(); self.clear_preferences(); self.entry_appearance=None; self.entry_navigation_position=None
         self.civitai.stop_images(); self.civitai.search_cache.clear(); self.civitai.list.clear(); self.civitai.results=[]; self.civitai.initial_requested=False
         for control,key,default in ((self.civitai.filter_minor,'civitai_filter_minor',True),(self.civitai.nsfw,'civitai_mature',True)):
             control.blockSignals(True); control.setChecked(self.window.state['settings'].get(key,default)); control.blockSignals(False)

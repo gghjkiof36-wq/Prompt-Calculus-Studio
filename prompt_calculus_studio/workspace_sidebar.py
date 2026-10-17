@@ -27,7 +27,8 @@ class WorkspaceSidebarResize(QObject):
         QApplication.instance().installEventFilter(self)
 
     def limit(self, width):
-        available = max(MIN_WIDTH, self.window.width()-self.window.rail.width()-380)
+        rail_width = self.window.rail.width() if self.window.navigation_position == 'side' else 0
+        available = max(MIN_WIDTH, self.window.width()-rail_width-380)
         return max(MIN_WIDTH, min(MAX_WIDTH, available, round(width)))
 
     def current_width(self):

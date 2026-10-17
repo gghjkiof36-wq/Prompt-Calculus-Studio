@@ -492,6 +492,79 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertEqual(self.app.palette().color(QPalette.ColorRole.Window),QColor('#f5f3ee'))
         self.assertEqual(canvas_colors(reopened.document.host.canvas)['palette'],'paper')
 
+    def test_navigation_position_keeps_tabs_sidebars_and_drafts_and_survives_restart(self):
+        from PySide6.QtCore import QPoint
+        tab = self.open(retained=True)
+        before = tab.path.read_bytes()
+        host = tab.document.host
+        ident = host.state['items'][0]['id']
+        self.assertTrue(host.canvas.commit(lambda s: materials.save(s, dict(id=ident, prompt='kept draft'))))
+        self.assertTrue(tab.dirty)
+        count = self.w.tab_strip.bar.count()
+        self.w.sidebar_preference = True
+        self.w.sidebar_width = 314
+        self.w.open_route('settings', 'appearance')
+        self.events()
+        page = self.w.utility.settings_page
+        position = page.navigation_position
+        self.assertEqual(position.currentData(), 'side')
+        position.setCurrentIndex(position.findData('top'))
+        self.events()
+        self.assertEqual(self.w.active_route, 'settings')
+        self.assertEqual(self.w.navigation_position, 'top')
+        self.assertTrue(self.w.tab_row.isVisible())
+        self.assertLess(self.w.top.geometry().bottom(), self.w.tab_row.geometry().top())
+        self.assertIs(self.w.rail.parentWidget(), self.w.top)
+        self.assertTrue(self.w.sidebar_target().isVisible())
+        self.assertEqual(self.w.sidebar_target().width(), 314)
+        QTest.mouseClick(self.w.collapse, Qt.MouseButton.LeftButton)
+        self.events()
+        self.assertFalse(self.w.sidebar_target().isVisible())
+        position.setCurrentIndex(position.findData('side'))
+        self.events()
+        self.assertFalse(self.w.tab_row.isVisible())
+        self.assertFalse(self.w.sidebar_target().isVisible())
+        position.setCurrentIndex(position.findData('top'))
+        self.events()
+        QTest.mouseClick(self.w.collapse, Qt.MouseButton.LeftButton)
+        self.events()
+        self.assertEqual(self.w.sidebar_target().width(), 314)
+        for route in ('gallery', 'explore', 'export', 'settings'):
+            QTest.mouseClick(self.w.routes[route], Qt.MouseButton.LeftButton)
+            self.events()
+            self.assertEqual(self.w.active_route, route)
+            self.assertEqual(self.w.tab_strip.bar.count(), count)
+            self.assertTrue(self.w.sidebar_target().isVisible())
+        self.w.resize(720, 560)
+        self.events()
+        self.assertEqual(self.w.width(), 720)
+        for entry in self.w.routes.values():
+            right = entry.mapTo(self.w, entry.rect().topRight()).x()
+            self.assertLess(right, self.w.connection.mapTo(self.w,QPoint()).x())
+            self.assertTrue(entry.isVisible())
+        QTest.mouseClick(self.w.tab_strip.bar, Qt.MouseButton.LeftButton,
+                        pos=self.w.tab_strip.bar.tabRect(self.w.index_of(tab.key)).center())
+        self.events()
+        self.assertEqual(self.w.active_route, 'home')
+        self.assertEqual(self.w.active_key, tab.key)
+        self.assertEqual(materials.item(host.state,ident)['prompt'], 'kept draft')
+        self.assertTrue(tab.dirty)
+        self.assertEqual(tab.path.read_bytes(), before)
+        while self.w.tab_strip.bar.count():
+            self.w.close_tab(0, decision='discard', make_home=False)
+        self.w.close(); self.w.deleteLater(); self.events()
+        self.w = WorkspaceShell(self.root, Path(self.area.name)/'data')
+        self.w.report_error = self.errors.append
+        self.w.show(); self.events()
+        self.assertEqual(self.w.navigation_position, 'top')
+        self.assertTrue(self.w.tab_row.isVisible())
+        self.w.open_route('settings', 'appearance'); self.events()
+        self.assertEqual(self.w.utility.settings_page.navigation_position.currentData(), 'top')
+        self.w.utility.settings_page.reset_appearance()
+        self.events()
+        self.assertEqual(self.w.navigation_position, 'side')
+        self.assertEqual((self.root/'Scene.pcs-category').read_bytes(), before)
+
     def test_palette_round_trip_refreshes_existing_preview_and_content_surface(self):
         from PySide6.QtGui import QColor, QPalette
         from prompt_calculus_studio.theme import visual_tokens

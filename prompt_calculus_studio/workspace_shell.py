@@ -23,6 +23,7 @@ from .workspace_files import create_file, MarkdownPage
 from .workspace_style import sidebar_style, workspace_colors
 from .workspace_sidebar import WorkspaceSidebarResize
 from .workspace_surface import WorkspaceSurface
+from .workspace_destinations import WorkspaceNavigation
 
 
 DISPLAY_KEYS = ('font_family', 'ui_size', 'prompt_size', 'material',
@@ -76,6 +77,7 @@ class WorkspaceShell(QMainWindow):
         self.active_route = 'home'
         self.sidebar_preference = None
         self.sidebar_width = 264
+        self.navigation_position = 'side'
         self.recent_files = []
         try:
             saved = json.loads((self.data/'recent-files.json').read_text(encoding='utf-8'))
@@ -101,6 +103,7 @@ class WorkspaceShell(QMainWindow):
         self.setMinimumSize(720, 480)
         self.setPalette(widget_palette(self.settings))
         self.build()
+        self.arrange_navigation()
         from .window_chrome import install_expanded_chrome
         self.window_chrome = install_expanded_chrome(self)
         if self.window_chrome:
@@ -159,6 +162,13 @@ class WorkspaceShell(QMainWindow):
         self.tab_strip.bar.customContextMenuRequested.connect(self.tab_menu)
         top.addWidget(self.tab_strip, 1)
         root_layout.addWidget(self.top)
+        self.tab_row = WorkspaceTop()
+        self.tab_row.setObjectName('DocumentTabStrip')
+        tabs = QHBoxLayout(self.tab_row)
+        tabs.setContentsMargins(16, 4, 16, 0)
+        tabs.setSpacing(0)
+        root_layout.addWidget(self.tab_row)
+        self.tab_row.hide()
 
         self.connection = button('', lambda: self.open_route('explore', 'workflows'), 'WorkspaceConnection')
         connection_layout = QHBoxLayout(self.connection)
@@ -180,25 +190,10 @@ class WorkspaceShell(QMainWindow):
         workspace = QHBoxLayout()
         workspace.setContentsMargins(0, 0, 0, 0)
         workspace.setSpacing(0)
+        self.workspace_layout = workspace
         root_layout.addLayout(workspace, 1)
-        self.rail = QFrame()
-        self.rail.setObjectName('DocumentRail')
-        self.rail.setFixedWidth(52)
-        rail = QVBoxLayout(self.rail)
-        rail.setContentsMargins(7, 5, 7, 9)
-        rail.setSpacing(6)
-        self.routes = {}
-        for key, title, symbol in (('home', '首頁', 'home'), ('gallery', '媒體庫', 'media'),
-                                   ('explore', '探索', 'compass'), ('export', '匯出', 'export')):
-            entry = self.tool(symbol, title, lambda checked=False, route=key: self.open_route(route))
-            entry.setCheckable(True)
-            rail.addWidget(entry)
-            self.routes[key] = entry
-        rail.addStretch()
-        entry = self.tool('settings', '設定', lambda: self.open_route('settings'))
-        entry.setCheckable(True)
-        self.routes['settings'] = entry
-        rail.addWidget(entry)
+        self.rail = WorkspaceNavigation(self)
+        self.routes = self.rail.routes
         workspace.addWidget(self.rail)
         self.workspace_stack = WorkspaceSurface(self)
         workspace.addWidget(self.workspace_stack, 1)
@@ -284,6 +279,7 @@ class WorkspaceShell(QMainWindow):
         ''' + sidebar_style(appearance))
         self.connection_label.ensurePolished()
         self.connection.setFixedWidth(self.connection_label.sizeHint().width()+44)
+        self.sync_navigation_density()
         self.workspace_stack.sync_surface()
         for tab in self.tabs_by_key.values():
             if isinstance(tab.widget, WorkspaceHome):
@@ -322,6 +318,9 @@ class WorkspaceShell(QMainWindow):
             expanded=saved.get('sidebar_expanded')
             if type(expanded) is bool:
                 self.sidebar_preference=expanded
+            position=saved.get('navigation_position')
+            if position in ('side','top'):
+                self.navigation_position=position
         except (ValueError,OSError):
             pass
 
@@ -330,7 +329,8 @@ class WorkspaceShell(QMainWindow):
 
     def save_ui_preferences(self):
         saved = {key:self.settings[key] for key in DISPLAY_KEYS}
-        saved.update(sidebar_width=self.sidebar_width, sidebar_expanded=self.sidebar_preference)
+        saved.update(sidebar_width=self.sidebar_width, sidebar_expanded=self.sidebar_preference,
+                     navigation_position=self.navigation_position)
         output=QSaveFile(str(self.data/'workspace-ui.json'))
         output.setDirectWriteFallback(False)
         if output.open(QIODevice.OpenModeFlag.WriteOnly):
@@ -352,13 +352,48 @@ class WorkspaceShell(QMainWindow):
             return self.sidebar
         return self.utility.context_sidebar_target() if self.utility else None
 
+    def set_navigation_position(self, position):
+        if position not in ('side', 'top') or position == self.navigation_position:
+            return
+        self.navigation_position = position
+        self.arrange_navigation()
+        self.sync_sidebar()
+        self.save_ui_preferences()
+
+    def arrange_navigation(self):
+        horizontal = self.navigation_position == 'top'
+        top = self.top.layout()
+        top.removeWidget(self.tab_strip)
+        top.removeWidget(self.rail)
+        self.tab_row.layout().removeWidget(self.tab_strip)
+        self.workspace_layout.removeWidget(self.rail)
+        self.rail.arrange(self.navigation_position)
+        if horizontal:
+            top.insertWidget(2, self.rail, 1)
+            self.tab_row.layout().addWidget(self.tab_strip, 1)
+        else:
+            top.insertWidget(2, self.tab_strip, 1)
+            self.workspace_layout.insertWidget(0, self.rail)
+        self.tab_row.setVisible(horizontal)
+        self.rail.show()
+        self.tab_strip.show()
+        self.sync_navigation_density()
+
+    def sync_navigation_density(self):
+        margins = self.top.layout().contentsMargins()
+        available = (self.width()-margins.left()-margins.right()
+                     -self.nav_controls.sizeHint().width()-self.connection.width()-22)
+        self.rail.adapt_width(available)
+
     def caption_inset(self, inset):
         self.top.layout().setContentsMargins(7, 4, 10+inset, 0)
+        self.sync_navigation_density()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'connection'):
             self.connection.setToolTip('ComfyUI 未連線；開啟連線設定')
+            self.sync_navigation_density()
             self.sync_sidebar()
 
     def refresh_tree(self):
