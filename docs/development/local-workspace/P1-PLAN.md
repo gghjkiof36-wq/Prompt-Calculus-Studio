@@ -1,6 +1,6 @@
 # P1：可攜文件核心實作順序
 
-狀態：需求主責已核對 P0 並明確交辦 P1-01～P1-09；完成 P1 後停於檢查點，P2 尚未放行。依 [ADR-001](ADR-001.md)；本階段不接 live 任務、不改 UI、不批量搬使用者資料。
+狀態：P1-01～P1-09 已實作並自驗，停於階段檢查點待需求核對，P2 尚未放行。實際模組、格式與限制見 [SCHEMA](SCHEMA.md)。依 [ADR-001](ADR-001.md)；本階段不接 live 任務、不改 UI、不批量搬使用者資料。
 
 ## 依序完成的工程單位
 
@@ -17,6 +17,8 @@
 | P1-09 | schema／欄位責任說明及 CHECKPOINT-P1 | 固定 commit、精確 W03～W07/W28 狀態、失敗修正前後證據、原件／回復方式。 |
 
 以上名稱是工程拆分預設；小幅合併檔案由實作主責決定。不能為了配合名稱改資料語義或以簡化 title/body 達成測試。
+
+實際落地：`prompt_calculus_studio/local_documents/` 的 schema、policy、category、workflow、identity、assets、paths、io、windows、index；測試合併為五份 `test_local_document_*.py` 與共用合成 fixture。`tools/local_workspace_p1.py` 提供獨立新根的完整往返及競態回復產物。既有產品入口、shared 模組與 journal 未改。
 
 ## 可重用與不可直接套用
 
