@@ -30,7 +30,7 @@ class WorkspaceNavigation(QFrame):
             self.body.takeAt(0)
         self.body.setDirection(QBoxLayout.Direction.LeftToRight if horizontal
                                else QBoxLayout.Direction.TopToBottom)
-        self.body.setContentsMargins(0, 0, 0, 4) if horizontal else self.body.setContentsMargins(7, 5, 7, 9)
+        self.body.setContentsMargins(0, 0, 0, 0) if horizontal else self.body.setContentsMargins(7, 5, 7, 9)
         self.body.setSpacing(6)
         self.setMinimumSize(0, 0)
         self.setMaximumSize(16777215, 16777215)

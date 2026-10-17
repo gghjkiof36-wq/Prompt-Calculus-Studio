@@ -165,7 +165,7 @@ class WorkspaceShell(QMainWindow):
         self.tab_row = WorkspaceTop()
         self.tab_row.setObjectName('DocumentTabStrip')
         tabs = QHBoxLayout(self.tab_row)
-        tabs.setContentsMargins(16, 4, 16, 0)
+        tabs.setContentsMargins(16, 2, 16, 0)
         tabs.setSpacing(0)
         root_layout.addWidget(self.tab_row)
         self.tab_row.hide()
@@ -368,6 +368,7 @@ class WorkspaceShell(QMainWindow):
         self.tab_row.layout().removeWidget(self.tab_strip)
         self.workspace_layout.removeWidget(self.rail)
         self.rail.arrange(self.navigation_position)
+        self.tab_strip.set_tab_height(36 if horizontal else 40)
         if horizontal:
             top.insertWidget(2, self.rail, 1)
             self.tab_row.layout().addWidget(self.tab_strip, 1)
@@ -380,7 +381,9 @@ class WorkspaceShell(QMainWindow):
         self.sync_navigation_density()
 
     def sync_navigation_density(self):
+        horizontal = self.navigation_position == 'top'
         margins = self.top.layout().contentsMargins()
+        self.nav_controls.layout().setContentsMargins(0, 0, 0, 0 if horizontal else 4)
         available = (self.width()-margins.left()-margins.right()
                      -self.nav_controls.sizeHint().width()-self.connection.width()-22)
         self.rail.adapt_width(available)

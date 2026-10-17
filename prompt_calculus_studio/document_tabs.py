@@ -10,6 +10,7 @@ class DocumentTabBar(QTabBar):
     def __init__(self):
         super().__init__()
         self.tab_width = 228
+        self.tab_height = 40
         self.workspace_active = True
         self.active_fill = QColor('#151819')
         self.preview_keys = set()
@@ -27,7 +28,7 @@ class DocumentTabBar(QTabBar):
     def tabSizeHint(self, index):
         size = super().tabSizeHint(index)
         size.setWidth(self.tab_width)
-        size.setHeight(40)
+        size.setHeight(self.tab_height)
         return size
 
     def align_close_buttons(self):
@@ -57,16 +58,17 @@ class DocumentTabBar(QTabBar):
             if self.workspace_active and index == self.currentIndex():
                 # Curved feet join the page below without a bottom border.
                 rect=option.rect
-                left,right=rect.left()+6,rect.right()-6
+                foot,shoulder=8,14
+                left,right=rect.left()+foot,rect.right()-foot
                 top,bottom=rect.top(),rect.bottom()+1
                 path=QPainterPath()
                 path.moveTo(rect.left(),bottom)
-                path.quadTo(left,bottom,left,bottom-6)
-                path.lineTo(left,top+10)
-                path.quadTo(left,top,left+10,top)
-                path.lineTo(right-10,top)
-                path.quadTo(right,top,right,top+10)
-                path.lineTo(right,bottom-6)
+                path.quadTo(left,bottom,left,bottom-foot)
+                path.lineTo(left,top+shoulder)
+                path.quadTo(left,top,left+shoulder,top)
+                path.lineTo(right-shoulder,top)
+                path.quadTo(right,top,right,top+shoulder)
+                path.lineTo(right,bottom-foot)
                 path.quadTo(right,bottom,rect.right()+1,bottom)
                 path.closeSubpath()
                 painter.save()
@@ -116,6 +118,15 @@ class DocumentTabs(QWidget):
         self.line.addWidget(self.overflow)
         self.line.addStretch(1)
         self.bar.tabMoved.connect(lambda *_: self.fit())
+
+    def set_tab_height(self, height):
+        if self.bar.tab_height == height:
+            return
+        self.bar.tab_height = height
+        self.bar.setExpanding(True)
+        self.bar.setExpanding(False)
+        self.bar.updateGeometry()
+        self.updateGeometry()
 
     def fit(self):
         count = max(1, self.bar.count())
