@@ -7,7 +7,7 @@ from .schema import fail
 CONTENT_SETTINGS = {'formatter', 'artist_prefix', 'separate_selections', 'comfy_count'}
 LOCAL_SETTINGS = (set(core.DEFAULT_SETTINGS) - CONTENT_SETTINGS) | {
     'comfy_enabled', 'comfy_url', 'canvas_palette', 'execution_bar_position',
-    'model_category_types', 'ui_language', 'window_geometry', 'window_state',
+    'model_category_types', 'ui_language', 'window_geometry', 'window_state', 'canvas_starter',
 }
 LOCAL_STATE = {'dictionary', 'content_history', 'material_navigation'}
 CONTENT_STATE = set(workspace_scene.FIELDS) | {

@@ -375,6 +375,7 @@ def show_history(window, target=None):
 
 class MaterialEditorForm(QWidget):
     """`target` identifies a material original or a workspace-local node copy."""
+    draftChanged = Signal()
     def __init__(self, window, compact=False, isolated=False, parent=None):
         super().__init__(parent)
         self.isolated = isolated
@@ -911,6 +912,7 @@ class MaterialEditorForm(QWidget):
     def edited(self, *_):
         if self.loading: return
         self.dirty = True
+        self.draftChanged.emit()
         if self.target and self.target[0] == 'canvas':
             self.timer.start()
             self.status.setText('正在編輯畫布副本…')

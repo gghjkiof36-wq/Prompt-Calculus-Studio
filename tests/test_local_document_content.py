@@ -85,6 +85,14 @@ class ContentTests(DocumentsCase):
         with self.assertRaises(schema.DocumentError):
             self.workflow()
 
+    def test_starter_guide_is_local_while_the_graph_remains_portable(self):
+        guide = dict(workspace=self.state['workspace'], dismissed=True)
+        self.state['settings']['canvas_starter'] = guide
+        document = self.workflow()
+        self.assertNotIn('canvas_starter', document['payload']['state']['settings'])
+        self.assertEqual(local_retention(self.state)['settings']['canvas_starter'], guide)
+        self.assertEqual(document['payload']['state']['multi_output'], self.state['multi_output'])
+
     def test_absent_legacy_setting_keeps_its_old_fallback(self):
         self.state['settings'].pop('separate_selections')
         original = core.separate_selections(self.state)

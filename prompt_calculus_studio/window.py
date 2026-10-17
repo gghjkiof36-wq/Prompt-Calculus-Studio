@@ -35,22 +35,23 @@ from .widgets import StudioDialog,widget_global_position
 
 
 class Window(QMainWindow):
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, *, embedded=False, client_factory=None):
         super().__init__()
+        self.embedded_document = embedded
         from .tooltips import install_tooltip_styling
         install_tooltip_styling()
         from .button_focus import install_button_focus_styling
         install_button_focus_styling()
         # Keep WS_CAPTION / WS_THICKFRAME. Alpha painting into a native frame
         # uses DWM redirection; FramelessWindowHint would use WS_EX_LAYERED.
-        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowTitleHint |
+        self.setWindowFlags(Qt.WindowType.Widget if embedded else Qt.WindowType.Window | Qt.WindowType.WindowTitleHint |
             Qt.WindowType.WindowSystemMenuHint | Qt.WindowType.WindowMinMaxButtonsHint |
             Qt.WindowType.WindowCloseButtonHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, not embedded)
         from .releases import window_title
         self.setWindowTitle(window_title())
         self.setWindowIcon(QIcon(str(Path(__file__).parent/"assets"/"studio.ico")))
-        self.resize(1440,900); self.setMinimumSize(640,480)
+        self.resize(1440,900); self.setMinimumSize(0,0) if embedded else self.setMinimumSize(640,480)
         self.store=Storage(data_dir)
         # A queued Canvas edit belongs to this document/workspace visit.
         self.canvas_edit_context=object()
@@ -73,11 +74,11 @@ class Window(QMainWindow):
         self.save_timer=QTimer(self); self.save_timer.setSingleShot(True); self.save_timer.timeout.connect(self.persist)
         self.changes=ChangeCoordinator(self)
         self.filter_timer=QTimer(self); self.filter_timer.setSingleShot(True); self.filter_timer.timeout.connect(self.refresh_library)
-        self.host_shell=WindowShell(self); self.setCentralWidget(self.host_shell)
+        self.host_shell=QWidget(self) if embedded else WindowShell(self); self.setCentralWidget(self.host_shell)
         surface_layout=QVBoxLayout(self.host_shell); surface_layout.setContentsMargins(0,0,0,0); surface_layout.setSpacing(0)
         self.studio_navigation=StudioNavigation(self); surface_layout.addWidget(self.studio_navigation)
         from .window_chrome import install_expanded_chrome
-        self.window_chrome=install_expanded_chrome(self)
+        self.window_chrome=None if embedded else install_expanded_chrome(self)
         if self.window_chrome:
             self.studio_navigation.set_caption_inset(self.window_chrome.caption_right_inset)
             self.window_chrome.insetChanged.connect(self.studio_navigation.set_caption_inset)
@@ -104,7 +105,7 @@ class Window(QMainWindow):
         self.gallery=GalleryPage(self); self.tabs.addTab(self.gallery,"媒體庫")
         self.recent=RecentPage(self); self.tabs.addTab(self.recent,'最近生成')
         self.clean_export=ExportPage(self); self.tabs.addTab(self.clean_export,'匯出')
-        self.comfy=ComfyClient(self); self.comfy.stateChanged.connect(self.comfy_changed); self.comfy.resultsReceived.connect(self.recent.receive_results)
+        self.comfy=(client_factory or ComfyClient)(self); self.comfy.stateChanged.connect(self.comfy_changed); self.comfy.resultsReceived.connect(self.recent.receive_results)
         self.tabs.currentChanged.connect(self.page_changed)
         self.status=label("","Subtle",True)
         self.status.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Preferred)
@@ -661,9 +662,9 @@ class Window(QMainWindow):
         if app.palette()!=palette:app.setPalette(palette)
         # Display recovery and activation are not theme changes. Reapplying
         # DWM attributes/styles on every activation exposes a native white edge.
-        material_key=(int(self.winId()),appearance['material'],tokens['scheme'],tokens['line'])
+        material_key=(0 if self.embedded_document else int(self.winId()),appearance['material'],tokens['scheme'],tokens['line'])
         if material_key!=getattr(self,'_material_key',None):
-            self.native_material=apply_backdrop(self,appearance["material"],appearance)
+            self.native_material=False if self.embedded_document else apply_backdrop(self,appearance["material"],appearance)
             self._material_key=material_key
         self._applied_material=appearance['material']
         self.host_shell.update()

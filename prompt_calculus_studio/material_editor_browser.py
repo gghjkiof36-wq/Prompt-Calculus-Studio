@@ -305,7 +305,12 @@ class PromptEditor(QWidget):
         # the same balanced gutters as the settings reading pages.
         width = viewport_width
         self.workspace_bar.refresh()
-        if self.narrow:
+        if getattr(self, 'document_mode', False):
+            self.category_panel.hide()
+            self.workspace_header.hide()
+            start = READING_NARROW_MARGIN if self.narrow else READING_MARGIN
+            area_x = start; area_width = max(0, width-2*start)
+        elif self.narrow:
             self.category_title.hide(); self.categories.hide()
             self.category.show(); self.category_controls.show()
             if self.category_add.parentWidget() is not self.category_controls:

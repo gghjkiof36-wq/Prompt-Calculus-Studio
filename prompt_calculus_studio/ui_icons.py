@@ -19,7 +19,7 @@ ALIASES = {
     'loader':'update', 'upload':'export', 'undo':'back', 'link':'external-link',
 }
 ICON_NAMES = frozenset({
-    'canvas','media','explore','export','settings','back','forward','search','update',
+    'home','canvas','media','explore','export','settings','back','forward','search','update',
     'package','download','check','clock','info','close','play','pause','stop','lock','pin','pin-filled','menu','pencil',
     'workflow','history','external-link','alert','server','check-circle',
     'folder','plus','minus','copy','trash','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal',
@@ -86,7 +86,9 @@ def _draw(painter, name):
     def circle(x,y,radius):
         painter.drawEllipse(QPointF(x,y),radius,radius)
 
-    if name in ('canvas','workflow'):
+    if name == 'home':
+        poly((3,11),(12,3),(21,11));poly((5,10),(5,21),(10,21),(10,15),(14,15),(14,21),(19,21),(19,10))
+    elif name in ('canvas','workflow'):
         rect(3,3,6,6); rect(15,15,6,6); rect(3,15,6,6)
         poly((6,9),(6,12),(18,12),(18,15)); line(6,12,6,15)
     elif name == 'panel-left':
