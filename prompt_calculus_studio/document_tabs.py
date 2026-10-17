@@ -1,6 +1,6 @@
 """A single native tab strip with an adjacent new-tab button and overflow."""
 from PySide6.QtCore import Qt, QSize, Signal, QRectF
-from PySide6.QtGui import QFont, QFontMetrics, QPalette, QColor, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QFont, QFontMetrics, QPalette, QColor, QPainter, QPainterPath, QPen, QRegion
 from PySide6.QtWidgets import QWidget, QTabBar, QHBoxLayout, QSizePolicy, QStylePainter, QStyleOptionTab, QStyle, QAbstractButton
 from .widgets import button, RoundMenu
 from .ui_icons import icon
@@ -48,9 +48,9 @@ class DocumentTabBar(QTabBar):
         super().__init__()
         self.tab_width = 228
         self.tab_height = 40
-        # Keep a narrow seam while the curved feet reach into neighboring notches.
         self.body_inset = 3
-        self.workspace_active = True
+        self.hover_radius = 10
+        self._workspace_active = True
         self.join_sidebar = False
         self.sidebar_fill = QColor('#151819')
         self.active_fill = QColor('#151819')
@@ -69,6 +69,36 @@ class DocumentTabBar(QTabBar):
         self.setDrawBase(False)
         self.setAccessibleName('文件分頁')
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+
+    @property
+    def workspace_active(self):
+        return self._workspace_active
+
+    @workspace_active.setter
+    def workspace_active(self, active):
+        self._workspace_active = active
+        self.update()
+        if self.parentWidget() is not None:
+            self.parentWidget().update()
+
+    def active_path(self, index):
+        rect = QRectF(self.tabRect(index))
+        left, right = rect.left()+self.body_inset, rect.right()-self.body_inset
+        top, bottom = rect.top(), rect.bottom()
+        # The adjacent hover corner and this concave foot are concentric.
+        # Their radius difference is the same as the horizontal/vertical seam.
+        foot, shoulder = self.hover_radius+2*self.body_inset, 14
+        path = QPainterPath()
+        path.moveTo(left-foot, bottom)
+        path.arcTo(QRectF(left-2*foot, bottom-2*foot, 2*foot, 2*foot), 270, 90)
+        path.lineTo(left, top+shoulder)
+        path.quadTo(left, top, left+shoulder, top)
+        path.lineTo(right-shoulder, top)
+        path.quadTo(right, top, right, top+shoulder)
+        path.lineTo(right, bottom-foot)
+        path.arcTo(QRectF(right, bottom-2*foot, 2*foot, 2*foot), 180, 90)
+        path.closeSubpath()
+        return path
 
     def tabSizeHint(self, index):
         size = super().tabSizeHint(index)
@@ -103,28 +133,15 @@ class DocumentTabBar(QTabBar):
             if self.workspace_active and index == self.currentIndex():
                 # Curved feet join the page below without a bottom border.
                 rect=option.rect
-                foot,shoulder=8,14
-                left,right=rect.left()+self.body_inset,rect.right()-self.body_inset
-                top,bottom=rect.top(),rect.bottom()+1
                 if self.join_sidebar and index == 0 and rect.left() == 0:
                     # The first tab's curved shoulder meets the sidebar surface,
                     # rather than revealing a sliver of the outer window frame.
-                    painter.fillRect(QRectF(rect.left(), top, foot+shoulder, rect.height()), self.sidebar_fill)
-                path=QPainterPath()
-                path.moveTo(left-foot,bottom)
-                path.quadTo(left,bottom,left,bottom-foot)
-                path.lineTo(left,top+shoulder)
-                path.quadTo(left,top,left+shoulder,top)
-                path.lineTo(right-shoulder,top)
-                path.quadTo(right,top,right,top+shoulder)
-                path.lineTo(right,bottom-foot)
-                path.quadTo(right,bottom,right+foot+1,bottom)
-                path.closeSubpath()
+                    painter.fillRect(QRectF(rect.left(), rect.top(), self.body_inset+14, rect.height()), self.sidebar_fill)
                 painter.save()
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(self.active_fill)
-                painter.drawPath(path)
+                painter.drawPath(self.active_path(index))
                 painter.restore()
             elif option.state & QStyle.StateFlag.State_MouseOver:
                 # Inactive hover is a compact pill, not the active tab's feet.
@@ -132,7 +149,9 @@ class DocumentTabBar(QTabBar):
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(self.hover_fill)
-                painter.drawRoundedRect(QRectF(option.rect).adjusted(self.body_inset, 3, -self.body_inset, -3), 10, 10)
+                painter.drawRoundedRect(QRectF(option.rect).adjusted(
+                    self.body_inset, 0, -self.body_inset, -2*self.body_inset),
+                    self.hover_radius, self.hover_radius)
                 painter.restore()
             font = QFont(self.font())
             font.setItalic(self.tabData(index) in self.preview_keys)
@@ -175,6 +194,23 @@ class DocumentTabs(QWidget):
         self.line.addWidget(self.overflow)
         self.line.addStretch(1)
         self.bar.tabMoved.connect(lambda *_: self.fit())
+        self.bar.currentChanged.connect(self.update)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self.bar.workspace_active or self.bar.currentIndex() < 0:
+            return
+        if self.overflow.isVisible() or self.bar.tabRect(self.bar.currentIndex()).right()+1 != self.bar.width():
+            return
+        # Keep the last tab's foot intact beside + without expanding its hit box
+        # or moving that button away. The tab bar paints the part inside itself.
+        painter = QPainter(self)
+        painter.setClipRegion(QRegion(self.rect()).subtracted(QRegion(self.bar.geometry())))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self.bar.active_fill)
+        painter.translate(self.bar.pos())
+        painter.drawPath(self.bar.active_path(self.bar.currentIndex()))
 
     def set_tab_height(self, height):
         if self.bar.tab_height == height:
@@ -201,6 +237,7 @@ class DocumentTabs(QWidget):
         self.bar.setFixedWidth(min(desired, budget))
         self.overflow.setVisible(overflow)
         self.bar.updateGeometry()
+        self.update()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
