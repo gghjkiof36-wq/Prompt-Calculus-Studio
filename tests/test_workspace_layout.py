@@ -35,6 +35,17 @@ class WorkspaceLayoutTests(unittest.TestCase):
         self.w.show()
         self.events()
 
+    def test_restart_applies_saved_ratio_to_visible_splitter(self):
+        self.open('Street.pcs-workflow')
+        self.w.open_path(self.root/'Notes.md', pane=self.w.ensure_split())
+        self.events()
+        self.w.pane_split.setSizes([750, 250])
+        self.w.remember_ratio()
+        expected = self.w.split_ratio
+        self.restart()
+        sizes = self.w.pane_split.sizes()
+        self.assertAlmostEqual(sizes[0]/sum(sizes), expected, delta=.01)
+
     def test_merge_left_then_right_keeps_duplicate_view_drafts_cursor_and_undo(self):
         note = self.open('Notes.md')
         self.open('Scene.pcs-category', new_tab=True)

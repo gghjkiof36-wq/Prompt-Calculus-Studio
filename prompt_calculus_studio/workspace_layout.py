@@ -125,6 +125,24 @@ class WorkspaceLayout(QObject):
         self.timer.setInterval(400)
         self.timer.timeout.connect(self.save)
 
+    def eventFilter(self, obj, event):
+        if obj is self.w and event.type() == QEvent.Type.Show:
+            self.w.removeEventFilter(self)
+            QTimer.singleShot(0, self.finish_restore_geometry)
+        return False
+
+    def finish_restore_geometry(self):
+        if self.stopped:return
+        if len(self.w.panes) == 2:
+            total = self.w.pane_split.width() - self.w.pane_split.handleWidth()
+            left = round(total*self.w.split_ratio)
+            self.w.pane_split.setSizes([left, total-left])
+        # The saved camera belongs to the final pane size, not the hidden
+        # splitter's temporary size hints during construction.
+        for restore in getattr(self, '_geometry_views', []):
+            restore.apply()
+        self._geometry_views = []
+
     def schedule(self):
         if not self.restoring and not self.stopped:self.timer.start()
 
@@ -183,6 +201,7 @@ class WorkspaceLayout(QObject):
             self.w.show_notice('無法還原分頁布局，已開啟新分頁：'+str(error))
             return False
         self.restoring = True
+        self._geometry_views = []
         try:
             w = self.w
             w.split_ratio = max(.05, min(.95, ratio))
@@ -194,7 +213,7 @@ class WorkspaceLayout(QObject):
                     state = record.get('state') if isinstance(record.get('state'), dict) else {}
                     tab = w.open_path(Path(record['path']), True, new_tab=True, pane=pane, quiet=True) if record.get('path') else w.new_tab(pane=pane)
                     if tab is None:tab = self.missing(record, pane, getattr(w, 'last_open_error', '文件目前無法讀取。'))
-                    else:RestoreView(tab, state)
+                    else:self._geometry_views.append(RestoreView(tab, state))
                     mapping[record['id']] = tab
                 if not pane.strip.bar.count():w.new_tab(pane=pane)
                 current = mapping.get(saved.get('current'))
@@ -206,6 +225,8 @@ class WorkspaceLayout(QObject):
             w.history = [('document', w.active_key, w.tabs_by_key[w.active_key].slot)]
             w.history_at = 0
             w.record_visit(w.history[0])
+            if w.isVisible():QTimer.singleShot(0, self.finish_restore_geometry)
+            else:w.installEventFilter(self)
             return True
         finally:
             self.restoring = False
