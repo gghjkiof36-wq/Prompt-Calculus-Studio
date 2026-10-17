@@ -90,7 +90,8 @@ class WorkspaceShell(QMainWindow):
         self.recent_timer = QTimer(self)
         self.recent_timer.setSingleShot(True)
         self.recent_timer.timeout.connect(self.save_recent)
-        self.settings = dict(DEFAULT_SETTINGS, ui_size=12, online=False, comfy_enabled=False)
+        self.default_settings = dict(DEFAULT_SETTINGS, ui_size=12, online=False, comfy_enabled=False)
+        self.settings = dict(self.default_settings)
         self.load_ui_preferences()
         self.appearance_preview = {}
         self.native_material = False

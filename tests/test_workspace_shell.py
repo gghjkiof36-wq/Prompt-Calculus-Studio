@@ -504,6 +504,8 @@ class WorkspaceShellTests(unittest.TestCase):
         count = self.w.tab_strip.bar.count()
         self.w.sidebar_preference = True
         self.w.sidebar_width = 314
+        self.assertEqual(self.w.settings['ui_size'], 12)
+        self.w.settings['ui_size'] = 13
         self.w.open_route('settings', 'appearance')
         self.events()
         page = self.w.utility.settings_page
@@ -564,6 +566,12 @@ class WorkspaceShellTests(unittest.TestCase):
         self.w.utility.settings_page.reset_appearance()
         self.events()
         self.assertEqual(self.w.navigation_position, 'side')
+        self.assertEqual(self.w.settings['ui_size'], 12)
+        self.assertEqual(self.w.utility.settings_page.preferences.ui_size.value(), 12)
+        self.w.utility.settings_page.reset_appearance(restore=True)
+        self.events()
+        self.assertEqual(self.w.navigation_position, 'top')
+        self.assertEqual(self.w.settings['ui_size'], 13)
         self.assertEqual((self.root/'Scene.pcs-category').read_bytes(), before)
 
     def test_palette_round_trip_refreshes_existing_preview_and_content_surface(self):
