@@ -1,7 +1,7 @@
 """A single native tab strip with an adjacent new-tab button and overflow."""
-from PySide6.QtCore import Qt, QSize, Signal, QRectF
+from PySide6.QtCore import Qt, QSize, Signal, QRectF, QRect, QPoint, QEvent
 from PySide6.QtGui import QFont, QFontMetrics, QPalette, QColor, QPainter, QPainterPath, QPen, QRegion
-from PySide6.QtWidgets import QWidget, QTabBar, QHBoxLayout, QSizePolicy, QStylePainter, QStyleOptionTab, QStyle, QAbstractButton
+from PySide6.QtWidgets import QWidget, QTabBar, QHBoxLayout, QSizePolicy, QStylePainter, QStyleOptionTab, QStyleOptionToolButton, QStyle, QAbstractButton, QToolButton
 from .widgets import button, RoundMenu
 from .ui_icons import icon
 
@@ -56,6 +56,7 @@ class DocumentTabBar(QTabBar):
         self.active_fill = QColor('#151819')
         self.hover_fill = QColor('#2c3235')
         self.close_fill = QColor('#3a4246')
+        self.scroll_fill = QColor('#202527')
         self.active_ink = QColor('#f1f0ea')
         self.idle_ink = QColor('#aab1b3')
         self.preview_keys = set()
@@ -69,6 +70,39 @@ class DocumentTabBar(QTabBar):
         self.setDrawBase(False)
         self.setAccessibleName('文件分頁')
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.scroll_controls = self.findChildren(QToolButton)
+        for control in self.scroll_controls:
+            control.installEventFilter(self)
+            control.clicked.connect(self.update_scroll_controls)
+        self.currentChanged.connect(self.update_scroll_controls)
+        self.tabMoved.connect(self.update_scroll_controls)
+
+    def update_scroll_controls(self):
+        for control in self.scroll_controls:
+            control.update()
+
+    def eventFilter(self, control, event):
+        if control in self.scroll_controls and event.type() == QEvent.Type.Paint:
+            painter = QStylePainter(control)
+            option = QStyleOptionToolButton()
+            control.initStyleOption(option)
+            painter.fillRect(control.rect(), self.hover_fill if control.underMouse() else self.scroll_fill)
+            if self.workspace_active and self.currentIndex() >= 0:
+                tab = QRectF(self.tabRect(self.currentIndex()))
+                button = QRectF(control.geometry())
+                # Only the outward foot may reach beneath an arrow. A tab body
+                # scrolled out of view remains hidden by the button surface.
+                if tab.right()-self.body_inset <= button.left() or tab.left()+self.body_inset >= button.right():
+                    painter.save()
+                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(self.active_fill)
+                    painter.translate(-control.pos())
+                    painter.drawPath(self.active_path(self.currentIndex()))
+                    painter.restore()
+            painter.drawControl(QStyle.ControlElement.CE_ToolButtonLabel, option)
+            return True
+        return super().eventFilter(control, event)
 
     @property
     def workspace_active(self):
@@ -78,8 +112,9 @@ class DocumentTabBar(QTabBar):
     def workspace_active(self, active):
         self._workspace_active = active
         self.update()
+        self.update_scroll_controls()
         if self.parentWidget() is not None:
-            self.parentWidget().update()
+            self.parentWidget().update_outline()
 
     def active_path(self, index):
         rect = QRectF(self.tabRect(index))
@@ -194,22 +229,30 @@ class DocumentTabs(QWidget):
         self.line.addWidget(self.overflow)
         self.line.addStretch(1)
         self.bar.tabMoved.connect(lambda *_: self.fit())
-        self.bar.currentChanged.connect(self.update)
+        self.bar.currentChanged.connect(self.update_outline)
 
-    def paintEvent(self, event):
-        super().paintEvent(event)
+    def update_outline(self):
+        self.update()
+        if self.parentWidget() is not None:
+            self.parentWidget().update()
+
+    def paint_outer_feet(self, surface):
         if not self.bar.workspace_active or self.bar.currentIndex() < 0:
             return
-        if self.overflow.isVisible() or self.bar.tabRect(self.bar.currentIndex()).right()+1 != self.bar.width():
+        if self.overflow.isVisible():
             return
-        # Keep the last tab's foot intact beside + without expanding its hit box
-        # or moving that button away. The tab bar paints the part inside itself.
-        painter = QPainter(self)
-        painter.setClipRegion(QRegion(self.rect()).subtracted(QRegion(self.bar.geometry())))
+        # The row owns both outer feet, including the one in the existing gap
+        # beside history navigation. No tab or button hit target is moved.
+        origin = self.bar.mapTo(surface, QPoint(0, 0))
+        clip = QRegion(surface.rect()).subtracted(QRegion(QRect(origin, self.bar.size())))
+        if self.bar.join_sidebar:
+            clip &= QRegion(QRect(origin.x(), 0, surface.width()-origin.x(), surface.height()))
+        painter = QPainter(surface)
+        painter.setClipRegion(clip)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(self.bar.active_fill)
-        painter.translate(self.bar.pos())
+        painter.translate(origin)
         painter.drawPath(self.bar.active_path(self.bar.currentIndex()))
 
     def set_tab_height(self, height):
@@ -237,7 +280,7 @@ class DocumentTabs(QWidget):
         self.bar.setFixedWidth(min(desired, budget))
         self.overflow.setVisible(overflow)
         self.bar.updateGeometry()
-        self.update()
+        self.update_outline()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

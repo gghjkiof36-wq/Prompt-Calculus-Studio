@@ -50,6 +50,12 @@ class Tab:
 
 
 class WorkspaceTop(QFrame):
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        for strip in self.findChildren(DocumentTabs, options=Qt.FindChildOption.FindDirectChildrenOnly):
+            if strip.isVisible():
+                strip.paint_outer_feet(self)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.window().windowHandle():
             self.window().windowHandle().startSystemMove()
@@ -270,6 +276,7 @@ class WorkspaceShell(QMainWindow):
         self.tab_strip.bar.sidebar_fill = QColor(workspace_colors(appearance)['sidebar'])
         self.tab_strip.bar.hover_fill = QColor(t['raised'])
         self.tab_strip.bar.close_fill = QColor(t['selected'])
+        self.tab_strip.bar.scroll_fill = QColor(t['chrome'])
         self.tab_strip.bar.active_ink = QColor(t['text'])
         self.tab_strip.bar.idle_ink = QColor(t['secondary'])
         self.tree.row_colors = dict(t, **workspace_colors(appearance))
