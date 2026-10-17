@@ -68,7 +68,7 @@ def stylesheet_icon_paths(tokens):
     return {name:':'+root+'/'+name+'.svg' for name in ('down','up','check')}
 
 
-def _draw(painter, name):
+def _draw(painter, name, filled=False):
     if name=='forward':
         painter.translate(24,0);painter.scale(-1,1);name='back'
     def line(x1,y1,x2,y2):
@@ -85,6 +85,27 @@ def _draw(painter, name):
 
     def circle(x,y,radius):
         painter.drawEllipse(QPointF(x,y),radius,radius)
+
+    if filled and name in ('home', 'media', 'explore', 'settings'):
+        painter.setBrush(painter.pen().color())
+        if name == 'home':
+            poly((3,11),(12,3),(21,11),(19,11),(19,21),(14,21),(14,15),
+                 (10,15),(10,21),(5,21),(5,11),closed=True)
+            return
+        if name == 'media':
+            shape=QPainterPath();shape.addRoundedRect(QRectF(6,3,15,15),2,2)
+            holes=QPainterPath();holes.addEllipse(QPointF(16.5,7.5),1.25,1.25)
+            holes.moveTo(7,16);holes.lineTo(11,10);holes.lineTo(14,13)
+            holes.lineTo(16,11);holes.lineTo(20,16);holes.closeSubpath()
+            painter.fillPath(shape.subtracted(holes),painter.pen().color())
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            poly((3,7),(3,21),(17,21))
+            return
+        if name == 'explore':
+            shape=QPainterPath();shape.addEllipse(QPointF(12,12),9,9)
+            hole=QPainterPath(QPointF(16,8));hole.lineTo(14,14);hole.lineTo(8,16);hole.lineTo(10,10);hole.closeSubpath()
+            painter.fillPath(shape.subtracted(hole),painter.pen().color())
+            return
 
     if name == 'unfold-all':
         poly((7,8),(12,3),(17,8)); poly((7,16),(12,21),(17,16))
@@ -218,13 +239,14 @@ def _draw(painter, name):
 
 
 class _LineIconEngine(QIconEngine):
-    def __init__(self,name,color,size):
+    def __init__(self,name,color,size,filled=False):
         super().__init__(); self.name=name
+        self.filled=filled
         self.color=color if isinstance(color,str) and color in ('on-accent','on-run','on-stop','navigation') else QColor(color) if color is not None else None
         self.size=size
 
     def clone(self):
-        return _LineIconEngine(self.name,self.color,self.size)
+        return _LineIconEngine(self.name,self.color,self.size,self.filled)
 
     def availableSizes(self,mode=QIcon.Mode.Normal,state=QIcon.State.Off):
         return [QSize(self.size,self.size)]
@@ -232,7 +254,7 @@ class _LineIconEngine(QIconEngine):
     def paint(self,painter,rect,mode,state):
         if self.color=='navigation':
             stroke=QApplication.palette().color(QPalette.ColorRole.WindowText)
-            stroke.setAlphaF(.92 if mode in (QIcon.Mode.Active,QIcon.Mode.Selected) or state==QIcon.State.On else .80)
+            stroke.setAlphaF(1 if state==QIcon.State.On else .92 if mode in (QIcon.Mode.Active,QIcon.Mode.Selected) else .80)
         elif isinstance(self.color,str):
             property_name={'on-accent':'pcsIconOnAccent','on-run':'pcsIconOnRun','on-stop':'pcsIconOnStop'}[self.color]
             stroke=QColor(QApplication.instance().property(property_name) or QApplication.palette().color(QPalette.ColorRole.ButtonText))
@@ -251,7 +273,7 @@ class _LineIconEngine(QIconEngine):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(QPen(stroke,1.7,Qt.PenStyle.SolidLine,Qt.PenCapStyle.RoundCap,Qt.PenJoinStyle.RoundJoin))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        _draw(painter,self.name)
+        _draw(painter,self.name,self.filled and state==QIcon.State.On)
         painter.restore()
 
     def pixmap(self,size,mode,state):
@@ -260,7 +282,7 @@ class _LineIconEngine(QIconEngine):
         return result
 
 
-def icon(name, color=None, size=20):
+def icon(name, color=None, size=20, *, filled=False):
     """Return a vector-painted QIcon that follows native device scaling.
 
     ``color`` accepts a QColor or Qt color string. ``'on-accent'``, ``'on-run'``
@@ -276,4 +298,4 @@ def icon(name, color=None, size=20):
     name=ALIASES.get(name,name)
     if name not in ICON_NAMES: name='info'
     size=max(8,min(128,round(size)))
-    return QIcon(_LineIconEngine(name,color,size))
+    return QIcon(_LineIconEngine(name,color,size,filled))

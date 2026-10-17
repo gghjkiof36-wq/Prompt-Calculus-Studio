@@ -87,6 +87,7 @@ class WorkspaceFileOperations(QObject):
             if selected:
                 self.w.select_path(selected)
             self.w.save_recent()
+            self.w.layout_changed()
         except OSError as error:
             self.w.show_notice('文件已完成操作，但導覽紀錄尚未保存：' + str(error))
 
@@ -348,7 +349,7 @@ class WorkspaceFileOperations(QObject):
         if self.w.active_route != 'home':
             return None
         tab = self.w.tabs_by_key.get(self.w.active_key)
-        return self.w.commands.context('tab', tab=tab) if tab and tab.path else None
+        return self.w.commands.context('tab', tab=tab) if tab and tab.path and (tab.document or isinstance(tab.widget, MarkdownPage)) else None
 
     def rename_focused(self):
         w = self.w

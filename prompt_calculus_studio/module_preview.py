@@ -35,15 +35,17 @@ class PreviewCanvas:
     def __init__(self, actual, view):
         from .core import initial_state
         from .multi_canvas import FlowFunctions
+        from .theme import canvas_stylesheet, window_appearance
         state = initial_state()
-        state.update(settings=copy.deepcopy(actual.window.state['settings']), uses={},
+        state.update(settings=copy.deepcopy(window_appearance(actual.window)), uses={},
                      generation={'profiles': []}, text_positions={}, text_sizes={},
                      canvas_functions=dict(images={}, preview=True),
                      multi_output=dict(version=7, canvases={}, outputs={}, clip_inputs={},
                                        image_inputs={}, schedulers={}, stages={}, bindings=[],
                                        connections=[], current_output=None, workflow_order={}))
+        sheet = canvas_stylesheet(actual.window)
         self.window = SimpleNamespace(state=state, store=actual.window.store,
-            styleSheet=actual.window.styleSheet, builder_panel=actual.window.builder_panel,
+            styleSheet=lambda: sheet, _canvas_stylesheet=sheet, builder_panel=actual.window.builder_panel,
             final=actual.window.final, changed=lambda *a, **k: None, comfy=PreviewRuntime())
         self.view = view
         self.font = actual.font

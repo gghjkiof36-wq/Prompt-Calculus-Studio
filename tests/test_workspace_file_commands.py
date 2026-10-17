@@ -536,6 +536,36 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
             self.assertIn('Cascadia Mono', panel.editor.styleSheet() + panel.styleSheet())
         self.assertNotEqual(host.state['settings']['ui_size'], 14)
 
+    def test_function_catalog_matches_embedded_canvas_without_changing_document_settings(self):
+        import copy
+        from prompt_calculus_studio.module_preview import ModulePreview
+        from PySide6.QtWidgets import QWidget
+        from prompt_calculus_studio.function_picker import FUNCTIONS
+        from prompt_calculus_studio.canvas_items import canvas_colors
+        from prompt_calculus_studio.theme import canvas_stylesheet, window_appearance
+        path = self.root/'Catalog.pcs-workflow'
+        create_file(path.parent, 'workflow', 'Catalog')
+        tab = self.w.open_path(path, True)
+        self.events()
+        canvas = tab.document.host.canvas
+        saved = copy.deepcopy(tab.document.state['settings'])
+        preview = ModulePreview(canvas)
+        self.addCleanup(preview.deleteLater)
+        for palette, size in (('graphite', 12), ('mist', 14), ('paper', 12)):
+            self.w.settings.update(visual_palette=palette, ui_size=size)
+            self.w.style_shell()
+            self.events()
+            for kind, *_ in FUNCTIONS:
+                with self.subTest(palette=palette, kind=kind):
+                    preview.show_kind(kind)
+                    self.events()
+                    self.assertEqual(canvas_colors(preview.context), canvas_colors(canvas))
+                    self.assertEqual(window_appearance(preview.context.window), window_appearance(canvas.window))
+                    panel = getattr(preview.card, 'panel', None)
+                    if isinstance(panel, QWidget):
+                        self.assertTrue(panel.styleSheet().startswith(canvas_stylesheet(canvas.window)))
+        self.assertEqual(tab.document.state['settings'], saved)
+
 
 if __name__ == '__main__':
     unittest.main()

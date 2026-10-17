@@ -219,6 +219,8 @@ class DocumentTabs(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.bar = DocumentTabBar()
+        self.has_overflow = False
+        self.pane_menu_always = False
         self.plus = button('', self.newRequested.emit, 'Quiet')
         self.plus.setIcon(icon('plus','navigation'))
         self.plus.setAccessibleName('開啟新分頁')
@@ -249,7 +251,7 @@ class DocumentTabs(QWidget):
     def paint_outer_feet(self, surface):
         if not self.bar.workspace_active or self.bar.currentIndex() < 0:
             return
-        if self.overflow.isVisible():
+        if self.has_overflow:
             return
         # The row owns both outer feet, including the one in the existing gap
         # beside history navigation. No tab or button hit target is moved.
@@ -285,11 +287,12 @@ class DocumentTabs(QWidget):
     def fit(self):
         count = max(1, self.bar.count())
         available = self.width()-self.line.contentsMargins().left()
-        budget = max(80, available-42)
+        budget = max(80, available-(74 if self.pane_menu_always else 42))
         width = max(124, min(228, budget//count))
         overflow = count*width > budget
         if overflow:
             budget = max(80, available-74)
+        self.has_overflow = overflow
         if self.bar.tab_width != width:
             self.bar.tab_width = width
             # Re-layout the native tabs without recreating them or their views.
@@ -297,7 +300,7 @@ class DocumentTabs(QWidget):
             self.bar.setExpanding(False)
         desired = count*width
         self.bar.setFixedWidth(min(desired, budget))
-        self.overflow.setVisible(overflow)
+        self.overflow.setVisible(overflow or self.pane_menu_always)
         self.bar.updateGeometry()
         self.update_outline()
 

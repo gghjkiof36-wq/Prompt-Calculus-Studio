@@ -14,6 +14,17 @@ def path_key(path):
     return os.path.normcase(str(Path(path).absolute()))
 
 
+def remembered_root(value, allow_missing=False):
+    """A remembered disconnected folder is a location, never a create request."""
+    candidate = Path(value)
+    if candidate.is_dir() or not allow_missing:return paths.root_path(value)
+    if not candidate.is_absolute() or candidate.exists() or any(p.casefold() in INTERNAL_NAMES for p in candidate.parts):
+        raise ValueError('無法還原這個內容資料夾位置。')
+    parent = next((p for p in candidate.parents if p.exists()), None)
+    if parent is not None:paths.root_path(parent)  # Existing ancestors still reject reparse points.
+    return candidate.absolute()
+
+
 @dataclass(frozen=True)
 class CommandContext:
     origin: str
@@ -30,15 +41,15 @@ class CommandContext:
 
 class WorkspaceLocations:
     def __init__(self, root, data, saved=None):
-        self.initial = paths.root_path(root)
         self.data = Path(data).absolute()
-        self.roots = [self.directory(self.initial)]
+        self.initial = remembered_root(root, (self.data/'workspace-layout.json').is_file())
+        self.roots = [self.permitted(self.initial)]
         self.current = self.initial
         if isinstance(saved, dict) and saved.get('version') == 1 and isinstance(saved.get('roots'), list):
             self.roots = []
             for value in saved['roots']:
                 try:
-                    folder = self.directory(value)
+                    folder = self.permitted(remembered_root(value, allow_missing=True))
                     if folder not in self.roots:
                         self.roots.append(folder)
                 except (ValueError, OSError, TypeError):

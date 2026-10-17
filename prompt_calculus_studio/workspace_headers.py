@@ -36,9 +36,8 @@ class SidebarHeaders:
                 header.style().polish(header)
                 header.show()
             if joined:
-                left = w.rail.width() if w.navigation_position == 'side' else 0
                 header.setFixedSize(sidebar.width(), w.tab_row.height())
-                header.move(left, 0)
+                header.move(0, 0)
                 header.raise_()
         was_docked = getattr(w, '_sidebar_header_docked', False)
         w._sidebar_header_docked = active is not None

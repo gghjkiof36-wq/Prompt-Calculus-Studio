@@ -335,6 +335,9 @@ class WorkspaceShellTests(unittest.TestCase):
             self.w.open_route(route)
             self.events()
             self.assertEqual(self.w.active_key, 'utility:'+route)
+            self.assertTrue(self.w.routes[route].isChecked())
+            QTest.mouseClick(self.w.routes[route], Qt.MouseButton.LeftButton)
+            self.assertTrue(self.w.routes[route].isChecked())
             self.assertEqual(self.w.tabs_by_key, original_tabs)
             self.assertTrue(self.w.tab_strip.isVisible())
             self.assertFalse(self.w.tab_strip.bar.workspace_active)
@@ -394,7 +397,7 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertEqual(self.w.back.y(), self.w.forward.y())
         self.assertEqual(self.w.nav_controls.parentWidget(), self.w.top)
         from PySide6.QtCore import QPoint
-        self.assertEqual(self.w.rail.mapTo(self.w, QPoint()).y(), self.w.top.height()+self.w.tab_row.height())
+        self.assertEqual(self.w.rail.mapTo(self.w, QPoint()).y(), self.w.top.height())
         self.assertEqual(self.w.collapse.mapTo(self.w,self.w.collapse.rect().center()).x(),
                          self.w.routes['home'].mapTo(self.w,self.w.routes['home'].rect().center()).x())
 

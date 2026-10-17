@@ -41,9 +41,9 @@ def main():
         return 0
     from prompt_calculus_studio.workspace_shell import WorkspaceShell
     window = WorkspaceShell(args.root, args.data)
-    if args.open_left:
+    if args.open_left and not window.layout_restored:
         window.open_path(args.open_left)
-    if args.open_right:
+    if args.open_right and not window.layout_restored:
         window.open_path(args.open_right, pane=window.ensure_split())
     def error(kind, value, traceback_):
         import traceback

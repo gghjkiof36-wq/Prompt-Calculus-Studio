@@ -4,7 +4,7 @@ import copy
 from unittest.mock import patch, PropertyMock
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QTextCursor
+from PySide6.QtGui import QTextCursor, QInputMethodEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 import test_workspace_shell as fixture
@@ -18,7 +18,9 @@ class WorkspacePaneTests(unittest.TestCase):
 
     def tearDown(self):
         for pane in self.w.panes:
-            while pane.strip.bar.count():self.w.close_tab(0, decision='discard', make_home=False, pane=pane)
+            while pane.strip.bar.count():
+                self.assertTrue(self.w.close_tab(0, decision='discard', make_home=False, pane=pane),
+                                (self.errors, pane.strip.bar.tabData(0), list(self.w.tabs_by_key)))
         fixture.WorkspaceShellTests.tearDown(self)
 
     def open(self, name, **kwargs):
@@ -35,7 +37,12 @@ class WorkspacePaneTests(unittest.TestCase):
         self.assertIs(left.widget.document(), right.widget.document())
         right.widget.moveCursor(QTextCursor.MoveOperation.Start)
         left.widget.moveCursor(QTextCursor.MoveOperation.End)
-        left.widget.insertPlainText('中文 A')
+        preedit = QInputMethodEvent('中文', [])
+        self.app.sendEvent(left.widget, preedit)
+        self.assertNotIn('中文', right.widget.toPlainText())
+        committed = QInputMethodEvent()
+        committed.setCommitString('中文 A')
+        self.app.sendEvent(left.widget, committed)
         self.assertEqual(left.widget.toPlainText(), right.widget.toPlainText())
         self.assertEqual(right.widget.textCursor().position(), 0)
         right.widget.undo()
@@ -162,6 +169,8 @@ class WorkspacePaneTests(unittest.TestCase):
         self.assertEqual(execution.received[-1]['id'], 'late-result')
         self.assertEqual(a.host.state, current)
         self.assertEqual((self.root/'Street.pcs-workflow').read_bytes(), before)
+        self.w.merge_panes()
+        self.assertEqual(len(self.w.panes), 1)
         for tab in (a, same):self.w.close_tab(self.w.index_of(tab.key), pane=self.w.pane_for(tab))
         execution.client.resultsReceived.emit([dict(id='after-close', owner=calls[0][1])])
         self.assertEqual(execution.received[-1]['id'], 'after-close')

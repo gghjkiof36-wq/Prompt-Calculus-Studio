@@ -193,10 +193,8 @@ class WorkspaceCommands:
             menu.addSeparator()
             menu.addAction('複製路徑', lambda: QApplication.clipboard().setText(str(context.path)))
             if context.kind != 'root':
-                from .ui_icons import icon
-                from .theme import visual_tokens
-                action = menu.addAction(icon('trash', visual_tokens(w.display_settings())['destructive_text']),
-                                        '移至資源回收筒…', lambda: self.trash(context))
+                from .workspace_menu_action import destructive_action
+                action = destructive_action(menu, w, '移至資源回收筒…', 'trash', lambda: self.trash(context))
                 action.setEnabled(not self.files.busy(context.path))
         return menu
 

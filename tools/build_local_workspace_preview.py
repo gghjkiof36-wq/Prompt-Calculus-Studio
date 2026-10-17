@@ -58,7 +58,7 @@ def build(out, vendor, refresh_launcher=False, phase='p2'):
                         raise ValueError('Invalid path in source snapshot: '+name)
                 archive.extractall(launch_source)
     preview_files = ''
-    if phase == 'p4-a':
+    if phase in ('p4-a', 'p4-split'):
         preview_files = f' --open-left "%~dp0{root.name}\\街景.pcs-workflow" --open-right "%~dp0{root.name}\\筆記\\場景筆記.md"'
     launcher = f'''@echo off
 chcp 65001 >nul

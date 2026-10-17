@@ -20,7 +20,7 @@ from .ui_icons import icon
 from .widgets import button, label, RoundMenu, WindowShell
 from .workspace_home import WorkspaceHome
 from .workspace_files import MarkdownPage
-from .workspace_locations import WorkspaceLocations, path_key
+from .workspace_locations import WorkspaceLocations, path_key, remembered_root
 from .workspace_commands import WorkspaceCommands, PATH_ROLE, KIND_ROLE, ROOT_ROLE
 from .workspace_style import sidebar_style, workspace_colors
 from .workspace_sidebar import WorkspaceSidebarResize, WorkspaceTree
@@ -77,8 +77,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         super().__init__()
         from .tooltips import install_tooltip_styling
         install_tooltip_styling()
-        self.root = paths.root_path(root)
         self.data = Path(data).absolute()
+        self.root = remembered_root(root, (self.data/'workspace-layout.json').is_file())
         self.data.mkdir(parents=True, exist_ok=True)
         self.session = self.data / 'sessions' / uuid.uuid4().hex
         self.session.mkdir(parents=True)
@@ -130,6 +130,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.new_tab()
         from .workspace_pointer_navigation import WorkspacePointerNavigation
         self.pointer_navigation = WorkspacePointerNavigation(self)
+        from .workspace_layout import WorkspaceLayout
+        self.layout_store = WorkspaceLayout(self)
+        self.layout_restored = self.layout_store.restore()
         for sequence, callback in (('Ctrl+T', self.new_tab), ('Ctrl+W', self.close_current),
                                    ('Ctrl+S', self.save_current), ('Alt+Left', lambda: self.go(-1)),
                                    ('Ctrl+Shift+S', self.commands.files.save_as_current),
@@ -190,7 +193,6 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         tabs = QHBoxLayout(self.tab_row)
         tabs.setContentsMargins(16, 0, 16, 0)
         tabs.setSpacing(0)
-        root_layout.addWidget(self.tab_row)
         self.tab_row.hide()
 
         from .connection_pill import ConnectionPill
@@ -201,16 +203,20 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         top.addSpacing(10)
         top.addWidget(self.connection)
 
-        workspace = QHBoxLayout()
+        from PySide6.QtWidgets import QGridLayout
+        workspace = QGridLayout()
         workspace.setContentsMargins(0, 0, 0, 0)
         workspace.setSpacing(0)
         self.workspace_layout = workspace
         root_layout.addLayout(workspace, 1)
         self.rail = WorkspaceNavigation(self)
         self.routes = self.rail.routes
-        workspace.addWidget(self.rail)
+        workspace.addWidget(self.rail, 0, 0, 2, 1)
+        workspace.addWidget(self.tab_row, 0, 1)
         self.workspace_stack = WorkspaceSurface(self)
-        workspace.addWidget(self.workspace_stack, 1)
+        workspace.addWidget(self.workspace_stack, 1, 1)
+        workspace.setRowStretch(1, 1)
+        workspace.setColumnStretch(1, 1)
         from .workspace_notice import WorkspaceNotice
         self.notification = WorkspaceNotice(self.workspace_stack)
         self.home_split = QSplitter(Qt.Orientation.Horizontal)
@@ -432,6 +438,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         top.removeWidget(self.connection)
         self.workspace_layout.removeWidget(self.rail)
         for pane in self.panes:
+            pane.strip.pane_menu_always = split
+            pane.strip.overflow.setToolTip('分頁選單' if split else '所有分頁')
+            pane.strip.overflow.setAccessibleName(pane.strip.overflow.toolTip())
             top.removeWidget(pane.strip)
             self.tab_row.layout().removeWidget(pane.strip)
             pane.container.layout().removeWidget(pane.strip)
@@ -445,7 +454,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         if horizontal:
             top.insertWidget(2, self.rail, 1)
         else:
-            self.workspace_layout.insertWidget(0, self.rail)
+            self.workspace_layout.addWidget(self.rail, 0, 0, 2, 1)
             top.insertWidget(2, self.chrome_space, 1)
             self.chrome_space.show()
         top.addWidget(self.connection)
@@ -478,8 +487,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         if self.tabs_in_row:
             target = self.sidebar_target()
             sidebar = target.width() if target is not None and target.isVisible() else 0
-            rail = self.rail.width() if self.navigation_position == 'side' else 0
-            inset = rail+sidebar if sidebar or rail or self.active_route == 'home' else 16
+            inset = sidebar if sidebar or self.navigation_position == 'side' or self.active_route == 'home' else 16
             if self.tab_row.layout().contentsMargins().left() != inset:
                 self.tab_row.layout().setContentsMargins(inset, 0, 16, 0)
                 self.tab_row.layout().activate()
@@ -992,6 +1000,13 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             if not self.prepare_close(tab):
                 event.ignore()
                 return
+        if not self.layout_store.save():
+            event.ignore()
+            return
+        if self.utility and not self.utility.close():
+            event.ignore()
+            return
+        self.layout_store.stopped = True
         for pane in self.panes:
             while pane.strip.bar.count():
                 if not self.close_tab(0, decision='discard', make_home=False, pane=pane):
@@ -1006,9 +1021,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 if execution is not None:execution.close()
             document.deleteLater()
         QApplication.instance().removeEventFilter(self.pane_focus)
-        if self.utility and not self.utility.close():
-            event.ignore()
-            return
+        QApplication.instance().removeEventFilter(self.tab_drag)
+        QApplication.instance().removeEventFilter(self.pointer_navigation)
         self.recent_timer.stop()
         self.tree_state.save()
         self.save_recent()

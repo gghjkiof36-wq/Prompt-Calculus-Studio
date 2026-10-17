@@ -1,6 +1,7 @@
 """The same global destinations, arranged beside or above the workspace."""
 from PySide6.QtCore import QSize
-from PySide6.QtWidgets import QBoxLayout, QFrame, QSizePolicy
+from PySide6.QtWidgets import QBoxLayout, QFrame, QSizePolicy, QButtonGroup
+from .ui_icons import icon
 
 
 DESTINATIONS = (
@@ -15,11 +16,15 @@ class WorkspaceNavigation(QFrame):
         super().__init__()
         self.setObjectName('DocumentRail')
         self.routes = {}
+        self.selection = QButtonGroup(self)
+        self.selection.setExclusive(True)
         self.body = QBoxLayout(QBoxLayout.Direction.TopToBottom, self)
         for key, title, symbol in DESTINATIONS:
             entry = workspace.tool(symbol, title,
                 lambda checked=False, route=key: workspace.open_route(route))
             entry.setCheckable(True)
+            entry.setIcon(icon(symbol, 'navigation', filled=True))
+            self.selection.addButton(entry)
             self.routes[key] = entry
         self.arrange('side')
 
@@ -30,7 +35,7 @@ class WorkspaceNavigation(QFrame):
             self.body.takeAt(0)
         self.body.setDirection(QBoxLayout.Direction.LeftToRight if horizontal
                                else QBoxLayout.Direction.TopToBottom)
-        self.body.setContentsMargins(0, 0, 0, 0) if horizontal else self.body.setContentsMargins(7, 5, 7, 9)
+        self.body.setContentsMargins(0, 0, 0, 0) if horizontal else self.body.setContentsMargins(7, 0, 7, 9)
         self.body.setSpacing(6)
         self.setMinimumSize(0, 0)
         self.setMaximumSize(16777215, 16777215)
