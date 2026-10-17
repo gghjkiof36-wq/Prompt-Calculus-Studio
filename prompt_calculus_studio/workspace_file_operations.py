@@ -179,6 +179,8 @@ class WorkspaceFileOperations(QObject):
         else:
             document = tab.document if tab else None
             if document:
+                if not document.host.flush_editor_drafts():
+                    raise ValueError('目前有尚未套用的畫布編輯，請先處理後再另存。')
                 document.host.remember_canvas_view()
                 source = document.project(remap=False)
                 source_root = document.data

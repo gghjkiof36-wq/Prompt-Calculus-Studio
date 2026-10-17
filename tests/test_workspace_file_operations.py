@@ -433,6 +433,33 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
             else:
                 self.assertEqual(reopened.document.issues, ())
 
+    def test_save_as_flushes_pending_canvas_text_without_saving_original(self):
+        from prompt_calculus_studio.prompt_editor import MaterialEditorForm
+        tab = self.open('Street.pcs-workflow')
+        host = tab.document.host
+        original, before = tab.path, tab.path.read_bytes()
+        use = next(iter(host.state['uses']))
+        editor = MaterialEditorForm(host, compact=True)
+        try:
+            editor.edit_canvas(use)
+            editor.prompt.setPlainText('pending canvas text')
+            editor.timer.stop()
+            self.assertTrue(editor.dirty)
+            self.assertNotEqual(materials.canvas_node(host.state, use)['prompt'], 'pending canvas text')
+            self.assertIsNotNone(self.execute('save_as', tab, name='Pending canvas copy'))
+            copied = io.load(tab.path.parent, tab.path.name).document['payload']['state']
+            copied_use = tab.document.identity_maps['scene'][use]
+            self.assertEqual(materials.canvas_node(copied, copied_use)['prompt'], 'pending canvas text')
+            self.assertEqual(original.read_bytes(), before)
+            host.canvas.undo()
+            self.assertTrue(self.w.save_tab(tab))
+            self.assertEqual(original.read_bytes(), before)
+        finally:
+            editor.timer.stop()
+            editor.close()
+            editor.deleteLater()
+            self.events()
+
     def test_unopened_save_as_rechecks_source_replaced_while_form_is_open(self):
         active = self.open('Notes.md')
         for filename in ('Empty.md', 'Scene.pcs-category'):

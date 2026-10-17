@@ -35,6 +35,10 @@ case aliases and hard links. PCS attachments are copied through the existing
 validated portable-asset boundary. Markdown retains UTF-8/BOM/newline conventions
 and receives no identity marker or sidecar.
 
+Pending shared Canvas text is applied to its existing model before the copy is
+serialized, while the external writer remains paused. Unconfirmed material
+dialogs retain their confirm/cancel boundary; Save As cannot accept them.
+
 For an open file, the same tab, editor and Undo stack become the new file. PCS
 owned IDs are projected through a stable copy map at serialization, leaving the
 native editor's runtime IDs and historical snapshots intact. Newly introduced
