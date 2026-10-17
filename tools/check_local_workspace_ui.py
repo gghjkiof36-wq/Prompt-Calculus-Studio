@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def run(root, out):
-    from PySide6.QtWidgets import QApplication, QMessageBox
+    from PySide6.QtWidgets import QApplication, QMessageBox, QLineEdit, QDialogButtonBox
     from PySide6.QtCore import Qt, QTimer
     from PySide6.QtTest import QTest
     from PySide6.QtGui import QFontDatabase, QFont
@@ -43,6 +43,7 @@ def run(root, out):
     try:
         window.show()
         events()
+        window.grab().save(str(out/'home-empty.png'))
         category = window.open_path(root/'場景.pcs-category')
         events()
         assert category is not None, errors
@@ -111,7 +112,10 @@ def run(root, out):
         assert not window.close_tab(window.index_of(category.key))
         assert category.document.dirty
         checks.append('Editing retains the tab; Cancel in the native dirty-close question keeps the page and content.')
-        QTest.mouseClick(category.save_button, Qt.MouseButton.LeftButton)
+        window.activateWindow()
+        window.setFocus()
+        events()
+        QTest.keyClick(window,Qt.Key.Key_S,Qt.KeyboardModifier.ControlModifier)
         events()
         assert not category.document.dirty, category.document.error
         expected = original+', review edit'
@@ -181,11 +185,64 @@ def run(root, out):
         window.resize(960, 700)
         events()
         window.grab().save(str(out/'narrow.png'))
-        window.toggle_sidebar()
+        window.sidebar_preference = False
+        window.sync_sidebar()
         events()
         window.grab().save(str(out/'collapsed.png'))
         assert window.tab_strip.plus.geometry().right() <= window.tab_strip.width()
         checks.append('A narrow window and collapsed sidebar keep the tab strip and adjacent plus accessible.')
+        window.resize(1440, 900)
+        window.sidebar_preference = None
+        window.sync_sidebar()
+        events()
+        home = window.new_tab()
+        events()
+        window.grab().save(str(out/'home-recent.png'))
+        count = window.tab_strip.bar.count()
+        for route in ('gallery', 'export', 'explore', 'settings'):
+            QTest.mouseClick(window.routes[route], Qt.MouseButton.LeftButton)
+            events()
+            assert window.active_route == route
+            assert window.tab_strip.bar.count() == count
+            assert not window.sidebar.isVisible()
+            assert window.tab_strip.isVisible()
+            assert not window.tab_strip.bar.workspace_active
+            assert window.connection.parentWidget() is window.top
+            window.grab().save(str(out/(route+'.png')))
+        QTest.mouseClick(window.routes['home'], Qt.MouseButton.LeftButton)
+        events()
+        assert window.active_key == home.key
+        for kind, name in (('workflow', '新增工作流'), ('category', '新增管理頁'), ('markdown', '新增筆記')):
+            window.tab_strip.bar.setCurrentIndex(window.index_of(home.key))
+            events()
+            def name_document():
+                dialog=app.activeModalWidget()
+                dialog.findChild(QLineEdit).setText(name)
+                QTest.mouseClick(dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Save),Qt.MouseButton.LeftButton)
+            QTimer.singleShot(150,name_document)
+            QTest.mouseClick(home.widget.create_buttons[kind],Qt.MouseButton.LeftButton)
+            events()
+            tab = window.tabs_by_key.get(window.active_key)
+            assert tab is not None and tab.path.is_file(), errors
+            window.grab().save(str(out/('new-'+kind+'.png')))
+        window.resize(800,560)
+        window.tab_strip.bar.setCurrentIndex(window.index_of(home.key))
+        events()
+        window.grab().save(str(out/'home-short.png'))
+        home.widget.ensureWidgetVisible(home.widget.open_button)
+        events()
+        window.grab().save(str(out/'home-short-scrolled.png'))
+        window.open_route('export')
+        window.utility.clean_export.compact_view.setCurrentIndex(1)
+        events()
+        window.grab().save(str(out/'export-narrow.png'))
+        window.resize(1440,900)
+        window.open_route('home')
+        while window.tab_strip.bar.count()<16:
+            window.new_tab()
+        events()
+        window.grab().save(str(out/'tabs-many.png'))
+        checks.append('Full-window tools replace the Home sidebar without creating tabs; Home keeps its files. All three creation actions write real files.')
         report = dict(errors=errors, tabs=window.tab_strip.bar.count(),
                       checks=checks, platform=app.platformName(),
                       dpi=window.devicePixelRatioF(),

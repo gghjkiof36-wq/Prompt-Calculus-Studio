@@ -130,7 +130,10 @@ class WorkspaceShellTests(unittest.TestCase):
         self.events()
         self.assertTrue(a.document.dirty)
         self.assertEqual(a.path.read_bytes(), before)
-        QTest.mouseClick(a.save_button, Qt.MouseButton.LeftButton)
+        self.w.activateWindow()
+        self.w.setFocus()
+        self.events()
+        QTest.keyClick(self.w,Qt.Key.Key_S,Qt.KeyboardModifier.ControlModifier)
         self.events()
         self.assertFalse(a.document.dirty, a.document.error)
         self.assertEqual(io.load(self.root, a.path.name).document['payload']['items'][0]['prompt'], expected)
@@ -192,6 +195,7 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertEqual(io.save(self.root, tab.path.name, external.document, external.receipt).status, 'saved')
         external_bytes = tab.path.read_bytes()
         self.assertFalse(self.w.close_tab(self.w.index_of(tab.key), decision='save'))
+        self.assertEqual(self.errors.pop(),tab.document.error)
         self.assertTrue(tab.document.dirty)
         self.assertEqual(tab.path.read_bytes(), external_bytes)
         self.assertEqual(materials.item(host.state, ident)['prompt'], 'local edit')
@@ -297,7 +301,7 @@ class WorkspaceShellTests(unittest.TestCase):
         before = [p.read_bytes() for p in paths]
         for p in paths:
             tab = self.w.open_path(p, True)
-            self.assertTrue(tab.widget.isReadOnly())
+            self.assertFalse(tab.widget.isReadOnly())
         self.assertEqual([p.read_bytes() for p in paths], before)
         self.assertEqual(len(self.w.entries), 6)
         self.assertEqual(self.w.tree.topLevelItem(0).childCount(), 7)
@@ -313,22 +317,231 @@ class WorkspaceShellTests(unittest.TestCase):
         before_key = strip.bar.tabData(0)
         strip.bar.moveTab(0, 3)
         self.assertEqual(strip.bar.tabData(3), before_key)
+        self.w.toggle_sidebar()  # Narrow layout starts collapsed; explicitly open it.
+        self.events()
+        self.assertFalse(self.w.sidebar.isHidden())
         self.w.toggle_sidebar()
         self.events()
         self.assertTrue(self.w.sidebar.isHidden())
 
-    def test_original_tool_pages_remain_reachable_without_duplicate_navigation(self):
+    def test_tool_navigation_keeps_home_tabs_and_dirty_document_without_duplicate_sidebar(self):
         a = self.open(retained=True)
+        host = a.document.host
+        ident = host.state['items'][0]['id']
+        self.assertTrue(host.canvas.commit(lambda s: materials.save(s, dict(id=ident, prompt='keep while browsing tools'))))
+        original_tabs = dict(self.w.tabs_by_key)
         for route in ('gallery', 'explore', 'export', 'settings'):
             self.w.open_route(route)
             self.events()
             self.assertEqual(self.w.active_key, 'utility:'+route)
+            self.assertEqual(self.w.tabs_by_key, original_tabs)
+            self.assertTrue(self.w.tab_strip.isVisible())
+            self.assertFalse(self.w.tab_strip.bar.workspace_active)
+            self.assertFalse(self.w.sidebar.isVisible())
             self.assertFalse(self.w.utility.studio_navigation.isVisible())
             self.assertFalse(self.w.utility.canvas_header.isVisible())
-        self.focus(a)
+            self.assertTrue(self.w.nav_controls.isVisible())
+            self.assertEqual(self.w.nav_controls.parentWidget(), self.w.top)
+            self.assertTrue(self.w.back.isVisible())
+            if route in ('explore', 'settings'):
+                self.assertFalse(self.w.utility.settings_page.return_button.isVisible())
+        self.assertFalse(self.w.close_current())  # Ctrl+W in a tool cannot close a hidden draft.
+        QTest.mouseClick(self.w.tab_strip.bar,Qt.MouseButton.LeftButton,
+                         pos=self.w.tab_strip.bar.tabRect(self.w.index_of(a.key)).center())
+        self.events()
+        self.assertEqual(self.w.active_key, a.key)
+        self.assertTrue(self.w.tab_strip.isVisible())
+        self.assertTrue(self.w.tab_strip.bar.workspace_active)
+        self.assertTrue(self.w.sidebar.isVisible())
+        self.assertTrue(a.document.dirty)
+        self.assertEqual(materials.item(host.state, ident)['prompt'], 'keep while browsing tools')
+        host.canvas.undo()
+        self.assertNotEqual(materials.item(host.state, ident)['prompt'], 'keep while browsing tools')
         self.assertTrue(a.document.host.prompt_editor.isVisible())
         self.assertFalse(a.document.host.canvas_header.isVisible())
         self.assertFalse(a.document.host.prompt_editor.workspace_header.isVisible())
+
+    def test_full_width_tabs_and_horizontal_history_restore_document_and_tool(self):
+        a = self.open(retained=True)
+        self.w.open_route('gallery')
+        self.events()
+        self.w.open_route('export')
+        self.events()
+        QTest.mouseClick(self.w.back, Qt.MouseButton.LeftButton)
+        self.events()
+        self.assertEqual(self.w.active_route, 'gallery')
+        QTest.keyClick(self.w, Qt.Key.Key_Left, Qt.KeyboardModifier.AltModifier)
+        self.events()
+        self.assertEqual(self.w.active_key, a.key)
+        QTest.keyClick(self.w, Qt.Key.Key_Right, Qt.KeyboardModifier.AltModifier)
+        self.events()
+        self.assertEqual(self.w.active_route, 'gallery')
+        self.w.open_route('home')
+        self.events()
+        self.assertEqual(self.w.top.width(), self.w.centralWidget().width())
+        self.assertEqual(self.w.top.x(), 0)
+        self.assertEqual(self.w.back.y(), self.w.forward.y())
+        self.assertEqual(self.w.nav_controls.parentWidget(), self.w.top)
+        from PySide6.QtCore import QPoint
+        self.assertEqual(self.w.rail.mapTo(self.w, QPoint()).y(), self.w.top.height())
+        self.assertEqual(self.w.collapse.mapTo(self.w,self.w.collapse.rect().center()).x(),
+                         self.w.routes['home'].mapTo(self.w,self.w.routes['home'].rect().center()).x())
+
+    def test_sidebar_edge_resizes_clamps_collapses_and_reopens_on_each_route(self):
+        from PySide6.QtCore import QPoint
+        def drag(dx):
+            self.w.sidebar_resize.sync()
+            handle = self.w.sidebar_resize.handle
+            self.assertTrue(handle.isVisible())
+            origin = handle.mapToGlobal(handle.rect().center())
+            QTest.mousePress(handle, Qt.MouseButton.LeftButton, pos=handle.rect().center())
+            destination = origin+QPoint(dx, 0)
+            QTest.mouseMove(handle, handle.mapFromGlobal(destination))
+            self.events()
+            QTest.mouseRelease(handle, Qt.MouseButton.LeftButton, pos=handle.mapFromGlobal(destination))
+            self.events()
+        for route in ('home', 'gallery', 'export', 'explore', 'settings'):
+            self.w.open_route(route)
+            self.w.sidebar_preference = True
+            self.w.sidebar_width = 264
+            self.w.sync_sidebar()
+            self.events()
+            drag(60)
+            self.assertEqual(self.w.sidebar_target().width(), 324, route)
+            drag(-116)
+            self.assertEqual(self.w.sidebar_target().width(), 220, route)
+            self.assertTrue(self.w.sidebar_target().isVisible())
+            drag(-60)
+            self.assertFalse(self.w.sidebar_target().isVisible(), route)
+            QTest.mouseClick(self.w.collapse, Qt.MouseButton.LeftButton)
+            self.events()
+            self.assertTrue(self.w.sidebar_target().isVisible(), route)
+            self.assertEqual(self.w.sidebar_target().width(), 220, route)
+
+    def test_display_controls_and_sidebar_preferences_survive_restart_without_changing_document(self):
+        tab = self.open(retained=True)
+        before = tab.path.read_bytes()
+        document_settings = copy.deepcopy(tab.document.host.state['settings'])
+        old_font = self.w.tree.font().pixelSize()
+        self.w.open_route('settings', 'appearance')
+        self.events()
+        controls = self.w.utility.settings_page.preferences
+        controls.ui_size.setValue(11)
+        controls.material.setCurrentIndex(controls.material.findData('acrylic'))
+        self.w.utility.settings_page.flush()
+        self.events()
+        self.w.open_route('home')
+        self.events()
+        self.assertGreater(self.w.tree.font().pixelSize(), old_font)
+        self.assertEqual(self.w.settings['material'], 'acrylic')
+        self.assertEqual(tab.path.read_bytes(), before)
+        self.assertEqual(tab.document.host.state['settings'], document_settings)
+        self.assertFalse(tab.document.dirty)
+        self.w.sidebar_resize.resize_to(314)
+        self.w.toggle_sidebar()
+        self.events()
+        while self.w.tab_strip.bar.count():
+            self.w.close_tab(0, decision='discard', make_home=False)
+        self.w.close()
+        self.w.deleteLater()
+        self.events()
+        self.w = WorkspaceShell(self.root, Path(self.area.name)/'data')
+        self.w.report_error = self.errors.append
+        self.w.show()
+        self.events()
+        self.assertEqual(self.w.settings['ui_size'], 11)
+        self.assertEqual(self.w.settings['material'], 'acrylic')
+        self.assertEqual(self.w.sidebar_width, 314)
+        self.assertFalse(self.w.sidebar.isVisible())
+        QTest.mouseClick(self.w.collapse, Qt.MouseButton.LeftButton)
+        self.events()
+        self.assertEqual(self.w.sidebar.width(), 314)
+        self.w.open_route('settings', 'appearance')
+        self.events()
+        self.assertEqual(self.w.utility.settings_page.preferences.ui_size.value(), 11)
+        self.assertEqual(self.w.utility.settings_page.preferences.material.currentData(), 'acrylic')
+
+    def test_start_page_creation_recent_files_and_collision_preserve_existing_content(self):
+        self.assertEqual(self.w.pages.currentWidget().listing.count(), 0)
+        for kind, name in (('workflow', 'New canvas'), ('category', 'New category'), ('markdown', 'New note')):
+            tab = self.w.new_document(kind, name)
+            self.events()
+            self.assertIsNotNone(tab, self.errors)
+            self.assertTrue(tab.path.is_file())
+            before = tab.path.read_bytes()
+            self.assertIsNone(self.w.new_document(kind, name))
+            self.assertEqual(tab.path.read_bytes(), before)
+            self.assertTrue(self.errors.pop())
+        page = self.w.new_tab().widget
+        self.events()
+        self.assertEqual(page.listing.count(), 3)
+        self.assertEqual(page.listing.item(0).text(), 'New note')
+        self.assertEqual(set(page.create_buttons), {'workflow', 'category', 'markdown'})
+        self.assertLessEqual(page.content.width(), 620)
+        self.assertAlmostEqual(page.content.geometry().center().x(), page.rect().center().x(), delta=2)
+        self.assertEqual(self.w.tree.columnCount(), 1)
+        self.w.save_recent()
+        import json
+        self.assertEqual(json.loads((self.w.data/'recent-files.json').read_text(encoding='utf-8'))[0], 'New note.md')
+
+    def test_markdown_edit_save_cancel_reopen_and_conflict_preserve_bytes(self):
+        tab = self.w.open_path(self.root/'Notes.md', True)
+        editor = tab.widget
+        editor.moveCursor(editor.textCursor().MoveOperation.End)
+        QTest.keyClicks(editor, 'kept')
+        self.assertTrue(tab.dirty)
+        self.assertFalse(self.w.close_tab(self.w.index_of(tab.key), decision='cancel'))
+        self.assertTrue(self.w.save_current())
+        self.assertEqual(tab.path.read_bytes(), b'\xef\xbb\xbf# Notes\r\nkept')
+        editor.undo()
+        self.assertTrue(tab.dirty)
+        editor.redo()
+        self.assertTrue(self.w.close_tab(self.w.index_of(tab.key), decision='save'))
+        reopened = self.w.open_path(self.root/'Notes.md', True)
+        self.assertTrue(reopened.widget.toPlainText().endswith('kept'))
+        QTest.keyClicks(reopened.widget, 'local')
+        reopened.path.write_bytes(b'external')
+        self.assertFalse(self.w.close_tab(self.w.index_of(reopened.key), decision='save'))
+        self.assertIn('外部修改',self.errors.pop())
+        self.assertEqual(reopened.path.read_bytes(), b'external')
+        self.assertTrue(reopened.dirty)
+
+    def test_tabs_start_wide_shrink_then_overflow_with_titles_still_available(self):
+        bar = self.w.tab_strip.bar
+        self.events()
+        self.assertGreaterEqual(bar.tabRect(0).width(), 210)
+        for _ in range(7):
+            self.w.new_tab()
+        self.events()
+        self.assertGreaterEqual(bar.tabRect(0).width(), 124)
+        self.assertLess(bar.tabRect(0).width(), 210)
+        for _ in range(8):
+            self.w.new_tab()
+        self.events()
+        self.assertTrue(self.w.tab_strip.overflow.isVisible())
+        self.assertTrue(bar.tabToolTip(0))
+
+    def test_markdown_alias_from_tool_returns_to_same_unsaved_editor(self):
+        tab = self.w.open_path(self.root/'Notes.md', True)
+        QTest.keyClicks(tab.widget, 'keep local')
+        alias = self.root/'Alias.md'
+        os.link(tab.path, alias)
+        self.w.open_route('gallery')
+        opened = self.w.open_path(alias, True)
+        self.assertIs(opened, tab)
+        self.assertEqual(self.w.active_route, 'home')
+        self.assertTrue(tab.dirty)
+        self.assertIn('keep local', tab.widget.toPlainText())
+
+    def test_document_does_not_construct_unused_settings_and_short_home_scrolls(self):
+        tab = self.open(retained=True)
+        self.assertFalse(hasattr(tab.document.host, 'settings_page'))
+        page = self.w.new_tab().widget
+        self.w.resize(720,480)
+        self.events()
+        page.ensureWidgetVisible(page.open_button)
+        self.events()
+        self.assertLessEqual(page.open_button.mapTo(page.viewport(),page.open_button.rect().bottomRight()).y(), page.viewport().height())
 
 
 if __name__ == '__main__':

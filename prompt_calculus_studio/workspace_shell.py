@@ -2,21 +2,30 @@
 from dataclasses import dataclass
 from pathlib import Path
 import uuid
+import json
 
-from PySide6.QtCore import Qt, QSize, QUrl
-from PySide6.QtGui import QShortcut, QKeySequence, QDesktopServices
+from PySide6.QtCore import Qt, QSize, QUrl, QTimer, QSaveFile, QIODevice
+from PySide6.QtGui import QShortcut, QKeySequence, QDesktopServices, QColor
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame,
     QVBoxLayout, QHBoxLayout, QStackedWidget, QTreeWidget, QTreeWidgetItem,
     QHeaderView, QPlainTextEdit, QListWidget, QListWidgetItem, QMessageBox,
-    QDialog, QFileDialog)
+    QDialog, QFileDialog, QSplitter)
 
 from .core import Storage, initial_state, DEFAULT_SETTINGS
 from .document_host import DesktopDocument, EmbeddedHost
 from .document_tabs import DocumentTabs
 from .local_documents import index, paths
-from .theme import stylesheet, visual_tokens, widget_palette
+from .theme import stylesheet, visual_tokens, widget_palette, apply_backdrop
 from .ui_icons import icon
-from .widgets import button, label, RoundMenu
+from .widgets import button, label, RoundMenu, InputDialog, WindowShell
+from .workspace_home import WorkspaceHome
+from .workspace_files import create_file, MarkdownPage
+from .workspace_style import sidebar_style
+from .workspace_sidebar import WorkspaceSidebarResize
+
+
+DISPLAY_KEYS = ('font_family', 'ui_size', 'prompt_size', 'material',
+                'mica_transparency', 'acrylic_transparency', 'menu_transparency')
 
 
 @dataclass
@@ -28,6 +37,11 @@ class Tab:
     document: DesktopDocument | None = None
     path: Path | None = None
     route: str = ''
+
+    @property
+    def dirty(self):
+        return bool(self.document and (self.document.dirty or self.document.draft_dirty)
+                    or isinstance(self.widget, MarkdownPage) and self.widget.dirty)
 
 
 class WorkspaceTop(QFrame):
@@ -57,10 +71,29 @@ class WorkspaceShell(QMainWindow):
         self.history_at = -1
         self.traversing = False
         self.active_key = None
-        self.settings = dict(DEFAULT_SETTINGS, material='solid', online=False, comfy_enabled=False)
+        self.active_route = 'home'
+        self.sidebar_preference = None
+        self.sidebar_width = 264
+        self.recent_files = []
+        try:
+            saved = json.loads((self.data/'recent-files.json').read_text(encoding='utf-8'))
+            if isinstance(saved, list):
+                for relative in saved[:20]:
+                    if isinstance(relative, str) and paths.checked(self.root, relative).is_file():
+                        self.recent_files.append(relative)
+        except (ValueError, OSError):
+            pass
+        self.recent_timer = QTimer(self)
+        self.recent_timer.setSingleShot(True)
+        self.recent_timer.timeout.connect(self.save_recent)
+        self.settings = dict(DEFAULT_SETTINGS, ui_size=10, online=False, comfy_enabled=False)
+        self.load_ui_preferences()
+        self.appearance_preview = {}
+        self.native_material = False
         # Chrome has application appearance only; document state always stays
         # with its own host and is never swapped into the shell.
         self.state = {'settings': self.settings}
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setWindowTitle('Prompt Calculus Studio · 分頁檢視版')
         self.resize(1440, 900)
         self.setMinimumSize(720, 480)
@@ -72,6 +105,7 @@ class WorkspaceShell(QMainWindow):
             self.caption_inset(self.window_chrome.caption_right_inset)
             self.window_chrome.insetChanged.connect(self.caption_inset)
         self.style_shell()
+        self.sidebar_resize = WorkspaceSidebarResize(self)
         self.refresh_tree()
         self.new_tab()
         for sequence, callback in (('Ctrl+T', self.new_tab), ('Ctrl+W', self.close_current),
@@ -83,34 +117,76 @@ class WorkspaceShell(QMainWindow):
     def tool(self, name, title, callback):
         control = button('', callback, 'Quiet')
         control.setIcon(icon(name))
-        control.setIconSize(QSize(19, 19))
+        control.setIconSize(QSize(16, 16))
         control.setFixedSize(38, 36)
         control.setToolTip(title)
         control.setAccessibleName(title)
         return control
 
     def build(self):
-        surface = QWidget()
+        surface = WindowShell(self)
         surface.setObjectName('DocumentWorkspace')
         self.setCentralWidget(surface)
-        root_layout = QHBoxLayout(surface)
+        root_layout = QVBoxLayout(surface)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
+        # Global navigation and document tabs share one continuous window frame.
+        self.top = WorkspaceTop()
+        self.top.setObjectName('DocumentTabStrip')
+        top = QHBoxLayout(self.top)
+        top.setContentsMargins(7, 4, 10, 0)
+        top.setSpacing(0)
+        self.collapse = self.tool('panel-left', '收合側欄', self.toggle_sidebar)
+        self.back = self.tool('back', '上一頁 (Alt+Left)', lambda: self.go(-1))
+        self.forward = self.tool('forward', '下一頁 (Alt+Right)', lambda: self.go(1))
+        self.nav_controls = QWidget()
+        controls = QHBoxLayout(self.nav_controls)
+        controls.setContentsMargins(0, 0, 0, 4)
+        controls.setSpacing(4)
+        for control in (self.collapse, self.back, self.forward):
+            controls.addWidget(control)
+        top.addWidget(self.nav_controls)
+        top.addSpacing(12)
+        self.tab_strip = DocumentTabs()
+        self.tab_strip.newRequested.connect(self.new_tab)
+        self.tab_strip.bar.currentChanged.connect(self.activate)
+        self.tab_strip.bar.tabBarClicked.connect(self.activate)
+        self.tab_strip.bar.tabCloseRequested.connect(self.close_tab)
+        self.tab_strip.bar.tabBarDoubleClicked.connect(self.retain_index)
+        self.tab_strip.bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tab_strip.bar.customContextMenuRequested.connect(self.tab_menu)
+        top.addWidget(self.tab_strip, 1)
+        root_layout.addWidget(self.top)
+
+        self.connection = button('', lambda: self.open_route('explore', 'workflows'), 'WorkspaceConnection')
+        connection_layout = QHBoxLayout(self.connection)
+        connection_layout.setContentsMargins(12, 0, 12, 0)
+        connection_layout.setSpacing(8)
+        self.connection_dot = label('')
+        self.connection_dot.setObjectName('ConnectionDot')
+        self.connection_dot.setFixedSize(8, 8)
+        self.connection_label = label('ComfyUI · 未連線')
+        for control in (self.connection_dot, self.connection_label):
+            control.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            connection_layout.addWidget(control)
+        self.connection.setFixedHeight(32)
+        self.connection.setFixedWidth(self.connection_label.sizeHint().width()+40)
+        self.connection.setAccessibleName('ComfyUI 連線狀態與設定')
+        top.addSpacing(10)
+        top.addWidget(self.connection)
+
+        workspace = QHBoxLayout()
+        workspace.setContentsMargins(0, 0, 0, 0)
+        workspace.setSpacing(0)
+        root_layout.addLayout(workspace, 1)
         self.rail = QFrame()
         self.rail.setObjectName('DocumentRail')
         self.rail.setFixedWidth(52)
         rail = QVBoxLayout(self.rail)
         rail.setContentsMargins(7, 5, 7, 9)
         rail.setSpacing(6)
-        self.collapse = self.tool('menu', '收合內容側欄', self.toggle_sidebar)
-        rail.addWidget(self.collapse)
-        self.back = self.tool('back', '返回 (Alt+Left)', lambda: self.go(-1))
-        self.forward = self.tool('forward', '前進 (Alt+Right)', lambda: self.go(1))
-        rail.addWidget(self.back)
-        rail.addWidget(self.forward)
-        rail.addSpacing(12)
         self.routes = {}
-        for key, title, symbol in (('home', 'Home', 'home'), ('gallery', '媒體庫', 'media'),
+        for key, title, symbol in (('home', '首頁', 'home'), ('gallery', '媒體庫', 'media'),
                                    ('explore', '探索', 'compass'), ('export', '匯出', 'export')):
             entry = self.tool(symbol, title, lambda checked=False, route=key: self.open_route(route))
             entry.setCheckable(True)
@@ -121,12 +197,20 @@ class WorkspaceShell(QMainWindow):
         entry.setCheckable(True)
         self.routes['settings'] = entry
         rail.addWidget(entry)
-        root_layout.addWidget(self.rail)
+        workspace.addWidget(self.rail)
+        self.workspace_stack = QStackedWidget()
+        workspace.addWidget(self.workspace_stack, 1)
+        self.home_split = QSplitter(Qt.Orientation.Horizontal)
+        self.home_split.setObjectName('DocumentSplit')
+        self.home_split.setChildrenCollapsible(False)
+        self.home_split.setHandleWidth(0)
+        self.workspace_stack.addWidget(self.home_split)
         self.sidebar = QFrame()
         self.sidebar.setObjectName('DocumentSidebar')
-        self.sidebar.setFixedWidth(244)
+        self.sidebar.setProperty('pcsWorkspaceSidebar', True)
+        self.sidebar.setFixedWidth(self.sidebar_width)
         side = QVBoxLayout(self.sidebar)
-        side.setContentsMargins(12, 12, 8, 10)
+        side.setContentsMargins(12, 16, 8, 10)
         side.setSpacing(12)
         heading = QHBoxLayout()
         heading.addWidget(label('內容', 'Heading'))
@@ -136,7 +220,8 @@ class WorkspaceShell(QMainWindow):
         side.addLayout(heading)
         self.tree = QTreeWidget()
         self.tree.setObjectName('DocumentTree')
-        self.tree.setColumnCount(2)
+        self.tree.setColumnCount(1)
+        self.tree.setIconSize(QSize(15, 15))
         self.tree.setHeaderHidden(True)
         self.tree.setRootIsDecorated(True)
         self.tree.setUniformRowHeights(True)
@@ -144,51 +229,46 @@ class WorkspaceShell(QMainWindow):
         self.tree.setFrameShape(QFrame.Shape.NoFrame)
         self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setStretchLastSection(True)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.tree_menu)
         self.tree.itemClicked.connect(lambda item, col: self.open_item(item))
         self.tree.itemDoubleClicked.connect(lambda item, col: self.open_item(item, retained=True))
         self.tree.itemActivated.connect(lambda item, col: self.open_item(item, retained=True))
         side.addWidget(self.tree, 1)
-        root_layout.addWidget(self.sidebar)
-        central = QWidget()
-        central.setObjectName('DocumentPane')
-        pane = QVBoxLayout(central)
-        pane.setContentsMargins(0, 0, 0, 0)
-        pane.setSpacing(0)
-        self.top = WorkspaceTop()
-        self.top.setObjectName('DocumentTabStrip')
-        top = QHBoxLayout(self.top)
-        top.setContentsMargins(6, 4, 10, 0)
-        top.setSpacing(10)
-        self.tab_strip = DocumentTabs()
-        self.tab_strip.newRequested.connect(self.new_tab)
-        self.tab_strip.bar.currentChanged.connect(self.activate)
-        self.tab_strip.bar.tabCloseRequested.connect(self.close_tab)
-        self.tab_strip.bar.tabBarDoubleClicked.connect(self.retain_index)
-        self.tab_strip.bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tab_strip.bar.customContextMenuRequested.connect(self.tab_menu)
-        top.addWidget(self.tab_strip, 1)
-        self.connection = button('ComfyUI 未連線', lambda: self.open_route('settings'), 'Quiet')
-        self.connection.setAccessibleName('ComfyUI 連線狀態與設定')
-        top.addWidget(self.connection)
-        pane.addWidget(self.top)
+        self.home_split.addWidget(self.sidebar)
         self.pages = QStackedWidget()
         self.pages.setObjectName('DocumentPages')
-        pane.addWidget(self.pages, 1)
-        root_layout.addWidget(central, 1)
+        self.home_split.addWidget(self.pages)
+        self.home_split.setStretchFactor(0, 0)
+        self.home_split.setStretchFactor(1, 1)
+        self.home_split.setSizes([260, 1100])
 
     def style_shell(self):
-        t = visual_tokens(self.settings)
-        self.setStyleSheet(stylesheet(self.settings) + f'''
-            QWidget#DocumentWorkspace, QWidget#DocumentPane, QStackedWidget#DocumentPages {{ background:{t['base']}; }}
-            QFrame#DocumentRail, QFrame#DocumentSidebar {{ background:{t['sidebar']}; }}
-            QFrame#DocumentSidebar {{ border-right:1px solid {t['line']}; }}
-            QFrame#DocumentTabStrip {{ background:{t['chrome']}; border:0; }}
+        appearance = dict(self.settings, **self.appearance_preview)
+        material_key = (appearance['material'], visual_tokens(appearance)['scheme'])
+        if material_key != getattr(self, '_material_key', None):
+            self.native_material = apply_backdrop(self, appearance['material'], appearance)
+            self._material_key = material_key
+        self.centralWidget().update()
+        t = visual_tokens(appearance)
+        self.tab_strip.bar.active_fill = QColor(t['base'])
+        self.setStyleSheet(stylesheet(appearance) + f'''
+            QFrame#DocumentWorkspace, QFrame#DocumentRail {{ background:transparent; border:0; }}
+            QWidget#DocumentPane, QStackedWidget#DocumentPages {{ background:{t['base']}; }}
+            QFrame#DocumentSidebar {{ background:{t['sidebar']}; border:0; }}
+            QSplitter#DocumentSplit::handle {{ background:{t['sidebar']}; }}
+            QSplitter#DocumentSplit::handle:hover {{ background:{t['selected']}; }}
+            QFrame#DocumentTabStrip {{ background:transparent; border:0; }}
+            QPushButton#WorkspaceConnection {{ background:{t['surface']}; border:1px solid {t['line']}; border-radius:16px; padding:0; }}
+            QPushButton#WorkspaceConnection:hover {{ background:{t['hover']}; }}
+            QLabel#ConnectionDot {{ background:{t['secondary']}; border-radius:4px; }}
+            QFrame#DocumentRail QPushButton:checked {{ background:{t['selected']}; color:{t['text']}; }}
+            QFrame#DocumentRail QPushButton {{ padding:0; }}
             QTreeWidget#DocumentTree {{ background:transparent; border:0; outline:0; }}
-            QTreeWidget#DocumentTree::item {{ height:34px; padding:0 3px; border-radius:5px; }}
+            QTreeWidget#DocumentTree::item {{ height:32px; padding:0 5px; border-radius:4px; }}
             QTreeWidget#DocumentTree::item:selected {{ background:{t['selected']}; color:{t['text']}; }}
+            QTreeWidget#DocumentTree::item:hover {{ background:{t['hover']}; }}
             QTabBar#DocumentTabBar {{ background:transparent; border:0; }}
             QTabBar#DocumentTabBar::tab {{ background:transparent; color:{t['secondary']}; border:0; border-radius:0; padding:8px 12px; margin:0; }}
             QTabBar#DocumentTabBar::tab:selected {{ background:{t['base']}; color:{t['text']}; border-top-left-radius:9px; border-top-right-radius:9px; }}
@@ -196,23 +276,77 @@ class WorkspaceShell(QMainWindow):
             QTabBar#DocumentTabBar::tab:!selected:hover {{ background:{t['raised']}; border-radius:7px; }}
             QTabBar#DocumentTabBar QToolButton {{ padding:0; border:0; border-radius:4px; background:{t['chrome']}; }}
             QTabBar#DocumentTabBar QToolButton:hover {{ background:{t['raised']}; }}
-            QFrame#DocumentTools {{ background:{t['base']}; border:0; }}
-        ''')
+        ''' + sidebar_style(appearance))
+        self.connection_label.ensurePolished()
+        self.connection.setFixedWidth(self.connection_label.sizeHint().width()+44)
+
+    def load_ui_preferences(self):
+        try:
+            with (self.data/'workspace-ui.json').open('rb') as stream:
+                raw = stream.read(16385)
+            if len(raw)>16384:
+                return
+            saved = json.loads(raw)
+            if not isinstance(saved, dict):
+                return
+            for key in DISPLAY_KEYS:
+                value = saved.get(key)
+                if key=='font_family' and isinstance(value,str) and 0<len(value)<=120:
+                    self.settings[key]=value
+                elif key=='material' and value in ('solid','mica','acrylic'):
+                    self.settings[key]=value
+                elif key in ('ui_size','prompt_size') and type(value) is int and 9<=value<=22:
+                    self.settings[key]=value
+                elif key.endswith('_transparency') and type(value) is int and 0<=value<=100:
+                    self.settings[key]=value
+            width=saved.get('sidebar_width')
+            if type(width) is int and 220<=width<=480:
+                self.sidebar_width=width
+            expanded=saved.get('sidebar_expanded')
+            if type(expanded) is bool:
+                self.sidebar_preference=expanded
+        except (ValueError,OSError):
+            pass
+
+    def save_ui_preferences(self):
+        saved = {key:self.settings[key] for key in DISPLAY_KEYS}
+        saved.update(sidebar_width=self.sidebar_width, sidebar_expanded=self.sidebar_preference)
+        output=QSaveFile(str(self.data/'workspace-ui.json'))
+        output.setDirectWriteFallback(False)
+        if output.open(QIODevice.OpenModeFlag.WriteOnly):
+            output.write(json.dumps(saved,ensure_ascii=False).encode('utf-8'))
+            output.commit()
+
+    def sync_display_settings(self, settings, preview=None):
+        changed=any(self.settings[key]!=settings[key] for key in DISPLAY_KEYS)
+        self.settings.update({key:settings[key] for key in DISPLAY_KEYS})
+        overlay={key:value for key,value in (preview or {}).items() if key in DISPLAY_KEYS}
+        if changed or self.appearance_preview!=overlay:
+            self.appearance_preview=overlay
+            self.style_shell()
+        if changed:
+            self.save_ui_preferences()
+
+    def sidebar_target(self):
+        if self.active_route=='home':
+            return self.sidebar
+        return self.utility.context_sidebar_target() if self.utility else None
 
     def caption_inset(self, inset):
-        self.top.layout().setContentsMargins(6, 4, 10+inset, 0)
+        self.top.layout().setContentsMargins(7, 4, 10+inset, 0)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'connection'):
-            self.connection.setText('ComfyUI' if self.width() < 1050 else 'ComfyUI 未連線')
             self.connection.setToolTip('ComfyUI 未連線；開啟連線設定')
+            self.sync_sidebar()
 
     def refresh_tree(self):
         self.tree.clear()
+        self.file_items = {}
         self.entries = [entry for entry in index.scan(self.root)
                         if not any(part.casefold() == 'assets' for part in Path(entry.relative).parts[:-1])]
-        root_item = QTreeWidgetItem([self.root.name, ''])
+        root_item = QTreeWidgetItem([self.root.name])
         root_item.setIcon(0, icon('folder'))
         root_item.setToolTip(0, str(self.root))
         self.tree.addTopLevelItem(root_item)
@@ -226,21 +360,27 @@ class WorkspaceShell(QMainWindow):
                     continue
                 relative = path.relative_to(self.root)
                 parent = folders[str(relative.parent)]
-                item = QTreeWidgetItem([path.name, ''])
+                item = QTreeWidgetItem([path.name])
                 item.setIcon(0, icon('folder'))
                 parent.addChild(item)
                 folders[str(relative)] = item
                 pending.append(path)
-        types = {'category': '分類', 'workflow': '工作流', 'markdown': 'MD'}
+        types = {'category': '分類', 'workflow': '工作流', 'markdown': '筆記'}
+        symbols = {'category': 'list', 'workflow': 'workflow', 'markdown': 'file-text'}
         for entry in self.entries:
             relative = Path(entry.relative)
             if str(relative.parent) not in folders:
                 continue
-            item = QTreeWidgetItem([relative.stem, types[entry.kind]])
+            item = QTreeWidgetItem([relative.stem])
+            item.setIcon(0, icon(symbols[entry.kind]))
             item.setData(0, Qt.ItemDataRole.UserRole, entry.relative)
-            item.setToolTip(0, str(self.root / relative))
+            item.setToolTip(0, types[entry.kind] + ' · ' + str(self.root / relative))
             folders[str(relative.parent)].addChild(item)
+            self.file_items[entry.relative] = item
         root_item.setExpanded(True)
+        for tab in self.tabs_by_key.values():
+            if isinstance(tab.widget, WorkspaceHome):
+                tab.widget.set_recent(self.recent_files)
 
     def open_item(self, item, retained=False):
         relative = item.data(0, Qt.ItemDataRole.UserRole)
@@ -252,7 +392,7 @@ class WorkspaceShell(QMainWindow):
         if replace_preview:
             for i in range(bar.count()):
                 current = self.tabs_by_key[bar.tabData(i)]
-                if not current.retained and not (current.document and (current.document.dirty or current.document.draft_dirty)):
+                if not current.retained and not current.dirty:
                     self.close_tab(i, decision='discard', make_home=False)
                     break
         self.tabs_by_key[tab.key] = tab
@@ -276,25 +416,25 @@ class WorkspaceShell(QMainWindow):
         if at < 0:
             return
         document = tab.document
-        dirty = document and (document.dirty or document.draft_dirty)
+        dirty = tab.dirty
         if dirty:
             tab.retained = True
         self.tab_strip.decorate(at, tab.title, tab.retained, bool(dirty), str(tab.path or ''))
-        if document:
-            tab.save_button.setEnabled(document.dirty)
-            tab.message.setText(document.error or ('未保存' if dirty else '已保存'))
-            tab.recovery_button.setVisible(bool(document.error))
+        error = document.error if document else tab.widget.error if isinstance(tab.widget,MarkdownPage) else ''
+        if error:
+            self.tab_strip.bar.setTabToolTip(at,self.tab_strip.bar.tabToolTip(at)+'\n'+error)
 
     def open_path(self, path, retained=False):
         path = Path(path).absolute()
         try:
             paths.checked(self.root, path.relative_to(self.root).as_posix())
             for tab in self.tabs_by_key.values():
-                if tab.path == path:
+                if tab.path and (tab.path == path or (tab.path.exists() and path.exists() and tab.path.samefile(path))):
                     if retained:
                         tab.retained = True
                     self.update_tab(tab)
                     self.tab_strip.bar.setCurrentIndex(self.index_of(tab.key))
+                    self.activate(self.index_of(tab.key))
                     return tab
             if path.suffix.lower() == '.md':
                 return self.open_markdown(path, retained)
@@ -307,33 +447,19 @@ class WorkspaceShell(QMainWindow):
                 if (old.device, old.inode) == (new.device, new.inode):
                     document.deleteLater()
                     self.tab_strip.bar.setCurrentIndex(self.index_of(existing.key))
+                    self.activate(self.index_of(existing.key))
                     return existing
                 if existing.document.key == document.key:
                     raise ValueError('另一個位置的同身分文件已開啟，請先關閉原頁或建立獨立副本。')
             document.prepare()
             host = EmbeddedHost(document.data, document)
+            host.bind_workspace(self)
             page = QWidget()
             layout = QVBoxLayout(page)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(0)
-            toolbar = QFrame()
-            toolbar.setObjectName('DocumentTools')
-            actions = QHBoxLayout(toolbar)
-            actions.setContentsMargins(18, 7, 18, 7)
-            save = button('保存文件', document.save, 'Quiet')
-            actions.addWidget(save)
-            actions.addWidget(self.tool('undo', '復原', host.canvas.undo))
-            actions.addWidget(self.tool('forward', '重做', host.canvas.redo))
-            actions.addStretch()
-            message = label('已保存', 'Subtle')
-            actions.addWidget(message)
-            recovery = button('檢視回復版本', lambda: self.show_recovery(document), 'Quiet')
-            recovery.hide()
-            actions.addWidget(recovery)
-            layout.addWidget(toolbar)
             layout.addWidget(host, 1)
             tab = Tab(document.key, path.stem, page, retained, document, path)
-            tab.save_button, tab.message, tab.recovery_button = save, message, recovery
             document.changed.connect(lambda: self.update_tab(tab))
             document.editing.connect(lambda: self.retain(tab))
             return self.add_tab(tab, replace_preview=not retained)
@@ -342,98 +468,143 @@ class WorkspaceShell(QMainWindow):
             return None
 
     def open_markdown(self, path, retained):
-        raw = path.read_bytes()
-        if len(raw) > 8*1024*1024:
-            raise ValueError('Markdown 超過本輪閱讀上限 8 MiB。')
-        page = QPlainTextEdit()
-        page.setReadOnly(True)
-        page.setPlainText(raw.decode('utf-8-sig'))
-        page.setAccessibleName(path.name + '，唯讀內容')
-        page.setFrameShape(QFrame.Shape.NoFrame)
-        return self.add_tab(Tab('md:' + str(path), path.stem, page, retained, path=path), replace_preview=not retained)
+        page = MarkdownPage(path)
+        tab = Tab('md:' + str(path), path.stem, page, retained, path=path)
+        page.document().modificationChanged.connect(lambda _: self.update_tab(tab))
+        return self.add_tab(tab, replace_preview=not retained)
 
     def new_tab(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(36, 30, 36, 24)
-        layout.setSpacing(16)
-        layout.addWidget(label('開啟內容', 'DialogTitle'))
-        listing = QListWidget()
-        listing.setFrameShape(QFrame.Shape.NoFrame)
-        listing.setAccessibleName('可開啟的本機文件')
-        for entry in self.entries:
-            item = QListWidgetItem(entry.relative)
-            item.setData(Qt.ItemDataRole.UserRole, entry.relative)
-            listing.addItem(item)
-        listing.itemActivated.connect(lambda item: self.open_path(self.root / item.data(Qt.ItemDataRole.UserRole), True))
-        listing.itemDoubleClicked.connect(lambda item: self.open_path(self.root / item.data(Qt.ItemDataRole.UserRole), True))
-        layout.addWidget(listing, 1)
-        layout.addWidget(button('開啟本機文件…', self.choose_file, 'Quiet'))
+        page = WorkspaceHome(self.root, self.recent_files, self.settings, self.choose_file,
+                             lambda relative: self.open_path(self.root / relative, True), self.new_document)
         return self.add_tab(Tab('new:' + uuid.uuid4().hex, '新分頁', page, True))
+
+    def new_document(self, kind, name=None):
+        names = dict(workflow='Canvas 工作流', category='管理頁', markdown='Markdown 筆記')
+        if name is None:
+            name, ok = InputDialog.getText(self, '新增'+names[kind], '名稱')
+            if not ok:
+                return None
+        try:
+            path = create_file(self.root, kind, name)
+            self.refresh_tree()
+            return self.open_path(path, True)
+        except (ValueError, OSError) as error:
+            self.report_error(str(error))
+            return None
+
+    def remember_recent(self, path):
+        relative = path.relative_to(self.root).as_posix()
+        recent = [relative]+[p for p in self.recent_files if p != relative]
+        if recent[:20] == self.recent_files:
+            return
+        self.recent_files = recent[:20]
+        self.recent_timer.start(500)
+        for tab in self.tabs_by_key.values():
+            if isinstance(tab.widget, WorkspaceHome):
+                tab.widget.set_recent(self.recent_files)
+
+    def save_recent(self):
+        output = QSaveFile(str(self.data/'recent-files.json'))
+        output.setDirectWriteFallback(False)
+        if output.open(QIODevice.OpenModeFlag.WriteOnly):
+            output.write(json.dumps(self.recent_files, ensure_ascii=False).encode('utf-8'))
+            output.commit()
 
     def choose_file(self):
         filename, _ = QFileDialog.getOpenFileName(self, '開啟本機文件', str(self.root), 'PCS 文件 (*.pcs-category *.pcs-workflow *.md)')
         if filename:
             self.open_path(filename, True)
 
-    def open_route(self, route):
+    def open_route(self, route, section=None):
         if route == 'home':
-            for tab in self.tabs_by_key.values():
-                if tab.key.startswith('new:'):
-                    self.tab_strip.bar.setCurrentIndex(self.index_of(tab.key))
-                    return
+            if self.tab_strip.bar.count():
+                self.activate(self.tab_strip.bar.currentIndex())
+                return
             return self.new_tab()
-        key = 'utility:' + route
-        if key in self.tabs_by_key:
-            self.tab_strip.bar.setCurrentIndex(self.index_of(key))
-            return
         if self.utility is None:
             data = self.session / 'app-services'
             store = Storage(data)
             state = initial_state()
-            state['settings'].update(online=False, comfy_enabled=False, material='solid')
+            state['settings'].update({key:self.settings[key] for key in DISPLAY_KEYS})
+            state['settings'].update(online=False, comfy_enabled=False)
             store.save(state)
             store.close()
             self.utility = EmbeddedHost(data)
-        names = dict(gallery='媒體庫', explore='探索', export='匯出', settings='設定')
-        self.add_tab(Tab(key, names[route], self.utility, True, route=route))
+            self.utility.bind_workspace(self)
+            self.workspace_stack.addWidget(self.utility)
+        if route == 'gallery':
+            self.utility.show_page(self.utility.gallery)
+        elif route == 'export':
+            self.utility.show_page(self.utility.clean_export)
+        else:
+            self.utility.settings(section or ('explore' if route == 'explore' else 'interface'))
+
+    def utility_navigated(self, route, section=None):
+        self.active_route = route
+        self.active_key = 'utility:' + route
+        self.workspace_stack.setCurrentWidget(self.utility)
+        self.tab_strip.bar.workspace_active = False
+        self.tab_strip.bar.update()
+        self.sync_sidebar()
+        self.record_visit(('utility', route, section))
+
+    def sync_sidebar(self):
+        expanded = self.width() >= 980 if self.sidebar_preference is None else self.sidebar_preference
+        if self.active_route == 'home':
+            self.sidebar.setVisible(expanded)
+        elif self.utility:
+            target = self.utility.context_sidebar_target()
+            if target is not None:
+                self.utility._set_sidebar_in_layout(target, expanded)
+        for route, entry in self.routes.items():
+            entry.setChecked(route == self.active_route)
+        self.collapse.setToolTip('收合側欄' if expanded else '展開側欄')
+        self.collapse.setAccessibleName(self.collapse.toolTip())
+        if hasattr(self,'sidebar_resize'):
+            self.sidebar_resize.schedule()
+
+    def record_visit(self, entry):
+        if not self.traversing and (not self.history or self.history[self.history_at] != entry):
+            self.history = self.history[:self.history_at+1] + [entry]
+            self.history_at = len(self.history)-1
+        self.back.setEnabled(any(self.valid_visit(e) for e in self.history[:self.history_at]))
+        self.forward.setEnabled(any(self.valid_visit(e) for e in self.history[self.history_at+1:]))
+
+    def valid_visit(self, entry):
+        return entry[0] == 'utility' or entry[1] in self.tabs_by_key
 
     def activate(self, position):
         key = self.tab_strip.bar.tabData(position)
         tab = self.tabs_by_key.get(key)
         if tab is None:
             return
+        if self.utility and self.active_route in ('explore', 'settings'):
+            self.utility.settings_page.flush()
+        self.active_route = 'home'
         self.active_key = key
+        self.workspace_stack.setCurrentWidget(self.home_split)
+        self.tab_strip.bar.workspace_active = True
+        self.tab_strip.bar.update()
         self.pages.setCurrentWidget(tab.widget)
-        if tab.route:
-            host = self.utility
-            if tab.route == 'gallery':
-                host.show_page(host.gallery)
-            elif tab.route == 'export':
-                host.show_page(host.clean_export)
-            elif tab.route == 'explore':
-                host.settings('explore')
-            else:
-                host.settings()
-            host.studio_navigation.hide()
-            host.canvas_header.hide()
-        for route, button_ in self.routes.items():
-            button_.setChecked(route == tab.route or route == 'home' and key.startswith('new:'))
-        if not self.traversing and (not self.history or self.history[self.history_at] != key):
-            self.history = self.history[:self.history_at+1] + [key]
-            self.history_at = len(self.history)-1
-        self.back.setEnabled(self.history_at > 0)
-        self.forward.setEnabled(self.history_at+1 < len(self.history))
+        relative = tab.path.relative_to(self.root).as_posix() if tab.path else None
+        self.tree.setCurrentItem(self.file_items.get(relative))
+        if tab.path:
+            self.remember_recent(tab.path)
+        self.sync_sidebar()
+        self.record_visit(('document', key))
 
     def go(self, delta):
         target = self.history_at + delta
         while 0 <= target < len(self.history):
-            key = self.history[target]
-            if key in self.tabs_by_key:
+            entry = self.history[target]
+            if self.valid_visit(entry):
                 self.history_at = target
                 self.traversing = True
-                self.tab_strip.bar.setCurrentIndex(self.index_of(key))
-                self.activate(self.index_of(key))
+                if entry[0] == 'utility':
+                    self.open_route(entry[1], entry[2])
+                else:
+                    self.tab_strip.bar.setCurrentIndex(self.index_of(entry[1]))
+                    self.activate(self.index_of(entry[1]))
                 self.traversing = False
                 return
             target += delta
@@ -448,11 +619,23 @@ class WorkspaceShell(QMainWindow):
             self.retain(tab)
 
     def close_current(self):
-        return self.close_tab(self.tab_strip.bar.currentIndex())
+        return self.close_tab(self.tab_strip.bar.currentIndex()) if self.active_route == 'home' else False
 
     def save_current(self):
         tab = self.tabs_by_key.get(self.active_key)
-        return bool(tab and tab.document and tab.document.save())
+        return self.save_tab(tab) if tab else False
+
+    def save_tab(self, tab):
+        if tab.document:
+            saved = tab.document.save()
+        elif isinstance(tab.widget, MarkdownPage):
+            saved = tab.widget.save()
+            self.update_tab(tab)
+        else:
+            return False
+        if not saved:
+            self.report_error(tab.document.error if tab.document else tab.widget.error)
+        return saved
 
     def prepare_close(self, tab, decision=None):
         document = tab.document
@@ -460,7 +643,7 @@ class WorkspaceShell(QMainWindow):
             if not document.host.flush_editor_drafts():
                 return False
             document.update_dirty()
-        if document and (document.dirty or document.draft_dirty):
+        if tab.dirty:
             if decision is None:
                 choice = QMessageBox(self)
                 choice.setWindowTitle('保存變更')
@@ -471,7 +654,7 @@ class WorkspaceShell(QMainWindow):
                 choice.setDefaultButton(cancel)
                 choice.exec()
                 decision = 'save' if choice.clickedButton() is save else 'discard' if choice.clickedButton() is discard else 'cancel'
-            if decision == 'cancel' or decision == 'save' and not document.save():
+            if decision == 'cancel' or decision == 'save' and not self.save_tab(tab):
                 return False
         return True
 
@@ -509,6 +692,15 @@ class WorkspaceShell(QMainWindow):
         if at < 0:
             return
         menu = RoundMenu(self)
+        tab = self.tabs_by_key[self.tab_strip.bar.tabData(at)]
+        if tab.document or isinstance(tab.widget,MarkdownPage):
+            menu.addAction('保存文件 · Ctrl+S', lambda:self.save_tab(tab))
+            editor = tab.document.host.canvas if tab.document else tab.widget
+            menu.addAction('復原 · Ctrl+Z', editor.undo)
+            menu.addAction('重做 · Ctrl+Y', editor.redo)
+            if tab.document and tab.document.error:
+                menu.addAction('檢視回復版本', lambda:self.show_recovery(tab.document))
+            menu.addSeparator()
         menu.addAction('保留此分頁', lambda: self.retain_index(at))
         menu.addAction('關閉分頁', lambda: self.close_tab(at))
         menu.open_at(self.tab_strip.bar.mapToGlobal(point))
@@ -528,10 +720,10 @@ class WorkspaceShell(QMainWindow):
         menu.open_at(self.tree_more.mapToGlobal(self.tree_more.rect().bottomLeft()))
 
     def toggle_sidebar(self):
-        self.sidebar.setVisible(self.sidebar.isHidden())
-        title = '展開內容側欄' if self.sidebar.isHidden() else '收合內容側欄'
-        self.collapse.setToolTip(title)
-        self.collapse.setAccessibleName(title)
+        expanded = self.width() >= 980 if self.sidebar_preference is None else self.sidebar_preference
+        self.sidebar_preference = not expanded
+        self.sync_sidebar()
+        self.save_ui_preferences()
 
     def show_recovery(self, document):
         dialog = QDialog(self)
@@ -564,7 +756,7 @@ class WorkspaceShell(QMainWindow):
         dialog.exec()
 
     def report_error(self, message):
-        QMessageBox.warning(self, '無法開啟文件', message)
+        QMessageBox.warning(self, '無法完成操作', message)
 
     def closeEvent(self, event):
         # Resolve every dirty file first. Cancelling window close must not
@@ -580,4 +772,9 @@ class WorkspaceShell(QMainWindow):
         if self.utility and not self.utility.close():
             event.ignore()
             return
+        self.recent_timer.stop()
+        self.save_recent()
+        self.save_ui_preferences()
+        self.sidebar_resize.shutdown()
+        QApplication.instance().removeEventFilter(self.centralWidget())
         event.accept()

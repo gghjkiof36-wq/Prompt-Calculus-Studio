@@ -246,12 +246,16 @@ class SettingsPage(QWidget):
             routes=[('interface','使用介面','canvas'),('appearance','介面個人化','settings'),('completion','候選與翻譯','search'),('dictionary','個人字典','info'),('data','資料與備份','package')]
             parent='返回工作區';area='設定'
         self.nav_routes=routes; self.return_button.setText(parent)
+        if self.window.embedded_document:
+            nested=parent=='返回探索'
+            self.navigation_area.back_area.setVisible(nested)
+            self.navigation_area.layout().itemAt(1).spacerItem().changeSize(0,10 if nested else 0)
         self.navigation_area.heading.setText(area);self.navigation.setAccessibleName(area+'導覽')
         self.navigation.blockSignals(True); self.compact_navigation.blockSignals(True)
         self.navigation.clear(); self.compact_navigation.clear()
         for i,(key,title,symbol) in enumerate(routes):
             item=QListWidgetItem(title)
-            if area=='設定' and i in (1,3):item.setData(Qt.ItemDataRole.UserRole,8)
+            if area=='設定' and i in (1,3) and not self.window.embedded_document:item.setData(Qt.ItemDataRole.UserRole,8)
             self.navigation.addItem(item); self.compact_navigation.addItem(title,key)
         current=next((i for i,r in enumerate(routes) if r[0]==section),0)
         self.navigation.setCurrentRow(current); self.compact_navigation.setCurrentIndex(current)
@@ -345,6 +349,9 @@ class SettingsPage(QWidget):
             page=self.preferences.tabs.widget(0); self.preferences.tabs.removeTab(0); page.setParent(None)
             if key=='appearance':
                 inner=page.widget() if isinstance(page,QScrollArea) else page
+                if getattr(self.window,'workspace_owner',None) is not None:
+                    inner.text_controls.append(self.preferences.material)
+                    self.preferences.material.currentIndexChanged.connect(lambda *_, page=inner:QTimer.singleShot(0,page.align_fields))
                 inner.layout().insertWidget(0,label('介面個人化','DialogTitle'))
                 inner.layout().insertWidget(inner.layout().count()-1,AppearanceResetRow(button('還原開啟設定時的外觀',lambda:self.reset_appearance(True),'Quiet'),button('重設為預設外觀',self.reset_appearance,'Quiet')))
             elif key=='completion':

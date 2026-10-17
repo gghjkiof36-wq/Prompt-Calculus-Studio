@@ -191,10 +191,12 @@ class EmbeddedHost(Window):
     def __init__(self, data, document=None):
         self.document = document
         self._document_ready = False
-        super().__init__(data, embedded=True, client_factory=LocalEditingClient)
+        super().__init__(data, embedded=True, client_factory=LocalEditingClient, document_only=document is not None)
         self.studio_navigation.hide()
         self.context_rail.hide()
         self.canvas_header.hide()
+        self.surface_stack.rounded = False
+        self.surface_stack.clearMask()
         self.display_recovery.stop()
         self.sidebar_peek.shutdown()
         if document is not None:
@@ -209,6 +211,67 @@ class EmbeddedHost(Window):
             document.attach(self)
         self._document_ready = True
 
+    def bind_workspace(self, workspace):
+        """One outer navigation owner; keep the existing editors and models."""
+        from PySide6.QtGui import QShortcut, QKeySequence
+        self.workspace_owner = workspace
+        for shortcut in self.findChildren(QShortcut):
+            if shortcut.key().toString(QKeySequence.SequenceFormat.PortableText) in ('Alt+Left', 'Alt+Right'):
+                shortcut.setEnabled(False)
+        # These are the same live sidebars used by the established pages.
+        # Their aligned width replaces the file sidebar while a tool is open.
+        if self.document is None:
+            from .workspace_style import sidebar_style
+            from .theme import stylesheet
+            for target in (self.gallery.folder_panel, self.clean_export.sidebar, self.settings_page.navigation_area):
+                target.setProperty('pcsSidebarManaged', True)
+                target.setProperty('pcsWorkspaceSidebar', True)
+                target.setFixedWidth(264)
+                target.layout().setContentsMargins(12, 16, 12, 12)
+            self.gallery.sidebar_split.setHandleWidth(0)
+            self.setStyleSheet(stylesheet(self.state['settings'])+sidebar_style(self.state['settings']))
+
+    def apply_theme(self, *args, **kwargs):
+        super().apply_theme(*args, **kwargs)
+        self.sync_workspace_display()
+
+    def update_material_preview(self):
+        if getattr(self,'workspace_owner',None) is not None and self.document is None:
+            self.sync_workspace_display()
+        else:
+            super().update_material_preview()
+
+    def sync_workspace_display(self):
+        workspace = getattr(self, 'workspace_owner', None)
+        if workspace is not None and self.document is None:
+            from .workspace_style import sidebar_style
+            from .theme import stylesheet
+            style=stylesheet(self.state['settings'])+sidebar_style(self.state['settings'])
+            if self.styleSheet()!=style:
+                self.setStyleSheet(style)
+            workspace.sync_display_settings(self.state['settings'], getattr(self,'appearance_preview',{}))
+
+    def context_sidebar_target(self):
+        return None if self.document is not None else super().context_sidebar_target()
+
+    def record_navigation(self, kind, value=None):
+        super().record_navigation(kind, value)
+        workspace = getattr(self, 'workspace_owner', None)
+        if workspace is None or self.document is not None:
+            return
+        if kind == 'page' and value in ('gallery', 'clean_export'):
+            workspace.utility_navigated('gallery' if value == 'gallery' else 'export')
+        elif kind == 'settings':
+            explore = ('explore', 'comfy', 'workflows', 'workflow_manager', 'models', 'nodes',
+                       'civitai', 'downloads', 'civitai_settings')
+            workspace.utility_navigated('explore' if value in explore else 'settings', value)
+
+    def settings(self, section='interface'):
+        workspace = getattr(self, 'workspace_owner', None)
+        if workspace is not None and self.document is not None:
+            return workspace.open_route('settings', section)
+        return super().settings(section)
+
     def changed(self, scope='prompt', refresh=True):
         super().changed(scope, refresh)
         if self._document_ready and self.document is not None:
@@ -220,6 +283,8 @@ class EmbeddedHost(Window):
 
     def return_to_prompt(self):
         if self.document is None:
+            if hasattr(self, 'workspace_owner'):
+                return self.workspace_owner.open_route('home')
             return super().return_to_prompt()
         self.surface_stack.setCurrentWidget(self.prompt_editor if self.document.kind == 'category' else self.canvas_shell)
         self.canvas_header.hide()

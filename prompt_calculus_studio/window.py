@@ -35,9 +35,10 @@ from .widgets import StudioDialog,widget_global_position
 
 
 class Window(QMainWindow):
-    def __init__(self, data_dir, *, embedded=False, client_factory=None):
+    def __init__(self, data_dir, *, embedded=False, client_factory=None, document_only=False):
         super().__init__()
         self.embedded_document = embedded
+        self.document_only = bool(embedded and document_only)
         from .tooltips import install_tooltip_styling
         install_tooltip_styling()
         from .button_focus import install_button_focus_styling
@@ -112,8 +113,10 @@ class Window(QMainWindow):
         self.cancel_button=button("取消背景工作",self.cancel_jobs,"Quiet"); self.cancel_button.hide()
         outer.addLayout(row(self.status,None,self.cancel_button,QSizeGrip(self)))
         self.make_canvas_surface()
-        self.settings_page=SettingsPage(self); self.surface_stack.addWidget(self.settings_page)
-        self.welcome=InterfaceChoice(self,True); self.surface_stack.addWidget(self.welcome)
+        if not self.document_only:
+            self.settings_page=SettingsPage(self); self.surface_stack.addWidget(self.settings_page)
+        self.welcome=QWidget() if self.document_only else InterfaceChoice(self,True)
+        self.surface_stack.addWidget(self.welcome)
         self.refresh_workspaces(); self.refresh_modules(); self.refresh_library(); self.refresh_builder(); self.apply_theme()
         if self.state.get('selection_view')=='canvas': self.enter_canvas()
         else: self.leave_canvas()
@@ -432,7 +435,7 @@ class Window(QMainWindow):
     def show_page(self,page):
         if not self.flush_editor_drafts():return
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
-        if self.surface_stack.currentWidget() is self.settings_page:self.settings_page.flush()
+        if self.surface_stack.currentWidget() is getattr(self,'settings_page',None):self.settings_page.flush()
         if page is self.models: self.settings('models'); return
         if self.canvas_mode and page is self.recent:
             self.show_recent_sheet(); return
@@ -576,7 +579,7 @@ class Window(QMainWindow):
             if self.sidebar_peek.is_pinned_overlay:self.sidebar_pinned_preference=False
             self.sidebar_peek.close();self.sync_context_sidebar()
         elif getattr(self.canvas,'editor_page',None): self.canvas.editor_page.close_editor()
-        elif self.surface_stack.currentWidget() is self.settings_page: self.settings_page.cancel()
+        elif self.surface_stack.currentWidget() is getattr(self,'settings_page',None): self.settings_page.cancel()
         elif self.surface_stack.currentWidget() is not self.welcome: self.return_to_prompt()
 
     def activate_prompt_view(self,view):
@@ -670,7 +673,9 @@ class Window(QMainWindow):
         self.host_shell.update()
         if not self.native_material: appearance["material"]="solid"
         new_stylesheet=stylesheet(appearance)
-        if self.styleSheet()!=new_stylesheet:self.setStyleSheet(new_stylesheet)
+        # Document hosts inherit the outer workspace's stylesheet. Applying
+        # it here and again on attachment repolishes every hidden control.
+        if not self.document_only and self.styleSheet()!=new_stylesheet:self.setStyleSheet(new_stylesheet)
         self.studio_navigation.refresh_icons()
         from .ui_icons import icon
         from PySide6.QtWidgets import QPushButton

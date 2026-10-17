@@ -1,0 +1,94 @@
+"""Centered creation actions and the user's real recent documents."""
+from pathlib import Path
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtWidgets import QWidget, QScrollArea, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem, QFrame
+from .theme import visual_tokens
+from .ui_icons import icon
+from .widgets import button, label
+
+
+class WorkspaceHome(QScrollArea):
+    def __init__(self, root, recent, settings, choose_file, open_file, create_file):
+        super().__init__()
+        self.root = root
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.viewport().setObjectName('ScrollViewport')
+        canvas=QWidget()
+        canvas.setObjectName('WorkspaceHomeCanvas')
+        self.setWidget(canvas)
+        outer = QVBoxLayout(canvas)
+        outer.setContentsMargins(32, 28, 32, 28)
+        outer.addStretch(2)
+        center = QHBoxLayout()
+        center.addStretch()
+        self.content = QWidget()
+        self.content.setMaximumWidth(620)
+        body = QVBoxLayout(self.content)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(12)
+        self.recent_heading = label('最近開啟', 'WorkspaceSectionTitle')
+        body.addWidget(self.recent_heading)
+        self.listing = QListWidget()
+        self.listing.setObjectName('WorkspaceRecent')
+        self.listing.setFrameShape(QFrame.Shape.NoFrame)
+        self.listing.setIconSize(QSize(18, 18))
+        self.listing.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.listing.setAccessibleName('最近開啟的文件')
+        self.listing.itemClicked.connect(lambda item: open_file(item.data(Qt.ItemDataRole.UserRole)))
+        self.listing.itemActivated.connect(lambda item: open_file(item.data(Qt.ItemDataRole.UserRole)))
+        body.addWidget(self.listing)
+        body.addSpacing(18)
+        body.addWidget(label('新增', 'WorkspaceSectionTitle'))
+        self.create_buttons = {}
+        for kind, title, symbol in (('workflow', 'Canvas 工作流', 'workflow'),
+                                     ('category', '管理頁（文字模塊）', 'list'),
+                                     ('markdown', 'Markdown 筆記', 'file-text')):
+            entry = button(title, lambda checked=False, k=kind: create_file(k), 'WorkspaceCreate')
+            entry.setIcon(icon(symbol))
+            entry.setIconSize(QSize(19, 19))
+            entry.setMinimumHeight(52)
+            entry.setAccessibleName('新增' + title)
+            body.addWidget(entry)
+            self.create_buttons[kind] = entry
+        footer = QHBoxLayout()
+        self.open_button = button('開啟現有文件…', choose_file, 'Quiet')
+        self.open_button.setIcon(icon('folder'))
+        footer.addWidget(self.open_button)
+        footer.addStretch()
+        body.addSpacing(10)
+        body.addLayout(footer)
+        center.addWidget(self.content, 1)
+        center.addStretch()
+        outer.addLayout(center)
+        outer.addStretch(3)
+        t = visual_tokens(settings)
+        self.setStyleSheet(f'''
+            QWidget#WorkspaceHomeCanvas {{ background:{t['base']}; }}
+            QLabel#WorkspaceSectionTitle {{ font-size:14px; font-weight:600; color:{t['text']}; }}
+            QPushButton#WorkspaceCreate {{ text-align:left; padding:12px 18px; border:0; border-radius:7px;
+                background:{t['surface']}; color:{t['text']}; font-size:14px; }}
+            QPushButton#WorkspaceCreate:hover {{ background:{t['raised']}; }}
+            QPushButton#WorkspaceCreate:pressed {{ background:{t['selected']}; }}
+            QPushButton#WorkspaceCreate:focus {{ border:1px solid {t['accent']}; }}
+            QListWidget#WorkspaceRecent {{ background:transparent; border:0; outline:0; }}
+            QListWidget#WorkspaceRecent::item {{ height:36px; padding:0 10px; border-radius:5px; }}
+            QListWidget#WorkspaceRecent::item:hover {{ background:{t['hover']}; }}
+            QListWidget#WorkspaceRecent::item:selected {{ background:{t['selected']}; color:{t['text']}; }}
+        ''')
+        self.set_recent(recent)
+
+    def set_recent(self, recent):
+        self.listing.clear()
+        for relative in recent[:5]:
+            path = Path(relative)
+            title = path.stem if path.parent == Path('.') else str(path.with_suffix(''))
+            item = QListWidgetItem(title)
+            item.setIcon(icon({'.pcs-category': 'list', '.pcs-workflow': 'workflow'}.get(path.suffix, 'file-text')))
+            item.setData(Qt.ItemDataRole.UserRole, relative)
+            item.setToolTip(relative)
+            self.listing.addItem(item)
+        self.listing.setFixedHeight(len(recent[:5])*40+4)
+        self.listing.setVisible(bool(recent))
+        self.recent_heading.setVisible(bool(recent))

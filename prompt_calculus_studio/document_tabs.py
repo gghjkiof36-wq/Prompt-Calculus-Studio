@@ -1,6 +1,6 @@
 """A single native tab strip with an adjacent new-tab button and overflow."""
 from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtGui import QFont, QFontMetrics
+from PySide6.QtGui import QFont, QFontMetrics, QPalette, QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget, QTabBar, QHBoxLayout, QSizePolicy, QStylePainter, QStyleOptionTab, QStyle
 from .widgets import button, RoundMenu
 from .ui_icons import icon
@@ -9,7 +9,9 @@ from .ui_icons import icon
 class DocumentTabBar(QTabBar):
     def __init__(self):
         super().__init__()
-        self.cap = 192
+        self.tab_width = 228
+        self.workspace_active = True
+        self.active_fill = QColor('#151819')
         self.preview_keys = set()
         self.setObjectName('DocumentTabBar')
         self.setExpanding(False)
@@ -24,21 +26,70 @@ class DocumentTabBar(QTabBar):
 
     def tabSizeHint(self, index):
         size = super().tabSizeHint(index)
-        size.setWidth(min(self.cap, max(112, size.width())))
-        size.setHeight(38)
+        size.setWidth(self.tab_width)
+        size.setHeight(40)
         return size
 
-    def paintEvent(self, event):
-        painter = QStylePainter(self)
+    def align_close_buttons(self):
+        # Qt places the native close controls again after tabLayoutChange.
+        # Use the final tab rectangles, including their scroll offset, so both
+        # the icon and its hit target stay inside the curved tab body.
         for index in range(self.count()):
+            close=self.tabButton(index,QTabBar.ButtonPosition.RightSide)
+            if close is not None:
+                rect=self.tabRect(index)
+                x=rect.right()-close.width()-13
+                y=rect.top()+(rect.height()-close.height())//2
+                if close.x()!=x or close.y()!=y:
+                    close.move(x,y)
+
+    def paintEvent(self, event):
+        self.align_close_buttons()
+        painter = QStylePainter(self)
+        order=[i for i in range(self.count()) if i != self.currentIndex()]+[self.currentIndex()]
+        for index in order:
+            if index < 0:
+                continue
             option = QStyleOptionTab()
             self.initStyleOption(option, index)
-            painter.drawControl(QStyle.ControlElement.CE_TabBarTabShape, option)
+            if not self.workspace_active:
+                option.state &= ~QStyle.StateFlag.State_Selected
+            if self.workspace_active and index == self.currentIndex():
+                # Curved feet join the page below without a bottom border.
+                rect=option.rect
+                left,right=rect.left()+6,rect.right()-6
+                top,bottom=rect.top(),rect.bottom()+1
+                path=QPainterPath()
+                path.moveTo(rect.left(),bottom)
+                path.quadTo(left,bottom,left,bottom-6)
+                path.lineTo(left,top+10)
+                path.quadTo(left,top,left+10,top)
+                path.lineTo(right-10,top)
+                path.quadTo(right,top,right,top+10)
+                path.lineTo(right,bottom-6)
+                path.quadTo(right,bottom,rect.right()+1,bottom)
+                path.closeSubpath()
+                painter.save()
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(self.active_fill)
+                painter.drawPath(path)
+                painter.restore()
+            else:
+                painter.drawControl(QStyle.ControlElement.CE_TabBarTabShape, option)
             font = QFont(self.font())
             font.setItalic(self.tabData(index) in self.preview_keys)
             painter.setFont(font)
             option.fontMetrics = QFontMetrics(font)
-            painter.drawControl(QStyle.ControlElement.CE_TabBarTabLabel, option)
+            # Native tab labels are centered even when a tab has spare width.
+            # Keep a stable left inset and reserve the actual close control.
+            text_rect = option.rect.adjusted(22, 0, -34, 0)
+            close = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
+            if close is not None:
+                text_rect.setRight(min(text_rect.right(), close.x()-8))
+            title = option.fontMetrics.elidedText(self.tabText(index), Qt.TextElideMode.ElideRight, max(0,text_rect.width()))
+            painter.drawItemText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                                 option.palette, self.isTabEnabled(index), title, QPalette.ColorRole.WindowText)
 
 
 class DocumentTabs(QWidget):
@@ -67,10 +118,20 @@ class DocumentTabs(QWidget):
         self.bar.tabMoved.connect(lambda *_: self.fit())
 
     def fit(self):
-        desired = sum(self.bar.tabSizeHint(i).width() for i in range(self.bar.count()))
-        budget = max(80, self.width()-70)
+        count = max(1, self.bar.count())
+        budget = max(80, self.width()-42)
+        width = max(124, min(228, budget//count))
+        overflow = count*width > budget
+        if overflow:
+            budget = max(80, self.width()-74)
+        if self.bar.tab_width != width:
+            self.bar.tab_width = width
+            # Re-layout the native tabs without recreating them or their views.
+            self.bar.setExpanding(True)
+            self.bar.setExpanding(False)
+        desired = count*width
         self.bar.setFixedWidth(min(desired, budget))
-        self.overflow.setVisible(desired > budget)
+        self.overflow.setVisible(overflow)
         self.bar.updateGeometry()
 
     def resizeEvent(self, event):
