@@ -442,13 +442,11 @@ class WorkspaceShell(QMainWindow):
                 folders[str(relative)] = item
                 pending.append(path)
         types = {'category': '分類', 'workflow': '工作流', 'markdown': '筆記'}
-        symbols = {'category': 'list', 'workflow': 'workflow', 'markdown': 'file-text'}
         for entry in self.entries:
             relative = Path(entry.relative)
             if str(relative.parent) not in folders:
                 continue
             item = QTreeWidgetItem([relative.stem])
-            item.setIcon(0, icon(symbols[entry.kind], 'navigation'))
             item.setData(0, Qt.ItemDataRole.UserRole, entry.relative)
             item.setToolTip(0, types[entry.kind] + ' · ' + str(self.root / relative))
             folders[str(relative.parent)].addChild(item)
