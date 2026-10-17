@@ -152,6 +152,9 @@ class DocumentBrowser(PromptEditor):
 
     def __init__(self, host):
         super().__init__(host)
+        # QScrollArea gives its content a filled Window background by default.
+        # Use the same opaque content role as Home instead of the sidebar base.
+        self.shell.setObjectName('ContentSurface')
         self.set_browser_category(host.document.document['payload']['category']['id'])
         self.workspace_header.hide()
         self.category_panel.hide()

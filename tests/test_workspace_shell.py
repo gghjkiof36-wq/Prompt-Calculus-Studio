@@ -492,6 +492,44 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertEqual(self.app.palette().color(QPalette.ColorRole.Window),QColor('#f5f3ee'))
         self.assertEqual(canvas_colors(reopened.document.host.canvas)['palette'],'paper')
 
+    def test_palette_round_trip_refreshes_existing_preview_and_content_surface(self):
+        from PySide6.QtGui import QColor, QPalette
+        from prompt_calculus_studio.theme import visual_tokens
+        from prompt_calculus_studio.workspace_style import workspace_colors
+        tab = self.open(retained=True)
+        page = tab.document.host.prompt_editor
+        before = tab.path.read_bytes()
+        document_settings = copy.deepcopy(tab.document.host.state['settings'])
+        entry = page.listing.item(0)
+        QTest.mouseClick(page.listing.viewport(), Qt.MouseButton.LeftButton,
+                        pos=page.listing.visualItemRect(entry).center())
+        QTest.qWait(QApplication.doubleClickInterval()+20)
+        self.events()
+        self.assertIsNotNone(page.preview_id)
+        preview_text = page.preview_text.toPlainText()
+        self.assertTrue(preview_text)
+        for palette in ('paper', 'mist', 'graphite'):
+            with self.subTest(palette=palette):
+                self.w.open_route('settings', 'appearance')
+                self.events()
+                controls = self.w.utility.settings_page.preferences
+                controls.visual_palette.setCurrentIndex(controls.visual_palette.findData(palette))
+                self.w.utility.settings_page.flush()
+                self.focus(tab)
+                self.w.open_route('home')
+                self.events()
+                appearance = self.w.display_settings()
+                self.assertEqual(page.preview_text.palette().color(QPalette.ColorRole.Text),
+                                 QColor(visual_tokens(appearance)['text']))
+                self.assertEqual(page.preview_text.toPlainText(), preview_text)
+                # Sample the rendered empty gutter, not a token or a CSS string.
+                image = page.shell.grab().toImage()
+                self.assertEqual(image.pixelColor(3, image.height()//2),
+                                 QColor(workspace_colors(appearance)['content']))
+                self.assertEqual(tab.path.read_bytes(), before)
+                self.assertEqual(tab.document.host.state['settings'], document_settings)
+                self.assertFalse(tab.document.dirty)
+
     def test_utility_routes_keep_window_bounds_and_contour_after_material_and_resize(self):
         from PySide6.QtCore import QPoint
         self.w.resize(1100,760)

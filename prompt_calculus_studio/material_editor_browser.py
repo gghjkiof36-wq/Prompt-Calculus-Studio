@@ -398,6 +398,12 @@ class PromptEditor(QWidget):
         self.shell.setMinimumHeight(max(height, bottom))
         self.shell.setMinimumWidth(area_x+area_width+(READING_NARROW_MARGIN if self.narrow else READING_MARGIN))
 
+    def refresh_visual_theme(self):
+        # Palette changes need not resize the browser. Refresh the preview's
+        # local text style even when this document is hidden behind Settings.
+        self._sync_type()
+        self.listing.viewport().update()
+
     def _sync_type(self):
         from .theme import font_pixels,window_appearance
         settings = window_appearance(self.window)

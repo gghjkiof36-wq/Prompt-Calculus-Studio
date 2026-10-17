@@ -694,6 +694,7 @@ class Window(QMainWindow):
                 entry.setIcon(icon(entry.property('iconName'),ink))
         self.run_controls.configure_geometry()
         if hasattr(self.canvas,'refresh_visual_theme'):self.canvas.refresh_visual_theme()
+        if hasattr(self,'prompt_editor'):self.prompt_editor.refresh_visual_theme()
         if hasattr(self,'settings_page'):
             self.settings_page.civitai.configure_fonts(); self.settings_page.workflow_manager.update_list_height()
             self.settings_page.refresh_icons()
