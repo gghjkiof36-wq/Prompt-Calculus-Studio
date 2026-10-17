@@ -111,69 +111,53 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         self.assertTrue(tab.widget.document().isUndoAvailable())
         self.assertNotEqual(self.note.read_bytes(), original)
 
-    def test_toolbar_folder_menu_and_home_use_one_real_form(self):
-        self.w.tree.setCurrentItem(self.item(self.folder))
+    def inline_action(self, action, edit):
+        popup = self.app.activePopupWidget()
+        if popup:
+            popup.close()
+        action()
+        editor = self.w.commands.files.inline
+        self.assertIsNotNone(editor)
+        self.assertIsNone(self.app.activeModalWidget())
+        edit(editor)
         self.events()
+
+    def test_toolbar_folder_menu_and_home_use_one_inline_name_row(self):
+        self.w.select_path(self.folder)
         QTest.mouseClick(self.w.tree_new, Qt.MouseButton.LeftButton)
         menu = self.app.activePopupWidget()
-        self.assertEqual([a.text() for a in menu.actions()], ['文字模塊分類…', 'Canvas 工作流…', 'Markdown 筆記…'])
+        self.assertEqual([a.text() for a in menu.actions()], ['新增prompt管理頁', '新增工作流', '新增文字文件'])
         action = menu.actions()[2]
-        self.w.tree.setCurrentItem(self.item(self.root))  # Context already captured.
-        def create_nested(dialog):
-            self.assertEqual(dialog.directory.text(), str(self.folder))
-            dialog.name.setText('工具列.md')
-            QTest.mouseClick(dialog.submit_button, Qt.MouseButton.LeftButton)
-        self.dialog_action(action.trigger, create_nested)
-        if isValid(menu):
-            menu.close()
+        self.w.tree.setCurrentItem(self.item(self.root))
+        self.inline_action(action.trigger, lambda e: (e.name.setText('工具列.md'), QTest.keyClick(e.name, Qt.Key.Key_Return)))
         self.assertTrue((self.folder/'工具列.md').exists())
         before = set(self.w.tabs_by_key)
-        target = self.item(self.folder)
-        self.w.tree_menu(self.w.tree.visualItemRect(target).center())
-        self.assertEqual(set(self.w.tabs_by_key), before)  # Right-click never opens.
-        menu = self.app.activePopupWidget()
-        actions = menu.actions()[0].menu().actions()
-        self.assertEqual(len(actions), 4)
-        def create_folder(dialog):
-            self.assertEqual(dialog.directory.text(), str(self.folder))
-            dialog.name.setText('新資料夾')
-            dialog.submit()
-        self.dialog_action(actions[3].trigger, create_folder)
-        if isValid(menu):
-            menu.close()
+        menu = self.w.commands.menu_for(self.w.commands.context('tree', self.item(self.folder)))
+        self.inline_action(menu.actions()[0].menu().actions()[3].trigger,
+                           lambda e: (e.name.setText('新資料夾'), e.submit()))
+        self.assertTrue((self.folder/'新資料夾').is_dir())
         self.assertEqual(set(self.w.tabs_by_key), before)
+        menu.deleteLater()
         home = self.w.new_tab().widget
-        self.w.tree.setCurrentItem(self.item(self.folder))
-        def create_home(dialog):
-            self.assertEqual(dialog.directory.text(), str(self.root))
-            dialog.directory.setText(str(self.external))
-            dialog.name.setText('外部.v2')
-            dialog.submit()
-        self.dialog_action(lambda: QTest.mouseClick(home.create_buttons['category'], Qt.MouseButton.LeftButton), create_home)
-        self.assertTrue((self.external/'外部.v2.pcs-category').is_file())
-        self.assertNotIn(path_key(self.external), self.w.path_items)
+        self.w.select_path(self.folder)
+        self.inline_action(lambda: QTest.mouseClick(home.create_buttons['category'], Qt.MouseButton.LeftButton),
+                           lambda e: (e.name.setText('管理頁'), e.submit()))
+        self.assertTrue((self.folder/'管理頁.pcs-category').is_file())
 
-    def test_cancel_invalid_input_and_directory_picker_cancel_leave_no_files(self):
+    def test_cancel_and_invalid_inline_name_leave_no_files(self):
         before = set(self.root.rglob('*')), set(self.w.tabs_by_key)
-        def reject(dialog):
-            dialog.name.setText('未提交')
-            with patch.object(QFileDialog, 'getExistingDirectory', return_value=''):
-                dialog.choose_directory()
-            self.assertEqual(dialog.directory.text(), str(self.root))
-            QTest.keyClick(dialog, Qt.Key.Key_Escape)
-        self.assertIsNone(self.dialog_action(lambda: self.w.new_document('markdown'), reject))
-        def fix_error(dialog):
-            dialog.name.setText('CON')
-            dialog.submit()
-            self.assertTrue(dialog.isVisible())
-            self.assertTrue(dialog.error.text())
-            self.assertEqual(dialog.name.text(), 'CON')
-            dialog.name.setText('保留輸入')
-            dialog.directory.setText('relative/path')
-            dialog.submit()
-            self.assertTrue(dialog.isVisible())
-            dialog.reject()
-        self.dialog_action(lambda: self.w.new_document('workflow'), fix_error)
+        def cancel(editor):
+            editor.name.setText('未提交')
+            QTest.keyClick(editor.name, Qt.Key.Key_Escape)
+        self.inline_action(lambda: self.w.new_document('markdown'), cancel)
+        def fix_error(editor):
+            editor.name.setText('CON')
+            editor.submit()
+            self.assertTrue(editor.isVisible())
+            self.assertTrue(editor.error.text())
+            self.assertEqual(editor.name.text(), 'CON')
+            editor.cancel()
+        self.inline_action(lambda: self.w.new_document('workflow'), fix_error)
         self.assertEqual((set(self.root.rglob('*')), set(self.w.tabs_by_key)), before)
 
     def test_io_name_validation_and_case_collision_for_all_four_kinds(self):
@@ -340,8 +324,8 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
                 self.assertTrue(dialog.isVisible())
                 self.assertIn('read-only', dialog.error.text())
                 self.assertEqual(dialog.name.text(), 'Denied')
-                dialog.reject()
-            self.dialog_action(lambda: self.w.new_document(kind), submit)
+                dialog.cancel()
+            self.inline_action(lambda: self.w.new_document(kind), submit)
         self.assertEqual(self.note.read_bytes(), original)
         self.assertEqual(list(self.w.tabs_by_key), tabs)
         self.assertTrue(tab.dirty)
@@ -361,7 +345,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         for width in (220, 264, 480):
             self.w.sidebar_resize.resize_to(width)
             self.events()
-            controls = [self.w.tree_new, self.w.tree_folder, self.w.tree_more]
+            controls = [self.w.tree_new, self.w.tree_folder, self.w.tree_fold, self.w.tree_more]
             for control in controls:
                 self.assertTrue(control.isVisible())
                 self.assertTrue(control.accessibleName())
@@ -372,10 +356,10 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         self.w.tree.setCurrentItem(self.item(self.folder))
         self.w.tree_folder.setFocus()
         def create(dialog):
-            self.assertEqual(dialog.directory.text(), str(self.folder))
+            self.assertIsNone(self.app.activeModalWidget())
             dialog.name.setText('鍵盤')
             dialog.submit()
-        self.dialog_action(lambda: QTest.keyClick(self.w.tree_folder, Qt.Key.Key_Space), create)
+        self.inline_action(lambda: QTest.keyClick(self.w.tree_folder, Qt.Key.Key_Space), create)
         self.assertTrue((self.folder/'鍵盤').is_dir())
 
     def test_top_header_uses_space_beside_tabs_and_nested_names_align(self):
@@ -429,7 +413,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         def choose():
             dialog = self.app.activeModalWidget()
             if confirm:
-                next(b for b in dialog.buttons() if b.text() == '移至資源回收筒').click()
+                dialog.remove_button.click()
             else:
                 dialog.reject()
         QTimer.singleShot(10, choose)

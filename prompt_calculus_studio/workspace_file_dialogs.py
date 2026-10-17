@@ -2,11 +2,10 @@
 from pathlib import Path
 from PySide6.QtCore import Qt, QEvent, QTimer, QSize
 from PySide6.QtWidgets import (QApplication, QLineEdit, QWidget, QVBoxLayout,
-    QTreeWidget, QTreeWidgetItem, QDialog, QDialogButtonBox)
+    QCheckBox, QHBoxLayout, QDialogButtonBox)
 from .widgets import StudioDialog, label, button, dialog_buttons
 from .workspace_commands import NewEntryDialog
 from .workspace_file_io import named_path
-from .workspace_sidebar import WorkspaceTree
 from .ui_icons import icon
 
 
@@ -85,6 +84,8 @@ class InlineRename(QWidget):
         self.original_text = item.text(0)
         self.commit, self.finish = commit, finish
         self.done = False
+        self.uniform_rows = tree.uniformRowHeights()
+        tree.setUniformRowHeights(False)
         box = QVBoxLayout(self)
         box.setContentsMargins(6, 0, 4, 0)
         box.setSpacing(2)
@@ -134,90 +135,40 @@ class InlineRename(QWidget):
         self.item.setText(0, self.original_text)
         self.tree.removeItemWidget(self.item, 0)
         self.item.setSizeHint(0, QSize())
+        self.tree.setUniformRowHeights(self.uniform_rows)
         self.finish()
 
 
-class MoveDialog(StudioDialog):
-    def __init__(self, workspace, source, root, commit):
+class TrashDialog(StudioDialog):
+    def __init__(self, workspace, path):
         super().__init__(workspace)
-        self.workspace, self.source, self.root, self.commit = workspace, source, root, commit
-        self.setWindowTitle('移動到')
-        self.resize(580, 520)
-        self.body.addWidget(label(str(source), 'Subtle', True))
-        self.tree = WorkspaceTree(workspace)
-        self.tree.setObjectName('MoveDestinationTree')
-        self.tree.setStyleSheet('QTreeWidget#MoveDestinationTree::item {height:32px; padding:0 5px;}')
-        self.tree.setIconSize(QSize(15, 15))
-        self.tree.setIndentation(15)
-        self.tree.setUniformRowHeights(True)
-        self.tree.setHeaderHidden(True)
-        self.tree.setAccessibleName('目的資料夾')
-        self.body.addWidget(self.tree, 1)
-        self.destination = label('', 'Subtle', True)
-        self.destination.setAccessibleName('移動後完整位置')
-        self.body.addWidget(self.destination)
-        self.error = label('', 'Subtle', True)
-        self.error.hide()
-        self.body.addWidget(self.error)
-        self.new_folder = button('新增資料夾…', self.create_folder, 'Quiet')
-        self.body.addWidget(self.new_folder)
-        self.buttons = dialog_buttons(self, self.submit)
-        self.move_button = self.buttons.button(QDialogButtonBox.StandardButton.Save)
-        self.move_button.setText('移動')
-        self.body.addWidget(self.buttons)
-        self.tree.currentItemChanged.connect(self.update_destination)
-        self.populate(source.parent)
-
-    def populate(self, selected):
-        self.tree.clear()
-        nodes = {}
-        for path in [self.root, *(p for p, k in self.workspace.locations.inventory(self.root) if k == 'folder')]:
-            if path == self.source or self.source in path.parents:
-                continue
-            item = QTreeWidgetItem([path.name])
-            item.setIcon(0, icon('folder'))
-            item.setData(0, Qt.ItemDataRole.UserRole, str(path))
-            item.setToolTip(0, str(path))
-            if path.parent in nodes:
-                nodes[path.parent].addChild(item)
-            else:
-                self.tree.addTopLevelItem(item)
-            nodes[path] = item
-            item.setExpanded(True)
-        self.tree.setCurrentItem(nodes.get(selected, nodes.get(self.root)))
-        self.update_destination()
-
-    def selected(self):
-        item = self.tree.currentItem()
-        return Path(item.data(0, Qt.ItemDataRole.UserRole)) if item else None
-
-    def update_destination(self, *_):
-        selected = self.selected()
-        self.destination.setText(str(selected/self.source.name) if selected else '')
-        same = selected == self.source.parent
-        self.move_button.setEnabled(selected is not None and not same)
-        self.move_button.setToolTip('位置相同' if same else '')
-
-    def create_folder(self):
-        selected = self.selected()
-        dialog = NewEntryDialog(self, 'folder', selected,
-            lambda name, directory: self.create_destination(name, directory))
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.populate(dialog.created_path)
-
-    def create_destination(self, name, directory):
-        parent = self.workspace.locations.directory(directory)
-        if parent != self.root and self.root not in parent.parents:
-            raise ValueError('請在目前根資料夾內建立目的資料夾。')
-        if parent == self.source or self.source in parent.parents:
-            raise ValueError('不能將目的資料夾建在正在移動的資料夾內。')
-        return self.workspace.commands.create_at('folder', name, parent)
-
-    def submit(self):
-        try:
-            self.commit(self.selected())
-        except (ValueError, OSError) as error:
-            self.error.setText(str(error))
-            self.error.show()
-            return
-        self.accept()
+        from .widgets import ElidedLabel
+        self.setWindowTitle('移至資源回收筒')
+        self.resize(440, 230)
+        self.body.setSpacing(10)
+        name = ElidedLabel(path.name)
+        name.setObjectName('Heading')
+        name.setToolTip(path.name)
+        self.body.addWidget(name)
+        root = workspace.locations.root_for(path)
+        location = str(path.parent.relative_to(root)) if root else path.parent.name
+        location = root.name if root and location == '.' else location
+        caption = ElidedLabel(location)
+        caption.setObjectName('Subtle')
+        caption.setToolTip(str(path))
+        self.body.addWidget(caption)
+        if path.is_dir():
+            self.body.addWidget(label('資料夾內的內容也會一起移入。', 'Subtle'))
+        self.skip = QCheckBox('不再提醒')
+        controls = QHBoxLayout()
+        controls.addWidget(self.skip, 0, Qt.AlignmentFlag.AlignVCenter)
+        controls.addStretch()
+        self.cancel_button = button('取消', self.reject)
+        self.cancel_button.setDefault(True)
+        self.remove_button = button('移至資源回收筒', self.accept, 'Danger')
+        from .theme import visual_tokens
+        self.remove_button.setIcon(icon('trash', visual_tokens(workspace.display_settings())['destructive_text']))
+        controls.addWidget(self.cancel_button)
+        controls.addWidget(self.remove_button)
+        self.body.addLayout(controls)
+        self.cancel_button.setFocus()

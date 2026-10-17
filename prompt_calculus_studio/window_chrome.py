@@ -6,7 +6,7 @@ resets the native maximize state, so the same chrome is used in both states.
 import math
 import ctypes
 
-from PySide6.QtCore import QAbstractNativeEventFilter, QEvent, QObject, QPointF, QRectF, Qt, Signal, qVersion
+from PySide6.QtCore import QAbstractNativeEventFilter, QEvent, QObject, QPointF, QRectF, Qt, Signal, QTimer, qVersion
 from PySide6.QtGui import QColor, QCursor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -33,6 +33,7 @@ class _WindowsCaptionApi:
         self.user.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.RECT)]
         self.user.GetClientRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.RECT)]
         self.user.ClientToScreen.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.POINT)]
+        self.user.ScreenToClient.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.POINT)]
         self.user.GetWindowDC.argtypes = [ctypes.c_void_p]
         self.user.GetWindowDC.restype = ctypes.c_void_p
         self.user.ReleaseDC.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
@@ -83,6 +84,27 @@ class _WindowsCaptionApi:
         # Match QWindowsWindow::getTitleBarHeight_sys and titleButtonWidth.
         height = sum(self.user.GetSystemMetricsForDpi(metric, dpi) for metric in (32, 92, 4))
         return max(1, height), max(1, int(height * 1.5))
+
+    def hit_test(self, hwnd, packed_position, flags, fullscreen=False):
+        """A hit test only reports a region; it never dispatches mouse events.
+
+        Qt 6.11.2's expanded-frame path synthesizes clicks and opens the system
+        menu from WM_NCHITTEST. Native popups/ignored close events can leave its
+        cached button state stale. Keep that path out of our replaced caption.
+        """
+        from ctypes import wintypes
+        point = wintypes.POINT(ctypes.c_short(packed_position & 0xffff).value,
+                              ctypes.c_short((packed_position >> 16) & 0xffff).value)
+        bounds = wintypes.RECT()
+        if not (self.user.ScreenToClient(hwnd, ctypes.byref(point))
+                and self.user.GetClientRect(hwnd, ctypes.byref(bounds))):
+            return 1  # HTCLIENT
+        dpi = self.user.GetDpiForWindow(hwnd) or 96
+        border = sum(self.user.GetSystemMetricsForDpi(metric, dpi) for metric in (32, 92))
+        height, button_width = self.metrics(hwnd)
+        return caption_hit_test(point.x, point.y, bounds.right, bounds.bottom,
+                                0 if fullscreen or self.user.IsZoomed(hwnd) else border,
+                                height, button_width, flags, fullscreen)
 
     def activate_without_repaint(self, hwnd, active, previous):
         # Minimized windows still need normal icon-title activation handling.
@@ -144,8 +166,8 @@ class CaptionPaintSurface(QWidget):
 
     Qt 6.11's separate layered titlebar sends straight-alpha pixels to a
     premultiplied-alpha Windows API. A white hover consequently turns opaque.
-    This surface is input-transparent: Qt's original native caption hit tests,
-    system menu and resize/move handling remain responsible for interaction.
+    This surface is input-transparent. ExpandedWindowChrome routes its native
+    caption hit tests and clicks; Windows still owns resize/move and Alt+Space.
     """
     def __init__(self, window):
         super().__init__(window)
@@ -243,6 +265,27 @@ def caption_inset(margins):
     return max(144, margins.right(), math.ceil(margins.top() * 4.5) + 8)
 
 
+def caption_hit_test(x, y, width, height, border, title_height, button_width, flags, fullscreen=False):
+    """Physical client coordinates, matching CaptionPaintSurface's geometry."""
+    if not (0 <= x < width and 0 <= y < height):
+        return 0  # HTNOWHERE
+    if fullscreen:
+        return 1
+    left, right, top, bottom = x < border, x >= width-border, y < border, y >= height-border
+    if left or right or top or bottom:
+        if left:
+            return 13 if top else 16 if bottom else 10
+        if right:
+            return 14 if top else 17 if bottom else 11
+        return 12 if top else 15
+    if y < title_height and x >= width-3*button_width:
+        index = min(2, int((x-(width-3*button_width))//button_width))
+        flag = (Qt.WindowType.WindowMinimizeButtonHint, Qt.WindowType.WindowMaximizeButtonHint,
+                Qt.WindowType.WindowCloseButtonHint)[index]
+        return (8, 9, 20)[index] if flags & flag else 1
+    return 1
+
+
 class ExpandedWindowChrome(QObject):
     insetChanged = Signal(int)
 
@@ -256,6 +299,7 @@ class ExpandedWindowChrome(QObject):
         self.native_filter = None
         self.caption_surface = None
         self.caption_replaced = False
+        self.caption_pressed = 0
         # Keep this workaround local to the supported Windows backend. Tests
         # may exercise the flag/geometry contract on the offscreen backend.
         if QApplication.instance().platformName() == 'windows':
@@ -323,6 +367,20 @@ class ExpandedWindowChrome(QObject):
                 return True, 0
         if not self.caption_replaced or not self.hwnd or hwnd != self.hwnd:
             return False, 0
+        if message == 0x0084:  # WM_NCHITTEST: never synthesize a click here.
+            return True, self.native_api.hit_test(hwnd, previous, self.window.windowFlags(),
+                                                  self.window.isFullScreen())
+        if message in (0x00A1, 0x00A3) and parameter in (8, 9, 20):
+            # NC left press/double-click on our painted caption controls.
+            self.caption_pressed = parameter
+            return True, 0
+        if message == 0x00A2 and (self.caption_pressed or parameter in (8, 9, 20)):
+            pressed, self.caption_pressed = self.caption_pressed, 0
+            if pressed == parameter:
+                QTimer.singleShot(0, lambda action=pressed: self.activate_caption(action))
+            return True, 0
+        if message in (0x0202, 0x0215, 0x001F):  # Client release, capture lost, cancel mode.
+            self.caption_pressed = 0
         if message == 0x0086:  # WM_NCACTIVATE: retain activation, omit NC repaint.
             self.caption_surface.update()
             return True, self.native_api.activate_without_repaint(hwnd, parameter, previous)
@@ -334,6 +392,16 @@ class ExpandedWindowChrome(QObject):
             # do not consume hit tests, clicks, system commands or snap events.
             self.caption_surface.update_hover()
         return False, 0
+
+    def activate_caption(self, action):
+        if not self.window.isVisible() or not self.window.isEnabled():
+            return
+        if action == 20:
+            self.window.close()
+        elif action == 8:
+            self.window.showMinimized()
+        elif action == 9:
+            self.window.showNormal() if self.window.isMaximized() else self.window.showMaximized()
 
     def _sync_caption_surface(self):
         if self.native_api is None or self.handle is None or not self.hwnd:

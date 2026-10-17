@@ -134,6 +134,11 @@ class DesktopDocument(QObject):
             if not self.host.flush_editor_drafts():
                 return False
             self.host.remember_canvas_view()
+            if not self.path.is_file():
+                self.error = '原始檔案已不存在，請按 Ctrl+Shift+S 另存目前內容。'
+                self.dirty = True
+                self.changed.emit()
+                return False
             candidate = assets.prepare(self.project(), self.data, self.path.parent)
             result = io.save(self.path.parent, self.path.name, candidate, self.receipt)
             self.last_result = result

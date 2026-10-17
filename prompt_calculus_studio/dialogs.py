@@ -270,6 +270,12 @@ class SettingsDialog(StudioDialog):
         confirmations_layout.setContentsMargins(16,16,16,16)
         self.confirm_clear_draft=QCheckBox("清除手動內容前先詢問")
         self.confirm_clear_draft.setChecked(s.get("confirm_clear_draft",True)); confirmations_layout.addWidget(self.confirm_clear_draft)
+        workspace = getattr(window, 'workspace_owner', None)
+        if workspace is not None:
+            self.confirm_trash = QCheckBox('移至資源回收筒前先詢問')
+            self.confirm_trash.setChecked(workspace.confirm_trash)
+            self.confirm_trash.toggled.connect(workspace.set_trash_confirmation)
+            confirmations_layout.addWidget(self.confirm_trash)
         self.reduce_motion=QCheckBox('減少畫布展開動畫'); self.reduce_motion.setChecked(s.get('reduce_motion',False)); confirmations_layout.addWidget(self.reduce_motion)
         self.connection_style=QComboBox()
         for title,value in [('曲線','curve'),('直線','straight'),('直角 · 中段一次轉折','orthogonal')]: self.connection_style.addItem(title,value)

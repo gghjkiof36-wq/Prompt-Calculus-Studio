@@ -22,7 +22,7 @@ ICON_NAMES = frozenset({
     'home','canvas','media','explore','export','settings','back','forward','search','update',
     'package','download','check','clock','info','close','play','pause','stop','lock','pin','pin-filled','menu','pencil',
     'workflow','history','external-link','alert','server','check-circle',
-    'folder','plus','minus','copy','trash','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal',
+    'folder','plus','minus','copy','trash','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal','fold-all','unfold-all',
     'panel-left','type','file-text','list-ordered','arrow-down-up','arrow-up','arrow-down','shuffle','image-single','scan-eye','link-2','maximize','grip-vertical',
 })
 MODE_ICONS={'fixed':'pin','increment':'arrow-up','decrement':'arrow-down','random':'shuffle'}
@@ -86,7 +86,11 @@ def _draw(painter, name):
     def circle(x,y,radius):
         painter.drawEllipse(QPointF(x,y),radius,radius)
 
-    if name == 'home':
+    if name == 'unfold-all':
+        poly((7,8),(12,3),(17,8)); poly((7,16),(12,21),(17,16))
+    elif name == 'fold-all':
+        poly((7,3),(12,8),(17,3)); poly((7,21),(12,16),(17,21))
+    elif name == 'home':
         poly((3,11),(12,3),(21,11));poly((5,10),(5,21),(10,21),(10,15),(14,15),(14,21),(19,21),(19,10))
     elif name in ('canvas','workflow'):
         rect(3,3,6,6); rect(15,15,6,6); rect(3,15,6,6)

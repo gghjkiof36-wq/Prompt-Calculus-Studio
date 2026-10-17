@@ -43,14 +43,14 @@ class WorkspaceHome(QScrollArea):
         body.addSpacing(18)
         body.addWidget(label('新增', 'WorkspaceSectionTitle'))
         self.create_buttons = {}
-        for kind, title, symbol in (('workflow', 'Canvas 工作流', 'workflow'),
-                                     ('category', '文字模塊分類', 'list'),
-                                     ('markdown', 'Markdown 筆記', 'file-text')):
+        from .workspace_commands import NAMES
+        for kind, symbol in (('category', 'list'), ('workflow', 'workflow'), ('markdown', 'file-text')):
+            title = '新增' + NAMES[kind]
             entry = button(title, lambda checked=False, k=kind: create_file(k), 'WorkspaceCreate')
             entry.setIcon(icon(symbol, 'navigation'))
             entry.setIconSize(QSize(19, 19))
             entry.setMinimumHeight(52)
-            entry.setAccessibleName('新增' + title)
+            entry.setAccessibleName(title)
             body.addWidget(entry)
             self.create_buttons[kind] = entry
         footer = QHBoxLayout()

@@ -88,6 +88,7 @@ class WorkspaceShell(QMainWindow):
         self.active_key = None
         self.active_route = 'home'
         self.sidebar_preference = None
+        self.confirm_trash = True
         self.sidebar_width = 264
         self.show_empty_folders = True
         self.navigation_position = 'side'
@@ -123,6 +124,8 @@ class WorkspaceShell(QMainWindow):
         self.sidebar_resize = WorkspaceSidebarResize(self)
         self.refresh_tree()
         self.new_tab()
+        from .workspace_pointer_navigation import WorkspacePointerNavigation
+        self.pointer_navigation = WorkspacePointerNavigation(self)
         for sequence, callback in (('Ctrl+T', self.new_tab), ('Ctrl+W', self.close_current),
                                    ('Ctrl+S', self.save_current), ('Alt+Left', lambda: self.go(-1)),
                                    ('Ctrl+Shift+S', self.commands.files.save_as_current),
@@ -230,7 +233,8 @@ class WorkspaceShell(QMainWindow):
         self.tree_folder = self.tool('folder', '新增資料夾',
                                      lambda: self.commands.new('folder', self.commands.selected_context()))
         self.tree_more = self.tool('more-horizontal', '內容選單', self.root_menu)
-        for control in (self.tree_new, self.tree_folder, self.tree_more):
+        self.tree_fold = self.tool('unfold-all', '全部展開', lambda: self.tree_state.toggle_all())
+        for control in (self.tree_new, self.tree_folder, self.tree_fold, self.tree_more):
             control.setFixedSize(32, 32)
             heading.addWidget(control)
         side.addWidget(self.tree_heading)
@@ -255,6 +259,10 @@ class WorkspaceShell(QMainWindow):
         self.tree.itemDoubleClicked.connect(lambda item, col: self.open_item(item, retained=True))
         self.tree.itemActivated.connect(lambda item, col: self.open_item(item, retained=True))
         self.tree.currentItemChanged.connect(self.navigation_selection_changed)
+        from .workspace_file_drag import WorkspaceFileDrag
+        self.tree.file_drag = WorkspaceFileDrag(self.tree)
+        from .workspace_tree_state import WorkspaceTreeState
+        self.tree_state = WorkspaceTreeState(self)
         side.addWidget(self.tree, 1)
         self.home_split.addWidget(self.sidebar)
         self.pages = QStackedWidget()
@@ -349,6 +357,8 @@ class WorkspaceShell(QMainWindow):
                 self.navigation_position=position
             if type(saved.get('show_empty_folders')) is bool:
                 self.show_empty_folders = saved['show_empty_folders']
+            if type(saved.get('confirm_trash')) is bool:
+                self.confirm_trash = saved['confirm_trash']
         except (ValueError,OSError):
             pass
 
@@ -358,12 +368,21 @@ class WorkspaceShell(QMainWindow):
     def save_ui_preferences(self):
         saved = {key:self.settings[key] for key in DISPLAY_KEYS}
         saved.update(sidebar_width=self.sidebar_width, sidebar_expanded=self.sidebar_preference,
-                     navigation_position=self.navigation_position, show_empty_folders=self.show_empty_folders)
+                     navigation_position=self.navigation_position, show_empty_folders=self.show_empty_folders,
+                     confirm_trash=self.confirm_trash)
         output=QSaveFile(str(self.data/'workspace-ui.json'))
         output.setDirectWriteFallback(False)
         if output.open(QIODevice.OpenModeFlag.WriteOnly):
             output.write(json.dumps(saved,ensure_ascii=False).encode('utf-8'))
             output.commit()
+
+    def set_trash_confirmation(self, enabled):
+        self.confirm_trash = bool(enabled)
+        self.save_ui_preferences()
+        preferences = getattr(getattr(self.utility, 'settings_page', None), 'preferences', None)
+        checkbox = getattr(preferences, 'confirm_trash', None)
+        if checkbox is not None and checkbox.isChecked() != self.confirm_trash:
+            checkbox.setChecked(self.confirm_trash)
 
     def sync_display_settings(self, settings, preview=None):
         changed=any(self.settings[key]!=settings[key] for key in DISPLAY_KEYS)
@@ -450,9 +469,10 @@ class WorkspaceShell(QMainWindow):
             self.commands.files.inline.cancel()
             return
         old_items = getattr(self, 'path_items', {})
-        expanded = {key for key, item in old_items.items() if item.isExpanded()}
-        selected = self.tree.currentItem()
-        selected_path = selected.data(0, PATH_ROLE) if selected else None
+        expanded = self.tree_state.expanded
+        selected_path = self.tree_state.selected
+        scroll = self.tree_state.scroll
+        self.tree_state.restoring = True
         self.tree.blockSignals(True)
         self.tree.clear()
         self.file_items = {}
@@ -469,7 +489,8 @@ class WorkspaceShell(QMainWindow):
                 inventory = list(self.locations.inventory(root))
                 occupied = {parent for path, kind in inventory if kind != 'folder' for parent in path.parents}
                 for path, kind in inventory:
-                    if kind == 'folder' and not self.show_empty_folders and path not in occupied:
+                    if (kind == 'folder' and not self.show_empty_folders and path not in occupied
+                            and not any(path == p or path in p.parents for p in self.tree_state.revealed)):
                         continue
                     item = QTreeWidgetItem([path.name if kind == 'folder' else path.stem])
                     self.set_tree_location(item, path, kind, root)
@@ -488,9 +509,19 @@ class WorkspaceShell(QMainWindow):
             except (OSError, ValueError) as error:
                 root_item.setToolTip(0, str(root) + '\n無法完整讀取：' + str(error))
                 self.show_notice('無法完整讀取資料夾：' + str(root))
-            root_item.setExpanded(not old_items or path_key(root) in expanded)
-        self.tree.setCurrentItem(self.path_items.get(path_key(selected_path)) if selected_path else None)
+            root_item.setExpanded((not old_items and not self.tree_state.loaded) or path_key(root) in expanded)
+            if root_item.isExpanded():
+                expanded.add(path_key(root))
+        from PySide6.QtCore import QSignalBlocker
+        # Restoring a hidden selection must not reopen its collapsed ancestors.
+        with QSignalBlocker(self.tree.selectionModel()):
+            self.tree.setCurrentItem(self.path_items.get(path_key(selected_path)) if selected_path else None)
         self.tree.blockSignals(False)
+        self.tree_state.restoring = False
+        self.tree_state.loaded = True
+        self.tree_state.rebuild_branches()
+        self.tree.doItemsLayout()
+        self.tree_state.restore_scroll(scroll)
         for tab in self.all_pages():
             if isinstance(tab.widget, WorkspaceHome):
                 tab.widget.set_recent(self.recent_files)
@@ -844,7 +875,8 @@ class WorkspaceShell(QMainWindow):
         self.tab_strip.bar.workspace_active = True
         self.tab_strip.bar.update()
         self.pages.setCurrentWidget(tab.widget)
-        self.tree.setCurrentItem(self.path_items.get(path_key(tab.path)) if tab.path else None)
+        if tab.path:
+            self.tree.setCurrentItem(self.path_items.get(path_key(tab.path)))
         if tab.path:
             self.remember_recent(tab.path)
         self.sync_sidebar()
@@ -913,7 +945,7 @@ class WorkspaceShell(QMainWindow):
         if not saved:
             reason = tab.document.error if tab.document else tab.widget.error
             self.show_notice('「' + tab.title + '」尚未儲存：' + (reason or '請先完成目前的編輯。')
-                             + '\n頁面與編輯內容已保留，可按 Ctrl+S 重試。')
+                             + '\n內容已保留。Ctrl+S 重試；Ctrl+Shift+S 另存。')
         return saved
 
     def prepare_close(self, tab, decision=None):
@@ -998,14 +1030,10 @@ class WorkspaceShell(QMainWindow):
 
     def root_menu(self):
         menu = RoundMenu(self)
-        menu.addAction('重新整理', self.refresh_tree)
+        from .workspace_menu_action import trailing_action
+        trailing_action(menu, self, '重新整理', 'update', self.refresh_tree)
         menu.addAction('加入本機資料夾…', self.choose_root)
-        menu.addAction('全部展開', self.tree.expandAll)
-        menu.addAction('全部收合', self.tree.collapseAll)
-        folders = menu.addMenu('資料夾顯示')
-        show_empty = folders.addAction('顯示空資料夾', self.toggle_empty_folders)
-        show_empty.setCheckable(True)
-        show_empty.setChecked(self.show_empty_folders)
+        trailing_action(menu, self, '顯示空資料夾', 'check', self.toggle_empty_folders, self.show_empty_folders)
         root = self.locations.current
         if root:
             menu.addAction('開啟根資料夾位置', lambda: self.show_location(root))
@@ -1071,6 +1099,8 @@ class WorkspaceShell(QMainWindow):
             self.show_notice('請先完成或取消目前的文件操作。')
             event.ignore()
             return
+        if self.commands.files.inline is not None:
+            self.commands.files.inline.cancel()
         for tab in self.all_pages():
             if not self.prepare_close(tab):
                 event.ignore()
@@ -1083,6 +1113,7 @@ class WorkspaceShell(QMainWindow):
             event.ignore()
             return
         self.recent_timer.stop()
+        self.tree_state.save()
         self.save_recent()
         self.save_ui_preferences()
         self.sidebar_resize.shutdown()

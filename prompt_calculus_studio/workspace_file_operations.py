@@ -50,6 +50,8 @@ class WorkspaceFileOperations(QObject):
         if self.busy(source):
             raise ValueError('這個項目正在操作中，請先完成或取消。')
         pages = [tab for tab in self.w.all_pages() if tab.path and (tab.path == source or source in tab.path.parents)]
+        if any(tab.key in self.w.autosave.saving for tab in pages):
+            raise ValueError('文件正在保存，請稍後再試。')
         if any(self.w.autosave.editing_dialog(tab) for tab in pages):
             raise ValueError('請先完成素材表單的確認或取消。')
         for tab in pages:
@@ -100,6 +102,14 @@ class WorkspaceFileOperations(QObject):
         return self.w.tabs_by_key.get(op.context.tab_key) or self.w.tab_for_path(op.source)
 
     def run(self, action, context, *, name=None, directory=None):
+        if action == 'move' and directory is None:
+            from .widgets import RoundMenu
+            from .workspace_move_menu import MoveMenu
+            from PySide6.QtGui import QCursor
+            menu = RoundMenu(self.w)
+            menu.move_session = MoveMenu(self, menu, context)
+            menu.open_at(QCursor.pos())
+            return None
         if self.inline is not None and not self.busy(context.path):
             self.inline.cancel()
         # Writes are synchronous on the UI thread. A reentrant request waits
@@ -115,7 +125,7 @@ class WorkspaceFileOperations(QObject):
             return None
         deferred = False
         try:
-            from .workspace_file_dialogs import SaveAsDialog, RenameDialog, MoveDialog, InlineRename
+            from .workspace_file_dialogs import SaveAsDialog, RenameDialog, InlineRename
             if action == 'save_as':
                 commit = lambda n, p: self.save_as(op, n, p)
                 if name is not None:
@@ -141,7 +151,6 @@ class WorkspaceFileOperations(QObject):
                 commit = lambda p: self.move(op, p)
                 if directory is not None:
                     return commit(directory)
-                dialog = MoveDialog(self.w, op.source, root, commit)
             else:
                 raise ValueError('不支援的文件操作。')
             dialog.exec()
@@ -319,6 +328,7 @@ class WorkspaceFileOperations(QObject):
                 raise ValueError(message) from error
             raise ValueError('操作未完成，原位置與編輯內容已保留：' + str(error)) from error
         w.recent_files = [str(relocate(Path(p), source, target)) for p in w.recent_files]
+        w.tree_state.relocate(source, target)
         op.result = target
         return target
 
@@ -378,10 +388,16 @@ class WorkspaceFileOperations(QObject):
             self.run('save_as', context)
 
     def add_actions(self, menu, context):
-        for title, action in (('重新命名（F2）', 'rename'), ('移動到…', 'move'), ('另存新檔…', 'save_as')):
+        for title, action in (('重新命名', 'rename'), ('移動到', 'move'), ('另存新檔…', 'save_as')):
             if action == 'save_as' and context.kind == 'folder':
                 continue
-            item = menu.addAction(title, lambda checked=False, a=action: self.run(a, context))
+            if action == 'move':
+                from .workspace_move_menu import MoveMenu
+                submenu = menu.addMenu(title)
+                submenu.move_session = MoveMenu(self, submenu, context)
+                item = submenu.menuAction()
+            else:
+                item = menu.addAction(title, lambda checked=False, a=action: self.run(a, context))
             reason = ''
             if self.busy(context.path):
                 reason = '請先完成或取消目前的文件操作。'

@@ -14,7 +14,7 @@ from shiboken6 import isValid
 from prompt_calculus_studio import materials, drafts
 from prompt_calculus_studio.local_documents import io, assets, schema, category, workflow
 from prompt_calculus_studio.workspace_home import WorkspaceHome
-from prompt_calculus_studio.workspace_file_dialogs import SaveAsDialog, RenameDialog, MoveDialog
+from prompt_calculus_studio.workspace_file_dialogs import SaveAsDialog, RenameDialog
 from prompt_calculus_studio.workspace_file_io import rename_exclusive
 from prompt_calculus_studio.workspace_locations import path_key
 import test_workspace_shell as fixture
@@ -42,8 +42,15 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
 
     def dialog(self, trigger, check, cls):
         failures = []
+        observed = []
+        timer = QTimer()
+        timer.setInterval(15)
         def interact():
             dialog = self.app.activeModalWidget()
+            if dialog is None:
+                return  # Native construction may itself process the event loop.
+            timer.stop()
+            observed.append(dialog)
             try:
                 self.assertIsInstance(dialog, cls)
                 check(dialog)
@@ -51,12 +58,17 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
                 failures.append(error)
                 if dialog:
                     dialog.reject()
-        QTimer.singleShot(25, interact)
-        result = trigger()
-        QTest.qWait(30)
-        self.events()
+        timer.timeout.connect(interact)
+        timer.start()
+        try:
+            result = trigger()
+            QTest.qWait(30)
+            self.events()
+        finally:
+            timer.stop()
         if failures:
             raise failures[0]
+        self.assertTrue(observed, 'The requested modal did not open.')
         return result
 
     def test_navigation_reuses_current_slot_and_history_restores_same_editor(self):
@@ -350,22 +362,30 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
         self.assertTrue(tab.dirty)
         self.assertFalse((destination/'Copy.md').exists())
 
-    def test_move_dialog_new_folder_cancel_and_submit(self):
+    def test_move_submenu_new_folder_cancel_and_submit(self):
         tab = self.open()
-        def inspect(dialog):
-            self.assertFalse(dialog.move_button.isEnabled())
-            created = dialog.create_destination('Created', self.root)
-            dialog.populate(created)
-            self.assertTrue(dialog.move_button.isEnabled())
-            dialog.reject()
-        self.dialog(lambda: self.execute('move', tab), inspect, MoveDialog)
-        self.assertTrue((self.root/'Created').is_dir())
+        def session():
+            menu = self.w.commands.menu_for(self.context(tab))
+            submenu = next(a.menu() for a in menu.actions() if a.text() == '移動到')
+            submenu.aboutToShow.emit()
+            return menu, submenu.move_session
+        menu, operation = session()
+        operation.choose(self.root, new_folder=True)
+        editor = self.w.commands.files.inline
+        self.assertIn(id(tab), self.w.autosave.paused)
+        editor.name.setText('Cancelled')
+        QTest.keyClick(editor.name, Qt.Key.Key_Escape)
+        self.assertFalse((self.root/'Cancelled').exists())
         self.assertEqual(tab.path, self.root/'Notes.md')
-        def submit(dialog):
-            dialog.populate(self.root/'Created')
-            QTest.mouseClick(dialog.move_button, Qt.MouseButton.LeftButton)
-        self.dialog(lambda: self.execute('move', tab), submit, MoveDialog)
+        menu.deleteLater()
+        menu, operation = session()
+        operation.choose(self.root, new_folder=True)
+        editor = self.w.commands.files.inline
+        editor.name.setText('Created')
+        QTest.keyClick(editor.name, Qt.Key.Key_Return)
         self.assertEqual(tab.path, self.root/'Created/Notes.md')
+        self.assertFalse(self.w.commands.files.pending)
+        menu.deleteLater()
 
     def test_move_failure_rolls_back_and_partial_failure_stops_writes(self):
         tab = self.open()

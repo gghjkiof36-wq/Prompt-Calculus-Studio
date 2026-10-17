@@ -11,13 +11,13 @@ from .workspace_locations import CommandContext
 PATH_ROLE = Qt.ItemDataRole.UserRole + 1
 KIND_ROLE = Qt.ItemDataRole.UserRole + 2
 ROOT_ROLE = Qt.ItemDataRole.UserRole + 3
-NAMES = dict(category='文字模塊分類', workflow='Canvas 工作流', markdown='Markdown 筆記', folder='資料夾')
+NAMES = dict(category='prompt管理頁', workflow='工作流', markdown='文字文件', folder='資料夾')
 
 
 class NewEntryDialog(StudioDialog):
     def __init__(self, parent, kind, destination, create):
         super().__init__(parent)
-        self.setWindowTitle('新增 ' + NAMES[kind])
+        self.setWindowTitle('新增' + NAMES[kind])
         self.resize(640, 410)
         self.created_path = None
         self.create = create
@@ -76,6 +76,8 @@ class WorkspaceCommands:
 
     def context(self, origin, item=None, tab=None):
         w = self.workspace
+        if origin == 'home':
+            item = self.visible_selection()
         path = tab.path if tab else None
         kind = 'file' if path else ''
         root = w.locations.root_for(path) if path else w.locations.current
@@ -86,10 +88,6 @@ class WorkspaceCommands:
             value = item.data(0, ROOT_ROLE)
             root = Path(value) if value else root
             tab = w.tab_for_path(path) if path and kind not in ('root', 'folder') else None
-        # New-tab actions deliberately ignore the last selected child folder.
-        if origin == 'home':
-            path, kind = None, ''
-            root = w.locations.current
         destination = path if kind in ('root', 'folder') else path.parent if path else root
         document = tab.document if tab else None
         return CommandContext(origin, path, kind, root, destination,
@@ -97,7 +95,19 @@ class WorkspaceCommands:
                               tab.key if tab else None, document.key if document else None)
 
     def selected_context(self, origin='toolbar'):
-        return self.context(origin, self.workspace.tree.currentItem())
+        return self.context(origin, self.visible_selection())
+
+    def visible_selection(self):
+        tree = self.workspace.tree
+        if not tree.isVisible():
+            return None
+        item = tree.currentItem()
+        parent = item.parent() if item else None
+        while parent:
+            if not parent.isExpanded() or parent.isHidden():
+                return None
+            parent = parent.parent()
+        return item if item and not item.isHidden() else None
 
     def create_at(self, kind, name, directory):
         parent = self.workspace.locations.directory(directory)
@@ -106,11 +116,8 @@ class WorkspaceCommands:
     def new(self, kind, context, name=None, directory=None):
         w = self.workspace
         if name is None:
-            dialog = NewEntryDialog(w, kind, context.destination,
-                                    lambda n, p: self.create_at(kind, n, p))
-            if dialog.exec() != QDialog.DialogCode.Accepted:
-                return None
-            path = dialog.created_path
+            from .workspace_creation import start_creation
+            return start_creation(self, kind, context)
         else:
             try:
                 path = self.create_at(kind, name, directory if directory is not None else context.destination)
@@ -137,7 +144,8 @@ class WorkspaceCommands:
 
     def add_creation_actions(self, menu, context, folders=True):
         for kind in ('category', 'workflow', 'markdown', 'folder') if folders else ('category', 'workflow', 'markdown'):
-            menu.addAction(NAMES[kind] + '…', lambda checked=False, k=kind: self.new(k, context))
+            menu.addAction('新增' + NAMES[kind] + ('…' if kind == 'folder' else ''),
+                           lambda checked=False, k=kind: self.new(k, context))
 
     def creation_menu(self):
         w = self.workspace
@@ -166,11 +174,10 @@ class WorkspaceCommands:
             if context.path:
                 menu.addAction('在檔案總管開啟', lambda: w.show_location(context.path))
             if context.kind in ('root', ''):
-                menu.addAction('重新整理', w.refresh_tree)
+                from .workspace_menu_action import trailing_action
+                trailing_action(menu, w, '重新整理', 'update', w.refresh_tree)
                 if context.kind == '':
                     menu.addAction('加入本機資料夾…', w.choose_root)
-                    menu.addAction('全部展開', w.tree.expandAll)
-                    menu.addAction('全部收合', w.tree.collapseAll)
                 if context.kind == 'root':
                     menu.addAction('移除側欄連結（保留原檔）', lambda: w.remove_root(context.path))
         else:
@@ -185,7 +192,11 @@ class WorkspaceCommands:
             menu.addSeparator()
             menu.addAction('複製路徑', lambda: QApplication.clipboard().setText(str(context.path)))
             if context.kind != 'root':
-                menu.addAction('移至資源回收筒…', lambda: self.trash(context))
+                from .ui_icons import icon
+                from .theme import visual_tokens
+                action = menu.addAction(icon('trash', visual_tokens(w.display_settings())['destructive_text']),
+                                        '移至資源回收筒…', lambda: self.trash(context))
+                action.setEnabled(not self.files.busy(context.path))
         return menu
 
     def trash(self, context):
@@ -209,20 +220,32 @@ class WorkspaceCommands:
         if any(not w.prepare_close(tab, decision='cancel') for tab in affected):
             w.report_error('這個項目有未保存的變更；請先保存或關閉相關分頁，再移至資源回收筒。')
             return False
-        prompt = QMessageBox(w)
-        prompt.setWindowTitle('移至資源回收筒')
-        prompt.setText('將「' + path.name + '」移至資源回收筒？')
-        prompt.setInformativeText(str(path) + ('\n資料夾內的內容也會一起移入。' if path.is_dir() else ''))
-        remove = prompt.addButton('移至資源回收筒', QMessageBox.ButtonRole.DestructiveRole)
-        cancel = prompt.addButton('取消', QMessageBox.ButtonRole.RejectRole)
-        prompt.setDefaultButton(cancel)
-        prompt.exec()
-        if prompt.clickedButton() is not remove:
+        op = None
+        skip = False
+        try:
+            op = self.files.begin(context)
+            if w.confirm_trash:
+                from .workspace_file_dialogs import TrashDialog
+                prompt = TrashDialog(w, path)
+                if prompt.exec() != QDialog.DialogCode.Accepted:
+                    return False
+                skip = prompt.skip.isChecked()
+            self.files.check_source(op)
+            moved = QFile.moveToTrash(str(path))
+            # Current PySide returns bool when no trash-path output is requested;
+            # older bindings may return (success, path).
+            if isinstance(moved, tuple):
+                moved = moved[0]
+            if not moved:
+                raise ValueError('無法移至資源回收筒；檔案與分頁均已保留。')
+        except (OSError, ValueError) as error:
+            w.report_error(str(error))
             return False
-        moved, _ = QFile.moveToTrash(str(path))
-        if not moved:
-            w.report_error('無法移至資源回收筒；檔案與分頁均已保留。')
-            return False
+        finally:
+            if op is not None:
+                self.files.end(op)
+        if skip:
+            w.set_trash_confirmation(False)
         for tab in affected:
             at = w.index_of(tab.key)
             if at >= 0:

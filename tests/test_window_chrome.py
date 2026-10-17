@@ -6,7 +6,7 @@ from unittest.mock import patch
 from PySide6.QtCore import QMargins, Qt
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget
 
-from prompt_calculus_studio.window_chrome import caption_inset, install_expanded_chrome
+from prompt_calculus_studio.window_chrome import caption_inset, caption_hit_test, install_expanded_chrome
 from prompt_calculus_studio.theme import apply_backdrop
 
 
@@ -111,6 +111,50 @@ class WindowChromeTests(unittest.TestCase):
     def test_caption_controls_are_reserved_for_reported_safe_area(self):
         self.assertGreaterEqual(caption_inset(QMargins(0, 25, 0, 0)), 3 * 25 * 1.5)
         self.assertGreaterEqual(caption_inset(QMargins(0, 40, 210, 0)), 210)
+
+    def test_caption_hit_regions_keep_controls_content_edges_and_fullscreen_distinct(self):
+        flags = Qt.WindowType.WindowMinMaxButtonsHint | Qt.WindowType.WindowCloseButtonHint
+        def hit(x, y, border=8, fullscreen=False):
+            return caption_hit_test(x, y, 1000, 700, border, 38, 57, flags, fullscreen)
+        self.assertEqual(hit(850, 20), 8)
+        self.assertEqual(hit(920, 20), 9)
+        self.assertEqual(hit(970, 20), 20)
+        self.assertEqual(hit(970, 60), 1)
+        self.assertEqual(hit(200, 20), 1)  # Tab strip receives ordinary Qt input.
+        self.assertEqual(hit(2, 2), 13)
+        self.assertEqual(hit(998, 2), 14)
+        self.assertEqual(hit(998, 698), 17)
+        self.assertEqual(hit(998, 20, border=0), 20)
+        self.assertEqual(hit(970, 20, fullscreen=True), 1)
+
+    def test_hit_testing_and_cancelled_caption_gestures_cannot_close_or_open_a_menu(self):
+        window = QMainWindow()
+        window.setCentralWidget(QWidget())
+        with patch('prompt_calculus_studio.window_chrome.supported', return_value=True):
+            control = install_expanded_chrome(window)
+        window.show()
+        APP.processEvents()
+        native_api, hwnd, replaced = control.native_api, control.hwnd, control.caption_replaced
+        control.native_api = SimpleNamespace(hit_test=lambda *args:20)
+        control.hwnd, control.caption_replaced = 123, True
+        try:
+            with patch.object(window, 'close') as close:
+                for _ in range(5):
+                    self.assertEqual(control.native_notification(123, 0x84, 0, 100), (True, 20))
+                close.assert_not_called()
+                control.native_notification(123, 0xA1, 20)
+                control.native_notification(123, 0x202)
+                control.native_notification(123, 0xA2, 20)
+                APP.processEvents()
+                close.assert_not_called()
+                control.native_notification(123, 0xA1, 20)
+                control.native_notification(123, 0xA2, 20)
+                APP.processEvents()
+                close.assert_called_once()
+                self.assertEqual(control.native_notification(123, 0x112, 0xF100), (False, 0))
+        finally:
+            control.native_api, control.hwnd, control.caption_replaced = native_api, hwnd, replaced
+            window.close()
 
 
 if __name__ == '__main__':

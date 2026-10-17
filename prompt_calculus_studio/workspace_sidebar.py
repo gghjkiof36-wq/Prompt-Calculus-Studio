@@ -1,6 +1,7 @@
 """A shared sidebar edge, including deliberate drag-to-collapse."""
+from collections import OrderedDict
 from PySide6.QtCore import QObject, QEvent, QPoint, QTimer, QRect, QRectF, Qt, QPersistentModelIndex
-from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath
+from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath, QPixmap
 from PySide6.QtWidgets import QApplication, QTreeWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate
 from shiboken6 import isValid
 from .sidebar_resize import SidebarResizeHandle
@@ -12,6 +13,13 @@ COLLAPSE_OVERSHOOT = 36
 
 
 class WorkspaceTreeDelegate(QStyledItemDelegate):
+    def __init__(self, tree):
+        super().__init__(tree)
+        self.rows = OrderedDict()
+        tree.model().dataChanged.connect(lambda *_: self.rows.clear())
+        tree.model().modelReset.connect(lambda *_: self.rows.clear())
+        tree.model().rowsRemoved.connect(lambda *_: self.rows.clear())
+
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
         if index.data(Qt.ItemDataRole.UserRole) and option.icon.isNull():
@@ -26,7 +34,27 @@ class WorkspaceTreeDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         clean = QStyleOptionViewItem(option)
         clean.state &= ~(QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_MouseOver | QStyle.StateFlag.State_HasFocus)
-        super().paint(painter, clean, index)
+        # The native QSS delegate is expensive on rapid disclosure repaints.
+        # Cache its unchanged label/icon only; hover, focus and drop paint live.
+        dpr = self.parent().devicePixelRatioF()
+        key = (QPersistentModelIndex(index), clean.rect.size().toTuple(), clean.font.toString(),
+               clean.palette.cacheKey(), clean.state.value, clean.direction.value, dpr)
+        pixmap = self.rows.get(key)
+        if pixmap is None:
+            pixmap = QPixmap(round(clean.rect.width()*dpr), round(clean.rect.height()*dpr))
+            pixmap.setDevicePixelRatio(dpr)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            cached = QPainter(pixmap)
+            local = QStyleOptionViewItem(clean)
+            local.rect.moveTopLeft(QPoint())
+            super().paint(cached, local, index)
+            cached.end()
+            self.rows[key] = pixmap
+            if len(self.rows) > 128:
+                self.rows.popitem(last=False)
+        else:
+            self.rows.move_to_end(key)
+        painter.drawPixmap(clean.rect.topLeft(), pixmap)
 
 
 class WorkspaceTree(QTreeWidget):
@@ -38,21 +66,30 @@ class WorkspaceTree(QTreeWidget):
         from .workspace_style import workspace_colors
         self.row_colors = dict(visual_tokens(workspace.display_settings()), **workspace_colors(workspace.display_settings()))
         self.hovered = QPersistentModelIndex()
+        self.file_drag = None
         self.setMouseTracking(True)
         self.setItemDelegate(WorkspaceTreeDelegate(self))
+
+    def changeEvent(self, event):
+        if event.type() in (QEvent.Type.StyleChange, QEvent.Type.FontChange, QEvent.Type.PaletteChange):
+            delegate = self.itemDelegate()
+            if isinstance(delegate, WorkspaceTreeDelegate):
+                delegate.rows.clear()
+        super().changeEvent(event)
 
     def drawRow(self, painter, option, index):
         selected = self.selectionModel().isSelected(index)
         hovered = self.hovered == index
+        dropping = self.file_drag is not None and self.file_drag.target == index
         focused = (self.hasFocus() and self.testAttribute(Qt.WidgetAttribute.WA_KeyboardFocusChange)
                    and self.currentIndex() == index)
         colors = self.row_colors
         bounds = QRectF(2, option.rect.y()+1, self.viewport().width()-4, option.rect.height()-2)
-        if selected or hovered:
+        if selected or hovered or dropping:
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(colors['selected' if selected else 'hover']))
+            painter.setBrush(QColor(colors['selected' if selected or dropping else 'hover']))
             painter.drawRoundedRect(bounds, 6, 6)
             painter.restore()
         # Do not ask the native style to draw PE_PanelItemViewRow: Windows adds
@@ -62,7 +99,7 @@ class WorkspaceTree(QTreeWidget):
         content.decorationSize = self.iconSize()
         self.drawBranches(painter, QRect(0, content.rect.y(), content.rect.x(), content.rect.height()), index)
         self.itemDelegateForIndex(index).paint(painter, content, index)
-        if focused:
+        if focused or dropping:
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -94,6 +131,27 @@ class WorkspaceTree(QTreeWidget):
             self.hovered = index
             self.viewport().update()
         super().mouseMoveEvent(event)
+
+    def startDrag(self, actions):
+        if self.file_drag is not None:
+            self.file_drag.start()
+
+    def dragEnterEvent(self, event):
+        if self.file_drag is not None:
+            self.file_drag.enter(event)
+
+    def dragMoveEvent(self, event):
+        if self.file_drag is not None:
+            self.file_drag.move(event)
+
+    def dragLeaveEvent(self, event):
+        if self.file_drag is not None:
+            self.file_drag.clear_target()
+        event.accept()
+
+    def dropEvent(self, event):
+        if self.file_drag is not None:
+            self.file_drag.drop(event)
 
     def leaveEvent(self, event):
         self.hovered = QPersistentModelIndex()
