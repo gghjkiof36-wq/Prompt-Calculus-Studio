@@ -118,6 +118,8 @@ class WorkspacePanes:
         if pane not in self.panes:
             return
         previous = getattr(self, 'active_pane', None)
+        if previous is pane:
+            return
         if previous is not pane:
             old = self.tabs_by_key.get(self.active_key)
             if old and old.document and not old.document.flush_views():
@@ -131,6 +133,7 @@ class WorkspacePanes:
         for candidate in self.panes:
             candidate.strip.bar.pane_active = candidate is pane
             candidate.strip.bar.workspace_active = self.active_route == 'home'
+            candidate.strip.bar.update()
         self.layout_changed()
 
     def activate_in(self, pane, at):

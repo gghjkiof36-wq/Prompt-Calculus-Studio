@@ -279,9 +279,12 @@ class TextCanvas(QWidget):
         # Startup may select this page before the outer window is shown.
         # Populate only after Qt has assigned the full viewport geometry.
         if self.parentWidget() and self.parentWidget().layout(): self.parentWidget().layout().activate()
-        self.layout().activate(); self.refresh(); self.restore_view(); self.view.viewport().update()
+        self.layout().activate(); self.refresh_for_show(); self.restore_view(); self.view.viewport().update()
         self._has_presented_view=True
         self._presented_owner=(self.window.store,self.window.state.get('workspace'))
+
+    def refresh_for_show(self):
+        self.refresh()
 
     def restore_hidden_view(self):
         previous=self._hidden_view; self._hidden_view=None

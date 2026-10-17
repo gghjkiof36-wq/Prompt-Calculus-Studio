@@ -11,6 +11,8 @@ from . import prompt_materials as pm
 
 
 def canvas_colors(canvas):
+    cached=getattr(canvas,'_paint_colors',None)
+    if cached is not None:return dict(cached)
     from .theme import visual_tokens,window_appearance
     from .module_chrome import matte_colors
     return matte_colors(visual_tokens(window_appearance(canvas.window)))
@@ -18,6 +20,17 @@ def canvas_colors(canvas):
 
 def paint_module_surface(painter,outline,colors,header_bottom):
     """Paint only the module's visual layers, keeping its existing outline."""
+    from .canvas_raster import paint_cached
+    geometry=tuple((e.x,e.y,e.type.value) for i in range(outline.elementCount()) for e in (outline.elementAt(i),))
+    pen=painter.pen()
+    stroke=(pen.color().rgba(),pen.widthF(),pen.style().value,pen.capStyle().value,
+            pen.joinStyle().value,pen.isCosmetic(),tuple(pen.dashPattern()),pen.dashOffset())
+    key=('module-surface',geometry,outline.fillRule().value,tuple(sorted(colors.items())),header_bottom,stroke)
+    bounds=outline.boundingRect().adjusted(-8,-8,8,14)
+    paint_cached(painter,key,bounds,lambda target:_paint_module_surface(target,outline,colors,header_bottom))
+
+
+def _paint_module_surface(painter,outline,colors,header_bottom):
     body=colors.get('canvas_body',colors['surface'])
     header=colors.get('canvas_header',body)
     from .module_chrome import paint_shadow
@@ -636,8 +649,14 @@ class CanvasView(QGraphicsView):
         from .canvas_raster import paint_scope
         # Zoom changes every card's device raster. Draw vectors while the
         # transform is changing; reuse resumes without a repaint timer.
-        with paint_scope(time.monotonic()>=getattr(self,'_raster_direct_until',0)):
-            super().paintEvent(event)
+        # A frame has one appearance. Resolve it once rather than merging
+        # workspace settings and deriving the palette for every port/card.
+        previous=getattr(self.canvas,'_paint_colors',None)
+        self.canvas._paint_colors=canvas_colors(self.canvas)
+        try:
+            with paint_scope(time.monotonic()>=getattr(self,'_raster_direct_until',0)):
+                super().paintEvent(event)
+        finally:self.canvas._paint_colors=previous
 
     def __init__(self,canvas):
         super().__init__(canvas); self.canvas=canvas; self.pan=None; self.pan_button=None; self.box_start=None

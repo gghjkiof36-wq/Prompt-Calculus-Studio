@@ -44,7 +44,8 @@ class CanvasVisualTests(unittest.TestCase):
             self.assertEqual(self.canvas.view.backgroundBrush().color().name(),colors['base'])
             surface=QImage(int(card.width),int(card.height),QImage.Format.Format_ARGB32);surface.fill(Qt.GlobalColor.transparent)
             painter=QPainter(surface);card.paint(painter,None);painter.end()
-            self.assertEqual(surface.pixelColor(8,60).name(),colors.get('canvas_body',colors['surface']))
+            from prompt_calculus_studio.canvas_items import canvas_colors
+            self.assertEqual(surface.pixelColor(8,60).name(),canvas_colors(self.canvas)['canvas_body'])
             self.assertEqual(self.canvas.data()['outputs'][key]['draft'],'')
 
     def test_visible_zoom_controls_keep_saved_graph_and_work_after_guide_dismissal(self):
@@ -114,7 +115,7 @@ class CanvasVisualTests(unittest.TestCase):
         self.assertTrue(self.canvas.commit(lambda s:choose(s,self.refs['stage'],'flow')));QTest.qWait(20)
         self.assertFalse(stage.edit_button.property('setupPending'))
         self.assertNotEqual(stage.edit_button.objectName(),'Primary')
-        self.assertEqual(stage.edit_button.text(),'調整參數')
+        self.assertEqual(stage.edit_button.text(),'flow · 參數')
         document=copy.deepcopy(self.canvas.data());history=copy.deepcopy(self.canvas.undo_stack)
         transform=self.canvas.view.transform()
         for palette in ('paper','graphite'):

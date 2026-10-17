@@ -9,7 +9,7 @@ from PySide6.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter, QPaint
 from PySide6.QtWidgets import QApplication
 
 from prompt_calculus_studio.canvas_raster import LAYERS, SHADOWS, RasterCache, paint_cached, paint_scope
-from prompt_calculus_studio.canvas_items import CanvasView, NodeCard, canvas_colors
+from prompt_calculus_studio.canvas_items import CanvasView, NodeCard, canvas_colors, paint_module_surface, _paint_module_surface
 from prompt_calculus_studio.composition import node
 from prompt_calculus_studio import module_chrome
 
@@ -182,6 +182,33 @@ class CanvasRasterTests(unittest.TestCase):
                 self.render(lambda p: CanvasView.drawBackground(view,p,rect),zoom)
                 self.assertIs(view._grid_points,points)
                 self.assertLessEqual(len(view._grid_batches),4)
+
+
+    def test_module_surfaces_keep_pixels_and_live_selection_at_fractional_scales(self):
+        outline=QPainterPath();outline.addRoundedRect(QRectF(0,0,360,280),16,16)
+        for palette, zoom, dpr, width in (('graphite',.77,1.25,1),('paper',.9,1.5,1.5),('mist',1,1.25,2.5)):
+            self.canvas.window.state['settings']['visual_palette']=palette
+            colors=canvas_colors(self.canvas)
+            def draw(p, cached):
+                p.setPen(QPen(QColor(colors['accent']),width))
+                (paint_module_surface if cached else _paint_module_surface)(p,outline,colors,44)
+            for offset in ((25.35,25.75),(26.1,27.25)):
+                with self.subTest(palette=palette,zoom=zoom,dpr=dpr,width=width,offset=offset):
+                    expected=self.render(lambda p:draw(p,False),zoom,dpr,offset)
+                    for _ in range(3):
+                        self.assert_pixels_close(self.render(lambda p:draw(p,True),zoom,dpr,offset),expected)
+
+    def test_module_surface_reuses_unchanged_fill_and_shadow_on_pan(self):
+        from prompt_calculus_studio import canvas_items
+        outline=QPainterPath();outline.addRoundedRect(QRectF(0,0,360,280),16,16)
+        colors=canvas_colors(self.canvas)
+        with patch.object(canvas_items,'_paint_module_surface',wraps=canvas_items._paint_module_surface) as draw:
+            for offset in ((24,24),(28,28),(32,32)):
+                self.render(lambda p:paint_module_surface(p,outline,colors,44),offset=offset)
+            self.assertEqual(draw.call_count,2)
+            changed=dict(colors,canvas_body='#303030')
+            self.render(lambda p:paint_module_surface(p,outline,changed,44),offset=(32,32))
+            self.assertEqual(draw.call_count,3)
 
 
 if __name__ == '__main__': unittest.main()

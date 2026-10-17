@@ -103,11 +103,13 @@ class SurfaceEdge(QWidget):
         path.moveTo(rect.right(), rect.top())
         if workspace.active_route == 'home' and getattr(workspace, 'tabs_in_row', False):
             # The active tab owns the top contour; never draw a horizontal
-            # frame through its join with the document surface.
-            path.moveTo(rect.left(), rect.top())
+            # frame through its join with the document surface. Its outside
+            # edge has no stroke either: starting one below the tab makes a
+            # bright one-pixel step in an otherwise continuous silhouette.
+            path.moveTo(rect.left(), rect.bottom()-RADIUS)
         elif getattr(workspace, '_sidebar_header_docked', False):
             path.lineTo(rect.left()+workspace.sidebar_target().width(), rect.top())
-            path.moveTo(rect.left(), rect.top())
+            path.moveTo(rect.left(), rect.bottom()-RADIUS)
         else:
             path.lineTo(rect.left()+RADIUS, rect.top())
             path.quadTo(rect.left(), rect.top(), rect.left(), rect.top()+RADIUS)

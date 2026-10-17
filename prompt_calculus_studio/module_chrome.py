@@ -279,6 +279,8 @@ def style_action(widget, colors, pending=False, primary=False, dropdown=False):
     foreground = colors['on_accent'] if primary else colors['text']
     border = colors['line']
     padding='7px 28px 7px 12px' if dropdown else '7px 12px'
-    style=f"QPushButton {{background:{background}; color:{foreground}; border:1px solid {border}; border-radius:8px; padding:{padding};}} QPushButton:hover {{border-color:{colors['accent']};}} QPushButton:pressed {{background:{colors['selected']};color:{colors['text']};}} QPushButton:disabled {{background:{colors['field']};color:{colors['secondary']};border-color:{colors['line']};}}"
+    # Setup actions share the regular weight of the module's selectors. The
+    # application-level Primary role must not turn pending fields into titles.
+    style=f"QPushButton {{background:{background}; color:{foreground}; border:1px solid {border}; border-radius:8px; padding:{padding}; font-weight:400;}} QPushButton:hover {{border-color:{colors['accent']};}} QPushButton:pressed {{background:{colors['selected']};color:{colors['text']};}} QPushButton:disabled {{background:{colors['field']};color:{colors['secondary']};border-color:{colors['line']};}}"
     if widget.styleSheet()!=style:widget.setStyleSheet(style)
     widget.setProperty('modulePending',pending)

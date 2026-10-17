@@ -112,6 +112,8 @@ class DocumentTabBar(QTabBar):
 
     @workspace_active.setter
     def workspace_active(self, active):
+        if self._workspace_active == active:
+            return
         self._workspace_active = active
         self.update()
         self.update_scroll_controls()
@@ -243,10 +245,15 @@ class DocumentTabs(QWidget):
 
     def update_outline(self):
         self.update()
-        if self.parentWidget() is not None:
-            self.parentWidget().update()
-            if self.parentWidget().parentWidget() is not None:
-                self.parentWidget().parentWidget().update()
+        # Only the tab row paints the outward feet. Invalidating its parent
+        # repaints the entire workspace (tree, caption and document surface)
+        # even when only a tab changed focus.
+        parent = self.parentWidget()
+        while parent is not None:
+            if parent.objectName() == 'DocumentTabStrip':
+                parent.update()
+                break
+            parent = parent.parentWidget()
 
     def paint_outer_feet(self, surface):
         if not self.bar.workspace_active or self.bar.currentIndex() < 0:

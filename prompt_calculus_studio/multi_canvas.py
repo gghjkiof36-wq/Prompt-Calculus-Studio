@@ -309,6 +309,15 @@ class MultiCanvas(TextCanvas):
         self.zoom_controls=CanvasZoomControls(self)
         from .canvas_starter import guide
         self._starter_view_pending=bool(guide(window.state) and not window.state.get('canvas_view'))
+    def refresh_for_show(self):
+        # Returning to an unchanged tab needs its camera, not rebuilt ports,
+        # connections and form layouts. Keep this snapshot local to the view:
+        # another view of the same document may already have changed history.
+        owner=(self.window.store,self.window.state.get('workspace'))
+        if (getattr(self,'_presented_owner',None)!=owner
+                or getattr(self,'_scene_refresh_pending',True)
+                or getattr(self,'_visible_scene_state',None)!=self.history_state()):
+            self.refresh()
     def restore_view(self):
         # Mode changes can save the empty GraphicsView before its first show.
         # Apply the new-document starting view only after real cards and final
@@ -481,6 +490,7 @@ class MultiCanvas(TextCanvas):
         self.update_lines()
     def refresh(self):
         if not hasattr(self,'outputs') or self.refreshing: return
+        self._scene_refresh_pending=True
         if hasattr(self,'onboarding'):self.onboarding.refresh()
         self.refreshing=True
         try:
@@ -599,6 +609,8 @@ class MultiCanvas(TextCanvas):
             self.update_output(); self.view.scene().setSceneRect(self.content_bounds().adjusted(-2400,-1800,2400,1800))
             self.last_state=self.history_state()
             self.remember_layout_defaults()
+            self._visible_scene_state=self.last_state
+            self._scene_refresh_pending=False
         finally: self.refreshing=False
     def refresh_image_previews(self):
         from .composition_image import render_image,PreviewCache,canvas_document
