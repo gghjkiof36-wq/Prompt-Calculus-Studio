@@ -1,7 +1,7 @@
 """Pane chrome follows the content geometry without adding a second frame."""
 from PySide6.QtCore import Qt, QEvent, QPoint, QTimer, QSize, QLineF
-from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QWidget, QSplitter, QSplitterHandle
+from PySide6.QtGui import QColor, QPainter, QPen, QMouseEvent
+from PySide6.QtWidgets import QApplication, QWidget, QSplitter, QSplitterHandle
 
 
 class PaneDivider(QSplitterHandle):
@@ -42,6 +42,53 @@ class PaneSplitter(QSplitter):
 
     def createHandle(self):
         return PaneDivider(self.orientation(), self)
+
+
+class PaneResizeGrip(QWidget):
+    """Keep the native divider's full hit area above the stable editor layer."""
+    def __init__(self, workspace):
+        super().__init__(workspace.workspace_stack)
+        self.w = workspace
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        self.setCursor(Qt.CursorShape.SplitHCursor)
+        self.setAccessibleName('調整左右頁面寬度')
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.sync)
+        workspace.pane_split.installEventFilter(self)
+        workspace.pane_split.splitterMoved.connect(self.request_sync)
+        self.hide()
+
+    def request_sync(self, *_):
+        if not self.timer.isActive():
+            self.timer.start(0)
+
+    def sync(self, *_):
+        split = self.w.pane_split
+        if len(self.w.panes) != 2 or split.count() != 2 or not split.isVisible():
+            self.hide()
+            return
+        handle = split.handle(1)
+        self.setGeometry(handle.mapTo(self.parentWidget(), QPoint()).x(),
+                         handle.mapTo(self.parentWidget(), QPoint()).y(), handle.width(), handle.height())
+        self.show()
+        self.raise_()
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QEvent.Type.Move, QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.Hide):
+            self.request_sync()
+        return False
+
+    def forward_mouse(self, event):
+        handle = self.w.pane_split.handle(1)
+        forwarded = QMouseEvent(event.type(), handle.mapFromGlobal(event.globalPosition().toPoint()),
+                                event.globalPosition(), event.button(), event.buttons(), event.modifiers())
+        QApplication.sendEvent(handle, forwarded)
+        event.accept()
+
+    mousePressEvent = forward_mouse
+    mouseMoveEvent = forward_mouse
+    mouseReleaseEvent = forward_mouse
 
 
 class PaneTabRow(QWidget):

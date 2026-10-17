@@ -295,14 +295,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.setPalette(palette)
         QApplication.instance().setPalette(palette)
         for pane in self.panes:
-            strip = pane.strip
-            strip.bar.active_fill = QColor(workspace_colors(appearance)['content'])
-            strip.bar.sidebar_fill = QColor(workspace_colors(appearance)['sidebar'])
-            strip.bar.hover_fill = QColor(t['raised'])
-            strip.bar.close_fill = QColor(t['selected'])
-            strip.bar.scroll_fill = QColor(t['chrome'])
-            strip.bar.active_ink = QColor(t['text'])
-            strip.bar.idle_ink = QColor(t['secondary'])
+            self.style_tab_strip(pane.strip, appearance)
         self.tree.row_colors = dict(t, **workspace_colors(appearance))
         self.setStyleSheet(stylesheet(appearance) + f'''
             QFrame#DocumentWorkspace, QFrame#DocumentRail {{ background:transparent; border:0; }}
@@ -333,6 +326,18 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 tab.widget.apply_appearance(appearance)
             elif tab.document:
                 tab.host.apply_theme(preserve_layout=True)
+
+    def style_tab_strip(self, strip, appearance=None):
+        appearance = appearance or self.display_settings()
+        t = visual_tokens(appearance)
+        colors = workspace_colors(appearance)
+        strip.bar.active_fill = QColor(colors['content'])
+        strip.bar.sidebar_fill = QColor(colors['sidebar'])
+        strip.bar.hover_fill = QColor(t['raised'])
+        strip.bar.close_fill = QColor(t['selected'])
+        strip.bar.scroll_fill = QColor(t['chrome'])
+        strip.bar.active_ink = QColor(t['text'])
+        strip.bar.idle_ink = QColor(t['secondary'])
 
     def load_ui_preferences(self):
         try:

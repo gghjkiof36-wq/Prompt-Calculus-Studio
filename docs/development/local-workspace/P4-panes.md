@@ -12,6 +12,20 @@ Ordinary navigation replaces the current tab in the active pane. The explicit
 new-tab and other-pane commands create additional views. Moving a tab preserves
 the existing widget and its local state.
 
+Drag a tab title into the right third of a single content area to create a right
+pane. The translucent highlight previews the resulting pane, and a page label
+follows the pointer. New-tab pages support the same gesture. When two panes are
+open, dropping into the other pane's content area moves the view there; dropping
+on a tab strip uses the visible insertion marker. Escape, an outside drop or
+application deactivation cancels the move. Hovering a tab scroll arrow during a
+drag reveals offscreen tabs. Feedback follows the current accent and honors the
+reduced-motion setting.
+
+Pane slots own visibility and geometry, while editor widgets remain under a
+common workspace parent. Moving a view therefore avoids rebuilding its controls
+or cascading a stylesheet change through the Canvas. Pane creation styles only
+the new strip, and source placeholders do not briefly steal the active pane.
+
 Each split pane has a permanent tab-menu dropdown. `合回單區` retains all views,
 in left-then-right order, including duplicate views of the same document.
 `關閉此分區` saves and closes that pane's tabs. A failed save keeps the affected
@@ -47,9 +61,13 @@ appearance. The catalog's synthetic state copies the display settings without
 changing the document's saved settings. The module color roles and control
 styles remain those of 0.8.8.
 
+The file tree displays `CANVAS` for workflow documents and `MANAGER` for category
+documents at the trailing edge of each row. These are presentation labels; file
+names, extensions, document kinds and Markdown names are unchanged.
+
 ## Verification
 
-Focused coverage lives in `test_workspace_panes.py`, `test_workspace_layout.py`,
+Focused coverage lives in `test_workspace_tab_drag.py`, `test_workspace_panes.py`, `test_workspace_layout.py`,
 `test_workspace_multiview_files.py`, and the existing workspace interaction
 tests. Catalog appearance is covered across all eleven kinds and three palettes
 in `test_workspace_file_commands.py`. Synthetic execution checks establish

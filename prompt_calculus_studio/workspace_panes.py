@@ -40,8 +40,12 @@ class PaneFocus(QObject):
                         widget = views[0] if views else widget
                         break
                     ancestor = ancestor.parentWidget()
+            owner = widget
+            while owner is not None and getattr(owner, '_workspace_pages', None) is None:
+                owner = owner.parentWidget()
             for pane in self.w.panes:
-                if widget is not None and (widget is pane.container or pane.container.isAncestorOf(widget)
+                if widget is not None and (getattr(owner, '_workspace_pages', None) is pane.pages
+                        or widget is pane.container or pane.container.isAncestorOf(widget)
                         or widget is pane.strip or pane.strip.isAncestorOf(widget)):
                     self.w.use_pane(pane)
                     break
@@ -51,7 +55,7 @@ class PaneFocus(QObject):
 class WorkspacePanes:
     """Methods mixed into the shell; legacy public single-pane entry names remain."""
     def init_panes(self):
-        from .workspace_pane_chrome import PaneSplitter, PaneTabRow
+        from .workspace_pane_chrome import PaneSplitter, PaneTabRow, PaneResizeGrip
         self.documents = []
         self.panes = []
         self.split_ratio = .5
@@ -60,7 +64,9 @@ class WorkspacePanes:
         self.home_split.replaceWidget(1, self.pane_split)
         self._make_pane(self.tab_strip, self.pages)
         self.active_pane = self.panes[0]
+        self.pages = self.active_pane.pages
         self.pane_tab_row = PaneTabRow(self)
+        self.pane_grip = PaneResizeGrip(self)
         self.pane_split.splitterMoved.connect(self.remember_ratio)
         self.pane_focus = PaneFocus(self)
         from .workspace_tab_drag import TabDrag
@@ -75,12 +81,16 @@ class WorkspacePanes:
         layout.setSpacing(0)
         existing_strip = strip is not None
         strip = strip or DocumentTabs()
-        pages = pages or QStackedWidget()
+        from .workspace_pages import WorkspacePages
+        if pages is not None:
+            pages.deleteLater()  # Empty bootstrap stack; editors use stable owners.
+        pages = WorkspacePages(self)
         pages.setObjectName('DocumentPages')
         layout.addWidget(pages, 1)
         pane = Pane(uuid.uuid4().hex, container, strip, pages)
         self.panes.append(pane)
         self.pane_split.addWidget(container)
+        container.installEventFilter(pages)
         # The first strip was connected by the original shell builder.
         if existing_strip:
             for signal, callback in ((strip.newRequested, self.new_tab), (strip.bar.currentChanged, self.activate),
@@ -140,13 +150,14 @@ class WorkspacePanes:
         self.use_pane(pane)
         self.activate(at)
 
-    def ensure_split(self):
+    def ensure_split(self, *, empty=False):
         if len(self.panes) == 2:
             return self.panes[1]
         right = self._make_pane()
         self.arrange_navigation()
-        self.style_shell()
-        self.new_tab(pane=right)
+        self.style_tab_strip(right.strip)
+        if not empty:
+            self.new_tab(pane=right)
         total = max(500, self.pane_split.width())
         self.pane_split.setSizes([int(total*self.split_ratio), int(total*(1-self.split_ratio))])
         self.layout_changed()
@@ -163,7 +174,7 @@ class WorkspacePanes:
         bar = self.pane_for(tab).strip.bar if tab else self.tab_strip.bar
         return next((i for i in range(bar.count()) if bar.tabData(i) == key), -1)
 
-    def add_tab(self, tab, replace_current=False, position=None, pane=None):
+    def add_tab(self, tab, replace_current=False, position=None, pane=None, activate=True):
         pane = pane or self.active_pane
         bar = pane.strip.bar
         at = bar.currentIndex() if position is None else position
@@ -186,8 +197,14 @@ class WorkspacePanes:
         bar.setTabData(at, tab.key)
         bar.blockSignals(False)
         self.update_tab(tab)
-        bar.setCurrentIndex(at)
-        self.activate_in(pane, at)
+        if activate:
+            bar.setCurrentIndex(at)
+            self.activate_in(pane, at)
+        else:
+            bar.blockSignals(True)
+            bar.setCurrentIndex(at)
+            bar.blockSignals(False)
+            pane.pages.setCurrentWidget(tab.widget)
         self.layout_changed()
         return tab
 
@@ -248,15 +265,15 @@ class WorkspacePanes:
             self.last_open_error = str(error)
             if not quiet:self.report_error(str(error))
 
-    def new_tab(self, *, pane=None):
+    def new_tab(self, *, pane=None, activate=True):
         from .workspace_shell import Tab
         pane = pane or self.active_pane
         page = WorkspaceHome(self.root, self.recent_files, self.settings,
-                             lambda: self.choose_file_in(pane),
-                             lambda path: self.open_path(path, True, pane=pane),
+                             lambda: self.choose_file_in(self.pane_for(tab)),
+                             lambda path: self.open_path(path, True, pane=self.pane_for(tab)),
                              lambda kind: self.commands.new(kind, self.commands.context('home')))
         tab = Tab('new:'+uuid.uuid4().hex, '新分頁', page, True)
-        return self.add_tab(tab, pane=pane)
+        return self.add_tab(tab, pane=pane, activate=activate)
 
     def choose_file_in(self, pane):
         self.use_pane(pane)
@@ -278,7 +295,7 @@ class WorkspacePanes:
 
     def move_view(self, tab, target=None, position=None):
         source = self.pane_for(tab)
-        target = target or (self.ensure_split() if len(self.panes) == 1 else next(p for p in self.panes if p is not source))
+        target = target or (self.ensure_split(empty=True) if len(self.panes) == 1 else next(p for p in self.panes if p is not source))
         if source is target:
             if position is not None:source.strip.bar.moveTab(self.index_of(tab.key), max(0, min(position, source.strip.bar.count()-1)))
             self.layout_changed()
@@ -289,17 +306,16 @@ class WorkspacePanes:
             self.close_tab(0, pane=target, make_home=False)
         self.add_tab(tab, pane=target)
         if position is not None:target.strip.bar.moveTab(self.index_of(tab.key), min(position, target.strip.bar.count()-1))
-        if source.strip.bar.count() == 0:self.new_tab(pane=source)
+        if source.strip.bar.count() == 0:self.new_tab(pane=source, activate=False)
         self.focus_tab(tab)
         self.layout_changed()
 
     def duplicate_view(self, tab, other=False):
+        if not tab.path:return
         pane = self.pane_for(tab)
         if other:
             fresh = len(self.panes) == 1
-            pane = self.ensure_split() if fresh else next(p for p in self.panes if p is not pane)
-            if fresh:self.close_tab(0, pane=pane, make_home=False)
-        if not tab.path:return
+            pane = self.ensure_split(empty=True) if fresh else next(p for p in self.panes if p is not pane)
         return self.open_path(tab.path, True, new_tab=True, pane=pane)
 
     def _detach_view(self, tab):

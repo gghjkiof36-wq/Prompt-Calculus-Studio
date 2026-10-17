@@ -1,7 +1,7 @@
 """A shared sidebar edge, including deliberate drag-to-collapse."""
 from collections import OrderedDict
 from PySide6.QtCore import QObject, QEvent, QPoint, QTimer, QRect, QRectF, Qt, QPersistentModelIndex, QVariantAnimation, QEasingCurve
-from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPainterPath, QPixmap
 from PySide6.QtWidgets import QApplication, QTreeWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate
 from shiboken6 import isValid
 from .sidebar_resize import SidebarResizeHandle
@@ -32,6 +32,8 @@ class WorkspaceTreeDelegate(QStyledItemDelegate):
                 option.rect.adjust(-self.parent().indentation(), 0, 0, 0)
 
     def paint(self, painter, option, index):
+        from .workspace_commands import KIND_ROLE
+        badge = {'workflow': 'CANVAS', 'category': 'MANAGER'}.get(index.data(KIND_ROLE), '')
         clean = QStyleOptionViewItem(option)
         clean.state &= ~(QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_MouseOver | QStyle.StateFlag.State_HasFocus)
         # The native QSS delegate is expensive on rapid disclosure repaints.
@@ -47,7 +49,21 @@ class WorkspaceTreeDelegate(QStyledItemDelegate):
             cached = QPainter(pixmap)
             local = QStyleOptionViewItem(clean)
             local.rect.moveTopLeft(QPoint())
+            if badge:
+                badge_font = QFont(clean.font)
+                badge_font.setWeight(QFont.Weight.Normal)
+                if badge_font.pixelSize() > 0:
+                    badge_font.setPixelSize(max(9, round(badge_font.pixelSize()*.65)))
+                else:
+                    badge_font.setPointSizeF(max(7.0, badge_font.pointSizeF()*.65))
+                badge_width = QFontMetrics(badge_font).horizontalAdvance(badge)
+                local.rect.adjust(0, 0, -badge_width-24, 0)
             super().paint(cached, local, index)
+            if badge:
+                cached.setFont(badge_font)
+                cached.setPen(QColor(self.parent().row_colors['secondary']))
+                bounds = QRect(clean.rect.width()-badge_width-12, 0, badge_width, clean.rect.height())
+                cached.drawText(bounds, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, badge)
             cached.end()
             self.rows[key] = pixmap
             if len(self.rows) > 128:
