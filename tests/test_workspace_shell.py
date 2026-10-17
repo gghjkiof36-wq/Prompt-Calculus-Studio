@@ -436,7 +436,8 @@ class WorkspaceShellTests(unittest.TestCase):
         self.w.open_route('settings', 'appearance')
         self.events()
         controls = self.w.utility.settings_page.preferences
-        controls.ui_size.setValue(11)
+        requested_size = self.w.settings['ui_size'] + 1
+        controls.ui_size.setValue(requested_size)
         controls.material.setCurrentIndex(controls.material.findData('acrylic'))
         controls.visual_palette.setCurrentIndex(controls.visual_palette.findData('paper'))
         controls.accent.setCurrentIndex(controls.accent.findData('green'))
@@ -471,7 +472,7 @@ class WorkspaceShellTests(unittest.TestCase):
         self.w.report_error = self.errors.append
         self.w.show()
         self.events()
-        self.assertEqual(self.w.settings['ui_size'], 11)
+        self.assertEqual(self.w.settings['ui_size'], requested_size)
         self.assertEqual(self.w.settings['material'], 'acrylic')
         self.assertEqual(self.w.settings['visual_palette'], 'paper')
         self.assertEqual(self.w.settings['accent'], 'green')
@@ -483,7 +484,7 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertEqual(self.w.sidebar.width(), 314)
         self.w.open_route('settings', 'appearance')
         self.events()
-        self.assertEqual(self.w.utility.settings_page.preferences.ui_size.value(), 11)
+        self.assertEqual(self.w.utility.settings_page.preferences.ui_size.value(), requested_size)
         self.assertEqual(self.w.utility.settings_page.preferences.material.currentData(), 'acrylic')
         self.assertEqual(self.w.utility.settings_page.preferences.visual_palette.currentData(), 'paper')
         self.assertNotIn('interface',[entry[0] for entry in self.w.utility.settings_page.nav_routes])

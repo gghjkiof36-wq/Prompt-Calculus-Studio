@@ -30,7 +30,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName('Prompt Calculus Studio')
     app.setOrganizationName('Local Tools')
-    app.setFont(QFont('Microsoft JhengHei UI', 10))
+    app.setFont(QFont('Microsoft JhengHei UI', 12))
     args.data.mkdir(parents=True, exist_ok=True)
     lock = QLockFile(str(args.data/'workspace.lock'))
     lock.setStaleLockTime(0)
