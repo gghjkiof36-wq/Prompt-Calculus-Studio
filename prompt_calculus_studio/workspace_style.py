@@ -25,8 +25,12 @@ def sidebar_style(settings):
         QWidget#ContextSidebar[pcsWorkspaceSidebar="true"] {{ background:{surfaces['sidebar']}; border:0;
             border-radius:0; border-right:1px solid {t['divider']}; }}
         QWidget[pcsWorkspaceSidebar="true"] QLabel#Heading,
-        QWidget[pcsWorkspaceSidebar="true"] QLabel#SidebarHeading {{ min-height:36px; padding:0 8px;
+        QWidget[pcsWorkspaceSidebar="true"] QLabel#SidebarHeading,
+        QFrame#WorkspaceTreeHeader QLabel#Heading {{ min-height:36px; padding:0 8px;
             font-size:{font_pixels(settings['ui_size']+1)}px; font-weight:600; color:{t['text']}; }}
+        QFrame#WorkspaceTreeHeader {{ background:transparent; border:0; }}
+        QFrame#WorkspaceTreeHeader[topDocked="true"] {{ background:{surfaces['sidebar']};
+            border-right:1px solid {t['divider']}; border-top-left-radius:14px; }}
         QWidget[pcsWorkspaceSidebar="true"] QListWidget,
         QTreeWidget#DocumentTree {{ background:transparent; border:0; outline:0; }}
         QWidget[pcsWorkspaceSidebar="true"] QListWidget::item,

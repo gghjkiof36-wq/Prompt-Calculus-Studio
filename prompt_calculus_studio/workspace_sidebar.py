@@ -18,6 +18,10 @@ class WorkspaceTreeDelegate(QStyledItemDelegate):
             # Reserve the folder icon column without drawing a document icon.
             option.features |= QStyleOptionViewItem.ViewItemFeature.HasDecoration
             option.decorationSize = self.parent().iconSize()
+            if index.parent().parent().isValid():
+                # Inside a child folder, names begin under that folder's label.
+                # Root-level files still align with sibling folder labels.
+                option.rect.adjust(-self.parent().indentation(), 0, 0, 0)
 
     def paint(self, painter, option, index):
         clean = QStyleOptionViewItem(option)

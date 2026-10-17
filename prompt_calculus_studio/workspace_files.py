@@ -7,10 +7,21 @@ from .local_documents import category, workflow, io, paths
 
 
 def create_file(root, kind, name):
-    suffix = {'category': '.pcs-category', 'workflow': '.pcs-workflow', 'markdown': '.md'}[kind]
-    name = name.strip()
     if not name or '/' in name or '\\' in name:
         raise ValueError('請輸入檔案名稱，不含路徑。')
+    # Validate the entered stem before adding a suffix: otherwise trailing dots
+    # and spaces can silently become apparently valid document names.
+    paths.relative_parts(name)
+    if name.casefold() in ('.pcs', 'assets'):
+        raise ValueError('這個名稱保留給程式內部資料，請使用其他名稱。')
+    if kind == 'folder':
+        target = paths.checked(root, name, new=True)
+        target.mkdir()  # Exclusive; a concurrent directory is not our success.
+        return target
+    suffix = {'category': '.pcs-category', 'workflow': '.pcs-workflow', 'markdown': '.md'}[kind]
+    stem = name[:-len(suffix)] if name.casefold().endswith(suffix) else name
+    if not stem.strip():
+        raise ValueError('請輸入副檔名之前的名稱。')
     relative = name if name.casefold().endswith(suffix) else name+suffix
     target = paths.checked(root, relative, new=True)
     if kind == 'markdown':
@@ -32,7 +43,12 @@ def create_file(root, kind, name):
             document = workflow.from_state(state)
         result = io.create(root, relative, document)
         if result.status != 'saved':
-            raise ValueError(result.error or '無法建立文件。')
+            message = result.error or '無法建立文件。'
+            if target.exists():
+                message += '\n目的位置已有檔案，未覆寫或移除：\n' + str(target)
+            if result.recovery_paths:
+                message += '\n保留的回復版本：\n' + '\n'.join(result.recovery_paths)
+            raise ValueError(message)
     return target
 
 

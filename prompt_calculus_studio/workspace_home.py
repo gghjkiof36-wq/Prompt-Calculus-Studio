@@ -86,13 +86,13 @@ class WorkspaceHome(QScrollArea):
 
     def set_recent(self, recent):
         self.listing.clear()
-        for relative in recent[:5]:
-            path = Path(relative)
-            title = path.stem if path.parent == Path('.') else str(path.with_suffix(''))
+        for location in recent[:5]:
+            path = Path(location)
+            title = path.stem if path.parent in (Path('.'), self.root) else path.stem + ' — ' + str(path.parent)
             item = QListWidgetItem(title)
             item.setIcon(icon({'.pcs-category': 'list', '.pcs-workflow': 'workflow'}.get(path.suffix, 'file-text'), 'navigation'))
-            item.setData(Qt.ItemDataRole.UserRole, relative)
-            item.setToolTip(relative)
+            item.setData(Qt.ItemDataRole.UserRole, str(path))
+            item.setToolTip(str(path if path.is_absolute() else self.root/path))
             self.listing.addItem(item)
         self.listing.setFixedHeight(len(recent[:5])*40+4)
         self.listing.setVisible(bool(recent))

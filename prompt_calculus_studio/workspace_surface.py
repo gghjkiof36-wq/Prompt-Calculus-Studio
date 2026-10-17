@@ -10,17 +10,18 @@ from .theme import visual_tokens
 RADIUS = 14
 
 
-def left_contour(rect, radius):
+def left_contour(rect, radius, top_round=True):
     """Only the outside corners are rounded; the internal divider is straight."""
     r = min(radius, rect.width()/2, rect.height()/2)
+    top_r = r if top_round else 0
     path = QPainterPath()
-    path.moveTo(rect.left()+r, rect.top())
+    path.moveTo(rect.left()+top_r, rect.top())
     path.lineTo(rect.right(), rect.top())
     path.lineTo(rect.right(), rect.bottom())
     path.lineTo(rect.left()+r, rect.bottom())
     path.quadTo(rect.left(), rect.bottom(), rect.left(), rect.bottom()-r)
-    path.lineTo(rect.left(), rect.top()+r)
-    path.quadTo(rect.left(), rect.top(), rect.left()+r, rect.top())
+    path.lineTo(rect.left(), rect.top()+top_r)
+    path.quadTo(rect.left(), rect.top(), rect.left()+top_r, rect.top())
     path.closeSubpath()
     return path
 
@@ -42,11 +43,12 @@ class WorkspaceSurface(QStackedWidget):
         page = self.currentWidget()
         if page is not None:
             page.installEventFilter(self)
-            geometry = (page.width(), page.height())
+            joined = getattr(self.workspace, '_tree_header_docked', False)
+            geometry = (page.width(), page.height(), joined)
             if getattr(page, '_pcs_contour_size', None) != geometry or page.mask().isEmpty():
                 # Clip the full page subtree, including opaque scroll viewports.
                 # Keep its hard mask just inside our antialiased painted edge.
-                path = left_contour(QRectF(page.rect()), RADIUS+1)
+                path = left_contour(QRectF(page.rect()), RADIUS+1, not joined)
                 page.setMask(QRegion(path.toFillPolygon().toPolygon()))
                 page._pcs_contour_size = geometry
         self.edge.setGeometry(self.rect())
@@ -71,7 +73,8 @@ class WorkspaceSurface(QStackedWidget):
         fill = colors['sidebar'] if expanded else colors['content']
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillPath(left_contour(QRectF(self.rect()), RADIUS), QColor(fill))
+        joined = getattr(self.workspace, '_tree_header_docked', False)
+        painter.fillPath(left_contour(QRectF(self.rect()), RADIUS, not joined), QColor(fill))
         painter.end()
         super().paintEvent(event)
 
@@ -94,8 +97,12 @@ class SurfaceEdge(QWidget):
         # The right edge is already owned by the native window frame.
         path = QPainterPath()
         path.moveTo(rect.right(), rect.top())
-        path.lineTo(rect.left()+RADIUS, rect.top())
-        path.quadTo(rect.left(), rect.top(), rect.left(), rect.top()+RADIUS)
+        if getattr(workspace, '_tree_header_docked', False):
+            path.lineTo(rect.left()+workspace.sidebar.width(), rect.top())
+            path.moveTo(rect.left(), rect.top())
+        else:
+            path.lineTo(rect.left()+RADIUS, rect.top())
+            path.quadTo(rect.left(), rect.top(), rect.left(), rect.top()+RADIUS)
         path.lineTo(rect.left(), rect.bottom()-RADIUS)
         path.quadTo(rect.left(), rect.bottom(), rect.left()+RADIUS, rect.bottom())
         path.lineTo(rect.right(), rect.bottom())

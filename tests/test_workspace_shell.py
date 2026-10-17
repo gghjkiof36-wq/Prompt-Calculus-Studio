@@ -660,7 +660,7 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertEqual(self.w.tree.columnCount(), 1)
         self.w.save_recent()
         import json
-        self.assertEqual(json.loads((self.w.data/'recent-files.json').read_text(encoding='utf-8'))[0], 'New note.md')
+        self.assertEqual(json.loads((self.w.data/'recent-files.json').read_text(encoding='utf-8'))[0], str(self.root/'New note.md'))
 
     def test_markdown_edit_save_cancel_reopen_and_conflict_preserve_bytes(self):
         tab = self.w.open_path(self.root/'Notes.md', True)

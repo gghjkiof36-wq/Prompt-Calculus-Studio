@@ -14,12 +14,14 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame,
 from .core import Storage, initial_state, DEFAULT_SETTINGS
 from .document_host import DesktopDocument, EmbeddedHost
 from .document_tabs import DocumentTabs
-from .local_documents import index, paths
+from .local_documents import paths
 from .theme import stylesheet, visual_tokens, widget_palette, apply_backdrop
 from .ui_icons import icon
-from .widgets import button, label, RoundMenu, InputDialog, WindowShell
+from .widgets import button, label, RoundMenu, WindowShell
 from .workspace_home import WorkspaceHome
-from .workspace_files import create_file, MarkdownPage
+from .workspace_files import MarkdownPage
+from .workspace_locations import WorkspaceLocations, path_key
+from .workspace_commands import WorkspaceCommands, PATH_ROLE, KIND_ROLE, ROOT_ROLE
 from .workspace_style import sidebar_style, workspace_colors
 from .workspace_sidebar import WorkspaceSidebarResize, WorkspaceTree
 from .workspace_surface import WorkspaceSurface
@@ -80,15 +82,9 @@ class WorkspaceShell(QMainWindow):
         self.sidebar_preference = None
         self.sidebar_width = 264
         self.navigation_position = 'side'
-        self.recent_files = []
-        try:
-            saved = json.loads((self.data/'recent-files.json').read_text(encoding='utf-8'))
-            if isinstance(saved, list):
-                for relative in saved[:20]:
-                    if isinstance(relative, str) and paths.checked(self.root, relative).is_file():
-                        self.recent_files.append(relative)
-        except (ValueError, OSError):
-            pass
+        self.locations = WorkspaceLocations(self.root, self.data, self.read_navigation_json('linked-folders.json'))
+        self.commands = WorkspaceCommands(self)
+        self.recent_files = self.locations.recent(self.read_navigation_json('recent-files.json'))
         self.recent_timer = QTimer(self)
         self.recent_timer.setSingleShot(True)
         self.recent_timer.timeout.connect(self.save_recent)
@@ -121,6 +117,12 @@ class WorkspaceShell(QMainWindow):
                                    ('Alt+Right', lambda: self.go(1))):
             shortcut = QShortcut(QKeySequence(sequence), self)
             shortcut.activated.connect(callback)
+
+    def read_navigation_json(self, name):
+        try:
+            return json.loads((self.data/name).read_text(encoding='utf-8'))
+        except (ValueError, OSError):
+            return None
 
     def tool(self, name, title, callback):
         control = button('', callback, 'Quiet')
@@ -212,12 +214,22 @@ class WorkspaceShell(QMainWindow):
         side = QVBoxLayout(self.sidebar)
         side.setContentsMargins(12, 16, 8, 10)
         side.setSpacing(12)
-        heading = QHBoxLayout()
+        self.tree_heading = QFrame()
+        self.tree_heading.setObjectName('WorkspaceTreeHeader')
+        self._tree_header_docked = False
+        heading = QHBoxLayout(self.tree_heading)
+        heading.setContentsMargins(0, 0, 0, 0)
+        heading.setSpacing(0)
         heading.addWidget(label('內容', 'Heading'))
         heading.addStretch()
+        self.tree_new = self.tool('plus', '新增內容', self.commands.creation_menu)
+        self.tree_folder = self.tool('folder', '新增資料夾',
+                                     lambda: self.commands.new('folder', self.commands.selected_context()))
         self.tree_more = self.tool('more-horizontal', '內容選單', self.root_menu)
-        heading.addWidget(self.tree_more)
-        side.addLayout(heading)
+        for control in (self.tree_new, self.tree_folder, self.tree_more):
+            control.setFixedSize(32, 32)
+            heading.addWidget(control)
+        side.addWidget(self.tree_heading)
         self.tree = WorkspaceTree(self)
         self.tree.setObjectName('DocumentTree')
         self.tree.setColumnCount(1)
@@ -235,6 +247,7 @@ class WorkspaceShell(QMainWindow):
         self.tree.itemClicked.connect(lambda item, col: self.open_item(item))
         self.tree.itemDoubleClicked.connect(lambda item, col: self.open_item(item, retained=True))
         self.tree.itemActivated.connect(lambda item, col: self.open_item(item, retained=True))
+        self.tree.currentItemChanged.connect(self.navigation_selection_changed)
         side.addWidget(self.tree, 1)
         self.home_split.addWidget(self.sidebar)
         self.pages = QStackedWidget()
@@ -397,6 +410,7 @@ class WorkspaceShell(QMainWindow):
         self.rail.adapt_width(available)
 
     def sync_tab_inset(self):
+        self.sync_tree_header()
         if self.navigation_position != 'top':
             return
         target = self.sidebar_target()
@@ -405,6 +419,25 @@ class WorkspaceShell(QMainWindow):
             self.tab_row.layout().setContentsMargins(inset, 2, 16, 0)
             self.tab_row.layout().activate()
             self.tab_strip.fit()
+
+    def sync_tree_header(self):
+        docked = (self.navigation_position == 'top' and self.active_route == 'home'
+                  and self.sidebar.isVisible())
+        header = self.tree_heading
+        if docked != self._tree_header_docked:
+            self._tree_header_docked = docked
+            self.sidebar.layout().removeWidget(header)
+            header.setParent(self.tab_row if docked else self.sidebar)
+            header.setProperty('topDocked', docked)
+            header.layout().setContentsMargins(12 if docked else 0, 0, 8 if docked else 0, 0)
+            if not docked:
+                self.sidebar.layout().insertWidget(0, header)
+            header.style().unpolish(header)
+            header.style().polish(header)
+            header.show()
+        if docked:
+            header.setGeometry(0, 0, self.sidebar.width(), self.tab_row.height())
+            header.raise_()
 
     def caption_inset(self, inset):
         self.top.layout().setContentsMargins(7, 4, 10+inset, 0)
@@ -418,48 +451,88 @@ class WorkspaceShell(QMainWindow):
             self.sync_sidebar()
 
     def refresh_tree(self):
+        old_items = getattr(self, 'path_items', {})
+        expanded = {key for key, item in old_items.items() if item.isExpanded()}
+        selected = self.tree.currentItem()
+        selected_path = selected.data(0, PATH_ROLE) if selected else None
+        self.tree.blockSignals(True)
         self.tree.clear()
         self.file_items = {}
-        self.entries = [entry for entry in index.scan(self.root)
-                        if not any(part.casefold() == 'assets' for part in Path(entry.relative).parts[:-1])]
-        root_item = QTreeWidgetItem([self.root.name])
-        root_item.setIcon(0, icon('folder', 'navigation'))
-        root_item.setToolTip(0, str(self.root))
-        self.tree.addTopLevelItem(root_item)
-        folders = {'.': root_item}
-        # Empty folders are meaningful navigation, without parsing file bodies.
-        pending = [self.root]
-        while pending:
-            folder = pending.pop()
-            for path in sorted(folder.iterdir(), key=lambda p: p.name.casefold()):
-                if path.name.casefold() in ('.obsidian', '.pcs', 'assets') or paths.is_link(path) or not path.is_dir():
-                    continue
-                relative = path.relative_to(self.root)
-                parent = folders[str(relative.parent)]
-                item = QTreeWidgetItem([path.name])
-                item.setIcon(0, icon('folder', 'navigation'))
-                parent.addChild(item)
-                folders[str(relative)] = item
-                pending.append(path)
+        self.path_items = {}
+        self.entries = []
         types = {'category': '分類', 'workflow': '工作流', 'markdown': '筆記'}
-        for entry in self.entries:
-            relative = Path(entry.relative)
-            if str(relative.parent) not in folders:
-                continue
-            item = QTreeWidgetItem([relative.stem])
-            item.setData(0, Qt.ItemDataRole.UserRole, entry.relative)
-            item.setToolTip(0, types[entry.kind] + ' · ' + str(self.root / relative))
-            folders[str(relative.parent)].addChild(item)
-            self.file_items[entry.relative] = item
-        root_item.setExpanded(True)
+        for root in self.locations.roots:
+            root_item = QTreeWidgetItem([root.name])
+            self.set_tree_location(root_item, root, 'root', root)
+            root_item.setIcon(0, icon('folder', 'navigation'))
+            self.tree.addTopLevelItem(root_item)
+            folders = {path_key(root): root_item}
+            try:
+                for path, kind in self.locations.inventory(root):
+                    item = QTreeWidgetItem([path.name if kind == 'folder' else path.stem])
+                    self.set_tree_location(item, path, kind, root)
+                    folders[path_key(path.parent)].addChild(item)
+                    if kind == 'folder':
+                        item.setIcon(0, icon('folder', 'navigation'))
+                        folders[path_key(path)] = item
+                        item.setExpanded(path_key(path) in expanded)
+                    else:
+                        item.setData(0, Qt.ItemDataRole.UserRole, str(path))
+                        item.setToolTip(0, types[kind] + ' · ' + str(path))
+                        self.entries.append((path, kind))
+                        self.file_items[str(path)] = item
+                        if path.is_relative_to(self.root):
+                            self.file_items[path.relative_to(self.root).as_posix()] = item
+            except (OSError, ValueError) as error:
+                root_item.setToolTip(0, str(root) + '\n無法完整讀取：' + str(error))
+                self.statusBar().showMessage('無法完整讀取資料夾：' + str(root), 8000)
+            root_item.setExpanded(not old_items or path_key(root) in expanded)
+        self.tree.setCurrentItem(self.path_items.get(path_key(selected_path)) if selected_path else None)
+        self.tree.blockSignals(False)
         for tab in self.tabs_by_key.values():
             if isinstance(tab.widget, WorkspaceHome):
                 tab.widget.set_recent(self.recent_files)
 
+    def set_tree_location(self, item, path, kind, root):
+        item.setData(0, PATH_ROLE, str(path))
+        item.setData(0, KIND_ROLE, kind)
+        item.setData(0, ROOT_ROLE, str(root))
+        item.setToolTip(0, str(path))
+        self.path_items[path_key(path)] = item
+
+    def navigation_selection_changed(self, item, previous=None):
+        value = item.data(0, ROOT_ROLE) if item else None
+        if value and Path(value) != self.locations.current:
+            self.locations.current = Path(value)
+            try:
+                self.save_locations()
+            except OSError as error:
+                self.statusBar().showMessage('目前資料夾已切換，但無法保存導覽位置：' + str(error), 8000)
+
+    def select_path(self, path):
+        item = self.path_items.get(path_key(path))
+        if item is None:
+            return False
+        self.tree.setCurrentItem(item)
+        parent = item.parent()
+        while parent is not None:
+            parent.setExpanded(True)
+            parent = parent.parent()
+        if item.data(0, KIND_ROLE) in ('root', 'folder'):
+            item.setExpanded(True)
+        self.tree.scrollToItem(item)
+        return True
+
     def open_item(self, item, retained=False):
-        relative = item.data(0, Qt.ItemDataRole.UserRole)
-        if relative:
-            self.open_path(paths.checked(self.root, relative), retained)
+        value = item.data(0, Qt.ItemDataRole.UserRole)
+        if value:
+            self.open_path(Path(value), retained)
+
+    def tab_for_path(self, path):
+        if path is None:
+            return None
+        return next((tab for tab in self.tabs_by_key.values()
+                     if tab.path and path_key(tab.path) == path_key(path)), None)
 
     def add_tab(self, tab, replace_preview=False):
         bar = self.tab_strip.bar
@@ -493,16 +566,15 @@ class WorkspaceShell(QMainWindow):
         dirty = tab.dirty
         if dirty:
             tab.retained = True
-        relative = tab.path.relative_to(self.root).as_posix() if tab.path else ''
-        self.tab_strip.decorate(at, tab.title, tab.retained, bool(dirty), relative)
+        location = str(tab.path) if tab.path else ''
+        self.tab_strip.decorate(at, tab.title, tab.retained, bool(dirty), location)
         error = document.error if document else tab.widget.error if isinstance(tab.widget,MarkdownPage) else ''
         if error:
             self.tab_strip.bar.setTabToolTip(at,self.tab_strip.bar.tabToolTip(at)+'\n'+error)
 
     def open_path(self, path, retained=False):
-        path = Path(path).absolute()
         try:
-            paths.checked(self.root, path.relative_to(self.root).as_posix())
+            path = self.locations.file(path)
             for tab in self.tabs_by_key.values():
                 if tab.path and (tab.path == path or (tab.path.exists() and path.exists() and tab.path.samefile(path))):
                     if retained:
@@ -544,32 +616,22 @@ class WorkspaceShell(QMainWindow):
 
     def open_markdown(self, path, retained):
         page = MarkdownPage(path)
-        tab = Tab('md:' + str(path), path.stem, page, retained, path=path)
+        tab = Tab('md:' + uuid.uuid4().hex, path.stem, page, retained, path=path)
         page.document().modificationChanged.connect(lambda _: self.update_tab(tab))
         return self.add_tab(tab, replace_preview=not retained)
 
     def new_tab(self):
         page = WorkspaceHome(self.root, self.recent_files, self.settings, self.choose_file,
-                             lambda relative: self.open_path(self.root / relative, True), self.new_document)
+                             lambda path: self.open_path(Path(path), True),
+                             lambda kind: self.commands.new(kind, self.commands.context('home')))
         return self.add_tab(Tab('new:' + uuid.uuid4().hex, '新分頁', page, True))
 
-    def new_document(self, kind, name=None):
-        names = dict(workflow='Canvas 工作流', category='管理頁', markdown='Markdown 筆記')
-        if name is None:
-            name, ok = InputDialog.getText(self, '新增'+names[kind], '名稱')
-            if not ok:
-                return None
-        try:
-            path = create_file(self.root, kind, name)
-            self.refresh_tree()
-            return self.open_path(path, True)
-        except (ValueError, OSError) as error:
-            self.report_error(str(error))
-            return None
+    def new_document(self, kind, name=None, directory=None, context=None):
+        return self.commands.new(kind, context or self.commands.context('home'), name, directory)
 
     def remember_recent(self, path):
-        relative = path.relative_to(self.root).as_posix()
-        recent = [relative]+[p for p in self.recent_files if p != relative]
+        location = str(path)
+        recent = [location]+[p for p in self.recent_files if path_key(p) != path_key(path)]
         if recent[:20] == self.recent_files:
             return
         self.recent_files = recent[:20]
@@ -585,8 +647,58 @@ class WorkspaceShell(QMainWindow):
             output.write(json.dumps(self.recent_files, ensure_ascii=False).encode('utf-8'))
             output.commit()
 
+    def save_locations(self):
+        output = QSaveFile(str(self.data/'linked-folders.json'))
+        output.setDirectWriteFallback(False)
+        raw = json.dumps(self.locations.snapshot(), ensure_ascii=False, indent=2).encode('utf-8')
+        if not output.open(QIODevice.OpenModeFlag.WriteOnly):
+            raise OSError(output.errorString())
+        if output.write(raw) != len(raw):
+            output.cancelWriting()
+            raise OSError('無法保存側欄資料夾連結。')
+        if not output.commit():
+            raise OSError(output.errorString())
+
+    def add_root(self, directory):
+        previous = list(self.locations.roots), self.locations.current
+        try:
+            root = self.locations.directory(directory)
+            if root not in self.locations.roots:
+                self.locations.roots.append(root)
+            self.locations.current = root
+            self.save_locations()
+        except (ValueError, OSError) as error:
+            self.locations.roots, self.locations.current = previous
+            self.report_error(str(error))
+            return False
+        self.refresh_tree()
+        self.select_path(root)
+        return True
+
+    def remove_root(self, root):
+        previous = list(self.locations.roots), self.locations.current
+        self.locations.roots = [p for p in self.locations.roots if p != root]
+        if self.locations.current == root:
+            self.locations.current = next(iter(self.locations.roots), None)
+        try:
+            self.save_locations()
+        except OSError as error:
+            self.locations.roots, self.locations.current = previous
+            self.report_error(str(error))
+            return False
+        self.refresh_tree()
+        return True
+
+    def choose_root(self):
+        folder = QFileDialog.getExistingDirectory(self, '加入本機資料夾', str(self.locations.current or ''))
+        if folder:
+            return self.add_root(folder)
+
+    def show_location(self, path):
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
     def choose_file(self):
-        filename, _ = QFileDialog.getOpenFileName(self, '開啟本機文件', str(self.root), 'PCS 文件 (*.pcs-category *.pcs-workflow *.md)')
+        filename, _ = QFileDialog.getOpenFileName(self, '開啟本機文件', str(self.locations.current or ''), 'PCS 文件 (*.pcs-category *.pcs-workflow *.md)')
         if filename:
             self.open_path(filename, True)
 
@@ -665,8 +777,7 @@ class WorkspaceShell(QMainWindow):
         self.tab_strip.bar.workspace_active = True
         self.tab_strip.bar.update()
         self.pages.setCurrentWidget(tab.widget)
-        relative = tab.path.relative_to(self.root).as_posix() if tab.path else None
-        self.tree.setCurrentItem(self.file_items.get(relative))
+        self.tree.setCurrentItem(self.path_items.get(path_key(tab.path)) if tab.path else None)
         if tab.path:
             self.remember_recent(tab.path)
         self.sync_sidebar()
@@ -779,23 +890,26 @@ class WorkspaceShell(QMainWindow):
             menu.addAction('重做 · Ctrl+Y', editor.redo)
             if tab.document and tab.document.error:
                 menu.addAction('檢視回復版本', lambda:self.show_recovery(tab.document))
+            context = self.commands.context('tab', tab=tab)
+            menu.addAction('顯示所在資料夾', lambda: self.show_location(context.path.parent))
+            if context.root is None:
+                menu.addAction('將所在資料夾加入側欄', lambda: self.add_root(context.path.parent))
             menu.addSeparator()
-        menu.addAction('保留此分頁', lambda: self.retain_index(at))
-        menu.addAction('關閉分頁', lambda: self.close_tab(at))
+        menu.addAction('保留此分頁', lambda: self.retain_index(self.index_of(tab.key)))
+        menu.addAction('關閉分頁', lambda: self.close_tab(self.index_of(tab.key)))
         menu.open_at(self.tab_strip.bar.mapToGlobal(point))
 
     def tree_menu(self, point):
-        item = self.tree.itemAt(point)
-        if item is None or not item.data(0, Qt.ItemDataRole.UserRole):
-            return
-        menu = RoundMenu(self)
-        menu.addAction('在新分頁開啟', lambda: self.open_item(item, True))
-        menu.open_at(self.tree.viewport().mapToGlobal(point))
+        self.commands.tree_menu(point)
 
     def root_menu(self):
         menu = RoundMenu(self)
         menu.addAction('重新整理', self.refresh_tree)
-        menu.addAction('在檔案總管開啟', lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.root))))
+        menu.addAction('加入本機資料夾…', self.choose_root)
+        menu.addAction('收合所有資料夾', self.tree.collapseAll)
+        root = self.locations.current
+        if root:
+            menu.addAction('開啟根資料夾位置', lambda: self.show_location(root))
         menu.open_at(self.tree_more.mapToGlobal(self.tree_more.rect().bottomLeft()))
 
     def toggle_sidebar(self):
