@@ -42,6 +42,7 @@ class Tab:
     document: DesktopDocument | None = None
     path: Path | None = None
     route: str = ''
+    slot: str = ''
 
     @property
     def dirty(self):
@@ -79,6 +80,7 @@ class WorkspaceShell(QMainWindow):
         self.session = self.data / 'sessions' / uuid.uuid4().hex
         self.session.mkdir(parents=True)
         self.tabs_by_key = {}
+        self.saved_pages = {}
         self.utility = None
         self.history = []
         self.history_at = -1
@@ -87,6 +89,7 @@ class WorkspaceShell(QMainWindow):
         self.active_route = 'home'
         self.sidebar_preference = None
         self.sidebar_width = 264
+        self.show_empty_folders = True
         self.navigation_position = 'side'
         self.locations = WorkspaceLocations(self.root, self.data, self.read_navigation_json('linked-folders.json'))
         self.commands = WorkspaceCommands(self)
@@ -122,6 +125,7 @@ class WorkspaceShell(QMainWindow):
         self.new_tab()
         for sequence, callback in (('Ctrl+T', self.new_tab), ('Ctrl+W', self.close_current),
                                    ('Ctrl+S', self.save_current), ('Alt+Left', lambda: self.go(-1)),
+                                   ('Ctrl+Shift+S', self.commands.files.save_as_current),
                                    ('Alt+Right', lambda: self.go(1))):
             shortcut = QShortcut(QKeySequence(sequence), self)
             shortcut.activated.connect(callback)
@@ -170,7 +174,6 @@ class WorkspaceShell(QMainWindow):
         self.tab_strip.bar.currentChanged.connect(self.activate)
         self.tab_strip.bar.tabBarClicked.connect(self.activate)
         self.tab_strip.bar.tabCloseRequested.connect(self.close_tab)
-        self.tab_strip.bar.tabBarDoubleClicked.connect(self.retain_index)
         self.tab_strip.bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tab_strip.bar.customContextMenuRequested.connect(self.tab_menu)
         top.addWidget(self.tab_strip, 1)
@@ -304,7 +307,7 @@ class WorkspaceShell(QMainWindow):
         self.refresh_connection()
         self.sync_navigation_density()
         self.workspace_stack.sync_surface()
-        for tab in self.tabs_by_key.values():
+        for tab in self.all_pages():
             if isinstance(tab.widget, WorkspaceHome):
                 tab.widget.apply_appearance(appearance)
             elif tab.document:
@@ -344,6 +347,8 @@ class WorkspaceShell(QMainWindow):
             position=saved.get('navigation_position')
             if position in ('side','top'):
                 self.navigation_position=position
+            if type(saved.get('show_empty_folders')) is bool:
+                self.show_empty_folders = saved['show_empty_folders']
         except (ValueError,OSError):
             pass
 
@@ -353,7 +358,7 @@ class WorkspaceShell(QMainWindow):
     def save_ui_preferences(self):
         saved = {key:self.settings[key] for key in DISPLAY_KEYS}
         saved.update(sidebar_width=self.sidebar_width, sidebar_expanded=self.sidebar_preference,
-                     navigation_position=self.navigation_position)
+                     navigation_position=self.navigation_position, show_empty_folders=self.show_empty_folders)
         output=QSaveFile(str(self.data/'workspace-ui.json'))
         output.setDirectWriteFallback(False)
         if output.open(QIODevice.OpenModeFlag.WriteOnly):
@@ -441,6 +446,9 @@ class WorkspaceShell(QMainWindow):
             self.sync_sidebar()
 
     def refresh_tree(self):
+        if self.commands.files.inline is not None:
+            self.commands.files.inline.cancel()
+            return
         old_items = getattr(self, 'path_items', {})
         expanded = {key for key, item in old_items.items() if item.isExpanded()}
         selected = self.tree.currentItem()
@@ -458,7 +466,11 @@ class WorkspaceShell(QMainWindow):
             self.tree.addTopLevelItem(root_item)
             folders = {path_key(root): root_item}
             try:
-                for path, kind in self.locations.inventory(root):
+                inventory = list(self.locations.inventory(root))
+                occupied = {parent for path, kind in inventory if kind != 'folder' for parent in path.parents}
+                for path, kind in inventory:
+                    if kind == 'folder' and not self.show_empty_folders and path not in occupied:
+                        continue
                     item = QTreeWidgetItem([path.name if kind == 'folder' else path.stem])
                     self.set_tree_location(item, path, kind, root)
                     folders[path_key(path.parent)].addChild(item)
@@ -479,7 +491,7 @@ class WorkspaceShell(QMainWindow):
             root_item.setExpanded(not old_items or path_key(root) in expanded)
         self.tree.setCurrentItem(self.path_items.get(path_key(selected_path)) if selected_path else None)
         self.tree.blockSignals(False)
-        for tab in self.tabs_by_key.values():
+        for tab in self.all_pages():
             if isinstance(tab.widget, WorkspaceHome):
                 tab.widget.set_recent(self.recent_files)
 
@@ -518,31 +530,67 @@ class WorkspaceShell(QMainWindow):
         if value:
             self.open_path(Path(value), retained)
 
-    def tab_for_path(self, path):
+    def all_pages(self):
+        return [*self.tabs_by_key.values(), *self.saved_pages.values()]
+
+    def tab_for_path(self, path, include_history=False):
         if path is None:
             return None
-        return next((tab for tab in self.tabs_by_key.values()
+        return next((tab for tab in (self.all_pages() if include_history else self.tabs_by_key.values())
                      if tab.path and path_key(tab.path) == path_key(path)), None)
 
-    def add_tab(self, tab, replace_preview=False):
+    def add_tab(self, tab, replace_current=False, position=None):
         bar = self.tab_strip.bar
-        if replace_preview:
-            for i in range(bar.count()):
-                current = self.tabs_by_key[bar.tabData(i)]
-                if not current.retained and not current.dirty:
-                    self.close_tab(i, decision='discard', make_home=False)
-                    break
+        at = bar.currentIndex() if position is None else position
+        current = self.tabs_by_key.get(bar.tabData(at)) if replace_current else None
+        if current:
+            if not self.prepare_navigation(current):
+                if tab.key not in self.saved_pages:
+                    self.dispose_page(tab)
+                return None
+            self.autosave.stop(current)
+            self.saved_pages[current.key] = self.tabs_by_key.pop(current.key)
+            bar.preview_keys.discard(current.key)
+            tab.slot = current.slot
+        else:
+            tab.slot = uuid.uuid4().hex
+        self.saved_pages.pop(tab.key, None)
         self.tabs_by_key[tab.key] = tab
         if self.pages.indexOf(tab.widget) < 0:
             self.pages.addWidget(tab.widget)
         bar.blockSignals(True)
-        at = bar.addTab(tab.title)
+        if current:
+            bar.setTabText(at, tab.title)
+        else:
+            at = bar.addTab(tab.title)
         bar.setTabData(at, tab.key)
         bar.blockSignals(False)
         self.update_tab(tab)
         bar.setCurrentIndex(at)
         self.activate(at)
         return tab
+
+    def prepare_navigation(self, tab):
+        if self.autosave.editing_dialog(tab):
+            self.show_notice('請先完成目前表單的確認或取消。')
+            return False
+        return self.prepare_close(tab)
+
+    def dispose_page(self, tab):
+        self.autosave.forget(tab)
+        if tab.document:
+            if not tab.document.host.close():
+                return False
+            tab.document.deleteLater()
+        self.pages.removeWidget(tab.widget)
+        tab.widget.deleteLater()
+        return True
+
+    def prune_saved_pages(self):
+        needed = {entry[1] for entry in self.history if entry[0] == 'document' and self.valid_visit(entry)}
+        for key, tab in list(self.saved_pages.items()):
+            if key not in needed and self.dispose_page(tab):
+                self.saved_pages.pop(key)
 
     def index_of(self, key):
         bar = self.tab_strip.bar
@@ -557,7 +605,7 @@ class WorkspaceShell(QMainWindow):
         if dirty:
             tab.retained = True
         location = str(tab.path) if tab.path else ''
-        self.tab_strip.decorate(at, tab.title, tab.retained, bool(dirty), location)
+        self.tab_strip.decorate(at, tab.title, True, bool(dirty), location)
         error = document.error if document else tab.widget.error if isinstance(tab.widget,MarkdownPage) else ''
         if error:
             self.tab_strip.bar.setTabToolTip(at,self.tab_strip.bar.tabToolTip(at)+'\n'+error)
@@ -566,21 +614,23 @@ class WorkspaceShell(QMainWindow):
         self.update_tab(tab)
         self.autosave.schedule(tab)
 
-    def open_path(self, path, retained=False):
+    def open_path(self, path, retained=False, *, new_tab=False):
         try:
             path = self.locations.file(path)
-            for tab in self.tabs_by_key.values():
+            for tab in self.all_pages():
                 if tab.path and (tab.path == path or (tab.path.exists() and path.exists() and tab.path.samefile(path))):
                     if retained:
                         tab.retained = True
+                    if self.index_of(tab.key) < 0:
+                        return self.add_tab(tab, replace_current=not new_tab)
                     self.update_tab(tab)
                     self.tab_strip.bar.setCurrentIndex(self.index_of(tab.key))
                     self.activate(self.index_of(tab.key))
                     return tab
             if path.suffix.lower() == '.md':
-                return self.open_markdown(path, retained)
+                return self.open_markdown(path, retained, new_tab=new_tab)
             document = DesktopDocument(path, self.session, self)
-            for existing in self.tabs_by_key.values():
+            for existing in self.all_pages():
                 if existing.document is None:
                     continue
                 old = existing.document.receipt
@@ -591,6 +641,7 @@ class WorkspaceShell(QMainWindow):
                     self.activate(self.index_of(existing.key))
                     return existing
                 if existing.document.key == document.key:
+                    document.deleteLater()
                     raise ValueError('另一個位置的同身分文件已開啟，請先關閉原頁或建立獨立副本。')
             document.prepare()
             host = EmbeddedHost(document.data, document)
@@ -604,17 +655,17 @@ class WorkspaceShell(QMainWindow):
             tab = Tab(document.key, path.stem, page, retained, document, path)
             document.changed.connect(lambda: self.document_changed(tab))
             document.editing.connect(lambda: self.retain(tab))
-            return self.add_tab(tab, replace_preview=not retained)
+            return self.add_tab(tab, replace_current=not new_tab)
         except (ValueError, OSError, KeyError) as error:
             self.report_error(str(error))
             return None
 
-    def open_markdown(self, path, retained):
+    def open_markdown(self, path, retained, *, new_tab=False):
         page = MarkdownPage(path)
         tab = Tab('md:' + uuid.uuid4().hex, path.stem, page, retained, path=path)
         page.document().modificationChanged.connect(lambda _: self.update_tab(tab))
         page.textChanged.connect(lambda: self.document_changed(tab))
-        return self.add_tab(tab, replace_preview=not retained)
+        return self.add_tab(tab, replace_current=not new_tab)
 
     def new_tab(self):
         page = WorkspaceHome(self.root, self.recent_files, self.settings, self.choose_file,
@@ -632,7 +683,7 @@ class WorkspaceShell(QMainWindow):
             return
         self.recent_files = recent[:20]
         self.recent_timer.start(500)
-        for tab in self.tabs_by_key.values():
+        for tab in self.all_pages():
             if isinstance(tab.widget, WorkspaceHome):
                 tab.widget.set_recent(self.recent_files)
 
@@ -770,11 +821,13 @@ class WorkspaceShell(QMainWindow):
         if not self.traversing and (not self.history or self.history[self.history_at] != entry):
             self.history = self.history[:self.history_at+1] + [entry]
             self.history_at = len(self.history)-1
+        self.prune_saved_pages()
         self.back.setEnabled(any(self.valid_visit(e) for e in self.history[:self.history_at]))
         self.forward.setEnabled(any(self.valid_visit(e) for e in self.history[self.history_at+1:]))
 
     def valid_visit(self, entry):
-        return entry[0] == 'utility' or entry[1] in self.tabs_by_key
+        return entry[0] == 'utility' or (entry[1] in self.tabs_by_key or entry[1] in self.saved_pages) and any(
+            tab.slot == entry[2] for tab in self.tabs_by_key.values())
 
     def activate(self, position):
         key = self.tab_strip.bar.tabData(position)
@@ -795,21 +848,29 @@ class WorkspaceShell(QMainWindow):
         if tab.path:
             self.remember_recent(tab.path)
         self.sync_sidebar()
-        self.record_visit(('document', key))
+        self.record_visit(('document', key, tab.slot))
 
     def go(self, delta):
         target = self.history_at + delta
         while 0 <= target < len(self.history):
             entry = self.history[target]
             if self.valid_visit(entry):
-                self.history_at = target
+                previous = self.history_at
                 self.traversing = True
-                if entry[0] == 'utility':
-                    self.open_route(entry[1], entry[2])
-                else:
-                    self.tab_strip.bar.setCurrentIndex(self.index_of(entry[1]))
-                    self.activate(self.index_of(entry[1]))
-                self.traversing = False
+                try:
+                    self.history_at = target
+                    if entry[0] == 'utility':
+                        self.open_route(entry[1], entry[2])
+                    elif entry[1] in self.saved_pages:
+                        at = next(self.index_of(t.key) for t in self.tabs_by_key.values() if t.slot == entry[2])
+                        if self.add_tab(self.saved_pages[entry[1]], replace_current=True, position=at) is None:
+                            self.history_at = previous
+                    else:
+                        self.tab_strip.bar.setCurrentIndex(self.index_of(entry[1]))
+                        self.activate(self.index_of(entry[1]))
+                finally:
+                    self.traversing = False
+                self.record_visit(self.history[self.history_at])
                 return
             target += delta
 
@@ -826,11 +887,16 @@ class WorkspaceShell(QMainWindow):
         return self.close_tab(self.tab_strip.bar.currentIndex()) if self.active_route == 'home' else False
 
     def save_current(self):
+        if self.active_route != 'home':
+            return False
         tab = self.tabs_by_key.get(self.active_key)
         return self.save_tab(tab) if tab else False
 
     def save_tab(self, tab):
-        if tab.key in self.autosave.saving:
+        if id(tab) in self.autosave.paused or tab.key in self.autosave.saving:
+            return False
+        if getattr(tab.document or tab.widget, 'operation_error', False):
+            self.show_notice((tab.document or tab.widget).error)
             return False
         self.autosave.stop(tab)
         self.autosave.saving.add(tab.key)
@@ -851,8 +917,14 @@ class WorkspaceShell(QMainWindow):
         return saved
 
     def prepare_close(self, tab, decision=None):
+        if id(tab) in self.autosave.paused:
+            self.show_notice('請先完成或取消目前的文件操作。')
+            return False
         if decision == 'discard':
             return True
+        if getattr(tab.document or tab.widget, 'operation_error', False):
+            self.show_notice((tab.document or tab.widget).error)
+            return False
         document = tab.document
         if document:
             if not document.host.flush_editor_drafts():
@@ -885,6 +957,7 @@ class WorkspaceShell(QMainWindow):
             tab.widget.deleteLater()
         if document:
             document.deleteLater()
+        self.prune_saved_pages()
         if bar.count():
             self.activate(bar.currentIndex())
         elif make_home:
@@ -905,12 +978,18 @@ class WorkspaceShell(QMainWindow):
             menu.addAction('重做 · Ctrl+Y', editor.redo)
             if tab.document and tab.document.error:
                 menu.addAction('檢視回復版本', lambda:self.show_recovery(tab.document))
+            for location in getattr(tab.document or tab.widget, 'recovery_paths', []):
+                path = Path(location)
+                if path.is_file() and path.suffix.casefold() in ('.md', '.pcs-category', '.pcs-workflow'):
+                    menu.addAction('開啟保留的文件：'+path.name, lambda checked=False, p=path: self.open_path(p, True, new_tab=True))
             context = self.commands.context('tab', tab=tab)
+            menu.addSeparator()
+            self.commands.files.add_actions(menu, context)
+            menu.addAction('在側欄中定位', lambda: self.reveal_file(tab.path)).setEnabled(context.root is not None)
             menu.addAction('顯示所在資料夾', lambda: self.show_location(context.path.parent))
             if context.root is None:
                 menu.addAction('將所在資料夾加入側欄', lambda: self.add_root(context.path.parent))
             menu.addSeparator()
-        menu.addAction('保留此分頁', lambda: self.retain_index(self.index_of(tab.key)))
         menu.addAction('關閉分頁', lambda: self.close_tab(self.index_of(tab.key)))
         menu.open_at(self.tab_strip.bar.mapToGlobal(point))
 
@@ -921,11 +1000,27 @@ class WorkspaceShell(QMainWindow):
         menu = RoundMenu(self)
         menu.addAction('重新整理', self.refresh_tree)
         menu.addAction('加入本機資料夾…', self.choose_root)
-        menu.addAction('收合所有資料夾', self.tree.collapseAll)
+        menu.addAction('全部展開', self.tree.expandAll)
+        menu.addAction('全部收合', self.tree.collapseAll)
+        folders = menu.addMenu('資料夾顯示')
+        show_empty = folders.addAction('顯示空資料夾', self.toggle_empty_folders)
+        show_empty.setCheckable(True)
+        show_empty.setChecked(self.show_empty_folders)
         root = self.locations.current
         if root:
             menu.addAction('開啟根資料夾位置', lambda: self.show_location(root))
         menu.open_at(self.tree_more.mapToGlobal(self.tree_more.rect().bottomLeft()))
+
+    def toggle_empty_folders(self):
+        self.show_empty_folders = not self.show_empty_folders
+        self.refresh_tree()
+        self.save_ui_preferences()
+
+    def reveal_file(self, path):
+        self.sidebar_preference = True
+        self.open_route('home')
+        self.sync_sidebar()
+        self.select_path(path)
 
     def toggle_sidebar(self):
         expanded = self.width() >= 980 if self.sidebar_preference is None else self.sidebar_preference
@@ -972,7 +1067,11 @@ class WorkspaceShell(QMainWindow):
     def closeEvent(self, event):
         # Resolve every dirty file first. Cancelling window close must not
         # silently remove earlier clean tabs or their native editor histories.
-        for tab in list(self.tabs_by_key.values()):
+        if self.commands.files.pending:
+            self.show_notice('請先完成或取消目前的文件操作。')
+            event.ignore()
+            return
+        for tab in self.all_pages():
             if not self.prepare_close(tab):
                 event.ignore()
                 return
@@ -988,4 +1087,5 @@ class WorkspaceShell(QMainWindow):
         self.save_ui_preferences()
         self.sidebar_resize.shutdown()
         QApplication.instance().removeEventFilter(self.centralWidget())
+        QApplication.instance().removeEventFilter(self.commands.files)
         event.accept()

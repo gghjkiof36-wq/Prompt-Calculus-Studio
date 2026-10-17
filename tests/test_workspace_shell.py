@@ -65,7 +65,7 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertEqual(self.errors, [])
 
     def open(self, name='Scene', suffix='pcs-category', retained=False):
-        tab = self.w.open_path(self.root/(name+'.'+suffix), retained)
+        tab = self.w.open_path(self.root/(name+'.'+suffix), retained, new_tab=retained)
         self.events()
         self.assertIsNotNone(tab, self.errors)
         return tab
@@ -90,17 +90,18 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertIsNotNone(page.active_dialog)
         return ident, page.active_dialog
 
-    def test_preview_replacement_retention_dedup_and_explicit_new(self):
+    def test_current_page_replacement_dedup_and_explicit_new(self):
         a = self.open()
         self.assertFalse(a.retained)
         a_key = a.key
         b = self.open('Action')
         self.assertNotIn(a_key, self.w.tabs_by_key)
-        self.assertEqual(self.w.tab_strip.bar.count(), 2)  # Home plus one preview
+        self.assertEqual(self.w.tab_strip.bar.count(), 1)
         self.assertIs(self.open('Action'), b)
         self.w.retain(b)
         a = self.open()
-        self.assertIn(b.key, self.w.tabs_by_key)
+        self.assertNotIn(b.key, self.w.tabs_by_key)  # Ordinary navigation always uses the current slot.
+        self.assertIn(b.key, self.w.saved_pages)
         self.assertIs(self.open(retained=True), a)
         self.assertTrue(a.retained)
         before = self.w.tab_strip.bar.count()

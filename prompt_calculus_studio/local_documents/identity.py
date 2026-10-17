@@ -84,14 +84,17 @@ class Duplicate:
     id_maps: dict
 
 
-def duplicate(document):
+def duplicate(document, *, id_maps=None, document_id=None):
     """Create an independent content identity, without writing or duplicating jobs."""
     candidate = copy.deepcopy(validate(document))
-    candidate['document_id'] = str(uuid.uuid4())
+    candidate['document_id'] = document_id or str(uuid.uuid4())
     candidate['revision'] = dict(id=str(uuid.uuid4()), parent=None)
     candidate['extensions']['pcs.duplicate_source'] = dict(
         document_id=document['document_id'], revision=document['revision']['id'])
-    maps = {}
+    maps = {} if id_maps is None else id_maps
+
+    def mapped(scope, key, prefix=''):
+        return maps.setdefault(scope, {}).setdefault(key, fresh(prefix))
 
     def tree(root, scope):
         return _root(root, maps.setdefault(scope, {}))
@@ -99,25 +102,24 @@ def duplicate(document):
     if candidate['kind'] == 'category':
         payload = candidate['payload']
         category = payload['category']
-        owned = {category['id']: fresh()}
-        owned.update((item['id'], fresh()) for item in payload['items'])
-        maps['catalog'] = owned
+        owned = maps.setdefault('catalog', {})
+        for key in [category['id'], *(item['id'] for item in payload['items'])]:
+            owned.setdefault(key, fresh())
         category['id'] = owned[category['id']]
         for index, item in enumerate(payload['items']):
+            old_id = item['id']
             item['id'] = owned[item['id']]
             item['module'] = owned[item['module']]
             if item.get('composition'):
-                item['composition'] = tree(item['composition'], f'item/{index}')
+                item['composition'] = tree(item['composition'], f'item/{old_id}')
     else:
         state = candidate['payload']['state']
         workspace = state['workspaces'][0]
         old_workspace = workspace['id']
-        workspace['id'] = state['workspace'] = fresh()
-        maps['workspace'] = {old_workspace: state['workspace']}
+        workspace['id'] = state['workspace'] = mapped('workspace', old_workspace)
         data = state.get('multi_output', {})
         functions = state.get('canvas_functions', {})
-        owned = {}
-        maps['scene'] = owned
+        owned = maps.setdefault('scene', {})
         collections = [state.get('uses', {}), workspace.get('uses', {})]
         collections += [data.get(name, {}) for name in ('canvases', 'outputs', 'clip_inputs', 'image_inputs', 'schedulers', 'stages')]
         collections += [functions.get(name, {}) for name in ('images', 'text_sources', 'previews')]
@@ -128,7 +130,7 @@ def duplicate(document):
         for key, scheduler in data.get('schedulers', {}).items():
             for channel in scheduler['channels']:
                 old = channel['id']
-                channel['id'] = fresh('channel_')
+                channel['id'] = mapped('channels/'+key, old, 'channel_')
                 owned[key + '::' + old] = owned[key] + '::' + channel['id']
 
         def reference(key):
@@ -141,11 +143,11 @@ def duplicate(document):
 
         chain = data.get('workflow_order', {}).get('chain')
         if chain:
-            owned[chain['id']] = fresh()
+            owned.setdefault(chain['id'], fresh())
             chain['id'] = owned[chain['id']]
             for stage in chain['stages']:
                 old = stage['id']
-                owned[old] = fresh()
+                owned.setdefault(old, fresh())
                 owned['__workflow_order__::' + old] = '__workflow_order__::' + owned[old]
             chain['source'] = reference(chain.get('source'))
             for stage in chain['stages']:
@@ -189,10 +191,10 @@ def duplicate(document):
                 if field in output:
                     output[field] = [reference(key) for key in output[field]]
             owner_roots(output.get('list_state', {}), 'output/' + output_id)
-        for canvas in data.get('canvases', {}).values():
+        for canvas_id, canvas in data.get('canvases', {}).items():
             canvas['members'] = [reference(key) for key in canvas['members']]
             for layer in (canvas.get('image') or {}).get('layers', []):
-                layer['id'] = fresh()
+                layer['id'] = mapped('layers/'+canvas_id, layer['id'])
         for binding in data.get('bindings', []):
             for field in ('clip', 'output'):
                 if field in binding:
@@ -200,7 +202,7 @@ def duplicate(document):
             # workflow, node, field and server belong to the external target.
         lines = [*data.get('connections', []), *data.get('workflow_order', {}).get('legacy_control_connections', [])]
         for line in lines:
-            line['id'] = fresh('line_')
+            line['id'] = mapped('connections', line['id'], 'line_')
             line['source'] = reference(line['source'])
             line['destination'] = reference(line['destination'])
         if 'current_output' in data:

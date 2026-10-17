@@ -10,9 +10,10 @@ class WorkspaceAutosave(QObject):
         self.workspace = workspace
         self.timers = {}
         self.saving = set()
+        self.paused = set()
 
     def schedule(self, tab):
-        if tab.key not in self.workspace.tabs_by_key or tab.key in self.saving:
+        if tab not in self.workspace.all_pages() or id(tab) in self.paused or tab.key in self.saving:
             return
         if not tab.dirty:
             self.stop(tab)
@@ -38,7 +39,7 @@ class WorkspaceAutosave(QObject):
 
     def flush(self, tab):
         self.stop(tab)
-        if (tab.key in self.workspace.tabs_by_key and tab.dirty
+        if (tab in self.workspace.all_pages() and id(tab) not in self.paused and tab.dirty
                 and not self.editing_dialog(tab)):
             self.workspace.save_tab(tab)
 

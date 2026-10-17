@@ -11,7 +11,7 @@ from .workspace_locations import CommandContext
 PATH_ROLE = Qt.ItemDataRole.UserRole + 1
 KIND_ROLE = Qt.ItemDataRole.UserRole + 2
 ROOT_ROLE = Qt.ItemDataRole.UserRole + 3
-NAMES = dict(category='分類', workflow='Canvas 工作流', markdown='Markdown 筆記', folder='資料夾')
+NAMES = dict(category='文字模塊分類', workflow='Canvas 工作流', markdown='Markdown 筆記', folder='資料夾')
 
 
 class NewEntryDialog(StudioDialog):
@@ -71,6 +71,8 @@ class NewEntryDialog(StudioDialog):
 class WorkspaceCommands:
     def __init__(self, workspace):
         self.workspace = workspace
+        from .workspace_file_operations import WorkspaceFileOperations
+        self.files = WorkspaceFileOperations(workspace)
 
     def context(self, origin, item=None, tab=None):
         w = self.workspace
@@ -157,21 +159,28 @@ class WorkspaceCommands:
         menu = RoundMenu(w)
         if context.kind in ('root', 'folder', ''):
             self.add_creation_actions(menu.addMenu('新增'), context)
+            if context.kind == 'folder':
+                menu.addSeparator()
+                self.files.add_actions(menu, context)
+            menu.addSeparator()
             if context.path:
                 menu.addAction('在檔案總管開啟', lambda: w.show_location(context.path))
             if context.kind in ('root', ''):
                 menu.addAction('重新整理', w.refresh_tree)
-                menu.addAction('加入本機資料夾…', w.choose_root)
+                if context.kind == '':
+                    menu.addAction('加入本機資料夾…', w.choose_root)
+                    menu.addAction('全部展開', w.tree.expandAll)
+                    menu.addAction('全部收合', w.tree.collapseAll)
                 if context.kind == 'root':
                     menu.addAction('移除側欄連結（保留原檔）', lambda: w.remove_root(context.path))
         else:
             tab = w.tabs_by_key.get(context.tab_key)
             title = '切換至已開分頁' if tab else '在新分頁開啟'
-            menu.addAction(title, lambda: w.open_path(context.path, True))
-            if tab:
-                menu.addAction('保存文件', lambda: w.save_tab(tab))
-            menu.addAction('顯示所在資料夾', lambda: w.show_location(context.path.parent))
-            self.add_creation_actions(menu.addMenu('新增'), context)
+            menu.addAction(title, lambda: w.open_path(context.path, True, new_tab=True))
+            menu.addSeparator()
+            self.files.add_actions(menu, context)
+            menu.addSeparator()
+            menu.addAction('在檔案總管中顯示', lambda: w.show_location(context.path.parent))
         if context.path:
             menu.addSeparator()
             menu.addAction('複製路徑', lambda: QApplication.clipboard().setText(str(context.path)))
@@ -195,7 +204,7 @@ class WorkspaceCommands:
         except (OSError, ValueError) as error:
             w.report_error(str(error))
             return False
-        affected = [tab for tab in w.tabs_by_key.values()
+        affected = [tab for tab in w.all_pages()
                     if tab.path and (tab.path == path or path in tab.path.parents)]
         if any(not w.prepare_close(tab, decision='cancel') for tab in affected):
             w.report_error('這個項目有未保存的變更；請先保存或關閉相關分頁，再移至資源回收筒。')
@@ -215,7 +224,12 @@ class WorkspaceCommands:
             w.report_error('無法移至資源回收筒；檔案與分頁均已保留。')
             return False
         for tab in affected:
-            w.close_tab(w.index_of(tab.key), decision='discard')
+            at = w.index_of(tab.key)
+            if at >= 0:
+                w.close_tab(at, decision='discard')
+            elif tab.key in w.saved_pages:
+                w.dispose_page(tab)
+                w.saved_pages.pop(tab.key)
         w.recent_files = [p for p in w.recent_files if Path(p) != path and path not in Path(p).parents]
         w.save_recent()
         from .workspace_home import WorkspaceHome

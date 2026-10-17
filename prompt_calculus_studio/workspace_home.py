@@ -44,7 +44,7 @@ class WorkspaceHome(QScrollArea):
         body.addWidget(label('新增', 'WorkspaceSectionTitle'))
         self.create_buttons = {}
         for kind, title, symbol in (('workflow', 'Canvas 工作流', 'workflow'),
-                                     ('category', '管理頁（文字模塊）', 'list'),
+                                     ('category', '文字模塊分類', 'list'),
                                      ('markdown', 'Markdown 筆記', 'file-text')):
             entry = button(title, lambda checked=False, k=kind: create_file(k), 'WorkspaceCreate')
             entry.setIcon(icon(symbol, 'navigation'))

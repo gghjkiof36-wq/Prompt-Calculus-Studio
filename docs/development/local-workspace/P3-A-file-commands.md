@@ -47,23 +47,21 @@ Full paths in recent rows and tab tooltips distinguish same-named files. Missing
 or invalid records are handled independently, not by discarding later entries.
 This is not whole-session, tab or Undo restoration.
 
-## Continuity for later batches
+## Continuity into file operations
 
 PCS document IDs and session tab keys remain independent of path. Markdown uses
-a session UUID, without sidecar files or nonstandard text. Later rename/move
-commands will update the existing model's path, receipt and asset base instead
+a session UUID, without sidecar files or nonstandard text. Rename/move
+commands update the existing model's path, receipt and asset base instead
 of closing and reconstructing it. Contexts must resolve their captured tab key,
 never a subsequently active tab. Root-link removal does not rename or move files.
 
-Save As belongs to P3-B: serialize the target's current legal draft with the
-existing identity duplication and asset-copy boundary, then open a new retained
-clean tab. The original disk file, draft, dirty flag and Undo remain unchanged.
-Rename/F2 belongs to P3-C; same-root single-item moves and their rollback/asset
-relocation belong to P3-D. No placeholder commands advertise these unfinished
-operations in P3-A. Existing save, Undo, preview and service isolation continue.
+The integrated [file-operation contract](P3-file-operations.md) supersedes the
+earlier Save As proposal: the operated tab becomes the new file, and subsequent
+edits/Undo/save target only that file. Ordinary navigation also reuses the current
+tab; explicit plus and new-tab commands remain the way to add tabs.
 
-The user's subsequent context-menu request adds New at the selected file's
-parent, Copy Path and Move to Recycle Bin. Linked roots still use unlink only.
+The integrated context menu groups file operations, location and recycling.
+Creation remains on the header and folder menus. Linked roots use unlink only.
 Trashing a file/folder requires its explicit confirmation, rejects unsaved open
 descendants, and uses the OS recycle operation without a permanent-delete
 fallback. Only success closes affected tabs and removes their recent-file rows;

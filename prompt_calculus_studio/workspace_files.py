@@ -76,12 +76,7 @@ class MarkdownPage(QPlainTextEdit):
             target = paths.checked(self.path.parent, self.path.name)
             if paths.read_bytes(target, 8*1024*1024)[0] != self.baseline:
                 raise ValueError('檔案已被外部修改；編輯內容保留在此頁，尚未覆寫原檔。')
-            text = self.toPlainText()
-            if b'\r\n' in self.baseline:
-                text = text.replace('\n', '\r\n')
-            raw = (b'\xef\xbb\xbf' if self.baseline.startswith(b'\xef\xbb\xbf') else b'')+text.encode('utf-8')
-            if len(raw) > 8*1024*1024:
-                raise ValueError('Markdown 超過 8 MiB，請縮減內容後保存。')
+            raw = self.encoded()
             output = QSaveFile(str(target))
             output.setDirectWriteFallback(False)
             if not output.open(QIODevice.OpenModeFlag.WriteOnly):
@@ -98,3 +93,12 @@ class MarkdownPage(QPlainTextEdit):
         except (ValueError, OSError) as error:
             self.error = str(error)
             return False
+
+    def encoded(self):
+        text = self.toPlainText()
+        if b'\r\n' in self.baseline:
+            text = text.replace('\n', '\r\n')
+        raw = (b'\xef\xbb\xbf' if self.baseline.startswith(b'\xef\xbb\xbf') else b'') + text.encode('utf-8')
+        if len(raw) > 8*1024*1024:
+            raise ValueError('Markdown 超過 8 MiB，請縮減內容後保存。')
+        return raw

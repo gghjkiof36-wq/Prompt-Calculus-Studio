@@ -1,7 +1,7 @@
 """Isolated document adapters for the local workspace development entry.
 
 The existing material editor and Canvas own their transactions and native text
-documents. A host is never retargeted to another file while callbacks are alive.
+documents. File operations rebind their writer without rebuilding that model.
 Live task/AppServices routing is a later integration boundary; this entry edits
 locally and keeps its SQLite session in a separate directory.
 """
@@ -10,7 +10,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, Qt
 
 from .core import Storage, separate_selections
 from .comfy_client import ComfyClient
@@ -43,6 +43,8 @@ class DesktopDocument(QObject):
         self.path = Path(path).absolute()
         loaded = io.load(self.path.parent, self.path.name)
         self.document, self.receipt = loaded.document, loaded.receipt
+        self.runtime_document = copy.deepcopy(self.document)
+        self.identity_maps = None
         self.issues = loaded.issues
         self.kind = self.document['kind']
         self.key = self.document['document_id']
@@ -88,16 +90,16 @@ class DesktopDocument(QObject):
         self.opening_settings = copy.deepcopy(host.state['settings'])
         self.baseline = self.project()['payload']
 
-    def project(self):
+    def project(self, *, remap=True):
         state = self.host.state
         if self.kind == 'category':
-            fresh = category.from_state(state, self.document['payload']['category']['id'])
+            fresh = category.from_state(state, self.runtime_document['payload']['category']['id'])
             settings = fresh['payload']['settings']
-            original = self.document['payload']['settings']
+            original = self.runtime_document['payload']['settings']
         else:
             fresh = workflow.from_state(state)
             settings = fresh['payload']['state']['settings']
-            original = self.document['payload']['state']['settings']
+            original = self.runtime_document['payload']['state']['settings']
         for key in list(settings):
             if key not in original and settings[key] == (self.opening_settings or state['settings']).get(key):
                 settings.pop(key)
@@ -105,6 +107,9 @@ class DesktopDocument(QObject):
         result['payload'] = fresh['payload']
         referenced = {ref for ref, _, _ in assets.references(result)}
         result['assets'] = [entry for entry in result['assets'] if entry['reference'] in referenced]
+        if remap and self.identity_maps is not None:
+            from .identity_projection import project_copy
+            result = project_copy(result, self.identity_maps)
         schema.validate(result)
         return result
 
@@ -156,6 +161,8 @@ class DocumentBrowser(PromptEditor):
 
     def __init__(self, host):
         super().__init__(host)
+        # Keep material editing local; the outer file tab/tree owns its F2.
+        self.f2.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         # QScrollArea gives its content a filled Window background by default.
         # Use the same opaque content role as Home instead of the sidebar base.
         self.shell.setObjectName('ContentSurface')
@@ -187,9 +194,14 @@ class DocumentBrowser(PromptEditor):
         # owner silently inserted into this single-category document.
         from .widgets import RoundMenu
         menu = RoundMenu(self)
-        menu.addAction('保存文件', self.window.document.save)
+        workspace = self.window.workspace_owner
+        tab = workspace.tab_for_path(self.window.document.path) if workspace else None
+        menu.addAction('保存文件', lambda: workspace.save_tab(tab) if tab else self.window.document.save())
         menu.addAction('復原', self.window.canvas.undo)
         menu.addAction('重做', self.window.canvas.redo)
+        if tab:
+            menu.addSeparator()
+            workspace.commands.files.add_actions(menu, workspace.commands.context('page', tab=tab))
         menu.open_at(self.library_more.mapToGlobal(self.library_more.rect().bottomLeft()))
 
 

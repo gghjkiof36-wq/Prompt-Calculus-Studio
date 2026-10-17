@@ -82,7 +82,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         self.events()
         return result
 
-    def test_all_kinds_and_captured_destinations_preserve_dirty_editor(self):
+    def test_all_kinds_and_captured_destinations_save_current_and_preserve_editor_history(self):
         tab = self.w.open_path(self.note, True)
         QTest.keyClicks(tab.widget, 'unsaved ')
         original = self.note.read_bytes()
@@ -107,16 +107,16 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
                     else:
                         self.assertTrue(result.retained)
         self.assertIs(tab.widget, old_editor)
-        self.assertTrue(tab.dirty)
+        self.assertFalse(tab.dirty)
         self.assertTrue(tab.widget.document().isUndoAvailable())
-        self.assertEqual(self.note.read_bytes(), original)
+        self.assertNotEqual(self.note.read_bytes(), original)
 
     def test_toolbar_folder_menu_and_home_use_one_real_form(self):
         self.w.tree.setCurrentItem(self.item(self.folder))
         self.events()
         QTest.mouseClick(self.w.tree_new, Qt.MouseButton.LeftButton)
         menu = self.app.activePopupWidget()
-        self.assertEqual([a.text() for a in menu.actions()], ['分類…', 'Canvas 工作流…', 'Markdown 筆記…'])
+        self.assertEqual([a.text() for a in menu.actions()], ['文字模塊分類…', 'Canvas 工作流…', 'Markdown 筆記…'])
         action = menu.actions()[2]
         self.w.tree.setCurrentItem(self.item(self.root))  # Context already captured.
         def create_nested(dialog):
@@ -412,12 +412,12 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         self.assertEqual(text_x(self.folder/'Nested.md'), text_x(self.folder))
         self.assertEqual(text_x(self.note), text_x(self.folder))
 
-    def test_file_menu_creates_beside_clicked_file_and_root_only_unlinks(self):
+    def test_file_menu_operations_target_clicked_file_and_root_only_unlinks(self):
         context = self.w.commands.context('tree', self.item(self.folder/'Nested.md'))
         menu = self.w.commands.menu_for(context)
         actions = {action.text(): action for action in menu.actions()}
         self.assertIn('移至資源回收筒…', actions)
-        child = actions['新增'].menu().actions()[2]
+        child = actions['另存新檔…']
         self.dialog_action(child.trigger, lambda d: (self.assertEqual(d.directory.text(), str(self.folder)), d.reject()))
         root_menu = self.w.commands.menu_for(self.w.commands.context('tree', self.item(self.root)))
         labels = [action.text() for action in root_menu.actions()]
@@ -461,7 +461,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
 
     def test_trash_success_closes_only_affected_tabs_and_keeps_attachments(self):
         tab = self.w.open_path(self.note, True)
-        other = self.w.open_path(self.folder/'Nested.md', True)
+        other = self.w.open_path(self.folder/'Nested.md', True, new_tab=True)
         attachment = self.root/'assets'/'keep.png'
         attachment.parent.mkdir()
         attachment.write_bytes(b'untouched attachment')
