@@ -15,8 +15,8 @@ def canvas_dialog_context(parent):
             if ((current is not None and current is getattr(canvas,'editor_page',None)) or
                     (current is getattr(parent,'canvas_shell',None) and content is not None and content.currentWidget() is canvas)):
                 from .canvas_items import canvas_colors
-                from .theme import font_pixels
-                return canvas_colors(canvas),max(16,font_pixels(parent.state['settings']['ui_size']))
+                from .theme import font_pixels,window_appearance
+                return canvas_colors(canvas),max(16,font_pixels(window_appearance(parent)['ui_size']))
         parent=parent.parentWidget()
     return None
 
@@ -78,13 +78,14 @@ def apply_prompt_dialog(dialog, window):
     # Only the deliberate side-card transition animates. A whole-window fade
     # exposes the old/native backing surface while these editors are opening.
     dialog._prompt_instant_show = True
-    from .theme import visual_tokens,font_pixels,widget_palette
+    from .theme import visual_tokens,font_pixels,widget_palette,window_appearance
     from PySide6.QtGui import QPalette
     from PySide6.QtWidgets import QFrame
-    tokens=visual_tokens(window.state['settings'])
+    settings=window_appearance(window)
+    tokens=visual_tokens(settings)
     colors=dialog_colors(tokens)
-    apply_module_dialog(dialog,tokens,max(16,font_pixels(window.state['settings']['ui_size'])))
-    palette=widget_palette(window.state['settings'])
+    apply_module_dialog(dialog,tokens,max(16,font_pixels(settings['ui_size'])))
+    palette=widget_palette(settings)
     palette.setColor(QPalette.ColorRole.Window,QColor(colors['base']))
     palette.setColor(QPalette.ColorRole.Base,QColor(colors['surface']))
     dialog.setPalette(palette)

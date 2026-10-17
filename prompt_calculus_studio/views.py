@@ -3,7 +3,7 @@ import uuid
 from PySide6.QtCore import Qt, QSize, QRectF, QPointF, QPoint, Signal, QMimeData, QTimer, QEvent
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPainterPath, QDrag
 from PySide6.QtWidgets import QStyledItemDelegate, QStyle, QTreeWidget, QAbstractItemView, QListWidget
-from .theme import font_pixels,visual_tokens
+from .theme import font_pixels,visual_tokens,window_appearance
 
 DETAIL_ROLE=int(Qt.ItemDataRole.UserRole)+1
 
@@ -13,9 +13,10 @@ def widget_colors(widget):
     while widget is not None:
         for owner in (widget,getattr(widget,'window',None),getattr(widget,'canvas',None)):
             state=getattr(owner,'state',None)
-            if isinstance(state,dict):return visual_tokens(state.get('settings'))
-            state=getattr(getattr(owner,'window',None),'state',None)
-            if isinstance(state,dict):return visual_tokens(state.get('settings'))
+            if isinstance(state,dict):return visual_tokens(window_appearance(owner))
+            nested=getattr(owner,'window',None)
+            state=getattr(nested,'state',None)
+            if isinstance(state,dict):return visual_tokens(window_appearance(nested))
         parent=widget.parent()
         proxy=widget.graphicsProxyWidget() if parent is None and hasattr(widget,'graphicsProxyWidget') else None
         widget=proxy.scene().views()[0] if proxy is not None and proxy.scene() and proxy.scene().views() else parent
@@ -70,20 +71,22 @@ class PromptDelegate(QStyledItemDelegate):
         super().__init__(window); self.window=window
 
     def sizeHint(self,option,index):
-        font=QFont(option.font); font.setPixelSize(font_pixels(self.window.state["settings"]["ui_size"]))
+        settings=window_appearance(self.window)
+        font=QFont(option.font); font.setPixelSize(font_pixels(settings["ui_size"]))
         height=QFontMetrics(font).height()*4+44
-        if self.window.state["settings"]["density"]=="compact": height-=16
+        if settings["density"]=="compact": height-=16
         return QSize(180,height)
 
     def paint(self,painter,option,index):
         data=index.data(DETAIL_ROLE) or {}; chosen=data.get("chosen",False)
-        colors=visual_tokens(self.window.state['settings'])
+        settings=window_appearance(self.window)
+        colors=visual_tokens(settings)
         hover=bool(option.state & QStyle.StateFlag.State_MouseOver)
         rect=QRectF(option.rect).adjusted(1,5,-4,-5)
         painter.save(); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(QPen(QColor(colors['warning' if data.get('affected') else 'control' if chosen else 'line']),1.5 if data.get('affected') else 1))
         painter.setBrush(QColor(colors['selected' if chosen else 'hover' if hover else 'surface'])); painter.drawRoundedRect(rect,12,12)
-        font=QFont(option.font); font.setPixelSize(font_pixels(self.window.state["settings"]["ui_size"]))
+        font=QFont(option.font); font.setPixelSize(font_pixels(settings["ui_size"]))
         fm=QFontMetrics(font); line=fm.height(); x=rect.left()+18; y=rect.top()+17
         circle=QRectF(x,y+2,17,17)
         painter.setPen(QPen(QColor(colors['accent' if chosen else 'control']),1)); painter.setBrush(QColor(colors['accent']) if chosen else Qt.BrushStyle.NoBrush)
@@ -105,7 +108,7 @@ class PromptDelegate(QStyledItemDelegate):
         font.setWeight(QFont.Weight.Normal); painter.setFont(font); painter.setPen(QColor(colors['secondary']))
         prompt=data.get("prompt","").replace("\n"," ")
         painter.drawText(QRectF(tx,y+line+8,width,line+2),Qt.AlignmentFlag.AlignVCenter,QFontMetrics(font).elidedText(prompt,Qt.TextElideMode.ElideRight,width))
-        font.setPixelSize(font_pixels(max(9,self.window.state["settings"]["ui_size"]-1))); painter.setFont(font); painter.setPen(QColor(colors['muted']))
+        font.setPixelSize(font_pixels(max(9,settings["ui_size"]-1))); painter.setFont(font); painter.setPen(QColor(colors['muted']))
         aliases=("  ·  ".join(data.get("aliases",[])[:3]) or data.get("module_name",""))+f"  ·  ×{data.get('weight',10)/10:.1f}"
         painter.drawText(QRectF(tx,y+line*2+16,width,line+2),Qt.AlignmentFlag.AlignVCenter,QFontMetrics(font).elidedText(aliases,Qt.TextElideMode.ElideRight,width))
         if has_icon:

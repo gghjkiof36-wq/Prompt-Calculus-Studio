@@ -99,12 +99,12 @@ class DocumentTabs(QWidget):
         super().__init__(parent)
         self.bar = DocumentTabBar()
         self.plus = button('', self.newRequested.emit, 'Quiet')
-        self.plus.setIcon(icon('plus'))
+        self.plus.setIcon(icon('plus','navigation'))
         self.plus.setAccessibleName('開啟新分頁')
         self.plus.setToolTip('開啟新分頁 (Ctrl+T)')
         self.plus.setFixedSize(32, 32)
         self.overflow = button('', self.show_list, 'Quiet')
-        self.overflow.setIcon(icon('chevron-down'))
+        self.overflow.setIcon(icon('chevron-down','navigation'))
         self.overflow.setAccessibleName('所有分頁')
         self.overflow.setToolTip('所有分頁')
         self.overflow.setFixedSize(28, 32)
@@ -151,7 +151,12 @@ class DocumentTabs(QWidget):
     def show_list(self):
         menu = RoundMenu(self)
         for i in range(self.bar.count()):
-            action = menu.addAction(self.bar.tabText(i), lambda checked=False, n=i: self.bar.setCurrentIndex(n))
+            action = menu.addAction(self.bar.tabText(i), lambda checked=False, n=i: self.select_from_list(n))
             action.setCheckable(True)
             action.setChecked(i == self.bar.currentIndex())
         menu.open_at(self.overflow.mapToGlobal(self.overflow.rect().bottomLeft()))
+
+    def select_from_list(self, index):
+        self.bar.setCurrentIndex(index)
+        # Selecting the already-current file must also leave a utility route.
+        self.bar.tabBarClicked.emit(index)

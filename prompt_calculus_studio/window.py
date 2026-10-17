@@ -652,8 +652,8 @@ class Window(QMainWindow):
             return False
 
     def apply_theme(self, preserve_layout=False, refresh_fonts=False):
-        appearance=dict(self.state["settings"])
-        appearance.update(getattr(self,"appearance_preview",{}))
+        from .theme import window_appearance
+        appearance=window_appearance(self)
         from PySide6.QtWidgets import QApplication
         from .theme import visual_tokens
         app=QApplication.instance()
@@ -697,7 +697,7 @@ class Window(QMainWindow):
         if hasattr(self,'settings_page'):
             self.settings_page.civitai.configure_fonts(); self.settings_page.workflow_manager.update_list_height()
             self.settings_page.refresh_icons()
-        update_window_shape(self)
+        if not self.embedded_document: update_window_shape(self)
         self.tagline.setVisible(appearance["ui_size"]<16)
         self.quick.setFixedHeight(max(54,int(appearance["ui_size"]*2.4+22)))
         self.library.doItemsLayout()
@@ -732,7 +732,7 @@ class Window(QMainWindow):
 
     def resizeEvent(self,event):
         super().resizeEvent(event)
-        if hasattr(self,"state"): update_window_shape(self)
+        if hasattr(self,"state") and not self.embedded_document: update_window_shape(self)
         if hasattr(self,'builder_scroll'):self.adapt_prompt_layout()
         if hasattr(self,'sidebar_peek'):QTimer.singleShot(0,self.sync_context_sidebar)
     def compact_module_changed(self):
@@ -757,7 +757,7 @@ class Window(QMainWindow):
 
     def changeEvent(self,event):
         super().changeEvent(event)
-        if event.type()==QEvent.Type.WindowStateChange and hasattr(self,"state"):
+        if event.type()==QEvent.Type.WindowStateChange and hasattr(self,"state") and not self.embedded_document:
             update_window_shape(self)
 
     def refresh_workspaces(self):

@@ -229,7 +229,13 @@ class EmbeddedHost(Window):
                 target.setFixedWidth(264)
                 target.layout().setContentsMargins(12, 16, 12, 12)
             self.gallery.sidebar_split.setHandleWidth(0)
+            from .ui_icons import icon
+            self.gallery.new_folder.setIcon(icon('plus','navigation'))
+            self.gallery.folder_more.setIcon(icon('more-horizontal','navigation'))
             self.setStyleSheet(stylesheet(self.state['settings'])+sidebar_style(self.state['settings']))
+        else:
+            # The appearance owner is the shell, never the saved file settings.
+            self.apply_theme(preserve_layout=True)
 
     def apply_theme(self, *args, **kwargs):
         super().apply_theme(*args, **kwargs)
@@ -270,6 +276,8 @@ class EmbeddedHost(Window):
         workspace = getattr(self, 'workspace_owner', None)
         if workspace is not None and self.document is not None:
             return workspace.open_route('settings', section)
+        if workspace is not None and section=='interface':
+            section='appearance'
         return super().settings(section)
 
     def changed(self, scope='prompt', refresh=True):

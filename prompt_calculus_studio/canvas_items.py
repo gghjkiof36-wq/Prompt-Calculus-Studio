@@ -11,9 +11,9 @@ from . import prompt_materials as pm
 
 
 def canvas_colors(canvas):
-    from .theme import visual_tokens
+    from .theme import visual_tokens,window_appearance
     from .module_chrome import matte_colors
-    return matte_colors(visual_tokens(canvas.window.state.get('settings',{})))
+    return matte_colors(visual_tokens(window_appearance(canvas.window)))
 
 
 def paint_module_surface(painter,outline,colors,header_bottom):

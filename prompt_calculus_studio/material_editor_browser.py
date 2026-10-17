@@ -399,8 +399,8 @@ class PromptEditor(QWidget):
         self.shell.setMinimumWidth(area_x+area_width+(READING_NARROW_MARGIN if self.narrow else READING_MARGIN))
 
     def _sync_type(self):
-        from .theme import font_pixels
-        settings = dict(self.window.state['settings']); settings.update(getattr(self.window, 'appearance_preview', {}))
+        from .theme import font_pixels,window_appearance
+        settings = window_appearance(self.window)
         colors = widget_colors(self)
         preview_style = ("QTextEdit#MaterialPreviewPrompt { font-family:'Cascadia Mono','Consolas','Microsoft JhengHei'; "
                          "font-size:%dpx; font-weight:400; color:%s; background:transparent; border:0; padding:4px; }") % (

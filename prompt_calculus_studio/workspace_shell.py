@@ -20,12 +20,14 @@ from .ui_icons import icon
 from .widgets import button, label, RoundMenu, InputDialog, WindowShell
 from .workspace_home import WorkspaceHome
 from .workspace_files import create_file, MarkdownPage
-from .workspace_style import sidebar_style
+from .workspace_style import sidebar_style, workspace_colors
 from .workspace_sidebar import WorkspaceSidebarResize
+from .workspace_surface import WorkspaceSurface
 
 
 DISPLAY_KEYS = ('font_family', 'ui_size', 'prompt_size', 'material',
-                'mica_transparency', 'acrylic_transparency', 'menu_transparency')
+                'mica_transparency', 'acrylic_transparency', 'menu_transparency',
+                'visual_palette', 'accent', 'density')
 
 
 @dataclass
@@ -116,7 +118,7 @@ class WorkspaceShell(QMainWindow):
 
     def tool(self, name, title, callback):
         control = button('', callback, 'Quiet')
-        control.setIcon(icon(name))
+        control.setIcon(icon(name, 'navigation'))
         control.setIconSize(QSize(16, 16))
         control.setFixedSize(38, 36)
         control.setToolTip(title)
@@ -198,7 +200,7 @@ class WorkspaceShell(QMainWindow):
         self.routes['settings'] = entry
         rail.addWidget(entry)
         workspace.addWidget(self.rail)
-        self.workspace_stack = QStackedWidget()
+        self.workspace_stack = WorkspaceSurface(self)
         workspace.addWidget(self.workspace_stack, 1)
         self.home_split = QSplitter(Qt.Orientation.Horizontal)
         self.home_split.setObjectName('DocumentSplit')
@@ -252,7 +254,10 @@ class WorkspaceShell(QMainWindow):
             self._material_key = material_key
         self.centralWidget().update()
         t = visual_tokens(appearance)
-        self.tab_strip.bar.active_fill = QColor(t['base'])
+        palette = widget_palette(appearance)
+        self.setPalette(palette)
+        QApplication.instance().setPalette(palette)
+        self.tab_strip.bar.active_fill = QColor(workspace_colors(appearance)['content'])
         self.setStyleSheet(stylesheet(appearance) + f'''
             QFrame#DocumentWorkspace, QFrame#DocumentRail {{ background:transparent; border:0; }}
             QWidget#DocumentPane, QStackedWidget#DocumentPages {{ background:{t['base']}; }}
@@ -279,6 +284,12 @@ class WorkspaceShell(QMainWindow):
         ''' + sidebar_style(appearance))
         self.connection_label.ensurePolished()
         self.connection.setFixedWidth(self.connection_label.sizeHint().width()+44)
+        self.workspace_stack.sync_surface()
+        for tab in self.tabs_by_key.values():
+            if isinstance(tab.widget, WorkspaceHome):
+                tab.widget.apply_appearance(appearance)
+            elif tab.document:
+                tab.document.host.apply_theme(preserve_layout=True)
 
     def load_ui_preferences(self):
         try:
@@ -295,6 +306,12 @@ class WorkspaceShell(QMainWindow):
                     self.settings[key]=value
                 elif key=='material' and value in ('solid','mica','acrylic'):
                     self.settings[key]=value
+                elif key=='visual_palette' and value in ('graphite','mist','paper'):
+                    self.settings[key]=value
+                elif key=='accent' and value in ('neutral','blue','green'):
+                    self.settings[key]=value
+                elif key=='density' and value in ('comfortable','compact'):
+                    self.settings[key]=value
                 elif key in ('ui_size','prompt_size') and type(value) is int and 9<=value<=22:
                     self.settings[key]=value
                 elif key.endswith('_transparency') and type(value) is int and 0<=value<=100:
@@ -307,6 +324,9 @@ class WorkspaceShell(QMainWindow):
                 self.sidebar_preference=expanded
         except (ValueError,OSError):
             pass
+
+    def display_settings(self):
+        return {key:self.appearance_preview.get(key,self.settings[key]) for key in DISPLAY_KEYS}
 
     def save_ui_preferences(self):
         saved = {key:self.settings[key] for key in DISPLAY_KEYS}
@@ -347,7 +367,7 @@ class WorkspaceShell(QMainWindow):
         self.entries = [entry for entry in index.scan(self.root)
                         if not any(part.casefold() == 'assets' for part in Path(entry.relative).parts[:-1])]
         root_item = QTreeWidgetItem([self.root.name])
-        root_item.setIcon(0, icon('folder'))
+        root_item.setIcon(0, icon('folder', 'navigation'))
         root_item.setToolTip(0, str(self.root))
         self.tree.addTopLevelItem(root_item)
         folders = {'.': root_item}
@@ -361,7 +381,7 @@ class WorkspaceShell(QMainWindow):
                 relative = path.relative_to(self.root)
                 parent = folders[str(relative.parent)]
                 item = QTreeWidgetItem([path.name])
-                item.setIcon(0, icon('folder'))
+                item.setIcon(0, icon('folder', 'navigation'))
                 parent.addChild(item)
                 folders[str(relative)] = item
                 pending.append(path)
@@ -372,7 +392,7 @@ class WorkspaceShell(QMainWindow):
             if str(relative.parent) not in folders:
                 continue
             item = QTreeWidgetItem([relative.stem])
-            item.setIcon(0, icon(symbols[entry.kind]))
+            item.setIcon(0, icon(symbols[entry.kind], 'navigation'))
             item.setData(0, Qt.ItemDataRole.UserRole, entry.relative)
             item.setToolTip(0, types[entry.kind] + ' · ' + str(self.root / relative))
             folders[str(relative.parent)].addChild(item)
@@ -537,7 +557,7 @@ class WorkspaceShell(QMainWindow):
         elif route == 'export':
             self.utility.show_page(self.utility.clean_export)
         else:
-            self.utility.settings(section or ('explore' if route == 'explore' else 'interface'))
+            self.utility.settings(section or ('explore' if route == 'explore' else 'appearance'))
 
     def utility_navigated(self, route, section=None):
         self.active_route = route
@@ -562,6 +582,7 @@ class WorkspaceShell(QMainWindow):
         self.collapse.setAccessibleName(self.collapse.toolTip())
         if hasattr(self,'sidebar_resize'):
             self.sidebar_resize.schedule()
+        self.workspace_stack.sync_surface()
 
     def record_visit(self, entry):
         if not self.traversing and (not self.history or self.history[self.history_at] != entry):

@@ -73,6 +73,16 @@ def visual_tokens(settings=None, *, foundation=None):
     return result
 
 
+def window_appearance(window):
+    """Resolve display-only overrides without rewriting a document's settings."""
+    settings = dict(getattr(window, 'state', {}).get('settings', {}))
+    settings.update(getattr(window, 'appearance_preview', {}))
+    workspace = getattr(window, 'workspace_owner', None)
+    if workspace is not None and getattr(window, 'document_only', False):
+        settings.update(workspace.display_settings())
+    return settings
+
+
 def widget_palette(settings=None):
     """Palette for native controls, popups and painter-based child widgets."""
     from PySide6.QtGui import QColor, QPalette

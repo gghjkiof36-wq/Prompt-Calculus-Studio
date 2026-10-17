@@ -359,8 +359,7 @@ class HistoryPanel(QWidget):
 def show_history(window, target=None):
     dialog = StudioDialog(window)
     from .module_chrome import apply_prompt_dialog,prompt_divider,dialog_colors
-    from .theme import visual_tokens
-    apply_prompt_dialog(dialog,window);colors=dialog_colors(visual_tokens(window.state['settings']))
+    colors=apply_prompt_dialog(dialog,window)
     dialog.setStyleSheet(dialog.styleSheet()+f'''
         QListWidget#HistoryEntries {{background:transparent;border:0;outline:0;}}
         QListWidget#HistoryEntries::item {{border:1px solid transparent;border-radius:8px;padding:8px;}}

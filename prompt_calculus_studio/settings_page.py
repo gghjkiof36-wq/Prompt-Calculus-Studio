@@ -244,6 +244,8 @@ class SettingsPage(QWidget):
             routes=[('explore','全部入口','explore')]; parent='返回工作區';area='探索'
         else:
             routes=[('interface','使用介面','canvas'),('appearance','介面個人化','settings'),('completion','候選與翻譯','search'),('dictionary','個人字典','info'),('data','資料與備份','package')]
+            if getattr(self.window,'workspace_owner',None) is not None:
+                routes=[route for route in routes if route[0]!='interface']
             parent='返回工作區';area='設定'
         self.nav_routes=routes; self.return_button.setText(parent)
         if self.window.embedded_document:
@@ -264,7 +266,7 @@ class SettingsPage(QWidget):
         self.navigation_area.updateGeometry()
 
     def refresh_icons(self):
-        color=visual_tokens(self.window.state['settings'])['text']
+        color='navigation' if getattr(self.window,'workspace_owner',None) is not None else visual_tokens(self.window.state['settings'])['text']
         for i,(_,_,symbol) in enumerate(self.nav_routes):
             self.navigation.item(i).setIcon(icon(symbol,color)); self.compact_navigation.setItemIcon(i,icon(symbol,color))
         self.return_button.setIcon(icon('back',color)); self.sidebar_toggle.setIcon(icon('menu',color))
@@ -323,7 +325,7 @@ class SettingsPage(QWidget):
         try:
             if self.preferences is not None:self.preferences.save(accept=False)
             mode=self.interface.mode()
-            if mode!=self.window.state.get('selection_view','list'):
+            if getattr(self.window,'workspace_owner',None) is None and mode!=self.window.state.get('selection_view','list'):
                 self.window.set_interface_mode(mode); self.window.surface_stack.setCurrentWidget(self)
             self.window.models.save(); self.window.persist()
         finally:self.syncing=False

@@ -3,6 +3,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import QWidget, QScrollArea, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem, QFrame
 from .theme import visual_tokens
+from .workspace_style import workspace_colors
 from .ui_icons import icon
 from .widgets import button, label
 
@@ -46,7 +47,7 @@ class WorkspaceHome(QScrollArea):
                                      ('category', '管理頁（文字模塊）', 'list'),
                                      ('markdown', 'Markdown 筆記', 'file-text')):
             entry = button(title, lambda checked=False, k=kind: create_file(k), 'WorkspaceCreate')
-            entry.setIcon(icon(symbol))
+            entry.setIcon(icon(symbol, 'navigation'))
             entry.setIconSize(QSize(19, 19))
             entry.setMinimumHeight(52)
             entry.setAccessibleName('新增' + title)
@@ -54,7 +55,7 @@ class WorkspaceHome(QScrollArea):
             self.create_buttons[kind] = entry
         footer = QHBoxLayout()
         self.open_button = button('開啟現有文件…', choose_file, 'Quiet')
-        self.open_button.setIcon(icon('folder'))
+        self.open_button.setIcon(icon('folder', 'navigation'))
         footer.addWidget(self.open_button)
         footer.addStretch()
         body.addSpacing(10)
@@ -63,9 +64,14 @@ class WorkspaceHome(QScrollArea):
         center.addStretch()
         outer.addLayout(center)
         outer.addStretch(3)
+        self.apply_appearance(settings)
+        self.set_recent(recent)
+
+    def apply_appearance(self, settings):
         t = visual_tokens(settings)
+        surfaces = workspace_colors(settings)
         self.setStyleSheet(f'''
-            QWidget#WorkspaceHomeCanvas {{ background:{t['base']}; }}
+            QWidget#WorkspaceHomeCanvas {{ background:{surfaces['content']}; }}
             QLabel#WorkspaceSectionTitle {{ font-size:14px; font-weight:600; color:{t['text']}; }}
             QPushButton#WorkspaceCreate {{ text-align:left; padding:12px 18px; border:0; border-radius:7px;
                 background:{t['surface']}; color:{t['text']}; font-size:14px; }}
@@ -77,7 +83,6 @@ class WorkspaceHome(QScrollArea):
             QListWidget#WorkspaceRecent::item:hover {{ background:{t['hover']}; }}
             QListWidget#WorkspaceRecent::item:selected {{ background:{t['selected']}; color:{t['text']}; }}
         ''')
-        self.set_recent(recent)
 
     def set_recent(self, recent):
         self.listing.clear()
@@ -85,7 +90,7 @@ class WorkspaceHome(QScrollArea):
             path = Path(relative)
             title = path.stem if path.parent == Path('.') else str(path.with_suffix(''))
             item = QListWidgetItem(title)
-            item.setIcon(icon({'.pcs-category': 'list', '.pcs-workflow': 'workflow'}.get(path.suffix, 'file-text')))
+            item.setIcon(icon({'.pcs-category': 'list', '.pcs-workflow': 'workflow'}.get(path.suffix, 'file-text'), 'navigation'))
             item.setData(Qt.ItemDataRole.UserRole, relative)
             item.setToolTip(relative)
             self.listing.addItem(item)

@@ -360,8 +360,8 @@ def apply_line_spacing(e):
 
 
 def sync_prompt_style(e):
-    from .theme import font_pixels
-    colors = widget_colors(e); size = e.window.state['settings']['prompt_size']
+    from .theme import font_pixels,window_appearance
+    colors = widget_colors(e); size = window_appearance(e.window)['prompt_size']
     style = "QTextEdit#Prompt { font-family:'Cascadia Mono','Consolas','Microsoft JhengHei'; font-size:%dpx; background:%s; border:0; border-radius:8px; padding:10px; }" % (font_pixels(size), colors['field'])
     if e.prompt.property('modulePrompt'):
         from .module_chrome import dialog_colors

@@ -216,7 +216,7 @@ def _draw(painter, name):
 class _LineIconEngine(QIconEngine):
     def __init__(self,name,color,size):
         super().__init__(); self.name=name
-        self.color=color if isinstance(color,str) and color in ('on-accent','on-run','on-stop') else QColor(color) if color is not None else None
+        self.color=color if isinstance(color,str) and color in ('on-accent','on-run','on-stop','navigation') else QColor(color) if color is not None else None
         self.size=size
 
     def clone(self):
@@ -226,7 +226,10 @@ class _LineIconEngine(QIconEngine):
         return [QSize(self.size,self.size)]
 
     def paint(self,painter,rect,mode,state):
-        if isinstance(self.color,str):
+        if self.color=='navigation':
+            stroke=QApplication.palette().color(QPalette.ColorRole.WindowText)
+            stroke.setAlphaF(.92 if mode in (QIcon.Mode.Active,QIcon.Mode.Selected) or state==QIcon.State.On else .80)
+        elif isinstance(self.color,str):
             property_name={'on-accent':'pcsIconOnAccent','on-run':'pcsIconOnRun','on-stop':'pcsIconOnStop'}[self.color]
             stroke=QColor(QApplication.instance().property(property_name) or QApplication.palette().color(QPalette.ColorRole.ButtonText))
         else:
@@ -258,6 +261,7 @@ def icon(name, color=None, size=20):
 
     ``color`` accepts a QColor or Qt color string. ``'on-accent'``, ``'on-run'``
     and ``'on-stop'`` read their shared foreground roles at paint time.
+    ``'navigation'`` softens resting icons while retaining active contrast.
     If omitted, the application's
     WindowText color is read at paint time, so an existing icon follows later
     palette changes. Construct icons after QApplication initialization.

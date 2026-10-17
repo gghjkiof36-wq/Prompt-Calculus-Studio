@@ -5,7 +5,7 @@ from . import materials, material_navigation as nav, prompt_materials as pm
 from .widgets import button, label, row, ComboBox
 from .material_folder_navigation import FolderNavigation
 from .module_chrome import dialog_colors
-from .theme import visual_tokens
+from .theme import visual_tokens,window_appearance
 from .quiet_splitter import QuietSplitter
 from .palette_cards import PickerCardDelegate
 from .stacked_card_list import StackedCardList
@@ -27,7 +27,7 @@ class MaterialPickerMixin:
         widget, layout = page(); self.stack.addWidget(widget)
         self.picker_navigation,pl=page();pl.addLayout(row(tool('back', '返回組合', self.picker_back), label('加入素材', 'SectionTitle'), None,
                              button('完成', self.picker_back, 'Quiet')));layout.addWidget(self.picker_navigation)
-        colors=lambda:dialog_colors(visual_tokens(self.host.state['settings']))
+        colors=lambda:dialog_colors(visual_tokens(window_appearance(self.host)))
         self.category_combo=ComboBox();self.category_combo.setAccessibleName('內容分類');layout.addWidget(self.category_combo);self.category_combo.hide()
         self.picker_split = QuietSplitter(); self.picker_split.setChildrenCollapsible(False);layout.addWidget(self.picker_split, 1)
         self.category_pane, cats=page();cats.setContentsMargins(0,0,12,0)
