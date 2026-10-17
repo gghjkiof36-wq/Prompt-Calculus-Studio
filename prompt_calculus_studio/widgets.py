@@ -154,9 +154,8 @@ class StudioDialog(QDialog):
     def __init__(self,parent=None,*,defer_style=False):
         from .module_chrome import canvas_dialog_context,apply_module_dialog
         context=canvas_dialog_context(parent)
-        if context:
-            from .dialog_presentation import presenting_parent
-            parent=presenting_parent(parent)
+        from .dialog_presentation import presenting_parent
+        parent=presenting_parent(parent)
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)

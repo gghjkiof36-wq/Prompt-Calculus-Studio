@@ -1,9 +1,46 @@
 """A single native tab strip with an adjacent new-tab button and overflow."""
-from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtGui import QFont, QFontMetrics, QPalette, QColor, QPainter, QPainterPath
-from PySide6.QtWidgets import QWidget, QTabBar, QHBoxLayout, QSizePolicy, QStylePainter, QStyleOptionTab, QStyle
+from PySide6.QtCore import Qt, QSize, Signal, QRectF
+from PySide6.QtGui import QFont, QFontMetrics, QPalette, QColor, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QWidget, QTabBar, QHBoxLayout, QSizePolicy, QStylePainter, QStyleOptionTab, QStyle, QAbstractButton
 from .widgets import button, RoundMenu
 from .ui_icons import icon
+
+
+class TabCloseButton(QAbstractButton):
+    def __init__(self, bar):
+        super().__init__(bar)
+        self.bar = bar
+        self.setFixedSize(22, 22)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setToolTip('關閉分頁')
+        self.clicked.connect(self.close_tab)
+
+    def close_tab(self):
+        for i in range(self.bar.count()):
+            if self.bar.tabButton(i, QTabBar.ButtonPosition.RightSide) is self:
+                self.bar.tabCloseRequested.emit(i)
+                break
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self.update()
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if self.underMouse() or self.isDown():
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(self.bar.close_fill)
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 7, 7)
+        painter.setPen(QPen(self.bar.active_ink if self.underMouse() else self.bar.idle_ink, 1.2))
+        middle = self.width()/2
+        from PySide6.QtCore import QLineF
+        painter.drawLine(QLineF(middle-3.5, middle-3.5, middle+3.5, middle+3.5))
+        painter.drawLine(QLineF(middle+3.5, middle-3.5, middle-3.5, middle+3.5))
 
 
 class DocumentTabBar(QTabBar):
@@ -13,6 +50,10 @@ class DocumentTabBar(QTabBar):
         self.tab_height = 40
         self.workspace_active = True
         self.active_fill = QColor('#151819')
+        self.hover_fill = QColor('#2c3235')
+        self.close_fill = QColor('#3a4246')
+        self.active_ink = QColor('#f1f0ea')
+        self.idle_ink = QColor('#aab1b3')
         self.preview_keys = set()
         self.setObjectName('DocumentTabBar')
         self.setExpanding(False)
@@ -77,8 +118,14 @@ class DocumentTabBar(QTabBar):
                 painter.setBrush(self.active_fill)
                 painter.drawPath(path)
                 painter.restore()
-            else:
-                painter.drawControl(QStyle.ControlElement.CE_TabBarTabShape, option)
+            elif option.state & QStyle.StateFlag.State_MouseOver:
+                # Inactive hover is a compact pill, not the active tab's feet.
+                painter.save()
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(self.hover_fill)
+                painter.drawRoundedRect(QRectF(option.rect).adjusted(8, 3, -8, -3), 10, 10)
+                painter.restore()
             font = QFont(self.font())
             font.setItalic(self.tabData(index) in self.preview_keys)
             painter.setFont(font)
@@ -90,6 +137,8 @@ class DocumentTabBar(QTabBar):
             if close is not None:
                 text_rect.setRight(min(text_rect.right(), close.x()-8))
             title = option.fontMetrics.elidedText(self.tabText(index), Qt.TextElideMode.ElideRight, max(0,text_rect.width()))
+            option.palette.setColor(QPalette.ColorRole.WindowText,
+                self.active_ink if self.workspace_active and index == self.currentIndex() else self.idle_ink)
             painter.drawItemText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                                  option.palette, self.isTabEnabled(index), title, QPalette.ColorRole.WindowText)
 
@@ -156,7 +205,17 @@ class DocumentTabs(QWidget):
             self.bar.preview_keys.discard(key)
         else:
             self.bar.preview_keys.add(key)
-        self.bar.setTabToolTip(index, path + ('\n未保存' if dirty else '\n已保留' if retained else '\n瀏覽分頁；雙擊保留'))
+        close = self.bar.tabButton(index, QTabBar.ButtonPosition.RightSide)
+        if not isinstance(close, TabCloseButton):
+            close = TabCloseButton(self.bar)
+            self.bar.setTabButton(index, QTabBar.ButtonPosition.RightSide, close)
+        close.setAccessibleName('關閉「'+title+'」')
+        lines = [path] if path else []
+        if dirty:
+            lines.append('未保存')
+        elif path and not retained:
+            lines.append('預覽分頁；雙擊保留')
+        self.bar.setTabToolTip(index, '\n'.join(lines))
         self.fit()
 
     def show_list(self):

@@ -21,7 +21,7 @@ from .widgets import button, label, RoundMenu, InputDialog, WindowShell
 from .workspace_home import WorkspaceHome
 from .workspace_files import create_file, MarkdownPage
 from .workspace_style import sidebar_style, workspace_colors
-from .workspace_sidebar import WorkspaceSidebarResize
+from .workspace_sidebar import WorkspaceSidebarResize, WorkspaceTree
 from .workspace_surface import WorkspaceSurface
 from .workspace_destinations import WorkspaceNavigation
 
@@ -63,6 +63,8 @@ class WorkspaceTop(QFrame):
 class WorkspaceShell(QMainWindow):
     def __init__(self, root, data):
         super().__init__()
+        from .tooltips import install_tooltip_styling
+        install_tooltip_styling()
         self.root = paths.root_path(root)
         self.data = Path(data).absolute()
         self.data.mkdir(parents=True, exist_ok=True)
@@ -216,7 +218,7 @@ class WorkspaceShell(QMainWindow):
         self.tree_more = self.tool('more-horizontal', '內容選單', self.root_menu)
         heading.addWidget(self.tree_more)
         side.addLayout(heading)
-        self.tree = QTreeWidget()
+        self.tree = WorkspaceTree(self)
         self.tree.setObjectName('DocumentTree')
         self.tree.setColumnCount(1)
         self.tree.setIconSize(QSize(15, 15))
@@ -254,6 +256,11 @@ class WorkspaceShell(QMainWindow):
         self.setPalette(palette)
         QApplication.instance().setPalette(palette)
         self.tab_strip.bar.active_fill = QColor(workspace_colors(appearance)['content'])
+        self.tab_strip.bar.hover_fill = QColor(t['raised'])
+        self.tab_strip.bar.close_fill = QColor(t['selected'])
+        self.tab_strip.bar.active_ink = QColor(t['text'])
+        self.tab_strip.bar.idle_ink = QColor(t['secondary'])
+        self.tree.row_colors = dict(t, **workspace_colors(appearance))
         self.setStyleSheet(stylesheet(appearance) + f'''
             QFrame#DocumentWorkspace, QFrame#DocumentRail {{ background:transparent; border:0; }}
             QWidget#DocumentPane, QStackedWidget#DocumentPages {{ background:{t['base']}; }}
@@ -274,7 +281,7 @@ class WorkspaceShell(QMainWindow):
             QTabBar#DocumentTabBar::tab {{ background:transparent; color:{t['secondary']}; border:0; border-radius:0; padding:8px 12px; margin:0; }}
             QTabBar#DocumentTabBar::tab:selected {{ background:{t['base']}; color:{t['text']}; border-top-left-radius:9px; border-top-right-radius:9px; }}
             QTabBar#DocumentTabBar::tab:selected:hover {{ background:{t['base']}; }}
-            QTabBar#DocumentTabBar::tab:!selected:hover {{ background:{t['raised']}; border-radius:7px; }}
+            QTabBar#DocumentTabBar::tab:!selected:hover {{ background:transparent; }}
             QTabBar#DocumentTabBar QToolButton {{ padding:0; border:0; border-radius:4px; background:{t['chrome']}; }}
             QTabBar#DocumentTabBar QToolButton:hover {{ background:{t['raised']}; }}
         ''' + sidebar_style(appearance))
@@ -389,6 +396,16 @@ class WorkspaceShell(QMainWindow):
                      -self.nav_controls.sizeHint().width()-self.connection.width()-22)
         self.rail.adapt_width(available)
 
+    def sync_tab_inset(self):
+        if self.navigation_position != 'top':
+            return
+        target = self.sidebar_target()
+        inset = target.width() if target is not None and target.isVisible() else 16
+        if self.tab_row.layout().contentsMargins().left() != inset:
+            self.tab_row.layout().setContentsMargins(inset, 2, 16, 0)
+            self.tab_row.layout().activate()
+            self.tab_strip.fit()
+
     def caption_inset(self, inset):
         self.top.layout().setContentsMargins(7, 4, 10+inset, 0)
         self.sync_navigation_density()
@@ -478,7 +495,8 @@ class WorkspaceShell(QMainWindow):
         dirty = tab.dirty
         if dirty:
             tab.retained = True
-        self.tab_strip.decorate(at, tab.title, tab.retained, bool(dirty), str(tab.path or ''))
+        relative = tab.path.relative_to(self.root).as_posix() if tab.path else ''
+        self.tab_strip.decorate(at, tab.title, tab.retained, bool(dirty), relative)
         error = document.error if document else tab.widget.error if isinstance(tab.widget,MarkdownPage) else ''
         if error:
             self.tab_strip.bar.setTabToolTip(at,self.tab_strip.bar.tabToolTip(at)+'\n'+error)
@@ -621,6 +639,7 @@ class WorkspaceShell(QMainWindow):
         self.collapse.setAccessibleName(self.collapse.toolTip())
         if hasattr(self,'sidebar_resize'):
             self.sidebar_resize.schedule()
+        self.sync_tab_inset()
         self.workspace_stack.sync_surface()
 
     def record_visit(self, entry):
@@ -637,6 +656,8 @@ class WorkspaceShell(QMainWindow):
         key = self.tab_strip.bar.tabData(position)
         tab = self.tabs_by_key.get(key)
         if tab is None:
+            return
+        if self.active_route == 'home' and self.active_key == key and self.pages.currentWidget() is tab.widget:
             return
         if self.utility and self.active_route in ('explore', 'settings'):
             self.utility.settings_page.flush()

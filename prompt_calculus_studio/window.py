@@ -32,6 +32,7 @@ from .settings_page import SettingsPage,InterfaceChoice
 from .canvas_results import CanvasResults
 from .changes import ChangeCoordinator
 from .widgets import StudioDialog,widget_global_position
+from .deferred_page import DeferredToolPage, page_ready
 
 
 class Window(QMainWindow):
@@ -102,11 +103,16 @@ class Window(QMainWindow):
         self.comfy_status=label('ComfyUI 尚未連線','Subtle',True); main.addWidget(self.comfy_status)
         self.tabs=QTabWidget(); self.tabs.tabBar().hide(); main.addWidget(self.tabs,1)
         self.tabs.addTab(self.make_prompt_page(),"提示詞")
-        self.models=ModelPage(self)
-        self.gallery=GalleryPage(self); self.tabs.addTab(self.gallery,"媒體庫")
+        def tool_page(page_type):
+            return DeferredToolPage(lambda: page_type(self)) if self.document_only else page_type(self)
+        self.models=tool_page(ModelPage)
+        self.gallery=tool_page(GalleryPage); self.tabs.addTab(self.gallery,"媒體庫")
+        # CanvasResults shares the recent-result picker during initialization.
+        # Keep that owner eager; only independent hidden tools are deferred.
         self.recent=RecentPage(self); self.tabs.addTab(self.recent,'最近生成')
-        self.clean_export=ExportPage(self); self.tabs.addTab(self.clean_export,'匯出')
-        self.comfy=(client_factory or ComfyClient)(self); self.comfy.stateChanged.connect(self.comfy_changed); self.comfy.resultsReceived.connect(self.recent.receive_results)
+        self.clean_export=tool_page(ExportPage); self.tabs.addTab(self.clean_export,'匯出')
+        self.comfy=(client_factory or ComfyClient)(self); self.comfy.stateChanged.connect(self.comfy_changed)
+        self.comfy.resultsReceived.connect(self.recent.receive_results)
         self.tabs.currentChanged.connect(self.page_changed)
         self.status=label("","Subtle",True)
         self.status.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Preferred)
@@ -117,7 +123,11 @@ class Window(QMainWindow):
             self.settings_page=SettingsPage(self); self.surface_stack.addWidget(self.settings_page)
         self.welcome=QWidget() if self.document_only else InterfaceChoice(self,True)
         self.surface_stack.addWidget(self.welcome)
-        self.refresh_workspaces(); self.refresh_modules(); self.refresh_library(); self.refresh_builder(); self.apply_theme()
+        self.refresh_workspaces(); self.refresh_modules(); self.refresh_library()
+        # enter_canvas below builds the scene. A document's hidden legacy list
+        # must not build it once more before that first visible presentation.
+        if not self.document_only:self.refresh_builder()
+        self.apply_theme()
         if self.state.get('selection_view')=='canvas': self.enter_canvas()
         else: self.leave_canvas()
         self.display_recovery=DisplayRecovery(self)
@@ -615,7 +625,8 @@ class Window(QMainWindow):
 
     def comfy_changed(self):
         self.studio_navigation.update_connection()
-        self.comfy_status.setText(self.comfy.message); self.run_controls.refresh(); self.recent.update_save_button()
+        self.comfy_status.setText(self.comfy.message); self.run_controls.refresh()
+        self.recent.update_save_button()
         from .theme import visual_tokens
         self.comfy_status.setStyleSheet('color:'+visual_tokens(self.state['settings'])['warning']+';' if self.comfy.control_interrupted else '')
         if hasattr(self.canvas,'results'): self.canvas.results.update_save()
@@ -685,7 +696,7 @@ class Window(QMainWindow):
         QApplication.instance().setProperty('pcsIconOnRunDisabled',visual_tokens(appearance)['on_run_disabled'])
         QApplication.instance().setProperty('pcsIconOnStop',visual_tokens(appearance)['on_stop'])
         QApplication.instance().setProperty('pcsIconOnStopDisabled',visual_tokens(appearance)['on_stop_disabled'])
-        self.clean_export.refresh_colors()
+        if page_ready(self.clean_export):self.clean_export.refresh_colors()
         self.comfy_status.setStyleSheet('color:'+visual_tokens(appearance)['warning']+';' if self.comfy.control_interrupted else '')
         if hasattr(self,'canvas_connection_status'):self.canvas_connection_status.setStyleSheet(self.comfy_status.styleSheet())
         for entry in self.findChildren(QPushButton):
@@ -1339,20 +1350,24 @@ class Window(QMainWindow):
             self.settings_page.manager.shutdown()
             if self.settings_page.preferences is not None:self.settings_page.flush()
         browsing=hasattr(self,'settings_page') and self.settings_page.civitai.browse_jobs.active
-        if self.jobs.active or browsing or self.completion.tasks or self.gallery.importing or (hasattr(self,'recent') and self.recent.collecting):
-            event.ignore(); self.closing=True; self.gallery.queue=[]
+        if self.jobs.active or browsing or self.completion.tasks or (page_ready(self.gallery) and self.gallery.importing) or self.recent.collecting:
+            event.ignore(); self.closing=True
+            if page_ready(self.gallery):self.gallery.queue=[]
             if self.jobs.active: self.jobs.active.cancel.set()
             if browsing:browsing.cancel.set()
             self.completion.serial+=1; self.completion.timer.stop()
             self.notice("正在收尾背景工作，完成後關閉。")
             QTimer.singleShot(300,self.close); return
-        try: self.models.save()
+        try:
+            if page_ready(self.models):self.models.save()
         except Exception as exc:
             self.error(str(exc)); event.ignore(); return
         self.save_timer.stop()
         if not self.persist(): event.ignore(); return
         self.canvas_edit_context=object()
-        self.comfy.shutdown(); self.recent.refresh_timer.stop(); self.display_recovery.stop()
+        self.comfy.shutdown()
+        self.recent.refresh_timer.stop()
+        self.display_recovery.stop()
         self.copy_timer.stop(); self.filter_timer.stop()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.shutdown()
         if hasattr(self,'sidebar_resize'):self.sidebar_resize.shutdown()

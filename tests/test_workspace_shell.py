@@ -520,9 +520,11 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertIs(self.w.rail.parentWidget(), self.w.top)
         self.assertTrue(self.w.sidebar_target().isVisible())
         self.assertEqual(self.w.sidebar_target().width(), 314)
+        self.assertEqual(self.w.tab_strip.bar.mapTo(self.w, QPoint()).x(), 314)
         QTest.mouseClick(self.w.collapse, Qt.MouseButton.LeftButton)
         self.events()
         self.assertFalse(self.w.sidebar_target().isVisible())
+        self.assertEqual(self.w.tab_strip.bar.mapTo(self.w, QPoint()).x(), 16)
         position.setCurrentIndex(position.findData('side'))
         self.events()
         self.assertFalse(self.w.tab_row.isVisible())
@@ -538,6 +540,7 @@ class WorkspaceShellTests(unittest.TestCase):
             self.assertEqual(self.w.active_route, route)
             self.assertEqual(self.w.tab_strip.bar.count(), count)
             self.assertTrue(self.w.sidebar_target().isVisible())
+            self.assertEqual(self.w.tab_strip.bar.mapTo(self.w, QPoint()).x(), self.w.sidebar_target().width())
         self.w.resize(720, 560)
         self.events()
         self.assertEqual(self.w.width(), 720)
@@ -694,7 +697,7 @@ class WorkspaceShellTests(unittest.TestCase):
             self.w.new_tab()
         self.events()
         self.assertTrue(self.w.tab_strip.overflow.isVisible())
-        self.assertTrue(bar.tabToolTip(0))
+        self.assertEqual(bar.tabToolTip(0), '')  # An unnamed home has no status to explain.
 
     def test_markdown_alias_from_tool_returns_to_same_unsaved_editor(self):
         tab = self.w.open_path(self.root/'Notes.md', True)
@@ -711,12 +714,54 @@ class WorkspaceShellTests(unittest.TestCase):
     def test_document_does_not_construct_unused_settings_and_short_home_scrolls(self):
         tab = self.open(retained=True)
         self.assertFalse(hasattr(tab.document.host, 'settings_page'))
+        from prompt_calculus_studio.deferred_page import page_ready
+        host = tab.document.host
+        for page in (host.models, host.gallery, host.clean_export):
+            self.assertFalse(page_ready(page))
+        # Existing callers can assign state before visiting a deferred tool.
+        host.gallery.queue = ['pending']
+        self.assertEqual(host.gallery.load().queue, ['pending'])
+        host.gallery.queue = []
+        host.show_page(host.gallery)
+        self.events()
+        self.assertTrue(host.gallery.isVisible())
+        host.return_to_prompt()
+        self.assertFalse(tab.dirty)
         page = self.w.new_tab().widget
         self.w.resize(720,480)
         self.events()
         page.ensureWidgetVisible(page.open_button)
         self.events()
         self.assertLessEqual(page.open_button.mapTo(page.viewport(),page.open_button.rect().bottomRight()).y(), page.viewport().height())
+
+    def test_modal_center_is_workspace_center_with_either_sidebar_and_nested_sheet(self):
+        from unittest.mock import patch
+        from PySide6.QtCore import QPoint, QRect
+        from PySide6.QtGui import QScreen
+        from prompt_calculus_studio.widgets import StudioDialog
+        tab = self.open(retained=True)
+        host = tab.document.host
+        source = tab.path.read_bytes()
+        with patch.object(QScreen, 'availableGeometry', return_value=QRect(0, 0, 2400, 1600)):
+            self.w.move(120, 100)
+            self.w.resize(1440, 900)
+            for position, expanded in (('side', True), ('top', True), ('top', False)):
+                self.w.set_navigation_position(position)
+                self.w.sidebar_preference = expanded
+                self.w.sync_sidebar(); self.events()
+                dialog = host.prompt_editor._open_dialog(None)
+                self.events()
+                expected = self.w.mapToGlobal(self.w.rect().center())
+                self.assertIs(dialog.parentWidget(), self.w)
+                actual = dialog.mapToGlobal(dialog.panels.main.mapTo(dialog, dialog.panels.main.rect().center()))
+                self.assertLessEqual((actual-expected).manhattanLength(), 2)
+                nested = StudioDialog(host)
+                nested.resize(320, 200); nested.show(); self.events()
+                self.assertIs(nested.parentWidget(), dialog)
+                nested.reject(); nested.deleteLater(); self.events()
+                dialog.reject(); self.events()
+        self.assertEqual(tab.path.read_bytes(), source)
+        self.assertFalse(tab.dirty)
 
 
 if __name__ == '__main__':

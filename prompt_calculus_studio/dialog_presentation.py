@@ -20,6 +20,13 @@ def presenting_parent(parent):
     active=QApplication.activeModalWidget()
     if active is not None and active.isVisible() and window_owner(active) is window_owner(parent):
         return active
+    # Embedded editors occupy only the content column. Modal sheets belong to
+    # the workspace window, so changing either sidebar cannot shift the center.
+    current=parent
+    while current is not None:
+        workspace=getattr(current,'workspace_owner',None)
+        if workspace is not None:return workspace
+        current=current.parentWidget()
     return parent
 
 

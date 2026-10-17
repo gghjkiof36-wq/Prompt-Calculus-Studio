@@ -1,6 +1,7 @@
 """A shared sidebar edge, including deliberate drag-to-collapse."""
-from PySide6.QtCore import QObject, QEvent, QPoint, QTimer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QObject, QEvent, QPoint, QTimer, QRect, QRectF, Qt, QPersistentModelIndex
+from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath
+from PySide6.QtWidgets import QApplication, QTreeWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate
 from shiboken6 import isValid
 from .sidebar_resize import SidebarResizeHandle
 
@@ -8,6 +9,89 @@ from .sidebar_resize import SidebarResizeHandle
 MIN_WIDTH = 220
 MAX_WIDTH = 480
 COLLAPSE_OVERSHOOT = 36
+
+
+class WorkspaceTreeDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        clean = QStyleOptionViewItem(option)
+        clean.state &= ~(QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_MouseOver | QStyle.StateFlag.State_HasFocus)
+        super().paint(painter, clean, index)
+
+
+class WorkspaceTree(QTreeWidget):
+    """One rounded row highlight, including the tree's indentation gutter."""
+    def __init__(self, workspace):
+        super().__init__()
+        self.workspace = workspace
+        from .theme import visual_tokens
+        from .workspace_style import workspace_colors
+        self.row_colors = dict(visual_tokens(workspace.display_settings()), **workspace_colors(workspace.display_settings()))
+        self.hovered = QPersistentModelIndex()
+        self.setMouseTracking(True)
+        self.setItemDelegate(WorkspaceTreeDelegate(self))
+
+    def drawRow(self, painter, option, index):
+        selected = self.selectionModel().isSelected(index)
+        hovered = self.hovered == index
+        focused = (self.hasFocus() and self.testAttribute(Qt.WidgetAttribute.WA_KeyboardFocusChange)
+                   and self.currentIndex() == index)
+        colors = self.row_colors
+        bounds = QRectF(2, option.rect.y()+1, self.viewport().width()-4, option.rect.height()-2)
+        if selected or hovered:
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(colors['selected' if selected else 'hover']))
+            painter.drawRoundedRect(bounds, 6, 6)
+            painter.restore()
+        # Do not ask the native style to draw PE_PanelItemViewRow: Windows adds
+        # its own gutter marker and hover block independently of item QSS.
+        content = QStyleOptionViewItem(option)
+        content.rect = self.visualRect(index)
+        content.decorationSize = self.iconSize()
+        self.drawBranches(painter, QRect(0, content.rect.y(), content.rect.x(), content.rect.height()), index)
+        self.itemDelegateForIndex(index).paint(painter, content, index)
+        if focused:
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor(colors['accent']), 1))
+            painter.drawRoundedRect(bounds.adjusted(.5, .5, -.5, -.5), 6, 6)
+            painter.restore()
+
+    def drawBranches(self, painter, rect, index):
+        # The Windows tree style paints a separate selected marker in every
+        # indentation cell. Only a folder disclosure belongs in this gutter.
+        if not self.model().hasChildren(index):
+            return
+        x = rect.right()-self.indentation()/2+1
+        y = rect.center().y()+.5
+        path = QPainterPath()
+        if self.isExpanded(index):
+            path.moveTo(x-3, y-1.5); path.lineTo(x, y+1.5); path.lineTo(x+3, y-1.5)
+        else:
+            path.moveTo(x-1.5, y-3); path.lineTo(x+1.5, y); path.lineTo(x-1.5, y+3)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor(self.row_colors['secondary']), 1.2))
+        painter.drawPath(path)
+        painter.restore()
+
+    def mouseMoveEvent(self, event):
+        index = QPersistentModelIndex(self.indexAt(event.position().toPoint()))
+        if index != self.hovered:
+            self.hovered = index
+            self.viewport().update()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self.hovered = QPersistentModelIndex()
+        self.viewport().update()
+        super().leaveEvent(event)
+
+    def scrollContentsBy(self, dx, dy):
+        self.hovered = QPersistentModelIndex()
+        super().scrollContentsBy(dx, dy)
 
 
 class WorkspaceSidebarResize(QObject):
@@ -54,6 +138,7 @@ class WorkspaceSidebarResize(QObject):
                     utility.clean_export.adapt_layout()
                 elif utility and self.target is utility.gallery.folder_panel:
                     utility.gallery.adapt_panels()
+            self.window.sync_tab_inset()
             if not self.target.isVisible() and not self.dragging:
                 self.handle.hide()
                 return
