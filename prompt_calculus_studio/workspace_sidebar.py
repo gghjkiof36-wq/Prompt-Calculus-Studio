@@ -12,6 +12,13 @@ COLLAPSE_OVERSHOOT = 36
 
 
 class WorkspaceTreeDelegate(QStyledItemDelegate):
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        if index.data(Qt.ItemDataRole.UserRole) and option.icon.isNull():
+            # Reserve the folder icon column without drawing a document icon.
+            option.features |= QStyleOptionViewItem.ViewItemFeature.HasDecoration
+            option.decorationSize = self.parent().iconSize()
+
     def paint(self, painter, option, index):
         clean = QStyleOptionViewItem(option)
         clean.state &= ~(QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_MouseOver | QStyle.StateFlag.State_HasFocus)
