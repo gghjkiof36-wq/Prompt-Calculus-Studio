@@ -182,10 +182,28 @@ class AssetDialog(StudioDialog):
 HISTORY_FIELDS = ('version', 'modules', 'items', 'selections', 'temporary', 'temporary_before', 'weights', 'instances', 'output_order', 'text_positions', 'text_sizes', 'uses', 'workspaces', 'workspace', 'workspace_scenes', 'prompt_layout', 'view_drafts','canvas_functions','generation', 'material_navigation')
 
 
+class HistoryField:
+    """One transaction history per local document; legacy windows stay local."""
+    def __set_name__(self, owner, name): self.name = name
+    def storage(self, canvas):
+        document = getattr(canvas.window, 'document', None)
+        return document.history if document is not None else canvas.__dict__
+    def __get__(self, canvas, owner=None):
+        if canvas is None:return self
+        return self.storage(canvas).get(self.name)
+    def __set__(self, canvas, value): self.storage(canvas)[self.name] = value
+
+
 class TextCanvas(QWidget):
+    undo_stack = HistoryField()
+    redo_stack = HistoryField()
+    last_state = HistoryField()
+    _last_edit = HistoryField()
     def __init__(self, window):
         super().__init__(); self.window = window; self.root_id = None; self.path = []
-        self.undo_stack = []; self.redo_stack = []; self.last_state = None; self.entries = {}; self.output=None; self.preview_card=None; self.cards={}
+        if self.undo_stack is None:
+            self.undo_stack = []; self.redo_stack = []; self.last_state = None
+        self.entries = {}; self.output=None; self.preview_card=None; self.cards={}
         self._hidden_view=None; self._has_presented_view=False
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0)
         self.view = CanvasView(self); layout.addWidget(self.view, 1)
@@ -267,7 +285,7 @@ class TextCanvas(QWidget):
 
     def restore_hidden_view(self):
         previous=self._hidden_view; self._hidden_view=None
-        if not previous or previous[0] is not self.window.state or previous[1]!=self.window.state.get('workspace'):
+        if not previous or (previous[0] is not self.window.state and getattr(self.window, 'document', None) is None) or previous[1]!=self.window.state.get('workspace'):
             return False
         _,_,scale,origin=previous
         view=self.view;view.resetTransform();view.scale(scale,scale)
@@ -276,12 +294,14 @@ class TextCanvas(QWidget):
         # A second layout/show callback must restore this newly sized viewport,
         # not the center saved before leaving for another page.
         point=view.viewportTransform().inverted()[0].map(QPointF(view.viewport().width()/2,view.viewport().height()/2))
-        self.window.state['canvas_view']=[scale,point.x(),point.y()]
+        if getattr(self.window, 'document', None) is not None:
+            self.window.local_canvas_view=[scale,point.x(),point.y()]
+        else:self.window.state['canvas_view']=[scale,point.x(),point.y()]
         return True
 
     def restore_view(self):
         if self.restore_hidden_view():return
-        saved=self.window.state.get('canvas_view')
+        saved=getattr(self.window, 'local_canvas_view', None) or self.window.state.get('canvas_view')
         if saved:
             self.view.resetTransform();self.view.scale(saved[0],saved[0]);self.view.centerOn(saved[1],saved[2])
         else:self.fit()

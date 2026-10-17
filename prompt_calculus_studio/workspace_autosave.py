@@ -12,8 +12,15 @@ class WorkspaceAutosave(QObject):
         self.saving = set()
         self.paused = set()
 
+    @staticmethod
+    def key(tab):
+        return tab.document.key if tab.document else getattr(getattr(tab.widget, 'buffer', None), 'save_key', tab.key)
+
+    def related(self, tab):
+        return [t for t in self.workspace.all_pages() if self.key(t) == self.key(tab)]
+
     def schedule(self, tab):
-        if tab not in self.workspace.all_pages() or id(tab) in self.paused or tab.key in self.saving:
+        if tab not in self.workspace.all_pages() or id(tab) in self.paused or self.key(tab) in self.saving:
             return
         if not tab.dirty:
             self.stop(tab)
@@ -24,18 +31,18 @@ class WorkspaceAutosave(QObject):
         if owner.error or self.editing_dialog(tab):
             self.stop(tab)
             return
-        timer = self.timers.get(tab.key)
+        timer = self.timers.get(self.key(tab))
         if timer is None:
             timer = QTimer(self)
             timer.setSingleShot(True)
-            timer.timeout.connect(lambda: self.flush(tab))
-            self.timers[tab.key] = timer
+            timer.timeout.connect(lambda owner=tab: self.flush(next(iter(self.related(owner)), owner)))
+            self.timers[self.key(tab)] = timer
         timer.start(self.delay_ms)
 
     @staticmethod
     def editing_dialog(tab):
-        editor = getattr(getattr(tab.document, 'host', None), 'prompt_editor', None)
-        return getattr(editor, 'active_dialog', None) is not None
+        return any(getattr(getattr(host, 'prompt_editor', None), 'active_dialog', None) is not None
+                   for host in getattr(tab.document, 'hosts', []))
 
     def flush(self, tab):
         self.stop(tab)
@@ -44,12 +51,12 @@ class WorkspaceAutosave(QObject):
             self.workspace.save_tab(tab)
 
     def stop(self, tab):
-        timer = self.timers.get(tab.key)
+        timer = self.timers.get(self.key(tab))
         if timer is not None:
             timer.stop()
 
     def forget(self, tab):
-        timer = self.timers.pop(tab.key, None)
+        timer = self.timers.pop(self.key(tab), None)
         if timer is not None:
             timer.stop()
             timer.deleteLater()

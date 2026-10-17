@@ -10,7 +10,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal, Qt
+from PySide6.QtCore import QObject, Signal, Qt, QTimer
 
 from .core import Storage, separate_selections
 from .comfy_client import ComfyClient
@@ -50,6 +50,16 @@ class DesktopDocument(QObject):
         self.key = self.document['document_id']
         self.data = Path(session_root) / (self.key + '-' + uuid.uuid4().hex[:8])
         self.host = None
+        self.hosts = []
+        self.state = None
+        self.history = {}
+        self.refreshing = False
+        self.refresh_timer = QTimer(self)
+        self.refresh_timer.setSingleShot(True)
+        self.refresh_timer.timeout.connect(self.refresh_views)
+        self.last_editor = None
+        self.execution = None
+        self.retired_executions = []
         self.dirty = False
         self.draft_dirty = False
         self.last_result = None
@@ -86,9 +96,79 @@ class DesktopDocument(QObject):
             store.close()
 
     def attach(self, host):
+        self.hosts.append(host)
+        if self.host is not None:
+            return
         self.host = host
         self.opening_settings = copy.deepcopy(host.state['settings'])
         self.baseline = self.project()['payload']
+
+    def flush_views(self):
+        # Forms keep their explicit confirmation boundary. Switching views or
+        # saving never accepts an unconfirmed material dialog.
+        if any(getattr(getattr(h, 'prompt_editor', None), 'active_dialog', None) is not None for h in self.hosts):
+            return False
+        return all(h.flush_editor_drafts() for h in self.hosts)
+
+    def execution_client(self, host):
+        if self.execution is None:
+            from .document_execution import DocumentExecution
+            self.execution = DocumentExecution(self, host, LocalEditingClient)
+        return self.execution.client
+
+    def retarget_execution(self):
+        """Save As gives new submissions a new owner, preserving accepted work."""
+        from .document_execution import DocumentExecution
+        from .media import Catalog
+        old = self.execution
+        if old is None:return
+        old.detach()
+        self.retired_executions.append(old)
+        data = self.data.with_name(self.key+'-'+uuid.uuid4().hex[:8])
+        data.mkdir()
+        for entry in self.document['assets']:
+            for relative in {entry['reference'], entry['path']}:
+                source = paths.checked(self.data, relative)
+                target = paths.checked(data, relative)
+                if source.is_file():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, target)
+        store = Storage(data)
+        store.save(self.state)
+        self.data = data
+        for host in self.hosts:
+            host.save_timer.stop()
+            if host.store is not old.store:host.store.close()
+            host.store = store
+            host.owns_store = False
+            host.catalog = Catalog(store)
+            from .image_drop import ImageDropLabel
+            for loader in host.findChildren(ImageDropLabel):loader.store = store
+        self.execution = DocumentExecution(self, self.host, LocalEditingClient)
+        for host in self.hosts:
+            old.client.stateChanged.disconnect(host.comfy_changed)
+            host.comfy = self.execution.client
+            host.comfy.stateChanged.connect(host.comfy_changed)
+            host.comfy_changed()
+
+    def view_changed(self, host):
+        if self.refreshing:
+            return
+        self.last_editor = host
+        self.refresh_timer.start(0)
+        self.update_dirty()
+
+    def refresh_views(self):
+        self.refreshing = True
+        try:
+            for host in self.hosts:
+                if host is self.last_editor or host.closing:
+                    continue
+                host.canvas.refresh()
+                host.refresh_prompt_editors()
+                host.comfy_changed()
+        finally:
+            self.refreshing = False
 
     def project(self, *, remap=True):
         state = self.host.state
@@ -131,7 +211,7 @@ class DesktopDocument(QObject):
             dialog = getattr(getattr(self.host, 'prompt_editor', None), 'active_dialog', None)
             if dialog is not None and not dialog.save():
                 return False
-            if not self.host.flush_editor_drafts():
+            if not self.flush_views():
                 return False
             self.host.remember_canvas_view()
             if not self.path.is_file():
@@ -179,6 +259,12 @@ class DocumentBrowser(PromptEditor):
         self.library_more.setAccessibleName('分類選單')
 
     def _open_dialog(self, ident, text='', initial_value=None):
+        for host in self.window.document.hosts:
+            existing = getattr(getattr(host, 'prompt_editor', None), 'active_dialog', None)
+            if existing is not None:
+                existing.raise_()
+                existing.activateWindow()
+                return existing
         self.window.document.begin_edit()
         dialog = super()._open_dialog(ident, text, initial_value)
         if not getattr(dialog, '_document_bound', False):
@@ -216,7 +302,11 @@ class EmbeddedHost(Window):
         self.document = document
         self.workspace_owner = workspace
         self._document_ready = False
-        super().__init__(data, embedded=True, client_factory=LocalEditingClient, document_only=document is not None)
+        self.owns_comfy = document is None
+        self.owns_store = document is None or document.host is not None
+        client_factory = document.execution_client if document else LocalEditingClient
+        super().__init__(data, embedded=True, client_factory=client_factory, document_only=document is not None,
+                         shared_state=document.state if document else None)
         self.studio_navigation.hide()
         self.context_rail.hide()
         self.canvas_header.hide()
@@ -234,13 +324,29 @@ class EmbeddedHost(Window):
             self.changes.flush()
             self.save_timer.stop()
             document.attach(self)
+            # Results have one document owner, not one receiver per view.
+            self.comfy.resultsReceived.disconnect(self.recent.receive_results)
         self._document_ready = True
+
+    @property
+    def state(self):
+        document = getattr(self, 'document', None)
+        return document.state if document is not None else self._local_state
+
+    @state.setter
+    def state(self, value):
+        document = getattr(self, 'document', None)
+        if document is not None:
+            document.state = value
+        else:
+            self._local_state = value
 
     def bind_workspace(self, workspace):
         """One outer navigation owner; keep the existing editors and models."""
         from PySide6.QtGui import QShortcut, QKeySequence
         self.workspace_owner = workspace
         for shortcut in self.findChildren(QShortcut):
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             if shortcut.key().toString(QKeySequence.SequenceFormat.PortableText) in ('Alt+Left', 'Alt+Right'):
                 shortcut.setEnabled(False)
         # These are the same live sidebars used by the established pages.
@@ -291,6 +397,14 @@ class EmbeddedHost(Window):
         super().apply_theme(*args, **kwargs)
         self.sync_workspace_display()
 
+    def remember_canvas_view(self):
+        if self.document is None:return super().remember_canvas_view()
+        from PySide6.QtCore import QPointF
+        if hasattr(self, 'canvas'):
+            view = self.canvas.view
+            center = view.viewportTransform().inverted()[0].map(QPointF(view.viewport().rect().center()))
+            self.local_canvas_view = [view.transform().m11(), center.x(), center.y()]
+
     def update_material_preview(self):
         if getattr(self,'workspace_owner',None) is not None and self.document is None:
             self.sync_workspace_display()
@@ -328,7 +442,7 @@ class EmbeddedHost(Window):
     def changed(self, scope='prompt', refresh=True):
         super().changed(scope, refresh)
         if self._document_ready and self.document is not None:
-            self.document.update_dirty()
+            self.document.view_changed(self)
 
     def sync_context_sidebar(self):
         if hasattr(self, 'context_rail'):

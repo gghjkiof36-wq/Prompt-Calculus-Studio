@@ -1,0 +1,371 @@
+"""View lifetimes and two pane navigation, independent of document writers."""
+from dataclasses import dataclass
+from pathlib import Path
+import uuid
+
+from PySide6.QtCore import QObject, QEvent, Qt, QTimer
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QStackedWidget, QSplitter, QApplication
+
+from .document_tabs import DocumentTabs
+from .document_host import DesktopDocument, EmbeddedHost
+from .workspace_files import MarkdownPage
+from .workspace_home import WorkspaceHome
+from .workspace_locations import path_key
+from .widgets import RoundMenu
+
+
+@dataclass
+class Pane:
+    key: str
+    container: QWidget
+    strip: DocumentTabs
+    pages: QStackedWidget
+
+
+class PaneFocus(QObject):
+    def __init__(self, workspace):
+        super().__init__(workspace)
+        self.w = workspace
+        QApplication.instance().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QEvent.Type.MouseButtonPress, QEvent.Type.FocusIn):
+            widget = obj if isinstance(obj, QWidget) else None
+            if widget is not None:
+                ancestor = widget
+                while ancestor is not None:
+                    proxy = ancestor.graphicsProxyWidget()
+                    if proxy is not None and proxy.scene() is not None:
+                        views = proxy.scene().views()
+                        widget = views[0] if views else widget
+                        break
+                    ancestor = ancestor.parentWidget()
+            for pane in self.w.panes:
+                if widget is not None and (widget is pane.container or pane.container.isAncestorOf(widget)
+                        or widget is pane.strip or pane.strip.isAncestorOf(widget)):
+                    self.w.use_pane(pane)
+                    break
+        return False
+
+
+class WorkspacePanes:
+    """Methods mixed into the shell; legacy public single-pane entry names remain."""
+    def init_panes(self):
+        from .workspace_pane_chrome import PaneSplitter, PaneTabRow
+        self.documents = []
+        self.panes = []
+        self.split_ratio = .5
+        self.pane_split = PaneSplitter()
+        self.pane_split.setObjectName('DocumentPaneSplit')
+        self.home_split.replaceWidget(1, self.pane_split)
+        self._make_pane(self.tab_strip, self.pages)
+        self.active_pane = self.panes[0]
+        self.pane_tab_row = PaneTabRow(self)
+        self.pane_split.splitterMoved.connect(self.remember_ratio)
+        self.pane_focus = PaneFocus(self)
+        from .workspace_tab_drag import TabDrag
+        self.tab_drag = TabDrag(self)
+
+    def _make_pane(self, strip=None, pages=None):
+        container = QWidget()
+        container.setObjectName('DocumentPane')
+        container.setMinimumWidth(250)
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        existing_strip = strip is not None
+        strip = strip or DocumentTabs()
+        pages = pages or QStackedWidget()
+        pages.setObjectName('DocumentPages')
+        layout.addWidget(pages, 1)
+        pane = Pane(uuid.uuid4().hex, container, strip, pages)
+        self.panes.append(pane)
+        self.pane_split.addWidget(container)
+        # The first strip was connected by the original shell builder.
+        if existing_strip:
+            for signal, callback in ((strip.newRequested, self.new_tab), (strip.bar.currentChanged, self.activate),
+                    (strip.bar.tabBarClicked, self.activate), (strip.bar.tabCloseRequested, self.close_tab),
+                    (strip.bar.customContextMenuRequested, self.tab_menu)):
+                signal.disconnect(callback)
+        strip.newRequested.connect(lambda: self.new_tab(pane=pane))
+        strip.bar.currentChanged.connect(lambda at: self.activate_in(pane, at))
+        strip.bar.tabBarClicked.connect(lambda at: self.activate_in(pane, at))
+        strip.bar.tabCloseRequested.connect(lambda at: self.close_tab(at, pane=pane))
+        strip.bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        strip.bar.customContextMenuRequested.connect(lambda point: self.tab_menu(point, pane))
+        strip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        strip.customContextMenuRequested.connect(lambda point: self.pane_menu(pane, strip.mapToGlobal(point)))
+        strip.pane_menu = lambda menu: self.add_pane_actions(menu, pane)
+        if hasattr(self, 'tab_drag'):
+            self.tab_drag.register(pane)
+        return pane
+
+    def remember_ratio(self, *_):
+        sizes = self.pane_split.sizes()
+        if len(sizes) == 2 and sum(sizes):
+            self.split_ratio = sizes[0]/sum(sizes)
+        self.layout_changed()
+
+    def layout_changed(self):
+        if hasattr(self, 'layout_store'):
+            self.layout_store.schedule()
+
+    def pane_for(self, tab):
+        return next((p for p in self.panes if p.key == tab.pane), self.active_pane)
+
+    def use_pane(self, pane):
+        if pane not in self.panes:
+            return
+        previous = getattr(self, 'active_pane', None)
+        if previous is not pane:
+            old = self.tabs_by_key.get(self.active_key)
+            if old and old.document and not old.document.flush_views():
+                # A modal form remains owned by its originating view.
+                return
+        self.active_pane = pane
+        self.tab_strip, self.pages = pane.strip, pane.pages
+        key = pane.strip.bar.tabData(pane.strip.bar.currentIndex())
+        if key in self.tabs_by_key and self.active_route == 'home' and previous is not pane:
+            self.activate(pane.strip.bar.currentIndex())
+        for candidate in self.panes:
+            candidate.strip.bar.pane_active = candidate is pane
+            candidate.strip.bar.workspace_active = self.active_route == 'home'
+        self.layout_changed()
+
+    def activate_in(self, pane, at):
+        self.use_pane(pane)
+        self.activate(at)
+
+    def ensure_split(self):
+        if len(self.panes) == 2:
+            return self.panes[1]
+        right = self._make_pane()
+        self.arrange_navigation()
+        self.style_shell()
+        self.new_tab(pane=right)
+        total = max(500, self.pane_split.width())
+        self.pane_split.setSizes([int(total*self.split_ratio), int(total*(1-self.split_ratio))])
+        self.layout_changed()
+        return right
+
+    def tab_for_path(self, path, include_history=False):
+        if path is None:return None
+        pages = self.all_pages() if include_history else list(self.tabs_by_key.values())
+        pages.sort(key=lambda t: t.pane != self.active_pane.key)
+        return next((t for t in pages if t.path and path_key(t.path) == path_key(path)), None)
+
+    def index_of(self, key):
+        tab = self.tabs_by_key.get(key)
+        bar = self.pane_for(tab).strip.bar if tab else self.tab_strip.bar
+        return next((i for i in range(bar.count()) if bar.tabData(i) == key), -1)
+
+    def add_tab(self, tab, replace_current=False, position=None, pane=None):
+        pane = pane or self.active_pane
+        bar = pane.strip.bar
+        at = bar.currentIndex() if position is None else position
+        current = self.tabs_by_key.get(bar.tabData(at)) if replace_current else None
+        if current:
+            if not self.prepare_navigation(current):
+                if tab.key not in self.saved_pages:self.dispose_page(tab)
+                return None
+            self.saved_pages[current.key] = self.tabs_by_key.pop(current.key)
+            tab.slot = current.slot
+        elif not tab.slot:
+            tab.slot = uuid.uuid4().hex
+        self.saved_pages.pop(tab.key, None)
+        tab.pane = pane.key
+        self.tabs_by_key[tab.key] = tab
+        if pane.pages.indexOf(tab.widget) < 0:pane.pages.addWidget(tab.widget)
+        bar.blockSignals(True)
+        if current:bar.setTabText(at, tab.title)
+        else:at = bar.addTab(tab.title)
+        bar.setTabData(at, tab.key)
+        bar.blockSignals(False)
+        self.update_tab(tab)
+        bar.setCurrentIndex(at)
+        self.activate_in(pane, at)
+        self.layout_changed()
+        return tab
+
+    def update_tab(self, tab):
+        at = self.index_of(tab.key)
+        if at < 0:return
+        strip = self.pane_for(tab).strip
+        if tab.dirty:tab.retained = True
+        strip.decorate(at, tab.title, True, tab.dirty, str(tab.path or ''))
+        error = getattr(tab.document or tab.widget, 'error', '')
+        if error:strip.bar.setTabToolTip(at, strip.bar.tabToolTip(at)+'\n'+error)
+
+    def open_path(self, path, retained=False, *, new_tab=False, pane=None):
+        from .workspace_shell import Tab
+        pane = pane or self.active_pane
+        try:
+            path = self.locations.file(path)
+            matching = [t for t in self.all_pages() if t.path and (path_key(t.path) == path_key(path)
+                        or (t.path.exists() and path.exists() and t.path.samefile(path)))]
+            if not new_tab:
+                current = next((t for t in matching if t.pane == pane.key and t.key in self.tabs_by_key), None)
+                if current:
+                    self.focus_tab(current)
+                    return current
+                cached = next((t for t in matching if t.pane == pane.key and t.key in self.saved_pages), None)
+                if cached:return self.add_tab(cached, replace_current=True, pane=pane)
+            if path.suffix.casefold() == '.md':
+                page = MarkdownPage(path, matching[0].widget.buffer if matching else None)
+                tab = Tab('md:'+uuid.uuid4().hex, path.stem, page, retained, path=path)
+                if not hasattr(page.buffer, 'save_key'):page.buffer.save_key = tab.key
+                page.textChanged.connect(lambda: self.document_changed(tab))
+                page.document().modificationChanged.connect(lambda _: self.update_tab(tab))
+            else:
+                document = matching[0].document if matching else next((d for d in self.documents if d.path == path), None)
+                if document is None:
+                    document = DesktopDocument(path, self.session, self)
+                    if any(d.key == document.key for d in self.documents):
+                        document.deleteLater()
+                        raise ValueError('另一個位置的同身分文件已開啟，請先建立獨立副本。')
+                    document.prepare()
+                    self.documents.append(document)
+                host = EmbeddedHost(document.data, document)
+                host.bind_workspace(self)
+                host.comfy.stateChanged.connect(self.refresh_connection)
+                page = QWidget()
+                layout = QVBoxLayout(page)
+                layout.setContentsMargins(0, 0, 0, 0)
+                layout.addWidget(host)
+                key = document.key if not matching and not any(t.document is document for t in self.all_pages()) else 'view:'+uuid.uuid4().hex
+                tab = Tab(key, path.stem, page, retained, document, path, host=host)
+                document.changed.connect(lambda: self.document_changed(tab))
+                document.editing.connect(lambda: self.retain(tab))
+            return self.add_tab(tab, replace_current=not new_tab, pane=pane)
+        except (ValueError, OSError, KeyError) as error:
+            self.report_error(str(error))
+
+    def new_tab(self, *, pane=None):
+        from .workspace_shell import Tab
+        pane = pane or self.active_pane
+        page = WorkspaceHome(self.root, self.recent_files, self.settings,
+                             lambda: self.choose_file_in(pane),
+                             lambda path: self.open_path(path, True, pane=pane),
+                             lambda kind: self.commands.new(kind, self.commands.context('home')))
+        tab = Tab('new:'+uuid.uuid4().hex, '新分頁', page, True)
+        return self.add_tab(tab, pane=pane)
+
+    def choose_file_in(self, pane):
+        self.use_pane(pane)
+        return self.choose_file()
+
+    def focus_tab(self, tab):
+        pane = self.pane_for(tab)
+        self.use_pane(pane)
+        pane.strip.bar.setCurrentIndex(self.index_of(tab.key))
+        self.activate(self.index_of(tab.key))
+
+    def open_context(self, path, context):
+        pane = next((p for p in self.panes if p.key == context.pane_id), self.active_pane)
+        tab = self.tabs_by_key.get(context.view_key)
+        if tab:
+            self.focus_tab(tab)
+            pane = self.pane_for(tab)
+        return self.open_path(path, True, new_tab=tab is None, pane=pane)
+
+    def move_view(self, tab, target=None, position=None):
+        source = self.pane_for(tab)
+        target = target or (self.ensure_split() if len(self.panes) == 1 else next(p for p in self.panes if p is not source))
+        if source is target:
+            if position is not None:source.strip.bar.moveTab(self.index_of(tab.key), max(0, min(position, source.strip.bar.count()-1)))
+            self.layout_changed()
+            return
+        self._detach_view(tab)
+        placeholders = [t for t in self.tabs_by_key.values() if t.pane == target.key and isinstance(t.widget, WorkspaceHome)]
+        if target.strip.bar.count() == 1 and placeholders:
+            self.close_tab(0, pane=target, make_home=False)
+        self.add_tab(tab, pane=target)
+        if position is not None:target.strip.bar.moveTab(self.index_of(tab.key), min(position, target.strip.bar.count()-1))
+        if source.strip.bar.count() == 0:self.new_tab(pane=source)
+        self.focus_tab(tab)
+        self.layout_changed()
+
+    def duplicate_view(self, tab, other=False):
+        pane = self.pane_for(tab)
+        if other:
+            fresh = len(self.panes) == 1
+            pane = self.ensure_split() if fresh else next(p for p in self.panes if p is not pane)
+            if fresh:self.close_tab(0, pane=pane, make_home=False)
+        if not tab.path:return
+        return self.open_path(tab.path, True, new_tab=True, pane=pane)
+
+    def _detach_view(self, tab):
+        pane = self.pane_for(tab)
+        bar = pane.strip.bar
+        at = self.index_of(tab.key)
+        bar.blockSignals(True)
+        bar.removeTab(at)
+        bar.blockSignals(False)
+        self.tabs_by_key.pop(tab.key, None)
+        pane.pages.removeWidget(tab.widget)
+        if bar.count():pane.pages.setCurrentWidget(self.tabs_by_key[bar.tabData(bar.currentIndex())].widget)
+        pane.strip.fit()
+
+    def dispose_page(self, tab):
+        self.autosave.forget(tab)
+        if tab.document:
+            # Keep the document's execution owner alive after its last view.
+            # No focus change or view close cancels accepted work.
+            tab.host.hide()
+            tab.host.setParent(self)
+        self.pane_for(tab).pages.removeWidget(tab.widget)
+        tab.widget.deleteLater()
+        return True
+
+    def close_tab(self, position, decision=None, make_home=True, *, pane=None):
+        pane = pane or self.active_pane
+        tab = self.tabs_by_key.get(pane.strip.bar.tabData(position))
+        if tab is None or not self.prepare_close(tab, decision):return False
+        self._detach_view(tab)
+        self.dispose_page(tab)
+        self.prune_saved_pages()
+        if pane.strip.bar.count():self.activate_in(pane, pane.strip.bar.currentIndex())
+        elif make_home:self.new_tab(pane=pane)
+        self.layout_changed()
+        return True
+
+    def add_pane_actions(self, menu, pane):
+        # P4-B adds group merge/close and recovery here.
+        pass
+
+    def pane_menu(self, pane, point):
+        menu = RoundMenu(self)
+        self.add_pane_actions(menu, pane)
+        menu.open_at(point)
+
+    def tab_menu(self, point, pane=None):
+        pane = pane or self.active_pane
+        at = pane.strip.bar.tabAt(point)
+        if at < 0:return self.pane_menu(pane, pane.strip.bar.mapToGlobal(point))
+        tab = self.tabs_by_key[pane.strip.bar.tabData(at)]
+        menu = RoundMenu(self)
+        if tab.path:
+            menu.addAction('在新分頁開啟', lambda: self.duplicate_view(tab))
+            menu.addAction('在另一側開啟', lambda: self.duplicate_view(tab, True))
+            menu.addAction('移至右側' if pane is self.panes[0] else '移至左側', lambda: self.move_view(tab))
+            menu.addSeparator()
+            menu.addAction('保存文件 · Ctrl+S', lambda: self.save_tab(tab))
+            editor = tab.host.canvas if tab.document else tab.widget
+            menu.addAction('復原 · Ctrl+Z', editor.undo)
+            menu.addAction('重做 · Ctrl+Y', editor.redo)
+            if tab.document and tab.document.error:
+                menu.addAction('檢視回復版本', lambda: self.show_recovery(tab.document))
+            for location in getattr(tab.document or tab.widget, 'recovery_paths', []):
+                path = Path(location)
+                if path.is_file() and path.suffix.casefold() in ('.md', '.pcs-category', '.pcs-workflow'):
+                    menu.addAction('開啟保留的文件：'+path.name, lambda checked=False, p=path: self.open_path(p, True, new_tab=True, pane=pane))
+            context = self.commands.context('tab', tab=tab)
+            self.commands.files.add_actions(menu, context)
+            menu.addAction('在側欄中定位', lambda: self.reveal_file(tab.path)).setEnabled(context.root is not None)
+            menu.addAction('顯示所在資料夾', lambda: self.show_location(tab.path.parent))
+            if context.root is None:
+                menu.addAction('將所在資料夾加入側欄', lambda: self.add_root(tab.path.parent))
+            menu.addSeparator()
+        menu.addAction('關閉分頁', lambda: self.close_tab(self.index_of(tab.key), pane=self.pane_for(tab)))
+        self.add_pane_actions(menu, pane)
+        menu.open_at(pane.strip.bar.mapToGlobal(point))

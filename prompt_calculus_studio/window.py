@@ -36,7 +36,7 @@ from .deferred_page import DeferredToolPage, page_ready
 
 
 class Window(QMainWindow):
-    def __init__(self, data_dir, *, embedded=False, client_factory=None, document_only=False):
+    def __init__(self, data_dir, *, embedded=False, client_factory=None, document_only=False, shared_state=None):
         super().__init__()
         self.embedded_document = embedded
         self.document_only = bool(embedded and document_only)
@@ -58,9 +58,9 @@ class Window(QMainWindow):
         # A queued Canvas edit belongs to this document/workspace visit.
         self.canvas_edit_context=object()
         self.fresh_install=self.store.db.execute('SELECT 1 FROM document WHERE id=1').fetchone() is None
-        self.state=self.store.load_current(multi=os.environ.get('PROMPT_STUDIO_V08')=='1'); self.catalog=Catalog(self.store)
+        self.state=shared_state if shared_state is not None else self.store.load_current(multi=os.environ.get('PROMPT_STUDIO_V08')=='1'); self.catalog=Catalog(self.store)
         from .canvas_starter import initialize
-        self.state=initialize(self.state,fresh_install=self.fresh_install)
+        if shared_state is None:self.state=initialize(self.state,fresh_install=self.fresh_install)
         interface=self.state['settings'].get('interface_mode','ask')
         if interface=='ask' and not self.fresh_install: self.state['settings']['interface_mode']=self.state['selection_view']
         elif interface in ('list','canvas'): activate_selection_view(self.state,interface)
@@ -1368,7 +1368,7 @@ class Window(QMainWindow):
         self.save_timer.stop()
         if not self.persist(): event.ignore(); return
         self.canvas_edit_context=object()
-        self.comfy.shutdown()
+        if getattr(self, 'owns_comfy', True):self.comfy.shutdown()
         self.recent.refresh_timer.stop()
         self.display_recovery.stop()
         self.copy_timer.stop(); self.filter_timer.stop()
@@ -1378,4 +1378,6 @@ class Window(QMainWindow):
         from PySide6.QtWidgets import QApplication
         QApplication.instance().removeEventFilter(self.host_shell)
         self.canvas.release_output(); self.canvas.output=None; self.canvas.cards={}; self.canvas.view.scene().clear()
-        self.changes.stop(); self.store.close(); event.accept()
+        self.changes.stop()
+        if getattr(self, 'owns_store', True):self.store.close()
+        event.accept()

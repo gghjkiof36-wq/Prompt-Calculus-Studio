@@ -39,11 +39,15 @@ class WorkspaceSurface(QStackedWidget):
         # height must not enlarge the top-level window when switching routes.
         return QSize(0, 0)
 
+    def joined_top(self):
+        w = self.workspace
+        return getattr(w, '_sidebar_header_docked', False) or (w.active_route == 'home' and getattr(w, 'tabs_in_row', False))
+
     def sync_surface(self, *_):
         page = self.currentWidget()
         if page is not None:
             page.installEventFilter(self)
-            joined = getattr(self.workspace, '_sidebar_header_docked', False)
+            joined = self.joined_top()
             geometry = (page.width(), page.height(), joined)
             if getattr(page, '_pcs_contour_size', None) != geometry or page.mask().isEmpty():
                 # Clip the full page subtree, including opaque scroll viewports.
@@ -73,7 +77,7 @@ class WorkspaceSurface(QStackedWidget):
         fill = colors['sidebar'] if expanded else colors['content']
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        joined = getattr(self.workspace, '_sidebar_header_docked', False)
+        joined = self.joined_top()
         painter.fillPath(left_contour(QRectF(self.rect()), RADIUS, not joined), QColor(fill))
         painter.end()
         super().paintEvent(event)
@@ -97,7 +101,11 @@ class SurfaceEdge(QWidget):
         # The right edge is already owned by the native window frame.
         path = QPainterPath()
         path.moveTo(rect.right(), rect.top())
-        if getattr(workspace, '_sidebar_header_docked', False):
+        if workspace.active_route == 'home' and getattr(workspace, 'tabs_in_row', False):
+            # The active tab owns the top contour; never draw a horizontal
+            # frame through its join with the document surface.
+            path.moveTo(rect.left(), rect.top())
+        elif getattr(workspace, '_sidebar_header_docked', False):
             path.lineTo(rect.left()+workspace.sidebar_target().width(), rect.top())
             path.moveTo(rect.left(), rect.top())
         else:

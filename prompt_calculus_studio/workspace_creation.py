@@ -68,7 +68,7 @@ def start_creation(commands, kind, context, after_create=None, finished=None):
                 if after_create:
                     after_create(created)
                 elif kind != 'folder':
-                    w.open_path(created, True)
+                    w.open_context(created, context)
         except (OSError, ValueError) as error:
             w.show_notice(str(error))
         finally:

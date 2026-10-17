@@ -51,7 +51,9 @@ class DocumentTabBar(QTabBar):
         self.body_inset = 3
         self.hover_radius = 10
         self._workspace_active = True
+        self.pane_active = True
         self.join_sidebar = False
+        self.join_outer_edge = False
         self.sidebar_fill = QColor('#151819')
         self.active_fill = QColor('#151819')
         self.hover_fill = QColor('#2c3235')
@@ -124,8 +126,14 @@ class DocumentTabBar(QTabBar):
         # Their radius difference is the same as the horizontal/vertical seam.
         foot, shoulder = self.hover_radius+2*self.body_inset, 14
         path = QPainterPath()
-        path.moveTo(left-foot, bottom)
-        path.arcTo(QRectF(left-2*foot, bottom-2*foot, 2*foot, 2*foot), 270, 90)
+        if self.join_outer_edge and index == 0 and rect.left() == 0:
+            # The first tab and the page share the outside edge. An outward
+            # foot here would intrude into the rail and create a second corner.
+            left = rect.left()
+            path.moveTo(left, bottom)
+        else:
+            path.moveTo(left-foot, bottom)
+            path.arcTo(QRectF(left-2*foot, bottom-2*foot, 2*foot, 2*foot), 270, 90)
         path.lineTo(left, top+shoulder)
         path.quadTo(left, top, left+shoulder, top)
         path.lineTo(right-shoulder, top)
@@ -200,7 +208,7 @@ class DocumentTabBar(QTabBar):
                 text_rect.setRight(min(text_rect.right(), close.x()-8))
             title = option.fontMetrics.elidedText(self.tabText(index), Qt.TextElideMode.ElideRight, max(0,text_rect.width()))
             option.palette.setColor(QPalette.ColorRole.WindowText,
-                self.active_ink if self.workspace_active and index == self.currentIndex() else self.idle_ink)
+                self.active_ink if self.workspace_active and self.pane_active and index == self.currentIndex() else self.idle_ink)
             painter.drawItemText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                                  option.palette, self.isTabEnabled(index), title, QPalette.ColorRole.WindowText)
 
@@ -235,6 +243,8 @@ class DocumentTabs(QWidget):
         self.update()
         if self.parentWidget() is not None:
             self.parentWidget().update()
+            if self.parentWidget().parentWidget() is not None:
+                self.parentWidget().parentWidget().update()
 
     def paint_outer_feet(self, surface):
         if not self.bar.workspace_active or self.bar.currentIndex() < 0:
@@ -264,13 +274,22 @@ class DocumentTabs(QWidget):
         self.bar.updateGeometry()
         self.updateGeometry()
 
+    def set_leading_foot(self, enabled):
+        # Keep the whole concave foot inside its pane, tangent to the divider.
+        # The reserve is derived from the curve rather than a visual offset.
+        inset = self.bar.hover_radius+self.bar.body_inset if enabled else 0
+        if self.line.contentsMargins().left() != inset:
+            self.line.setContentsMargins(inset, 0, 0, 0)
+            self.fit()
+
     def fit(self):
         count = max(1, self.bar.count())
-        budget = max(80, self.width()-42)
+        available = self.width()-self.line.contentsMargins().left()
+        budget = max(80, available-42)
         width = max(124, min(228, budget//count))
         overflow = count*width > budget
         if overflow:
-            budget = max(80, self.width()-74)
+            budget = max(80, available-74)
         if self.bar.tab_width != width:
             self.bar.tab_width = width
             # Re-layout the native tabs without recreating them or their views.
@@ -312,6 +331,7 @@ class DocumentTabs(QWidget):
             action = menu.addAction(self.bar.tabText(i), lambda checked=False, n=i: self.select_from_list(n))
             action.setCheckable(True)
             action.setChecked(i == self.bar.currentIndex())
+        if hasattr(self, 'pane_menu'):self.pane_menu(menu)
         menu.open_at(self.overflow.mapToGlobal(self.overflow.rect().bottomLeft()))
 
     def select_from_list(self, index):

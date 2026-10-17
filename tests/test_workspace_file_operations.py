@@ -208,7 +208,7 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
             external = self.root.parent/('external-'+tab.document.kind)
             external.mkdir()
             self.assertIsNotNone(self.execute('save_as', tab, name='copy', directory=external))
-            self.assertNotEqual(tab.key, old_key)
+            self.assertEqual(tab.key, old_key)  # View identity survives document Save As.
             self.assertIs(tab.document.host, host)
             self.assertEqual(host.canvas.undo_stack, undo)
             saved = io.load(external, tab.path.name)

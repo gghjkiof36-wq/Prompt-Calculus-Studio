@@ -1,6 +1,6 @@
 """A shared sidebar edge, including deliberate drag-to-collapse."""
 from collections import OrderedDict
-from PySide6.QtCore import QObject, QEvent, QPoint, QTimer, QRect, QRectF, Qt, QPersistentModelIndex
+from PySide6.QtCore import QObject, QEvent, QPoint, QTimer, QRect, QRectF, Qt, QPersistentModelIndex, QVariantAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath, QPixmap
 from PySide6.QtWidgets import QApplication, QTreeWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate
 from shiboken6 import isValid
@@ -172,6 +172,12 @@ class WorkspaceSidebarResize(QObject):
         self.collapsed = False
         self.stopped = False
         self.syncing = False
+        self.motion_target = None
+        self.motion_width = 0
+        self.motion = QVariantAnimation(self)
+        self.motion.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.motion.valueChanged.connect(self.motion_frame)
+        self.motion.finished.connect(self.finish_motion)
         self.handle = SidebarResizeHandle(self)
         self.handle.setToolTip('拖曳調整側欄；縮至最小後繼續向左拖曳可收合')
         self.timer = QTimer(self)
@@ -196,11 +202,13 @@ class WorkspaceSidebarResize(QObject):
             if self.target is None or not isValid(self.target) or not self.window.isVisible():
                 self.handle.hide()
                 return
-            width = self.limit(self.window.sidebar_width)
+            width = self.motion_width if self.target is self.motion_target else self.limit(self.window.sidebar_width)
             if self.target.minimumWidth()!=width or self.target.maximumWidth()!=width:
                 self.target.setFixedWidth(width)
                 parent = self.target.parentWidget()
-                if parent.layout():
+                if self.target is self.window.sidebar:
+                    self.window.home_split.setSizes([width, max(0, self.window.home_split.width()-width)])
+                elif parent.layout():
                     parent.layout().activate()
                 utility = self.window.utility
                 from .deferred_page import page_ready
@@ -209,6 +217,9 @@ class WorkspaceSidebarResize(QObject):
                 elif utility and page_ready(utility.gallery) and self.target is utility.gallery.folder_panel:
                     utility.gallery.adapt_panels()
             self.window.sync_tab_inset()
+            if self.motion_target is not None:
+                self.handle.hide()
+                return
             if not self.target.isVisible() and not self.dragging:
                 self.handle.hide()
                 return
@@ -221,6 +232,7 @@ class WorkspaceSidebarResize(QObject):
             self.syncing = False
 
     def begin(self, global_position):
+        self.finish_motion()
         self.sync()
         if self.target is None:
             return
@@ -247,8 +259,59 @@ class WorkspaceSidebarResize(QObject):
 
     def resize_to(self, width):
         # Arrow keys resize without unexpectedly hiding the focused control.
+        self.finish_motion()
         self.window.sidebar_width = self.limit(width)
         self.sync()
+
+    def animate_visibility(self, expanded):
+        """One shared edge carries the heading, tabs and page during a toggle."""
+        from .dialog_presentation import reduced_motion
+        target = self.window.sidebar_target()
+        if target is None or not self.window.isVisible() or reduced_motion(self.window):
+            self.finish_motion()
+            return False
+        # Respect Windows' accessibility preference as well as the app setting.
+        if __import__('sys').platform == 'win32':
+            import ctypes
+            enabled = ctypes.c_int(1)
+            if ctypes.windll.user32.SystemParametersInfoW(0x1042, 0, ctypes.byref(enabled), 0) and not enabled.value:
+                self.finish_motion()
+                return False
+        start = self.motion_width if self.motion_target is target else target.width() if target.isVisible() else 0
+        self.motion.stop()
+        if self.motion_target is not None and self.motion_target is not target:
+            self.finish_motion()
+        self.motion_target = target
+        self.motion_width = start
+        end = self.limit(self.window.sidebar_width) if expanded else 0
+        target.setFixedWidth(start)
+        target.show()
+        self.motion.setDuration(240 if expanded else 180)
+        self.motion.setStartValue(start)
+        self.motion.setEndValue(end)
+        self.motion.start()
+        self.motion_frame(start)
+        return True
+
+    def motion_frame(self, value):
+        if self.motion_target is None:
+            return
+        self.motion_width = max(0, round(value))
+        self.sync()
+        self.window.workspace_stack.sync_surface()
+
+    def finish_motion(self):
+        if self.motion_target is None:
+            return
+        self.motion.stop()
+        target = self.motion_target
+        self.motion_target = None
+        if isValid(target):
+            target.setVisible(bool(self.window.sidebar_preference))
+            target.setFixedWidth(self.limit(self.window.sidebar_width))
+        self.window.sync_tab_inset()
+        self.window.workspace_stack.sync_surface()
+        self.schedule()
 
     def finish(self):
         self.dragging = False
@@ -263,6 +326,7 @@ class WorkspaceSidebarResize(QObject):
 
     def shutdown(self):
         self.stopped = True
+        self.finish_motion()
         self.dragging = False
         self.timer.stop()
         self.handle.hide()

@@ -26,6 +26,7 @@ from .workspace_style import sidebar_style, workspace_colors
 from .workspace_sidebar import WorkspaceSidebarResize, WorkspaceTree
 from .workspace_surface import WorkspaceSurface
 from .workspace_destinations import WorkspaceNavigation
+from .workspace_panes import WorkspacePanes
 
 
 DISPLAY_KEYS = ('font_family', 'ui_size', 'prompt_size', 'material',
@@ -43,6 +44,8 @@ class Tab:
     path: Path | None = None
     route: str = ''
     slot: str = ''
+    pane: str = ''
+    host: EmbeddedHost | None = None
 
     @property
     def dirty(self):
@@ -53,7 +56,7 @@ class Tab:
 class WorkspaceTop(QFrame):
     def paintEvent(self, event):
         super().paintEvent(event)
-        for strip in self.findChildren(DocumentTabs, options=Qt.FindChildOption.FindDirectChildrenOnly):
+        for strip in self.findChildren(DocumentTabs):
             if strip.isVisible():
                 strip.paint_outer_feet(self)
 
@@ -69,7 +72,7 @@ class WorkspaceTop(QFrame):
         super().mouseDoubleClickEvent(event)
 
 
-class WorkspaceShell(QMainWindow):
+class WorkspaceShell(WorkspacePanes, QMainWindow):
     def __init__(self, root, data):
         super().__init__()
         from .tooltips import install_tooltip_styling
@@ -114,6 +117,7 @@ class WorkspaceShell(QMainWindow):
         self.setMinimumSize(720, 480)
         self.setPalette(widget_palette(self.settings))
         self.build()
+        self.init_panes()
         self.arrange_navigation()
         from .window_chrome import install_expanded_chrome
         self.window_chrome = install_expanded_chrome(self)
@@ -281,15 +285,18 @@ class WorkspaceShell(QMainWindow):
         self.centralWidget().update()
         t = visual_tokens(appearance)
         palette = widget_palette(appearance)
+        self.pane_split.seam_color = QColor(t['text'])
         self.setPalette(palette)
         QApplication.instance().setPalette(palette)
-        self.tab_strip.bar.active_fill = QColor(workspace_colors(appearance)['content'])
-        self.tab_strip.bar.sidebar_fill = QColor(workspace_colors(appearance)['sidebar'])
-        self.tab_strip.bar.hover_fill = QColor(t['raised'])
-        self.tab_strip.bar.close_fill = QColor(t['selected'])
-        self.tab_strip.bar.scroll_fill = QColor(t['chrome'])
-        self.tab_strip.bar.active_ink = QColor(t['text'])
-        self.tab_strip.bar.idle_ink = QColor(t['secondary'])
+        for pane in self.panes:
+            strip = pane.strip
+            strip.bar.active_fill = QColor(workspace_colors(appearance)['content'])
+            strip.bar.sidebar_fill = QColor(workspace_colors(appearance)['sidebar'])
+            strip.bar.hover_fill = QColor(t['raised'])
+            strip.bar.close_fill = QColor(t['selected'])
+            strip.bar.scroll_fill = QColor(t['chrome'])
+            strip.bar.active_ink = QColor(t['text'])
+            strip.bar.idle_ink = QColor(t['secondary'])
         self.tree.row_colors = dict(t, **workspace_colors(appearance))
         self.setStyleSheet(stylesheet(appearance) + f'''
             QFrame#DocumentWorkspace, QFrame#DocumentRail {{ background:transparent; border:0; }}
@@ -319,7 +326,7 @@ class WorkspaceShell(QMainWindow):
             if isinstance(tab.widget, WorkspaceHome):
                 tab.widget.apply_appearance(appearance)
             elif tab.document:
-                tab.document.host.apply_theme(preserve_layout=True)
+                tab.host.apply_theme(preserve_layout=True)
 
     def load_ui_preferences(self):
         try:
@@ -414,41 +421,71 @@ class WorkspaceShell(QMainWindow):
 
     def arrange_navigation(self):
         horizontal = self.navigation_position == 'top'
+        split = len(self.panes) == 2
+        self.tabs_in_row = True
         top = self.top.layout()
-        top.removeWidget(self.tab_strip)
+        top.removeWidget(self.pane_tab_row)
+        self.tab_row.layout().removeWidget(self.pane_tab_row)
+        self.pane_tab_row.hide()
         top.removeWidget(self.rail)
-        self.tab_row.layout().removeWidget(self.tab_strip)
+        top.removeWidget(self.nav_controls)
+        top.removeWidget(self.connection)
         self.workspace_layout.removeWidget(self.rail)
+        for pane in self.panes:
+            top.removeWidget(pane.strip)
+            self.tab_row.layout().removeWidget(pane.strip)
+            pane.container.layout().removeWidget(pane.strip)
+            pane.strip.set_tab_height(36 if horizontal else 40)
         self.rail.arrange(self.navigation_position)
-        self.tab_strip.set_tab_height(36 if horizontal else 40)
+        top.insertWidget(0, self.nav_controls)
+        if not hasattr(self, 'chrome_space'):
+            self.chrome_space = QWidget()
+        top.removeWidget(self.chrome_space)
+        self.chrome_space.hide()
         if horizontal:
             top.insertWidget(2, self.rail, 1)
-            self.tab_row.layout().addWidget(self.tab_strip, 1)
         else:
-            top.insertWidget(2, self.tab_strip, 1)
             self.workspace_layout.insertWidget(0, self.rail)
-        self.tab_row.setVisible(horizontal)
+            top.insertWidget(2, self.chrome_space, 1)
+            self.chrome_space.show()
+        top.addWidget(self.connection)
+        if split:
+            for pane in self.panes:
+                pane.strip.setParent(self.pane_tab_row)
+                pane.strip.set_tab_height(36)
+            self.tab_row.layout().addWidget(self.pane_tab_row, 1)
+            self.pane_tab_row.show()
+        else:
+            self.panes[0].strip.set_tab_height(36)
+            self.tab_row.layout().addWidget(self.panes[0].strip, 1)
+        self.tab_row.setVisible(self.tabs_in_row)
         self.rail.show()
-        self.tab_strip.show()
+        self.nav_controls.show()
+        self.connection.show()
+        for pane in self.panes:pane.strip.show()
         self.sync_navigation_density()
+        QTimer.singleShot(0, self.pane_tab_row.sync)
 
     def sync_navigation_density(self):
         horizontal = self.navigation_position == 'top'
         margins = self.top.layout().contentsMargins()
-        self.nav_controls.layout().setContentsMargins(0, 0, 0, 0 if horizontal else 4)
+        self.nav_controls.layout().setContentsMargins(0, 0, 0, 0)
         available = (self.width()-margins.left()-margins.right()
                      -self.nav_controls.sizeHint().width()-self.connection.width()-22)
         self.rail.adapt_width(available)
 
     def sync_tab_inset(self):
-        if self.navigation_position == 'top':
+        if self.tabs_in_row:
             target = self.sidebar_target()
-            inset = target.width() if target is not None and target.isVisible() else 16
+            sidebar = target.width() if target is not None and target.isVisible() else 0
+            rail = self.rail.width() if self.navigation_position == 'side' else 0
+            inset = rail+sidebar if sidebar or rail or self.active_route == 'home' else 16
             if self.tab_row.layout().contentsMargins().left() != inset:
                 self.tab_row.layout().setContentsMargins(inset, 0, 16, 0)
                 self.tab_row.layout().activate()
                 self.tab_strip.fit()
         self.sync_tree_header()
+        self.pane_tab_row.sync()
 
     def sync_tree_header(self):
         self.sidebar_headers.sync()
@@ -564,42 +601,7 @@ class WorkspaceShell(QMainWindow):
     def all_pages(self):
         return [*self.tabs_by_key.values(), *self.saved_pages.values()]
 
-    def tab_for_path(self, path, include_history=False):
-        if path is None:
-            return None
-        return next((tab for tab in (self.all_pages() if include_history else self.tabs_by_key.values())
-                     if tab.path and path_key(tab.path) == path_key(path)), None)
 
-    def add_tab(self, tab, replace_current=False, position=None):
-        bar = self.tab_strip.bar
-        at = bar.currentIndex() if position is None else position
-        current = self.tabs_by_key.get(bar.tabData(at)) if replace_current else None
-        if current:
-            if not self.prepare_navigation(current):
-                if tab.key not in self.saved_pages:
-                    self.dispose_page(tab)
-                return None
-            self.autosave.stop(current)
-            self.saved_pages[current.key] = self.tabs_by_key.pop(current.key)
-            bar.preview_keys.discard(current.key)
-            tab.slot = current.slot
-        else:
-            tab.slot = uuid.uuid4().hex
-        self.saved_pages.pop(tab.key, None)
-        self.tabs_by_key[tab.key] = tab
-        if self.pages.indexOf(tab.widget) < 0:
-            self.pages.addWidget(tab.widget)
-        bar.blockSignals(True)
-        if current:
-            bar.setTabText(at, tab.title)
-        else:
-            at = bar.addTab(tab.title)
-        bar.setTabData(at, tab.key)
-        bar.blockSignals(False)
-        self.update_tab(tab)
-        bar.setCurrentIndex(at)
-        self.activate(at)
-        return tab
 
     def prepare_navigation(self, tab):
         if self.autosave.editing_dialog(tab):
@@ -607,15 +609,6 @@ class WorkspaceShell(QMainWindow):
             return False
         return self.prepare_close(tab)
 
-    def dispose_page(self, tab):
-        self.autosave.forget(tab)
-        if tab.document:
-            if not tab.document.host.close():
-                return False
-            tab.document.deleteLater()
-        self.pages.removeWidget(tab.widget)
-        tab.widget.deleteLater()
-        return True
 
     def prune_saved_pages(self):
         needed = {entry[1] for entry in self.history if entry[0] == 'document' and self.valid_visit(entry)}
@@ -623,73 +616,12 @@ class WorkspaceShell(QMainWindow):
             if key not in needed and self.dispose_page(tab):
                 self.saved_pages.pop(key)
 
-    def index_of(self, key):
-        bar = self.tab_strip.bar
-        return next((i for i in range(bar.count()) if bar.tabData(i) == key), -1)
 
-    def update_tab(self, tab):
-        at = self.index_of(tab.key)
-        if at < 0:
-            return
-        document = tab.document
-        dirty = tab.dirty
-        if dirty:
-            tab.retained = True
-        location = str(tab.path) if tab.path else ''
-        self.tab_strip.decorate(at, tab.title, True, bool(dirty), location)
-        error = document.error if document else tab.widget.error if isinstance(tab.widget,MarkdownPage) else ''
-        if error:
-            self.tab_strip.bar.setTabToolTip(at,self.tab_strip.bar.tabToolTip(at)+'\n'+error)
 
     def document_changed(self, tab):
         self.update_tab(tab)
         self.autosave.schedule(tab)
 
-    def open_path(self, path, retained=False, *, new_tab=False):
-        try:
-            path = self.locations.file(path)
-            for tab in self.all_pages():
-                if tab.path and (tab.path == path or (tab.path.exists() and path.exists() and tab.path.samefile(path))):
-                    if retained:
-                        tab.retained = True
-                    if self.index_of(tab.key) < 0:
-                        return self.add_tab(tab, replace_current=not new_tab)
-                    self.update_tab(tab)
-                    self.tab_strip.bar.setCurrentIndex(self.index_of(tab.key))
-                    self.activate(self.index_of(tab.key))
-                    return tab
-            if path.suffix.lower() == '.md':
-                return self.open_markdown(path, retained, new_tab=new_tab)
-            document = DesktopDocument(path, self.session, self)
-            for existing in self.all_pages():
-                if existing.document is None:
-                    continue
-                old = existing.document.receipt
-                new = document.receipt
-                if (old.device, old.inode) == (new.device, new.inode):
-                    document.deleteLater()
-                    self.tab_strip.bar.setCurrentIndex(self.index_of(existing.key))
-                    self.activate(self.index_of(existing.key))
-                    return existing
-                if existing.document.key == document.key:
-                    document.deleteLater()
-                    raise ValueError('另一個位置的同身分文件已開啟，請先關閉原頁或建立獨立副本。')
-            document.prepare()
-            host = EmbeddedHost(document.data, document)
-            host.bind_workspace(self)
-            host.comfy.stateChanged.connect(self.refresh_connection)
-            page = QWidget()
-            layout = QVBoxLayout(page)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(0)
-            layout.addWidget(host, 1)
-            tab = Tab(document.key, path.stem, page, retained, document, path)
-            document.changed.connect(lambda: self.document_changed(tab))
-            document.editing.connect(lambda: self.retain(tab))
-            return self.add_tab(tab, replace_current=not new_tab)
-        except (ValueError, OSError, KeyError) as error:
-            self.report_error(str(error))
-            return None
 
     def open_markdown(self, path, retained, *, new_tab=False):
         page = MarkdownPage(path)
@@ -698,11 +630,6 @@ class WorkspaceShell(QMainWindow):
         page.textChanged.connect(lambda: self.document_changed(tab))
         return self.add_tab(tab, replace_current=not new_tab)
 
-    def new_tab(self):
-        page = WorkspaceHome(self.root, self.recent_files, self.settings, self.choose_file,
-                             lambda path: self.open_path(Path(path), True),
-                             lambda kind: self.commands.new(kind, self.commands.context('home')))
-        return self.add_tab(Tab('new:' + uuid.uuid4().hex, '新分頁', page, True))
 
     def new_document(self, kind, name=None, directory=None, context=None):
         return self.commands.new(kind, context or self.commands.context('home'), name, directory)
@@ -825,13 +752,15 @@ class WorkspaceShell(QMainWindow):
         self.active_key = 'utility:' + route
         self.utility.prepare_workspace_sidebar()
         self.workspace_stack.setCurrentWidget(self.utility)
-        self.tab_strip.bar.workspace_active = False
-        self.tab_strip.bar.update()
+        for pane in self.panes:
+            pane.strip.bar.workspace_active = False
         self.sync_sidebar()
         self.record_visit(('utility', route, section))
 
     def sync_sidebar(self):
         expanded = self.width() >= 980 if self.sidebar_preference is None else self.sidebar_preference
+        if hasattr(self, 'sidebar_resize') and self.sidebar_resize.motion_target is not None:
+            self.sidebar_resize.finish_motion()
         if self.active_route == 'home':
             self.sidebar.setVisible(expanded)
         elif self.utility:
@@ -872,8 +801,10 @@ class WorkspaceShell(QMainWindow):
         self.active_route = 'home'
         self.active_key = key
         self.workspace_stack.setCurrentWidget(self.home_split)
-        self.tab_strip.bar.workspace_active = True
-        self.tab_strip.bar.update()
+        for pane in self.panes:
+            pane.strip.bar.workspace_active = True
+            pane.strip.bar.pane_active = pane is self.active_pane
+            pane.strip.bar.update()
         self.pages.setCurrentWidget(tab.widget)
         if tab.path:
             self.tree.setCurrentItem(self.path_items.get(path_key(tab.path)))
@@ -894,12 +825,13 @@ class WorkspaceShell(QMainWindow):
                     if entry[0] == 'utility':
                         self.open_route(entry[1], entry[2])
                     elif entry[1] in self.saved_pages:
-                        at = next(self.index_of(t.key) for t in self.tabs_by_key.values() if t.slot == entry[2])
+                        target_tab = next(t for t in self.tabs_by_key.values() if t.slot == entry[2])
+                        self.use_pane(self.pane_for(target_tab))
+                        at = self.index_of(target_tab.key)
                         if self.add_tab(self.saved_pages[entry[1]], replace_current=True, position=at) is None:
                             self.history_at = previous
                     else:
-                        self.tab_strip.bar.setCurrentIndex(self.index_of(entry[1]))
-                        self.activate(self.index_of(entry[1]))
+                        self.focus_tab(self.tabs_by_key[entry[1]])
                 finally:
                     self.traversing = False
                 self.record_visit(self.history[self.history_at])
@@ -925,13 +857,13 @@ class WorkspaceShell(QMainWindow):
         return self.save_tab(tab) if tab else False
 
     def save_tab(self, tab):
-        if id(tab) in self.autosave.paused or tab.key in self.autosave.saving:
+        if id(tab) in self.autosave.paused or self.autosave.key(tab) in self.autosave.saving:
             return False
         if getattr(tab.document or tab.widget, 'operation_error', False):
             self.show_notice((tab.document or tab.widget).error)
             return False
         self.autosave.stop(tab)
-        self.autosave.saving.add(tab.key)
+        self.autosave.saving.add(self.autosave.key(tab))
         try:
             if tab.document:
                 saved = tab.document.save()
@@ -940,7 +872,7 @@ class WorkspaceShell(QMainWindow):
             else:
                 return False
         finally:
-            self.autosave.saving.discard(tab.key)
+            self.autosave.saving.discard(self.autosave.key(tab))
         self.update_tab(tab)
         if not saved:
             reason = tab.document.error if tab.document else tab.widget.error
@@ -959,71 +891,19 @@ class WorkspaceShell(QMainWindow):
             return False
         document = tab.document
         if document:
-            if not document.host.flush_editor_drafts():
+            if decision == 'save':
+                for host in document.hosts:
+                    dialog = getattr(getattr(host, 'prompt_editor', None), 'active_dialog', None)
+                    if dialog is not None and not dialog.save():return False
+            if not document.flush_views():
+                self.show_notice('請先完成素材表單的確認或取消，內容已保留。')
                 return False
             document.update_dirty()
         if decision == 'cancel':
             return not tab.dirty
         return not tab.dirty or self.save_tab(tab)
 
-    def close_tab(self, position, decision=None, make_home=True):
-        bar = self.tab_strip.bar
-        tab = self.tabs_by_key.get(bar.tabData(position))
-        if tab is None or not self.prepare_close(tab, decision):
-            return False
-        document = tab.document
-        if document:
-            dialog = getattr(getattr(document.host, 'prompt_editor', None), 'active_dialog', None)
-            if dialog is not None:
-                dialog.reject()
-            if not document.host.close():
-                return False
-        self.autosave.forget(tab)
-        bar.blockSignals(True)
-        bar.removeTab(position)
-        bar.preview_keys.discard(tab.key)
-        self.tabs_by_key.pop(tab.key)
-        bar.blockSignals(False)
-        if tab.widget is not self.utility:
-            self.pages.removeWidget(tab.widget)
-            tab.widget.deleteLater()
-        if document:
-            document.deleteLater()
-        self.prune_saved_pages()
-        if bar.count():
-            self.activate(bar.currentIndex())
-        elif make_home:
-            self.new_tab()
-        self.tab_strip.fit()
-        return True
 
-    def tab_menu(self, point):
-        at = self.tab_strip.bar.tabAt(point)
-        if at < 0:
-            return
-        menu = RoundMenu(self)
-        tab = self.tabs_by_key[self.tab_strip.bar.tabData(at)]
-        if tab.document or isinstance(tab.widget,MarkdownPage):
-            menu.addAction('保存文件 · Ctrl+S', lambda:self.save_tab(tab))
-            editor = tab.document.host.canvas if tab.document else tab.widget
-            menu.addAction('復原 · Ctrl+Z', editor.undo)
-            menu.addAction('重做 · Ctrl+Y', editor.redo)
-            if tab.document and tab.document.error:
-                menu.addAction('檢視回復版本', lambda:self.show_recovery(tab.document))
-            for location in getattr(tab.document or tab.widget, 'recovery_paths', []):
-                path = Path(location)
-                if path.is_file() and path.suffix.casefold() in ('.md', '.pcs-category', '.pcs-workflow'):
-                    menu.addAction('開啟保留的文件：'+path.name, lambda checked=False, p=path: self.open_path(p, True, new_tab=True))
-            context = self.commands.context('tab', tab=tab)
-            menu.addSeparator()
-            self.commands.files.add_actions(menu, context)
-            menu.addAction('在側欄中定位', lambda: self.reveal_file(tab.path)).setEnabled(context.root is not None)
-            menu.addAction('顯示所在資料夾', lambda: self.show_location(context.path.parent))
-            if context.root is None:
-                menu.addAction('將所在資料夾加入側欄', lambda: self.add_root(context.path.parent))
-            menu.addSeparator()
-        menu.addAction('關閉分頁', lambda: self.close_tab(self.index_of(tab.key)))
-        menu.open_at(self.tab_strip.bar.mapToGlobal(point))
 
     def tree_menu(self, point):
         self.commands.tree_menu(point)
@@ -1053,7 +933,10 @@ class WorkspaceShell(QMainWindow):
     def toggle_sidebar(self):
         expanded = self.width() >= 980 if self.sidebar_preference is None else self.sidebar_preference
         self.sidebar_preference = not expanded
-        self.sync_sidebar()
+        if not self.sidebar_resize.animate_visibility(not expanded):
+            self.sync_sidebar()
+        self.collapse.setToolTip('展開側欄' if expanded else '收合側欄')
+        self.collapse.setAccessibleName(self.collapse.toolTip())
         self.save_ui_preferences()
 
     def show_recovery(self, document):
@@ -1101,14 +984,28 @@ class WorkspaceShell(QMainWindow):
             return
         if self.commands.files.inline is not None:
             self.commands.files.inline.cancel()
+        checked = set()
         for tab in self.all_pages():
+            owner = id(tab.document or getattr(tab.widget, "buffer", tab.widget))
+            if owner in checked:continue
+            checked.add(owner)
             if not self.prepare_close(tab):
                 event.ignore()
                 return
-        while self.tab_strip.bar.count():
-            if not self.close_tab(0, decision='discard', make_home=False):
-                event.ignore()
-                return
+        for pane in self.panes:
+            while pane.strip.bar.count():
+                if not self.close_tab(0, decision='discard', make_home=False, pane=pane):
+                    event.ignore()
+                    return
+        for document in self.documents:
+            document.refresh_timer.stop()
+            for host in reversed(document.hosts):
+                host.close()
+                host.deleteLater()
+            for execution in [document.execution, *document.retired_executions]:
+                if execution is not None:execution.close()
+            document.deleteLater()
+        QApplication.instance().removeEventFilter(self.pane_focus)
         if self.utility and not self.utility.close():
             event.ignore()
             return

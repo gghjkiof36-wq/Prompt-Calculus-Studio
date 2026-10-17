@@ -50,7 +50,7 @@ class WorkspaceFileOperations(QObject):
         if self.busy(source):
             raise ValueError('這個項目正在操作中，請先完成或取消。')
         pages = [tab for tab in self.w.all_pages() if tab.path and (tab.path == source or source in tab.path.parents)]
-        if any(tab.key in self.w.autosave.saving for tab in pages):
+        if any(self.w.autosave.key(tab) in self.w.autosave.saving for tab in pages):
             raise ValueError('文件正在保存，請稍後再試。')
         if any(self.w.autosave.editing_dialog(tab) for tab in pages):
             raise ValueError('請先完成素材表單的確認或取消。')
@@ -115,7 +115,7 @@ class WorkspaceFileOperations(QObject):
         # Writes are synchronous on the UI thread. A reentrant request waits
         # until the current write has returned, without flushing a pending timer.
         affected = [t for t in self.w.all_pages() if t.path and (t.path == context.path or context.path in t.path.parents)] if context.path else []
-        if any(t.key in self.w.autosave.saving for t in affected):
+        if any(self.w.autosave.key(t) in self.w.autosave.saving for t in affected):
             QTimer.singleShot(0, lambda: self.run(action, context, name=name, directory=directory))
             return None
         try:
@@ -188,7 +188,7 @@ class WorkspaceFileOperations(QObject):
         else:
             document = tab.document if tab else None
             if document:
-                if not document.host.flush_editor_drafts():
+                if not document.flush_views():
                     raise ValueError('目前有尚未套用的畫布編輯，請先處理後再另存。')
                 document.host.remember_canvas_view()
                 source = document.project(remap=False)
@@ -228,22 +228,22 @@ class WorkspaceFileOperations(QObject):
                     document.dirty = document.draft_dirty = False
                     document.error = ''
                     document.last_result = result
+                    document.retarget_execution()
                 else:
                     tab.widget.path, tab.widget.baseline, tab.widget.error = target, raw, ''
                     tab.widget.setAccessibleName(target.name + '，Markdown 編輯')
                     tab.widget.document().setModified(False)
                 owner = tab.document or tab.widget
                 owner.operation_error = False
-                tab.key, tab.path, tab.title, tab.retained = new_key, target, target.stem, True
-                at = w.index_of(old_key)
-                w.tabs_by_key.pop(old_key)
-                w.tabs_by_key[new_key] = tab
-                w.tab_strip.bar.setTabData(at, new_key)
-                w.tab_strip.bar.preview_keys.discard(old_key)
-                w.history = [(e[0], new_key, *e[2:]) if e[0] == 'document' and e[1] == old_key else e for e in w.history]
-                if w.active_key == old_key:
-                    w.active_key = new_key
-                w.update_tab(tab)
+                for view in op.pages:
+                    w.autosave.forget(view)
+                    view.path, view.title, view.retained = target, target.stem, True
+                    if isinstance(view.widget, MarkdownPage):
+                        view.widget.path = target
+                        view.widget.setAccessibleName(target.name + '，Markdown 編輯')
+                    w.update_tab(view)
+                if isinstance(tab.widget, MarkdownPage):tab.widget.buffer.save_key = new_key
+                w.layout_changed()
             else:
                 # Explicit file command on an unopened item leaves the current
                 # editor intact; ordinary navigation still reuses its tab.
@@ -369,7 +369,7 @@ class WorkspaceFileOperations(QObject):
             if not (focus is w.tab_strip.bar or w.tab_strip.isAncestorOf(focus)
                     or focus is tab.widget or tab.widget.isAncestorOf(focus)):
                 return
-            canvas = tab.document.host.canvas if tab.document else None
+            canvas = tab.host.canvas if tab.document else None
             view = canvas.view if canvas else None
             scene = view.scene() if view and callable(getattr(view, 'scene', None)) else None
             item = scene.focusItem() if scene is not None and (focus is view or view.isAncestorOf(focus)) else None

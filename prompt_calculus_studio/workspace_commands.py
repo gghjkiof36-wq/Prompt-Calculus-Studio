@@ -92,7 +92,8 @@ class WorkspaceCommands:
         document = tab.document if tab else None
         return CommandContext(origin, path, kind, root, destination,
                               path.parent if path and kind not in ('root', 'folder') else None,
-                              tab.key if tab else None, document.key if document else None)
+                              tab.key if tab else None, document.key if document else None,
+                              w.active_pane.key, w.active_key)
 
     def selected_context(self, origin='toolbar'):
         return self.context(origin, self.visible_selection())
@@ -129,7 +130,7 @@ class WorkspaceCommands:
             if not w.select_path(path):
                 self.offer_folder_link(path)
             return path
-        return w.open_path(path, True)
+        return w.open_context(path, context)
 
     def offer_folder_link(self, path):
         prompt = QMessageBox(self.workspace)
@@ -249,7 +250,7 @@ class WorkspaceCommands:
         for tab in affected:
             at = w.index_of(tab.key)
             if at >= 0:
-                w.close_tab(at, decision='discard')
+                w.close_tab(at, decision='discard', pane=w.pane_for(tab))
             elif tab.key in w.saved_pages:
                 w.dispose_page(tab)
                 w.saved_pages.pop(tab.key)

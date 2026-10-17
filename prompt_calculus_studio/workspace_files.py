@@ -1,7 +1,8 @@
 """File creation and plain Markdown editing for the local workspace."""
 from pathlib import Path
-from PySide6.QtCore import QSaveFile, QIODevice
-from PySide6.QtWidgets import QPlainTextEdit, QFrame
+from PySide6.QtCore import QSaveFile, QIODevice, QObject
+from PySide6.QtWidgets import QPlainTextEdit, QFrame, QPlainTextDocumentLayout
+from PySide6.QtGui import QTextDocument
 from .core import initial_state, uid
 from .local_documents import category, workflow, io, paths
 
@@ -52,14 +53,37 @@ def create_file(root, kind, name):
     return target
 
 
+class MarkdownBuffer(QObject):
+    pass
+
+
+class BufferField:
+    def __set_name__(self, owner, name): self.name = name
+    def __get__(self, page, owner=None):
+        return self if page is None else getattr(page.buffer, self.name, False if self.name == 'operation_error' else '')
+    def __set__(self, page, value): setattr(page.buffer, self.name, value)
+
+
 class MarkdownPage(QPlainTextEdit):
-    def __init__(self, path):
+    path = BufferField()
+    baseline = BufferField()
+    error = BufferField()
+    operation_error = BufferField()
+
+    def __init__(self, path, buffer=None):
         super().__init__()
-        self.path = Path(path)
-        self.baseline = paths.read_bytes(self.path, 8*1024*1024)[0]
-        self.error = ''
-        self.setPlainText(self.baseline.decode('utf-8-sig'))
-        self.document().setModified(False)
+        self.buffer = buffer or MarkdownBuffer()
+        if buffer is None:
+            self.path = Path(path)
+            self.baseline = paths.read_bytes(self.path, 8*1024*1024)[0]
+            self.error = ''
+            self.buffer.text = QTextDocument(self.buffer)
+            self.buffer.text.setDocumentLayout(QPlainTextDocumentLayout(self.buffer.text))
+            self.setDocument(self.buffer.text)
+            self.setPlainText(self.baseline.decode('utf-8-sig'))
+            self.document().setModified(False)
+        else:
+            self.setDocument(buffer.text)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setAccessibleName(self.path.name + '，Markdown 編輯')
         self.setPlaceholderText('開始撰寫…')

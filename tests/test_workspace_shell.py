@@ -52,6 +52,8 @@ class WorkspaceShellTests(unittest.TestCase):
     def events(self):
         self.app.processEvents()
         QTest.qWait(15)
+        if hasattr(self, 'w') and self.w.sidebar_resize.motion_target is not None:
+            self.w.sidebar_resize.motion.setCurrentTime(self.w.sidebar_resize.motion.duration())
         self.app.processEvents()
 
     def tearDown(self):
@@ -102,8 +104,10 @@ class WorkspaceShellTests(unittest.TestCase):
         a = self.open()
         self.assertNotIn(b.key, self.w.tabs_by_key)  # Ordinary navigation always uses the current slot.
         self.assertIn(b.key, self.w.saved_pages)
-        self.assertIs(self.open(retained=True), a)
-        self.assertTrue(a.retained)
+        duplicate = self.open(retained=True)
+        self.assertIsNot(duplicate, a)
+        self.assertIs(duplicate.document, a.document)
+        self.assertTrue(duplicate.retained)
         before = self.w.tab_strip.bar.count()
         QTest.mouseClick(self.w.tab_strip.plus, Qt.MouseButton.LeftButton)
         self.assertEqual(self.w.tab_strip.bar.count(), before+1)
@@ -390,7 +394,7 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertEqual(self.w.back.y(), self.w.forward.y())
         self.assertEqual(self.w.nav_controls.parentWidget(), self.w.top)
         from PySide6.QtCore import QPoint
-        self.assertEqual(self.w.rail.mapTo(self.w, QPoint()).y(), self.w.top.height())
+        self.assertEqual(self.w.rail.mapTo(self.w, QPoint()).y(), self.w.top.height()+self.w.tab_row.height())
         self.assertEqual(self.w.collapse.mapTo(self.w,self.w.collapse.rect().center()).x(),
                          self.w.routes['home'].mapTo(self.w,self.w.routes['home'].rect().center()).x())
 
@@ -524,7 +528,7 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertEqual(self.w.tab_strip.bar.mapTo(self.w, QPoint()).x(), 16)
         position.setCurrentIndex(position.findData('side'))
         self.events()
-        self.assertFalse(self.w.tab_row.isVisible())
+        self.assertTrue(self.w.tab_row.isVisible())
         self.assertFalse(self.w.sidebar_target().isVisible())
         position.setCurrentIndex(position.findData('top'))
         self.events()
@@ -543,6 +547,7 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertEqual(self.w.width(), 720)
         for entry in self.w.routes.values():
             right = entry.mapTo(self.w, entry.rect().topRight()).x()
+            self.assertLess(right, self.w.width()-self.w.top.layout().contentsMargins().right())
             self.assertLess(right, self.w.connection.mapTo(self.w,QPoint()).x())
             self.assertTrue(entry.isVisible())
         QTest.mouseClick(self.w.tab_strip.bar, Qt.MouseButton.LeftButton,
@@ -621,7 +626,7 @@ class WorkspaceShellTests(unittest.TestCase):
             self.events()
             self.assertEqual((self.w.width(),self.w.height()),(1100,760))
             page = self.w.workspace_stack.currentWidget()
-            self.assertFalse(page.mask().contains(QPoint(0,0)))
+            self.assertEqual(page.mask().contains(QPoint(0,0)), self.w._sidebar_header_docked)
             self.assertTrue(page.mask().contains(page.rect().center()))
         self.w.open_route('settings','appearance')
         self.events()
@@ -633,7 +638,7 @@ class WorkspaceShellTests(unittest.TestCase):
         page = self.w.workspace_stack.currentWidget()
         self.assertEqual((self.w.width(),self.w.height()),(800,560))
         self.assertFalse(page.mask().isEmpty())
-        self.assertFalse(page.mask().contains(QPoint(0,0)))
+        self.assertEqual(page.mask().contains(QPoint(0,0)), self.w._sidebar_header_docked)
         self.assertTrue(page.mask().contains(QPoint(page.width()-2,page.height()-2)))
 
     def test_start_page_creation_recent_files_and_collision_preserve_existing_content(self):

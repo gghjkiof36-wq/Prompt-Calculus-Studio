@@ -24,6 +24,8 @@ class CommandContext:
     asset_base: Path | None = None
     tab_key: str | None = None
     document_id: str | None = None
+    pane_id: str | None = None
+    view_key: str | None = None
 
 
 class WorkspaceLocations:

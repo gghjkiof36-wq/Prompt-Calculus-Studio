@@ -46,6 +46,8 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
     def events(self):
         self.app.processEvents()
         QTest.qWait(20)
+        if hasattr(self, 'w') and self.w.sidebar_resize.motion_target is not None:
+            self.w.sidebar_resize.motion.setCurrentTime(self.w.sidebar_resize.motion.duration())
         self.app.processEvents()
 
     def tearDown(self):
@@ -350,7 +352,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
                 self.assertTrue(control.isVisible())
                 self.assertTrue(control.accessibleName())
                 self.assertNotEqual(control.focusPolicy(), Qt.FocusPolicy.NoFocus)
-                point = control.mapTo(self.w.sidebar, control.rect().bottomRight())
+                point = self.w.sidebar.mapFromGlobal(control.mapToGlobal(control.rect().bottomRight()))
                 self.assertLess(point.x(), width)
             self.assertLess(controls[0].geometry().right(), controls[1].x())
         self.w.tree.setCurrentItem(self.item(self.folder))
@@ -376,13 +378,13 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         self.w.toggle_sidebar()
         self.events()
         self.assertFalse(self.w.tree_heading.isVisible())
-        self.assertEqual(self.w.tab_strip.mapTo(self.w, QPoint()).x(), 16)
+        self.assertEqual(self.w.tab_strip.mapTo(self.w, QPoint()).x(), 0)
         self.w.toggle_sidebar()
         self.events()
         self.assertTrue(self.w.tree_heading.isVisible())
         self.w.set_navigation_position('side')
         self.events()
-        self.assertIs(self.w.tree_heading.parentWidget(), self.w.sidebar)
+        self.assertIs(self.w.tree_heading.parentWidget(), self.w.tab_row)
         self.w.tree.expandAll()
         def text_x(path):
             index = self.w.tree.indexFromItem(self.item(path))
@@ -483,11 +485,11 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
             self.w.toggle_sidebar()
             self.events()
             self.assertFalse(header.isVisible(), route)
-            self.assertEqual(self.w.tab_strip.x(), 16, route)
+            self.assertEqual(self.w.tab_strip.x(), 0 if route == 'home' else 16, route)
             self.w.toggle_sidebar()
             self.w.set_navigation_position('side')
             self.events()
-            self.assertIs(header.parentWidget(), target, route)
+            self.assertIs(header.parentWidget(), self.w.tab_row, route)
             self.assertTrue(header.isVisible(), route)
             self.w.set_navigation_position('top')
             self.events()
@@ -508,6 +510,12 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         self.assertIn('本機編輯', self.w.notification.text())
         self.assertEqual(self.w.connection.brand.objectName(), 'Subtle')
         self.assertEqual(self.w.connection.dot.size().width(), 10)
+        self.assertFalse(self.w.connection.brand.isHidden())
+        self.assertIs(self.w.connection.parentWidget(), self.w.top)
+        self.w.set_navigation_position('top')
+        self.assertEqual(self.w.connection.dot.size().width(), 10)
+        self.assertFalse(self.w.connection.brand.isHidden())
+        self.assertIs(self.w.connection.parentWidget(), self.w.top)
 
     def test_canvas_proxy_style_matches_legacy_and_survives_appearance_changes(self):
         from prompt_calculus_studio.theme import stylesheet, window_appearance

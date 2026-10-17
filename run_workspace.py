@@ -9,6 +9,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--data', type=Path, required=True)
+    parser.add_argument('--open-left', type=Path, help='Open this file in the initial view.')
+    parser.add_argument('--open-right', type=Path, help='Open this file beside the initial view.')
     parser.add_argument('--check', action='store_true', help='Check this launcher without writing its review files.')
     args = parser.parse_args()
     os.environ['PROMPT_STUDIO_DATA'] = str(args.data.absolute())
@@ -39,6 +41,10 @@ def main():
         return 0
     from prompt_calculus_studio.workspace_shell import WorkspaceShell
     window = WorkspaceShell(args.root, args.data)
+    if args.open_left:
+        window.open_path(args.open_left)
+    if args.open_right:
+        window.open_path(args.open_right, pane=window.ensure_split())
     def error(kind, value, traceback_):
         import traceback
         with (args.data/'error.log').open('a', encoding='utf-8') as stream:
