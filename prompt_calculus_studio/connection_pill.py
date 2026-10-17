@@ -32,15 +32,19 @@ class ConnectionPill(QPushButton):
         self.setToolTip(self.full + '\n' + ('正在確認連線，請稍候。' if checking else '使用已儲存的位址重新檢查並連線。'))
         self.setEnabled(not checking)
         colors = visual_tokens(settings)
-        self.dot.setStyleSheet('background:' + colors['warning' if checking else 'connected_indicator' if connected else 'control'] + '; border-radius:5px;')
+        dot_style = 'background:' + colors['warning' if checking else 'connected_indicator' if connected else 'control'] + '; border-radius:5px;'
+        if self.dot.styleSheet() != dot_style:
+            self.dot.setStyleSheet(dot_style)
         self.brand.ensurePolished()
         height = max(32, self.brand.fontMetrics().height() + 12)
         self.setFixedHeight(height)
-        self.setStyleSheet(f"""
+        style = f"""
             QPushButton#ConnectionPill {{ background:{colors['surface']}; border:1px solid {colors['line']}; border-radius:{height//2}px; padding:0; }}
             QPushButton#ConnectionPill:hover {{ background:{colors['hover']}; }}
             QPushButton#ConnectionPill:pressed {{ background:{colors['selected']}; }}
             QPushButton#ConnectionPill[pcsKeyboardFocus="true"]:focus {{ border-color:{colors['accent']}; }}
             QPushButton#ConnectionPill:disabled {{ background:{colors['surface']}; }}
-        """)
+        """
+        if self.styleSheet() != style:
+            self.setStyleSheet(style)
         self.setFixedWidth(22 + self.dot.width() + 8 + self.brand.fontMetrics().horizontalAdvance(self.full))

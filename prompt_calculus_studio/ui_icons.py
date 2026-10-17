@@ -4,6 +4,7 @@ Use ``icon(name, color=tokens['text'], size=20)`` when constructing a themed
 control. No installed font, network asset, resource file or cache is required.
 """
 from struct import pack
+from collections import OrderedDict
 
 from PySide6.QtCore import QPointF, QRectF, QResource, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QIconEngine, QPainter, QPainterPath, QPalette, QPen, QPixmap
@@ -238,6 +239,9 @@ def _draw(painter, name, filled=False):
     elif name == 'chevron-up': poly((5,15),(12,8),(19,15))
 
 
+_PIXMAPS = OrderedDict()
+
+
 class _LineIconEngine(QIconEngine):
     def __init__(self,name,color,size,filled=False):
         super().__init__(); self.name=name
@@ -251,7 +255,7 @@ class _LineIconEngine(QIconEngine):
     def availableSizes(self,mode=QIcon.Mode.Normal,state=QIcon.State.Off):
         return [QSize(self.size,self.size)]
 
-    def paint(self,painter,rect,mode,state):
+    def stroke(self,mode,state):
         if self.color=='navigation':
             stroke=QApplication.palette().color(QPalette.ColorRole.WindowText)
             stroke.setAlphaF(1 if state==QIcon.State.On else .92 if mode in (QIcon.Mode.Active,QIcon.Mode.Selected) else .80)
@@ -266,6 +270,10 @@ class _LineIconEngine(QIconEngine):
             if self.color in ('on-run','on-stop'):
                 property_name='pcsIconOn'+('Run' if self.color=='on-run' else 'Stop')+'Disabled'
                 stroke=QColor(QApplication.instance().property(property_name) or stroke)
+        return stroke
+
+    def paint(self,painter,rect,mode,state):
+        stroke=self.stroke(mode,state)
         painter.save()
         side=min(rect.width(),rect.height())
         painter.translate(rect.x()+(rect.width()-side)/2,rect.y()+(rect.height()-side)/2)
@@ -277,8 +285,18 @@ class _LineIconEngine(QIconEngine):
         painter.restore()
 
     def pixmap(self,size,mode,state):
+        key=(self.name,self.stroke(mode,state).rgba(),self.filled and state==QIcon.State.On,
+             size.width(),size.height())
+        cached=_PIXMAPS.get(key)
+        if cached is not None:
+            _PIXMAPS.move_to_end(key)
+            return QPixmap(cached)
         result=QPixmap(size); result.fill(Qt.GlobalColor.transparent)
         painter=QPainter(result); self.paint(painter,result.rect(),mode,state); painter.end()
+        # Usual toolbar icons are tiny; large exported icons stay uncached.
+        if size.width()*size.height()<=128*128:
+            _PIXMAPS[key]=QPixmap(result)
+            if len(_PIXMAPS)>128:_PIXMAPS.popitem(last=False)
         return result
 
 

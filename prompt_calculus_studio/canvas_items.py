@@ -34,7 +34,8 @@ def _paint_module_surface(painter,outline,colors,header_bottom):
     body=colors.get('canvas_body',colors['surface'])
     header=colors.get('canvas_header',body)
     from .module_chrome import paint_shadow
-    paint_shadow(painter,outline,strength=colors.get('shadow_strength',1.0))
+    paint_shadow(painter,outline,strength=colors.get('shadow_strength',1.0),
+                 covered=colors.get('canvas_alpha',255)==255 and QColor(body).alpha()==255)
     fill=QColor(body);fill.setAlpha(colors.get('canvas_alpha',255))
     painter.setBrush(fill);painter.drawPath(outline)
     if header!=body:
@@ -170,6 +171,7 @@ class ResizableCard(QGraphicsObject):
 class ModuleProxyWidget(QGraphicsProxyWidget):
     def __init__(self,parent=None):
         super().__init__(parent)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemUsesExtendedStyleOption)
         self.relayout=QTimer(self);self.relayout.setSingleShot(True)
         self.relayout.timeout.connect(self.fit_content)
 
@@ -503,7 +505,7 @@ class NodeCard(ResizableCard):
         painter.setBrush(QColor(body))
         surface=QRectF(0,0,self.width,self.height)
         from .module_chrome import paint_shadow
-        paint_shadow(painter,self.shape(),self.parentItem() is not None)
+        paint_shadow(painter,self.shape(),self.parentItem() is not None,covered=QColor(body).alpha()==255)
         painter.drawRoundedRect(surface,12,12); painter.setFont(self.canvas.font())
         if not self.parentItem():
             painter.save();painter.setClipPath(self.shape())
@@ -634,6 +636,7 @@ class CanvasView(QGraphicsView):
     transformChanged=Signal()
 
     def scale(self,sx,sy):
+        if sx==1 and sy==1:return
         self._raster_direct_until=time.monotonic()+.12
         super().scale(sx,sy);self.transformChanged.emit()
 

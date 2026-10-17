@@ -279,7 +279,7 @@ class TextCanvas(QWidget):
         # Startup may select this page before the outer window is shown.
         # Populate only after Qt has assigned the full viewport geometry.
         if self.parentWidget() and self.parentWidget().layout(): self.parentWidget().layout().activate()
-        self.layout().activate(); self.refresh_for_show(); self.restore_view(); self.view.viewport().update()
+        self.layout().activate(); self.refresh_for_show(); self.restore_view()
         self._has_presented_view=True
         self._presented_owner=(self.window.store,self.window.state.get('workspace'))
 
@@ -291,9 +291,14 @@ class TextCanvas(QWidget):
         if not previous or (previous[0] is not self.window.state and getattr(self.window, 'document', None) is None) or previous[1]!=self.window.state.get('workspace'):
             return False
         _,_,scale,origin=previous
-        view=self.view;view.resetTransform();view.scale(scale,scale)
-        center=origin+QPointF(view.viewport().width()/scale/2,view.viewport().height()/scale/2)
-        view.centerOn(center)
+        view=self.view
+        if view.transform().m11()!=scale or view.transform().m22()!=scale:
+            from PySide6.QtGui import QTransform
+            view.setTransform(QTransform.fromScale(scale,scale))
+        current=view.viewportTransform().inverted()[0].map(QPointF(0,0))
+        if (current-origin).manhattanLength()>1e-8:
+            center=origin+QPointF(view.viewport().width()/scale/2,view.viewport().height()/scale/2)
+            view.centerOn(center)
         # A second layout/show callback must restore this newly sized viewport,
         # not the center saved before leaving for another page.
         point=view.viewportTransform().inverted()[0].map(QPointF(view.viewport().width()/2,view.viewport().height()/2))
@@ -306,7 +311,10 @@ class TextCanvas(QWidget):
         if self.restore_hidden_view():return
         saved=getattr(self.window, 'local_canvas_view', None) or self.window.state.get('canvas_view')
         if saved:
-            self.view.resetTransform();self.view.scale(saved[0],saved[0]);self.view.centerOn(saved[1],saved[2])
+            from PySide6.QtGui import QTransform
+            if self.view.transform().m11()!=saved[0] or self.view.transform().m22()!=saved[0]:
+                self.view.setTransform(QTransform.fromScale(saved[0],saved[0]))
+            self.view.centerOn(saved[1],saved[2])
         else:self.fit()
 
     def history_state(self):

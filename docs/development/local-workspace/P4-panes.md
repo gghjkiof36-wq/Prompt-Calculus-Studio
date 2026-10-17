@@ -65,6 +65,22 @@ The file tree displays `CANVAS` for workflow documents and `MANAGER` for categor
 documents at the trailing edge of each row. These are presentation labels; file
 names, extensions, document kinds and Markdown names are unchanged.
 
+## Navigation rendering
+
+Returning to a Canvas restores its camera only when needed. An unchanged camera
+does not reset the transform, disable decoration reuse, or request a second full
+paint. Pane visibility is synchronized once, and editors remain below the shared
+surface edge so tab changes do not repeatedly raise and repaint that overlay.
+The connection control restyles only when its appearance actually changes.
+
+Canvas forms render only their exposed area, using native widget/text painting
+at the current scale. Embedded text is not replaced with a scaled screenshot.
+Header measurements and native icon pixmaps have bounded caches whose keys
+include the actual font/width and resolved foreground/state. Shadows omit only
+an interior that the following opaque card completely covers; translucent cards
+keep the original drawing. Full viewport updates remain enabled to preserve
+the established Windows repaint behavior.
+
 ## Verification
 
 Focused coverage lives in `test_workspace_tab_drag.py`, `test_workspace_panes.py`, `test_workspace_layout.py`,

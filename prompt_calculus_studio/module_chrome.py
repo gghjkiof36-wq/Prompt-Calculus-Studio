@@ -1,6 +1,7 @@
 """Shared module header, elevation and optional folded presentation."""
+from collections import OrderedDict
 from PySide6.QtCore import Qt, QRect, QRectF
-from PySide6.QtGui import QColor, QPen, QFontMetricsF
+from PySide6.QtGui import QColor, QPen, QFontMetricsF, QPainterPath
 
 
 def canvas_dialog_context(parent):
@@ -214,13 +215,24 @@ def toggle_module(canvas, key):
     canvas.commit(apply, label='收合／展開模組')
 
 
+_HEADER_LAYOUTS = OrderedDict()
+
+
 def header_rects(width, title, font, with_icon=True, extra=0):
     left = 46 if with_icon else 14
-    metrics = QFontMetricsF(font)
     available = max(0, width - left - 82 - extra)
-    text = metrics.elidedText(title, Qt.TextElideMode.ElideRight, int(available))
+    key=(width,title,font.key(),with_icon,extra)
+    cached=_HEADER_LAYOUTS.get(key)
+    if cached is None:
+        metrics = QFontMetricsF(font)
+        text = metrics.elidedText(title, Qt.TextElideMode.ElideRight, int(available))
+        cached=(text,metrics.horizontalAdvance(text))
+        _HEADER_LAYOUTS[key]=cached
+        if len(_HEADER_LAYOUTS)>256:_HEADER_LAYOUTS.popitem(last=False)
+    else:_HEADER_LAYOUTS.move_to_end(key)
+    text,advance=cached
     return text, QRectF(left, 7, available, 30), {
-        'collapse': QRectF(left + metrics.horizontalAdvance(text) + 5, 7, 28, 30),
+        'collapse': QRectF(left + advance + 5, 7, 28, 30),
         'more': QRectF(width - 46, 7, 30, 30),
     }
 
@@ -248,18 +260,28 @@ def paint_header(painter, width, title, font, colors, collapsed=False, icon_name
     painter.restore()
 
 
-def paint_shadow(painter, outline, nested=False, strength=1.0):
+def paint_shadow(painter, outline, nested=False, strength=1.0, covered=False):
     from .canvas_raster import paint_cached, SHADOWS
     geometry = tuple((e.x, e.y, e.type.value)
                      for i in range(outline.elementCount())
                      for e in (outline.elementAt(i),))
     bounds = outline.boundingRect().translated(0, 3 if nested else 6).adjusted(-7, -7, 7, 7)
-    paint_cached(painter, ('shadow', nested, strength, outline.fillRule().value, geometry), bounds,
-                 lambda target: _draw_shadow(target, outline, nested, strength), SHADOWS)
+    paint_cached(painter, ('shadow', nested, strength, covered, outline.fillRule().value, geometry), bounds,
+                 lambda target: _draw_shadow(target, outline, nested, strength, covered), SHADOWS)
 
 
-def _draw_shadow(painter, outline, nested=False, strength=1.0):
+def _draw_shadow(painter, outline, nested=False, strength=1.0, covered=False):
     painter.save()
+    if covered:
+        # The following opaque card covers this interior completely. Keep a
+        # generous inset around rounded corners/antialiasing, and clip only
+        # geometry known to be inside the card. Large canvases then avoid
+        # shading thousands of pixels that would immediately be overwritten.
+        bounds=outline.boundingRect()
+        interior=bounds.adjusted(20,20,-20,-20)
+        if not interior.isEmpty() and outline.contains(interior):
+            ring=QPainterPath();ring.addRect(bounds.adjusted(-8,-8,8,14));ring.addRect(interior)
+            painter.setClipPath(ring,Qt.ClipOperation.IntersectClip)
     shape = outline.translated(0, 3 if nested else 6)
     painter.setBrush(Qt.BrushStyle.NoBrush)
     for spread, alpha in ((12, 3), (9, 5), (6, 8), (3, 12)):

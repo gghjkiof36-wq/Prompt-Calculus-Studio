@@ -55,10 +55,19 @@ class WorkspaceSurface(QStackedWidget):
                 path = left_contour(QRectF(page.rect()), RADIUS+1, not joined)
                 page.setMask(QRegion(path.toFillPolygon().toPolygon()))
                 page._pcs_contour_size = geometry
-        self.edge.setGeometry(self.rect())
-        self.edge.raise_()
-        self.edge.update()
-        self.update()
+        w=self.workspace
+        settings=dict(w.settings,**w.appearance_preview)
+        sidebar=w.sidebar_target() if hasattr(w,'sidebar') else None
+        expanded=sidebar is not None and not sidebar.isHidden()
+        key=(page,self.size(),self.joined_top(),w.active_route,expanded,
+             sidebar.width() if expanded else 0,tuple(workspace_colors(settings).items()),
+             visual_tokens(settings)['text'],self.devicePixelRatioF())
+        if getattr(self,'_surface_key',None)!=key:
+            self._surface_key=key
+            self.edge.setGeometry(self.rect())
+            self.edge.raise_()
+            self.edge.update()
+            self.update()
 
     def eventFilter(self, watched, event):
         if watched is self.currentWidget() and event.type()==QEvent.Type.Resize:

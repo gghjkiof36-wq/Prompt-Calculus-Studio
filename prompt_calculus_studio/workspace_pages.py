@@ -55,8 +55,11 @@ class WorkspacePages(QStackedWidget):
     def setCurrentWidget(self, page):
         anchor = self.anchors.get(page)
         if anchor is not None:
-            super().setCurrentWidget(anchor)
-            self.sync_page()
+            if super().currentWidget() is anchor:
+                self.sync_page()
+            else:
+                # currentChanged already synchronizes the editors.
+                super().setCurrentWidget(anchor)
 
     def sync_page(self, *_):
         current = self.currentWidget()
@@ -65,7 +68,7 @@ class WorkspacePages(QStackedWidget):
             if page is current and visible:
                 page.setGeometry(QRect(self.mapTo(self.w.workspace_stack, QPoint()), self.size()))
                 page.show()
-                page.raise_()
+                page.stackUnder(self.w.workspace_stack.edge)
             else:
                 page.hide()
         if hasattr(self.w, 'pane_grip'):
