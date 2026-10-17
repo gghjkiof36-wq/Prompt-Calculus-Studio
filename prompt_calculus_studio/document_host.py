@@ -338,6 +338,16 @@ class EmbeddedHost(Window):
         super().notice(text)
         workspace = getattr(self, 'workspace_owner', None)
         if self._document_ready and workspace is not None:
-            workspace.statusBar().showMessage(text, 8000)
+            # Canvas already shows its own floating message. Neither route
+            # should create a QMainWindow status bar below the workspace.
+            if not self.canvas_shell.isVisible():
+                workspace.show_notice(text)
         if self._document_ready and self.document is not None:
             self.document.changed.emit()
+
+    def error(self, text):
+        workspace = getattr(self, 'workspace_owner', None)
+        if self._document_ready and workspace is not None:
+            workspace.show_notice(text)
+        else:
+            super().error(text)

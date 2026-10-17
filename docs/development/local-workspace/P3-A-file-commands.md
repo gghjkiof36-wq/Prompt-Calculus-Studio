@@ -84,6 +84,35 @@ reports that boundary on activation; live service/task ownership belongs to P4.
 The left entrance icons are 18 logical pixels (previously 16); top navigation,
 folder and Canvas icons keep their existing sizes.
 
+The subsequent copy-only refinement keeps the output heading as `Prompt 預覽`
+in both automatic and manual states and shortens `還原自動` to `還原`.
+The restore action still clears the manual override through the existing undo
+transaction; an empty manual draft remains distinct from automatic text.
+
+## Automatic saving and transient notices
+
+Named Canvas, category and Markdown documents save after one second without
+further edits. Each tab owns its pending timer and write target; switching to
+another tab or tool does not redirect the write. Closing a tab or the window
+flushes its latest changes immediately, without a routine save/discard dialog.
+Ctrl+S and the existing Save command remain available for immediate writes or
+retries. Saving preserves the current editor and its Undo/Redo history.
+
+An open material form retains its existing Apply/Cancel boundary: the background
+timer does not silently accept it. Confirming the form schedules its document's
+save; closing the document explicitly flushes the form through its existing
+validation. Window close checks every document before removing any tab.
+
+External-change conflicts and failed writes leave the affected tab, draft and
+recovery evidence intact. They show a six-second floating notice, not a modal
+dialog or a reserved status bar. Automatic retries pause after failure; Ctrl+S
+or another close attempt retries. The original receipt checks, Windows recovery
+writer and Markdown BOM/line-ending preservation remain in force.
+
+Workspace messages also use this overlay. A cleared message cannot leave an
+empty status-bar strip beneath the content, in either navigation position or
+any of the five entrances. Canvas retains its established in-canvas messages.
+
 ## First Settings visit
 
 The utility host inherits the existing shell theme once. Gallery and Export are

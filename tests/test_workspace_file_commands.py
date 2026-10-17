@@ -38,6 +38,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         self.old_hook = sys.excepthook
         sys.excepthook = lambda kind, value, trace: self.errors.append(str(value))
         self.w = WorkspaceShell(self.root, self.base/'data')
+        self.w.autosave.delay_ms = 60000  # These cases exercise explicit file commands.
         self.w.report_error = self.errors.append
         self.w.show()
         self.events()
@@ -520,7 +521,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         self.w.connection.click()
         self.assertFalse(host.comfy.enabled)
         self.assertFalse(host.comfy.timer.isActive())
-        self.assertIn('本機編輯', self.w.statusBar().currentMessage())
+        self.assertIn('本機編輯', self.w.notification.text())
         self.assertEqual(self.w.connection.brand.objectName(), 'Subtle')
         self.assertEqual(self.w.connection.dot.size().width(), 10)
 

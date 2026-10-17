@@ -84,6 +84,8 @@ class WorkspaceShell(QMainWindow):
         self.navigation_position = 'side'
         self.locations = WorkspaceLocations(self.root, self.data, self.read_navigation_json('linked-folders.json'))
         self.commands = WorkspaceCommands(self)
+        from .workspace_autosave import WorkspaceAutosave
+        self.autosave = WorkspaceAutosave(self)
         self.recent_files = self.locations.recent(self.read_navigation_json('recent-files.json'))
         self.recent_timer = QTimer(self)
         self.recent_timer.setSingleShot(True)
@@ -193,6 +195,8 @@ class WorkspaceShell(QMainWindow):
         workspace.addWidget(self.rail)
         self.workspace_stack = WorkspaceSurface(self)
         workspace.addWidget(self.workspace_stack, 1)
+        from .workspace_notice import WorkspaceNotice
+        self.notification = WorkspaceNotice(self.workspace_stack)
         self.home_split = QSplitter(Qt.Orientation.Horizontal)
         self.home_split.setObjectName('DocumentSplit')
         self.home_split.setChildrenCollapsible(False)
@@ -464,7 +468,7 @@ class WorkspaceShell(QMainWindow):
                             self.file_items[path.relative_to(self.root).as_posix()] = item
             except (OSError, ValueError) as error:
                 root_item.setToolTip(0, str(root) + '\n無法完整讀取：' + str(error))
-                self.statusBar().showMessage('無法完整讀取資料夾：' + str(root), 8000)
+                self.show_notice('無法完整讀取資料夾：' + str(root))
             root_item.setExpanded(not old_items or path_key(root) in expanded)
         self.tree.setCurrentItem(self.path_items.get(path_key(selected_path)) if selected_path else None)
         self.tree.blockSignals(False)
@@ -486,7 +490,7 @@ class WorkspaceShell(QMainWindow):
             try:
                 self.save_locations()
             except OSError as error:
-                self.statusBar().showMessage('目前資料夾已切換，但無法保存導覽位置：' + str(error), 8000)
+                self.show_notice('目前資料夾已切換，但無法保存導覽位置：' + str(error))
 
     def select_path(self, path):
         item = self.path_items.get(path_key(path))
@@ -551,6 +555,10 @@ class WorkspaceShell(QMainWindow):
         if error:
             self.tab_strip.bar.setTabToolTip(at,self.tab_strip.bar.tabToolTip(at)+'\n'+error)
 
+    def document_changed(self, tab):
+        self.update_tab(tab)
+        self.autosave.schedule(tab)
+
     def open_path(self, path, retained=False):
         try:
             path = self.locations.file(path)
@@ -587,7 +595,7 @@ class WorkspaceShell(QMainWindow):
             layout.setSpacing(0)
             layout.addWidget(host, 1)
             tab = Tab(document.key, path.stem, page, retained, document, path)
-            document.changed.connect(lambda: self.update_tab(tab))
+            document.changed.connect(lambda: self.document_changed(tab))
             document.editing.connect(lambda: self.retain(tab))
             return self.add_tab(tab, replace_preview=not retained)
         except (ValueError, OSError, KeyError) as error:
@@ -598,6 +606,7 @@ class WorkspaceShell(QMainWindow):
         page = MarkdownPage(path)
         tab = Tab('md:' + uuid.uuid4().hex, path.stem, page, retained, path=path)
         page.document().modificationChanged.connect(lambda _: self.update_tab(tab))
+        page.textChanged.connect(lambda: self.document_changed(tab))
         return self.add_tab(tab, replace_preview=not retained)
 
     def new_tab(self):
@@ -814,37 +823,37 @@ class WorkspaceShell(QMainWindow):
         return self.save_tab(tab) if tab else False
 
     def save_tab(self, tab):
-        if tab.document:
-            saved = tab.document.save()
-        elif isinstance(tab.widget, MarkdownPage):
-            saved = tab.widget.save()
-            self.update_tab(tab)
-        else:
+        if tab.key in self.autosave.saving:
             return False
+        self.autosave.stop(tab)
+        self.autosave.saving.add(tab.key)
+        try:
+            if tab.document:
+                saved = tab.document.save()
+            elif isinstance(tab.widget, MarkdownPage):
+                saved = tab.widget.save()
+            else:
+                return False
+        finally:
+            self.autosave.saving.discard(tab.key)
+        self.update_tab(tab)
         if not saved:
-            self.report_error(tab.document.error if tab.document else tab.widget.error)
+            reason = tab.document.error if tab.document else tab.widget.error
+            self.show_notice('「' + tab.title + '」尚未儲存：' + (reason or '請先完成目前的編輯。')
+                             + '\n頁面與編輯內容已保留，可按 Ctrl+S 重試。')
         return saved
 
     def prepare_close(self, tab, decision=None):
+        if decision == 'discard':
+            return True
         document = tab.document
         if document:
             if not document.host.flush_editor_drafts():
                 return False
             document.update_dirty()
-        if tab.dirty:
-            if decision is None:
-                choice = QMessageBox(self)
-                choice.setWindowTitle('保存變更')
-                choice.setText('「' + tab.title + '」有未保存的變更。')
-                save = choice.addButton('保存', QMessageBox.ButtonRole.AcceptRole)
-                discard = choice.addButton('捨棄變更', QMessageBox.ButtonRole.DestructiveRole)
-                cancel = choice.addButton('取消', QMessageBox.ButtonRole.RejectRole)
-                choice.setDefaultButton(cancel)
-                choice.exec()
-                decision = 'save' if choice.clickedButton() is save else 'discard' if choice.clickedButton() is discard else 'cancel'
-            if decision == 'cancel' or decision == 'save' and not self.save_tab(tab):
-                return False
-        return True
+        if decision == 'cancel':
+            return not tab.dirty
+        return not tab.dirty or self.save_tab(tab)
 
     def close_tab(self, position, decision=None, make_home=True):
         bar = self.tab_strip.bar
@@ -858,6 +867,7 @@ class WorkspaceShell(QMainWindow):
                 dialog.reject()
             if not document.host.close():
                 return False
+        self.autosave.forget(tab)
         bar.blockSignals(True)
         bar.removeTab(position)
         bar.preview_keys.discard(tab.key)
@@ -948,6 +958,9 @@ class WorkspaceShell(QMainWindow):
 
     def report_error(self, message):
         QMessageBox.warning(self, '無法完成操作', message)
+
+    def show_notice(self, message):
+        self.notification.present(message)
 
     def closeEvent(self, event):
         # Resolve every dirty file first. Cancelling window close must not

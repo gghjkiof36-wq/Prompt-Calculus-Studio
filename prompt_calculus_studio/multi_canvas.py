@@ -41,7 +41,7 @@ class OutputPanel(QFrame):
         self.source_count=label('文字來源','Subtle')
         list_layout.addWidget(self.source_count);list_layout.addWidget(self.order)
         text_panel=QWidget();self.text_panel=text_panel; text_layout=QVBoxLayout(text_panel); text_layout.setContentsMargins(0,0,0,0)
-        self.draft_status=label('自動文字','Subtle')
+        self.draft_status=label('Prompt 預覽','Subtle')
         self.preview_toggle=button('收合預覽',self.toggle_preview,'Quiet')
         self.copy_button=button('',lambda:canvas.window.copy_text(self.editor.toPlainText()),'Quiet')
         self.copy_button.setAccessibleName('複製 Prompt');self.copy_button.setToolTip('複製 Prompt')
@@ -55,7 +55,7 @@ class OutputPanel(QFrame):
         self.split.splitterMoved.connect(self.save_ratio); self.loaded_ratio=None
         self.conflicts=label('','ConflictNotice',True); body.addWidget(self.conflicts)
         self.clear=button('清除手動內容',self.clear_draft,'ClearDraft')
-        self.clear.setText('還原自動');self.clear.setToolTip('清除手動內容，使用文字來源重新組合')
+        self.clear.setText('還原');self.clear.setToolTip('清除手動內容，使用文字來源重新組合')
         self.save_material=button('存入素材庫',lambda:canvas.window.new_item(self.editor.toPlainText()),'Quiet')
         self.save_material.setIcon(icon('package'));self.refresh_visual_theme()
         text_layout.itemAt(0).layout().insertWidget(1,self.clear)
@@ -164,7 +164,7 @@ class OutputPanel(QFrame):
         manual=output['draft'] is not None
         self.source_count.setText('文字來源'+(' · '+str(len(members)) if members else ''))
         self.order.setEnabled(self.source_rows or not manual); self.clear.setEnabled(manual);self.clear.setVisible(manual)
-        self.draft_status.setText('Prompt 預覽 · 手動版本' if manual else 'Prompt 預覽')
+        self.draft_status.setText('Prompt 預覽')
         self.draft_status.setVisible(bool(self.draft_status.text()))
         self.conflicts.setText('；'.join(', '.join(v['tags'])+' ← '+', '.join(v['by']) for v in affected.values())); self.conflicts.setVisible(bool(affected))
         self.apply_preview_visibility()

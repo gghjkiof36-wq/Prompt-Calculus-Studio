@@ -2,6 +2,7 @@
 import copy
 import os
 from pathlib import Path
+from unittest.mock import patch
 import shutil
 import sys
 import tempfile
@@ -43,6 +44,7 @@ class WorkspaceShellTests(unittest.TestCase):
         self.old_hook = sys.excepthook
         sys.excepthook = lambda kind, value, trace: self.errors.append(str(value))
         self.w = WorkspaceShell(self.root, Path(self.area.name)/'data')
+        self.w.autosave.delay_ms = 60000  # Autosave timing has its own integration cases.
         self.w.report_error = self.errors.append
         self.w.show()
         self.events()
@@ -167,23 +169,17 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertEqual(io.load(self.root, tab.path.name).document['payload']['items'][0]['notes'],
                          'draft notes, still in the modal editor')
 
-    def test_close_question_cancel_keeps_dirty_page_and_native_documents(self):
+    def test_close_saves_dirty_page_without_confirmation(self):
         tab = self.open()
         ident, dialog = self.editor(tab)
         QTest.keyClicks(dialog.prompt, ' keep')
         self.assertTrue(dialog.save())
         self.events()
-        host = tab.document.host
-        cache = dict(host._material_editor_documents)
-        def cancel():
-            box = self.app.activeModalWidget()
-            self.assertIsInstance(box, QMessageBox)
-            QTest.mouseClick(next(b for b in box.buttons() if b.text() == '取消'), Qt.MouseButton.LeftButton)
-        QTimer.singleShot(0, cancel)
-        self.assertFalse(self.w.close_tab(self.w.index_of(tab.key)))
-        self.assertIs(tab.document.host, host)
-        self.assertTrue(tab.document.dirty)
-        self.assertEqual(dict(host._material_editor_documents), cache)
+        expected = materials.item(tab.document.host.state, ident)['prompt']
+        with patch.object(QMessageBox, 'exec', side_effect=AssertionError('unexpected save confirmation')):
+            self.assertTrue(self.w.close_tab(self.w.index_of(tab.key)))
+        self.assertNotIn(tab.key, self.w.tabs_by_key)
+        self.assertEqual(io.load(self.root, tab.path.name).document['payload']['items'][0]['prompt'], expected)
 
     def test_external_save_conflict_keeps_both_versions_and_failed_close(self):
         tab = self.open()
@@ -195,7 +191,7 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertEqual(io.save(self.root, tab.path.name, external.document, external.receipt).status, 'saved')
         external_bytes = tab.path.read_bytes()
         self.assertFalse(self.w.close_tab(self.w.index_of(tab.key), decision='save'))
-        self.assertEqual(self.errors.pop(),tab.document.error)
+        self.assertIn(tab.document.error, self.w.notification.text())
         self.assertTrue(tab.document.dirty)
         self.assertEqual(tab.path.read_bytes(), external_bytes)
         self.assertEqual(materials.item(host.state, ident)['prompt'], 'local edit')
@@ -216,14 +212,14 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertTrue(any('external edit' in s for s in captured))
         self.assertTrue(any('local edit' in s for s in captured))
 
-    def test_cancelling_window_close_keeps_all_tabs_and_their_history(self):
+    def test_failed_window_close_keeps_all_tabs_and_their_history(self):
         a = self.open(retained=True)
         b = self.open('Action', retained=True)
         ident = b.document.host.state['items'][0]['id']
         self.assertTrue(b.document.host.canvas.commit(lambda s: materials.save(s, dict(id=ident, prompt='pending'))))
         pages = {key: tab.widget for key, tab in self.w.tabs_by_key.items()}
-        QTimer.singleShot(0, lambda: self.app.activeModalWidget().reject())
-        self.assertFalse(self.w.close())
+        with patch.object(b.document, 'save', return_value=False):
+            self.assertFalse(self.w.close())
         self.assertEqual({key: tab.widget for key, tab in self.w.tabs_by_key.items()}, pages)
         self.assertTrue(b.document.dirty)
         b.document.host.canvas.undo()
@@ -680,7 +676,7 @@ class WorkspaceShellTests(unittest.TestCase):
         QTest.keyClicks(reopened.widget, 'local')
         reopened.path.write_bytes(b'external')
         self.assertFalse(self.w.close_tab(self.w.index_of(reopened.key), decision='save'))
-        self.assertIn('外部修改',self.errors.pop())
+        self.assertIn('外部修改', self.w.notification.text())
         self.assertEqual(reopened.path.read_bytes(), b'external')
         self.assertTrue(reopened.dirty)
 
