@@ -49,6 +49,8 @@ class DocumentTabBar(QTabBar):
         self.tab_width = 228
         self.tab_height = 40
         self.workspace_active = True
+        self.join_sidebar = False
+        self.sidebar_fill = QColor('#151819')
         self.active_fill = QColor('#151819')
         self.hover_fill = QColor('#2c3235')
         self.close_fill = QColor('#3a4246')
@@ -102,6 +104,10 @@ class DocumentTabBar(QTabBar):
                 foot,shoulder=8,14
                 left,right=rect.left()+foot,rect.right()-foot
                 top,bottom=rect.top(),rect.bottom()+1
+                if self.join_sidebar and index == 0 and rect.left() == 0:
+                    # The first tab's curved shoulder meets the sidebar surface,
+                    # rather than revealing a sliver of the outer window frame.
+                    painter.fillRect(QRectF(rect.left(), top, foot+shoulder, rect.height()), self.sidebar_fill)
                 path=QPainterPath()
                 path.moveTo(rect.left(),bottom)
                 path.quadTo(left,bottom,left,bottom-foot)

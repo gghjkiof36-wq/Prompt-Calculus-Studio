@@ -43,7 +43,7 @@ class WorkspaceSurface(QStackedWidget):
         page = self.currentWidget()
         if page is not None:
             page.installEventFilter(self)
-            joined = getattr(self.workspace, '_tree_header_docked', False)
+            joined = getattr(self.workspace, '_sidebar_header_docked', False)
             geometry = (page.width(), page.height(), joined)
             if getattr(page, '_pcs_contour_size', None) != geometry or page.mask().isEmpty():
                 # Clip the full page subtree, including opaque scroll viewports.
@@ -73,7 +73,7 @@ class WorkspaceSurface(QStackedWidget):
         fill = colors['sidebar'] if expanded else colors['content']
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        joined = getattr(self.workspace, '_tree_header_docked', False)
+        joined = getattr(self.workspace, '_sidebar_header_docked', False)
         painter.fillPath(left_contour(QRectF(self.rect()), RADIUS, not joined), QColor(fill))
         painter.end()
         super().paintEvent(event)
@@ -97,8 +97,8 @@ class SurfaceEdge(QWidget):
         # The right edge is already owned by the native window frame.
         path = QPainterPath()
         path.moveTo(rect.right(), rect.top())
-        if getattr(workspace, '_tree_header_docked', False):
-            path.lineTo(rect.left()+workspace.sidebar.width(), rect.top())
+        if getattr(workspace, '_sidebar_header_docked', False):
+            path.lineTo(rect.left()+workspace.sidebar_target().width(), rect.top())
             path.moveTo(rect.left(), rect.top())
         else:
             path.lineTo(rect.left()+RADIUS, rect.top())

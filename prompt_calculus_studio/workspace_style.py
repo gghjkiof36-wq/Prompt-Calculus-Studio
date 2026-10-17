@@ -26,10 +26,11 @@ def sidebar_style(settings):
             border-radius:0; border-right:1px solid {t['divider']}; }}
         QWidget[pcsWorkspaceSidebar="true"] QLabel#Heading,
         QWidget[pcsWorkspaceSidebar="true"] QLabel#SidebarHeading,
-        QFrame#WorkspaceTreeHeader QLabel#Heading {{ min-height:36px; padding:0 8px;
+        QFrame#WorkspaceSidebarHeader QLabel#Heading,
+        QFrame#WorkspaceSidebarHeader QLabel#SidebarHeading {{ min-height:36px; padding:0 8px;
             font-size:{font_pixels(settings['ui_size']+1)}px; font-weight:600; color:{t['text']}; }}
-        QFrame#WorkspaceTreeHeader {{ background:transparent; border:0; }}
-        QFrame#WorkspaceTreeHeader[topDocked="true"] {{ background:{surfaces['sidebar']};
+        QFrame#WorkspaceSidebarHeader {{ background:transparent; border:0; }}
+        QFrame#WorkspaceSidebarHeader[topDocked="true"] {{ background:{surfaces['sidebar']};
             border-right:1px solid {t['divider']}; border-top-left-radius:14px; }}
         QWidget[pcsWorkspaceSidebar="true"] QListWidget,
         QTreeWidget#DocumentTree {{ background:transparent; border:0; outline:0; }}

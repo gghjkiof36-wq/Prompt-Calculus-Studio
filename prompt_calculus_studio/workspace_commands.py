@@ -1,7 +1,7 @@
 """Captured file commands shared by the tree, toolbar and new-tab page."""
 from pathlib import Path
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLineEdit, QHBoxLayout, QFileDialog, QDialog, QDialogButtonBox, QMessageBox
+from PySide6.QtCore import Qt, QFile
+from PySide6.QtWidgets import QApplication, QLineEdit, QHBoxLayout, QFileDialog, QDialog, QDialogButtonBox, QMessageBox
 
 from .widgets import StudioDialog, button, label, dialog_buttons, RoundMenu
 from .workspace_files import create_file
@@ -149,6 +149,11 @@ class WorkspaceCommands:
         item = w.tree.itemAt(point)
         w.tree.setCurrentItem(item)
         context = self.context('tree', item)
+        menu = self.menu_for(context)
+        menu.open_at(w.tree.viewport().mapToGlobal(point))
+
+    def menu_for(self, context):
+        w = self.workspace
         menu = RoundMenu(w)
         if context.kind in ('root', 'folder', ''):
             self.add_creation_actions(menu.addMenu('新增'), context)
@@ -166,4 +171,56 @@ class WorkspaceCommands:
             if tab:
                 menu.addAction('保存文件', lambda: w.save_tab(tab))
             menu.addAction('顯示所在資料夾', lambda: w.show_location(context.path.parent))
-        menu.open_at(w.tree.viewport().mapToGlobal(point))
+            self.add_creation_actions(menu.addMenu('新增'), context)
+        if context.path:
+            menu.addSeparator()
+            menu.addAction('複製路徑', lambda: QApplication.clipboard().setText(str(context.path)))
+            if context.kind != 'root':
+                menu.addAction('移至資源回收筒…', lambda: self.trash(context))
+        return menu
+
+    def trash(self, context):
+        w, path = self.workspace, context.path
+        if path is None:
+            return False
+        # Linked roots have a separate unlink command. Do not trash a folder
+        # containing another enrolled root or follow a replaced symlink.
+        from .local_documents import paths
+        try:
+            path = paths.checked(path.parent, path.name)
+            if any(root == path or path in root.parents for root in w.locations.roots):
+                raise ValueError('這個位置包含側欄根資料夾；請使用「移除側欄連結」。')
+            if not path.exists():
+                raise ValueError('這個項目已不存在，請重新整理側欄。')
+        except (OSError, ValueError) as error:
+            w.report_error(str(error))
+            return False
+        affected = [tab for tab in w.tabs_by_key.values()
+                    if tab.path and (tab.path == path or path in tab.path.parents)]
+        if any(not w.prepare_close(tab, decision='cancel') for tab in affected):
+            w.report_error('這個項目有未保存的變更；請先保存或關閉相關分頁，再移至資源回收筒。')
+            return False
+        prompt = QMessageBox(w)
+        prompt.setWindowTitle('移至資源回收筒')
+        prompt.setText('將「' + path.name + '」移至資源回收筒？')
+        prompt.setInformativeText(str(path) + ('\n資料夾內的內容也會一起移入。' if path.is_dir() else ''))
+        remove = prompt.addButton('移至資源回收筒', QMessageBox.ButtonRole.DestructiveRole)
+        cancel = prompt.addButton('取消', QMessageBox.ButtonRole.RejectRole)
+        prompt.setDefaultButton(cancel)
+        prompt.exec()
+        if prompt.clickedButton() is not remove:
+            return False
+        moved, _ = QFile.moveToTrash(str(path))
+        if not moved:
+            w.report_error('無法移至資源回收筒；檔案與分頁均已保留。')
+            return False
+        for tab in affected:
+            w.close_tab(w.index_of(tab.key), decision='discard')
+        w.recent_files = [p for p in w.recent_files if Path(p) != path and path not in Path(p).parents]
+        w.save_recent()
+        from .workspace_home import WorkspaceHome
+        for tab in w.tabs_by_key.values():
+            if isinstance(tab.widget, WorkspaceHome):
+                tab.widget.set_recent(w.recent_files)
+        w.refresh_tree()
+        return True

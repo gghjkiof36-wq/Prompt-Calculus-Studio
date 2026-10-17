@@ -170,25 +170,16 @@ class WorkspaceShell(QMainWindow):
         self.tab_row = WorkspaceTop()
         self.tab_row.setObjectName('DocumentTabStrip')
         tabs = QHBoxLayout(self.tab_row)
-        tabs.setContentsMargins(16, 2, 16, 0)
+        tabs.setContentsMargins(16, 0, 16, 0)
         tabs.setSpacing(0)
         root_layout.addWidget(self.tab_row)
         self.tab_row.hide()
 
-        self.connection = button('', lambda: self.open_route('explore', 'workflows'), 'WorkspaceConnection')
-        connection_layout = QHBoxLayout(self.connection)
-        connection_layout.setContentsMargins(12, 0, 12, 0)
-        connection_layout.setSpacing(8)
-        self.connection_dot = label('')
-        self.connection_dot.setObjectName('ConnectionDot')
-        self.connection_dot.setFixedSize(8, 8)
-        self.connection_label = label('ComfyUI · 未連線')
-        for control in (self.connection_dot, self.connection_label):
-            control.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-            connection_layout.addWidget(control)
-        self.connection.setFixedHeight(32)
-        self.connection.setFixedWidth(self.connection_label.sizeHint().width()+40)
-        self.connection.setAccessibleName('ComfyUI 連線狀態與設定')
+        from .connection_pill import ConnectionPill
+        self.connection = ConnectionPill(self.request_connection)
+        self.connection_dot = self.connection.dot
+        self.connection_label = self.connection.brand
+        self.refresh_connection()
         top.addSpacing(10)
         top.addWidget(self.connection)
 
@@ -230,6 +221,9 @@ class WorkspaceShell(QMainWindow):
             control.setFixedSize(32, 32)
             heading.addWidget(control)
         side.addWidget(self.tree_heading)
+        from .workspace_headers import SidebarHeaders
+        self.sidebar_headers = SidebarHeaders(self)
+        self.sidebar_headers.register(self.sidebar, self.tree_heading)
         self.tree = WorkspaceTree(self)
         self.tree.setObjectName('DocumentTree')
         self.tree.setColumnCount(1)
@@ -269,6 +263,7 @@ class WorkspaceShell(QMainWindow):
         self.setPalette(palette)
         QApplication.instance().setPalette(palette)
         self.tab_strip.bar.active_fill = QColor(workspace_colors(appearance)['content'])
+        self.tab_strip.bar.sidebar_fill = QColor(workspace_colors(appearance)['sidebar'])
         self.tab_strip.bar.hover_fill = QColor(t['raised'])
         self.tab_strip.bar.close_fill = QColor(t['selected'])
         self.tab_strip.bar.active_ink = QColor(t['text'])
@@ -281,9 +276,6 @@ class WorkspaceShell(QMainWindow):
             QSplitter#DocumentSplit::handle {{ background:{t['sidebar']}; }}
             QSplitter#DocumentSplit::handle:hover {{ background:{t['selected']}; }}
             QFrame#DocumentTabStrip {{ background:transparent; border:0; }}
-            QPushButton#WorkspaceConnection {{ background:{t['surface']}; border:1px solid {t['line']}; border-radius:16px; padding:0; }}
-            QPushButton#WorkspaceConnection:hover {{ background:{t['hover']}; }}
-            QLabel#ConnectionDot {{ background:{t['secondary']}; border-radius:4px; }}
             QFrame#DocumentRail QPushButton:checked {{ background:{t['selected']}; color:{t['text']}; }}
             QFrame#DocumentRail QPushButton {{ padding:0; }}
             QTreeWidget#DocumentTree {{ background:transparent; border:0; outline:0; }}
@@ -298,8 +290,7 @@ class WorkspaceShell(QMainWindow):
             QTabBar#DocumentTabBar QToolButton {{ padding:0; border:0; border-radius:4px; background:{t['chrome']}; }}
             QTabBar#DocumentTabBar QToolButton:hover {{ background:{t['raised']}; }}
         ''' + sidebar_style(appearance))
-        self.connection_label.ensurePolished()
-        self.connection.setFixedWidth(self.connection_label.sizeHint().width()+44)
+        self.refresh_connection()
         self.sync_navigation_density()
         self.workspace_stack.sync_surface()
         for tab in self.tabs_by_key.values():
@@ -377,6 +368,11 @@ class WorkspaceShell(QMainWindow):
         if position not in ('side', 'top') or position == self.navigation_position:
             return
         self.navigation_position = position
+        selector = getattr(getattr(self.utility, 'settings_page', None), 'navigation_position', None)
+        if selector is not None:
+            selector.blockSignals(True)
+            selector.setCurrentIndex(selector.findData(position))
+            selector.blockSignals(False)
         self.arrange_navigation()
         self.sync_sidebar()
         self.save_ui_preferences()
@@ -410,34 +406,17 @@ class WorkspaceShell(QMainWindow):
         self.rail.adapt_width(available)
 
     def sync_tab_inset(self):
+        if self.navigation_position == 'top':
+            target = self.sidebar_target()
+            inset = target.width() if target is not None and target.isVisible() else 16
+            if self.tab_row.layout().contentsMargins().left() != inset:
+                self.tab_row.layout().setContentsMargins(inset, 0, 16, 0)
+                self.tab_row.layout().activate()
+                self.tab_strip.fit()
         self.sync_tree_header()
-        if self.navigation_position != 'top':
-            return
-        target = self.sidebar_target()
-        inset = target.width() if target is not None and target.isVisible() else 16
-        if self.tab_row.layout().contentsMargins().left() != inset:
-            self.tab_row.layout().setContentsMargins(inset, 2, 16, 0)
-            self.tab_row.layout().activate()
-            self.tab_strip.fit()
 
     def sync_tree_header(self):
-        docked = (self.navigation_position == 'top' and self.active_route == 'home'
-                  and self.sidebar.isVisible())
-        header = self.tree_heading
-        if docked != self._tree_header_docked:
-            self._tree_header_docked = docked
-            self.sidebar.layout().removeWidget(header)
-            header.setParent(self.tab_row if docked else self.sidebar)
-            header.setProperty('topDocked', docked)
-            header.layout().setContentsMargins(12 if docked else 0, 0, 8 if docked else 0, 0)
-            if not docked:
-                self.sidebar.layout().insertWidget(0, header)
-            header.style().unpolish(header)
-            header.style().polish(header)
-            header.show()
-        if docked:
-            header.setGeometry(0, 0, self.sidebar.width(), self.tab_row.height())
-            header.raise_()
+        self.sidebar_headers.sync()
 
     def caption_inset(self, inset):
         self.top.layout().setContentsMargins(7, 4, 10+inset, 0)
@@ -446,7 +425,7 @@ class WorkspaceShell(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'connection'):
-            self.connection.setToolTip('ComfyUI 未連線；開啟連線設定')
+            self.refresh_connection()
             self.sync_navigation_density()
             self.sync_sidebar()
 
@@ -601,6 +580,7 @@ class WorkspaceShell(QMainWindow):
             document.prepare()
             host = EmbeddedHost(document.data, document)
             host.bind_workspace(self)
+            host.comfy.stateChanged.connect(self.refresh_connection)
             page = QWidget()
             layout = QVBoxLayout(page)
             layout.setContentsMargins(0, 0, 0, 0)
@@ -708,6 +688,15 @@ class WorkspaceShell(QMainWindow):
                 self.activate(self.tab_strip.bar.currentIndex())
                 return
             return self.new_tab()
+        self.ensure_utility()
+        if route == 'gallery':
+            self.utility.show_page(self.utility.gallery)
+        elif route == 'export':
+            self.utility.show_page(self.utility.clean_export)
+        else:
+            self.utility.settings(section or ('explore' if route == 'explore' else 'appearance'))
+
+    def ensure_utility(self):
         if self.utility is None:
             data = self.session / 'app-services'
             store = Storage(data)
@@ -716,19 +705,27 @@ class WorkspaceShell(QMainWindow):
             state['settings'].update(online=False, comfy_enabled=False)
             store.save(state)
             store.close()
-            self.utility = EmbeddedHost(data)
+            self.utility = EmbeddedHost(data, workspace=self)
             self.utility.bind_workspace(self)
             self.workspace_stack.addWidget(self.utility)
-        if route == 'gallery':
-            self.utility.show_page(self.utility.gallery)
-        elif route == 'export':
-            self.utility.show_page(self.utility.clean_export)
-        else:
-            self.utility.settings(section or ('explore' if route == 'explore' else 'appearance'))
+            self.utility.comfy.stateChanged.connect(self.refresh_connection)
+        return self.utility
+
+    def request_connection(self):
+        tab = self.tabs_by_key.get(self.active_key)
+        host = tab.document.host if tab and tab.document else self.ensure_utility()
+        host.comfy.recheck_connection()
+        self.refresh_connection()
+
+    def refresh_connection(self):
+        tab = self.tabs_by_key.get(self.active_key)
+        host = tab.document.host if tab and tab.document else self.utility
+        self.connection.refresh(self.display_settings(), getattr(host, 'comfy', None))
 
     def utility_navigated(self, route, section=None):
         self.active_route = route
         self.active_key = 'utility:' + route
+        self.utility.prepare_workspace_sidebar()
         self.workspace_stack.setCurrentWidget(self.utility)
         self.tab_strip.bar.workspace_active = False
         self.tab_strip.bar.update()
@@ -750,6 +747,7 @@ class WorkspaceShell(QMainWindow):
         if hasattr(self,'sidebar_resize'):
             self.sidebar_resize.schedule()
         self.sync_tab_inset()
+        self.refresh_connection()
         self.workspace_stack.sync_surface()
 
     def record_visit(self, entry):

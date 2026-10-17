@@ -145,9 +145,10 @@ class WorkspaceSidebarResize(QObject):
                 if parent.layout():
                     parent.layout().activate()
                 utility = self.window.utility
-                if utility and self.target is utility.clean_export.sidebar:
+                from .deferred_page import page_ready
+                if utility and page_ready(utility.clean_export) and self.target is utility.clean_export.sidebar:
                     utility.clean_export.adapt_layout()
-                elif utility and self.target is utility.gallery.folder_panel:
+                elif utility and page_ready(utility.gallery) and self.target is utility.gallery.folder_panel:
                     utility.gallery.adapt_panels()
             self.window.sync_tab_inset()
             if not self.target.isVisible() and not self.dragging:

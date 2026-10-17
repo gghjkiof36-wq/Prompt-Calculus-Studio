@@ -21,6 +21,10 @@ from .local_documents import assets, category, workflow, io, schema, paths
 
 class LocalEditingClient(ComfyClient):
     """Use the existing offline engine state without enabling live dispatch."""
+    def recheck_connection(self):
+        self.connect_to(self.window.state['settings'].get('comfy_url', self.url))
+        return False
+
     def connect_to(self, address):
         self.window.notice('此分頁檢視版提供本機編輯；連線與任務整合尚未開放。')
 
@@ -191,8 +195,9 @@ class DocumentBrowser(PromptEditor):
 
 class EmbeddedHost(Window):
     """One existing editor/Canvas per canonical document; no global state swap."""
-    def __init__(self, data, document=None):
+    def __init__(self, data, document=None, *, workspace=None):
         self.document = document
+        self.workspace_owner = workspace
         self._document_ready = False
         super().__init__(data, embedded=True, client_factory=LocalEditingClient, document_only=document is not None)
         self.studio_navigation.hide()
@@ -224,21 +229,46 @@ class EmbeddedHost(Window):
         # These are the same live sidebars used by the established pages.
         # Their aligned width replaces the file sidebar while a tool is open.
         if self.document is None:
-            from .workspace_style import sidebar_style
-            from .theme import stylesheet
-            for target in (self.gallery.folder_panel, self.clean_export.sidebar, self.settings_page.navigation_area):
-                target.setProperty('pcsSidebarManaged', True)
-                target.setProperty('pcsWorkspaceSidebar', True)
-                target.setFixedWidth(264)
-                target.layout().setContentsMargins(12, 16, 12, 12)
-            self.gallery.sidebar_split.setHandleWidth(0)
-            from .ui_icons import icon
-            self.gallery.new_folder.setIcon(icon('plus','navigation'))
-            self.gallery.folder_more.setIcon(icon('more-horizontal','navigation'))
-            self.setStyleSheet(stylesheet(self.state['settings'])+sidebar_style(self.state['settings']))
+            self.prepare_workspace_sidebar()
         else:
             # The appearance owner is the shell, never the saved file settings.
             self.apply_theme(preserve_layout=True)
+
+    def prepare_workspace_sidebar(self):
+        """Attach only the tool being visited; unopened tools stay unbuilt."""
+        workspace = getattr(self, 'workspace_owner', None)
+        if workspace is None or self.document is not None:
+            return
+        target = self.context_sidebar_target()
+        if target is None or target.property('pcsWorkspaceSidebar'):
+            return
+        target.setProperty('pcsSidebarManaged', True)
+        target.setProperty('pcsWorkspaceSidebar', True)
+        target.setFixedWidth(workspace.sidebar_width)
+        target.layout().setContentsMargins(12, 16, 12, 12)
+        if target is self.settings_page.navigation_area:
+            header = target.sidebar_header
+        else:
+            from .deferred_page import page_ready
+            if page_ready(self.gallery) and target is self.gallery.folder_panel:
+                header = self.gallery.sidebar_header
+                self.gallery.sidebar_split.setHandleWidth(0)
+                from .ui_icons import icon
+                self.gallery.new_folder.setIcon(icon('plus','navigation'))
+                self.gallery.folder_more.setIcon(icon('more-horizontal','navigation'))
+                for control in (self.gallery.new_folder, self.gallery.folder_more):
+                    control.setFixedSize(32, 32)
+                header.layout().setSpacing(0)
+            else:
+                header = self.clean_export.sidebar_header
+        workspace.sidebar_headers.register(target, header)
+        # This sidebar may already be polished before it joins the shell.
+        # Dynamic ancestor selectors must also be refreshed on its children.
+        from PySide6.QtWidgets import QWidget
+        for widget in (target, *target.findChildren(QWidget)):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+            widget.updateGeometry()
 
     def apply_theme(self, *args, **kwargs):
         super().apply_theme(*args, **kwargs)
@@ -253,11 +283,6 @@ class EmbeddedHost(Window):
     def sync_workspace_display(self):
         workspace = getattr(self, 'workspace_owner', None)
         if workspace is not None and self.document is None:
-            from .workspace_style import sidebar_style
-            from .theme import stylesheet
-            style=stylesheet(self.state['settings'])+sidebar_style(self.state['settings'])
-            if self.styleSheet()!=style:
-                self.setStyleSheet(style)
             workspace.sync_display_settings(self.state['settings'], getattr(self,'appearance_preview',{}))
 
     def context_sidebar_target(self):
@@ -291,10 +316,14 @@ class EmbeddedHost(Window):
     def sync_context_sidebar(self):
         if hasattr(self, 'context_rail'):
             self.context_rail.hide()
+        workspace = getattr(self, 'workspace_owner', None)
+        if workspace is not None and workspace.utility is self:
+            self.prepare_workspace_sidebar()
+            workspace.sync_sidebar()
 
     def return_to_prompt(self):
         if self.document is None:
-            if hasattr(self, 'workspace_owner'):
+            if getattr(self, 'workspace_owner', None) is not None:
                 return self.workspace_owner.open_route('home')
             return super().return_to_prompt()
         self.surface_stack.setCurrentWidget(self.prompt_editor if self.document.kind == 'category' else self.canvas_shell)
@@ -307,5 +336,8 @@ class EmbeddedHost(Window):
 
     def notice(self, text):
         super().notice(text)
+        workspace = getattr(self, 'workspace_owner', None)
+        if self._document_ready and workspace is not None:
+            workspace.statusBar().showMessage(text, 8000)
         if self._document_ready and self.document is not None:
             self.document.changed.emit()

@@ -3,7 +3,7 @@ import copy
 from pathlib import Path
 from PySide6.QtCore import Qt,QUrl,QTimer,QSize
 from PySide6.QtGui import QDesktopServices,QIcon
-from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QListWidget,QListWidgetItem,
+from PySide6.QtWidgets import (QWidget,QFrame,QVBoxLayout,QHBoxLayout,QListWidget,QListWidgetItem,
     QRadioButton,QButtonGroup,QLineEdit,QTabWidget,QScrollArea,QSizePolicy,QPushButton,
     QComboBox,QSpinBox,QCheckBox,QSlider,QPlainTextEdit,QStyledItemDelegate,QStyleOptionViewItem,QFormLayout)
 from .widgets import label,button,row,panel,scrolling,ComboBox,ActionHeader
@@ -150,7 +150,9 @@ class NavigationSidebar(QWidget):
         back=QVBoxLayout(self.back_area);back.setContentsMargins(0,0,0,10);back.setSpacing(0)
         back.addWidget(return_button);body.addWidget(self.back_area)
         body.addSpacing(14)
-        self.heading=label('設定','SidebarHeading');body.addWidget(self.heading)
+        self.heading=label('設定','SidebarHeading')
+        self.sidebar_header=QFrame();self.sidebar_header.setLayout(row(self.heading,None))
+        self.sidebar_header.layout().setContentsMargins(0,0,0,0);body.addWidget(self.sidebar_header)
         body.addSpacing(8)
         self.navigation=QListWidget();self.navigation.setObjectName('SidebarNavigation')
         self.navigation.setIconSize(QSize(18,18));self.navigation.setSpacing(2)
@@ -398,7 +400,8 @@ class SettingsPage(QWidget):
         self.syncing=False
 
     def open(self,section='interface'):
-        self.ensure_preferences(); self.syncing=True
+        if section in ('appearance','completion','dictionary'):self.ensure_preferences()
+        self.syncing=True
         for choice in self.interface.choices.buttons(): choice.setChecked(choice.property('mode')==self.window.state.get('selection_view','list'))
         self.window.generation_panel.refresh(); self.workflows.refresh(); self.workflow_manager.refresh()
         self.civitai.online.blockSignals(True); self.civitai.online.setChecked(self.window.state['settings'].get('online',True)); self.civitai.online.blockSignals(False)

@@ -297,7 +297,8 @@ class GroupSourceCard(TextCard):
     def sync_panel_style(self):
         from .canvas_items import canvas_colors
         from .module_chrome import source_controls_style
-        style=self.canvas.window.styleSheet()+source_controls_style(canvas_colors(self.canvas))
+        from .theme import canvas_stylesheet
+        style=canvas_stylesheet(self.canvas.window)+source_controls_style(canvas_colors(self.canvas))
         if self.panel.styleSheet()!=style:self.panel.setStyleSheet(style)
 
     def attach(self):

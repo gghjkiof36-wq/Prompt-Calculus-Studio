@@ -83,6 +83,11 @@ def window_appearance(window):
     return settings
 
 
+def canvas_stylesheet(window):
+    """Proxy widgets live outside the QWidget ancestry and need the base QSS."""
+    return getattr(window, '_canvas_stylesheet', window.styleSheet())
+
+
 def widget_palette(settings=None):
     """Palette for native controls, popups and painter-based child widgets."""
     from PySide6.QtGui import QColor, QPalette

@@ -56,17 +56,15 @@ class StudioNavigation(QWidget):
             self.entries[key] = (entry, title)
             self.layout_box.addWidget(entry)
         self.layout_box.addStretch()
-        self.connection=button('',self.request_connection,'ConnectionPill')
-        self.connection.setCursor(Qt.CursorShape.PointingHandCursor)
+        from .connection_pill import ConnectionPill
+        self.connection=ConnectionPill(self.request_connection)
         self._focus_buttons=(self.sidebar,*self.history_buttons,
                              *(entry for entry,_ in self.entries.values()),self.connection)
         for entry in self._focus_buttons:
             entry.setFocusPolicy(Qt.FocusPolicy.TabFocus)
             entry.installEventFilter(self)
-        status=QHBoxLayout(self.connection);status.setContentsMargins(11,0,11,0);status.setSpacing(8)
-        self.connection_dot=label('');self.connection_dot.setFixedSize(10,10);status.addWidget(self.connection_dot)
-        self.brand = label('ComfyUI · 未連線', 'Subtle');status.addWidget(self.brand)
-        for child in (self.connection_dot,self.brand):child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.connection_dot=self.connection.dot
+        self.brand=self.connection.brand
         self.layout_box.addWidget(self.connection)
         self.update_connection()
         self.select('canvas')
@@ -84,24 +82,9 @@ class StudioNavigation(QWidget):
         self.update_connection()
 
     def update_connection(self):
-        client=getattr(self.window,'comfy',None)
-        connected=bool(getattr(client,'connected',False));checking=bool(getattr(client,'connection_checking',False))
-        self._connection_short='連線中…' if checking else '已連線' if connected else '未連線'
-        text='ComfyUI · '+self._connection_short
-        self._connection_full=text
-        self.brand.setText(text);self.connection.setAccessibleName(text)
-        self.connection.setToolTip(text+'\n'+('正在確認連線，請稍候。' if checking else '使用已儲存的位址重新檢查並連線。'))
-        self.connection.setEnabled(not checking)
-        colors=visual_tokens(self.window.state['settings'])
-        self.connection_dot.setStyleSheet('background:'+colors['warning' if checking else 'connected_indicator' if connected else 'control']+'; border-radius:5px;')
-        height=max(32,self.brand.fontMetrics().height()+12);self.connection.setFixedHeight(height)
-        self.connection.setStyleSheet(f"""
-            QPushButton#ConnectionPill {{ background:{colors['surface']}; border:1px solid {colors['line']}; border-radius:{height//2}px; padding:0; }}
-            QPushButton#ConnectionPill:hover {{ background:{colors['hover']}; }}
-            QPushButton#ConnectionPill:pressed {{ background:{colors['selected']}; }}
-            QPushButton#ConnectionPill[pcsKeyboardFocus="true"]:focus {{ border-color:{colors['accent']}; }}
-            QPushButton#ConnectionPill:disabled {{ background:{colors['surface']}; }}
-        """)
+        self.connection.refresh(self.window.state['settings'],getattr(self.window,'comfy',None))
+        self._connection_short=self.connection.short
+        self._connection_full=self.connection.full
         self.adapt_labels()
 
     def request_connection(self):

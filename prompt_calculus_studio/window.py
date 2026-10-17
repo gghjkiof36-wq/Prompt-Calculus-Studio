@@ -104,7 +104,8 @@ class Window(QMainWindow):
         self.tabs=QTabWidget(); self.tabs.tabBar().hide(); main.addWidget(self.tabs,1)
         self.tabs.addTab(self.make_prompt_page(),"提示詞")
         def tool_page(page_type):
-            return DeferredToolPage(lambda: page_type(self)) if self.document_only else page_type(self)
+            deferred = self.document_only or getattr(self, 'workspace_owner', None) is not None
+            return DeferredToolPage(lambda: page_type(self)) if deferred else page_type(self)
         self.models=tool_page(ModelPage)
         self.gallery=tool_page(GalleryPage); self.tabs.addTab(self.gallery,"媒體庫")
         # CanvasResults shares the recent-result picker during initialization.
@@ -530,8 +531,8 @@ class Window(QMainWindow):
     def _set_sidebar_in_layout(self,target,expanded):
         if target is self.settings_page.navigation_area:
             self.settings_page.manual_navigation=expanded;self.settings_page.adapt_navigation()
-        elif target is self.gallery.folder_panel:self.gallery.set_sidebar_expanded(expanded)
-        elif target is self.clean_export.sidebar:
+        elif page_ready(self.gallery) and target is self.gallery.folder_panel:self.gallery.set_sidebar_expanded(expanded)
+        elif page_ready(self.clean_export) and target is self.clean_export.sidebar:
             self.clean_export.manual_sidebar=expanded;self.clean_export.adapt_layout()
 
     def context_sidebar_target(self):
@@ -684,9 +685,11 @@ class Window(QMainWindow):
         self.host_shell.update()
         if not self.native_material: appearance["material"]="solid"
         new_stylesheet=stylesheet(appearance)
+        self._canvas_stylesheet=new_stylesheet
         # Document hosts inherit the outer workspace's stylesheet. Applying
         # it here and again on attachment repolishes every hidden control.
-        if not self.document_only and self.styleSheet()!=new_stylesheet:self.setStyleSheet(new_stylesheet)
+        if (not self.document_only and getattr(self, 'workspace_owner', None) is None
+                and self.styleSheet()!=new_stylesheet):self.setStyleSheet(new_stylesheet)
         self.studio_navigation.refresh_icons()
         from .ui_icons import icon
         from PySide6.QtWidgets import QPushButton

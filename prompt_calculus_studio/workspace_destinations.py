@@ -38,6 +38,7 @@ class WorkspaceNavigation(QFrame):
             self.setFixedWidth(52)
         for key, title, _ in DESTINATIONS:
             entry = self.routes[key]
+            entry.setIconSize(QSize(16, 16) if horizontal else QSize(18, 18))
             entry.setText(title if horizontal else '')
             entry.setMinimumWidth(0)
             entry.setMaximumWidth(16777215)

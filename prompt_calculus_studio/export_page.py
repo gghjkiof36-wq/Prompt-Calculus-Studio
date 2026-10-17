@@ -42,7 +42,8 @@ class ExportPage(QFrame):
         self.setObjectName('WorkspaceSurface'); outer=QHBoxLayout(self); outer.setContentsMargins(0,0,0,0);outer.setSpacing(0)
         self.sidebar=QFrame();self.sidebar.setObjectName('ContextSidebar');self.sidebar.setFixedWidth(240)
         side=QVBoxLayout(self.sidebar);side.setContentsMargins(16,20,16,16);side.setSpacing(12);outer.addWidget(self.sidebar)
-        side.addWidget(label('匯出','Heading'))
+        self.sidebar_header=QFrame(); self.sidebar_header.setLayout(row(label('匯出','Heading'),None))
+        self.sidebar_header.layout().setContentsMargins(0,0,0,0); side.addWidget(self.sidebar_header)
         main=QWidget();layout=QVBoxLayout(main);self.main_layout=layout;layout.setContentsMargins(24,24,24,24);layout.setSpacing(16);outer.addWidget(main,1)
         self.sidebar_expanded=True;self.manual_sidebar=None
         self.add_images_button=button('加入圖片',self.choose_files);self.add_images_button.setProperty('iconName','plus')

@@ -386,7 +386,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
             header = self.w.tree_heading
             self.assertIs(header.parentWidget(), self.w.tab_row)
             self.assertEqual(header.width(), self.w.sidebar.width())
-            self.assertEqual(header.mapTo(self.w, QPoint()).y(), self.w.tab_strip.mapTo(self.w, QPoint()).y()-2)
+            self.assertEqual(header.mapTo(self.w, QPoint()).y(), self.w.tab_strip.mapTo(self.w, QPoint()).y())
             self.assertEqual(self.w.tab_strip.mapTo(self.w, QPoint()).x(), width)
         self.w.toggle_sidebar()
         self.events()
@@ -410,6 +410,138 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
             return self.w.tree.style().subElementRect(QStyle.SubElement.SE_ItemViewItemText, option, self.w.tree).x()
         self.assertEqual(text_x(self.folder/'Nested.md'), text_x(self.folder))
         self.assertEqual(text_x(self.note), text_x(self.folder))
+
+    def test_file_menu_creates_beside_clicked_file_and_root_only_unlinks(self):
+        context = self.w.commands.context('tree', self.item(self.folder/'Nested.md'))
+        menu = self.w.commands.menu_for(context)
+        actions = {action.text(): action for action in menu.actions()}
+        self.assertIn('移至資源回收筒…', actions)
+        child = actions['新增'].menu().actions()[2]
+        self.dialog_action(child.trigger, lambda d: (self.assertEqual(d.directory.text(), str(self.folder)), d.reject()))
+        root_menu = self.w.commands.menu_for(self.w.commands.context('tree', self.item(self.root)))
+        labels = [action.text() for action in root_menu.actions()]
+        self.assertNotIn('移至資源回收筒…', labels)
+        self.assertIn('移除側欄連結（保留原檔）', labels)
+
+    def trash_action(self, path, confirm):
+        context = self.w.commands.context('tree', self.item(path))
+        def choose():
+            dialog = self.app.activeModalWidget()
+            if confirm:
+                next(b for b in dialog.buttons() if b.text() == '移至資源回收筒').click()
+            else:
+                dialog.reject()
+        QTimer.singleShot(10, choose)
+        return self.w.commands.trash(context)
+
+    def test_trash_cancel_and_failure_keep_file_tab_and_recent(self):
+        tab = self.w.open_path(self.note, True)
+        before = self.note.read_bytes(), list(self.w.recent_files)
+        with patch('prompt_calculus_studio.workspace_commands.QFile.moveToTrash', return_value=(False, '')) as move:
+            self.assertFalse(self.trash_action(self.note, False))
+            move.assert_not_called()
+            self.assertFalse(self.trash_action(self.note, True))
+        self.assertIn('均已保留', self.errors.pop())
+        self.assertIn(tab.key, self.w.tabs_by_key)
+        self.assertEqual((self.note.read_bytes(), self.w.recent_files), before)
+
+    def test_trash_dirty_descendant_is_blocked_before_confirmation(self):
+        path = self.folder/'Nested.md'
+        tab = self.w.open_path(path, True)
+        QTest.keyClicks(tab.widget, 'unsaved ')
+        context = self.w.commands.context('tree', self.item(self.folder))
+        with patch('prompt_calculus_studio.workspace_commands.QFile.moveToTrash') as move:
+            self.assertFalse(self.w.commands.trash(context))
+            move.assert_not_called()
+        self.assertIn('未保存', self.errors.pop())
+        self.assertEqual(path.read_text(encoding='utf-8'), 'nested')
+        self.assertTrue(tab.dirty)
+        self.assertTrue(tab.widget.document().isUndoAvailable())
+
+    def test_trash_success_closes_only_affected_tabs_and_keeps_attachments(self):
+        tab = self.w.open_path(self.note, True)
+        other = self.w.open_path(self.folder/'Nested.md', True)
+        attachment = self.root/'assets'/'keep.png'
+        attachment.parent.mkdir()
+        attachment.write_bytes(b'untouched attachment')
+        recycled = self.external/'recycled.md'
+        def move(path):
+            Path(path).rename(recycled)
+            return True, str(recycled)
+        with patch('prompt_calculus_studio.workspace_commands.QFile.moveToTrash', side_effect=move):
+            self.assertTrue(self.trash_action(self.note, True))
+        self.assertEqual(recycled.read_bytes(), b'\xef\xbb\xbf# draft\r\n')
+        self.assertNotIn(tab.key, self.w.tabs_by_key)
+        self.assertIn(other.key, self.w.tabs_by_key)
+        self.assertNotIn(str(self.note), self.w.recent_files)
+        self.assertNotIn(path_key(self.note), self.w.path_items)
+        self.assertEqual(attachment.read_bytes(), b'untouched attachment')
+
+    def test_all_sidebar_headers_dock_collapse_and_restore(self):
+        self.w.set_navigation_position('top')
+        self.w.open_route('settings')
+        self.events()
+        self.assertFalse(self.w.utility.gallery.is_loaded)
+        self.assertFalse(self.w.utility.clean_export.is_loaded)
+        self.assertEqual(self.w.utility.styleSheet(), '')
+        for route in ('home', 'gallery', 'explore', 'export', 'settings'):
+            self.w.open_route(route)
+            self.events()
+            target = self.w.sidebar_target()
+            header = next(h for side, h, *_ in self.w.sidebar_headers.entries if side is target)
+            self.assertIs(header.parentWidget(), self.w.tab_row, route)
+            self.assertEqual(header.height(), self.w.tab_strip.bar.height(), route)
+            self.assertEqual(header.mapTo(self.w, QPoint()).y(), self.w.tab_strip.bar.mapTo(self.w, QPoint()).y(), route)
+            if route in ('explore', 'settings'):
+                navigation = self.w.utility.settings_page.navigation
+                self.assertLessEqual(navigation.visualItemRect(navigation.item(0)).height(), 34, route)
+            self.w.toggle_sidebar()
+            self.events()
+            self.assertFalse(header.isVisible(), route)
+            self.assertEqual(self.w.tab_strip.x(), 16, route)
+            self.w.toggle_sidebar()
+            self.w.set_navigation_position('side')
+            self.events()
+            self.assertIs(header.parentWidget(), target, route)
+            self.assertTrue(header.isVisible(), route)
+            self.w.set_navigation_position('top')
+            self.events()
+
+    def test_connection_shortcut_preserves_page_and_offline_preview_state(self):
+        host = self.w.ensure_utility()
+        current = self.w.workspace_stack.currentWidget()
+        history = list(self.w.history)
+        with patch.object(host.comfy, 'recheck_connection') as recheck:
+            self.w.connection.click()
+            recheck.assert_called_once_with()
+        self.assertIs(self.w.workspace_stack.currentWidget(), current)
+        self.assertEqual(self.w.history, history)
+        self.assertEqual(self.w.active_route, 'home')
+        self.w.connection.click()
+        self.assertFalse(host.comfy.enabled)
+        self.assertFalse(host.comfy.timer.isActive())
+        self.assertIn('本機編輯', self.w.statusBar().currentMessage())
+        self.assertEqual(self.w.connection.brand.objectName(), 'Subtle')
+        self.assertEqual(self.w.connection.dot.size().width(), 10)
+
+    def test_canvas_proxy_style_matches_legacy_and_survives_appearance_changes(self):
+        from prompt_calculus_studio.theme import stylesheet, window_appearance
+        path = self.root/'Canvas.pcs-workflow'
+        create_file(path.parent, 'workflow', 'Canvas')
+        tab = self.w.open_path(path, True)
+        self.events()
+        host = tab.document.host
+        panel = next(iter(host.canvas.outputs.values())).panel
+        self.assertEqual(host.styleSheet(), '')
+        for size in (12, 14):
+            self.w.settings['ui_size'] = size
+            self.w.style_shell()
+            self.events()
+            appearance = window_appearance(host)
+            appearance['material'] = 'solid'
+            self.assertEqual(panel.styleSheet(), stylesheet(appearance))
+            self.assertIn('Cascadia Mono', panel.editor.styleSheet() + panel.styleSheet())
+        self.assertNotEqual(host.state['settings']['ui_size'], 14)
 
 
 if __name__ == '__main__':

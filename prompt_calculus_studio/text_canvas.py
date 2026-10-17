@@ -221,7 +221,8 @@ class TextCanvas(QWidget):
         from .canvas_items import canvas_colors
         colors=canvas_colors(self)
         self.view.setBackgroundBrush(QColor(colors['base']))
-        sheet=self.window.styleSheet()
+        from .theme import canvas_stylesheet
+        sheet=canvas_stylesheet(self.window)
         for item in self.view.scene().items():
             if isinstance(item,QGraphicsProxyWidget) and item.widget() is not None:
                 panel=item.widget();panel.setPalette(self.window.palette())

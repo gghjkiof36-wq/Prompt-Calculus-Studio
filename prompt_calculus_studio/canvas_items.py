@@ -243,7 +243,8 @@ class TextCard(ResizableCard):
     def sync_panel_style(self):
         # Reapplying identical QSS repolishes every embedded control and queues
         # another layout pass. New panels and actual theme changes still apply.
-        style=self.canvas.window.styleSheet()
+        from .theme import canvas_stylesheet
+        style=canvas_stylesheet(self.canvas.window)
         if self.panel.styleSheet()!=style:self.panel.setStyleSheet(style)
 
     def layout_card(self):

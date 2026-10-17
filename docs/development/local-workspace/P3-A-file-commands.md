@@ -19,8 +19,11 @@ Only a successful exclusive creation publishes a tree entry or retained tab.
 Folder creation never creates a document tab. Managed suffixes, Windows names,
 case-insensitive collisions and reparse boundaries are checked at I/O time.
 
-The content heading and its three tools occupy the space beside the tabs when
-navigation is at the top. Its divider joins the sidebar below, and the heading
+Each entrance's sidebar heading occupies the space beside the tabs when
+navigation is at the top: Content, Gallery, Explore, Export and Settings all use
+the same docking controller. The heading and tabs share their 36px logical height;
+the first active tab fills the curved join with the sidebar color. The divider
+joins the sidebar below, and the heading
 disappears with the sidebar when collapsed. With navigation at the side, the
 heading stays inside the sidebar and the tabs share the top row. File labels
 reserve an empty folder-icon column; inside a child folder they align under its
@@ -58,6 +61,37 @@ clean tab. The original disk file, draft, dirty flag and Undo remain unchanged.
 Rename/F2 belongs to P3-C; same-root single-item moves and their rollback/asset
 relocation belong to P3-D. No placeholder commands advertise these unfinished
 operations in P3-A. Existing save, Undo, preview and service isolation continue.
+
+The user's subsequent context-menu request adds New at the selected file's
+parent, Copy Path and Move to Recycle Bin. Linked roots still use unlink only.
+Trashing a file/folder requires its explicit confirmation, rejects unsaved open
+descendants, and uses the OS recycle operation without a permanent-delete
+fallback. Only success closes affected tabs and removes their recent-file rows;
+attachments outside the selected target remain untouched.
+
+## Existing Canvas and connection control
+
+Canvas keeps the 0.8.8 module styles. A document host can inherit the outer
+window's stylesheet, but QGraphicsProxyWidget panels are detached from that
+QWidget ancestry. They therefore receive the cached base Canvas stylesheet
+explicitly, excluding the workspace's sidebar and tab rules. Appearance updates
+reuse existing controls and do not overwrite saved document settings.
+
+Both shells share the established ConnectionPill: secondary text, the original
+dot/border/padding and the same saved-endpoint recheck action. It does not navigate
+to Settings. This development entry's LocalEditingClient remains offline and
+reports that boundary on activation; live service/task ownership belongs to P4.
+The left entrance icons are 18 logical pixels (previously 16); top navigation,
+folder and Canvas icons keep their existing sizes.
+
+## First Settings visit
+
+The utility host inherits the existing shell theme once. Gallery and Export are
+created only on their first visit, and sidebar resizing does not dereference
+unopened deferred pages. The selected sidebar is registered and polished on
+attachment. This avoids constructing unrelated tools or repolishing the entire
+utility tree while opening Settings. Forms and editors retain their existing
+lifetimes and values on subsequent visits.
 
 ## Validation scope
 
