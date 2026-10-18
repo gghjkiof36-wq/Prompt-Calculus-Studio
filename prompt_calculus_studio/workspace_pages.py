@@ -68,6 +68,10 @@ class WorkspacePages(QStackedWidget):
             if page is current and visible:
                 page.setGeometry(QRect(self.mapTo(self.w.workspace_stack, QPoint()), self.size()))
                 page.show()
+                prepare = getattr(page, '_prepare_workspace_show', None)
+                if prepare is not None:
+                    page._prepare_workspace_show = None
+                    prepare()
                 page.stackUnder(self.w.workspace_stack.edge)
             else:
                 page.hide()

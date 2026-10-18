@@ -159,7 +159,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
             self.assertTrue(editor.error.text())
             self.assertEqual(editor.name.text(), 'CON')
             editor.cancel()
-        self.inline_action(lambda: self.w.new_document('workflow'), fix_error)
+        self.inline_action(lambda: self.w.commands.new('workflow', self.w.commands.context('toolbar')), fix_error)
         self.assertEqual((set(self.root.rglob('*')), set(self.w.tabs_by_key)), before)
 
     def test_io_name_validation_and_case_collision_for_all_four_kinds(self):

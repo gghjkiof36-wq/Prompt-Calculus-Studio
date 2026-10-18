@@ -510,18 +510,27 @@ class _ComboPopupBehavior:
         super().__init__(*args)
         self._auto_label_tooltip=''
         self.currentTextChanged.connect(self._sync_label_tooltip)
+        self._popup=None
+        self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.setMinimumContentsLength(6)
+        QApplication.setEffectEnabled(Qt.UIEffect.UI_AnimateCombo,False)
+
+    def view(self):
+        # Most controls on a newly opened document are never expanded. Build
+        # their styled popup only when it is used (including callers of view).
+        if self._popup is None:self._prepare_popup()
+        return super().view()
+
+    def _prepare_popup(self):
         font_picker=isinstance(self,QFontComboBox)
-        view=self.view() if font_picker else QListView()
+        view=super().view() if font_picker else QListView()
         if not font_picker:self.setView(view)
         view.setObjectName('ComboPopup');view.setSpacing(0)
         view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         view.setTextElideMode(Qt.TextElideMode.ElideRight)
         view.setItemDelegate(_FontComboItemDelegate(view) if font_picker else ComboItemDelegate(view))
-        self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.setMinimumContentsLength(6)
-        QApplication.setEffectEnabled(Qt.UIEffect.UI_AnimateCombo,False)
-        self._popup=self.view().window(); self._popup.setObjectName('PcsComboContainer')
+        self._popup=view.window(); self._popup.setObjectName('PcsComboContainer')
         self._surface=PopupSurface(self._popup,self)
         self._popup.installEventFilter(self)
 

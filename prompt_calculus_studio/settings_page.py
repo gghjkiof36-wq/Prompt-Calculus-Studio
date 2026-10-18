@@ -11,6 +11,7 @@ from .dialogs import SettingsDialog,AppearanceResetRow
 from .ui_icons import icon
 from .theme import visual_tokens
 from .studio_navigation import ContentStack
+from .deferred_page import DeferredToolPage, page_ready
 
 
 from .management_reading import (READING_CONTENT_WIDTH as SETTINGS_READING_WIDTH,
@@ -186,32 +187,62 @@ class SettingsPage(QWidget):
         self.interface=InterfaceChoice(window); self.add('interface','使用介面',reading_page(self.interface))
         # Preferences remain attached while the settings page autosaves edits.
         for key,title in (('appearance','介面個人化'),('completion','候選與翻譯'),('dictionary','個人字典')): self.add(key,title,QWidget())
-        from .civitai_ui import CivitAIPage
-        self.civitai=CivitAIPage(window); self.add('civitai','CivitAI',self.civitai)
-        self.civitai.tabs.tabBar().hide()
-        # A single ComfyUI entry with full-size pages selected by its top tabs.
-        self.comfy_content=QWidget(); comfy=QVBoxLayout(self.comfy_content); comfy.setSpacing(24)
-        comfy.setContentsMargins(0,0,0,0); self.comfy_tabs=QTabWidget(); self.comfy_tabs.tabBar().hide(); comfy.addWidget(self.comfy_tabs)
-        self.workflows=WorkflowSettings(window); self.comfy_tabs.addTab(reading_page(self.workflows),'連線與工作流')
-        # This full-height page owns its scrolling; no extra strip below it.
-        margins=window.models.layout().contentsMargins()
-        window.models.layout().setContentsMargins(margins.left(),margins.top(),margins.right(),0)
-        self.comfy_tabs.addTab(window.models,'模型資產')
-        from .manager_page import ManagerPage
-        self.manager=ManagerPage(window)
-        self.comfy_tabs.addTab(self.manager,'管理與更新')
-        self.workflow_manager=self.workflows.manager
+        lazy=getattr(window,'workspace_owner',None) is not None
+        self.civitai=DeferredToolPage(self.make_civitai_page) if lazy else self.make_civitai_page()
+        self.add('civitai','CivitAI',self.civitai)
+        self.comfy_content=DeferredToolPage(self.make_comfy_page) if lazy else self.make_comfy_page()
         self.add('comfy','ComfyUI',self.comfy_content)
         self.add('data','資料與備份',self.make_data_page())
         self.add('explore','探索',self.make_explore_page())
-        self.comfy_tabs.currentChanged.connect(self.comfy_tab_changed)
-        self.civitai.tabs.currentChanged.connect(self.civitai_tab_changed)
         self.navigation.currentRowChanged.connect(self.navigate)
         self.autosave=QTimer(self); self.autosave.setSingleShot(True); self.autosave.setInterval(350); self.autosave.timeout.connect(self.flush)
         self.syncing=False; self.entry_appearance=None; self.entry_navigation_position=None
         self.navigation_position=None
         for choice in self.interface.choices.buttons():choice.toggled.connect(self.schedule_save)
         self.configure_navigation('interface')
+
+    def make_civitai_page(self):
+        from .civitai_ui import CivitAIPage
+        page=CivitAIPage(self.window)
+        page.tabs.tabBar().hide()
+        page.tabs.currentChanged.connect(self.civitai_tab_changed)
+        return page
+
+    def make_comfy_page(self):
+        # Exploration does not need to build installation and workflow forms.
+        window=self.window
+        page=QWidget(); comfy=QVBoxLayout(page); comfy.setSpacing(24)
+        comfy.setContentsMargins(0,0,0,0)
+        self._comfy_tabs=QTabWidget(); self._comfy_tabs.tabBar().hide(); comfy.addWidget(self._comfy_tabs)
+        self._workflows=WorkflowSettings(window)
+        self._comfy_tabs.addTab(reading_page(self._workflows),'連線與工作流')
+        margins=window.models.layout().contentsMargins()
+        window.models.layout().setContentsMargins(margins.left(),margins.top(),margins.right(),0)
+        self._comfy_tabs.addTab(window.models,'模型資產')
+        from .manager_page import ManagerPage
+        self._manager=ManagerPage(window)
+        self._comfy_tabs.addTab(self._manager,'管理與更新')
+        self._comfy_tabs.currentChanged.connect(self.comfy_tab_changed)
+        return page
+
+    @property
+    def comfy_tabs(self):
+        if not hasattr(self,'_comfy_tabs'):self.comfy_content.load()
+        return self._comfy_tabs
+
+    @property
+    def workflows(self):
+        if not hasattr(self,'_workflows'):self.comfy_content.load()
+        return self._workflows
+
+    @property
+    def manager(self):
+        if not hasattr(self,'_manager'):self.comfy_content.load()
+        return self._manager
+
+    @property
+    def workflow_manager(self):
+        return self.workflows.manager
 
     def make_explore_page(self):
         from PySide6.QtWidgets import QBoxLayout
@@ -330,7 +361,8 @@ class SettingsPage(QWidget):
             mode=self.interface.mode()
             if getattr(self.window,'workspace_owner',None) is None and mode!=self.window.state.get('selection_view','list'):
                 self.window.set_interface_mode(mode); self.window.surface_stack.setCurrentWidget(self)
-            self.window.models.save(); self.window.persist()
+            if page_ready(self.window.models):self.window.models.save()
+            self.window.persist()
         finally:self.syncing=False
 
     def reset_appearance(self,restore=False):
@@ -403,8 +435,10 @@ class SettingsPage(QWidget):
         if section in ('appearance','completion','dictionary'):self.ensure_preferences()
         self.syncing=True
         for choice in self.interface.choices.buttons(): choice.setChecked(choice.property('mode')==self.window.state.get('selection_view','list'))
-        self.window.generation_panel.refresh(); self.workflows.refresh(); self.workflow_manager.refresh()
-        self.civitai.online.blockSignals(True); self.civitai.online.setChecked(self.window.state['settings'].get('online',True)); self.civitai.online.blockSignals(False)
+        if page_ready(self.comfy_content) or section in ('comfy','workflows','workflow_manager','models','nodes'):
+            self.window.generation_panel.refresh(); self.workflows.refresh(); self.workflow_manager.refresh()
+        if page_ready(self.civitai) or section in ('civitai','downloads','civitai_settings'):
+            self.civitai.online.blockSignals(True); self.civitai.online.setChecked(self.window.state['settings'].get('online',True)); self.civitai.online.blockSignals(False)
         if section in ('civitai','downloads'): self.civitai.refresh_history()
         sub={'workflows':0,'models':1,'nodes':2,'workflow_manager':0}.get(section)
         if sub is not None:
@@ -432,9 +466,10 @@ class SettingsPage(QWidget):
         """Discard editors for the old document after an explicit data import."""
         section=self.section
         self.autosave.stop(); self.clear_preferences(); self.entry_appearance=None; self.entry_navigation_position=None
-        self.civitai.stop_images(); self.civitai.search_cache.clear(); self.civitai.list.clear(); self.civitai.results=[]; self.civitai.initial_requested=False
-        for control,key,default in ((self.civitai.filter_minor,'civitai_filter_minor',True),(self.civitai.nsfw,'civitai_mature',True)):
-            control.blockSignals(True); control.setChecked(self.window.state['settings'].get(key,default)); control.blockSignals(False)
+        if page_ready(self.civitai):
+            self.civitai.stop_images(); self.civitai.search_cache.clear(); self.civitai.list.clear(); self.civitai.results=[]; self.civitai.initial_requested=False
+            for control,key,default in ((self.civitai.filter_minor,'civitai_filter_minor',True),(self.civitai.nsfw,'civitai_mature',True)):
+                control.blockSignals(True); control.setChecked(self.window.state['settings'].get(key,default)); control.blockSignals(False)
         self.open(section)
 
     def cancel(self):

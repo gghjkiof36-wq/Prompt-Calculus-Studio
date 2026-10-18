@@ -397,7 +397,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
     def set_trash_confirmation(self, enabled):
         self.confirm_trash = bool(enabled)
         self.save_ui_preferences()
-        preferences = getattr(getattr(self.utility, 'settings_page', None), 'preferences', None)
+        from .deferred_page import page_ready
+        page = getattr(self.utility, 'settings_page', None)
+        preferences = getattr(page, 'preferences', None) if page_ready(page) else None
         checkbox = getattr(preferences, 'confirm_trash', None)
         if checkbox is not None and checkbox.isChecked() != self.confirm_trash:
             checkbox.setChecked(self.confirm_trash)
@@ -421,7 +423,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         if position not in ('side', 'top') or position == self.navigation_position:
             return
         self.navigation_position = position
-        selector = getattr(getattr(self.utility, 'settings_page', None), 'navigation_position', None)
+        from .deferred_page import page_ready
+        page = getattr(self.utility, 'settings_page', None)
+        selector = getattr(page, 'navigation_position', None) if page_ready(page) else None
         if selector is not None:
             selector.blockSignals(True)
             selector.setCurrentIndex(selector.findData(position))
@@ -610,6 +614,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         value = item.data(0, Qt.ItemDataRole.UserRole)
         if value:
             self.open_path(Path(value), retained)
+        elif not retained and item.data(0, KIND_ROLE) in ('root', 'folder'):
+            item.setExpanded(not item.isExpanded())
 
     def all_pages(self):
         return [*self.tabs_by_key.values(), *self.saved_pages.values()]
@@ -946,8 +952,10 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
     def toggle_sidebar(self):
         expanded = self.width() >= 980 if self.sidebar_preference is None else self.sidebar_preference
         self.sidebar_preference = not expanded
-        if not self.sidebar_resize.animate_visibility(not expanded):
-            self.sync_sidebar()
+        # Resizing every animation frame repeatedly lays out the live Canvas
+        # and its forms. A disclosure click should settle in a single layout.
+        self.sidebar_resize.finish_motion()
+        self.sync_sidebar()
         self.collapse.setToolTip('展開側欄' if expanded else '收合側欄')
         self.collapse.setAccessibleName(self.collapse.toolTip())
         self.save_ui_preferences()

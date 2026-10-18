@@ -84,7 +84,17 @@ class WorkspaceTree(QTreeWidget):
         self.hovered = QPersistentModelIndex()
         self.file_drag = None
         self.setMouseTracking(True)
+        self.setExpandsOnDoubleClick(False)
+        # This inset has a solid background. Repainting a folder must not
+        # invalidate the translucent workspace and its neighbouring editor.
+        self.viewport().setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setItemDelegate(WorkspaceTreeDelegate(self))
+
+    def paintEvent(self, event):
+        painter = QPainter(self.viewport())
+        painter.fillRect(event.rect(), QColor(self.row_colors['sidebar']))
+        painter.end()
+        super().paintEvent(event)
 
     def changeEvent(self, event):
         if event.type() in (QEvent.Type.StyleChange, QEvent.Type.FontChange, QEvent.Type.PaletteChange):

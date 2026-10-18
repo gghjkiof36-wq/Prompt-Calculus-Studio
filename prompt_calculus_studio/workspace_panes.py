@@ -247,13 +247,14 @@ class WorkspacePanes:
                         raise ValueError('另一個位置的同身分文件已開啟，請先建立獨立副本。')
                     document.prepare()
                     self.documents.append(document)
-                host = EmbeddedHost(document.data, document)
+                host = EmbeddedHost(document.data, document, workspace=self)
                 host.bind_workspace(self)
                 host.comfy.stateChanged.connect(self.refresh_connection)
                 page = QWidget()
                 layout = QVBoxLayout(page)
                 layout.setContentsMargins(0, 0, 0, 0)
                 layout.addWidget(host)
+                page._prepare_workspace_show = host.canvas.present if document.kind == 'workflow' else None
                 # A view survives Save As. Reopening its former source must
                 # therefore never reuse the former document id as a view key.
                 key = 'view:'+uuid.uuid4().hex

@@ -1,9 +1,46 @@
-"""A temporary sidebar row becomes a file only after the name is confirmed."""
+"""Direct home creation and explicit naming for sidebar file commands."""
 from PySide6.QtWidgets import QTreeWidgetItem
 from .workspace_file_dialogs import InlineRename
 from .workspace_commands import NAMES
 from .workspace_locations import path_key
 from .ui_icons import icon
+
+
+def create_home_workflow(commands, context):
+    """Fill this home slot immediately; the saved document can be renamed later."""
+    from .workspace_home import WorkspaceHome
+    w = commands.workspace
+    home = w.tabs_by_key.get(context.view_key)
+    # Ignore a queued second click once this particular home has been replaced.
+    if home is None or not isinstance(home.widget, WorkspaceHome):
+        return None
+    directory = context.destination
+    if directory is None or w.locations.root_for(directory) is None:
+        previous = w.sidebar_preference
+        try:
+            w.choose_root()
+        finally:
+            w.sidebar_preference = previous
+            w.sync_sidebar()
+        directory = w.locations.current
+        if directory is None:
+            return None
+    try:
+        directory = w.locations.directory(directory)
+        existing = {p.name.casefold() for p in directory.iterdir()}
+        name, number = '未命名', 1
+        while (name+'.pcs-workflow').casefold() in existing:
+            number += 1
+            name = '未命名 ' + str(number)
+        path = commands.create_at('workflow', name, directory)
+    except (ValueError, OSError) as error:
+        w.show_notice(str(error))
+        return None
+    w.refresh_tree()
+    created = w.open_context(path, context)
+    if created and created.host:
+        created.host.canvas.view.setFocus()
+    return created
 
 
 def start_creation(commands, kind, context, after_create=None, finished=None):

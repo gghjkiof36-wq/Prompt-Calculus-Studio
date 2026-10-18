@@ -369,10 +369,10 @@ class EmbeddedHost(Window):
         target.setProperty('pcsWorkspaceSidebar', True)
         target.setFixedWidth(workspace.sidebar_width)
         target.layout().setContentsMargins(12, 16, 12, 12)
-        if target is self.settings_page.navigation_area:
+        from .deferred_page import page_ready
+        if page_ready(self.settings_page) and target is self.settings_page.navigation_area:
             header = target.sidebar_header
         else:
-            from .deferred_page import page_ready
             if page_ready(self.gallery) and target is self.gallery.folder_panel:
                 header = self.gallery.sidebar_header
                 self.gallery.sidebar_split.setHandleWidth(0)

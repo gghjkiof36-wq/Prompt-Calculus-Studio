@@ -117,6 +117,9 @@ class WorkspaceCommands:
     def new(self, kind, context, name=None, directory=None):
         w = self.workspace
         if name is None:
+            if kind == 'workflow' and context.origin == 'home':
+                from .workspace_creation import create_home_workflow
+                return create_home_workflow(self, context)
             from .workspace_creation import start_creation
             return start_creation(self, kind, context)
         else:

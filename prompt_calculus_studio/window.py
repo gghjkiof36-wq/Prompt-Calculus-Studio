@@ -40,6 +40,7 @@ class Window(QMainWindow):
         super().__init__()
         self.embedded_document = embedded
         self.document_only = bool(embedded and document_only)
+        workspace_tools = embedded and not self.document_only and getattr(self, 'workspace_owner', None) is not None
         from .tooltips import install_tooltip_styling
         install_tooltip_styling()
         from .button_focus import install_button_focus_styling
@@ -121,15 +122,20 @@ class Window(QMainWindow):
         outer.addLayout(row(self.status,None,self.cancel_button,QSizeGrip(self)))
         self.make_canvas_surface()
         if not self.document_only:
-            self.settings_page=SettingsPage(self); self.surface_stack.addWidget(self.settings_page)
-        self.welcome=QWidget() if self.document_only else InterfaceChoice(self,True)
+            self.settings_page=DeferredToolPage(lambda: SettingsPage(self)) if workspace_tools else SettingsPage(self)
+            self.surface_stack.addWidget(self.settings_page)
+        self.welcome=QWidget() if self.document_only or workspace_tools else InterfaceChoice(self,True)
         self.surface_stack.addWidget(self.welcome)
         self.refresh_workspaces(); self.refresh_modules(); self.refresh_library()
         # enter_canvas below builds the scene. A document's hidden legacy list
         # must not build it once more before that first visible presentation.
-        if not self.document_only:self.refresh_builder()
+        if not self.document_only and not workspace_tools:self.refresh_builder()
         self.apply_theme()
-        if self.state.get('selection_view')=='canvas': self.enter_canvas()
+        if workspace_tools:
+            # The outer workspace owns document editing. Its tool host never
+            # needs to construct a hidden material editor on the first visit.
+            self.canvas_mode=True
+        elif self.state.get('selection_view')=='canvas': self.enter_canvas()
         else: self.leave_canvas()
         self.display_recovery=DisplayRecovery(self)
         from .sidebar_peek import SidebarPeekController
@@ -529,7 +535,7 @@ class Window(QMainWindow):
         finally:self._syncing_sidebar=False
 
     def _set_sidebar_in_layout(self,target,expanded):
-        if target is self.settings_page.navigation_area:
+        if page_ready(self.settings_page) and target is self.settings_page.navigation_area:
             self.settings_page.manual_navigation=expanded;self.settings_page.adapt_navigation()
         elif page_ready(self.gallery) and target is self.gallery.folder_panel:self.gallery.set_sidebar_expanded(expanded)
         elif page_ready(self.clean_export) and target is self.clean_export.sidebar:
@@ -565,7 +571,7 @@ class Window(QMainWindow):
 
     def update_navigation(self):
         pairs=list(self.navigation_buttons)
-        if hasattr(self,'settings_page'): pairs.extend(((self.settings_page.back_button,-1),(self.settings_page.forward_button,1)))
+        if hasattr(self,'settings_page') and page_ready(self.settings_page): pairs.extend(((self.settings_page.back_button,-1),(self.settings_page.forward_button,1)))
         for widget,step in pairs: widget.setEnabled(0<=self.navigation_index+step<len(self.navigation_history))
 
     def go_back(self): self.visit_history(-1)
@@ -709,8 +715,9 @@ class Window(QMainWindow):
         self.run_controls.configure_geometry()
         if hasattr(self.canvas,'refresh_visual_theme'):self.canvas.refresh_visual_theme()
         if hasattr(self,'prompt_editor'):self.prompt_editor.refresh_visual_theme()
-        if hasattr(self,'settings_page'):
-            self.settings_page.civitai.configure_fonts(); self.settings_page.workflow_manager.update_list_height()
+        if hasattr(self,'settings_page') and page_ready(self.settings_page):
+            if page_ready(self.settings_page.civitai):self.settings_page.civitai.configure_fonts()
+            if page_ready(self.settings_page.comfy_content):self.settings_page.workflow_manager.update_list_height()
             self.settings_page.refresh_icons()
         if not self.embedded_document: update_window_shape(self)
         self.tagline.setVisible(appearance["ui_size"]<16)
@@ -1343,16 +1350,17 @@ class Window(QMainWindow):
         if sheet is not None and not getattr(sheet,'closed',False) and hasattr(sheet,'save_draft') and not sheet.save_draft():
             event.ignore();return
         if not self.flush_editor_drafts(closing=True):event.ignore();return
-        if hasattr(self,'settings_page') and self.settings_page.manager.extension.busy:
+        settings_ready=hasattr(self,'settings_page') and page_ready(self.settings_page)
+        if settings_ready and page_ready(self.settings_page.comfy_content) and self.settings_page.manager.extension.busy:
             self.notice('配套擴充正在安裝，完成後即可關閉 PCS。');event.ignore();return
         self.close_recent_sheet()
         if hasattr(self,'sidebar_resize') and self.sidebar_resize.dragging:self.sidebar_resize.finish()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
-        if hasattr(self,'settings_page'):
-            self.settings_page.civitai.stop_images()
-            self.settings_page.manager.shutdown()
+        if settings_ready:
+            if page_ready(self.settings_page.civitai):self.settings_page.civitai.stop_images()
+            if page_ready(self.settings_page.comfy_content):self.settings_page.manager.shutdown()
             if self.settings_page.preferences is not None:self.settings_page.flush()
-        browsing=hasattr(self,'settings_page') and self.settings_page.civitai.browse_jobs.active
+        browsing=settings_ready and page_ready(self.settings_page.civitai) and self.settings_page.civitai.browse_jobs.active
         if self.jobs.active or browsing or self.completion.tasks or (page_ready(self.gallery) and self.gallery.importing) or self.recent.collecting:
             event.ignore(); self.closing=True
             if page_ready(self.gallery):self.gallery.queue=[]
