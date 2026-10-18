@@ -154,6 +154,11 @@ class DesktopDocument(QObject):
     def view_changed(self, host):
         if self.refreshing:
             return
+        # A sibling scene can receive a paint before the queued refresh. Drop
+        # objects whose shared owners disappeared now; build new cards later.
+        for sibling in self.hosts:
+            if sibling is not host and not sibling.closing:
+                sibling.canvas.prune_cards()
         self.last_editor = host
         self.refresh_timer.start(0)
         self.update_dirty()

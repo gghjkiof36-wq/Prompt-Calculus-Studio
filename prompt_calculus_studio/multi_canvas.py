@@ -488,7 +488,7 @@ class MultiCanvas(TextCanvas):
         for card in [*self.outputs.values(),*self.clips.values(),*self.flow_cards.values(),*self.functions.cards.values(),*self.preview_cards.values(),self.order_card]:
             if card is not None:card.sync_bounds()
         self.update_lines()
-    def refresh(self):
+    def refresh(self, *, prepare_hidden=False):
         if not hasattr(self,'outputs') or self.refreshing: return
         self._scene_refresh_pending=True
         if hasattr(self,'onboarding'):self.onboarding.refresh()
@@ -502,7 +502,7 @@ class MultiCanvas(TextCanvas):
                 self.entries[key]=(key,root['id'])
                 for part in comp.walk(root):
                     if part is not root: self.entries[key+':'+part['id']]=(key,part['id'])
-            if not self.isVisible(): self.last_state=now; self.update_output(); return
+            if not self.isVisible() and not prepare_hidden: self.last_state=now; self.update_output(); return
             for line in self.lines.values(): self.view.scene().removeItem(line)
             self.lines={}
             for port in self.ports.values(): self.view.scene().removeItem(port); port.setParentItem(None); port.deleteLater()

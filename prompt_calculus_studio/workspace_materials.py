@@ -109,7 +109,7 @@ class WorkspaceMaterials(QObject):
                     source_document=source.document_id,
                     source_revision=materials.fingerprint(source.value),
                     content_kind=source.value.get('content_kind', 'tags'), collapsed=True)
-        root.setdefault('preview', source.value.get('preview', ''))
+        if not root.get('preview'):root['preview'] = source.value.get('preview', '')
         # Read every required attachment before touching the destination. Only
         # known preview fields are copied; no catalog or arbitrary path export.
         pending = {}
@@ -149,7 +149,7 @@ class WorkspaceMaterials(QObject):
         if point is None:
             if canvas_id:
                 x, y = canvas.data()['canvases'][canvas_id]['position']
-                point = QPointF(x+24, y+80)
+                point = QPointF(x+24, y+108)
             else:
                 saved = getattr(canvas.window, 'local_canvas_view', None)
                 center = QPointF(*saved[1:]) if saved else canvas.view.mapToScene(canvas.view.viewport().rect().center())
@@ -167,6 +167,9 @@ class WorkspaceMaterials(QObject):
                 x, y = canvas.window.state.get('text_positions', {}).get(key, [-1500, 0])
                 w, h = self.size(canvas, value, multi_output.owner(canvas.window.state, key))
                 occupied.append(QRectF(x, y, w, h))
+        for key, value in canvas.data()['canvases'].items():
+            if key != canvas_id and key not in canvas.containers:
+                occupied.append(QRectF(*value['position'], *value['display_size']))
         offsets = [(0, 0)]
         for radius in range(1, 81):
             for x in range(-radius, radius+1):
@@ -175,6 +178,9 @@ class WorkspaceMaterials(QObject):
                 offsets.extend(((-radius*32, y*32), (radius*32, y*32)))
         for dx, dy in offsets:
             candidate = point+QPointF(dx, dy)
+            if canvas_id:
+                x, y = canvas.data()['canvases'][canvas_id]['position']
+                if candidate.x() < x+24 or candidate.y() < y+108:continue
             rect = QRectF(candidate.x(), candidate.y(), width, height).adjusted(-8, -8, 8, 8)
             if not any(rect.intersects(other) for other in occupied):return candidate
         raise ValueError('附近沒有可用空間，請選擇另一個位置。')
@@ -193,12 +199,18 @@ class WorkspaceMaterials(QObject):
                 tab = self.w.open_path(target.path, True, new_tab=True, background=True, quiet=True)
                 if tab is None: raise ValueError(self.w.last_open_error)
                 document = tab.document
+            if document.key != target.document_id:
+                raise ValueError('目標已換成另一份文件，請重新選擇。')
             if document.error or getattr(document, 'operation_error', False):
                 raise ValueError(document.error or '目標文件目前不能寫入。')
             if self.w.autosave.editing_dialog(tab):
                 raise ValueError('請先完成或取消目標文件的編輯。')
             host = host if host in document.hosts else tab.host
             canvas = host.canvas
+            # Only the chosen file needs geometry. Build its hidden scene once
+            # to avoid every node type, without showing it or changing focus.
+            if not canvas.isVisible() and getattr(canvas, '_scene_refresh_pending', True):
+                canvas.refresh(prepare_hidden=True)
             position = self.position(canvas, root, canvas_id, point)
             for name, raw in attachments.items():
                 path = paths.checked(document.data, name)
@@ -213,7 +225,16 @@ class WorkspaceMaterials(QObject):
                 state.setdefault('uses', {})[key] = copy.deepcopy(root)
                 state.setdefault('output_order', []).append(key)
                 state.setdefault('text_positions', {})[key] = [position.x(), position.y()]
-                if canvas_id is not None: multi_output.assign(state, key, canvas_id)
+                if canvas_id is not None:
+                    multi_output.assign(state, key, canvas_id)
+                    # Extend only the destination's lower/right bounds, so
+                    # ensure_bounds cannot clamp the new text onto a member.
+                    container = state['multi_output']['canvases'][canvas_id]
+                    x, y = container['position']
+                    width, height = self.size(canvas, root, canvas_id)
+                    old_width, old_height = container['display_size']
+                    container['display_size'] = [max(old_width, position.x()-x+width+24),
+                                                 max(old_height, position.y()-y+height+78)]
             host._material_transfer_reporting = True
             try:
                 if not canvas.commit(apply, label='加入文字模塊'):

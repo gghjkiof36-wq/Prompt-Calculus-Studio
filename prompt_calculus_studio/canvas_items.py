@@ -694,23 +694,57 @@ class CanvasView(QGraphicsView):
         return super().viewportEvent(event)
 
     def dragEnterEvent(self,event):
-        if event.mimeData().hasFormat('application/x-pcs-material'):event.acceptProposedAction();return
+        from .workspace_material_drag import MIME, controller
+        if event.mimeData().hasFormat(MIME):
+            drag=controller(self)
+            if drag:drag.move(self,event)
+            else:event.ignore()
+            return
+        if event.mimeData().hasFormat('application/x-pcs-material'):
+            from .workspace_material_drag import foreign_legacy
+            if foreign_legacy(self,event):event.ignore()
+            else:event.acceptProposedAction()
+            return
         from .image_drop import dropped_source
         if dropped_source(event.mimeData())[0]: event.acceptProposedAction(); return
         super().dragEnterEvent(event)
     def dragMoveEvent(self,event):
-        if event.mimeData().hasFormat('application/x-pcs-material'):event.acceptProposedAction();return
+        from .workspace_material_drag import MIME, controller
+        if event.mimeData().hasFormat(MIME):
+            drag=controller(self)
+            if drag:drag.move(self,event)
+            else:event.ignore()
+            return
+        if event.mimeData().hasFormat('application/x-pcs-material'):
+            from .workspace_material_drag import foreign_legacy
+            if foreign_legacy(self,event):event.ignore()
+            else:event.acceptProposedAction()
+            return
         from .image_drop import dropped_source
         if dropped_source(event.mimeData())[0]: event.acceptProposedAction(); return
         super().dragMoveEvent(event)
     def dropEvent(self,event):
+        from .workspace_material_drag import MIME, controller
+        if event.mimeData().hasFormat(MIME):
+            drag=controller(self)
+            if drag:drag.drop(self,event)
+            else:event.ignore()
+            return
         if event.mimeData().hasFormat('application/x-pcs-material'):
+            from .workspace_material_drag import foreign_legacy
+            if foreign_legacy(self,event):event.ignore();return
             key=bytes(event.mimeData().data('application/x-pcs-material')).decode('utf-8')
             self.canvas.window.add_material_to_canvas(key,self.mapToScene(event.position().toPoint()));event.acceptProposedAction();return
         from .image_drop import dropped_source
         if not dropped_source(event.mimeData())[0]: super().dropEvent(event); return
         self.canvas.drop_position=self.mapToScene(event.position().toPoint())
         self.canvas.drop_loader.receive(event.mimeData()); event.acceptProposedAction()
+
+    def dragLeaveEvent(self,event):
+        from .workspace_material_drag import controller
+        drag=controller(self)
+        if drag:drag.clear()
+        super().dragLeaveEvent(event)
 
     def set_status_widget(self,widget):
         self.status_widget=widget; widget.setParent(self.viewport())
