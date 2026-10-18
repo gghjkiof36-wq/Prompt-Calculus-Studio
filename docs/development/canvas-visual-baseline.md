@@ -2,6 +2,8 @@
 
 此頁記錄 0.8.7 Candidate25 的 Canvas 外觀基準，供後續元件沿用。使用者確認的方向是精簡布局、中性深灰卡片、小型實心接點，並優先統一彈出後的 UI。新增功能模組沒有進場動畫，保留遮罩與外側關閉；圖片來源、載入圖片、Prompt 輸出及預排程已依確認的可操作方案套用。
 
+0.8.9 開發版已將這套色階擴至應用程式共用面板與彈窗，現行規則見[應用程式配色基準](application-color-baseline.md)。本文的「後續適配順序」及非 Canvas 頁保留舊色的說明，是 Candidate25 當時的遷移範圍；現行 `dialog_context` 已取代當時的 `canvas_dialog_context`。
+
 | 範圍 | 共用來源 | 本批決定 |
 | --- | --- | --- |
 | 畫布底色 | `theme.py`、`color_roles.py` 的 `canvas_background` | graphite 為中性 `#111111`，保留細點格；其他配色沿用自身底色 |

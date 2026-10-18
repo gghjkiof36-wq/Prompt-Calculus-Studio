@@ -4,7 +4,8 @@ from unittest.mock import patch
 from PySide6.QtCore import Qt,QObject,QEvent,QPoint,QPointF,QRect,QSize
 from PySide6.QtGui import QScreen,QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QFrame,QPushButton
+from PySide6.QtWidgets import QFrame,QPushButton,QLineEdit
+from PySide6.QtGui import QPalette
 from stage_fixture import StageFixture,APP
 from prompt_calculus_studio import materials
 from prompt_calculus_studio.canvas_palette import CanvasPalette
@@ -110,7 +111,7 @@ class CanvasCohesionTests(StageFixture):
             close=dialog.findChild(QPushButton,'DialogClose')
             self.assertFalse(close.icon().isNull())
             nested=NodeDialog(dialog);nested.show();QTest.qWait(10)
-            self.assertEqual(nested.styleSheet(),dialog.styleSheet())
+            self.assertEqual(nested.heading.font().pixelSize(),dialog.heading.font().pixelSize())
             self.assertEqual(nested.findChild(QFrame,'DialogSurface').palette().window().color(),
                              dialog.findChild(QFrame,'DialogSurface').palette().window().color())
             nested.reject();nested.deleteLater();dialog.reject();return 0
@@ -121,14 +122,27 @@ class CanvasCohesionTests(StageFixture):
         self.assertEqual(self.w.state,before)
         for dialog in dialogs:dialog.deleteLater()
 
-    def test_canvas_dialog_finish_does_not_leak_to_other_main_pages(self):
-        canvas_dialog=StudioDialog(self.w)
-        self.assertTrue(canvas_dialog.styleSheet())
-        canvas_dialog.deleteLater()
-        for target in ('settings','gallery','clean_export'):
-            if target=='settings':self.w.settings()
-            else:self.w.show_page(getattr(self.w,target))
-            dialog=StudioDialog(self.w)
-            self.assertFalse(dialog.styleSheet(),target)
-            self.assertFalse(hasattr(dialog,'_module_dialog_context'),target)
-            dialog.deleteLater()
+    def test_same_dialog_keeps_its_finish_across_main_pages_and_live_palettes(self):
+        from prompt_calculus_studio.theme import visual_tokens,font_pixels
+        from prompt_calculus_studio.module_chrome import dialog_colors
+        for palette in ('graphite','paper','mist'):
+            self.w.state['settings']['visual_palette']=palette
+            self.w.apply_theme(preserve_layout=True)
+            colors=dialog_colors(visual_tokens(self.w.state['settings']))
+            for target in ('canvas','settings','gallery','clean_export'):
+                if target=='canvas':self.w.enter_canvas()
+                elif target=='settings':self.w.settings()
+                else:self.w.show_page(getattr(self.w,target))
+                dialog=StudioDialog(self.w)
+                field=QLineEdit('未儲存的名稱');dialog.body.addWidget(field)
+                dialog.show();QTest.qWait(10)
+                try:
+                    with self.subTest(palette=palette,page=target):
+                        surface=dialog.findChild(QFrame,'DialogSurface')
+                        self.assertEqual(surface.palette().window().color().name(),colors['base'])
+                        self.assertEqual(field.palette().base().color().name(),colors['surface'])
+                        self.assertEqual(field.palette().color(QPalette.ColorRole.Text).name(),colors['text'])
+                        self.assertEqual(dialog.heading.font().pixelSize(),max(16,font_pixels(11)))
+                        self.assertEqual(field.text(),'未儲存的名稱')
+                        self.assertFalse(dialog.findChild(QPushButton,'DialogClose').icon().isNull())
+                finally:dialog.reject();dialog.deleteLater();QTest.qWait(1)

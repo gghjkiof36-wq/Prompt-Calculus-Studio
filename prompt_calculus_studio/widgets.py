@@ -152,8 +152,8 @@ def dialog_buttons(dialog, save=None):
 class StudioDialog(QDialog):
     """A lightweight in-app sheet with the same typography and rounded surface."""
     def __init__(self,parent=None,*,defer_style=False):
-        from .module_chrome import canvas_dialog_context,apply_module_dialog
-        context=canvas_dialog_context(parent)
+        from .module_chrome import dialog_context,apply_module_dialog
+        context=dialog_context(parent)
         from .dialog_presentation import presenting_parent
         parent=presenting_parent(parent)
         super().__init__(parent)

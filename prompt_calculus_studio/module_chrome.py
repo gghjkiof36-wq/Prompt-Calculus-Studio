@@ -4,26 +4,25 @@ from PySide6.QtCore import Qt, QRect, QRectF
 from PySide6.QtGui import QColor, QPen, QFontMetricsF, QPainterPath
 
 
-def canvas_dialog_context(parent):
-    """Resolve Canvas ownership, including nested sheets, without global QSS."""
+def dialog_context(parent):
+    """Resolve the same finish from documents, utility pages and nested sheets."""
+    from .theme import visual_tokens, font_pixels, window_appearance
+    settings={}
     while parent is not None:
         context=getattr(parent,'_module_dialog_context',None)
         if context:return context
-        stack=getattr(parent,'surface_stack',None)
-        canvas=getattr(parent,'canvas',None)
-        if stack is not None and canvas is not None:
-            current=stack.currentWidget();content=getattr(parent,'canvas_content',None)
-            if ((current is not None and current is getattr(canvas,'editor_page',None)) or
-                    (current is getattr(parent,'canvas_shell',None) and content is not None and content.currentWidget() is canvas)):
-                from .canvas_items import canvas_colors
-                from .theme import font_pixels,window_appearance
-                return canvas_colors(canvas),max(16,font_pixels(window_appearance(parent)['ui_size']))
+        display=getattr(parent,'display_settings',None)
+        if callable(display):
+            settings=display();break
+        state=getattr(parent,'state',None)
+        if isinstance(state,dict) and 'settings' in state:
+            settings=window_appearance(parent);break
         parent=parent.parentWidget()
-    return None
+    return visual_tokens(settings),max(16,font_pixels(settings.get('ui_size',12)))
 
 
 def dialog_colors(colors):
-    """Canvas sheets share roles; legacy pages can adopt these independently."""
+    """One sheet palette for Canvas, document actions and application pages."""
     from .color_roles import mix
     result=matte_colors(colors)
     result['base']=colors.get('module_dialog',mix(colors['base'],result['surface'],.22))
@@ -46,10 +45,15 @@ def module_dialog_styles(colors, heading_size):
         QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{border-color:{t['accent']};}}
         QPushButton {{background:{t['surface']};border:1px solid {t['line']};border-radius:8px;color:{t['text']};}}
         QPushButton:hover {{background:{t['hover']};}}
+        QPushButton:pressed {{background:{t['selected']};}}
         QPushButton#Quiet, QPushButton#DialogClose {{background:transparent;border:0;}}
         QPushButton#Quiet:hover, QPushButton#DialogClose:hover {{background:{t['hover']};}}
+        QPushButton#Quiet:pressed, QPushButton#DialogClose:pressed {{background:{t['selected']};}}
         QPushButton#Primary {{background:{t['accent']};border-color:{t['accent']};color:{t['on_accent']};}}
+        QPushButton#Primary:hover {{background:{t['accent_hover']};border-color:{t['accent_hover']};}}
+        QPushButton#Primary:pressed {{background:{t['accent_pressed']};border-color:{t['accent_pressed']};}}
         QPushButton:disabled {{background:{t['field']};color:{t['secondary']};border-color:{t['line']};}}
+        QPushButton#Primary:disabled {{background:{t['field']};color:{t['secondary']};border-color:{t['line']};}}
         {destructive_button_styles(t)}
         QListWidget[moduleChoices="true"] {{background:transparent;border:0;padding:0;outline:0;}}
         QListWidget[moduleChoices="true"]::item {{padding:8px 10px;border:0;border-radius:8px;}}
@@ -59,11 +63,19 @@ def module_dialog_styles(colors, heading_size):
 
 
 def apply_module_dialog(dialog, colors, heading_size):
-    """Shared shell and choice rows for the picker and module-related sheets."""
+    """Shared shell, native palette and choice rows for application sheets."""
+    from PySide6.QtGui import QPalette
     from PySide6.QtWidgets import QFrame,QPushButton
     from .ui_icons import icon
     t=dialog_colors(colors)
     dialog._module_dialog_context=(colors,heading_size)
+    palette=dialog.palette()
+    for role,key in (('Window','base'),('Base','surface'),('AlternateBase','surface'),
+                     ('Button','surface'),('WindowText','text'),('Text','text'),
+                     ('ButtonText','text'),('PlaceholderText','secondary'),
+                     ('Highlight','selected'),('HighlightedText','text')):
+        palette.setColor(getattr(QPalette.ColorRole,role),QColor(t[key]))
+    dialog.setPalette(palette)
     dialog.setStyleSheet(module_dialog_styles(colors,heading_size))
     surface=dialog.findChild(QFrame,'DialogSurface')
     surface.layout().setContentsMargins(20,16,20,18)

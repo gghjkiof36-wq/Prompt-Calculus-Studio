@@ -30,6 +30,28 @@ SURFACES = ('base', 'chrome', 'surface', 'raised', 'field', 'sidebar')
 
 
 class ColorRoleTests(unittest.TestCase):
+    def test_application_finish_preserves_canvas_and_readable_interaction_states(self):
+        # These are the accepted Canvas surfaces before the application migration.
+        baselines={
+            'graphite':('#232628','#282c2e','#191c1e','#191c1e'),
+            'mist':('#212c38','#25313d','#19222d','#181f28'),
+            'paper':('#fefefd','#fdfcfc','#fcfbf8','#f7f5f1'),
+        }
+        for name,expected in baselines.items():
+            for accent in ('neutral','blue','green'):
+                with self.subTest(palette=name,accent=accent):
+                    t=visual_tokens({'visual_palette':name,'accent':accent})
+                    self.assertEqual(tuple(t[key] for key in
+                        ('module_body','module_header','module_field','module_dialog')),expected)
+                    for general,module in (('surface','module_body'),('field','module_field'),
+                                           ('line','module_line'),('hover','module_hover'),
+                                           ('selected','module_selected')):
+                        self.assertEqual(t[general],t[module])
+                    for background in ('surface','field','raised','module_dialog','hover','selected','popup_active'):
+                        for foreground in ('text','secondary','muted'):
+                            self.assertGreaterEqual(contrast(t[foreground],t[background]),4.5,
+                                                    (foreground,background))
+
     def test_module_finish_and_canvas_background_follow_each_palette(self):
         for name in ('graphite','paper','mist'):
             roles=visual_tokens({'visual_palette':name})

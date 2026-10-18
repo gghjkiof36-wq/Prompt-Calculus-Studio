@@ -10,8 +10,8 @@ TOOLTIP_PADDING = (10, 6)
 
 VISUAL_PALETTES = {
     'graphite': {
-        'base':'#141719', 'chrome':'#202527', 'surface':'#23282b',
-        'raised':'#2c3235', 'field':'#191e21', 'text':'#f1f0ea',
+        'base':'#141719', 'chrome':'#202527', 'surface':'#232628',
+        'raised':'#282c2e', 'field':'#191c1e', 'text':'#f1f0ea',
         'success':'#a6d5b4', 'warning':'#f2cd93', 'error':'#ffb0a7',
         'info':'#b3cfeb',
         'accent_neutral':'#e3d5ba', 'accent_blue':'#a6c6db', 'accent_green':'#b8cbb1',
@@ -22,22 +22,26 @@ VISUAL_PALETTES = {
         'canvas_background':'#111111',
     },
     'mist': {
-        'base':'#151b23', 'chrome':'#1e2833', 'surface':'#242f3b',
-        'raised':'#2d3b49', 'field':'#19222d', 'text':'#f1f5f9',
+        'base':'#151b23', 'chrome':'#1e2833', 'surface':'#212c38',
+        'raised':'#25313d', 'field':'#19222d', 'text':'#f1f5f9',
         'success':'#a2d9bb', 'warning':'#f4cf96', 'error':'#ffb7b0',
         'info':'#b9d7ff',
         'accent_neutral':'#d5dce1', 'accent_blue':'#b7d6f3', 'accent_green':'#add4c5',
         'chrome_solid':'#26323d', 'sidebar':'#1b252f',
         'mica_tint':'#3a4b5d', 'acrylic_tint':'#40576d',
+        'module_body':'#212c38', 'module_header':'#25313d', 'module_field':'#19222d',
+        'module_dialog':'#181f28',
     },
     'paper': {
-        'base':'#f5f3ee', 'chrome':'#ebe8e0', 'surface':'#ffffff',
-        'raised':'#f0ede6', 'field':'#fcfbf8', 'text':'#292b29',
+        'base':'#f5f3ee', 'chrome':'#ebe8e0', 'surface':'#fefefd',
+        'raised':'#fdfcfc', 'field':'#fcfbf8', 'text':'#292b29',
         'success':'#24623d', 'warning':'#795217', 'error':'#a4382c',
         'info':'#285981',
         'accent_neutral':'#5a513f', 'accent_blue':'#315e7f', 'accent_green':'#456648',
         'chrome_solid':'#e2ded5', 'sidebar':'#e8e5de',
         'mica_tint':'#d8d4c9', 'acrylic_tint':'#d4dad7',
+        'module_body':'#fefefd', 'module_header':'#fdfcfc', 'module_field':'#fcfbf8',
+        'module_dialog':'#f7f5f1',
     },
 }
 
@@ -74,13 +78,21 @@ def visual_tokens(settings=None, *, foundation=None):
 
 
 def window_appearance(window):
-    """Resolve display-only overrides without rewriting a document's settings."""
-    settings = dict(getattr(window, 'state', {}).get('settings', {}))
-    settings.update(getattr(window, 'appearance_preview', {}))
-    workspace = getattr(window, 'workspace_owner', None)
-    if workspace is not None and getattr(window, 'document_only', False):
-        settings.update(workspace.display_settings())
-    return settings
+    """Resolve display overrides, also when a sheet opens another editor."""
+    while window is not None:
+        display = getattr(window, 'display_settings', None)
+        if callable(display):return dict(display())
+        state = getattr(window, 'state', None)
+        if isinstance(state, dict) and 'settings' in state:
+            settings = dict(state['settings'])
+            settings.update(getattr(window, 'appearance_preview', {}))
+            workspace = getattr(window, 'workspace_owner', None)
+            if workspace is not None and getattr(window, 'document_only', False):
+                settings.update(workspace.display_settings())
+            return settings
+        parent = getattr(window, 'parentWidget', None)
+        window = parent() if callable(parent) else None
+    return {}
 
 
 def canvas_stylesheet(window):
@@ -207,7 +219,7 @@ def stylesheet(settings):
     QFrame#CanvasGuide {{ background:{t['surface']}; border:1px solid {t['line']}; border-radius:16px; }}
     QFrame#ManagerCell {{ background:transparent; border:0; border-bottom:1px solid {t['divider']}; }}
     QTableWidget#ManagerTable::item {{ border:0; border-bottom:1px solid {t['divider']}; padding:0 6px; }}
-    QFrame#DialogSurface, QFrame#FloatingSurface {{ background:{t['raised']}; border:1px solid {t['control']}; border-radius:20px; }}
+    QFrame#DialogSurface, QFrame#FloatingSurface {{ background:{t['module_dialog']}; border:1px solid {t['dialog_line']}; border-radius:14px; }}
     QFrame#ErrorToast {{ background:{t['surface']}; border:1px solid {t['error']}; border-radius:12px; }}
     QFrame#ErrorToast QLabel#Heading {{ color:{t['error']}; }}
     QLabel#Subtle {{ color:{t['secondary']}; }}
