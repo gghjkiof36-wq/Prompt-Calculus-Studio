@@ -70,6 +70,23 @@ class OutlineSearchTests(unittest.TestCase):
         s.close_panel(s.find_bar);self.assertEqual(s.editor.extraSelections(),[]);self.assertFalse(s.editor.property('searchHit'))
         self.assertEqual(tab.widget.encoded(),before)
 
+    def test_search_enter_and_command_keys_do_not_edit_the_document(self):
+        raw='Map and map.\n\nAnother map.'
+        (self.root/'Notes.md').write_bytes(raw.encode());tab=self.open('Notes.md');s=tab.widget.md_surface
+        s.editor.setFocus();QTest.keyClick(s.editor,Qt.Key.Key_F,Qt.KeyboardModifier.ControlModifier);self.events()
+        self.assertTrue(s.query.hasFocus())
+        QTest.keyClicks(s.query,'map');self.events()
+        for expected in ('1/3','2/3','3/3','1/3'):
+            QTest.keyClick(s.query,Qt.Key.Key_Return);self.events()
+            self.assertEqual(tab.widget.encoded(),raw.encode())
+            self.assertEqual(s.match_count.text(),expected)
+            self.assertTrue(s.query.hasFocus())
+        QTest.keyClick(s.query,Qt.Key.Key_Escape);self.events()
+        self.assertFalse(s.find_bar.isVisible());self.assertTrue(s.editor.hasFocus())
+        s.open_commands();s.command_query.setText('不存在的命令');self.events()
+        QTest.keyClick(s.command_query,Qt.Key.Key_Return);self.events()
+        self.assertEqual(tab.widget.encoded(),raw.encode());self.assertFalse(tab.widget.dirty)
+
     def test_rich_find_crosses_inline_formatting_and_preserves_dom_selection(self):
         raw='---\ntype: note\n---\n😀 地**圖**。地圖。\n\n地圖\n\nMap map [literal].'
         (self.root/'Notes.md').write_bytes(raw.encode());tab=self.open('Notes.md');s=tab.widget.md_surface;s.set_mode('read');rich=s.reader.rich

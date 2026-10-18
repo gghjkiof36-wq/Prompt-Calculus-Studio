@@ -133,6 +133,12 @@ class MarkdownSurface(QWidget):
         super().resizeEvent(event)
         if hasattr(self, 'breadcrumb'):self.breadcrumb.setMaximumWidth(max(0, self.width()//3))
 
+    def keyPressEvent(self, event):
+        # QLineEdit emits returnPressed, then allows Return to bubble. This
+        # surface is hosted by a legacy editor adapter, which must never treat
+        # a search, command or toolbar key as a second document edit.
+        event.accept()
+
     def eventFilter(self, watched, event):
         if watched is getattr(self,'content_pane',None) and event.type() == QEvent.Type.Resize:self.update_title_layout()
         return super().eventFilter(watched,event)
