@@ -1,10 +1,11 @@
 """The visible filename is also its inline rename entrance."""
-from PySide6.QtCore import Qt, QEvent, QTimer
+from PySide6.QtCore import Qt, QEvent, QTimer, Signal
 from .widgets import ElidedLabel
 from .workspace_file_dialogs import NameEdit
 
 
 class FileTitle(ElidedLabel):
+    filenameChanged = Signal(str)
     def __init__(self, text='', parent=None):
         super().__init__(text, parent)
         self.setObjectName('DialogTitle')
@@ -24,10 +25,15 @@ class FileTitle(ElidedLabel):
         value = tab.path.stem if tab and tab.path else text
         super().setText(value)
         self.setAccessibleName('檔案名稱：'+value+'；按 Enter 重新命名')
+        self.filenameChanged.emit(value)
 
     def request_rename(self):
         if self.workspace and self.tab and self.done:
             self.workspace.commands.files.run('rename', self.workspace.commands.context('page', tab=self.tab))
+
+    def paintEvent(self, event):
+        # The inline editor owns the text while renaming, even with a clear fill.
+        if getattr(self, 'done', True):super().paintEvent(event)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -55,6 +61,7 @@ class FileTitle(ElidedLabel):
         self.name.installEventFilter(self)
         self.name.returnPressed.connect(self.submit)
         self.name.show()
+        self.update()
         self.name.setFocus()
         self.name.selectAll()
 

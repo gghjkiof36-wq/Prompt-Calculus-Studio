@@ -41,6 +41,8 @@ class Syntax(QSyntaxHighlighter):
         reveal = editor.mode == 'source' or selected_a <= number <= selected_b
         def apply(a, b, values):
             begin, end = utf16_position(text, a), utf16_position(text, b)
+            values = dict(values)
+            if values.get('size'):values['size'] *= editor.surface.zoom_percent/100
             format_ = char_style(values, editor.tokens()['info'])
             for offset in range(begin, end):
                 combined = self.format(offset);combined.merge(format_);self.setFormat(offset, 1, combined)
@@ -57,7 +59,7 @@ class Syntax(QSyntaxHighlighter):
             apply(0, len(text), {'code': True});return
         if item['heading']:
             heading = item['heading'];level = len(heading.group(2))
-            if editor.mode == 'write':apply(heading.start(3), heading.end(3), {'bold': True, 'size': (25, 21, 18, 16, 14, 13)[level-1]})
+            if editor.mode == 'write':apply(heading.start(3), heading.end(3), {'bold': True, 'size': (25, 21, 18, 16, 14, 13)[level-1]*editor.surface.preferences['reading_size']/12})
             syntax(0, heading.start(3))
         if item['listing']:
             syntax(len(item['listing'].group(1)), item['listing'].start(4))
@@ -128,7 +130,7 @@ class SourceView(QTextEdit):
         self.setAcceptRichText(False)
         self.setFrameShape(QTextEdit.Shape.NoFrame)
         self.setAccessibleName('Markdown 編寫區')
-        self.setPlaceholderText('開始撰寫…')
+        self.setPlaceholderText('')
         self.setStyleSheet('QTextEdit {border:0;padding:0;background:transparent;}')
         self.gutter = Gutter(self)
         self.markers = Markers(self);self.markers.raise_()
@@ -210,6 +212,7 @@ class SourceView(QTextEdit):
             if block.isValid():self.highlighter.rehighlightBlock(block)
         self.last_block = number
         if hasattr(self.surface, 'statistics'):self.surface.update_statistics()
+        if hasattr(self.surface,'outline'):self.surface.outline.sync_current()
         if hasattr(self.surface, 'format_actions'):self.surface.update_controls()
 
     def tokens(self):return visual_tokens(window_appearance(self))
@@ -377,7 +380,7 @@ class SourceView(QTextEdit):
         if event.matches(QKeySequence.StandardKey.Undo):self.page.undo();return
         if event.matches(QKeySequence.StandardKey.Redo):self.page.redo();return
         if event.matches(QKeySequence.StandardKey.Find):self.surface.open_find();return
-        if event.key() == Qt.Key.Key_Escape and self.surface.find_bar.isVisible():self.surface.find_bar.hide();return
+        if event.key() == Qt.Key.Key_Escape and self.surface.find_bar.isVisible():self.surface.close_panel(self.surface.find_bar);return
         if self.page.buffer.composing:return super().keyPressEvent(event)
         if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
             command = {Qt.Key.Key_B: {'bold': True}, Qt.Key.Key_I: {'italic': True}, Qt.Key.Key_U: {'underline': True}}.get(event.key())
@@ -487,11 +490,13 @@ class ReadingView(QTextBrowser):
 
     def apply_preferences(self):
         p=self.surface.preferences;t=visual_tokens(window_appearance(self))
-        self.document().setDefaultFont(QFont(p['reading_family'],p['reading_size']))
+        scale = self.surface.zoom_percent/100
+        font = QFont(p['reading_family']);font.setPointSizeF(p['reading_size']*scale);self.document().setDefaultFont(font)
+        heading = [round(n*p['reading_size']/12*scale,2) for n in (25,21,18,16,14,13)]
         self.document().setDefaultStyleSheet(f'''p {{margin-top:8px;margin-bottom:8px;line-height:{p['line_height']}%;}}
             h1,h2,h3,h4,h5,h6 {{margin-top:22px;margin-bottom:10px;font-weight:600;}}
-            h1 {{font-size:25pt;}} h2 {{font-size:21pt;}} h3 {{font-size:18pt;}}
-            h4 {{font-size:16pt;}} h5 {{font-size:14pt;}} h6 {{font-size:13pt;}}
+            h1 {{font-size:{heading[0]}pt;}} h2 {{font-size:{heading[1]}pt;}} h3 {{font-size:{heading[2]}pt;}}
+            h4 {{font-size:{heading[3]}pt;}} h5 {{font-size:{heading[4]}pt;}} h6 {{font-size:{heading[5]}pt;}}
             pre,code {{font-family:Consolas;}} blockquote {{margin-left:22px;color:{t['secondary']};}}''')
         self.update_measure()
 
@@ -526,7 +531,8 @@ class ReadingView(QTextBrowser):
         QTimer.singleShot(0,self,self.fit_rich)
 
     def fit_rich(self):
-        if self.rich:self.rich.setGeometry(self.rect());self.rich.raise_()
+        if self.rich:
+            self.rich.setGeometry(self.rect());self.rich.raise_();self.rich.sync_title_alignment()
 
     def loadResource(self, kind, url):
         if url.toString() not in ('pcs-task:checked','pcs-task:open'):return QByteArray()
@@ -549,7 +555,7 @@ class ReadingView(QTextBrowser):
         if self.advanced:
             if self.rich is None:
                 from .markdown_rich_view import RichView
-                self.rich=RichView(self);self.rich.setGeometry(self.rect())
+                self.rich=RichView(self);self.rich.setGeometry(self.rect());self.rich.setZoomFactor(self.surface.zoom_percent/100)
             self.rich.refresh(source);self.setHtml(self.rich.projection.body)
             self.rich.show();self.rich.raise_()
             QTimer.singleShot(0,self,self.fit_rich)

@@ -23,10 +23,10 @@ ICON_NAMES = frozenset({
     'home','canvas','media','explore','export','settings','back','forward','search','update',
     'package','download','check','clock','info','close','play','pause','stop','lock','pin','pin-filled','menu','pencil',
     'workflow','history','external-link','alert','server','check-circle',
-    'folder','plus','minus','copy','trash','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal','fold-all','unfold-all',
+    'folder','plus','minus','copy','trash','caret-down','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal','fold-all','unfold-all',
     'panel-left','type','file-text','list-ordered','arrow-down-up','arrow-up','arrow-down','shuffle','image-single','scan-eye','link-2','maximize','grip-vertical',
     'text-bold','text-italic','text-underline','text-strike','text-color','highlight',
-    'heading','quote','align','indent','outdent','eraser','edit-undo','edit-redo','task','book-open','source-code',
+    'heading','quote','align','indent','outdent','eraser','edit-undo','edit-redo','task','book-open','source-code','tag',
 })
 MODE_ICONS={'fixed':'pin','increment':'arrow-up','decrement':'arrow-down','random':'shuffle'}
 _STYLE_RESOURCES = {}
@@ -53,9 +53,11 @@ def stylesheet_icon_paths(tokens):
         for name,path,color in (
             ('down','m4 6 4 4 4-4',tokens['secondary']),
             ('up','m4 10 4-4 4 4',tokens['secondary']),
+            ('right','m6 4 4 4-4 4',tokens['secondary']),
             ('check','m4 8 3 3 5-6',tokens['on_accent']),
         ):
             files[name+'.svg']=(f'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="{path}" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>').encode('utf-8')
+        files['caret.svg']=(f'<svg xmlns="http://www.w3.org/2000/svg" width="6" height="4" viewBox="0 0 6 4"><path d="M0 0h6L3 4z" fill="{tokens["secondary"]}"/></svg>').encode('utf-8')
         names=bytearray(); data=bytearray(); records=[]
         for name in sorted(files,key=lambda value:(name_hash(value),value)):
             name_offset=len(names); data_offset=len(data)
@@ -68,7 +70,7 @@ def stylesheet_icon_paths(tokens):
         if not QResource.registerResourceData(resource,root):
             raise RuntimeError('Could not register the PCS control icons.')
         _STYLE_RESOURCES[root]=resource
-    return {name:':'+root+'/'+name+'.svg' for name in ('down','up','check')}
+    return {name:':'+root+'/'+name+'.svg' for name in ('down','up','right','check','caret')}
 
 
 def _draw(painter, name, filled=False):
@@ -110,7 +112,10 @@ def _draw(painter, name, filled=False):
             painter.fillPath(shape.subtracted(hole),painter.pen().color())
             return
 
-    if name in ('edit-undo', 'edit-redo'):
+    if name == 'caret-down':
+        painter.setBrush(painter.pen().color());painter.setPen(Qt.PenStyle.NoPen)
+        poly((7,10),(17,10),(12,16),closed=True)
+    elif name in ('edit-undo', 'edit-redo'):
         if name == 'edit-redo':painter.translate(24,0);painter.scale(-1,1)
         poly((8,4),(3,9),(8,14))
         path=QPainterPath(QPointF(3,9));path.lineTo(14,9);path.cubicTo(23,9,23,20,14,20);painter.drawPath(path)
@@ -151,6 +156,8 @@ def _draw(painter, name, filled=False):
         poly((6,9),(6,12),(18,12),(18,15)); line(6,12,6,15)
     elif name == 'panel-left':
         rect(3,3,6,18,1);rect(13,3,8,7,1);rect(13,14,8,7,1)
+    elif name == 'tag':
+        poly((3,4),(11,4),(21,14),(14,21),(3,10),closed=True);circle(7,8,1)
     elif name == 'type':
         poly((4,6),(4,3),(20,3),(20,6));line(12,3,12,21);line(8,21,16,21)
     elif name == 'file-text':

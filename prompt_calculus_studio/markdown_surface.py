@@ -15,29 +15,8 @@ from .markdown_view import SourceView, ReadingView
 from .markdown_toolbar import make_toolbar
 from .theme import visual_tokens, window_appearance
 from .widgets import ElidedLabel
-
-
-class Outline(QListWidget):
-    def __init__(self, surface):
-        super().__init__(surface);self.surface = surface
-        self.setAccessibleName('文件大綱')
-        self.setDragDropMode(QListWidget.DragDropMode.InternalMove)
-        self.itemClicked.connect(self.navigate)
-        self.setMinimumWidth(150)
-
-    def navigate(self, item):
-        self.surface.navigate(item.data(Qt.ItemDataRole.UserRole)[0])
-
-    def dropEvent(self, event):
-        source, target = self.currentItem(), self.itemAt(event.position().toPoint())
-        if not source or not target or source is target:return event.ignore()
-        start, end = source.data(Qt.ItemDataRole.UserRole)[:2]
-        destination = target.data(Qt.ItemDataRole.UserRole)[0]
-        if start <= destination < end:return event.ignore()
-        snapshot = self.surface.page.buffer.snapshot()
-        self.surface.apply(move_section_edits(snapshot, start, end, destination),
-                           destination if destination < start else destination-(end-start))
-        event.accept()
+from .markdown_outline import OutlinePanel
+from .markdown_zoom import DocumentZoom
 
 
 class MarkdownSurface(QWidget):
@@ -47,15 +26,16 @@ class MarkdownSurface(QWidget):
         self.preferences = dict(line_numbers=False, auto_pairs=True, wrap=True, tab_width=4,
                                 hard_breaks=False, reading_width=880, reading_size=12,
                                 reading_family='Microsoft JhengHei UI', line_height=150)
-        self.preferences_loaded = False
+        self.preferences_loaded = False;self.zoom_percent = 100;self.display_panel = None
         self.setObjectName('MarkdownSurface')
         body = QVBoxLayout(self);body.setContentsMargins(0, 0, 0, 0);body.setSpacing(0)
         top = QWidget(self);top.setObjectName('MarkdownToolbar')
         heading = QHBoxLayout(top);heading.setContentsMargins(20, 9, 18, 6);heading.setSpacing(5)
         self.breadcrumb = ElidedLabel('工作區 /', top);self.breadcrumb.setObjectName('MarkdownBreadcrumb')
         self.breadcrumb.setMinimumWidth(0);heading.addWidget(self.breadcrumb)
-        page.file_title.setParent(top);page.file_title.setObjectName('MarkdownFileTitle')
-        heading.addWidget(page.file_title, 1)
+        self.breadcrumb_name = ElidedLabel(page.path.stem, top);self.breadcrumb_name.setObjectName('MarkdownFileTitle')
+        page.file_title.filenameChanged.connect(self.breadcrumb_name.setText)
+        heading.addWidget(self.breadcrumb_name, 1)
         self.mode_box = self.tool('編寫 · 切換文件視圖', self.mode_menu, 'pencil')
         self.mode_box.setObjectName('MarkdownMode')
         heading.addWidget(self.mode_box)
@@ -72,20 +52,24 @@ class MarkdownSurface(QWidget):
         self.toolbar.setGraphicsEffect(self.toolbar_shadow)
         body.addWidget(self.toolbar_host)
         self.find_bar = QWidget(self);self.find_bar.setObjectName('MarkdownFind')
-        find = QVBoxLayout(self.find_bar);find.setContentsMargins(20, 2, 20, 10);find.setSpacing(5)
-        query_row = QHBoxLayout();self.query = QLineEdit();self.query.setPlaceholderText('搜尋此文件');self.query.setAccessibleName('搜尋此文件')
-        query_row.setSpacing(4);self.query.setMinimumWidth(40)
-        query_row.addWidget(self.query, 1)
-        self.match_count = QLabel();query_row.addWidget(self.match_count)
-        self.case_sensitive = QCheckBox('Aa');self.case_sensitive.setAccessibleName('區分大小寫');self.case_sensitive.setToolTip('區分大小寫');query_row.addWidget(self.case_sensitive)
-        query_row.addWidget(self.tool('上一筆', lambda:self.find_next(-1), 'chevron-up'))
-        query_row.addWidget(self.tool('下一筆', self.find_next, 'chevron-down'))
+        find_host = QHBoxLayout(self.find_bar);find_host.setContentsMargins(12,0,12,8);find_host.addStretch()
+        self.find_panel = QWidget();self.find_panel.setObjectName('MarkdownFindPanel');self.find_panel.setMaximumWidth(540)
+        find_host.addWidget(self.find_panel,1)
+        find = QVBoxLayout(self.find_panel);find.setContentsMargins(6,4,6,4);find.setSpacing(4)
+        query_row = QHBoxLayout();query_row.setSpacing(2)
+        self.query = QLineEdit();self.query.setPlaceholderText('搜尋');self.query.setAccessibleName('搜尋此文件')
+        self.query.setMinimumWidth(40);self.query.setFixedHeight(30);query_row.addWidget(self.query,1)
+        self.match_count = QLabel();self.match_count.setMinimumWidth(34);self.match_count.setAlignment(Qt.AlignmentFlag.AlignCenter);query_row.addWidget(self.match_count)
+        self.case_sensitive = QToolButton();self.case_sensitive.setText('Aa');self.case_sensitive.setObjectName('MarkdownCase');self.case_sensitive.setCheckable(True);self.case_sensitive.setFixedSize(32,28)
+        self.case_sensitive.setAccessibleName('區分大小寫');self.case_sensitive.setToolTip('區分大小寫');query_row.addWidget(self.case_sensitive)
+        self.find_previous = self.tool('上一筆', lambda:self.find_next(-1), 'chevron-up');query_row.addWidget(self.find_previous)
+        self.find_forward = self.tool('下一筆', self.find_next, 'chevron-down');query_row.addWidget(self.find_forward)
         query_row.addWidget(self.tool('關閉搜尋', lambda:self.close_panel(self.find_bar), 'close'));find.addLayout(query_row)
-        self.replace_row = QWidget();replace_layout = QHBoxLayout(self.replace_row);replace_layout.setContentsMargins(0, 0, 0, 0)
-        self.replacement = QLineEdit();self.replacement.setPlaceholderText('取代為');self.replacement.setAccessibleName('取代為');replace_layout.addWidget(self.replacement, 1)
+        self.replace_row = QWidget();replace_layout = QHBoxLayout(self.replace_row);replace_layout.setContentsMargins(0,0,0,0);replace_layout.setSpacing(4)
+        self.replacement = QLineEdit();self.replacement.setPlaceholderText('取代為');self.replacement.setAccessibleName('取代為');self.replacement.setFixedHeight(30);self.replacement.setMinimumWidth(40);replace_layout.addWidget(self.replacement,1)
         replace_layout.addWidget(self.tool('取代這一筆', self.replace_one, text='取代'))
-        replace_layout.addWidget(self.tool('全部取代', self.replace_all, text='全部取代'))
-        find.addWidget(self.replace_row);body.addWidget(self.find_bar);self.find_bar.hide();self.replace_row.hide()
+        replace_layout.addWidget(self.tool('全部取代', self.replace_all, text='全部'))
+        find.addWidget(self.replace_row);body.insertWidget(1,self.find_bar);self.find_bar.hide();self.replace_row.hide()
         self.query.textChanged.connect(self.search_changed);self.case_sensitive.toggled.connect(self.search_changed)
         self.query.returnPressed.connect(self.find_next)
         self.command_box = QWidget();self.command_box.setObjectName('MarkdownCommands')
@@ -94,15 +78,21 @@ class MarkdownSurface(QWidget):
         self.command_list = QListWidget();self.command_list.setMaximumHeight(220)
         command_header = QHBoxLayout();command_header.addWidget(self.command_query, 1)
         command_header.addWidget(self.tool('關閉命令', lambda:self.close_panel(self.command_box), 'close'))
-        commands.addLayout(command_header);commands.addWidget(self.command_list);body.addWidget(self.command_box);self.command_box.hide()
+        commands.addLayout(command_header);commands.addWidget(self.command_list);self.command_box.setMaximumWidth(540);body.addWidget(self.command_box,0,Qt.AlignmentFlag.AlignHCenter);self.command_box.hide()
         self.command_query.textChanged.connect(self.refresh_commands)
         self.command_query.returnPressed.connect(self.run_selected_command)
         self.command_list.itemActivated.connect(self.run_selected_command)
-        self.splitter = QSplitter();self.outline = Outline(self);self.outline.setObjectName('MarkdownOutline');self.outline.hide()
-        self.splitter.addWidget(self.outline)
+        self.splitter = QSplitter();self.outline_panel = OutlinePanel(self);self.outline = self.outline_panel.tree;self.outline_panel.hide()
+        self.splitter.addWidget(self.outline_panel)
+        self.content_pane = QWidget();content = QVBoxLayout(self.content_pane);content.setContentsMargins(0,0,0,0);content.setSpacing(0)
+        self.title_host = QWidget();self.title_host.setObjectName('MarkdownTitleHost')
+        self.title_layout = QHBoxLayout(self.title_host);self.title_layout.setContentsMargins(50,24,28,10)
+        page.file_title.setParent(self.title_host);page.file_title.setObjectName('MarkdownInlineTitle');page.file_title.setMinimumHeight(48);page.file_title.setToolTip('')
+        self.title_layout.addWidget(page.file_title);content.addWidget(self.title_host)
         self.stack = QStackedWidget();self.editor = SourceView(self);self.reader = ReadingView(self)
-        self.stack.addWidget(self.editor);self.stack.addWidget(self.reader);self.splitter.addWidget(self.stack)
-        self.splitter.setStretchFactor(1, 1);body.addWidget(self.splitter, 1)
+        self.stack.addWidget(self.editor);self.stack.addWidget(self.reader);content.addWidget(self.stack,1);self.splitter.addWidget(self.content_pane)
+        self.splitter.setChildrenCollapsible(False);self.splitter.setStretchFactor(1,1);body.addWidget(self.splitter,1)
+        self.content_pane.installEventFilter(self);self.zoom_handler = DocumentZoom(self)
         self.statistics = QLabel();self.statistics.setObjectName('MarkdownStatus');self.statistics.setMinimumHeight(28)
         self.statistics.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse);body.addWidget(self.statistics)
         self.refresh_timer = QTimer(self);self.refresh_timer.setSingleShot(True);self.refresh_timer.timeout.connect(self.refresh)
@@ -117,7 +107,7 @@ class MarkdownSurface(QWidget):
         for panel in (self.command_box, self.find_bar, self.toolbar):
             shortcut = QShortcut(QKeySequence('Esc'), panel);shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             shortcut.activated.connect(self.focus_document if panel is self.toolbar else lambda p=panel:self.close_panel(p))
-        self.apply_appearance();self.refresh()
+        self.apply_appearance();self.apply_preferences();self.refresh()
         QTimer.singleShot(0, self.load_preferences)
 
     def tool(self, label, callback, symbol=None, text=None):
@@ -131,6 +121,24 @@ class MarkdownSurface(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'breadcrumb'):self.breadcrumb.setMaximumWidth(max(0, self.width()//3))
+
+    def eventFilter(self, watched, event):
+        if watched is getattr(self,'content_pane',None) and event.type() == QEvent.Type.Resize:self.update_title_layout()
+        return super().eventFilter(watched,event)
+
+    def update_title_layout(self):
+        view = self.reader if self.mode == 'read' else self.editor
+        margins = view.viewportMargins();inset = round(view.document().documentMargin())
+        left,right = margins.left()+inset,margins.right()+inset
+        if self.mode == 'read' and self.reader.advanced and self.reader.rich:
+            left,right = getattr(self.reader.rich,'content_margins',(left,right))
+        self.title_layout.setContentsMargins(left,20,right,6)
+        font = QFont(self.preferences['reading_family']);font.setPointSizeF(24*self.zoom_percent/100);font.setBold(True)
+        self.page.file_title.setFont(font)
+        family = self.preferences['reading_family'].replace('"','').replace('\\','')
+        points = 24*self.zoom_percent/100
+        self.page.file_title.setStyleSheet(f'QLabel#MarkdownInlineTitle, QLabel#MarkdownInlineTitle QLineEdit {{font-family:"{family}";font-size:{points}pt;font-weight:600;}}')
+        self.page.file_title.setMinimumHeight(round(44*self.zoom_percent/100))
 
     def apply_appearance(self):
         t = visual_tokens(window_appearance(self))
@@ -168,18 +176,25 @@ class MarkdownSurface(QWidget):
             QListWidget#MarkdownOutline {{border:0;background:transparent;padding:8px;}}
             QLabel#MarkdownStatus {{padding:0 20px;color:{t['secondary']};font-size:12px;}}
         ''')
-        if hasattr(self, 'editor'):self.editor.update_metadata();self.reader.apply_preferences()
+        from .markdown_ui_style import styles
+        self.setStyleSheet(self.styleSheet()+styles(t))
+        if hasattr(self,'editor'):self.editor.update_metadata();self.reader.apply_preferences()
 
     def focus_document(self):
         (self.reader if self.mode == 'read' else self.editor).setFocus()
 
-    def close_panel(self, panel):panel.hide();self.focus_document()
+    def close_panel(self, panel):
+        panel.hide()
+        if panel is self.find_bar:self.clear_rich_search()
+        self.focus_document()
 
     def focus_toolbar(self):
-        if self.mode == 'read':self.view_tools.setFocus();return
+        if self.mode == 'read':self.view_tools.setFocus(Qt.FocusReason.ShortcutFocusReason);return
         for action in self.toolbar.actions():
             button=self.toolbar.widgetForAction(action)
-            if button and button.isVisible() and button.isEnabled():button.setFocus();return
+            if button and button.isVisible() and button.isEnabled():
+                button.setProperty('keyboardFocus',True);button.style().unpolish(button);button.style().polish(button)
+                button.setFocus(Qt.FocusReason.ShortcutFocusReason);return
 
     def changeEvent(self, event):
         super().changeEvent(event)
@@ -188,13 +203,15 @@ class MarkdownSurface(QWidget):
 
     def view_menu(self):
         menu = QMenu(self)
-        menu.addAction(icon('search'), '搜尋此文件 · Ctrl+F', self.open_find)
-        if self.mode != 'read':menu.addAction('取代此文件 · Ctrl+H', lambda:self.open_find(True))
-        menu.addAction(icon('list'), '顯示／隱藏大綱', self.toggle_outline)
-        menu.addAction('命令 · Ctrl+Shift+P', self.open_commands)
-        menu.addAction('筆記屬性 · Ctrl+;',self.edit_properties)
-        menu.addAction('開啟游標處的連結 · Ctrl+Enter',self.open_current_link)
-        menu.addSeparator();menu.addAction(icon('settings'), '編輯與閱讀偏好…', self.preferences_menu)
+        menu.addAction(icon('search'), '搜尋\tCtrl+F', self.open_find)
+        if self.mode != 'read':menu.addAction('取代\tCtrl+H', lambda:self.open_find(True))
+        menu.addSeparator()
+        menu.addAction(icon('list'), '隱藏大綱' if self.outline_panel.isVisible() else '大綱', self.toggle_outline)
+        menu.addAction(icon('settings'), '編輯與閱讀…', self.preferences_menu)
+        menu.addAction('筆記屬性…\tCtrl+;',self.edit_properties)
+        menu.addSeparator()
+        menu.addAction('開啟連結\tCtrl+Enter',self.open_current_link)
+        menu.addAction('命令…\tCtrl+Shift+P', self.open_commands)
         menu.exec(self.view_tools.mapToGlobal(self.view_tools.rect().bottomLeft()))
 
     def load_preferences(self):
@@ -221,32 +238,38 @@ class MarkdownSurface(QWidget):
                 if output.write(raw) != len(raw) or not output.commit():self.report('編輯偏好尚未保存，請稍後重試。')
         self.apply_preferences()
 
+    def set_editor_font(self, font):
+        family = font.family().replace('"','').replace('\\','')
+        self.editor.setStyleSheet(f'QTextEdit {{border:0;padding:0;background:transparent;font-family:"{family}";font-size:{font.pointSizeF()}pt;}}')
+        self.editor.setFont(font);self.editor.document().setDefaultFont(font)
+
     def apply_preferences(self):
+        font = QFont(self.preferences['reading_family']);font.setPointSizeF(self.preferences['reading_size']*self.zoom_percent/100)
+        self.set_editor_font(font)
+        self.update_title_layout()
         self.editor.setLineWrapMode(self.editor.LineWrapMode.WidgetWidth if self.preferences['wrap'] else self.editor.LineWrapMode.NoWrap)
         self.editor.setTabStopDistance(self.editor.fontMetrics().horizontalAdvance(' ')*self.preferences['tab_width'])
-        self.editor.update_metadata();self.reader.apply_preferences();self.reader.refresh()
+        self.editor.update_metadata();self.reader.apply_preferences()
+        if self.mode == 'read':self.reader.refresh()
         self.update_breadcrumb()
 
     def preferences_menu(self):
-        menu = QMenu(self)
-        for key, label in [('line_numbers', '顯示行號'), ('auto_pairs', '自動配對括號'), ('wrap', '自動折行'), ('hard_breaks', '每個原文換行都顯示換行')]:
-            action = menu.addAction(label);action.setCheckable(True);action.setChecked(self.preferences[key])
-            action.toggled.connect(lambda value, k=key:self.set_preference(k, value))
-        submenu = menu.addMenu('Tab 縮排')
-        for number in (2, 4):submenu.addAction(str(number)+' 個空白', lambda value=number:self.set_preference('tab_width', value))
-        submenu = menu.addMenu('閱讀行寬')
-        for name, width in [('窄',640),('舒適',880),('寬',1120)]:
-            entry=submenu.addAction(name, lambda value=width:self.set_preference('reading_width', value));entry.setCheckable(True);entry.setChecked(self.preferences['reading_width']==width)
-        submenu = menu.addMenu('閱讀字級')
-        for number in (10, 12, 14, 16, 18, 22):submenu.addAction(str(number)+' pt', lambda value=number:self.set_preference('reading_size', value))
-        submenu = menu.addMenu('閱讀行距')
-        for name, number in [('緊密',130),('標準',150),('寬鬆',180)]:submenu.addAction(name, lambda value=number:self.set_preference('line_height', value))
-        def reading_font():
-            initial=QFont(self.preferences['reading_family'], self.preferences['reading_size'])
-            font, accepted=QFontDialog.getFont(initial, self, '個人閱讀字體')
-            if accepted:self.preferences.update(reading_family=font.family(),reading_size=font.pointSize());self.save_preferences()
-        menu.addAction('閱讀字體…', reading_font)
-        menu.exec(self.view_tools.mapToGlobal(self.view_tools.rect().bottomLeft()))
+        from .markdown_preferences import DisplayPreferences
+        if self.display_panel:self.display_panel.close();self.display_panel.deleteLater()
+        self.display_panel = DisplayPreferences(self);self.display_panel.open()
+
+    def set_zoom(self, value):
+        value = max(60,min(200,int(value)))
+        if value == self.zoom_percent:return
+        self.zoom_percent = value
+        font = QFont(self.preferences['reading_family']);font.setPointSizeF(self.preferences['reading_size']*value/100)
+        self.set_editor_font(font);self.editor.update_metadata()
+        self.reader.apply_preferences()
+        if self.reader.rich:
+            self.reader.rich.setZoomFactor(value/100);QTimer.singleShot(0,self.reader.rich,self.reader.rich.sync_title_alignment)
+        if self.mode == 'read' and not self.reader.advanced:self.reader.refresh()
+        self.update_title_layout();self.update_statistics()
+        if self.display_panel:self.display_panel.zoom.setText(str(value)+'%')
 
     def set_preference(self, key, value):self.preferences[key] = value;self.save_preferences()
 
@@ -264,11 +287,12 @@ class MarkdownSurface(QWidget):
         label,symbol={'write':('編寫','pencil'),'source':('原文','source-code'),'read':('閱讀','book-open')}[mode]
         self.mode_box.setIcon(icon(symbol));self.mode_box.setToolTip(label+' · 切換文件視圖');self.mode_box.setAccessibleName(label+' · 切換文件視圖')
         self.toolbar_host.setVisible(mode != 'read');self.replace_row.setVisible(False)
+        self.title_host.setVisible(True)
         self.outline.setDragEnabled(mode != 'read')
         if mode == 'read':self.reader.refresh();self.stack.setCurrentWidget(self.reader);self.reader.setFocus()
         else:
             self.editor.mode = mode;self.editor.update_metadata();self.stack.setCurrentWidget(self.editor);self.editor.setFocus()
-        self.search_changed();self.update_statistics();self.update_controls()
+        self.update_title_layout();self.search_changed();self.update_statistics();self.update_controls()
 
     def selection(self):
         snapshot = self.page.buffer.snapshot();cursor = self.editor.textCursor()
@@ -289,7 +313,7 @@ class MarkdownSurface(QWidget):
         if self.page.buffer.composing:return self.report('請先完成目前的中文組字。')
         snapshot, start, end = self.selection()
         if start == end:
-            self.clear_next=False;self.typing_style.update(style);self.message = '接下來輸入的文字套用此樣式';self.update_statistics();self.editor.setFocus();return
+            self.clear_next=False;self.typing_style.update(style);self.message = '';self.update_statistics();self.editor.setFocus();return
         try:
             edits = format_edits(snapshot, start, end, style)
             # Keep selection around the complete styled range for further tools.
@@ -313,7 +337,7 @@ class MarkdownSurface(QWidget):
         if self.mode == 'read' or self.page.buffer.composing:return
         snapshot, start, end = self.selection()
         if start == end:
-            self.typing_style = {};self.clear_next=True;self.message = '接下來輸入的文字不帶字元格式';self.update_statistics();self.focus_document();return
+            self.typing_style = {};self.clear_next=True;self.message = '';self.update_statistics();self.focus_document();return
         self.apply(clear_edits(snapshot, start, end))
 
     def clear_range(self, start, end, *, join_previous=False):
@@ -385,6 +409,8 @@ class MarkdownSurface(QWidget):
         parts = parent.parts if workspace else ()
         label = '工作區'+(' / '+' / '.join(parts) if parts else '')+' /'
         self.breadcrumb.setText(label);self.breadcrumb.setToolTip(label)
+        self.breadcrumb_name.setText(self.page.path.stem)
+        self.page.file_title.setText(self.page.path.stem)
 
     def color_menu(self, background):
         menu = QMenu(self)
@@ -474,10 +500,7 @@ class MarkdownSurface(QWidget):
         self.property_editor=dialog;dialog.show()
 
     def refresh(self):
-        selected = self.outline.currentRow();self.outline.clear()
-        for section in heading_sections(self.page.buffer.snapshot().text):
-            item = QListWidgetItem('  '*(section[2]-1)+visible_text(section[3]));item.setData(Qt.ItemDataRole.UserRole, section);self.outline.addItem(item)
-        if 0 <= selected < self.outline.count():self.outline.setCurrentRow(selected)
+        self.outline.rebuild(self.page.buffer.snapshot().text)
         if self.mode == 'read':self.reader.refresh()
         snapshot=self.page.buffer.snapshot()
         if getattr(self,'_relations_revision',None)!=snapshot.revision:
@@ -498,10 +521,10 @@ class MarkdownSurface(QWidget):
         selected = self.reader.selected_text() if self.mode == 'read' else cursor.selectedText()
         count = len(re.findall(r'[\u3400-\u9fff]|\w+(?:[\x27-]\w+)*', visible_text(text)))
         state = self.page.error or self.message or ('尚未保存' if self.page.dirty else '已保存')
-        self.statistics.setText(f'{count} 詞　{len(text)} 字元'+(f'　選取 {len(selected)} 字元' if selected else '')+'　·　'+state)
+        self.statistics.setText(f'{count} 詞　{len(text)} 字元'+(f'　選取 {len(selected)} 字元' if selected else '')+'　·　'+state+(f'　·　{self.zoom_percent}%' if self.zoom_percent != 100 else ''))
         self.statistics.setToolTip(self.statistics.text());self.statistics.setAccessibleName(self.statistics.text())
 
-    def toggle_outline(self):self.outline.setVisible(not self.outline.isVisible());self.splitter.setSizes([190, max(260,self.width()-190)])
+    def toggle_outline(self):self.outline_panel.setVisible(not self.outline_panel.isVisible());self.splitter.setSizes([220,max(260,self.width()-220)])
 
     def navigate(self, position):
         snapshot = self.page.buffer.snapshot();line = snapshot.text[:position].count('\n')
@@ -518,7 +541,23 @@ class MarkdownSurface(QWidget):
         return [match.span() for match in re.finditer(re.escape(query), text, 0 if self.case_sensitive.isChecked() else re.I)]
 
     def search_changed(self, *args):
-        if hasattr(self, 'query') and hasattr(self, 'reader'):self.match_count.setText(str(len(self.matches()))+' 筆' if self.query.text() else '')
+        if not hasattr(self,'query') or not hasattr(self,'reader'):return
+        if not self.query.text():self.clear_rich_search()
+        matches = self.matches();number = 0
+        view = self.reader if self.mode == 'read' else self.editor
+        text = view.toPlainText();cursor = view.textCursor()
+        pair = (python_position(text,cursor.selectionStart()),python_position(text,cursor.selectionEnd()))
+        if pair in matches:number = matches.index(pair)+1
+        self.match_count.setText(f'{number}/{len(matches)}' if self.query.text() else '')
+        self.find_previous.setEnabled(bool(matches));self.find_forward.setEnabled(bool(matches))
+
+    def clear_rich_search(self):
+        if self.reader.rich:self.reader.rich.findText('')
+
+    def rich_search_finished(self, result):
+        if self.mode != 'read' or not self.query.text():return
+        self.match_count.setText(f'{result.activeMatch()}/{result.numberOfMatches()}')
+        self.find_previous.setEnabled(result.numberOfMatches()>0);self.find_forward.setEnabled(result.numberOfMatches()>0)
 
     def find_next(self, direction=1):
         if self.mode=='read' and self.reader.advanced and self.reader.rich:
@@ -526,7 +565,10 @@ class MarkdownSurface(QWidget):
             flags=QWebEnginePage.FindFlag(0)
             if direction<0:flags|=QWebEnginePage.FindFlag.FindBackward
             if self.case_sensitive.isChecked():flags|=QWebEnginePage.FindFlag.FindCaseSensitively
-            self.reader.rich.findText(self.query.text(),flags);return
+            rich = self.reader.rich
+            if not getattr(rich,'_search_connected',False):
+                rich.page().findTextFinished.connect(self.rich_search_finished);rich._search_connected = True
+            rich.findText(self.query.text(),flags);return
         matches = self.matches()
         if not matches:return
         view = self.reader if self.mode == 'read' else self.editor
@@ -534,6 +576,7 @@ class MarkdownSurface(QWidget):
         found = next((match for match in reversed(matches) if match[1] <= at), matches[-1]) if direction < 0 else next((match for match in matches if match[0] >= at), matches[0])
         if self.mode != 'read':self.editor.fold_all(False)
         cursor.setPosition(utf16_position(text, found[0]));cursor.setPosition(utf16_position(text, found[1]), QTextCursor.MoveMode.KeepAnchor);view.setTextCursor(cursor);view.ensureCursorVisible()
+        self.search_changed()
 
     def replace_one(self):
         if self.mode == 'read':return

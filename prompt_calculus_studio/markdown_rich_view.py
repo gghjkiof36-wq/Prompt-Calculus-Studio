@@ -80,6 +80,7 @@ class RichView(QWebEngineView):
         self.channel=QWebChannel(page);self.bridge=ContentBridge(self);self.channel.registerObject('content',self.bridge);page.setWebChannel(self.channel)
         page.selectionChanged.connect(self.surface.update_statistics)
         self.loadFinished.connect(self.loaded)
+        self.rendered.connect(self.sync_title_alignment)
         self.setUrl(QUrl.fromLocalFile(str(ASSETS/'index.html')))
         # Profiles live through their pages; release only after the page's QObject.
         page.destroyed.connect(self.profile.deleteLater)
@@ -88,6 +89,17 @@ class RichView(QWebEngineView):
         if ok:
             self.ready=True;self.page().runJavaScript('window.refreshDocument && window.refreshDocument()')
         elif not self.ready:self.surface.report('內容預覽未載入；原文仍可編輯。')
+
+    def sync_title_alignment(self):
+        if not self.ready or self.surface.mode!='read':return
+        def apply(value):
+            from shiboken6 import isValid
+            if not isValid(self) or self.surface.mode!='read' or not value:return
+            left,right=json.loads(value)
+            scale=self.zoomFactor()
+            self.content_margins=(round(left*scale),max(0,round(self.width()-right*scale)))
+            self.surface.update_title_layout()
+        self.page().runJavaScript('(()=>{const r=document.querySelector("main")?.getBoundingClientRect();return r?JSON.stringify([r.left,r.right]):null})()',apply)
 
     def resource(self,entry,index):
         target=entry['target'];local=Path(entry['path']) if entry['path'] else None

@@ -160,7 +160,6 @@ class MarkdownPage(QPlainTextEdit):
         self.destroyed.connect(lambda: composing.discard(token))
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setAccessibleName(self.path.name + '，Markdown 編輯')
-        self.setPlaceholderText('開始撰寫…')
         self.setStyleSheet('QPlainTextEdit { border:0; padding:28px 36px; background:transparent; }')
         from .workspace_file_title import FileTitle
         self.file_title = FileTitle(self.path.stem, self)

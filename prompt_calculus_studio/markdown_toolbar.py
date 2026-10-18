@@ -46,6 +46,9 @@ class MarkdownRibbon(QToolBar):
         super().__init__(surface);self.surface=surface;self.panel=None
 
     def eventFilter(self, watched, event):
+        if event.type() in (QEvent.Type.FocusIn,QEvent.Type.FocusOut):
+            watched.setProperty('keyboardFocus',event.type() == QEvent.Type.FocusIn and event.reason() in (Qt.FocusReason.TabFocusReason,Qt.FocusReason.BacktabFocusReason,Qt.FocusReason.ShortcutFocusReason))
+            watched.style().unpolish(watched);watched.style().polish(watched);watched.update()
         if watched.objectName() == 'qt_toolbar_ext_button':
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 self.show_overflow();return True
@@ -66,7 +69,11 @@ class MarkdownRibbon(QToolBar):
             button.setIconSize(QSize(19,19));button.setAccessibleName(action.text())
             button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             button.installEventFilter(panel)
-            if action.menu():button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            original = self.widgetForAction(action)
+            if action.menu():
+                button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+                button.setProperty('hasMenu',original.property('hasMenu'))
+                button.setProperty('singleCaret',original.property('singleCaret'))
             else:button.clicked.connect(panel.hide)
             panel.grid.addWidget(button,index//panel.columns,index%panel.columns);panel.buttons.append(button)
         panel.adjustSize()
@@ -103,7 +110,8 @@ def make_toolbar(surface):
         button = bar.widgetForAction(result)
         button.setAccessibleName(label)
         button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        if menu:button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        button.installEventFilter(bar)
+        if menu:button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup);button.setProperty('hasMenu',True)
         if key:surface.format_actions[key] = result
         return result
 
@@ -155,12 +163,12 @@ def make_toolbar(surface):
     more.addSeparator()
     more.addAction('全部折疊', lambda:surface.editor.fold_all(True))
     more.addAction('全部展開', lambda:surface.editor.fold_all(False))
-    item = action('其他格式', 'more-horizontal', menu=more)
-    surface.more = bar.widgetForAction(item)
+    item = action('其他格式', 'caret-down', menu=more)
+    surface.more = bar.widgetForAction(item);surface.more.setProperty('singleCaret',True);surface.more.setProperty('hasMenu',False)
     extension = bar.findChild(QToolButton, 'qt_toolbar_ext_button')
     if extension:
         extension.setAccessibleName('更多工具');extension.setToolTip('更多工具')
-        extension.setIcon(icon('chevron-right'))
+        extension.setIcon(icon('caret-down'))
         extension.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         extension.installEventFilter(bar)
     return bar
