@@ -262,6 +262,14 @@ class DocumentBrowser(PromptEditor):
         self.library_more.setText('')
         self.library_more.setToolTip('分類選單')
         self.library_more.setAccessibleName('分類選單')
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def workspace_minimum_width(self):
+        from .management_reading import READING_NARROW_MARGIN
+        browser, detail = self._column_minimums()
+        # Reserve the preview even when closed: selecting a material should
+        # not push the divider or move the canvas in the neighbouring pane.
+        return browser + 24 + detail + 2*READING_NARROW_MARGIN + self.scroll.verticalScrollBar().sizeHint().width()
 
     def _open_dialog(self, ident, text='', initial_value=None):
         for host in self.window.document.hosts:

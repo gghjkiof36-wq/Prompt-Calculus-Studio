@@ -383,7 +383,7 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
                     self.assertEqual(self.w.active_key, active)
                 else:
                     self.assertEqual(self.w.tabs_by_key[self.w.active_key].path, path)
-        editor = self.w.new_document('markdown')
+        editor = self.w.new_document('markdown', context=self.w.commands.selected_context())
         original = set(self.root.rglob('*'))
         self.w.tree_fold.setFocus()
         self.events()
@@ -395,7 +395,7 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
         self.w.select_path(self.root/'Folder')
         self.w.sidebar_preference = False
         self.w.sync_sidebar()
-        editor = self.w.new_document('markdown')
+        editor = self.w.new_document('markdown', context=self.w.commands.selected_context())
         self.assertTrue(self.w.tree.isVisible())
         self.assertEqual(editor.name.text(), '未命名 2')
         editor.name.setText('未命名')
@@ -407,7 +407,7 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
         editor.cancel()
         self.w.remove_root(self.root)
         with patch.object(self.w, 'choose_root') as choose:
-            self.assertIsNone(self.w.new_document('markdown'))
+            self.assertIsNone(self.w.new_document('markdown', context=self.w.commands.selected_context()))
             choose.assert_called_once()
 
     def test_fold_control_and_trailing_menu_actions_are_reachable_in_both_positions(self):

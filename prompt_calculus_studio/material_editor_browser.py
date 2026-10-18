@@ -292,6 +292,13 @@ class PromptEditor(QWidget):
             grid.setColumnStretch(0, 1); grid.setColumnStretch(1, 0)
         self.header_layout.invalidate()
 
+    def _column_minimums(self):
+        browser = max(280, self.heading_caption.minimumSizeHint().width()+14,
+                      self.heading_actions.minimumSizeHint().width()+14,
+                      self.filter_controls.minimumSizeHint().width()+14)
+        detail = max(260, self.edit_button.minimumSizeHint().width()+38)
+        return browser, detail
+
     def _layout(self):
         from shiboken6 import isValid
         if not isValid(self) or not hasattr(self, 'preview_text') or not isValid(self.preview_text): return
@@ -299,10 +306,7 @@ class PromptEditor(QWidget):
         self._sync_type()
         self._reserve_scroll_gutter(self.scroll)
         viewport_width = self.scroll.viewport().width(); height = self.scroll.viewport().height()
-        minimum_browser = max(280, self.heading_caption.minimumSizeHint().width()+14,
-                              self.heading_actions.minimumSizeHint().width()+14,
-                              self.filter_controls.minimumSizeHint().width()+14)
-        minimum_detail = max(260, self.edit_button.minimumSizeHint().width()+38)
+        minimum_browser, minimum_detail = self._column_minimums()
         minimum_pair = minimum_browser+24+minimum_detail
         self.narrow = viewport_width < max(800, 240+2*READING_MARGIN+minimum_pair)
         # Center the task column within the workspace after navigation, using
@@ -341,9 +345,8 @@ class PromptEditor(QWidget):
         # detail column until the preview itself is explicitly closed.
         has_preview = bool(self.preview_id and not self.preview_card.isHidden())
         if has_preview:
-            # The detail remains a right-hand column at every width. At desktop
-            # sizes both columns contract; only an exceptionally small viewport
-            # scrolls horizontally instead of moving the detail below the list.
+            # Workspace documents reserve this pair in the pane's minimum
+            # width. The standalone browser retains its overflow fallback.
             area_width = max(area_width, minimum_pair)
             detail_width = min(380, max(minimum_detail, round(area_width*.32)))
             detail_width = min(detail_width, area_width-minimum_browser-24)

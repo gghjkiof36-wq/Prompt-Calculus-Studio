@@ -32,9 +32,30 @@ in left-then-right order, including duplicate views of the same document.
 views open and focuses the first failure; other panes are unaffected.
 
 Closing the last tab in a split pane removes that pane. This also applies to a
-new-tab placeholder. Moving the last tab can leave a placeholder so a new split
-still has two usable destinations; the placeholder can then be closed with ×.
+new-tab placeholder. Moving the last right-hand tab back to the left also removes
+the empty right pane. Creating a split by moving a left tab to the right retains
+a left placeholder so the requested split has two usable destinations.
 The final tab of a single-pane workspace is replaced by a new-tab page.
+
+Home creation fills the clicked home slot immediately for workflows, Prompt
+management pages and Markdown files. A unique default filename is saved without
+opening the sidebar; the tab menu provides Rename. Sidebar creation commands
+retain their explicit inline naming flow. Queued clicks retain their originating
+home identity, even when the other pane has focus.
+
+`開啟檔案` and Ctrl+O open a filename/path search sheet using Canvas dialog colors.
+The cached list appears immediately while enrolled folders are scanned in the
+background. Recent files rank first with an empty query; icons distinguish the
+three document types and relative paths disambiguate folders. Arrow keys select,
+Enter opens in the captured pane, and Escape cancels. `從電腦選擇…` provides the
+explicit native picker for files elsewhere. Searching never reads file contents.
+
+Management documents reserve enough pane width for the list and right preview,
+including when the preview is closed. The splitter and window enforce this
+content minimum; the document has no horizontal scrollbar. Inactive management
+tabs do not constrain another page. Stable document widgets share the outer
+workspace mask so the bottom-left contour remains continuous after tab changes,
+sidebar changes, and moving a view between panes.
 
 ## Persistence and recovery
 

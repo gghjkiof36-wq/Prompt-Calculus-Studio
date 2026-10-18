@@ -84,6 +84,43 @@ class WorkspaceTabDragTests(unittest.TestCase):
         widget.redo()
         self.assertIn('draft ', widget.toPlainText())
 
+    def test_last_right_tab_dragged_left_collapses_split_and_preserves_undo(self):
+        left = self.open('Notes.md')
+        tab = self.open('Empty.md', new_tab=True)
+        self.w.move_view(tab)
+        self.events()
+        tab.widget.insertPlainText('unsaved draft')
+        widget = tab.widget
+        pane = self.w.panes[0]
+        bar = self.press(tab)
+        point = pane.pages.mapToGlobal(pane.pages.rect().center())
+        self.pointer(bar, point)
+        self.pointer(bar, point, release=True)
+        self.assertEqual(len(self.w.panes), 1)
+        self.assertEqual(self.w.pane_split.count(), 1)
+        self.assertEqual(self.w.tab_strip.bar.count(), 2)
+        self.assertIs(tab.widget, widget)
+        self.assertEqual(tab.widget.toPlainText(), 'unsaved draft')
+        self.assertTrue(tab.widget.document().isUndoAvailable())
+        self.assertIn(left.key, self.w.tabs_by_key)
+        self.assertTrue(self.w.layout_store.save())
+        self.assertEqual(len(self.w.layout_store.snapshot()['panes']), 1)
+
+    def test_right_pane_remains_when_another_tab_is_still_there(self):
+        left = self.open('Notes.md')
+        first = self.open('Empty.md', new_tab=True)
+        self.w.move_view(first)
+        second = self.w.new_tab()
+        self.events()
+        bar = self.press(first)
+        pane = self.w.panes[0]
+        point = pane.pages.mapToGlobal(pane.pages.rect().center())
+        self.pointer(bar, point)
+        self.pointer(bar, point, release=True)
+        self.assertEqual(len(self.w.panes), 2)
+        self.assertIs(self.w.panes[1].pages.currentWidget(), second.widget)
+        self.assertEqual(first.pane, left.pane)
+
     def order(self, pane):
         return [pane.strip.bar.tabData(i) for i in range(pane.strip.bar.count())]
 

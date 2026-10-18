@@ -1,5 +1,5 @@
 """View lifetimes and two pane navigation, independent of document writers."""
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import uuid
 
@@ -259,6 +259,8 @@ class WorkspacePanes:
                 layout = QVBoxLayout(page)
                 layout.setContentsMargins(0, 0, 0, 0)
                 layout.addWidget(host)
+                if document.kind == 'category':
+                    page._workspace_minimum_width = host.prompt_editor.workspace_minimum_width
                 page._prepare_workspace_show = host.canvas.present if document.kind == 'workflow' else None
                 # A view survives Save As. Reopening its former source must
                 # therefore never reuse the former document id as a view key.
@@ -277,9 +279,16 @@ class WorkspacePanes:
         page = WorkspaceHome(self.root, self.recent_files, self.settings,
                              lambda: self.choose_file_in(self.pane_for(tab)),
                              lambda path: self.open_path(path, True, pane=self.pane_for(tab)),
-                             lambda kind: self.commands.new(kind, self.commands.context('home')))
+                             lambda kind: self.create_in_home(kind, tab))
         tab = Tab('new:'+uuid.uuid4().hex, '新分頁', page, True)
         return self.add_tab(tab, pane=pane, activate=activate)
+
+    def create_in_home(self, kind, tab):
+        # Bind the action to its home, including keyboard/queued activation
+        # while the other pane has focus. Mouse focus is not the destination.
+        context = replace(self.commands.context('home'),
+                          pane_id=self.pane_for(tab).key, view_key=tab.key)
+        return self.commands.new(kind, context)
 
     def choose_file_in(self, pane):
         self.use_pane(pane)
@@ -312,7 +321,11 @@ class WorkspacePanes:
             self.close_tab(0, pane=target, make_home=False)
         self.add_tab(tab, pane=target)
         if position is not None:target.strip.bar.moveTab(self.index_of(tab.key), min(position, target.strip.bar.count()-1))
-        if source.strip.bar.count() == 0:self.new_tab(pane=source, activate=False)
+        if source.strip.bar.count() == 0:
+            if source is self.panes[-1] and len(self.panes) == 2:
+                self.collapse_empty_pane(source)
+            else:
+                self.new_tab(pane=source, activate=False)
         self.focus_tab(tab)
         self.layout_changed()
 
@@ -362,7 +375,7 @@ class WorkspacePanes:
         return True
 
     def collapse_empty_pane(self, pane):
-        """Closing the last tab closes that split; moving a tab may leave Home."""
+        """Close an empty split, including the last right tab moved back left."""
         if len(self.panes) != 2 or pane.strip.bar.count():return
         other = next(p for p in self.panes if p is not pane)
         current = self.tabs_by_key.get(other.strip.bar.tabData(other.strip.bar.currentIndex()))

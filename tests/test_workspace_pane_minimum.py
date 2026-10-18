@@ -1,0 +1,127 @@
+"""Split manager pages keep both columns reachable without horizontal scrolling."""
+import copy
+import sys
+import unittest
+
+from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtTest import QTest
+
+import test_workspace_shell as fixture
+
+
+class WorkspacePaneMinimumTests(unittest.TestCase):
+    events = fixture.WorkspaceShellTests.events
+
+    @classmethod
+    def setUpClass(cls):
+        fixture.WorkspaceShellTests.setUpClass.__func__(cls)
+        for name in ('msjh.ttc', 'msjhbd.ttc', 'segoeui.ttf'):
+            QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+name)
+        cls.app.setFont(QFont('Microsoft JhengHei UI', 12))
+
+    def setUp(self):
+        fixture.WorkspaceShellTests.setUp(self)
+        self.w.set_navigation_position('top')
+        self.w.sidebar_preference = False
+        self.w.sync_sidebar()
+        self.w.resize(1500, 900)
+        self.left = self.w.open_path(self.root/'Street.pcs-workflow', True)
+        self.right = self.w.ensure_split()
+        self.tab = self.w.open_path(self.root/'Scene.pcs-category', True, pane=self.right)
+        self.page = self.tab.host.prompt_editor
+        self.events()
+
+    def tearDown(self):
+        for pane in list(self.w.panes):
+            while pane in self.w.panes and pane.strip.bar.count():
+                self.w.close_tab(0, decision='discard', make_home=False, pane=pane)
+        self.w.close()
+        self.w.deleteLater()
+        self.events()
+        sys.excepthook = self.old_hook
+        self.area.cleanup()
+        self.assertEqual(self.errors, [])
+
+    def preview(self, page=None):
+        page = page or self.page
+        ident = page.window.state['items'][0]['id']
+        page.preview_material(ident)
+        self.events()
+
+    def assert_visible_columns(self, tab=None):
+        tab = tab or self.tab
+        page = tab.host.prompt_editor
+        pane = self.w.pane_for(tab)
+        self.assertGreaterEqual(pane.container.width(), page.workspace_minimum_width())
+        self.assertEqual(tab.widget.width(), pane.pages.width())
+        viewport = page.scroll.viewport()
+        self.assertFalse(page.scroll.horizontalScrollBar().isVisible())
+        self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+        for widget in (page.listing, page.preview_card, page.edit_button, page.add_canvas_button):
+            self.assertTrue(widget.isVisible())
+            rect = QRect(widget.mapTo(viewport, QPoint()), widget.size())
+            self.assertGreaterEqual(rect.left(), 0)
+            self.assertLess(rect.right(), viewport.width())
+        self.assertGreater(page.preview_card.x(), page.browser.geometry().right())
+
+    def test_divider_stops_before_preview_and_does_not_change_content(self):
+        state = copy.deepcopy(self.tab.host.state)
+        self.preview()
+        self.w.pane_split.setSizes([1500, 1])
+        self.events()
+        self.assert_visible_columns()
+        self.assertEqual(self.tab.host.state, state)
+        # Closing/reopening a preview does not shift the divider.
+        sizes = self.w.pane_split.sizes()
+        self.page.close_preview()
+        self.events()
+        self.preview()
+        self.assertEqual(self.w.pane_split.sizes(), sizes)
+        QTest.mouseClick(self.page.edit_button, Qt.MouseButton.LeftButton)
+        self.events()
+        self.assertIsNotNone(self.page.active_dialog)
+        self.page.active_dialog.reject()
+
+    def test_hidden_manager_does_not_limit_home_and_return_restores_minimum(self):
+        self.preview()
+        home = self.w.new_tab(pane=self.right)
+        self.events()
+        self.w.pane_split.setSizes([1500, 1])
+        self.events()
+        self.assertEqual(self.right.pages.minimumWidth(), 250)
+        self.assertLess(self.right.container.width(), self.page.workspace_minimum_width())
+        self.w.focus_tab(self.tab)
+        self.events()
+        self.assert_visible_columns()
+        self.assertIn(home.key, self.w.tabs_by_key)
+
+    def test_two_managers_and_window_minimum_keep_both_previews(self):
+        other = self.w.open_path(self.root/'Action.pcs-category', True, pane=self.w.panes[0])
+        self.preview(other.host.prompt_editor)
+        self.preview()
+        for sizes in ([1, 1500], [1500, 1]):
+            self.w.pane_split.setSizes(sizes)
+            self.w.resize(720, 600)
+            self.events()
+            self.assert_visible_columns(other)
+            self.assert_visible_columns()
+            self.assertLessEqual(self.right.container.mapTo(self.w, self.right.container.rect().topRight()).x(), self.w.width())
+
+    def test_sidebar_and_side_navigation_reserve_only_their_visible_width(self):
+        self.preview()
+        for navigation in ('side', 'top'):
+            self.w.set_navigation_position(navigation)
+            for sidebar in (True, False):
+                self.w.sidebar_preference = sidebar
+                self.w.sync_sidebar()
+                self.events()
+                self.w.resize(720, 650)
+                self.events()
+                self.assert_visible_columns()
+                self.assertLess(self.w.width(), 1600)
+                self.assertLessEqual(self.right.container.mapTo(self.w, self.right.container.rect().topRight()).x(), self.w.width())
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -41,6 +41,27 @@ class WorkspaceRenderingTests(unittest.TestCase):
                 for dy in range(4):
                     self.assertEqual(image.pixelColor(x+dx, join+dy), above, (position, dx, dy))
 
+    def test_home_document_widgets_follow_the_bottom_left_outer_contour(self):
+        self.w.sidebar_preference = False
+        for navigation in ('side', 'top'):
+            self.w.set_navigation_position(navigation)
+            self.w.sync_sidebar()
+            for kind in ('home', 'workflow', 'category', 'markdown'):
+                with self.subTest(navigation=navigation, kind=kind):
+                    tab = self.w.new_tab() if kind == 'home' else self.w.open_path(self.root/{
+                        'workflow':'Street.pcs-workflow', 'category':'Scene.pcs-category', 'markdown':'Notes.md'}[kind])
+                    self.events()
+                    page = tab.widget
+                    self.assertFalse(page.mask().contains(QPoint(0, page.height()-1)))
+                    self.assertTrue(page.mask().contains(page.rect().center()))
+                    self.assertTrue(page.mask().contains(QPoint(page.width()-2, page.height()-2)))
+                    image = self.w.grab().toImage()
+                    point = page.mapTo(self.w, QPoint(0, page.height()-2))
+                    dpr = self.w.devicePixelRatioF()
+                    x, y = round(point.x()*dpr), round(point.y()*dpr)
+                    if x > 3:
+                        self.assertEqual(image.pixelColor(x+1,y), image.pixelColor(x-3,y))
+
     def test_unchanged_tab_reuses_scene_and_keeps_camera_selection_and_undo(self):
         tab = self.open('Street', 'pcs-workflow')
         canvas = tab.host.canvas

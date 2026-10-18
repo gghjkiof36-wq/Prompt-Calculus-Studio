@@ -136,6 +136,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.layout_store = WorkspaceLayout(self)
         self.layout_restored = self.layout_store.restore()
         for sequence, callback in (('Ctrl+T', self.new_tab), ('Ctrl+W', self.close_current),
+                                   ('Ctrl+O', self.choose_file),
                                    ('Ctrl+S', self.save_current), ('Alt+Left', lambda: self.go(-1)),
                                    ('Ctrl+Shift+S', self.commands.files.save_as_current),
                                    ('Alt+Right', lambda: self.go(1))):
@@ -724,9 +725,19 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def choose_file(self):
-        filename, _ = QFileDialog.getOpenFileName(self, '開啟本機文件', str(self.locations.current or ''), 'PCS 文件 (*.pcs-category *.pcs-workflow *.md)')
-        if filename:
-            self.open_path(filename, True)
+        from .workspace_file_search import FileSearchDialog
+        existing = getattr(self, 'file_search_dialog', None)
+        if existing is not None and existing.isVisible():
+            existing.search.setFocus()
+            return existing
+        dialog = FileSearchDialog(self, self.commands.context('page'))
+        self.file_search_dialog = dialog
+        def finished(_):
+            if self.file_search_dialog is dialog:self.file_search_dialog = None
+            dialog.deleteLater()
+        dialog.finished.connect(finished)
+        dialog.open()
+        return dialog
 
     def open_route(self, route, section=None):
         if route == 'home':

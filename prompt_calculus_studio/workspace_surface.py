@@ -43,6 +43,16 @@ class WorkspaceSurface(QStackedWidget):
         w = self.workspace
         return getattr(w, '_sidebar_header_docked', False) or (w.active_route == 'home' and getattr(w, 'tabs_in_row', False))
 
+    def clip_document(self, page):
+        # Stable document widgets are siblings of home_split, not children of
+        # its masked subtree. Clip their own region at the same outer contour.
+        geometry = (page.pos(), page.size(), self.size(), self.joined_top())
+        if getattr(page, '_pcs_document_clip', None) == geometry and not page.mask().isEmpty():return
+        path = left_contour(QRectF(self.rect()), RADIUS+1, not self.joined_top())
+        region = QRegion(path.toFillPolygon().toPolygon()).translated(-page.x(), -page.y())
+        page.setMask(region.intersected(QRegion(page.rect())))
+        page._pcs_document_clip = geometry
+
     def sync_surface(self, *_):
         page = self.currentWidget()
         if page is not None:

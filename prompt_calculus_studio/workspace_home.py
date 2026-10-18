@@ -54,8 +54,9 @@ class WorkspaceHome(QScrollArea):
             body.addWidget(entry)
             self.create_buttons[kind] = entry
         footer = QHBoxLayout()
-        self.open_button = button('開啟現有文件…', choose_file, 'Quiet')
-        self.open_button.setIcon(icon('folder', 'navigation'))
+        self.open_button = button('開啟檔案', choose_file, 'Quiet')
+        self.open_button.setIcon(icon('search', 'navigation'))
+        self.open_button.setToolTip('開啟檔案 (Ctrl+O)')
         footer.addWidget(self.open_button)
         footer.addStretch()
         body.addSpacing(10)

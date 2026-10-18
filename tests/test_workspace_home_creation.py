@@ -1,4 +1,4 @@
-"""New workflow starts in the current home slot without a naming detour."""
+"""Every new document starts in its clicked home slot without a naming detour."""
 from pathlib import Path
 import sys
 import tempfile
@@ -17,6 +17,8 @@ from prompt_calculus_studio.workspace_shell import WorkspaceShell
 
 
 class HomeWorkflowCreationTests(unittest.TestCase):
+    kind = 'workflow'
+    suffix = '.pcs-workflow'
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
@@ -62,7 +64,7 @@ class HomeWorkflowCreationTests(unittest.TestCase):
         self.assertEqual(self.errors, [])
 
     def click_workflow(self, home):
-        QTest.mouseClick(home.widget.create_buttons['workflow'], Qt.MouseButton.LeftButton)
+        QTest.mouseClick(home.widget.create_buttons[self.kind], Qt.MouseButton.LeftButton)
         self.events()
         return self.w.tabs_by_key[self.w.active_key]
 
@@ -87,7 +89,12 @@ class HomeWorkflowCreationTests(unittest.TestCase):
                 self.assertEqual(created.slot, slot)
                 self.assertEqual(created.path.parent, self.root)
                 self.assertTrue(created.path.is_file())
-                self.assertTrue(created.host.canvas.isVisible())
+                if self.kind == 'workflow':
+                    self.assertTrue(created.host.canvas.isVisible())
+                elif self.kind == 'category':
+                    self.assertTrue(created.host.prompt_editor.isVisible())
+                else:
+                    self.assertTrue(created.widget.isVisible())
                 self.assertTrue(self.w.top.isVisible())
                 self.assertTrue(self.w.tab_strip.isVisible())
                 self.assertFalse(self.w.isFullScreen())
@@ -98,7 +105,7 @@ class HomeWorkflowCreationTests(unittest.TestCase):
                 self.assertEqual(self.note.read_text('utf-8'), 'keep')
 
     def test_unique_names_and_late_click_do_not_overwrite_or_create_extra_files(self):
-        existing = create_file(self.root, 'workflow', '未命名')
+        existing = create_file(self.root, self.kind, '未命名')
         original = existing.read_bytes()
         self.w.sidebar_preference = False
         self.w.sync_sidebar()
@@ -108,7 +115,7 @@ class HomeWorkflowCreationTests(unittest.TestCase):
             context = self.w.commands.context('home')
             paths.append(self.click_workflow(home).path)
             before = set(self.root.iterdir())
-            self.w.commands.new('workflow', context)
+            self.w.commands.new(self.kind, context)
             self.assertEqual(set(self.root.iterdir()), before)
         self.assertEqual(len(set(paths)), 2)
         self.assertNotIn(existing, paths)
@@ -153,7 +160,7 @@ class HomeWorkflowCreationTests(unittest.TestCase):
         home = self.w.tabs_by_key[self.w.active_key]
         tab = self.click_workflow(home)
         old_path = tab.path
-        identity = io.load(old_path.parent, old_path.name).document['document_id']
+        identity = io.load(old_path.parent, old_path.name).document['document_id'] if self.kind != 'markdown' else None
         # Rename the clicked (inactive) tab through its actual menu while the
         # sidebar stays closed, then exercise the real name dialog.
         other = self.w.open_path(self.note, new_tab=True)
@@ -193,15 +200,47 @@ class HomeWorkflowCreationTests(unittest.TestCase):
             raise failures[0]
         self.assertEqual(other.path, self.note)
         self.events()
-        target = self.root/'自己的工作流.pcs-workflow'
+        target = self.root/('自己的工作流'+self.suffix)
         self.assertEqual(tab.path, target)
         self.assertFalse(old_path.exists())
         self.assertTrue(self.w.save_tab(tab))
         self.w.close_tab(self.w.index_of(tab.key))
         reopened = self.w.open_path(target)
-        self.assertIsNotNone(reopened.host)
-        self.assertEqual(io.load(target.parent, target.name).document['document_id'], identity)
+        if self.kind != 'markdown':
+            self.assertIsNotNone(reopened.host)
+            self.assertEqual(io.load(target.parent, target.name).document['document_id'], identity)
+        else:
+            self.assertEqual(reopened.widget.toPlainText(), '')
         self.assertFalse(self.w.sidebar.isVisible())
+
+    def test_button_keeps_its_home_when_other_pane_has_focus(self):
+        left = self.w.open_path(self.note)
+        right = self.w.ensure_split()
+        home = self.w.tabs_by_key[right.strip.bar.tabData(0)]
+        self.w.focus_tab(left)
+        self.w.sidebar_preference = False
+        self.w.sync_sidebar()
+        home.widget.create_buttons[self.kind].click()
+        self.events()
+        created = self.w.tabs_by_key[right.strip.bar.tabData(0)]
+        self.assertEqual(created.path.suffix, self.suffix)
+        self.assertEqual(created.slot, home.slot)
+        self.assertIs(self.w.panes[0].pages.currentWidget(), left.widget)
+        before = set(self.root.iterdir())
+        home.widget.create_buttons[self.kind].click()
+        self.events()
+        self.assertEqual(set(self.root.iterdir()), before)
+        self.assertFalse(self.w.sidebar.isVisible())
+
+
+class HomeCategoryCreationTests(HomeWorkflowCreationTests):
+    kind = 'category'
+    suffix = '.pcs-category'
+
+
+class HomeMarkdownCreationTests(HomeWorkflowCreationTests):
+    kind = 'markdown'
+    suffix = '.md'
 
 
 if __name__ == '__main__':

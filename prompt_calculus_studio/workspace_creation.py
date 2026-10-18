@@ -6,7 +6,7 @@ from .workspace_locations import path_key
 from .ui_icons import icon
 
 
-def create_home_workflow(commands, context):
+def create_home_document(commands, kind, context):
     """Fill this home slot immediately; the saved document can be renamed later."""
     from .workspace_home import WorkspaceHome
     w = commands.workspace
@@ -28,18 +28,24 @@ def create_home_workflow(commands, context):
     try:
         directory = w.locations.directory(directory)
         existing = {p.name.casefold() for p in directory.iterdir()}
+        suffix = dict(category='.pcs-category', workflow='.pcs-workflow', markdown='.md')[kind]
         name, number = '未命名', 1
-        while (name+'.pcs-workflow').casefold() in existing:
+        while (name+suffix).casefold() in existing:
             number += 1
             name = '未命名 ' + str(number)
-        path = commands.create_at('workflow', name, directory)
+        path = commands.create_at(kind, name, directory)
     except (ValueError, OSError) as error:
         w.show_notice(str(error))
         return None
     w.refresh_tree()
     created = w.open_context(path, context)
-    if created and created.host:
-        created.host.canvas.view.setFocus()
+    if created:
+        if kind == 'workflow':
+            created.host.canvas.view.setFocus()
+        elif kind == 'category':
+            created.host.prompt_editor.search.setFocus()
+        else:
+            created.widget.setFocus()
     return created
 
 
