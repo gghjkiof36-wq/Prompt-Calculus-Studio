@@ -20,7 +20,7 @@ class OutlineSearchTests(unittest.TestCase):
             QTest.qWait(20)
         self.fail('WebEngine callback did not complete')
 
-    def test_outline_uses_gutter_without_moving_body_and_compacts_in_split(self):
+    def test_outline_reserves_space_in_narrow_and_split_views_until_closed(self):
         raw=''.join('#'*level+' '+('第幾章與長標題測試😀'*3)+'\n\n正文。\n\n' for level in range(1,7))
         (self.root/'Notes.md').write_bytes(raw.encode());tab=self.open('Notes.md');s=tab.widget.md_surface
         self.w.resize(2200,960);self.events();before=s.title_host.mapTo(s,s.page.file_title.pos()).x()
@@ -34,21 +34,23 @@ class OutlineSearchTests(unittest.TestCase):
         height=s.outline_panel.card.height();s.outline.items[0].setExpanded(False);self.events()
         self.assertLess(s.outline_panel.card.height(),height)
         self.w.resize(960,960);self.w.sidebar_preference=True;self.w.sync_sidebar();QTest.qWait(80)
-        self.assertEqual(s.outline_layout.placement,'compact')
-        width=s.editor.width();QTest.mouseClick(s.outline_button,Qt.MouseButton.LeftButton);self.events()
-        self.assertEqual(s.outline_layout.placement,'overlay');self.assertEqual(s.editor.width(),width)
-        QTest.keyClick(s.outline,Qt.Key.Key_Escape);self.events();self.assertFalse(s.outline_panel.isVisible())
+        self.assertEqual(s.outline_layout.placement,'column');self.assertTrue(s.outline_panel.isVisible())
+        width=s.editor.width();self.assertGreater(width,250)
+        self.assertLess(s.outline_panel.geometry().right(),s.stack.geometry().left()+1)
         QTest.mouseClick(s.outline_button,Qt.MouseButton.LeftButton);self.events()
+        self.assertFalse(s.outline_panel.isVisible());self.assertGreater(s.editor.width(),width)
+        QTest.mouseClick(s.outline_button,Qt.MouseButton.LeftButton);self.events();self.assertEqual(s.editor.width(),width)
         QTest.mouseClick(s.editor.viewport(),Qt.MouseButton.LeftButton,pos=QPoint(s.editor.viewport().width()-20,40))
-        self.assertFalse(s.outline_panel.isVisible())
+        self.assertTrue(s.outline_panel.isVisible())
         self.w.sidebar_preference=False;self.w.sync_sidebar();self.events()
         self.assertEqual(s.outline_layout.placement,'column')
         other=self.w.duplicate_view(tab,True);self.events()
-        self.assertEqual(s.outline_layout.placement,'compact')
+        self.assertEqual(s.outline_layout.placement,'column');self.assertTrue(s.outline_panel.isVisible())
+        self.assertLess(s.outline_panel.geometry().right(),s.stack.geometry().left()+1)
         self.assertFalse(other.widget.md_surface.outline_panel.isVisible())
-        s.toggle_outline();self.events();self.assertTrue(s.outline_panel.isVisible())
         QTest.keyClick(other.widget.md_surface.editor,Qt.Key.Key_Escape);self.events()
         self.assertTrue(s.outline_panel.isVisible())
+        s.outline.navigate(s.outline.items[-1]);self.assertTrue(s.outline_panel.isVisible())
         self.assertEqual(tab.widget.encoded(),raw.encode());self.assertFalse(tab.widget.dirty)
 
     def test_native_search_highlights_all_utf16_matches_and_clears_without_edits(self):

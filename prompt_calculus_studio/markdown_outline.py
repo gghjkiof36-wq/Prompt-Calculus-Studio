@@ -48,7 +48,6 @@ class HeadingTree(QTreeWidget):
 
     def navigate(self, item, column=0):
         self.surface.navigate(item.data(0, Qt.ItemDataRole.UserRole)[0])
-        self.surface.outline_layout.dismiss()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
