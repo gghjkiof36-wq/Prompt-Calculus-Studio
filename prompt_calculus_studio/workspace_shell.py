@@ -4,7 +4,7 @@ from pathlib import Path
 import uuid
 import json
 
-from PySide6.QtCore import Qt, QSize, QUrl, QTimer, QSaveFile, QIODevice
+from PySide6.QtCore import Qt, QSize, QUrl, QTimer, QSaveFile, QIODevice, QEvent
 from PySide6.QtGui import QShortcut, QKeySequence, QDesktopServices, QColor
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame,
     QVBoxLayout, QHBoxLayout, QStackedWidget, QTreeWidget, QTreeWidgetItem,
@@ -30,9 +30,9 @@ from .workspace_panes import WorkspacePanes
 
 
 DISPLAY_KEYS = ('font_family', 'ui_size', 'prompt_size', 'material',
-                'mica_transparency', 'acrylic_transparency', 'menu_transparency',
+                'mica_transparency', 'acrylic_transparency', 'clear_transparency', 'menu_transparency',
                 'visual_palette', 'accent', 'density', 'reduce_motion')
-MATERIAL_KEYS = frozenset(('material', 'mica_transparency', 'acrylic_transparency',
+MATERIAL_KEYS = frozenset(('material', 'mica_transparency', 'acrylic_transparency', 'clear_transparency',
                            'menu_transparency'))
 
 
@@ -110,6 +110,10 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.load_ui_preferences()
         self.appearance_preview = {}
         self.native_material = False
+        self._material_ready = False
+        self.material_refresh = QTimer(self)
+        self.material_refresh.setSingleShot(True)
+        self.material_refresh.timeout.connect(self.finish_material_show)
         # Chrome has application appearance only; document state always stays
         # with its own host and is never swapped into the shell.
         self.state = {'settings': self.settings}
@@ -287,10 +291,37 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.home_split.setStretchFactor(1, 1)
         self.home_split.setSizes([260, 1100])
 
+    def schedule_material_show(self):
+        # Qt can recreate/reset the native surface while showing its first
+        # backing store. Until that finishes, paint a solid frame, not an
+        # accidental unblurred surface for a saved Mica/Acrylic preference.
+        self._material_ready = False
+        self._material_key = None
+        self.native_material = False
+        if self.centralWidget():self.centralWidget().update()
+        if self.isVisible():self.material_refresh.start(0)
+
+    def finish_material_show(self):
+        if self.isVisible():
+            self._material_ready = True
+            self.update_material()
+
+    def showEvent(self,event):
+        super().showEvent(event)
+        self.schedule_material_show()
+
+    def event(self,event):
+        result = super().event(event)
+        if event.type() == QEvent.Type.WinIdChange and hasattr(self,'material_refresh'):
+            self.schedule_material_show()
+        return result
+
     def update_material(self):
         """Preview the painted tint without repolishing the widget tree."""
         appearance = self.display_settings()
-        material_key = (appearance['material'], visual_tokens(appearance)['scheme'])
+        if not self._material_ready or not self.isVisible():return
+        tokens = visual_tokens(appearance)
+        material_key = (int(self.winId()), appearance['material'], tokens['scheme'], tokens['line'])
         if material_key != getattr(self, '_material_key', None):
             self.native_material = apply_backdrop(self, appearance['material'], appearance)
             self._material_key = material_key
@@ -363,7 +394,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 value = saved.get(key)
                 if key=='font_family' and isinstance(value,str) and 0<len(value)<=120:
                     self.settings[key]=value
-                elif key=='material' and value in ('solid','mica','acrylic'):
+                elif key=='material' and value in ('solid','mica','acrylic','clear'):
                     self.settings[key]=value
                 elif key=='visual_palette' and value in ('graphite','mist','paper'):
                     self.settings[key]=value

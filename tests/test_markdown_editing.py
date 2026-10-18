@@ -197,6 +197,21 @@ class MarkdownEditingTests(unittest.TestCase):
         self.assertTrue(left.md_surface.editor.document().findBlockByNumber(1).isVisible())
         self.assertEqual(left.encoded(),source.encode());self.assertFalse(left.dirty)
 
+    def test_centered_writing_area_reflows_after_resize(self):
+        source='# Title\n\n'+('雨停之後，街道慢慢恢復聲音。'*30)+'\n'
+        page=self.open(source);surface=page.md_surface;editor=surface.editor
+        for width in (2000,960,720,1800):
+            page.resize(width,720);self.app.processEvents()
+            self.assertEqual(editor.horizontalScrollBar().maximum(),0)
+            self.assertGreater(editor.document().findBlockByNumber(2).layout().lineCount(),1)
+        surface.set_preference('reading_width',520);self.app.processEvents()
+        self.assertEqual(editor.horizontalScrollBar().maximum(),0)
+        surface.set_preference('wrap',False);self.app.processEvents()
+        self.assertGreater(editor.horizontalScrollBar().maximum(),0)
+        surface.set_preference('wrap',True);self.app.processEvents()
+        self.assertEqual(editor.horizontalScrollBar().maximum(),0)
+        self.assertEqual(page.encoded(),source.encode());self.assertFalse(page.dirty)
+
     def test_paragraph_alignment_changes_real_layout_and_roundtrips(self):
         page=self.open('Paragraph');s=page.md_surface
         page.moveCursor(QTextCursor.MoveOperation.End)

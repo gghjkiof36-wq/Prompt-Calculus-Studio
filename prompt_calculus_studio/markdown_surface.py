@@ -65,7 +65,8 @@ class MarkdownSurface(QWidget):
         body.addWidget(top)
         self.toolbar_host = QWidget(self)
         tools_layout = QHBoxLayout(self.toolbar_host);tools_layout.setContentsMargins(12, 2, 12, 7)
-        self.toolbar = make_toolbar(self);tools_layout.addWidget(self.toolbar)
+        tools_layout.addStretch(1)
+        self.toolbar = make_toolbar(self);tools_layout.addWidget(self.toolbar);tools_layout.addStretch(1)
         self.toolbar_shadow = QGraphicsDropShadowEffect(self.toolbar)
         self.toolbar_shadow.setOffset(0, 3);self.toolbar_shadow.setBlurRadius(12)
         self.toolbar.setGraphicsEffect(self.toolbar_shadow)
@@ -150,7 +151,7 @@ class MarkdownSurface(QWidget):
             QWidget#MarkdownToolbar QComboBox::drop-down {{width:20px;border:0;}}
             QLabel#MarkdownBreadcrumb {{color:{t['secondary']};font-weight:400;font-size:14px;}}
             QLabel#MarkdownFileTitle {{font-weight:400;font-size:14px;}}
-            QToolBar#MarkdownRibbon {{background:{rgba(fill)};border:1px solid {rgba(edge)};border-top-color:{rgba(top_edge)};border-radius:7px;padding:2px;spacing:2px;}}
+            QToolBar#MarkdownRibbon {{background:{rgba(fill)};border:1px solid {rgba(edge)};border-top-color:{rgba(top_edge)};border-radius:7px;padding:2px;spacing:4px;}}
             QToolBar#MarkdownRibbon QToolButton, QFrame#MarkdownOverflow QToolButton {{background:transparent;border:1px solid transparent;border-radius:4px;padding:2px;min-width:24px;min-height:24px;}}
             QToolBar#MarkdownRibbon QToolButton:hover {{background:{t['hover']};}}
             QToolBar#MarkdownRibbon QToolButton:checked {{background:{t['selected']};}}

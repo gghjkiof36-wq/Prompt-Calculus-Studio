@@ -80,18 +80,22 @@ class Syntax(QSyntaxHighlighter):
 
 
 class Gutter(QWidget):
-    def __init__(self, editor):super().__init__(editor);self.editor = editor
+    def __init__(self, editor):
+        super().__init__(editor);self.editor = editor;self.setMouseTracking(True)
+        self.setAccessibleName('文件折疊控制')
     def paintEvent(self, event):self.editor.paint_gutter(event)
+    def mouseMoveEvent(self,event):
+        number=self.editor.fold_number_at(event.position())
+        self.setCursor(Qt.CursorShape.PointingHandCursor if number is not None else Qt.CursorShape.ArrowCursor)
+        self.setToolTip(('展開內容' if number in self.editor.folded else '收合內容') if number is not None else '')
+        super().mouseMoveEvent(event)
     def mousePressEvent(self, event):
+        if event.button()!=Qt.MouseButton.LeftButton:return super().mousePressEvent(event)
         for target, number in getattr(self.editor, 'task_targets', []):
             if target.contains(event.position()+self.pos()):self.editor.toggle_task(number);return
-        block = self.editor.firstVisibleBlock()
-        while block.isValid():
-            top = self.editor.blockBoundingGeometry(block).translated(self.editor.contentOffset()).top()
-            height = self.editor.blockBoundingRect(block).height()
-            if top <= event.position().y() < top+height:
-                self.editor.toggle_fold(block.blockNumber());return
-            block = block.next()
+        number=self.editor.fold_number_at(event.position())
+        if number is not None:self.editor.toggle_fold(number);event.accept();return
+        super().mousePressEvent(event)
 
 
 class Markers(QWidget):
@@ -334,10 +338,27 @@ class SourceView(QTextEdit):
         self.viewport().update();self.gutter.update();self.markers.update()
 
     def resizeEvent(self, event):
-        super().resizeEvent(event)
         if hasattr(self, 'gutter'):self.update_measure()
+        super().resizeEvent(event)
+
+    def fold_control_rect(self,block):
+        top=self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
+        line=block.layout().lineAt(0) if block.layout().lineCount() else None
+        center=top+(line.y()+line.height()/2 if line else self.fontMetrics().height()/2)
+        return QRectF(self.gutter.width()-20,center-9,18,18)
+
+    def fold_number_at(self,point):
+        block=self.firstVisibleBlock()
+        while block.isValid():
+            if self.blockBoundingGeometry(block).translated(self.contentOffset()).top()>self.viewport().height():break
+            number=block.blockNumber()
+            if block.isVisible() and number<len(self.lines) and self.fold_end(number)>number+1:
+                if self.fold_control_rect(block).adjusted(-2,-3,2,3).contains(point):return number
+            block=block.next()
+        return None
 
     def paint_gutter(self, event):
+        from .ui_icons import icon
         painter = QPainter(self.gutter);painter.setPen(QColor(self.tokens()['secondary']))
         painter.setFont(self.font())
         block = self.firstVisibleBlock()
@@ -348,10 +369,7 @@ class SourceView(QTextEdit):
                 number = block.blockNumber()
                 if self.surface.preferences.get('line_numbers'):painter.drawText(3, int(top)+self.fontMetrics().ascent(), str(number+1))
                 if number < len(self.lines) and self.fold_end(number) > number+1:
-                    line=block.layout().lineAt(0) if block.layout().lineCount() else None
-                    x = self.gutter.width()-12;y = int(top+(line.height()/2 if line else 9))
-                    if number in self.folded:painter.drawLine(x, y-3, x+3, y);painter.drawLine(x+3, y, x, y+3)
-                    else:painter.drawLine(x-2, y-2, x+1, y+1);painter.drawLine(x+1, y+1, x+4, y-2)
+                    icon('chevron-right' if number in self.folded else 'chevron-down',self.tokens()['secondary']).paint(painter,self.fold_control_rect(block).toRect())
             block = block.next()
 
     def keyPressEvent(self, event):

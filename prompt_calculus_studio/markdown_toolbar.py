@@ -91,7 +91,7 @@ def make_toolbar(surface):
     bar.ribbon_style = RibbonStyle(QStyleFactory.create(QApplication.style().objectName()) or QStyleFactory.create('Fusion'))
     bar.ribbon_style.setParent(bar)
     bar.setStyle(bar.ribbon_style)
-    bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    bar.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
     surface.format_actions = {}
 
     def action(label, symbol, callback=None, menu=None, key=None):

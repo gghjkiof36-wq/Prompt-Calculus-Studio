@@ -134,10 +134,11 @@ def shell_color(settings):
     """Tint the native material without making text surfaces translucent."""
     t = visual_tokens(settings)
     material = settings.get('material', 'solid')
-    if material not in ('mica', 'acrylic'):
+    if material not in ('mica', 'acrylic', 'clear'):
         return t['chrome_solid']
     value = max(0, min(100, settings.get(material+'_transparency', 61)))
     rgb = ','.join(str(int(t['chrome'][i:i+2], 16)) for i in (1,3,5))
+    if material == 'clear':return f'rgba({rgb},{round(255*(1-value/100))})'
     # A desktop backdrop needs a strong tint even at the top of this range.
     # Using 0..255 alpha exposed bright backgrounds and flattened the chrome.
     return f'rgba({rgb},{round(255-0.55*value)})'
@@ -388,7 +389,7 @@ def apply_backdrop(window, material, settings=None):
         color=tokens['line']
         border=ctypes.c_uint(int(color[5:7]+color[3:5]+color[1:3],16))
         dwm.DwmSetWindowAttribute(hwnd,34,ctypes.byref(border),ctypes.sizeof(border))
-        kind = ctypes.c_int({"solid":1,"mica":2,"acrylic":3}[material])
+        kind = ctypes.c_int({"solid":1,"clear":1,"mica":2,"acrylic":3}[material])
         result = dwm.DwmSetWindowAttribute(hwnd,38,ctypes.byref(kind),ctypes.sizeof(kind))
         class Margins(ctypes.Structure):
             _fields_ = [(n,ctypes.c_int) for n in ("left","right","top","bottom")]
@@ -399,8 +400,8 @@ def apply_backdrop(window, material, settings=None):
         from PySide6.QtCore import Qt
         expanded=bool(handle and handle.flags() & Qt.WindowType.ExpandedClientAreaHint)
         margins = Margins(-1,-1,-1,-1) if material != "solid" or expanded else Margins(0,0,0,0)
-        dwm.DwmExtendFrameIntoClientArea(hwnd,ctypes.byref(margins))
-        return result == 0
+        extended = dwm.DwmExtendFrameIntoClientArea(hwnd,ctypes.byref(margins))
+        return result == 0 and extended == 0
     except (OSError, AttributeError):
         return False
 

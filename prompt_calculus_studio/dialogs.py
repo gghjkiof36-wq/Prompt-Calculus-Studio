@@ -224,11 +224,11 @@ class SettingsDialog(StudioDialog):
         self.visual_palette.setCurrentIndex(max(0,self.visual_palette.findData(s.get('visual_palette','graphite'))))
         form.addRow('配色',self.visual_palette)
         self.material = QComboBox()
-        for text,value in [("實色","solid"),("Mica · 桌布色調","mica"),("Acrylic · 背景模糊","acrylic")]: self.material.addItem(text,value)
+        for text,value in [("實色","solid"),("Mica · 桌布色調","mica"),("Acrylic · 背景模糊","acrylic"),("透明 · 清晰背景","clear")]: self.material.addItem(text,value)
         self.material.setCurrentIndex(self.material.findData(s["material"]))
         form.addRow("視窗材質",self.material)
         self.material_form=form
-        self.transparency_values={k:s.get(k+'_transparency',61) for k in ('mica','acrylic')}
+        self.transparency_values={k:s.get(k+'_transparency',DEFAULT_SETTINGS[k+'_transparency']) for k in ('mica','acrylic','clear')}
         self.transparency_material=self.material.currentData()
         self.transparency_row=QWidget(); transparency_layout=row()
         transparency_layout.setContentsMargins(0,0,0,0); self.transparency_row.setLayout(transparency_layout)
@@ -241,10 +241,10 @@ class SettingsDialog(StudioDialog):
         self.transparency_value.setValue(self.transparency.value())
         transparency_layout.addWidget(self.transparency,1); transparency_layout.addWidget(self.transparency_value)
         form.addRow("視窗透明度",self.transparency_row)
-        self.transparency.setToolTip("調整周邊底色遮罩；數值越高，材質色調越明顯，不影響文字區。")
+        self.transparency.setToolTip("數值越高，周邊底色越淡。透明材質可直接看見後方內容；Acrylic 保留模糊。文字區維持實色。")
         self.transparency.valueChanged.connect(self.transparency_value.setValue)
         self.transparency_value.valueChanged.connect(self.transparency.setValue)
-        form.setRowVisible(self.transparency_row,self.material.currentData() in ('mica','acrylic'))
+        form.setRowVisible(self.transparency_row,self.material.currentData() in self.transparency_values)
         self.menu_transparency_row=QWidget();menu_transparency_layout=row()
         menu_transparency_layout.setContentsMargins(0,0,0,0);self.menu_transparency_row.setLayout(menu_transparency_layout)
         self.menu_transparency=QSlider(Qt.Orientation.Horizontal);self.menu_transparency.setRange(0,40)
@@ -300,7 +300,7 @@ class SettingsDialog(StudioDialog):
                 alignment.addWidget(control);alignment.addStretch()
                 form.setWidget(index,QFormLayout.ItemRole.FieldRole,holder)
                 if control is self.transparency_row:self.transparency_holder=holder
-        self.material_form.setRowVisible(self.transparency_holder,self.material.currentData() in ('mica','acrylic'))
+        self.material_form.setRowVisible(self.transparency_holder,self.material.currentData() in self.transparency_values)
         self.transparency_row.show()
         appearance_layout.addStretch()
         appearance.align_fields()
@@ -345,7 +345,7 @@ class SettingsDialog(StudioDialog):
             self.transparency.blockSignals(True); self.transparency_value.blockSignals(True)
             self.transparency.setValue(self.transparency_values.get(material,61)); self.transparency_value.setValue(self.transparency.value())
             self.transparency.blockSignals(False); self.transparency_value.blockSignals(False); self.transparency_material=material
-        self.material_form.setRowVisible(self.transparency_holder,material in ('mica','acrylic'))
+        self.material_form.setRowVisible(self.transparency_holder,material in self.transparency_values)
         self.window.appearance_preview=dict(material=material,menu_transparency=self.menu_transparency.value(),**{k+'_transparency':v for k,v in self.transparency_values.items()})
         self.window.update_material_preview()
         from .popup_surface import refresh_popup_surfaces
@@ -370,7 +370,7 @@ class SettingsDialog(StudioDialog):
             self.window.canvas.undo_stack.clear(); self.window.canvas.redo_stack.clear()
         self.window.state["settings"].update(ui_size=self.ui_size.value(),prompt_size=self.prompt_size.value(),
             font_family=self.family.currentFont().family(),material=self.material.currentData(),visual_palette=self.visual_palette.currentData(),accent=self.accent.currentData(),
-            acrylic_transparency=self.transparency_values['acrylic'],mica_transparency=self.transparency_values['mica'],menu_transparency=self.menu_transparency.value(),confirm_clear_draft=self.confirm_clear_draft.isChecked(),reduce_motion=self.reduce_motion.isChecked(),
+            acrylic_transparency=self.transparency_values['acrylic'],mica_transparency=self.transparency_values['mica'],clear_transparency=self.transparency_values['clear'],menu_transparency=self.menu_transparency.value(),confirm_clear_draft=self.confirm_clear_draft.isChecked(),reduce_motion=self.reduce_motion.isChecked(),
             connection_style=self.connection_style.currentData(),hide_connections=self.hide_connections.isChecked(),density=self.density.currentData(),online=self.online.isChecked(),translator=self.translator.currentData(),
             formatter=self.formatter.currentData(),artist_prefix=self.artist.isChecked())
         self.dictionary_feedback.setText('' if valid else '尚未套用：每行請使用「中文 = 英文」格式。輸入內容已暫存。')

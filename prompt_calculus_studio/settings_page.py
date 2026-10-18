@@ -367,7 +367,7 @@ class SettingsPage(QWidget):
 
     def reset_appearance(self,restore=False):
         from .core import DEFAULT_SETTINGS
-        keys=('font_family','ui_size','prompt_size','material','visual_palette','accent','density','mica_transparency','acrylic_transparency','menu_transparency','reduce_motion','connection_style','confirm_clear_draft')
+        keys=('font_family','ui_size','prompt_size','material','visual_palette','accent','density','mica_transparency','acrylic_transparency','clear_transparency','menu_transparency','reduce_motion','connection_style','confirm_clear_draft')
         workspace=getattr(self.window,'workspace_owner',None)
         defaults=workspace.default_settings if workspace is not None else DEFAULT_SETTINGS
         values=self.entry_appearance if restore else defaults

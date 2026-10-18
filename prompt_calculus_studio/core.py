@@ -18,7 +18,7 @@ DEFAULT_SETTINGS = dict(ui_size=11, prompt_size=12, density="comfortable",
                         context_sidebar_width=240, gallery_columns=12,
                         separate_selections=True, interface_mode='ask', connection_style='curve',reduce_motion=False,hide_connections=False,
                         material="mica", visual_palette="graphite", accent="neutral", online=True, search_cache=True,
-                        acrylic_transparency=61, mica_transparency=61, menu_transparency=6, confirm_clear_draft=True,
+                        acrylic_transparency=61, mica_transparency=61, clear_transparency=20, menu_transparency=6, confirm_clear_draft=True,
                         formatter="spaces", artist_prefix=True, translator="dictionary",
                         font_family="Microsoft JhengHei UI", model_root="", model_categories=["畫風", "角色", "背景", "其他"])
 DEFAULT_DICTIONARY = {
@@ -143,7 +143,7 @@ def validate_state(state):
             any(not isinstance(mid,str) or mid not in set(modules)|set(state.get('uses',{}))|{TEMPORARY_GROUP} for mid in order) or
             len(order)!=len(set(order))):
         raise ValueError("輸出群組順序無效。")
-    for key, allowed in {"density":("comfortable","compact"), "material":("solid","mica","acrylic"),
+    for key, allowed in {"density":("comfortable","compact"), "material":("solid","mica","acrylic","clear"),
                          "accent":("neutral","blue","green"), "visual_palette":('graphite','mist','paper'), "formatter":("spaces","original"),
                          "translator":("dictionary","google"), "interface_mode":('ask','list','canvas'),
                          "connection_style":('curve','straight','orthogonal')}.items():
@@ -163,7 +163,7 @@ def validate_state(state):
     if 'comfy_url' in settings: local_address(settings['comfy_url'])
     if type(settings.get('comfy_enabled',False)) is not bool: raise ValueError('ComfyUI 連線設定必須是布林值。')
     if type(count) is not int or not 1<=count<=100: raise ValueError('運行次數須介於 1–100。')
-    for material in ('acrylic','mica'):
+    for material in ('acrylic','mica','clear'):
         transparency=settings.get(material+'_transparency',DEFAULT_SETTINGS[material+'_transparency'])
         if type(transparency) is not int or not 0 <= transparency <= 100:
             raise ValueError("透明度必須介於 0 和 100%。")

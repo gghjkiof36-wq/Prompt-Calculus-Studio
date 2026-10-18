@@ -71,11 +71,15 @@ class WindowChromeTests(unittest.TestCase):
         window.close()
 
     def test_solid_material_does_not_reset_the_expanded_frame(self):
-        margins=[]
+        margins=[];kinds=[]
         def extend(_hwnd,pointer):
             value=pointer._obj
             margins.append((value.left,value.right,value.top,value.bottom))
-        dwm=SimpleNamespace(DwmSetWindowAttribute=lambda *args:0,
+            return 0
+        def attribute(_hwnd,key,pointer,_size):
+            if key==38:kinds.append(pointer._obj.value)
+            return 0
+        dwm=SimpleNamespace(DwmSetWindowAttribute=attribute,
                             DwmExtendFrameIntoClientArea=extend)
         window=QMainWindow();window.winId()
         with patch('PySide6.QtGui.QGuiApplication.platformName',return_value='windows'), \
@@ -86,9 +90,12 @@ class WindowChromeTests(unittest.TestCase):
             self.assertEqual(margins[-1],(0,0,0,0))
             with patch('prompt_calculus_studio.window_chrome.supported',return_value=True):
                 install_expanded_chrome(window)
-            for material in ('solid','mica','acrylic','solid'):
+            for material in ('solid','mica','acrylic','clear','solid'):
                 self.assertTrue(apply_backdrop(window,material,{}))
                 self.assertEqual(margins[-1],(-1,-1,-1,-1))
+            self.assertEqual(kinds,[1,1,2,3,1,1])
+            dwm.DwmExtendFrameIntoClientArea=lambda *_:-1
+            self.assertFalse(apply_backdrop(window,'clear',{}))
         window.close()
 
     def test_unsupported_platform_does_not_create_native_window(self):
