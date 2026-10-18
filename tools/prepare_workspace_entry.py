@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 
-def prepare(root, data, screenshot):
+def prepare(root, data, screenshot, split=False):
     os.environ['QT_QPA_PLATFORM'] = 'offscreen'
     os.environ['PROMPT_STUDIO_DATA'] = str(data)
     from PySide6.QtGui import QFont, QFontDatabase
@@ -20,14 +20,17 @@ def prepare(root, data, screenshot):
         QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+name)
     app.setFont(QFont('Microsoft JhengHei UI', 12))
     w = WorkspaceShell(root, data)
-    w.split_ratio = .75
+    if split:
+        w.split_ratio = .75
     tab = w.open_path(root/'街景.pcs-workflow')
-    w.open_path(root/'筆記/場景筆記.md', pane=w.ensure_split())
+    if split:
+        w.open_path(root/'筆記/場景筆記.md', pane=w.ensure_split())
     w.focus_tab(tab)
     w.show()
     for _ in range(5):app.processEvents()
-    w.pane_split.setSizes([750, 250])
-    w.remember_ratio()
+    if split:
+        w.pane_split.setSizes([750, 250])
+        w.remember_ratio()
     for _ in range(3):app.processEvents()
     canvas = tab.host.canvas
     before = copy.deepcopy(tab.host.state)
@@ -103,7 +106,7 @@ def prepare(root, data, screenshot):
         (screenshot.parent/'state-before.json').write_text(json.dumps(before, ensure_ascii=False, indent=2), encoding='utf-8')
         (screenshot.parent/'state-after.json').write_text(json.dumps(after, ensure_ascii=False, indent=2), encoding='utf-8')
         raise AssertionError('Unexpected non-layout state change')
-    result = dict(platform=app.platformName(), ratio=w.split_ratio,
+    result = dict(platform=app.platformName(), panes=len(w.panes), ratio=w.split_ratio,
                   nodes=len(positions)+len(containers), content_unchanged=True,
                   screenshot=str(screenshot))
     (screenshot.parent/'entry-layout.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
@@ -116,5 +119,7 @@ if __name__ == '__main__':
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--data', type=Path, required=True)
     parser.add_argument('--screenshot', type=Path, required=True)
+    parser.add_argument('--split', action='store_true',
+                        help='Explicitly prepare the optional Canvas/notes split; default is one Canvas.')
     args = parser.parse_args()
-    prepare(args.root.resolve(), args.data.resolve(), args.screenshot.resolve())
+    prepare(args.root.resolve(), args.data.resolve(), args.screenshot.resolve(), args.split)
