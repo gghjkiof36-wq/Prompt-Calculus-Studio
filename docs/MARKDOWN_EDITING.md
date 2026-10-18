@@ -50,7 +50,7 @@ drawn task-checkbox images. No file or remote attachment is fetched by B.
 
 The three views share content/history and retain independent pane positions and
 modes. Switching modes does not edit the document. Personal reading preferences
-are stored separately from source. The compact toolbar has native overflow and a
+are stored separately from source. The compact toolbar uses slightly wider targets and a responsive floating icon grid for overflow. The view selector is an accessible icon button with named choices. It has a
 keyboard entry (`Alt+F10`, `Esc` to return). Find/replace and command palette are
 document-local; reading can search but cannot replace. The outline navigates and
 reorders sections through one source transaction.

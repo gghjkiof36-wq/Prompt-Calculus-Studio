@@ -56,16 +56,15 @@ class MarkdownSurface(QWidget):
         self.breadcrumb.setMinimumWidth(0);heading.addWidget(self.breadcrumb)
         page.file_title.setParent(top);page.file_title.setObjectName('MarkdownFileTitle')
         heading.addWidget(page.file_title, 1)
-        self.mode_box = QComboBox();self.mode_box.addItems(['編寫', '原文', '閱讀'])
-        self.mode_box.setAccessibleName('文件視圖');self.mode_box.setMinimumWidth(84)
-        self.mode_box.currentIndexChanged.connect(lambda i:self.set_mode(('write', 'source', 'read')[i]))
+        self.mode_box = self.tool('編寫 · 切換文件視圖', self.mode_menu, 'pencil')
+        self.mode_box.setObjectName('MarkdownMode')
         heading.addWidget(self.mode_box)
         self.view_tools = self.tool('搜尋、大綱與編輯偏好', self.view_menu, 'more-horizontal')
         self.view_tools.setObjectName('MarkdownViewTools')
         heading.addWidget(self.view_tools)
         body.addWidget(top)
         self.toolbar_host = QWidget(self)
-        tools_layout = QHBoxLayout(self.toolbar_host);tools_layout.setContentsMargins(16, 2, 16, 7)
+        tools_layout = QHBoxLayout(self.toolbar_host);tools_layout.setContentsMargins(12, 2, 12, 7)
         self.toolbar = make_toolbar(self);tools_layout.addWidget(self.toolbar)
         self.toolbar_shadow = QGraphicsDropShadowEffect(self.toolbar)
         self.toolbar_shadow.setOffset(0, 3);self.toolbar_shadow.setBlurRadius(12)
@@ -145,20 +144,24 @@ class MarkdownSurface(QWidget):
         self.setStyleSheet(f'''QWidget#MarkdownSurface {{background:transparent;}}
             QWidget#MarkdownToolbar QToolButton {{padding:1px;min-width:0;min-height:0;border:1px solid transparent;border-radius:4px;background:transparent;}}
             QWidget#MarkdownToolbar QToolButton:hover {{background:{t['hover']};}}
-            QWidget#MarkdownToolbar QToolButton#MarkdownViewTools {{min-width:24px;max-width:24px;}}
+            QWidget#MarkdownToolbar QToolButton#MarkdownViewTools, QWidget#MarkdownToolbar QToolButton#MarkdownMode {{min-width:24px;max-width:24px;}}
             QWidget#MarkdownToolbar QToolButton:focus {{border-color:{t['accent']};}}
             QWidget#MarkdownToolbar QComboBox {{background:transparent;border:0;padding:3px 23px 3px 6px;min-height:26px;}}
             QWidget#MarkdownToolbar QComboBox::drop-down {{width:20px;border:0;}}
             QLabel#MarkdownBreadcrumb {{color:{t['secondary']};font-weight:400;font-size:14px;}}
             QLabel#MarkdownFileTitle {{font-weight:400;font-size:14px;}}
-            QToolBar#MarkdownRibbon {{background:{rgba(fill)};border:1px solid {rgba(edge)};border-top-color:{rgba(top_edge)};border-radius:7px;padding:2px;spacing:1px;}}
-            QToolBar#MarkdownRibbon QToolButton {{background:transparent;border:1px solid transparent;border-radius:4px;padding:1px;min-width:22px;min-height:22px;}}
+            QToolBar#MarkdownRibbon {{background:{rgba(fill)};border:1px solid {rgba(edge)};border-top-color:{rgba(top_edge)};border-radius:7px;padding:2px;spacing:2px;}}
+            QToolBar#MarkdownRibbon QToolButton, QFrame#MarkdownOverflow QToolButton {{background:transparent;border:1px solid transparent;border-radius:4px;padding:2px;min-width:24px;min-height:24px;}}
             QToolBar#MarkdownRibbon QToolButton:hover {{background:{t['hover']};}}
             QToolBar#MarkdownRibbon QToolButton:checked {{background:{t['selected']};}}
             QToolBar#MarkdownRibbon QToolButton:pressed {{background:{t['selected']};}}
             QToolBar#MarkdownRibbon QToolButton:focus {{border-color:{t['accent']};}}
-            QToolBar#MarkdownRibbon QToolButton#qt_toolbar_ext_button {{min-width:25px;max-width:25px;padding:1px;border-radius:4px;}}
+            QToolBar#MarkdownRibbon QToolButton#qt_toolbar_ext_button {{min-width:27px;max-width:27px;padding:2px;border-radius:4px;}}
             QToolBar#MarkdownRibbon::separator {{width:6px;background:transparent;}}
+            QFrame#MarkdownOverflow {{background:{t['surface']};border:1px solid {rgba(top_edge)};border-radius:7px;}}
+            QFrame#MarkdownOverflow QToolButton:hover {{background:{t['hover']};}}
+            QFrame#MarkdownOverflow QToolButton:checked {{background:{t['selected']};}}
+            QFrame#MarkdownOverflow QToolButton:focus {{border-color:{t['accent']};}}
             QWidget#MarkdownFind QToolButton, QWidget#MarkdownCommands QToolButton {{padding:2px 6px;min-width:0;min-height:0;border-radius:4px;}}
             QWidget#MarkdownFind QToolButton:focus, QWidget#MarkdownCommands QToolButton:focus {{border-color:{t['accent']};}}
             QListWidget#MarkdownOutline {{border:0;background:transparent;padding:8px;}}
@@ -244,10 +247,19 @@ class MarkdownSurface(QWidget):
 
     def set_preference(self, key, value):self.preferences[key] = value;self.save_preferences()
 
+    def mode_menu(self):
+        menu=QMenu(self)
+        for key,label,symbol in [('write','編寫','pencil'),('source','原文','source-code'),('read','閱讀','book-open')]:
+            action=menu.addAction(icon(symbol),label,lambda value=key:self.set_mode(value))
+            action.setCheckable(True);action.setChecked(self.mode==key)
+        menu.exec(self.mode_box.mapToGlobal(self.mode_box.rect().bottomLeft()))
+
     def set_mode(self, mode):
-        if self.page.buffer.composing:self.report('請先完成目前的中文組字。');self.mode_box.blockSignals(True);self.mode_box.setCurrentIndex(('write','source','read').index(self.mode));self.mode_box.blockSignals(False);return
+        if self.page.buffer.composing:self.report('請先完成目前的中文組字。');return
         if mode not in ('write', 'source', 'read'):return
-        self.mode = mode;self.mode_box.blockSignals(True);self.mode_box.setCurrentIndex(('write','source','read').index(mode));self.mode_box.blockSignals(False)
+        self.mode = mode
+        label,symbol={'write':('編寫','pencil'),'source':('原文','source-code'),'read':('閱讀','book-open')}[mode]
+        self.mode_box.setIcon(icon(symbol));self.mode_box.setToolTip(label+' · 切換文件視圖');self.mode_box.setAccessibleName(label+' · 切換文件視圖')
         self.toolbar_host.setVisible(mode != 'read');self.replace_row.setVisible(False)
         self.outline.setDragEnabled(mode != 'read')
         if mode == 'read':self.reader.refresh();self.stack.setCurrentWidget(self.reader);self.reader.setFocus()
@@ -383,7 +395,9 @@ class MarkdownSurface(QWidget):
             if value.isValid():self.format_selection({'background' if background else 'color': value.name()})
         menu.addAction('自訂顏色…', custom)
         button=self.toolbar.widgetForAction(self.format_actions['background' if background else 'color'])
-        anchor=button if button and button.isVisible() else self.view_tools
+        panel=self.toolbar.panel
+        popup_button=next((b for b in panel.buttons if b.defaultAction() is self.format_actions['background' if background else 'color']),None) if panel and panel.isVisible() else None
+        anchor=popup_button or (button if button and button.isVisible() else self.view_tools)
         menu.exec(anchor.mapToGlobal(anchor.rect().bottomLeft()))
 
     def format_menu(self):

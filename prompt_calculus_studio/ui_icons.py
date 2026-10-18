@@ -26,7 +26,7 @@ ICON_NAMES = frozenset({
     'folder','plus','minus','copy','trash','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal','fold-all','unfold-all',
     'panel-left','type','file-text','list-ordered','arrow-down-up','arrow-up','arrow-down','shuffle','image-single','scan-eye','link-2','maximize','grip-vertical',
     'text-bold','text-italic','text-underline','text-strike','text-color','highlight',
-    'heading','quote','align','indent','outdent','eraser','edit-undo','edit-redo','task',
+    'heading','quote','align','indent','outdent','eraser','edit-undo','edit-redo','task','book-open','source-code',
 })
 MODE_ICONS={'fixed':'pin','increment':'arrow-up','decrement':'arrow-down','random':'shuffle'}
 _STYLE_RESOURCES = {}
@@ -235,6 +235,10 @@ def _draw(painter, name, filled=False):
         if name == 'pin-filled': painter.setBrush(painter.pen().color())
         poly((8,3),(16,3),(15,10),(18,14),(6,14),(9,10),closed=True)
         line(12,14,12,21)
+    elif name == 'book-open':
+        poly((12,6),(8,4),(3,4),(3,19),(8,19),(12,21),(16,19),(21,19),(21,4),(16,4),(12,6));line(12,6,12,21)
+    elif name == 'source-code':
+        poly((7,6),(2,12),(7,18));poly((17,6),(22,12),(17,18));line(14,4,10,20)
     elif name == 'pencil':
         poly((4,15),(15,4),(20,9),(9,20),(3,21),closed=True)
         line(12,7,17,12);line(4,15,9,20)

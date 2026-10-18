@@ -1,28 +1,92 @@
 """A native, overflowing document ribbon; all entries perform real B actions."""
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QEvent, QPoint, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (QToolBar, QToolButton, QMenu, QSizePolicy,
-    QProxyStyle, QStyle, QStyleFactory, QApplication)
+    QProxyStyle, QStyle, QStyleFactory, QApplication, QFrame, QGridLayout)
 from .ui_icons import icon
 
 
 class RibbonStyle(QProxyStyle):
     """Keep the native overflow menu, with the same target as other tools."""
     def pixelMetric(self, metric, option=None, widget=None):
-        if metric == QStyle.PixelMetric.PM_ToolBarExtensionExtent:return 29
+        if metric == QStyle.PixelMetric.PM_ToolBarExtensionExtent:return 33
         return super().pixelMetric(metric, option, widget)
 
 
+class OverflowPanel(QFrame):
+    def __init__(self, bar):
+        super().__init__(bar, Qt.WindowType.Popup)
+        self.bar = bar
+        self.setObjectName('MarkdownOverflow')
+        self.setAccessibleName('更多文件工具')
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(8, 8, 8, 8);self.grid.setSpacing(4)
+        self.buttons = []
+
+    def eventFilter(self, watched, event):
+        keys=(Qt.Key.Key_Escape,Qt.Key.Key_Left,Qt.Key.Key_Right,Qt.Key.Key_Up,Qt.Key.Key_Down)
+        if event.type() == QEvent.Type.ShortcutOverride and event.key() in keys:
+            event.accept();return True
+        if event.type() == QEvent.Type.KeyPress and event.key() in keys:
+            self.keyPressEvent(event);return True
+        return super().eventFilter(watched,event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.hide();QTimer.singleShot(0,self.bar.surface.focus_document);event.accept();return
+        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
+            current = next((i for i,b in enumerate(self.buttons) if b.hasFocus()), 0)
+            step = {Qt.Key.Key_Left:-1,Qt.Key.Key_Right:1,Qt.Key.Key_Up:-self.columns,Qt.Key.Key_Down:self.columns}[event.key()]
+            self.buttons[(current+step)%len(self.buttons)].setFocus();event.accept();return
+        super().keyPressEvent(event)
+
+
+class MarkdownRibbon(QToolBar):
+    def __init__(self, surface):
+        super().__init__(surface);self.surface=surface;self.panel=None
+
+    def eventFilter(self, watched, event):
+        if watched.objectName() == 'qt_toolbar_ext_button':
+            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                self.show_overflow();return True
+            if event.type() == QEvent.Type.MouseButtonRelease:return True
+            if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Space,Qt.Key.Key_Return,Qt.Key.Key_Enter,Qt.Key.Key_Down):
+                self.show_overflow();return True
+        return super().eventFilter(watched,event)
+
+    def show_overflow(self):
+        if self.panel:self.panel.hide();self.panel.deleteLater()
+        hidden = [a for a in self.actions() if not a.isSeparator() and a.isVisible()
+                  and self.widgetForAction(a) and not self.widgetForAction(a).isVisible()]
+        if not hidden:return
+        panel=self.panel=OverflowPanel(self)
+        panel.columns=max(1,min(7,(self.width()-20)//38,len(hidden)))
+        for index,action in enumerate(hidden):
+            button=QToolButton(panel);button.setDefaultAction(action);button.setFixedSize(34,34)
+            button.setIconSize(QSize(19,19));button.setAccessibleName(action.text())
+            button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            button.installEventFilter(panel)
+            if action.menu():button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            else:button.clicked.connect(panel.hide)
+            panel.grid.addWidget(button,index//panel.columns,index%panel.columns);panel.buttons.append(button)
+        panel.adjustSize()
+        pos=self.mapToGlobal(QPoint(self.width()-panel.width(),self.height()+5))
+        screen=self.screen().availableGeometry()
+        pos.setX(max(screen.left(),min(pos.x(),screen.right()-panel.width()+1)))
+        pos.setY(max(screen.top(),min(pos.y(),screen.bottom()-panel.height()+1)))
+        panel.move(pos);panel.show();panel.buttons[0].setFocus()
+
+
 def make_toolbar(surface):
-    bar = QToolBar(surface)
+    bar = MarkdownRibbon(surface)
     bar.setObjectName('MarkdownRibbon')
     bar.setAccessibleName('文件格式工具列')
     bar.setMovable(False)
     bar.setFloatable(False)
-    bar.setIconSize(QSize(18, 18))
+    bar.setIconSize(QSize(19, 19))
     bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
     bar.setMinimumWidth(0)
-    bar.setFixedHeight(35)
+    bar.setFixedHeight(39)
     # The proxy owns its base style; never give it the application's shared one.
     bar.ribbon_style = RibbonStyle(QStyleFactory.create(QApplication.style().objectName()) or QStyleFactory.create('Fusion'))
     bar.ribbon_style.setParent(bar)
@@ -90,4 +154,5 @@ def make_toolbar(surface):
         extension.setAccessibleName('更多工具');extension.setToolTip('更多工具')
         extension.setIcon(icon('chevron-right'))
         extension.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        extension.installEventFilter(bar)
     return bar
