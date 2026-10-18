@@ -15,7 +15,7 @@ from .markdown_syntax import TAG_STYLES,css_style,style_css,display_style
 
 
 def advanced(text):
-    return bool(re.search(r'(?m)^\s*(`{3,}|~{3,}|\|.*\||\$\$)|!\[|\[\^[^]]+\]|%%|(?<!\\)\$[^$\n]+\$|^\s*>\s*\[!',text)
+    return bool(text.startswith('---\n') or re.search(r'\[\[|\]\(|(?m:^\[[^]]+\]:)',text) or re.search(r'(?m)^\s*(`{3,}|~{3,}|\|.*\||\$\$)|!\[|\[\^[^]]+\]|%%|(?<!\\)\$[^$\n]+\$|^\s*>\s*\[!',text)
                 or re.search(r'(?m)^\s*:?-{3,}:?\s*\|',text))
 
 
@@ -43,6 +43,11 @@ class Projection:
     math:list=field(default_factory=list)
     diagrams:list=field(default_factory=list)
     attachments:list=field(default_factory=list)
+    links:list=field(default_factory=list)
+    sources:list=field(default_factory=list)
+    dependencies:set=field(default_factory=set)
+    embedded_count:int=0
+    embedded_bytes:int=0
 
 
 def local_target(target,path,root):
@@ -59,10 +64,35 @@ def local_target(target,path,root):
     except (OSError,ValueError):return None
 
 
-def render(text,path,root,media_renderer=None,hard_breaks=False):
-    result=Projection();path=Path(path);root=Path(root)
+def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_result=None,_trail=(),_origin=None,_offset=0):
+    from .markdown_links import Notes,region
+    from .markdown_properties import frontmatter
+    result=_result or Projection();path=Path(path);root=Path(root);origin=_origin or path
+    notes=notes or Notes(root)
+    result.dependencies.add(path)
+    prefix='' if path==origin and not _trail else 'embed-'+str(len(result.links))+'-'
+    def source_action(line,kind='line'):
+        if not _trail:return f'pcs-action:{kind}/{line}'
+        index=len(result.sources);result.sources.append(dict(path=str(path),line=line+_offset))
+        return f'pcs-action:source/{index}'
+    def link_action(target,wiki=False):
+        index=len(result.links);result.links.append(dict(target=target,path=str(path),wiki=wiki))
+        return f'pcs-action:link/{index}'
+    def wiki_link(state,silent):
+        if not state.src.startswith('[[',state.pos):return False
+        end=state.src.find(']]',state.pos+2)
+        if end<0:return False
+        if not silent:
+            token=state.push('pcs_wiki','',0);token.content=state.src[state.pos+2:end]
+        state.pos=end+2;return True
     md=MarkdownIt('commonmark',{'html':True,'breaks':hard_breaks}).enable(['table','strikethrough'])
     md.use(footnote_plugin).use(dollarmath_plugin,allow_labels=False).use(tasklists_plugin,enabled=False)
+    md.inline.ruler.before('link','pcs_wiki',wiki_link)
+    def wiki_html(self,tokens,i,options,env):
+        target,_,label=tokens[i].content.partition('|')
+        return '<a href="'+link_action(target,True)+'">'+html.escape(label or target)+'</a>'
+    md.add_render_rule('pcs_wiki',wiki_html)
+    md.add_render_rule('link_open',lambda self,tokens,i,options,env:'<a href="'+link_action(tokens[i].attrGet('href') or '')+'">')
     # Comments are recognized by the tokenizer, not removed from fenced/code text.
     def comment(state,silent):
         if not state.src.startswith('%%',state.pos):return False
@@ -99,7 +129,7 @@ def render(text,path,root,media_renderer=None,hard_breaks=False):
             token=state.push('pcs_embed','',0);token.content=state.src[state.pos+3:end]
         state.pos=end+2;return True
     md.inline.ruler.before('image','pcs_embed',wiki_embed)
-    def embed(target,alt=''):
+    def embed(target,alt='',wiki=False):
         # Obsidian dimensions use |width or |widthxheight; the source is untouched.
         width=height=None
         dimensions=re.search(r'\|(\d{1,4})(?:x(\d{1,4}))?$',target)
@@ -109,12 +139,34 @@ def render(text,path,root,media_renderer=None,hard_breaks=False):
         elif re.search(r'\|(\d{1,4})(?:x(\d{1,4}))?$',alt):
             dimensions=re.search(r'\|(\d{1,4})(?:x(\d{1,4}))?$',alt)
             width=int(dimensions.group(1));height=int(dimensions.group(2)) if dimensions.group(2) else None;alt=alt[:dimensions.start()]
-        index=len(result.attachments);local=local_target(target,path,root)
+        elif wiki and '|' in target:target,alt=target.split('|',1)
+        candidates,anchor=notes.resolve(target,path,wiki)
+        local=candidates[0] if len(candidates)==1 else local_target(target,path,root)
+        is_note=(local and local.suffix.lower()=='.md') or not Path(urlsplit(target).path).suffix
+        if is_note and not urlsplit(target).scheme:
+            label=alt or target
+            link='<a class="source" href="'+link_action(target,wiki)+'">'+html.escape(label)+'</a>'
+            if len(candidates)!=1:return '<span class="resource missing">'+link+' · '+('同名筆記，請選擇位置' if candidates else '找不到筆記')+'</span>'
+            identity=(str(local),anchor)
+            if identity in _trail or (local==origin and not anchor) or len(_trail)>=4 or result.embedded_count>=32:
+                return '<span class="resource missing">'+link+' · 循環或多層嵌入，請開啟來源閱讀</span>'
+            result.embedded_count+=1
+            result.dependencies.add(local)
+            try:
+                source=notes.text(local);start,stop=region(source,anchor)
+                size=len(source[start:stop].encode('utf-8'))
+                if size>512*1024 or result.embedded_bytes+size>1024*1024:return '<span class="resource missing">'+link+' · 嵌入內容較長，請開啟來源閱讀</span>'
+                result.embedded_bytes+=size
+                nested=render(source[start:stop],local,root,media_renderer,hard_breaks,notes,_result=result,
+                    _trail=(*_trail,identity),_origin=origin,_offset=source[:start].count('\n')).body
+                return '<div class="note-embed"><header>'+link+'</header>'+nested+'</div>'
+            except (ValueError,OSError) as error:return '<span class="resource missing">'+link+' · '+html.escape(str(error))+'</span>'
+        index=len(result.attachments)
         entry=dict(target=target,path=str(local) if local else None,width=width,height=height,alt=alt)
         result.attachments.append(entry)
         if media_renderer:return media_renderer(entry,index)
         return '<span class="resource">'+html.escape(alt or target)+'</span>'
-    md.add_render_rule('pcs_embed',lambda self,tokens,i,options,env:embed(tokens[i].content))
+    md.add_render_rule('pcs_embed',lambda self,tokens,i,options,env:embed(tokens[i].content,wiki=True))
     md.add_render_rule('image',lambda self,tokens,i,options,env:embed(tokens[i].attrGet('src') or '',tokens[i].content))
     md.add_render_rule('html_inline',lambda self,tokens,i,options,env:safe_tag(tokens[i].content))
     def html_block(self,tokens,i,options,env):
@@ -130,11 +182,11 @@ def render(text,path,root,media_renderer=None,hard_breaks=False):
         token=tokens[i];language=token.info.strip().split(' ')[0];code=token.content
         if language.lower()=='mermaid':
             index=len(result.diagrams);result.diagrams.append(code)
-            return f'<div class="diagram" data-diagram="{index}"></div><a class="source" href="pcs-action:line/{token.map[0]}">編輯圖表原文</a>'
+            return f'<div class="diagram" data-diagram="{index}"></div><a class="source" href="{source_action(token.map[0])}">編輯圖表原文</a>'
         index=len(result.codes);result.codes.append(code)
         try:painted=highlight(code,get_lexer_by_name(language),HtmlFormatter(nowrap=True)) if language else html.escape(code)
         except Exception:painted=html.escape(code)
-        return f'<section class="code"><header>{html.escape(language or "純文字")}<a href="pcs-action:copy/{index}">複製程式碼</a><a href="pcs-action:line/{token.map[0]}">編輯</a></header><pre><code>{painted}</code></pre></section>'
+        return f'<section class="code"><header>{html.escape(language or "純文字")}<a href="pcs-action:copy/{index}">複製程式碼</a><a href="{source_action(token.map[0])}">編輯</a></header><pre><code>{painted}</code></pre></section>'
     md.add_render_rule('fence',fence)
     def math_render(block):
         def inner(self,tokens,i,options,env):
@@ -145,7 +197,7 @@ def render(text,path,root,media_renderer=None,hard_breaks=False):
     md.add_render_rule('math_inline',math_render(False));md.add_render_rule('math_block',math_render(True))
     def table_open(self,tokens,i,options,env):
         line=tokens[i].map[0]
-        return f'<a class="source" href="pcs-action:table/{line}">編輯表格</a><table id="line-{line}">'
+        return f'<a class="source" href="{source_action(line,"table")}">編輯表格</a><table id="{prefix}line-{line}">'
     md.add_render_rule('table_open',table_open)
     footnote_anchor=md.renderer.rules['footnote_anchor']
     def note_back(self,tokens,i,options,env):
@@ -153,10 +205,16 @@ def render(text,path,root,media_renderer=None,hard_breaks=False):
         label=env.get('footnotes',{}).get('list',{}).get(tokens[i].meta['id'],{}).get('label')
         if label:
             match=re.search(r'(?m)^\[\^'+re.escape(label)+r'\]:',text)
-            if match:anchor+=f' <a class="source" href="pcs-action:line/{text[:match.start()].count(chr(10))}">編輯腳註</a>'
+            if match:anchor+=f' <a class="source" href="{source_action(text[:match.start()].count(chr(10)))}">編輯腳註</a>'
         return anchor
     md.add_render_rule('footnote_anchor',note_back)
-    env={};tokens=md.parse(text,env);stack=[]
+    front_end,properties,_=frontmatter(text)
+    rendered_text='\n'*text[:front_end].count('\n')+text[front_end:]
+    # Block IDs are anchors, not visible prose. Keep source line numbering.
+    from .markdown_links import prose_mask
+    for marker in reversed(list(re.finditer(r'(?m)(?:^|[ \t])\^[A-Za-z0-9-]+[ \t]*$',prose_mask(rendered_text)))):
+        rendered_text=rendered_text[:marker.start()]+rendered_text[marker.end():]
+    env={};tokens=md.parse(rendered_text,env);stack=[]
     for i,token in enumerate(tokens):
         if token.type=='blockquote_open':
             callout=None
@@ -180,6 +238,10 @@ def render(text,path,root,media_renderer=None,hard_breaks=False):
     body=[];seen=set()
     for token in tokens:
         if token.map and token.nesting!=-1 and token.map[0] not in seen:
-            seen.add(token.map[0]);token.attrSet('id','line-'+str(token.map[0]))
-    result.body=md.renderer.render(tokens,md.options,env)
+            seen.add(token.map[0]);token.attrSet('id',prefix+'line-'+str(token.map[0]))
+    props=''
+    if properties and not _trail:
+        rows=''.join('<dt>'+html.escape(p.name)+'</dt><dd>'+html.escape(', '.join(p.value) if isinstance(p.value,list) else str(p.value if p.editable else '複合值 · 原文保留'))+'</dd>' for p in properties)
+        props='<details class="note-properties"><summary>屬性</summary><dl>'+rows+'</dl></details>'
+    result.body=props+md.renderer.render(tokens,md.options,env)
     return result

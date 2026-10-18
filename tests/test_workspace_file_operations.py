@@ -341,7 +341,7 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
         self.assertTrue(self.w.save_tab(a))
         self.assertEqual(a.path.read_text(), 'one')
 
-    def test_move_rejects_cross_root_self_child_collision_and_broken_markdown_reference(self):
+    def test_move_rejects_cross_root_self_child_collision_and_updates_markdown_reference(self):
         tab = self.open()
         outside = self.root.parent/'Outside'
         outside.mkdir()
@@ -356,11 +356,12 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
         tab.widget.document().setModified(True)
         destination = self.root/'Destination'
         destination.mkdir()
-        self.assertIsNone(self.execute('move', tab, directory=destination))
-        self.assertIsNone(self.execute('save_as', tab, name='Copy', directory=destination))
-        self.assertEqual(tab.path, self.root/'Notes.md')
+        self.assertEqual(self.execute('move', tab, directory=destination),destination/'Notes.md')
+        self.assertEqual(tab.widget.toPlainText(),'![local](../picture.png)')
         self.assertTrue(tab.dirty)
-        self.assertFalse((destination/'Copy.md').exists())
+        self.assertEqual(self.execute('save_as', tab, name='Copy', directory=destination),destination/'Copy.md')
+        self.assertEqual((destination/'Copy.md').read_text(encoding='utf-8-sig'),'![local](../picture.png)')
+        self.assertEqual((self.root/'picture.png').read_bytes(),b'image')
 
     def test_move_submenu_new_folder_cancel_and_submit(self):
         tab = self.open()
@@ -636,7 +637,7 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
             assets.resolve(tab.document.document, tab.path.parent, entry['reference'])
         self.assertTrue((source/'assets').is_dir())  # Shared original assets are preserved.
 
-    def test_folder_move_preserves_internal_markdown_attachment_and_rejects_self_link_rename(self):
+    def test_folder_move_preserves_internal_markdown_attachment_and_updates_self_link_rename(self):
         folder = self.root/'Folder'
         (folder/'image.png').write_bytes(b'synthetic')
         (folder/'Photo.md').write_text('![photo](image.png)', encoding='utf-8')
@@ -648,5 +649,6 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
         tab = self.open()
         tab.widget.setPlainText('[self](Notes.md)')
         tab.widget.document().setModified(True)
-        self.assertIsNone(self.execute('rename', tab, name='Broken'))
-        self.assertEqual(tab.path.name, 'Notes.md')
+        self.assertEqual(self.execute('rename', tab, name='Renamed'),self.root/'Renamed.md')
+        self.assertEqual(tab.path.name, 'Renamed.md')
+        self.assertEqual(tab.widget.toPlainText(),'[self](Renamed.md)')

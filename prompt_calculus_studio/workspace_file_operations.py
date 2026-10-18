@@ -190,7 +190,12 @@ class WorkspaceFileOperations(QObject):
             else:
                 raw = paths.read_bytes(op.source, 8*1024*1024)[0]
                 raw.decode('utf-8-sig')
-            validate_markdown_location(raw.decode('utf-8-sig'), op.source, target)
+            from .markdown_relocation import copy_edits
+            source_root=w.locations.root_for(op.source) or op.source.parent
+            if target.is_relative_to(source_root):
+                raw,markdown_edits=copy_edits(raw,op.source,target,source_root)
+            else:
+                validate_markdown_location(raw.decode('utf-8-sig'),op.source,target);markdown_edits=[]
             if tab is None:
                 self.check_source(op)
             try:
@@ -244,6 +249,7 @@ class WorkspaceFileOperations(QObject):
                     document.last_result = result
                     document.retarget_execution()
                 else:
+                    if markdown_edits:tab.widget.buffer.apply(tab.widget.buffer.snapshot(),markdown_edits)
                     tab.widget.path, tab.widget.baseline, tab.widget.error = target, raw, ''
                     tab.widget.setAccessibleName(target.name + '，Markdown 編輯')
                     tab.widget.document().setModified(False)
@@ -312,23 +318,32 @@ class WorkspaceFileOperations(QObject):
         if not case_only:
             paths.checked(target.parent, target.name, new=True)
         self.check_source(op)
-        prepare_move(source, target, op.pages)
+        from .markdown_relocation import RelocationPlan
+        plan=RelocationPlan(w,source,target)
+        prepare_move(source, target, op.pages,markdown_checked=True)
+        plan.validate()
         self.check_source(op)
         if not case_only:
             paths.checked(target.parent, target.name, new=True)
         previous = [(tab, tab.path, tab.title, tab.document.receipt if tab.document else None) for tab in op.pages]
+        plan.pause()
         try:
+            plan.preserve()
             rename_exclusive(source, target)
             if stamp(target) != op.expected:
                 raise ValueError('移動完成時來源內容已變更。')
+            plan.publish()
             self.apply_location(op.pages, source, target)
+            plan.apply_buffers()
         except Exception as error:
             try:
+                plan.rollback()
+                restored_expected=plan.restored_source_stamp(op.expected)
                 if target.exists() and (not source.exists() or case_only):
-                    if stamp(target) != op.expected:
+                    if stamp(target) != restored_expected:
                         raise ValueError('移動後檔案已由外部修改，未再搬動。')
                     rename_exclusive(target, source)
-                if stamp(source) != op.expected:
+                if stamp(source) != restored_expected:
                     raise ValueError('無法確認原位置完整回復。')
                 for tab, old_path, title, receipt in previous:
                     tab.path, tab.title = old_path, title
@@ -341,6 +356,8 @@ class WorkspaceFileOperations(QObject):
                 self.block_pages(op, message, [source, target])
                 raise ValueError(message) from error
             raise ValueError('操作未完成，原位置與編輯內容已保留：' + str(error)) from error
+        finally:plan.resume()
+        plan.complete()
         w.recent_files = [str(relocate(Path(p), source, target)) for p in w.recent_files]
         w.tree_state.relocate(source, target)
         op.result = target

@@ -128,6 +128,8 @@ def make_toolbar(surface):
     action('高亮與底色', 'highlight', lambda:surface.color_menu(True), key='background')
     action('插入／編輯表格', 'grid', surface.edit_table, key='table')
     insert=QMenu('插入內容',bar)
+    insert.addAction('連結… · Ctrl+K',surface.edit_link)
+    insert.addAction('嵌入筆記或區塊…',lambda:surface.edit_link(True))
     insert.addAction(icon('image-single'),'圖片、影音或 PDF…',surface.insert_attachment)
     for label,kind in [('程式碼區塊','code'),('行內公式','inline-math'),('區塊公式','math'),('Mermaid 圖表','mermaid'),('提示區塊 Callout','callout'),('腳註','footnote'),('隱藏註解','comment')]:
         insert.addAction(label,lambda checked=False,value=kind:surface.insert_content(value))

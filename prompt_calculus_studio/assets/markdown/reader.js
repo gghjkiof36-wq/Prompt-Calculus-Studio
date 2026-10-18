@@ -1,5 +1,14 @@
 'use strict';
 let bridge, revision = 0;
+// Dispatch only our versioned native actions. Unknown URL scheme policies
+// differ across WebEngine versions; no resource navigation is needed here.
+document.addEventListener('click', event => {
+  const anchor=event.target.closest('a[href]');
+  const href=anchor?.getAttribute('href');
+  if (bridge && href?.startsWith('pcs-action:')) {
+    event.preventDefault();bridge.activate(href.slice('pcs-action:'.length));
+  }
+});
 function selectionOffsets(root) {
   const selection=window.getSelection();
   if (!selection || !selection.rangeCount || !root.contains(selection.anchorNode) || !root.contains(selection.focusNode)) return null;

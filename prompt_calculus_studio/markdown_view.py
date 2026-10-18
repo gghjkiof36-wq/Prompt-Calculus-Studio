@@ -106,6 +106,12 @@ class Markers(QWidget):
 
 
 class SourceView(QTextEdit):
+    def mouseReleaseEvent(self,event):
+        if event.button()==Qt.MouseButton.LeftButton and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            cursor=self.cursorForPosition(event.position().toPoint())
+            self.surface.open_current_link(python_position(self.surface.page.buffer.snapshot().text,cursor.position()))
+            event.accept();return
+        super().mouseReleaseEvent(event)
     """View-local layout/highlighting, but edits and undo belong to the buffer."""
     def __init__(self, surface):
         super().__init__(surface)

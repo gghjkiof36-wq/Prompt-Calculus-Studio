@@ -56,6 +56,8 @@ class ContentBridge(QObject):
     def document(self):return json.dumps(self.view.payload,ensure_ascii=False)
     @Slot(str)
     def finished(self,value):self.view.render_state=value;self.view.rendered.emit()
+    @Slot(str)
+    def activate(self,command):self.view.action(command)
 
 
 class RichView(QWebEngineView):
@@ -64,6 +66,8 @@ class RichView(QWebEngineView):
         super().__init__(reader);self.reader=reader;self.surface=reader.surface
         self.setAccessibleName('Markdown 內容閱讀區');self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.payload={};self.projection=None;self.render_state='loading';self.pdf_pages={};self.ready=False;self.version=0;self.snapshot=None
+        from .markdown_relations import RelationWatch
+        self.relations=RelationWatch(reader)
         self.profile=QWebEngineProfile(QApplication.instance())
         self.profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.MemoryHttpCache)
         self.profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.NoPersistentCookies)
@@ -123,8 +127,10 @@ class RichView(QWebEngineView):
     def refresh(self,text):
         self.version+=1;self.snapshot=self.surface.page.buffer.snapshot()
         self.gate.allowed.clear();workspace=self.surface.page.file_title.workspace
-        root=Path(workspace.root) if workspace else self.surface.page.path.parent
-        self.projection=render(text,self.surface.page.path,root,self.resource,self.surface.preferences.get('hard_breaks',False))
+        from .markdown_relations import notes_for
+        notes=notes_for(self.surface);root=notes.root
+        self.projection=render(text,self.surface.page.path,root,self.resource,self.surface.preferences.get('hard_breaks',False),notes)
+        self.relations.bind(self.projection.dependencies,root)
         tokens=dict(visual_tokens(window_appearance(self)));preferences=self.surface.preferences
         tokens['base']=tokens.get('canvas_background',tokens['base']);tokens['border']=tokens.get('line','#444444')
         self.payload=dict(html=self.projection.body.replace('pcs-action:',f'pcs-action:{self.version}/'),math=self.projection.math,diagrams=self.projection.diagrams,
@@ -148,6 +154,15 @@ class RichView(QWebEngineView):
             elif parts[0]=='remote':
                 from .markdown_attachments import load_remote
                 load_remote(self.surface,self.projection.attachments[int(parts[1])],self)
+            elif parts[0]=='link':
+                from .markdown_relations import open_link
+                entry=self.projection.links[int(parts[1])]
+                open_link(self.surface,entry['target'],entry['path'],entry['wiki'])
+            elif parts[0]=='source':
+                from .markdown_relations import open_source,notes_for
+                entry=self.projection.sources[int(parts[1])];path=Path(entry['path']);notes=notes_for(self.surface)
+                text=notes.text(path);position=sum(len(line) for line in text.splitlines(keepends=True)[:entry['line']])
+                open_source(self.surface,path,position,read=False)
             elif parts[0]=='notice':self.surface.report('/'.join(parts[1:]))
         except (IndexError,ValueError,OSError) as error:self.surface.report('操作未完成：'+str(error))
 

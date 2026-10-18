@@ -108,7 +108,7 @@ def create_markdown(target, raw):
             raise
 
 
-def prepare_move(source, target, loaded_pages):
+def prepare_move(source, target, loaded_pages, *, markdown_checked=False):
     """Complete dependency checks/copies before the source is renamed."""
     folder = source.is_dir()
     files = [p for p in source.rglob('*') if p.is_file()] if folder else [source]
@@ -117,6 +117,7 @@ def prepare_move(source, target, loaded_pages):
             continue
         destination = relocate(path, source, target)
         if path.suffix.casefold() == '.md':
+            if markdown_checked:continue
             page = next((t.widget for t in loaded_pages if t.path == path), None)
             text = page.toPlainText() if page else paths.read_bytes(path, 8*1024*1024)[0].decode('utf-8-sig')
             validate_markdown_location(text, path, destination, (source, target))

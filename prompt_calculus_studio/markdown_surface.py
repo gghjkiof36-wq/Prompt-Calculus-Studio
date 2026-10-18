@@ -111,7 +111,7 @@ class MarkdownSurface(QWidget):
         page.buffer.text.redoAvailable.connect(self.update_controls)
         page.buffer.compositionChanged.connect(self.update_controls)
         self.commands = self.command_entries()
-        for sequence, callback in [('Ctrl+F', self.open_find), ('Ctrl+H', lambda:self.open_find(True)), ('Ctrl+Shift+P', self.open_commands), ('Alt+F10', self.focus_toolbar)]:
+        for sequence, callback in [('Ctrl+F', self.open_find), ('Ctrl+H', lambda:self.open_find(True)), ('Ctrl+K',self.edit_link), ('Ctrl+Return',self.open_current_link), ('Ctrl+;',self.edit_properties), ('Ctrl+Shift+P', self.open_commands), ('Alt+F10', self.focus_toolbar)]:
             shortcut = QShortcut(QKeySequence(sequence), self);shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut);shortcut.activated.connect(callback)
         for panel in (self.command_box, self.find_bar, self.toolbar):
             shortcut = QShortcut(QKeySequence('Esc'), panel);shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
@@ -191,6 +191,8 @@ class MarkdownSurface(QWidget):
         if self.mode != 'read':menu.addAction('取代此文件 · Ctrl+H', lambda:self.open_find(True))
         menu.addAction(icon('list'), '顯示／隱藏大綱', self.toggle_outline)
         menu.addAction('命令 · Ctrl+Shift+P', self.open_commands)
+        menu.addAction('筆記屬性 · Ctrl+;',self.edit_properties)
+        menu.addAction('開啟游標處的連結 · Ctrl+Enter',self.open_current_link)
         menu.addSeparator();menu.addAction(icon('settings'), '編輯與閱讀偏好…', self.preferences_menu)
         menu.exec(self.view_tools.mapToGlobal(self.view_tools.rect().bottomLeft()))
 
@@ -452,12 +454,41 @@ class MarkdownSurface(QWidget):
         workspace=self.page.file_title.workspace
         if workspace:workspace.show_notice(message)
 
+    def edit_link(self,embed=False):
+        if self.mode=='read' or self.page.buffer.composing:return
+        from .markdown_relations import LinkDialog
+        dialog=LinkDialog(self,embed);dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.link_editor=dialog;dialog.show()
+
+    def open_current_link(self,position=None):
+        from .markdown_relations import link_at,open_link
+        link=link_at(self,position)
+        if link:open_link(self,link.target,wiki=link.wiki)
+        else:self.report('請將游標放在要開啟的連結內。')
+
+    def edit_properties(self):
+        if self.page.buffer.composing:return
+        from .markdown_property_editor import PropertyEditor
+        dialog=PropertyEditor(self);dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.property_editor=dialog;dialog.show()
+
     def refresh(self):
         selected = self.outline.currentRow();self.outline.clear()
         for section in heading_sections(self.page.buffer.snapshot().text):
             item = QListWidgetItem('  '*(section[2]-1)+visible_text(section[3]));item.setData(Qt.ItemDataRole.UserRole, section);self.outline.addItem(item)
         if 0 <= selected < self.outline.count():self.outline.setCurrentRow(selected)
         if self.mode == 'read':self.reader.refresh()
+        snapshot=self.page.buffer.snapshot()
+        if getattr(self,'_relations_revision',None)!=snapshot.revision:
+            self._relations_revision=snapshot.revision
+            workspace=self.page.file_title.workspace
+            if workspace:
+                for tab in workspace.all_pages():
+                    other=getattr(tab.widget,'md_surface',None)
+                    if other is None or other.page.buffer is self.page.buffer:continue
+                    rich=other.reader.rich
+                    if rich and rich.projection and self.page.path in rich.projection.dependencies:
+                        rich.relations.timer.start()
         self.search_changed();self.update_statistics();self.update_controls();self.update_breadcrumb()
 
     def update_statistics(self, *args):
@@ -516,6 +547,7 @@ class MarkdownSurface(QWidget):
 
     def command_entries(self):
         entries = [('切換至編寫',lambda:self.set_mode('write')),('切換至原文',lambda:self.set_mode('source')),('切換至閱讀',lambda:self.set_mode('read')),
+            ('插入／編輯連結',self.edit_link),('嵌入筆記或區塊',lambda:self.edit_link(True)),('開啟游標處連結',self.open_current_link),('筆記屬性',self.edit_properties),
             ('搜尋此文件',self.open_find),('取代此文件',lambda:self.open_find(True)),('顯示／隱藏大綱',self.toggle_outline),('插入／編輯表格',self.edit_table),('插入圖片、影音或 PDF',self.insert_attachment),
             ('粗體',lambda:self.toggle_style('bold')),('斜體',lambda:self.toggle_style('italic')),('清除格式',self.clear_format),
             ('無序清單',lambda:self.paragraph('bullet')),('有序清單',lambda:self.paragraph('ordered')),('待辦清單',lambda:self.paragraph('task')),

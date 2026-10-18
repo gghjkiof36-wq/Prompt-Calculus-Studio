@@ -12,3 +12,11 @@ img,video{max-width:100%;object-fit:contain}audio{width:100%;max-width:480px}img
 .diagram svg .node>*{filter:none!important}::selection{background:var(--surface);color:var(--text)}::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px}a{text-underline-offset:3px}
 .pdf img{background:#fff}
 @media(max-width:480px){body{padding:22px 24px}th,td{padding:6px 8px}}
+/* Notes keep their own frame inside the current document's reading measure. */
+.note-embed {border:1px solid var(--border);border-radius:8px;padding:14px 20px;margin:18px 0;}
+.note-embed>header {font-size:.85em;margin-bottom:14px;color:var(--secondary);}
+.note-embed>:last-child {margin-bottom:0;}
+.note-properties {margin:12px 0 26px;color:var(--secondary);font-size:.9em;}
+.note-properties summary {cursor:pointer;}
+.note-properties dl {display:grid;grid-template-columns:minmax(90px,1fr) 3fr;gap:8px 20px;}
+.note-properties dd {margin:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text);}
