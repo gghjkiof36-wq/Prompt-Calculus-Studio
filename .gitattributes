@@ -7,3 +7,8 @@ docs/third-party/084/*-COPYING.txt -text
 
 # Fixed synthetic pre-fix snapshot retains its recorded byte identity.
 tests/fixtures/legacy_stage_snapshot_088.json -text
+
+# Bundled renderer assets retain exact upstream bytes and dependency hashes.
+prompt_calculus_studio/assets/markdown/dompurify/** -text
+prompt_calculus_studio/assets/markdown/katex/** -text
+prompt_calculus_studio/assets/markdown/mermaid/** -text

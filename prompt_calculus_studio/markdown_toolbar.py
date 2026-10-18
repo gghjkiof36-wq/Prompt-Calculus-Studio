@@ -126,6 +126,12 @@ def make_toolbar(surface):
     action('字體與字號…', 'type', surface.font_dialog, key='font')
     action('文字顏色', 'text-color', lambda:surface.color_menu(False), key='color')
     action('高亮與底色', 'highlight', lambda:surface.color_menu(True), key='background')
+    action('插入／編輯表格', 'grid', surface.edit_table, key='table')
+    insert=QMenu('插入內容',bar)
+    insert.addAction(icon('image-single'),'圖片、影音或 PDF…',surface.insert_attachment)
+    for label,kind in [('程式碼區塊','code'),('行內公式','inline-math'),('區塊公式','math'),('Mermaid 圖表','mermaid'),('提示區塊 Callout','callout'),('腳註','footnote'),('隱藏註解','comment')]:
+        insert.addAction(label,lambda checked=False,value=kind:surface.insert_content(value))
+    action('插入圖片、公式與其他內容','plus',menu=insert,key='insert')
     bar.addSeparator()
     lists = QMenu('清單', bar)
     lists.addAction(icon('list'), '無序清單', lambda:surface.paragraph('bullet'))

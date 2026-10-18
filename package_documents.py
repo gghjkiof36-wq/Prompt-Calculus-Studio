@@ -41,14 +41,14 @@ def source_paths(root=ROOT):
         raise ValueError('建置來源必須是獨立 Git 根目錄。')
     blocked={'data','qa','build','dist','vendor','.builder','__pycache__','credentials','backups','local_library.json','settings.json','fault.log','error.log','agents.md','agent-guides'}
     folders={'prompt_calculus_studio','comfyui_prompt_calculus_studio','tests','docs'}
-    suffixes={'.py','.js','.mjs','.css','.ps1','.cmd','.vbs','.md','.txt','.svg','.ico','.png','.json'}
+    suffixes={'.py','.js','.mjs','.css','.ps1','.cmd','.vbs','.md','.txt','.svg','.ico','.png','.json','.html','.woff2'}
     paths=[]
     for name in git_output(root,'ls-files','-z','--cached').split('\0'):
         if not name:continue
         rel=Path(name)
         if rel.is_absolute() or '..' in rel.parts or any(part.casefold() in blocked for part in rel.parts):continue
         if len(rel.parts)>1 and rel.parts[0] not in folders:continue
-        if rel.suffix.lower() not in suffixes and rel.name not in ('LICENSE','.gitignore','.gitattributes'):continue
+        if rel.suffix.lower() not in suffixes and rel.name not in ('LICENSE','LICENSE-MPL','.gitignore','.gitattributes'):continue
         path=root/rel
         if any(p.is_symlink() or p.is_junction() for p in (path,*path.parents) if p!=root and p.is_relative_to(root)):
             raise ValueError('來源包含連結，已停止打包：'+name)

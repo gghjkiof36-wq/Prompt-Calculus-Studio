@@ -1,6 +1,6 @@
 """File creation and plain Markdown editing for the local workspace."""
 from pathlib import Path
-from PySide6.QtCore import QSaveFile, QIODevice, QObject, Signal
+from PySide6.QtCore import QSaveFile, QIODevice, QObject, Signal, QEvent
 from PySide6.QtWidgets import QPlainTextEdit, QFrame, QPlainTextDocumentLayout
 from PySide6.QtGui import QTextDocument, QTextCursor
 import weakref
@@ -172,6 +172,14 @@ class MarkdownPage(QPlainTextEdit):
         super().verticalScrollBar().hide()
         self.setFocusProxy(self.md_surface.editor)
         self.md_surface.show()
+
+    def event(self,event):
+        handled=super().event(event)
+        # QAbstractScrollArea.resizeEvent belongs to its hidden viewport. Track
+        # the outer editor as well, including the first single-pane show.
+        if event.type() in (QEvent.Type.Resize,QEvent.Type.Show) and hasattr(self,'md_surface'):
+            self.md_surface.setGeometry(self.rect())
+        return handled
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

@@ -1,6 +1,6 @@
 """Per-view source presentation with one authoritative document and history."""
 import re
-from PySide6.QtCore import Qt, QTimer, QByteArray, QRectF, QPoint, QPointF
+from PySide6.QtCore import Qt, QTimer, QByteArray, QRectF, QPoint, QPointF, QEvent
 from PySide6.QtGui import (QColor, QFont, QPainter, QTextCursor, QTextCharFormat,
     QSyntaxHighlighter, QKeySequence, QImage, QPen, QTextBlockFormat)
 from PySide6.QtWidgets import QTextEdit, QWidget, QTextBrowser, QMenu
@@ -405,6 +405,33 @@ class SourceView(QTextEdit):
     def undo(self):self.page.undo()
     def redo(self):self.page.redo()
 
+    def insertFromMimeData(self,mime):
+        if self.surface.mode=='read' or self.page.buffer.composing:return
+        from .markdown_attachments import insert
+        if mime.hasUrls():
+            files=[url.toLocalFile() for url in mime.urls() if url.isLocalFile()]
+            if files:insert(self.surface,files=files);return
+        if mime.hasImage():
+            image=mime.imageData()
+            if not isinstance(image,QImage):image=QImage(image)
+            insert(self.surface,image=image);return
+        if mime.hasHtml() and self.surface.mode!='source':
+            from .markdown_paste import from_html
+            text=from_html(mime.html())
+            snapshot,start,end=self.surface.selection()
+            if text:self.surface.apply([SourceEdit(start,end,text)],start+len(text));return
+        super().insertFromMimeData(mime)
+
+    def canInsertFromMimeData(self,mime):
+        return mime.hasImage() or mime.hasUrls() or mime.hasHtml() or super().canInsertFromMimeData(mime)
+
+    def dropEvent(self,event):
+        if event.mimeData().hasImage() or any(url.isLocalFile() for url in event.mimeData().urls()):
+            if self.page.buffer.composing or self.surface.mode=='read':event.ignore();return
+            self.setTextCursor(self.cursorForPosition(event.position().toPoint()))
+            self.insertFromMimeData(event.mimeData());event.acceptProposedAction();return
+        super().dropEvent(event)
+
     def contextMenuEvent(self, event):
         menu = QMenu(self)
         menu.addAction('復原', self.page.undo).setEnabled(self.page.document().isUndoAvailable())
@@ -424,8 +451,15 @@ class ReadingView(QTextBrowser):
         self.setOpenLinks(False);self.setOpenExternalLinks(False)
         self.setFrameShape(QTextBrowser.Shape.NoFrame)
         self.setAccessibleName('Markdown 閱讀區')
+        self.rich=None;self.advanced=False
         self.setStyleSheet('QTextBrowser {border:0;padding:0;background:transparent;}')
         self.selectionChanged.connect(surface.update_statistics)
+
+    def event(self,event):
+        handled=super().event(event)
+        if event.type() in (QEvent.Type.Resize,QEvent.Type.Show) and getattr(self,'rich',None):
+            self.fit_rich()
+        return handled
 
     def apply_preferences(self):
         p=self.surface.preferences;t=visual_tokens(window_appearance(self))
@@ -444,6 +478,31 @@ class ReadingView(QTextBrowser):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self,'surface'):self.update_measure()
+        if getattr(self,'rich',None):QTimer.singleShot(0,self,self.fit_rich)
+
+    def setFocus(self,*args):
+        if self.advanced and self.rich:self.rich.setFocus(*args)
+        else:super().setFocus(*args)
+
+    def selected_text(self):
+        return self.rich.selectedText() if self.advanced and self.rich else self.textCursor().selectedText()
+
+    def scrollToAnchor(self, name):
+        if self.advanced and self.rich:
+            import json
+            self.rich.page().runJavaScript('document.getElementById('+json.dumps(name)+')?.scrollIntoView()')
+        else:super().scrollToAnchor(name)
+
+    def hideEvent(self,event):
+        if self.rich:self.rich.pause()
+        super().hideEvent(event)
+
+    def showEvent(self,event):
+        super().showEvent(event)
+        QTimer.singleShot(0,self,self.fit_rich)
+
+    def fit_rich(self):
+        if self.rich:self.rich.setGeometry(self.rect());self.rich.raise_()
 
     def loadResource(self, kind, url):
         if url.toString() not in ('pcs-task:checked','pcs-task:open'):return QByteArray()
@@ -457,7 +516,22 @@ class ReadingView(QTextBrowser):
     def refresh(self):
         scroll = self.verticalScrollBar().value()
         previous=self.textCursor();anchor,position=previous.anchor(),previous.position()
-        self.setHtml(reading_html(self.surface.page.buffer.snapshot().text, self.surface.preferences.get('hard_breaks', False)))
+        source=self.surface.page.buffer.snapshot().text
+        from .markdown_render import advanced
+        self.advanced=advanced(source)
+        self.viewport().setVisible(not self.advanced)
+        policy=Qt.ScrollBarPolicy.ScrollBarAlwaysOff if self.advanced else Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        self.setVerticalScrollBarPolicy(policy);self.setHorizontalScrollBarPolicy(policy)
+        if self.advanced:
+            if self.rich is None:
+                from .markdown_rich_view import RichView
+                self.rich=RichView(self);self.rich.setGeometry(self.rect())
+            self.rich.refresh(source);self.setHtml(self.rich.projection.body)
+            self.rich.show();self.rich.raise_()
+            QTimer.singleShot(0,self,self.fit_rich)
+        else:
+            if self.rich:self.rich.pause();self.rich.hide()
+            self.setHtml(reading_html(source, self.surface.preferences.get('hard_breaks', False)))
         cursor=self.textCursor();maximum=self.document().characterCount()-1
         cursor.setPosition(min(anchor,maximum));cursor.setPosition(min(position,maximum),QTextCursor.MoveMode.KeepAnchor);self.setTextCursor(cursor)
         self.verticalScrollBar().setValue(scroll)

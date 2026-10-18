@@ -417,6 +417,36 @@ class MarkdownSurface(QWidget):
     def insert_rule(self):
         snapshot, start, end = self.selection();self.apply([SourceEdit(start,end,'\n\n---\n\n')],start+7)
 
+    def edit_table(self):
+        from .markdown_tables import edit_table
+        edit_table(self)
+
+    def insert_attachment(self):
+        from .markdown_attachments import choose
+        choose(self)
+
+    def insert_content(self,kind):
+        if self.mode=='read' or self.page.buffer.composing:return
+        snapshot,start,end=self.selection();selected=snapshot.text[start:end]
+        if kind=='footnote':
+            number=1
+            while '[^note-'+str(number)+']' in snapshot.text:number+=1
+            label='note-'+str(number);reference='[^'+label+']';definition='\n\n'+reference+': 腳註內容\n'
+            if end==len(snapshot.text):self.apply([SourceEdit(end,end,reference+definition)],end+len(reference)+len(definition)-1)
+            else:self.apply([SourceEdit(end,end,reference),SourceEdit(len(snapshot.text),len(snapshot.text),definition)],len(snapshot.text)+len(reference)+len(definition)-1)
+            return
+        defaults={'code':'','inline-math':'E=mc^2','math':'E=mc^2','mermaid':'flowchart LR\n    A[想法] --> B[草稿]\n    B --> C[完成]','callout':'提示內容','comment':'註解內容'}
+        content=selected or defaults[kind]
+        if kind=='code':
+            length=max([len(m.group()) for m in re.finditer('`+',content)]+[2])+1;fence='`'*length
+            prefix='\n\n'+fence+'\n';suffix='\n'+fence+'\n'
+        elif kind=='mermaid':prefix='\n\n```mermaid\n';suffix='\n```\n'
+        elif kind=='math':prefix='\n\n$$\n';suffix='\n$$\n'
+        elif kind=='inline-math':prefix='$';suffix='$'
+        elif kind=='callout':prefix='\n\n> [!note] 提示\n> ';suffix='\n';content=content.replace('\n','\n> ')
+        else:prefix='%%';suffix='%%'
+        self.apply([SourceEdit(start,end,prefix+content+suffix)],start+len(prefix))
+
     def report(self, message):
         self.message = message;self.update_statistics()
         workspace=self.page.file_title.workspace
@@ -433,7 +463,7 @@ class MarkdownSurface(QWidget):
     def update_statistics(self, *args):
         if not hasattr(self, 'statistics'):return
         text = self.page.buffer.snapshot().text;cursor = self.editor.textCursor()
-        selected = (self.reader.textCursor() if self.mode == 'read' else cursor).selectedText()
+        selected = self.reader.selected_text() if self.mode == 'read' else cursor.selectedText()
         count = len(re.findall(r'[\u3400-\u9fff]|\w+(?:[\x27-]\w+)*', visible_text(text)))
         state = self.page.error or self.message or ('尚未保存' if self.page.dirty else '已保存')
         self.statistics.setText(f'{count} 詞　{len(text)} 字元'+(f'　選取 {len(selected)} 字元' if selected else '')+'　·　'+state)
@@ -459,6 +489,12 @@ class MarkdownSurface(QWidget):
         if hasattr(self, 'query') and hasattr(self, 'reader'):self.match_count.setText(str(len(self.matches()))+' 筆' if self.query.text() else '')
 
     def find_next(self, direction=1):
+        if self.mode=='read' and self.reader.advanced and self.reader.rich:
+            from PySide6.QtWebEngineCore import QWebEnginePage
+            flags=QWebEnginePage.FindFlag(0)
+            if direction<0:flags|=QWebEnginePage.FindFlag.FindBackward
+            if self.case_sensitive.isChecked():flags|=QWebEnginePage.FindFlag.FindCaseSensitively
+            self.reader.rich.findText(self.query.text(),flags);return
         matches = self.matches()
         if not matches:return
         view = self.reader if self.mode == 'read' else self.editor
@@ -480,7 +516,7 @@ class MarkdownSurface(QWidget):
 
     def command_entries(self):
         entries = [('切換至編寫',lambda:self.set_mode('write')),('切換至原文',lambda:self.set_mode('source')),('切換至閱讀',lambda:self.set_mode('read')),
-            ('搜尋此文件',self.open_find),('取代此文件',lambda:self.open_find(True)),('顯示／隱藏大綱',self.toggle_outline),
+            ('搜尋此文件',self.open_find),('取代此文件',lambda:self.open_find(True)),('顯示／隱藏大綱',self.toggle_outline),('插入／編輯表格',self.edit_table),('插入圖片、影音或 PDF',self.insert_attachment),
             ('粗體',lambda:self.toggle_style('bold')),('斜體',lambda:self.toggle_style('italic')),('清除格式',self.clear_format),
             ('無序清單',lambda:self.paragraph('bullet')),('有序清單',lambda:self.paragraph('ordered')),('待辦清單',lambda:self.paragraph('task')),
             ('引用',lambda:self.paragraph('quote')),('分隔線',self.insert_rule),('全部折疊',lambda:self.editor.fold_all(True)),('全部展開',lambda:self.editor.fold_all(False)),
@@ -491,6 +527,8 @@ class MarkdownSurface(QWidget):
             ('增加縮排',lambda:self.indent_paragraph(1)),('減少縮排',lambda:self.indent_paragraph(-1)),
             ('編輯與閱讀偏好',self.preferences_menu),('移至工具列 · Alt+F10',self.focus_toolbar)]
         for level in range(7):entries.append(('本文' if not level else '標題 H'+str(level),lambda value=level:self.paragraph('heading',value)))
+        for label,kind in [('程式碼區塊','code'),('行內公式','inline-math'),('區塊公式','math'),('Mermaid 圖表','mermaid'),('提示區塊 Callout','callout'),('腳註','footnote'),('隱藏註解','comment')]:
+            entries.append(('插入'+label,lambda value=kind:self.insert_content(value)))
         for label,value in [('靠左','left'),('置中','center'),('靠右','right'),('左右對齊','justify')]:
             entries.append(('段落'+label,lambda direction=value:self.paragraph('align',direction)))
         return entries
