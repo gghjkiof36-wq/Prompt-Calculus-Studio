@@ -141,6 +141,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         from .workspace_layout import WorkspaceLayout
         self.layout_store = WorkspaceLayout(self)
         self.layout_restored = self.layout_store.restore()
+        from .notebook_manager import NotebookManager
+        self.notebook = NotebookManager(self)
         for sequence, callback in (('Ctrl+T', self.new_tab), ('Ctrl+W', self.close_current),
                                    ('Ctrl+O', self.choose_file),
                                    ('Ctrl+S', self.save_current), ('Alt+Left', lambda: self.go(-1)),
@@ -360,6 +362,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             QTabBar#DocumentTabBar QToolButton:hover {{ background:{t['raised']}; }}
         ''' + sidebar_style(appearance)
         if self.styleSheet() != sheet:self.setStyleSheet(sheet)
+        if hasattr(self,'notebook'):self.notebook.style()
         self.refresh_connection()
         self.sync_navigation_density()
         self.workspace_stack.sync_surface()
@@ -690,10 +693,12 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
     def document_changed(self, tab):
         self.update_tab(tab)
         self.autosave.schedule(tab)
+        if hasattr(self, 'notebook'):self.notebook.schedule()
 
 
     def open_markdown(self, path, retained, *, new_tab=False):
         page = MarkdownPage(path)
+        if hasattr(self,'notebook'):self.notebook.opened(page)
         tab = Tab('md:' + uuid.uuid4().hex, path.stem, page, retained, path=path)
         page.document().modificationChanged.connect(lambda _: self.update_tab(tab))
         page.textChanged.connect(lambda: self.document_changed(tab))
@@ -967,6 +972,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                                  + '\n內容已保留。Ctrl+S 重試；Ctrl+Shift+S 另存。')
         elif tab.document:
             tab.document.pending_material_uses = set()
+        elif saved and hasattr(self, 'notebook') and isinstance(tab.widget, MarkdownPage):
+            self.notebook.saved(tab.widget)
         return saved
 
     def prepare_close(self, tab, decision=None):
@@ -1093,6 +1100,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             event.ignore()
             return
         self.layout_store.stopped = True
+        if hasattr(self, 'notebook'):self.notebook.stop()
         for pane in self.panes:
             while pane.strip.bar.count():
                 if not self.close_tab(0, decision='discard', make_home=False, pane=pane):

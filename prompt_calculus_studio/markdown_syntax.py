@@ -71,6 +71,7 @@ def css_style(raw):
 
 def spans(text):
     """Paired inline syntax, excluding code. Unknown HTML remains visible source."""
+    if not re.search(r'[<$%`*_~=]',text):return []
     result = []
     code = [match.span() for match in re.finditer(r'\]\([^\n]*?\)|https?://[^\s<>]+', text)]
     for match in re.finditer(r'(?<!\\)\$(?:\\.|[^$\n])+\$|<!--.*?(?:-->|$)|%%.*?(?:%%|$)', text):
@@ -168,7 +169,8 @@ def visible_text(text):
     hidden = set()
     for item in spans(text):
         hidden.update(range(item.start, item.first));hidden.update(range(item.last, item.end))
-    hidden.update(escaped_markers(text))
+    hidden.update(escaped_markers(text) if '\\' in text else [])
+    if not hidden:return html.unescape(text)
     return html.unescape(''.join(c for i, c in enumerate(text) if i not in hidden))
 
 

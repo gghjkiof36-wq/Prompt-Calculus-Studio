@@ -14,6 +14,7 @@ class OutlineLayout(QObject):
 
     def toggle(self):
         self.requested=not self.requested
+        if self.requested:self.surface.outline.rebuild(self.surface.page.buffer.snapshot().text)
         self.reflow()
 
     def reflow(self):
@@ -33,7 +34,7 @@ class OutlineLayout(QObject):
         panel=s.outline_panel
         left=max(0,round((width-measure)/2)-host-12) if self.placement=='gutter' else 0
         panel.available_height=pane.height();panel.resize(min(host,width),pane.height());panel.move(left,0)
-        panel.fit_card();panel.setVisible(self.requested);panel.raise_()
+        panel.setVisible(self.requested);panel.fit_card();panel.raise_()
         s.outline_button.setChecked(panel.isVisible())
         if previous!=self.placement:QTimer.singleShot(0,s,s.update_title_layout)
 

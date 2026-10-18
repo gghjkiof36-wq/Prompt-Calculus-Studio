@@ -158,11 +158,12 @@ def continuation(text, position):
     return SourceEdit(position, position, '\n'+re.match(r'^\s*', line).group())
 
 
-def heading_sections(text):
-    lines = line_info(text);result = []
-    for index, item in enumerate(lines):
+def heading_sections(text,lines=None):
+    lines = line_info(text) if lines is None else lines;result = [];parents=[]
+    for item in lines:
         if item['heading']:
             depth = len(item['heading'].group(2))
-            end = next((other['start'] for other in lines[index+1:] if other['heading'] and len(other['heading'].group(2)) <= depth), len(text))
-            result.append((item['start'], end, depth, item['heading'].group(3), item['number']))
-    return result
+            while parents and result[parents[-1]][2]>=depth:
+                result[parents.pop()][1]=item['start']
+            parents.append(len(result));result.append([item['start'],len(text),depth,item['heading'].group(3),item['number']])
+    return [tuple(section) for section in result]

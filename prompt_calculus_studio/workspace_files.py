@@ -74,6 +74,7 @@ class MarkdownBuffer(QObject):
         self.pending_pieces = None
 
     def changed(self, position, removed, added):
+        self.snapshot_key=None
         if self.loading:
             return
         try:
@@ -88,7 +89,10 @@ class MarkdownBuffer(QObject):
             self.mapping_error = self.error = str(error)
 
     def snapshot(self):
-        return SourceSnapshot(source_text(self.text), self.text.revision(), self.document_id)
+        key=(self.text.revision(),id(self.text))
+        if getattr(self,'snapshot_key',None)!=key:
+            self.snapshot_key=key;self.cached_snapshot=SourceSnapshot(source_text(self.text),key[0],self.document_id)
+        return self.cached_snapshot
 
     def apply(self, snapshot, edits, *, join_previous=False):
         if self.composing:

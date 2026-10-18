@@ -60,7 +60,9 @@ class FileSearchDialog(StudioDialog):
         self.status = label('', 'Subtle', True)
         self.body.addWidget(self.status)
         self.browse = button('從電腦選擇…', self.choose_other, 'Quiet')
-        self.body.addLayout(row(self.browse, None, label('↑↓ 選擇   Enter 開啟   Esc 關閉', 'Subtle')))
+        self.create = button('建立筆記', self.create_note, 'Quiet')
+        self.create.hide()
+        self.body.addLayout(row(self.browse, None, self.create))
         from .module_chrome import apply_module_dialog, dialog_colors
         settings = dict(workspace.settings, **workspace.appearance_preview)
         tokens = visual_tokens(settings)
@@ -117,6 +119,7 @@ class FileSearchDialog(StudioDialog):
         selected = selected.data(Qt.ItemDataRole.UserRole) if selected else None
         tokens = self.search.text().casefold().replace('\\', '/').split()
         query = ' '.join(tokens)
+        self.create.setVisible(bool(self.search.text().strip()) and hasattr(self.w,'notebook'))
         found = []
         for key, (path, kind) in self.entries.items():
             title = self.display_path(path)
@@ -166,6 +169,17 @@ class FileSearchDialog(StudioDialog):
     def open_selected(self):
         item = self.listing.currentItem()
         if item is not None:self.open_path(item.data(Qt.ItemDataRole.UserRole))
+        elif self.create.isVisible():self.create_note()
+
+    def create_note(self):
+        try:
+            from .notebook_actions import create_note
+            root=self.context.root or self.w.locations.current
+            path=create_note(root,self.search.text().strip())
+            self.w.refresh_tree()
+            if self.w.open_context(path,self.context):self.accept()
+        except (OSError,ValueError) as error:
+            self.status.setText(str(error));self.status.show()
 
     def open_path(self, path):
         try:

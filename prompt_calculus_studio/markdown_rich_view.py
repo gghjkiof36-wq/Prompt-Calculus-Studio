@@ -62,8 +62,9 @@ class ContentBridge(QObject):
 
 class RichView(QWebEngineView):
     rendered=Signal()
-    def __init__(self,reader):
+    def __init__(self,reader,*,document_path=None,interactive=True):
         super().__init__(reader);self.reader=reader;self.surface=reader.surface
+        self.document_path=document_path;self.interactive=interactive
         self.setAccessibleName('Markdown 內容閱讀區');self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.payload={};self.projection=None;self.render_state='loading';self.pdf_pages={};self.ready=False;self.version=0;self.snapshot=None
         from .markdown_relations import RelationWatch
@@ -92,7 +93,7 @@ class RichView(QWebEngineView):
         elif not self.ready:self.surface.report('內容預覽未載入；原文仍可編輯。')
 
     def sync_title_alignment(self):
-        if not self.ready or self.surface.mode!='read':return
+        if not self.interactive or not self.ready or self.surface.mode!='read':return
         def apply(value):
             from shiboken6 import isValid
             if not isValid(self) or self.surface.mode!='read' or not value:return
@@ -155,7 +156,7 @@ class RichView(QWebEngineView):
         self.gate.allowed.clear();workspace=self.surface.page.file_title.workspace
         from .markdown_relations import notes_for
         notes=notes_for(self.surface);root=notes.root
-        self.projection=render(text,self.surface.page.path,root,self.resource,self.surface.preferences.get('hard_breaks',False),notes)
+        self.projection=render(text,self.document_path or self.surface.page.path,root,self.resource,self.surface.preferences.get('hard_breaks',False),notes)
         self.relations.bind(self.projection.dependencies,root)
         tokens=dict(visual_tokens(window_appearance(self)));preferences=self.surface.preferences
         tokens['base']=tokens.get('canvas_background',tokens['base']);tokens['border']=tokens.get('line','#444444')
@@ -165,6 +166,7 @@ class RichView(QWebEngineView):
         if self.ready:self.page().runJavaScript('window.refreshDocument && window.refreshDocument()')
 
     def action(self,command):
+        if not self.interactive:return
         parts=command.split('/')
         try:
             if int(parts.pop(0))!=self.version or self.snapshot!=self.surface.page.buffer.snapshot():return

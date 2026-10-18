@@ -18,10 +18,16 @@ class HeadingTree(QTreeWidget):
         self.itemClicked.connect(self.navigate);self.itemActivated.connect(self.navigate)
 
     def rebuild(self, text):
-        sections = heading_sections(text)
+        sections = heading_sections(text,self.surface.editor.lines if hasattr(self.surface,'editor') else None)
         if getattr(self, 'sections', None) == sections:return
+        old=getattr(self,'sections',[])
+        if len(old)==len(sections) and all(a[0]==b[0] and a[2:4]==b[2:4] for a,b in zip(old,sections)):
+            for item,a,b in zip(self.items,old,sections):
+                if a!=b:item.setData(0,Qt.ItemDataRole.UserRole,b)
+            self.sections=sections;self.sync_current();return
         collapsed = {tuple(item.data(0, Qt.ItemDataRole.UserRole)[2:4]) for item in self.items
                      if item.childCount() and not item.isExpanded()}
+        self.blockSignals(True)
         self.sections = sections;self.clear();self.items = [];parents = []
         for section in sections:
             start, end, level, title = section[:4]
@@ -33,6 +39,7 @@ class HeadingTree(QTreeWidget):
             else:self.addTopLevelItem(item)
             self.items.append(item);parents.append((level, item))
         for item in self.items:item.setExpanded(tuple(item.data(0, Qt.ItemDataRole.UserRole)[2:4]) not in collapsed)
+        self.blockSignals(False)
         self.sync_current()
         self.surface.outline_panel.fit_card()
 
@@ -81,6 +88,7 @@ class OutlinePanel(QFrame):
         self.tree.itemExpanded.connect(lambda _:self.fit_card());self.tree.itemCollapsed.connect(lambda _:self.fit_card())
 
     def fit_card(self):
+        if self.isHidden():return
         def shown(item):
             parent=item.parent()
             while parent:
@@ -88,8 +96,12 @@ class OutlinePanel(QFrame):
                 parent=parent.parent()
             return True
         self.tree.doItemsLayout()
-        rows=sum(self.tree.sizeHintForIndex(self.tree.indexFromItem(item)).height() for item in self.tree.items if shown(item))
+        rows=0
+        for item in self.tree.items:
+            if shown(item):rows+=self.tree.sizeHintForIndex(self.tree.indexFromItem(item)).height()
+            if rows>=self.available_height:break
         self.card.setFixedHeight(min(max(96,self.available_height-32),58+max(30,rows)))
         self.resize(self.width(),self.card.height()+32)
+        self.layout().activate();self.card.layout().activate()
 
     def resizeEvent(self, event):super().resizeEvent(event);self.fit_card()

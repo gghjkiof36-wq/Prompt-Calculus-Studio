@@ -249,6 +249,7 @@ class WorkspacePanes:
                 page.textChanged.connect(lambda: self.document_changed(tab))
                 page.compositionChanged.connect(lambda: self.document_changed(tab))
                 page.document().modificationChanged.connect(lambda _: self.update_tab(tab))
+                if hasattr(self,'notebook'):self.notebook.opened(page)
             else:
                 document = matching[0].document if matching else next((d for d in self.documents if d.path == path), None)
                 if document is None:

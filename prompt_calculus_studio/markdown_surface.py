@@ -25,7 +25,8 @@ class MarkdownSurface(QWidget):
         self.page = page;self.mode = 'write';self.typing_style = {};self.clear_next = False;self.message = ''
         self.preferences = dict(line_numbers=False, auto_pairs=True, wrap=True, tab_width=4,
                                 hard_breaks=False, reading_width=880, reading_size=12,
-                                reading_family='Microsoft JhengHei UI', line_height=150)
+                                reading_family='Microsoft JhengHei UI', line_height=150,
+                                vim=False, spellcheck=False, slash_commands=True)
         self.preferences_loaded = False;self.zoom_percent = 100;self.display_panel = None
         self.setObjectName('MarkdownSurface')
         body = QVBoxLayout(self);body.setContentsMargins(0, 0, 0, 0);body.setSpacing(0)
@@ -107,12 +108,17 @@ class MarkdownSurface(QWidget):
         page.buffer.text.redoAvailable.connect(self.update_controls)
         page.buffer.compositionChanged.connect(self.update_controls)
         self.commands = self.command_entries()
+        from .markdown_advanced import AdvancedEditing
+        self.advanced = AdvancedEditing(self)
+        self.command_shortcuts = {}
         for sequence, callback in [('Ctrl+F', self.open_find), ('Ctrl+H', lambda:self.open_find(True)), ('Ctrl+K',self.edit_link), ('Ctrl+Return',self.open_current_link), ('Ctrl+;',self.edit_properties), ('Ctrl+Shift+P', self.open_commands), ('Alt+F10', self.focus_toolbar)]:
             shortcut = QShortcut(QKeySequence(sequence), self);shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut);shortcut.activated.connect(callback)
+            self.command_shortcuts[sequence] = shortcut
         for panel in (self.command_box, self.find_bar, self.toolbar):
             shortcut = QShortcut(QKeySequence('Esc'), panel);shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             shortcut.activated.connect(self.focus_document if panel is self.toolbar else lambda p=panel:self.close_panel(p))
         self.apply_appearance();self.apply_preferences();self.refresh()
+        self.editor.document().setLayoutEnabled(True)
         QTimer.singleShot(0, self.load_preferences)
 
     def tool(self, label, callback, symbol=None, text=None):
@@ -147,6 +153,7 @@ class MarkdownSurface(QWidget):
 
     def apply_appearance(self):
         appearance=window_appearance(self);t = visual_tokens(appearance)
+        self.editor._tokens_cache=t
         appearance_key = (tuple(sorted(t.items())),appearance.get('ui_size',12))
         if getattr(self, '_appearance_key', None) == appearance_key:return
         self._appearance_key = appearance_key
@@ -217,12 +224,21 @@ class MarkdownSurface(QWidget):
         menu.addAction('筆記屬性…\tCtrl+;',self.edit_properties)
         menu.addSeparator()
         menu.addAction('開啟連結\tCtrl+Enter',self.open_current_link)
+        workspace=self.page.file_title.workspace
+        if workspace and hasattr(workspace,'notebook'):
+            manager=workspace.notebook;actions=manager.operations();notes=menu.addMenu('筆記')
+            for name,callback in [('加入書籤',manager.bookmark),('插入範本…',lambda:actions.insert_template(self)),
+                                  ('開啟今日筆記',actions.daily),('合併筆記…',lambda:actions.compose(self)),
+                                  ('擷取選取內容…',lambda:actions.compose(self,True)),('檔案復原…',lambda:actions.recover(self))]:
+                notes.addAction(name,lambda checked=False,fn=callback:actions.guarded(fn))
+            menu.addAction('匯出 PDF…',lambda:actions.guarded(lambda:actions.pdf(self)))
         menu.addAction('命令…\tCtrl+Shift+P', self.open_commands)
         menu.exec(self.view_tools.mapToGlobal(self.view_tools.rect().bottomLeft()))
 
     def load_preferences(self):
         workspace = self.page.file_title.workspace
         if workspace is None:return
+        previous=dict(self.preferences)
         path = workspace.data/'md-preferences.json'
         try:
             saved = json.loads(path.read_text(encoding='utf-8'))
@@ -233,7 +249,11 @@ class MarkdownSurface(QWidget):
         self.preferences['reading_width'] = max(480, min(1200, self.preferences['reading_width']))
         self.preferences['reading_size'] = max(9, min(32, self.preferences['reading_size']))
         self.preferences['line_height'] = max(120, min(200, self.preferences['line_height']))
-        self.preferences_loaded = True;self.apply_preferences()
+        self.preferences_loaded = True
+        if self.preferences!=previous:self.apply_preferences()
+        self.advanced.configure()
+        from .markdown_shortcuts import apply_shortcuts
+        apply_shortcuts(self)
 
     def save_preferences(self):
         workspace = self.page.file_title.workspace
@@ -509,11 +529,11 @@ class MarkdownSurface(QWidget):
         self.property_editor=dialog;dialog.show()
 
     def refresh(self):
-        self.outline.rebuild(self.page.buffer.snapshot().text)
+        if not self.editor.lazy_presentation or self.outline_layout.requested:self.outline.rebuild(self.page.buffer.snapshot().text)
         if self.mode == 'read':self.reader.refresh()
         snapshot=self.page.buffer.snapshot()
-        if getattr(self,'_relations_revision',None)!=snapshot.revision:
-            self._relations_revision=snapshot.revision
+        if getattr(self,'_relations_snapshot',None) is not snapshot:
+            self._relations_snapshot=snapshot
             workspace=self.page.file_title.workspace
             if workspace:
                 for tab in workspace.all_pages():
@@ -526,9 +546,12 @@ class MarkdownSurface(QWidget):
 
     def update_statistics(self, *args):
         if not hasattr(self, 'statistics'):return
-        text = self.page.buffer.snapshot().text;cursor = self.editor.textCursor()
+        snapshot=self.page.buffer.snapshot();text=snapshot.text;cursor = self.editor.textCursor()
         selected = self.reader.selected_text() if self.mode == 'read' else cursor.selectedText()
-        count = len(re.findall(r'[\u3400-\u9fff]|\w+(?:[\x27-]\w+)*', visible_text(text)))
+        if getattr(self,'_statistics_snapshot',None) is not snapshot:
+            self._statistics_snapshot=snapshot
+            self._word_count=len(re.findall(r'[\u3400-\u9fff]|\w+(?:[\x27-]\w+)*', visible_text(text)))
+        count=self._word_count
         state = self.page.error or self.message or ('尚未保存' if self.page.dirty else '已保存')
         self.statistics.setText(f'{count} 詞　{len(text)} 字元'+(f'　選取 {len(selected)} 字元' if selected else '')+'　·　'+state+(f'　·　{self.zoom_percent}%' if self.zoom_percent != 100 else ''))
         self.statistics.setToolTip(self.statistics.text());self.statistics.setAccessibleName(self.statistics.text())
@@ -611,6 +634,9 @@ class MarkdownSurface(QWidget):
 
     def open_commands(self):
         if self.page.buffer.composing:return
+        self.commands=self.command_entries()
+        workspace=self.page.file_title.workspace
+        if workspace and hasattr(workspace,'notebook'):self.commands+=workspace.notebook.entries(self)
         self.command_box.show();self.command_query.clear();self.refresh_commands();self.command_query.setFocus()
 
     def refresh_commands(self):

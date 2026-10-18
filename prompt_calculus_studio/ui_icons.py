@@ -26,7 +26,7 @@ ICON_NAMES = frozenset({
     'folder','plus','minus','copy','trash','caret-down','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal','fold-all','unfold-all',
     'panel-left','type','file-text','list-ordered','arrow-down-up','arrow-up','arrow-down','shuffle','image-single','scan-eye','link-2','maximize','grip-vertical',
     'text-bold','text-italic','text-underline','text-strike','text-color','highlight',
-    'heading','quote','align','indent','outdent','eraser','edit-undo','edit-redo','task','book-open','source-code','tag',
+    'heading','quote','align','indent','outdent','eraser','edit-undo','edit-redo','task','book-open','source-code','tag','bookmark',
 })
 MODE_ICONS={'fixed':'pin','increment':'arrow-up','decrement':'arrow-down','random':'shuffle'}
 _STYLE_RESOURCES = {}
@@ -244,6 +244,8 @@ def _draw(painter, name, filled=False):
         line(12,14,12,21)
     elif name == 'book-open':
         poly((12,6),(8,4),(3,4),(3,19),(8,19),(12,21),(16,19),(21,19),(21,4),(16,4),(12,6));line(12,6,12,21)
+    elif name == 'bookmark':
+        poly((6,3),(18,3),(18,21),(12,17),(6,21),closed=True)
     elif name == 'source-code':
         poly((7,6),(2,12),(7,18));poly((17,6),(22,12),(17,18));line(14,4,10,20)
     elif name == 'pencil':

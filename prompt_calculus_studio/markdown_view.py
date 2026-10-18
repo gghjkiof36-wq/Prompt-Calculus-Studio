@@ -33,17 +33,20 @@ class Syntax(QSyntaxHighlighter):
     def highlightBlock(self, text):
         editor = self.editor
         number = self.currentBlock().blockNumber()
+        if getattr(editor,'_suspend_highlight',False):return
+        if editor.lazy_presentation and not editor._format_window[0] <= number < editor._format_window[1]:return
         if number >= len(editor.lines):return
         item = editor.lines[number]
         current = editor.textCursor()
         selected_a = editor.document().findBlock(current.selectionStart()).blockNumber()
         selected_b = editor.document().findBlock(current.selectionEnd()).blockNumber()
         reveal = editor.mode == 'source' or selected_a <= number <= selected_b
-        def apply(a, b, values):
+        def apply(a, b, values, replace=False):
             begin, end = utf16_position(text, a), utf16_position(text, b)
             values = dict(values)
             if values.get('size'):values['size'] *= editor.surface.zoom_percent/100
             format_ = char_style(values, editor.tokens()['info'])
+            if replace:self.setFormat(begin,end-begin,format_);return
             for offset in range(begin, end):
                 combined = self.format(offset);combined.merge(format_);self.setFormat(offset, 1, combined)
         def syntax(a, b):
@@ -56,20 +59,21 @@ class Syntax(QSyntaxHighlighter):
                 format_.setFont(font);format_.setForeground(QColor(0, 0, 0, 0))
             self.setFormat(utf16_position(text, a), utf16_position(text, b)-utf16_position(text, a), format_)
         if item['protected']:
-            apply(0, len(text), {'code': True});return
+            apply(0, len(text), {'code': True},True);return
         if item['heading']:
             heading = item['heading'];level = len(heading.group(2))
-            if editor.mode == 'write':apply(heading.start(3), heading.end(3), {'bold': True, 'size': (25, 21, 18, 16, 14, 13)[level-1]*editor.surface.preferences['reading_size']/12})
+            if editor.mode == 'write':apply(heading.start(3), heading.end(3), {'bold': True, 'size': (25, 21, 18, 16, 14, 13)[level-1]*editor.surface.preferences['reading_size']/12},True)
             syntax(0, heading.start(3))
         if item['listing']:
             syntax(len(item['listing'].group(1)), item['listing'].start(4))
         elif text.lstrip().startswith('>'):
             syntax(0, re.match(r'^\s*>\s?', text).end())
         elif re.fullmatch(r'\s{0,3}([-*_])(?:\s*\1){2,}\s*', text):syntax(0, len(text))
-        for span in spans(text):
+        text_spans=spans(text)
+        for span in text_spans:
             if editor.mode == 'write':apply(span.first, span.last, span.style)
             syntax(span.start, span.first);syntax(span.last, span.end)
-        if editor.mode == 'write':
+        if editor.mode == 'write' and any(span.style.get('background') for span in text_spans):
             # Resolve nested foreground/background styles together. An explicit
             # author-selected foreground always wins over automatic ink.
             for offset in range(utf16_position(text,len(text))):
@@ -78,7 +82,8 @@ class Syntax(QSyntaxHighlighter):
                     color=display_style({'background':current_format.background().color().name()})['color']
                     current_format.setForeground(QColor(color));self.setFormat(offset,1,current_format)
         for match in re.finditer(r'\]\([^)]*\)', text):syntax(match.start(), match.end())
-        for offset in escaped_markers(text):syntax(offset,offset+1)
+        if '\\' in text:
+            for offset in escaped_markers(text,text_spans):syntax(offset,offset+1)
 
 
 class Gutter(QWidget):
@@ -99,7 +104,6 @@ class Gutter(QWidget):
         if number is not None:self.editor.toggle_fold(number);event.accept();return
         super().mousePressEvent(event)
 
-
 class Markers(QWidget):
     def __init__(self, editor):
         super().__init__(editor);self.editor=editor
@@ -113,6 +117,8 @@ class Markers(QWidget):
 
 class SourceView(QTextEdit):
     def mouseReleaseEvent(self,event):
+        if hasattr(self.surface,'advanced') and self.surface.advanced.rectangle is not None:
+            self.surface.advanced.rectangle=None;event.accept();return
         if event.button()==Qt.MouseButton.LeftButton and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             cursor=self.cursorForPosition(event.position().toPoint())
             self.surface.open_current_link(python_position(self.surface.page.buffer.snapshot().text,cursor.position()))
@@ -123,8 +129,13 @@ class SourceView(QTextEdit):
         super().__init__(surface)
         self.surface, self.page = surface, surface.page
         self.mode = 'write';self.syncing = False;self.forwarding = False
-        self.lines = line_info(self.page.buffer.snapshot().text)
+        self._metadata_snapshot=self.page.buffer.snapshot()
+        self.lines = line_info(self._metadata_snapshot.text)
+        self._format_window=(0,160);self._presented=set();self._updating_presentation=False
         self.folded = set();self.last_block = 0
+        # The surface installs its final font, mode and margins before enabling
+        # layout. Do not lay out a long document several times at startup.
+        self.document().setLayoutEnabled(False)
         self.setPlainText(self.page.buffer.snapshot().text)
         self.setUndoRedoEnabled(False)
         self.setAcceptRichText(False)
@@ -135,11 +146,14 @@ class SourceView(QTextEdit):
         self.gutter = Gutter(self)
         self.markers = Markers(self);self.markers.raise_()
         self.highlighter = Syntax(self)
+        self.presentation_timer=QTimer(self);self.presentation_timer.setSingleShot(True)
+        self.presentation_timer.timeout.connect(self.present_visible)
         self.document().contentsChange.connect(self.forward_change)
         self.page.buffer.text.contentsChange.connect(self.receive_change)
         self.cursorPositionChanged.connect(self.cursor_changed)
         self.document().documentLayout().update.connect(lambda rect: self.update_markers())
         self.verticalScrollBar().valueChanged.connect(self.update_markers)
+        self.verticalScrollBar().valueChanged.connect(self.schedule_presentation)
         self.horizontalScrollBar().valueChanged.connect(self.update_markers)
         self.update_metadata()
 
@@ -197,15 +211,107 @@ class SourceView(QTextEdit):
         self.update_metadata()
 
     def update_metadata(self):
-        self.lines = line_info(source_text(self.document()))
-        if hasattr(self, 'highlighter'):self.highlighter.rehighlight()
-        self.update_measure()
-        self.update_paragraphs()
-        self.folded.intersection_update(range(len(self.lines)))
-        self.apply_folds()
-        self.gutter.update()
+        was_syncing=self.syncing;self.syncing=True
+        layout_enabled=self.document().isLayoutEnabled()
+        batched=False
+        try:
+            previous=self.lines
+            snapshot=self.page.buffer.snapshot()
+            unchanged=self._metadata_snapshot is snapshot
+            self._metadata_snapshot=snapshot
+            if not unchanged:self.lines = self.line_metadata(snapshot.text,previous)
+            key=(self.mode,self.surface.zoom_percent,tuple(sorted(self.surface.preferences.items())),str(self.tokens()))
+            if unchanged and getattr(self,'_presentation_key',None)==key:
+                self.update_measure();return
+            first=0;last=len(self.lines)
+            if getattr(self,'_presentation_key',None)==key:
+                equal=lambda a,b:(a['text'],a['protected'],a['display_marker'])==(b['text'],b['protected'],b['display_marker'])
+                while first<min(len(previous),last) and equal(previous[first],self.lines[first]):first+=1
+                suffix=0
+                while suffix<min(len(previous),last)-first and equal(previous[-1-suffix],self.lines[-1-suffix]):suffix+=1
+                last-=suffix
+            self._presentation_key=key
+            lazy=self.lazy_presentation
+            if lazy:
+                if previous is not self.lines or first!=last:self._presented.clear()
+                first,last=self.presentation_range();self._format_window=(first,last)
+            batched=last-first>30
+            if batched:self.document().setLayoutEnabled(False)
+            self.update_measure()
+            self._suspend_highlight=True
+            try:self.update_paragraphs(first,last)
+            finally:self._suspend_highlight=False
+            if hasattr(self, 'highlighter'):
+                if not getattr(self,'_highlight_initialized',False) or (first==0 and last==len(self.lines)):self.highlighter.rehighlight()
+                else:
+                    for number in range(first,last):self.highlighter.rehighlightBlock(self.document().findBlockByNumber(number))
+                self._highlight_initialized=True
+            if lazy:self._presented.update(range(first,last))
+            self.folded.intersection_update(range(len(self.lines)))
+            self.apply_folds()
+            self.gutter.update()
+        finally:
+            if batched:self.document().setLayoutEnabled(layout_enabled)
+            self.syncing=was_syncing
+
+    @property
+    def lazy_presentation(self):return len(self.lines)>10000
+
+    def presentation_range(self):
+        if not self.document().isLayoutEnabled():return 0,min(160,len(self.lines))
+        first=self.firstVisibleBlock().blockNumber()
+        last=self.cursorForPosition(QPoint(0,self.viewport().height())).blockNumber()
+        # While Qt is relaying out after a font/width change, a hit test can
+        # transiently return the final block. Bound work to a viewport, never
+        # turn that provisional result into formatting the whole manuscript.
+        last=min(last,first+max(100,self.viewport().height()//4+60))
+        return max(0,first-30),min(len(self.lines),max(first+100,last+30))
+
+    def schedule_presentation(self,*args):
+        if self.lazy_presentation and not self.syncing and not self._updating_presentation:self.presentation_timer.start(0)
+
+    def present_visible(self):
+        if not self.lazy_presentation or self.syncing or self._updating_presentation:return
+        first,last=self.presentation_range();self._format_window=(first,last)
+        pending=[number for number in range(first,last) if number not in self._presented]
+        if not pending:return
+        anchor=self.firstVisibleBlock();offset=self.blockBoundingGeometry(anchor).top()-self.verticalScrollBar().value()
+        enabled=self.document().isLayoutEnabled();self._updating_presentation=True;self.syncing=True
+        try:
+            self.document().setLayoutEnabled(False)
+            self._suspend_highlight=True
+            try:self.update_paragraphs(pending[0],pending[-1]+1)
+            finally:self._suspend_highlight=False
+            for number in pending:self.highlighter.rehighlightBlock(self.document().findBlockByNumber(number))
+            self._presented.update(pending)
+            self.document().setLayoutEnabled(enabled)
+            if anchor.isValid():self.verticalScrollBar().setValue(round(self.blockBoundingGeometry(anchor).top()-offset))
+        finally:
+            self.document().setLayoutEnabled(enabled);self.syncing=False;self._updating_presentation=False
+        self.update_markers()
+
+    @staticmethod
+    def line_metadata(text,previous):
+        raw=text.split('\n')
+        if len(raw)==len(previous):
+            changed=[i for i,line in enumerate(raw) if line!=previous[i]['text']]
+            if not changed:return previous
+            if len(changed)==1:
+                n=changed[0];old=previous[n];line=raw[n]
+                # Inline prose edits cannot change the fence/list state of the
+                # following lines. Structural edits still use the full parser.
+                if (not old['protected'] and not old['listing'] and not old['heading']
+                        and not re.match(r'^[ \t>]*(?:[#`~$<]|[-+*]\s|\d+[.)]\s|---)',line)
+                        and not line.startswith(('    ','\t'))):
+                    item=line_info(line)[0];shift=len(line)-len(old['text'])
+                    item.update(number=n,start=old['start'],end=old['start']+len(line))
+                    result=previous[:n]+[item]
+                    result.extend(dict(entry,start=entry['start']+shift,end=entry['end']+shift) for entry in previous[n+1:])
+                    return result
+        return line_info(text)
 
     def cursor_changed(self):
+        if self.syncing:return
         number = self.textCursor().blockNumber()
         for index in {number, self.last_block}:
             block = self.document().findBlockByNumber(index)
@@ -215,7 +321,9 @@ class SourceView(QTextEdit):
         if hasattr(self.surface,'outline'):self.surface.outline.sync_current()
         if hasattr(self.surface, 'format_actions'):self.surface.update_controls()
 
-    def tokens(self):return visual_tokens(window_appearance(self))
+    def tokens(self):
+        if not hasattr(self,'_tokens_cache'):self._tokens_cache=visual_tokens(window_appearance(self))
+        return self._tokens_cache
 
     def update_markers(self, *args):self.gutter.update();self.markers.update()
 
@@ -235,9 +343,10 @@ class SourceView(QTextEdit):
         self.gutter.setGeometry(margin, self.viewport().y(), gutter, self.viewport().height())
         self.markers.setGeometry(self.rect());self.markers.raise_();self.markers.update()
 
-    def update_paragraphs(self):
-        block = self.document().begin()
-        while block.isValid():
+    def update_paragraphs(self,first=0,last=None):
+        block = self.document().findBlockByNumber(first)
+        transaction=QTextCursor(self.document());transaction.beginEditBlock()
+        while block.isValid() and (last is None or block.blockNumber()<last):
             number = block.blockNumber()
             if number >= len(self.lines):break
             item = self.lines[number];fmt = block.blockFormat();original = QTextBlockFormat(fmt)
@@ -259,6 +368,7 @@ class SourceView(QTextEdit):
             if fmt != original:
                 cursor=QTextCursor(block);cursor.setBlockFormat(fmt)
             block = block.next()
+        transaction.endEditBlock()
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -305,21 +415,43 @@ class SourceView(QTextEdit):
             self.surface.apply([SourceEdit(start,start+1,' ' if listing.group(3).lower()=='x' else 'x')])
 
     def mousePressEvent(self, event):
+        if hasattr(self.surface,'advanced') and self.surface.advanced.mouse_press(event):event.accept();return
         if event.button() == Qt.MouseButton.LeftButton:
             for target,number in getattr(self,'task_targets',[]):
                 if target.contains(event.position()+self.viewport().pos()):self.toggle_task(number);event.accept();return
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self,event):
+        if hasattr(self.surface,'advanced') and self.surface.advanced.mouse_move(event):event.accept();return
+        super().mouseMoveEvent(event)
+
+    def setExtraSelections(self,selections):
+        self.base_selections=list(selections)
+        advanced=getattr(self.surface,'advanced',None)
+        super().setExtraSelections(self.base_selections+(advanced.extras() if advanced else []))
+
     def fold_end(self, number):
-        item = self.lines[number]
-        if item['heading']:
-            level = len(item['heading'].group(2))
-            return next((entry['number'] for entry in self.lines[number+1:] if entry['heading'] and len(entry['heading'].group(2)) <= level), len(self.lines))
-        if item['listing']:
-            indent = len(item['listing'].group(1))
-            end = next((entry['number'] for entry in self.lines[number+1:] if entry['text'].strip() and (not entry['listing'] or len(entry['listing'].group(1)) <= indent)), len(self.lines))
-            return end if any(entry['listing'] for entry in self.lines[number+1:end]) else number+1
-        return number+1
+        if getattr(self,'_fold_lines',None) is not self.lines:
+            self._fold_lines=self.lines;self._fold_ends={}
+            headings=[];lists=[]
+            for index,item in enumerate(self.lines):
+                if item['heading']:
+                    level=len(item['heading'].group(2))
+                    while headings and headings[-1][1]>=level:
+                        start,_=headings.pop();self._fold_ends[start]=index
+                    headings.append((index,level))
+                if not item['text'].strip():continue
+                indent=len(item['listing'].group(1)) if item['listing'] else -1
+                while lists and lists[-1][1]>=indent:
+                    start,_,children=lists.pop()
+                    if children:self._fold_ends[start]=index
+                if item['listing']:
+                    if lists:lists[-1][2]=True
+                    lists.append([index,indent,False])
+            for start,_ in headings:self._fold_ends[start]=len(self.lines)
+            for start,_,children in lists:
+                if children:self._fold_ends[start]=len(self.lines)
+        return self._fold_ends.get(number,number+1)
 
     def toggle_fold(self, number):
         if self.fold_end(number) <= number+1:return
@@ -330,6 +462,8 @@ class SourceView(QTextEdit):
         self.apply_folds()
 
     def apply_folds(self):
+        if not self.folded and not getattr(self,'_had_folds',False):return
+        self._had_folds=bool(self.folded)
         hidden = set()
         for number in self.folded:hidden.update(range(number+1, self.fold_end(number)))
         block = self.document().begin()
@@ -343,6 +477,7 @@ class SourceView(QTextEdit):
     def resizeEvent(self, event):
         if hasattr(self, 'gutter'):self.update_measure()
         super().resizeEvent(event)
+        if hasattr(self,'presentation_timer'):self.schedule_presentation()
 
     def fold_control_rect(self,block):
         top=self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
@@ -377,15 +512,20 @@ class SourceView(QTextEdit):
 
     def keyPressEvent(self, event):
         if self.surface.mode == 'read':event.ignore();return
+        if hasattr(self.surface,'advanced') and self.surface.advanced.key(event):event.accept();return
         if event.matches(QKeySequence.StandardKey.Undo):self.page.undo();return
         if event.matches(QKeySequence.StandardKey.Redo):self.page.redo();return
-        if event.matches(QKeySequence.StandardKey.Find):self.surface.open_find();return
+        if event.matches(QKeySequence.StandardKey.Find):
+            shortcut=self.surface.command_shortcuts.get('Ctrl+F')
+            if shortcut and shortcut.key()==QKeySequence('Ctrl+F'):self.surface.open_find();return
         if event.key() == Qt.Key.Key_Escape and self.surface.find_bar.isVisible():self.surface.close_panel(self.surface.find_bar);return
         if self.page.buffer.composing:return super().keyPressEvent(event)
         if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
             command = {Qt.Key.Key_B: {'bold': True}, Qt.Key.Key_I: {'italic': True}, Qt.Key.Key_U: {'underline': True}}.get(event.key())
             if command:self.surface.toggle_style(next(iter(command)));return
-            if event.key() == Qt.Key.Key_H:self.surface.open_find(True);return
+            if event.key() == Qt.Key.Key_H:
+                shortcut=self.surface.command_shortcuts.get('Ctrl+H')
+                if shortcut and shortcut.key()==QKeySequence('Ctrl+H'):self.surface.open_find(True);return
             if event.key() == Qt.Key.Key_Space:self.toggle_task(self.textCursor().blockNumber());return
         cursor = self.textCursor()
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not cursor.hasSelection() and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
@@ -408,6 +548,7 @@ class SourceView(QTextEdit):
 
     def inputMethodEvent(self, event):
         if self.surface.mode == 'read':event.ignore();return
+        if hasattr(self.surface,'advanced'):self.surface.advanced.clear()
         token = id(self.page);self.page.buffer.composing.add(token)
         self.ime_inserted_range=None
         try:super().inputMethodEvent(event)
@@ -461,6 +602,7 @@ class SourceView(QTextEdit):
 
     def contextMenuEvent(self, event):
         menu = QMenu(self)
+        if hasattr(self.surface,'advanced'):self.surface.advanced.spelling_menu(menu,self.cursorForPosition(event.pos()).position())
         menu.addAction('復原', self.page.undo).setEnabled(self.page.document().isUndoAvailable())
         menu.addAction('重做', self.page.redo).setEnabled(self.page.document().isRedoAvailable())
         menu.addSeparator()

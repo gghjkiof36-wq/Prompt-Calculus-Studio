@@ -32,6 +32,7 @@ window.refreshDocument = function () {
     for (const key of ['base','text','secondary','surface','border','accent','info']) document.documentElement.style.setProperty('--'+key, tokens[key] || '#888');
     root.style.fontFamily = '"'+data.font.replaceAll('"','')+'", "Microsoft JhengHei", system-ui, sans-serif'; root.style.fontSize = data.size+'pt'; root.style.maxWidth = data.width+'px';root.style.lineHeight = data.lineHeight+'%';
     document.documentElement.classList.toggle('light',!!data.light);
+    document.documentElement.classList.toggle('note-preview',!!data.preview);
     root.innerHTML = DOMPurify.sanitize(data.html || '', {
       ADD_TAGS:['audio','video','source'], ADD_ATTR:['controls','preload','data-math','data-diagram'],
       ADD_URI_SAFE_ATTR:['width','height'],

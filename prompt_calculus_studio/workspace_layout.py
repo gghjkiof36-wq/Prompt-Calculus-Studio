@@ -182,12 +182,13 @@ class WorkspaceLayout(QObject):
             self.w.show_notice('分頁布局尚未儲存：'+str(error)+'\n文件內容仍由各文件保存。')
             return False
 
-    def restore(self):
-        if not self.path.exists():return False
+    def restore(self, value=None):
+        if value is None and not self.path.exists():return False
         try:
-            raw = self.path.read_bytes()
-            if len(raw) > 2*1024*1024:raise ValueError('布局記錄過大')
-            value = json.loads(raw)
+            if value is None:
+                raw = self.path.read_bytes()
+                if len(raw) > 2*1024*1024:raise ValueError('布局記錄過大')
+                value = json.loads(raw)
             if not isinstance(value, dict) or value.get('version') != 1:raise ValueError('布局版本不支援')
             panes = value.get('panes')
             if not isinstance(panes, list) or not 1 <= len(panes) <= 2:raise ValueError('分區記錄不完整')
@@ -211,6 +212,11 @@ class WorkspaceLayout(QObject):
         try:
             w = self.w
             w.split_ratio = max(.05, min(.95, ratio))
+            if len(panes)==1 and len(w.panes)==2:
+                extra=w.panes[-1]
+                while extra.strip.bar.count():
+                    if not w.close_tab(0,decision='discard',make_home=False,pane=extra):return False
+                if extra in w.panes:w.collapse_empty_pane(extra)
             if len(panes) == 2:w.ensure_split()
             for pane, saved in zip(w.panes, panes):
                 while pane.strip.bar.count():w.close_tab(0, decision='discard', make_home=False, pane=pane)
