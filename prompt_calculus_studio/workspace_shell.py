@@ -652,6 +652,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         tab = Tab('md:' + uuid.uuid4().hex, path.stem, page, retained, path=path)
         page.document().modificationChanged.connect(lambda _: self.update_tab(tab))
         page.textChanged.connect(lambda: self.document_changed(tab))
+        page.compositionChanged.connect(lambda: self.document_changed(tab))
         return self.add_tab(tab, replace_current=not new_tab)
 
 
@@ -929,6 +930,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             return False
         if decision == 'discard':
             return True
+        if getattr(getattr(tab.widget, 'buffer', None), 'composing', False):
+            self.show_notice('請先完成目前的中文組字。')
+            return False
         if getattr(tab.document or tab.widget, 'operation_error', False):
             self.show_notice((tab.document or tab.widget).error)
             return False
@@ -1062,6 +1066,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         unlisten(self.tab_drag)
         unlisten(self.pointer_navigation)
         self.recent_timer.stop()
+        self.autosave.external_poll.stop()
         self.tree_state.save()
         self.save_recent()
         self.save_ui_preferences()

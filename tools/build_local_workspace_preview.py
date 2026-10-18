@@ -26,12 +26,17 @@ def build(out, vendor, refresh_launcher=False, phase='p2'):
             raise ValueError('Only this checkout\'s existing preview launcher can be refreshed.')
     else:
         prepare(out)  # Refuses an existing destination; never resets review edits.
-        if phase in ('p3-a', 'p3-files', 'p3-sidebar', 'p4-a', 'p4-split'):
+        if phase in ('p3-a', 'p3-files', 'p3-sidebar', 'p4-a', 'p4-split', 'md-a'):
             external = out/'其他位置（合成）'
             external.mkdir()
             (external/'位置說明.md').write_text('# 其他位置\n\n可從內容選單將這個資料夾加入側欄，再於根內新增及整理內容；另存新檔仍可選擇其他位置。\n', encoding='utf-8')
+        if phase == 'md-a':
+            from markdown_a_sample import SAMPLE
+            (root/'MD-A混合樣本.md').write_bytes(SAMPLE)
+            (out/'data/workspace-ui.json').write_text(json.dumps(dict(
+                navigation_position='top', sidebar_expanded=False), ensure_ascii=False), encoding='utf-8')
     temporary = ''
-    if phase in ('p3-a', 'p3-files', 'p3-sidebar', 'p4-a', 'p4-split'):
+    if phase in ('p3-a', 'p3-files', 'p3-sidebar', 'p4-a', 'p4-split', 'md-a'):
         (out/'temp').mkdir(exist_ok=True)
         temporary = 'set "TEMP=%~dp0temp"\nset "TMP=%~dp0temp"\n'
     commit = subprocess.check_output(['git', '-c', 'safe.directory='+str(source),
@@ -39,7 +44,7 @@ def build(out, vendor, refresh_launcher=False, phase='p2'):
     status = subprocess.check_output(['git', '-c', 'safe.directory='+str(source),
                                      'status', '--porcelain'], cwd=source, text=True)
     launch_source = source
-    if phase in ('p4-a', 'p4-split'):
+    if phase in ('p4-a', 'p4-split', 'md-a'):
         if status.strip():
             raise ValueError('Commit the reviewed P4 source before making its isolated preview.')
         launch_source = out/'source'
@@ -60,6 +65,8 @@ def build(out, vendor, refresh_launcher=False, phase='p2'):
     preview_files = ''
     if phase in ('p4-a', 'p4-split'):
         preview_files = f' --open-left "%~dp0{root.name}\\街景.pcs-workflow"'
+    elif phase == 'md-a':
+        preview_files = f' --open-left "%~dp0{root.name}\\MD-A混合樣本.md"'
     launcher = f'''@echo off
 chcp 65001 >nul
 setlocal
@@ -91,7 +98,7 @@ exit /b 1
 '''
     path = out/({'p3-a': 'Start-PCS-P3-A-Files.bat', 'p3-files': 'Start-PCS-P3-Files.bat',
                 'p3-sidebar': 'Start-PCS-P3-Sidebar.bat', 'p4-a': 'Start-PCS-P4-A.bat',
-                'p4-split': 'Start-PCS-P4-Split.bat'}.get(phase, 'Start-PCS-P2-Tabs.bat'))
+                'p4-split': 'Start-PCS-P4-Split.bat', 'md-a': 'Start-PCS-MD-A.bat'}.get(phase, 'Start-PCS-P2-Tabs.bat'))
     path.write_bytes(launcher.replace('\n', '\r\n').encode('utf-8'))
     manifest = dict(source=str(source), commit=commit, uncommitted=bool(status.strip()),
                     launch_source=str(launch_source), fixed_source=launch_source != source,
@@ -108,6 +115,6 @@ if __name__ == '__main__':
     parser.add_argument('--vendor', type=Path, required=True)
     parser.add_argument('--refresh-launcher', action='store_true',
                         help='Refresh only the launcher and source record, preserving all review files/data.')
-    parser.add_argument('--phase', choices=('p2', 'p3-a', 'p3-files', 'p3-sidebar', 'p4-a', 'p4-split'), default='p2')
+    parser.add_argument('--phase', choices=('p2', 'p3-a', 'p3-files', 'p3-sidebar', 'p4-a', 'p4-split', 'md-a'), default='p2')
     args = parser.parse_args()
     build(args.out, args.vendor, args.refresh_launcher, args.phase)

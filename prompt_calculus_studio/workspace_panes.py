@@ -247,6 +247,7 @@ class WorkspacePanes:
                 tab = Tab('md:'+uuid.uuid4().hex, path.stem, page, retained, path=path)
                 if not hasattr(page.buffer, 'save_key'):page.buffer.save_key = tab.key
                 page.textChanged.connect(lambda: self.document_changed(tab))
+                page.compositionChanged.connect(lambda: self.document_changed(tab))
                 page.document().modificationChanged.connect(lambda _: self.update_tab(tab))
             else:
                 document = matching[0].document if matching else next((d for d in self.documents if d.path == path), None)

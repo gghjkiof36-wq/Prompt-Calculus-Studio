@@ -11,6 +11,27 @@ class WorkspaceAutosave(QObject):
         self.timers = {}
         self.saving = set()
         self.paused = set()
+        self.external_poll = QTimer(self)
+        self.external_poll.setInterval(1000)
+        self.external_poll.timeout.connect(self.poll_markdown)
+        self.external_poll.start()
+
+    def poll_markdown(self):
+        checked = set()
+        for tab in self.workspace.all_pages():
+            page = tab.widget
+            buffer = getattr(page, 'buffer', None)
+            if (buffer is None or id(buffer) in checked or id(tab) in self.paused
+                    or self.key(tab) in self.saving):
+                continue
+            checked.add(id(buffer))
+            before = page.error
+            page.refresh_external()
+            if page.error and page.error != before:
+                self.stop(tab)
+                self.workspace.show_notice('「' + tab.title + '」' + page.error)
+            elif before and not page.error:
+                self.schedule(tab)
 
     @staticmethod
     def key(tab):
@@ -41,7 +62,7 @@ class WorkspaceAutosave(QObject):
 
     @staticmethod
     def editing_dialog(tab):
-        return any(getattr(getattr(host, 'prompt_editor', None), 'active_dialog', None) is not None
+        return bool(getattr(getattr(tab.widget, 'buffer', None), 'composing', False)) or any(getattr(getattr(host, 'prompt_editor', None), 'active_dialog', None) is not None
                    for host in getattr(tab.document, 'hosts', []))
 
     def flush(self, tab):
