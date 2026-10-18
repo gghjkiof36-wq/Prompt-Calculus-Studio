@@ -36,6 +36,8 @@ class MarkdownSurface(QWidget):
         self.breadcrumb_name = ElidedLabel(page.path.stem, top);self.breadcrumb_name.setObjectName('MarkdownFileTitle')
         page.file_title.filenameChanged.connect(self.breadcrumb_name.setText)
         heading.addWidget(self.breadcrumb_name, 1)
+        self.outline_button=self.tool('大綱',self.toggle_outline,'list')
+        self.outline_button.setCheckable(True);heading.addWidget(self.outline_button)
         self.mode_box = self.tool('編寫 · 切換文件視圖', self.mode_menu, 'pencil')
         self.mode_box.setObjectName('MarkdownMode')
         heading.addWidget(self.mode_box)
@@ -83,15 +85,18 @@ class MarkdownSurface(QWidget):
         self.command_query.returnPressed.connect(self.run_selected_command)
         self.command_list.itemActivated.connect(self.run_selected_command)
         self.splitter = QSplitter();self.outline_panel = OutlinePanel(self);self.outline = self.outline_panel.tree;self.outline_panel.hide()
-        self.splitter.addWidget(self.outline_panel)
         self.content_pane = QWidget();content = QVBoxLayout(self.content_pane);content.setContentsMargins(0,0,0,0);content.setSpacing(0)
+        self.outline_panel.setParent(self.content_pane)
         self.title_host = QWidget();self.title_host.setObjectName('MarkdownTitleHost')
         self.title_layout = QHBoxLayout(self.title_host);self.title_layout.setContentsMargins(50,24,28,10)
         page.file_title.setParent(self.title_host);page.file_title.setObjectName('MarkdownInlineTitle');page.file_title.setMinimumHeight(48);page.file_title.setToolTip('')
         self.title_layout.addWidget(page.file_title);content.addWidget(self.title_host)
         self.stack = QStackedWidget();self.editor = SourceView(self);self.reader = ReadingView(self)
         self.stack.addWidget(self.editor);self.stack.addWidget(self.reader);content.addWidget(self.stack,1);self.splitter.addWidget(self.content_pane)
-        self.splitter.setChildrenCollapsible(False);self.splitter.setStretchFactor(1,1);body.addWidget(self.splitter,1)
+        self.splitter.setChildrenCollapsible(False);self.splitter.setStretchFactor(0,1);body.addWidget(self.splitter,1)
+        from .markdown_outline_layout import OutlineLayout
+        from .markdown_search import SearchHighlight
+        self.outline_layout=OutlineLayout(self);self.search_highlight=SearchHighlight(self)
         self.content_pane.installEventFilter(self);self.zoom_handler = DocumentZoom(self)
         self.statistics = QLabel();self.statistics.setObjectName('MarkdownStatus');self.statistics.setMinimumHeight(28)
         self.statistics.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse);body.addWidget(self.statistics)
@@ -141,8 +146,8 @@ class MarkdownSurface(QWidget):
         self.page.file_title.setMinimumHeight(round(44*self.zoom_percent/100))
 
     def apply_appearance(self):
-        t = visual_tokens(window_appearance(self))
-        appearance_key = tuple(sorted(t.items()))
+        appearance=window_appearance(self);t = visual_tokens(appearance)
+        appearance_key = (tuple(sorted(t.items())),appearance.get('ui_size',12))
         if getattr(self, '_appearance_key', None) == appearance_key:return
         self._appearance_key = appearance_key
         light = QColor(t['base']).lightnessF() > .5
@@ -177,7 +182,8 @@ class MarkdownSurface(QWidget):
             QLabel#MarkdownStatus {{padding:0 20px;color:{t['secondary']};font-size:12px;}}
         ''')
         from .markdown_ui_style import styles
-        self.setStyleSheet(self.styleSheet()+styles(t))
+        self.setStyleSheet(self.styleSheet()+styles(t,appearance.get('ui_size',12)))
+        if hasattr(self,'outline_layout'):self.outline_layout.schedule()
         if hasattr(self,'editor'):self.editor.update_metadata();self.reader.apply_preferences()
 
     def focus_document(self):
@@ -185,7 +191,7 @@ class MarkdownSurface(QWidget):
 
     def close_panel(self, panel):
         panel.hide()
-        if panel is self.find_bar:self.clear_rich_search()
+        if panel is self.find_bar:self.clear_rich_search();self.search_highlight.clear()
         self.focus_document()
 
     def focus_toolbar(self):
@@ -252,6 +258,7 @@ class MarkdownSurface(QWidget):
         self.editor.update_metadata();self.reader.apply_preferences()
         if self.mode == 'read':self.reader.refresh()
         self.update_breadcrumb()
+        self.outline_layout.schedule()
 
     def preferences_menu(self):
         from .markdown_preferences import DisplayPreferences
@@ -269,6 +276,7 @@ class MarkdownSurface(QWidget):
             self.reader.rich.setZoomFactor(value/100);QTimer.singleShot(0,self.reader.rich,self.reader.rich.sync_title_alignment)
         if self.mode == 'read' and not self.reader.advanced:self.reader.refresh()
         self.update_title_layout();self.update_statistics()
+        self.outline_layout.schedule();self.search_changed()
         if self.display_panel:self.display_panel.zoom.setText(str(value)+'%')
 
     def set_preference(self, key, value):self.preferences[key] = value;self.save_preferences()
@@ -293,6 +301,7 @@ class MarkdownSurface(QWidget):
         else:
             self.editor.mode = mode;self.editor.update_metadata();self.stack.setCurrentWidget(self.editor);self.editor.setFocus()
         self.update_title_layout();self.search_changed();self.update_statistics();self.update_controls()
+        self.outline_layout.schedule()
 
     def selection(self):
         snapshot = self.page.buffer.snapshot();cursor = self.editor.textCursor()
@@ -524,7 +533,7 @@ class MarkdownSurface(QWidget):
         self.statistics.setText(f'{count} 詞　{len(text)} 字元'+(f'　選取 {len(selected)} 字元' if selected else '')+'　·　'+state+(f'　·　{self.zoom_percent}%' if self.zoom_percent != 100 else ''))
         self.statistics.setToolTip(self.statistics.text());self.statistics.setAccessibleName(self.statistics.text())
 
-    def toggle_outline(self):self.outline_panel.setVisible(not self.outline_panel.isVisible());self.splitter.setSizes([220,max(260,self.width()-220)])
+    def toggle_outline(self):self.outline_layout.toggle()
 
     def navigate(self, position):
         snapshot = self.page.buffer.snapshot();line = snapshot.text[:position].count('\n')
@@ -542,6 +551,9 @@ class MarkdownSurface(QWidget):
 
     def search_changed(self, *args):
         if not hasattr(self,'query') or not hasattr(self,'reader'):return
+        self.search_highlight.update()
+        if self.mode=='read' and self.reader.advanced and self.reader.rich:
+            self.reader.rich.search(self.query.text() if self.find_bar.isVisible() else '',self.case_sensitive.isChecked());return
         if not self.query.text():self.clear_rich_search()
         matches = self.matches();number = 0
         view = self.reader if self.mode == 'read' else self.editor
@@ -552,23 +564,11 @@ class MarkdownSurface(QWidget):
         self.find_previous.setEnabled(bool(matches));self.find_forward.setEnabled(bool(matches))
 
     def clear_rich_search(self):
-        if self.reader.rich:self.reader.rich.findText('')
-
-    def rich_search_finished(self, result):
-        if self.mode != 'read' or not self.query.text():return
-        self.match_count.setText(f'{result.activeMatch()}/{result.numberOfMatches()}')
-        self.find_previous.setEnabled(result.numberOfMatches()>0);self.find_forward.setEnabled(result.numberOfMatches()>0)
+        if self.reader.rich:self.reader.rich.search('')
 
     def find_next(self, direction=1):
         if self.mode=='read' and self.reader.advanced and self.reader.rich:
-            from PySide6.QtWebEngineCore import QWebEnginePage
-            flags=QWebEnginePage.FindFlag(0)
-            if direction<0:flags|=QWebEnginePage.FindFlag.FindBackward
-            if self.case_sensitive.isChecked():flags|=QWebEnginePage.FindFlag.FindCaseSensitively
-            rich = self.reader.rich
-            if not getattr(rich,'_search_connected',False):
-                rich.page().findTextFinished.connect(self.rich_search_finished);rich._search_connected = True
-            rich.findText(self.query.text(),flags);return
+            self.reader.rich.search(self.query.text(),self.case_sensitive.isChecked(),direction);return
         matches = self.matches()
         if not matches:return
         view = self.reader if self.mode == 'read' else self.editor

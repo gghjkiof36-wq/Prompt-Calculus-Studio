@@ -1,15 +1,17 @@
 """A scoped heading tree; hierarchy and navigation share source positions."""
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem
 from .markdown_commands import heading_sections, move_section_edits
 from .markdown_syntax import visible_text
+from .markdown_outline_items import HeadingDelegate
 
 
 class HeadingTree(QTreeWidget):
     def __init__(self, surface):
         super().__init__();self.surface = surface;self.items = []
         self.setObjectName('MarkdownOutlineTree');self.setAccessibleName('文件大綱')
-        self.setHeaderHidden(True);self.setIndentation(16);self.setUniformRowHeights(True)
+        self.setHeaderHidden(True);self.setIndentation(12);self.setUniformRowHeights(False)
+        self.setItemDelegate(HeadingDelegate(self))
         self.setAnimated(False);self.setExpandsOnDoubleClick(False)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
@@ -25,7 +27,7 @@ class HeadingTree(QTreeWidget):
             start, end, level, title = section[:4]
             while parents and parents[-1][0] >= level:parents.pop()
             item = QTreeWidgetItem([visible_text(title)])
-            item.setData(0, Qt.ItemDataRole.UserRole, section);item.setSizeHint(0, QSize(0, 30))
+            item.setData(0, Qt.ItemDataRole.UserRole, section)
             item.setToolTip(0, visible_text(title))
             if parents:parents[-1][1].addChild(item)
             else:self.addTopLevelItem(item)
@@ -46,6 +48,12 @@ class HeadingTree(QTreeWidget):
 
     def navigate(self, item, column=0):
         self.surface.navigate(item.data(0, Qt.ItemDataRole.UserRole)[0])
+        self.surface.outline_layout.dismiss()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.scheduleDelayedItemsLayout()
+        QTimer.singleShot(0,self,self.surface.outline_panel.fit_card)
 
     def dropEvent(self, event):
         source, target = self.currentItem(), self.itemAt(event.position().toPoint())
@@ -61,15 +69,15 @@ class HeadingTree(QTreeWidget):
 
 class OutlinePanel(QFrame):
     def __init__(self, surface):
-        super().__init__();self.setObjectName('MarkdownOutlineHost');self.setMinimumWidth(190);self.setMaximumWidth(340)
+        super().__init__();self.surface=surface;self.available_height=600;self.setObjectName('MarkdownOutlineHost')
         outer=QVBoxLayout(self);outer.setContentsMargins(16,20,4,12);outer.setSpacing(0)
         self.card=QFrame();self.card.setObjectName('MarkdownOutlinePanel');outer.addWidget(self.card);outer.addStretch(1)
-        layout = QVBoxLayout(self.card);layout.setContentsMargins(8,8,8,10);layout.setSpacing(6)
+        layout = QVBoxLayout(self.card);layout.setContentsMargins(8,10,8,10);layout.setSpacing(8)
         header = QHBoxLayout();header.setSpacing(4)
         title = QLabel('大綱');title.setObjectName('MarkdownPanelTitle');header.addWidget(title);header.addStretch()
         self.tree = HeadingTree(surface)
         header.addWidget(surface.tool('收合大綱', self.tree.collapseAll, 'fold-all'))
-        header.addWidget(surface.tool('關閉大綱', self.hide, 'close'))
+        header.addWidget(surface.tool('關閉大綱', surface.toggle_outline, 'close'))
         layout.addLayout(header);layout.addWidget(self.tree)
         self.tree.itemExpanded.connect(lambda _:self.fit_card());self.tree.itemCollapsed.connect(lambda _:self.fit_card())
 
@@ -80,7 +88,9 @@ class OutlinePanel(QFrame):
                 if not parent.isExpanded():return False
                 parent=parent.parent()
             return True
-        count=sum(shown(item) for item in self.tree.items)
-        self.card.setFixedHeight(min(max(96,self.height()-32),54+max(1,count)*30))
+        self.tree.doItemsLayout()
+        rows=sum(self.tree.sizeHintForIndex(self.tree.indexFromItem(item)).height() for item in self.tree.items if shown(item))
+        self.card.setFixedHeight(min(max(96,self.available_height-32),58+max(30,rows)))
+        self.resize(self.width(),self.card.height()+32)
 
     def resizeEvent(self, event):super().resizeEvent(event);self.fit_card()

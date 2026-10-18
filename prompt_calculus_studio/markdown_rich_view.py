@@ -81,6 +81,7 @@ class RichView(QWebEngineView):
         page.selectionChanged.connect(self.surface.update_statistics)
         self.loadFinished.connect(self.loaded)
         self.rendered.connect(self.sync_title_alignment)
+        self.rendered.connect(self.surface.search_changed)
         self.setUrl(QUrl.fromLocalFile(str(ASSETS/'index.html')))
         # Profiles live through their pages; release only after the page's QObject.
         page.destroyed.connect(self.profile.deleteLater)
@@ -100,6 +101,19 @@ class RichView(QWebEngineView):
             self.content_margins=(round(left*scale),max(0,round(self.width()-right*scale)))
             self.surface.update_title_layout()
         self.page().runJavaScript('(()=>{const r=document.querySelector("main")?.getBoundingClientRect();return r?JSON.stringify([r.left,r.right]):null})()',apply)
+
+    def search(self, query, case_sensitive=False, direction=0):
+        self.search_ticket=getattr(self,'search_ticket',0)+1;ticket=self.search_ticket
+        def finished(value):
+            from shiboken6 import isValid
+            if not isValid(self) or ticket!=self.search_ticket or not value:return
+            result=json.loads(value);s=self.surface
+            if s.mode!='read' or not s.find_bar.isVisible() or s.query.text()!=query:return
+            s.match_count.setText(f"{result['active']}/{result['total']}" if query else '')
+            s.find_previous.setEnabled(result['total']>0);s.find_forward.setEnabled(result['total']>0)
+        if self.ready:
+            args=json.dumps([query,case_sensitive,direction],ensure_ascii=False)
+            self.page().runJavaScript('window.markSearch && window.markSearch(...'+args+')',finished)
 
     def resource(self,entry,index):
         target=entry['target'];local=Path(entry['path']) if entry['path'] else None

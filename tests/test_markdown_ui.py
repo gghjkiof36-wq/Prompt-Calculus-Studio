@@ -142,22 +142,22 @@ class MarkdownUiTests(unittest.TestCase):
             if s.match_count.text() == '1/1':break
             QTest.qWait(30)
         self.assertEqual(s.match_count.text(),'1/1')
-        results=[];rich.page().findTextFinished.connect(lambda result:results.append(result.numberOfMatches()))
+        def highlighted():
+            result=[];rich.page().runJavaScript("CSS.highlights.get('find-matches')?.size || 0",result.append)
+            for _ in range(30):
+                if result:break
+                QTest.qWait(20)
+            return result[0]
+        self.assertEqual(highlighted(),1)
         s.query.clear()
-        for _ in range(30):
-            if results:break
-            QTest.qWait(30)
-        self.assertEqual(results[-1:], [0]);self.assertEqual(s.match_count.text(),'')
+        self.assertEqual(highlighted(),0);self.assertEqual(s.match_count.text(),'')
         s.query.setText('stopped');s.find_next()
         for _ in range(30):
             if s.match_count.text() == '1/1':break
             QTest.qWait(30)
-        self.assertEqual(s.match_count.text(),'1/1');results.clear()
+        self.assertEqual(s.match_count.text(),'1/1')
         s.close_panel(s.find_bar)
-        for _ in range(30):
-            if results:break
-            QTest.qWait(30)
-        self.assertEqual(results[-1:], [0]);self.assertFalse(s.find_bar.isVisible())
+        self.assertEqual(highlighted(),0);self.assertFalse(s.find_bar.isVisible())
         self.assertEqual(tab.widget.encoded(),raw.encode());self.assertFalse(tab.widget.dirty)
 
 
