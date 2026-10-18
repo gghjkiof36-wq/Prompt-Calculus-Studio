@@ -1,5 +1,6 @@
 """A foundation through workspace timers, file commands and split views."""
 import unittest
+from unittest.mock import patch
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QInputMethodEvent, QTextCursor
 from PySide6.QtTest import QTest
@@ -96,6 +97,25 @@ class MarkdownWorkspaceTests(unittest.TestCase):
         self.assertEqual(tab.widget.error, '')
         QTest.qWait(110)
         self.assertEqual(tab.path.read_bytes(), original+b'pending')
+        self.assertFalse(tab.dirty)
+
+    def test_failed_write_undo_then_clean_explicit_retry_restores_autosave(self):
+        self.w.autosave.delay_ms = 35
+        tab = self.open('Notes.md')
+        original = tab.path.read_bytes()
+        tab.widget.moveCursor(QTextCursor.MoveOperation.End)
+        with patch('prompt_calculus_studio.workspace_files.QSaveFile.commit', return_value=False):
+            tab.widget.insertPlainText('failed')
+            QTest.qWait(110)
+        self.assertTrue(tab.widget.error)
+        tab.widget.undo()
+        self.assertFalse(tab.dirty)
+        self.assertTrue(self.w.save_tab(tab))
+        self.assertFalse(tab.widget.error)
+        self.assertEqual(tab.path.read_bytes(), original)
+        tab.widget.insertPlainText('next')
+        QTest.qWait(110)
+        self.assertEqual(tab.path.read_bytes(), original+b'next')
         self.assertFalse(tab.dirty)
 
 

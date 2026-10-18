@@ -178,13 +178,19 @@ class MarkdownPage(QPlainTextEdit):
     def save(self):
         if self.buffer.composing:
             return False
-        if not self.dirty:
+        if not self.dirty and not self.error and not self.buffer.mapping_error:
             return True
         try:
             target = paths.checked(self.path.parent, self.path.name)
             if paths.read_bytes(target, 8*1024*1024)[0] != self.baseline:
                 raise ValueError('檔案已被外部修改；編輯內容保留在此頁，尚未覆寫原檔。')
             raw = self.encoded()
+            if not self.dirty:
+                if raw != self.baseline:
+                    raise ValueError('原文與保存狀態不同步，內容尚未保存。')
+                self.error = ''
+                self.buffer.external_error = ''
+                return True
             output = QSaveFile(str(target))
             output.setDirectWriteFallback(False)
             if not output.open(QIODevice.OpenModeFlag.WriteOnly):
