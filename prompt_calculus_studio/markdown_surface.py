@@ -659,7 +659,10 @@ class MarkdownSurface(QWidget):
 
     def position_commands(self):
         self.command_box.setFixedWidth(max(160,min(520,self.width()-24)))
-        self.command_list.setFixedHeight(34*max(1,min(7,self.command_list.count()))+4)
+        self.command_box.ensurePolished();self.command_list.ensurePolished()
+        self.command_list.doItemsLayout()
+        row_height=max(self.command_list.fontMetrics().lineSpacing()+10,self.command_list.sizeHintForRow(0))
+        self.command_list.setFixedHeight(row_height*max(1,min(7,self.command_list.count()))+2*self.command_list.frameWidth()+4)
         self.command_box.adjustSize()
         point=self.mapToGlobal(QPoint((self.width()-self.command_box.width())//2,self.toolbar_host.geometry().bottom()+6))
         available=self.screen().availableGeometry()

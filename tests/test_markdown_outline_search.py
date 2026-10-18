@@ -102,6 +102,15 @@ class OutlineSearchTests(unittest.TestCase):
         self.w.resize(700,700);self.events();s.open_commands();self.events()
         self.assertLessEqual(s.command_box.width(),s.width())
 
+    def test_command_filter_fits_the_actual_row_height(self):
+        tab=self.open('Notes.md');s=tab.widget.md_surface
+        s.command_list.setStyleSheet('QListWidget#MarkdownCommandList {font-size:36px;}')
+        s.open_commands();s.command_query.setText('工作區布局');self.events()
+        self.assertEqual(s.command_list.count(),1)
+        self.assertGreater(s.command_list.sizeHintForRow(0),38)
+        self.assertEqual(s.command_list.verticalScrollBar().maximum(),0)
+        self.assertLessEqual(s.command_list.visualItemRect(s.command_list.item(0)).bottom(),s.command_list.viewport().height())
+
     def test_rich_find_crosses_inline_formatting_and_preserves_dom_selection(self):
         raw='---\ntype: note\n---\n😀 地**圖**。地圖。\n\n地圖\n\nMap map [literal].'
         (self.root/'Notes.md').write_bytes(raw.encode());tab=self.open('Notes.md');s=tab.widget.md_surface;s.set_mode('read');rich=s.reader.rich
