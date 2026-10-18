@@ -16,6 +16,14 @@ def styles(t, ui_size=12):
         QWidget#MarkdownFind QToolButton#MarkdownCase {{padding:1px;font-size:13px;}}
         QWidget#MarkdownFind QToolButton:checked {{background:{t['selected']};}}
         QWidget#MarkdownFind QToolButton:hover {{background:{t['hover']};}}
+        QFrame#MarkdownCommands {{background:{t['surface']};border:1px solid {t['line']};border-radius:8px;}}
+        QFrame#MarkdownCommands QLineEdit {{padding:3px 8px;min-height:0;border-radius:4px;}}
+        QFrame#MarkdownCommands QToolButton {{background:transparent;border:1px solid transparent;border-radius:4px;}}
+        QFrame#MarkdownCommands QToolButton:hover {{background:{t['hover']};}}
+        QListWidget#MarkdownCommandList {{background:transparent;border:0;outline:0;padding:0;font-size:{navigation_size}px;}}
+        QListWidget#MarkdownCommandList::item {{padding:5px 9px;min-height:22px;border:0;border-radius:4px;}}
+        QListWidget#MarkdownCommandList::item:selected {{background:{t['selected']};color:{t['text']};}}
+        QListWidget#MarkdownCommandList::item:hover {{background:{t['hover']};}}
         QFrame#MarkdownOutlineHost {{background:transparent;border:0;}}
         QFrame#MarkdownOutlinePanel {{background:{t['surface']};border:1px solid {t['line']};border-radius:8px;}}
         QLabel#MarkdownPanelTitle {{font-size:{navigation_size}px;font-weight:600;padding:0 6px;}}

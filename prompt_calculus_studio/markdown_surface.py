@@ -2,11 +2,11 @@
 import html
 import json
 import re
-from PySide6.QtCore import Qt, QTimer, QSaveFile, QIODevice, QEvent
+from PySide6.QtCore import Qt, QTimer, QSaveFile, QIODevice, QEvent, QPoint
 from PySide6.QtGui import QFont, QFontDatabase, QTextCursor, QColor, QKeySequence, QShortcut, QPixmap, QIcon
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget,
     QSplitter, QToolButton, QComboBox, QSpinBox, QLineEdit, QLabel, QCheckBox,
-    QListWidget, QListWidgetItem, QMenu, QColorDialog, QFontDialog, QGraphicsDropShadowEffect)
+    QListWidget, QListWidgetItem, QMenu, QColorDialog, QFontDialog, QGraphicsDropShadowEffect, QFrame)
 from .ui_icons import icon
 from .markdown_source import SourceEdit, python_position, utf16_position, source_text
 from .markdown_commands import format_edits, clear_edits, paragraph_edits, heading_sections, move_section_edits, selection_lines
@@ -75,13 +75,16 @@ class MarkdownSurface(QWidget):
         find.addWidget(self.replace_row);body.insertWidget(1,self.find_bar);self.find_bar.hide();self.replace_row.hide()
         self.query.textChanged.connect(self.search_changed);self.case_sensitive.toggled.connect(self.search_changed)
         self.query.returnPressed.connect(self.find_next)
-        self.command_box = QWidget();self.command_box.setObjectName('MarkdownCommands')
-        commands = QVBoxLayout(self.command_box);commands.setContentsMargins(20, 2, 20, 8)
+        self.command_box = QFrame(self,Qt.WindowType.Popup);self.command_box.setObjectName('MarkdownCommands')
+        commands = QVBoxLayout(self.command_box);commands.setContentsMargins(10,10,10,10);commands.setSpacing(6)
         self.command_query = QLineEdit();self.command_query.setPlaceholderText('搜尋命令');self.command_query.setAccessibleName('搜尋 Markdown 命令')
-        self.command_list = QListWidget();self.command_list.setMaximumHeight(220)
+        self.command_query.setFixedHeight(32);self.command_query.installEventFilter(self)
+        self.command_list = QListWidget();self.command_list.setObjectName('MarkdownCommandList')
+        self.command_list.setAccessibleName('文件命令');self.command_list.setUniformItemSizes(True)
+        self.command_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         command_header = QHBoxLayout();command_header.addWidget(self.command_query, 1)
         command_header.addWidget(self.tool('關閉命令', lambda:self.close_panel(self.command_box), 'close'))
-        commands.addLayout(command_header);commands.addWidget(self.command_list);self.command_box.setMaximumWidth(540);body.addWidget(self.command_box,0,Qt.AlignmentFlag.AlignHCenter);self.command_box.hide()
+        commands.addLayout(command_header);commands.addWidget(self.command_list);self.command_box.hide()
         self.command_query.textChanged.connect(self.refresh_commands)
         self.command_query.returnPressed.connect(self.run_selected_command)
         self.command_list.itemActivated.connect(self.run_selected_command)
@@ -132,6 +135,7 @@ class MarkdownSurface(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'breadcrumb'):self.breadcrumb.setMaximumWidth(max(0, self.width()//3))
+        if hasattr(self,'command_box') and self.command_box.isVisible():self.position_commands()
 
     def keyPressEvent(self, event):
         # QLineEdit emits returnPressed, then allows Return to bubble. This
@@ -141,6 +145,10 @@ class MarkdownSurface(QWidget):
 
     def eventFilter(self, watched, event):
         if watched is getattr(self,'content_pane',None) and event.type() == QEvent.Type.Resize:self.update_title_layout()
+        if watched is getattr(self,'command_query',None) and event.type()==QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Up,Qt.Key.Key_Down):
+            count=self.command_list.count()
+            if count:self.command_list.setCurrentRow((self.command_list.currentRow()+(-1 if event.key()==Qt.Key.Key_Up else 1))%count)
+            event.accept();return True
         return super().eventFilter(watched,event)
 
     def update_title_layout(self):
@@ -646,7 +654,18 @@ class MarkdownSurface(QWidget):
         self.commands=self.command_entries()
         workspace=self.page.file_title.workspace
         if workspace and hasattr(workspace,'notebook'):self.commands+=workspace.notebook.entries(self)
-        self.command_box.show();self.command_query.clear();self.refresh_commands();self.command_query.setFocus()
+        self.command_query.clear();self.refresh_commands();self.position_commands()
+        self.command_box.show();self.command_box.raise_();self.command_query.setFocus()
+
+    def position_commands(self):
+        self.command_box.setFixedWidth(max(160,min(520,self.width()-24)))
+        self.command_list.setFixedHeight(34*max(1,min(7,self.command_list.count()))+4)
+        self.command_box.adjustSize()
+        point=self.mapToGlobal(QPoint((self.width()-self.command_box.width())//2,self.toolbar_host.geometry().bottom()+6))
+        available=self.screen().availableGeometry()
+        point.setX(max(available.left(),min(point.x(),available.right()-self.command_box.width()+1)))
+        point.setY(max(available.top(),min(point.y(),available.bottom()-self.command_box.height()+1)))
+        self.command_box.move(point)
 
     def refresh_commands(self):
         self.command_list.clear()
@@ -654,6 +673,7 @@ class MarkdownSurface(QWidget):
             if self.command_query.text().casefold() in name.casefold():
                 item = QListWidgetItem(name);item.setData(Qt.ItemDataRole.UserRole,index);self.command_list.addItem(item)
         if self.command_list.count():self.command_list.setCurrentRow(0)
+        if self.command_box.isVisible():self.position_commands()
 
     def run_selected_command(self, *args):
         item = self.command_list.currentItem()

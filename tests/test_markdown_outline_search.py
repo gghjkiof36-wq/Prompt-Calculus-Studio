@@ -87,6 +87,21 @@ class OutlineSearchTests(unittest.TestCase):
         QTest.keyClick(s.command_query,Qt.Key.Key_Return);self.events()
         self.assertEqual(tab.widget.encoded(),raw.encode());self.assertFalse(tab.widget.dirty)
 
+    def test_commands_are_bounded_and_leave_the_document_in_place(self):
+        tab=self.open('Notes.md');s=tab.widget.md_surface;before=tab.widget.encoded()
+        origin=s.content_pane.geometry();s.open_commands();self.events()
+        self.assertEqual(s.content_pane.geometry(),origin)
+        self.assertTrue(s.command_box.isWindow());self.assertLessEqual(s.command_box.width(),520)
+        first=s.command_list.currentRow();QTest.keyClick(s.command_query,Qt.Key.Key_Down)
+        self.assertEqual(s.command_list.currentRow(),first+1)
+        QTest.keyClick(s.command_query,Qt.Key.Key_Up);self.assertEqual(s.command_list.currentRow(),first)
+        s.command_query.setText('不存在的命令');self.events()
+        self.assertEqual(s.content_pane.geometry(),origin)
+        QTest.keyClick(s.command_query,Qt.Key.Key_Escape);self.events()
+        self.assertFalse(s.command_box.isVisible());self.assertEqual(tab.widget.encoded(),before)
+        self.w.resize(700,700);self.events();s.open_commands();self.events()
+        self.assertLessEqual(s.command_box.width(),s.width())
+
     def test_rich_find_crosses_inline_formatting_and_preserves_dom_selection(self):
         raw='---\ntype: note\n---\n😀 地**圖**。地圖。\n\n地圖\n\nMap map [literal].'
         (self.root/'Notes.md').write_bytes(raw.encode());tab=self.open('Notes.md');s=tab.widget.md_surface;s.set_mode('read');rich=s.reader.rich
