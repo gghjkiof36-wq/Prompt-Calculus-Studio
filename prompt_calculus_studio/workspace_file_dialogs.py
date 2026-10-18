@@ -1,7 +1,7 @@
 """Compact file forms and a cancellable, IME-aware sidebar name editor."""
 from pathlib import Path
 from PySide6.QtCore import Qt, QEvent, QTimer, QSize
-from PySide6.QtWidgets import (QApplication, QLineEdit, QWidget, QVBoxLayout,
+from PySide6.QtWidgets import (QApplication, QLineEdit, QWidget, QVBoxLayout, QSizePolicy,
     QCheckBox, QHBoxLayout, QDialogButtonBox)
 from .widgets import StudioDialog, label, button, dialog_buttons
 from .workspace_commands import NewEntryDialog
@@ -95,11 +95,13 @@ class InlineRename(QWidget):
         self.error = label('', 'Subtle', True)
         self.error.hide()
         box.addWidget(self.error)
+        self.error.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.error.setTextFormat(Qt.TextFormat.PlainText)
         self.name.installEventFilter(self)
         self.name.returnPressed.connect(self.submit)
         item.setText(0, '')
         tree.setItemWidget(item, 0, self)
-        item.setSizeHint(0, QSize(0, 36))
+        self.resize_row()
         self.name.setFocus()
         self.name.selectAll()
 
@@ -123,10 +125,27 @@ class InlineRename(QWidget):
         except (ValueError, OSError) as error:
             self.error.setText(str(error))
             self.error.show()
-            self.item.setSizeHint(0, QSize(0, 82))
+            self.resize_row()
             self.name.setFocus()
             return
         self.cancel()
+
+    def resize_row(self):
+        if self.done:
+            return
+        self.name.ensurePolished()
+        height = max(32, self.name.sizeHint().height())
+        self.name.setFixedHeight(height)
+        if not self.error.isHidden():
+            width = max(40, self.width()-10)
+            height += max(self.error.fontMetrics().lineSpacing(), self.error.heightForWidth(width))+2
+        hint = QSize(0, height+4)
+        if self.item.sizeHint(0) != hint:
+            self.item.setSizeHint(0, hint)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.resize_row()
 
     def cancel(self):
         if self.done:

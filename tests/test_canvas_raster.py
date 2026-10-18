@@ -103,6 +103,15 @@ class CanvasRasterTests(unittest.TestCase):
             self.render(lambda p: self.card.paint(p, None), zoom=1.0, offset=(28, 28))
             self.assertEqual(draw.call_count, 3)
 
+    def test_content_commands_reuse_across_zoom_without_scaling_text_bitmaps(self):
+        original = self.card._paint_content
+        with patch.object(self.card, '_paint_content', wraps=original) as draw:
+            for zoom in (.3, .77, 1, 1.5):
+                actual = self.render(lambda p: self.card.paint(p, None), zoom=zoom)
+                self.assertEqual(draw.call_count, 1)
+                with patch.object(self.card, '_paint_content', original):
+                    self.assert_pixels_close(actual, self.render(self.direct_card, zoom=zoom))
+
     def test_shadow_reuse_keeps_nested_and_outer_outlines_distinct(self):
         outline = QPainterPath(); outline.addRoundedRect(QRectF(0, 0, 320, 180), 16, 16)
         for nested in (False, True):
@@ -155,7 +164,7 @@ class CanvasRasterTests(unittest.TestCase):
                 for _ in range(3): self.render(lambda p:self.card.paint(p,None))
             put.assert_not_called()
             for _ in range(3): self.render(lambda p:self.card.paint(p,None))
-            self.assertEqual(put.call_count,1)
+            self.assertEqual(put.call_count,2)  # surface and vector-recorded text layer
 
     def test_batch_grid_matches_individual_points_at_negative_positions(self):
         view = SimpleNamespace(canvas=self.canvas)

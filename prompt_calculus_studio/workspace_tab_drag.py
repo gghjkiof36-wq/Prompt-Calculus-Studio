@@ -1,5 +1,5 @@
 """One captured gesture for tab ordering and cross-pane moves."""
-from PySide6.QtCore import QObject, Qt, QEvent, QPoint, QRect, QRectF, QTimer, QVariantAnimation, QEasingCurve
+from PySide6.QtCore import QObject, Qt, QEvent, QPoint, QRect, QRectF, QTimer, QEasingCurve
 from PySide6.QtGui import QColor, QPainter, QPen, QMouseEvent
 from PySide6.QtWidgets import QWidget, QApplication
 
@@ -15,7 +15,8 @@ class DropPreview(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
         self.amount = 1.0
-        self.motion = QVariantAnimation(self)
+        from .elapsed_animation import ElapsedAnimation
+        self.motion = ElapsedAnimation(self)
         self.motion.setDuration(120)
         self.motion.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.motion.setStartValue(.6)

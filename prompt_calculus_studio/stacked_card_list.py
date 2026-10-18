@@ -1,6 +1,6 @@
 """Shared list motion: bottom notification stack and matching hit geometry."""
 import math
-from PySide6.QtCore import Qt, QRect, QPoint, QModelIndex, QPropertyAnimation, QEasingCurve, QAbstractAnimation
+from PySide6.QtCore import Qt, QRect, QPoint, QModelIndex, QEasingCurve, QAbstractAnimation
 from PySide6.QtGui import QPainter, QColor, QCursor
 from PySide6.QtWidgets import QApplication, QStyleOptionViewItem, QStyle, QAbstractItemView, QListWidget
 
@@ -11,7 +11,9 @@ class StackedCardListMixin:
         self.motion_colors = colors
         self._drag_active = False
         self.setVerticalScrollMode(self.ScrollMode.ScrollPerPixel)
-        self.scroll_motion = QPropertyAnimation(self.verticalScrollBar(), b'value', self)
+        from .elapsed_animation import ElapsedAnimation
+        self.scroll_motion = ElapsedAnimation(self)
+        self.scroll_motion.valueChanged.connect(lambda value: self.verticalScrollBar().setValue(round(value)))
         self.scroll_motion.setDuration(160)
         self.scroll_motion.setEasingCurve(QEasingCurve.Type.OutCubic)
         bar = self.verticalScrollBar()
@@ -32,8 +34,9 @@ class StackedCardListMixin:
                 not event.angleDelta().y() or event.modifiers() or self._drag_active):
             self.stop_scroll(); return super().wheelEvent(event)
         active = self.scroll_motion.state() == QAbstractAnimation.State.Running
-        origin = self.scroll_motion.endValue() if active else bar.value()
         distance = event.angleDelta().y()/120 * max(1, QApplication.wheelScrollLines()) * bar.singleStep()
+        remaining = self.scroll_motion.endValue()-bar.value() if active else 0
+        origin = self.scroll_motion.endValue() if active and remaining*(-distance)>0 else bar.value()
         target = max(bar.minimum(), min(bar.maximum(), round(origin-distance)))
         if target == bar.value():
             self.stop_scroll(); event.accept(); return

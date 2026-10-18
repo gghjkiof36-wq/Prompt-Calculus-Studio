@@ -133,7 +133,8 @@ def suppress_prompt_tooltips(root):
             return False
     if not hasattr(root,'_prompt_hints'):
         root._prompt_hints=EditorHints(root)
-        QApplication.instance().installEventFilter(root._prompt_hints)
+        from .application_events import listen
+        listen(root._prompt_hints,QEvent.Type.ToolTip)
 
 
 def fit_prompt_form(dialog, scroll, minimum_height=480):

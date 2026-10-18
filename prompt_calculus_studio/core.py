@@ -491,14 +491,15 @@ class Storage:
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(self.directory / "studio.sqlite3")
-        self.db.execute("CREATE TABLE IF NOT EXISTS document (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)")
-        self.db.execute("CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, body TEXT NOT NULL, saved REAL NOT NULL)")
-        # Keep the historical cache table's three-column shape compatible.
-        self.db.execute('CREATE TABLE IF NOT EXISTS cache_access (key TEXT PRIMARY KEY, accessed REAL NOT NULL)')
+        from .sqlite_schema import schema_transaction
+        with schema_transaction(self.db):
+            self.db.execute("CREATE TABLE IF NOT EXISTS document (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)")
+            self.db.execute("CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, body TEXT NOT NULL, saved REAL NOT NULL)")
+            # Keep the historical cache table's three-column shape compatible.
+            self.db.execute('CREATE TABLE IF NOT EXISTS cache_access (key TEXT PRIMARY KEY, accessed REAL NOT NULL)')
+            self.db.execute("CREATE TABLE IF NOT EXISTS usage (workspace TEXT, tag TEXT, count INTEGER, last REAL, PRIMARY KEY(workspace,tag))")
+            self.db.execute("CREATE TABLE IF NOT EXISTS accepted (workspace TEXT, tag TEXT, body TEXT, last REAL, PRIMARY KEY(workspace,tag))")
         self.cache_epoch=0; self.cache_enabled=True
-        self.db.execute("CREATE TABLE IF NOT EXISTS usage (workspace TEXT, tag TEXT, count INTEGER, last REAL, PRIMARY KEY(workspace,tag))")
-        self.db.execute("CREATE TABLE IF NOT EXISTS accepted (workspace TEXT, tag TEXT, body TEXT, last REAL, PRIMARY KEY(workspace,tag))")
-        self.db.commit()
 
     def load(self):
         row = self.db.execute("SELECT body FROM document WHERE id=1").fetchone()

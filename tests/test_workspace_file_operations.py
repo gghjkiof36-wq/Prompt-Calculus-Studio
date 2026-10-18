@@ -413,13 +413,14 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
 
     def test_source_external_change_during_dialog_and_destination_race_are_not_overwritten(self):
         tab = self.open()
-        def conflict(dialog):
-            tab.path.write_bytes(b'external')
-            dialog.name.setText('Changed')
-            dialog.submit()
-            self.assertTrue(dialog.error.isVisible())
-            dialog.reject()
-        self.dialog(lambda: self.execute('rename', tab), conflict, RenameDialog)
+        self.execute('rename', tab)
+        title = self.w.commands.files.inline
+        tab.path.write_bytes(b'external')
+        title.name.setText('Changed')
+        title.submit()
+        self.assertFalse(title.done)
+        self.assertIsNone(QApplication.activeModalWidget())
+        title.cancel()
         self.assertEqual(tab.path.name, 'Notes.md')
         self.assertEqual(tab.path.read_bytes(), b'external')
         def collision(dialog):
@@ -550,10 +551,12 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
         tab = self.open('Scene.pcs-category')
         self.w.tab_strip.bar.setFocus()
         self.events()
-        def rename(dialog):
-            dialog.name.setText('From F2')
-            dialog.submit()
-        self.dialog(lambda: QTest.keyClick(self.w.tab_strip.bar, Qt.Key.Key_F2), rename, RenameDialog)
+        QTest.keyClick(self.w.tab_strip.bar, Qt.Key.Key_F2)
+        title = self.w.commands.files.inline
+        self.assertIsNotNone(title)
+        self.assertIsNone(QApplication.activeModalWidget())
+        title.name.setText('From F2')
+        title.submit()
         self.assertEqual(tab.path.name, 'From F2.pcs-category')
         self.w.activateWindow()
         self.w.tab_strip.bar.setFocus()

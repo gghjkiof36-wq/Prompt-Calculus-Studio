@@ -8,7 +8,8 @@ import uuid
 class ChainStore:
     def __init__(self,db):
         self.db=db
-        with db:
+        from .sqlite_schema import schema_transaction
+        with schema_transaction(db):
             db.execute('CREATE TABLE IF NOT EXISTS chain_runs (id TEXT PRIMARY KEY, workspace TEXT, created REAL, body TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS chain_items (id TEXT PRIMARY KEY, run TEXT, round INTEGER, stage INTEGER, position INTEGER, body TEXT NOT NULL, UNIQUE(run,round,stage,position))')
             db.execute('CREATE TABLE IF NOT EXISTS chain_attempts (id TEXT PRIMARY KEY, item TEXT, created REAL, body TEXT NOT NULL)')

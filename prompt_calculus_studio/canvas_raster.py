@@ -7,8 +7,8 @@ from collections import OrderedDict
 from contextlib import contextmanager
 import math
 
-from PySide6.QtCore import QRectF
-from PySide6.QtGui import QImage, QPainter, QTransform
+from PySide6.QtCore import QRectF, QPointF
+from PySide6.QtGui import QImage, QPainter, QTransform, QPicture
 
 
 class RasterCache:
@@ -59,11 +59,47 @@ class RasterCache:
 
 # A process-wide byte budget also bounds multiple canvases and old zoom levels.
 # Keys contain only visual values, never references to windows, items or models.
-LAYERS = RasterCache()
+# Many small cards at fractional display scaling need several subpixel
+# phases each. The former 256-entry cap evicted them before the next pan
+# frame even when only a fraction of the byte budget was occupied.
+LAYERS = RasterCache(max_entries=2048)
 # Large container shadows must not evict the text cards during a fractional
 # pan. Oversized shadows use the original vectors, with no image allocation.
 SHADOWS = RasterCache(max_bytes=8 * 1024 * 1024, max_entry_bytes=512 * 1024)
 _reuse_enabled = True
+
+
+def paint_recorded(painter, owner, key, draw):
+    """Reuse vector commands, not scaled text bitmaps, for unchanged content.
+
+    Each live item keeps only its latest small recording. Qt still rasterizes
+    glyphs and paths at the current transform/DPR; pan and zoom do not rebuild
+    Python layouts, font metrics, icon engines and control commands.
+    """
+    token = (key, painter.font().key(), painter.renderHints().value,
+             painter.device().logicalDpiX(), painter.device().logicalDpiY())
+    old = getattr(owner, '_content_recording', None)
+    if old is None or old[0] != token:
+        picture = QPicture()
+        local = QPainter(picture)
+        try:
+            local.setRenderHints(painter.renderHints())
+            local.setFont(painter.font())
+            draw(local)
+        finally:
+            local.end()
+        # A node contains only headings/controls and elided text. Keep any
+        # unexpected large content on the ordinary draw path.
+        if picture.size() > 64*1024:
+            owner._content_recording = None
+            draw(painter)
+            return
+        owner._content_recording = token, picture
+    else:
+        picture = old[1]
+    painter.save()
+    painter.drawPicture(QPointF(), picture)
+    painter.restore()
 
 
 @contextmanager

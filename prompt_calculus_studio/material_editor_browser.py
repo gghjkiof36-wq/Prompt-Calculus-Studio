@@ -256,15 +256,20 @@ class PromptEditor(QWidget):
         if watched is getattr(self, 'category', None) and event.type() == QEvent.Type.KeyPress:
             if event.matches(QKeySequence.StandardKey.Undo): self.window.canvas.undo(); return True
             if event.matches(QKeySequence.StandardKey.Redo): self.window.canvas.redo(); return True
-        if hasattr(self, 'scroll') and watched is self.scroll.viewport() and event.type() == QEvent.Type.Resize:
-            QTimer.singleShot(0, self, self._layout)
+        if event.type() == QEvent.Type.Resize and hasattr(self, 'scroll') and watched is self.scroll.viewport():
+            self._queue_layout()
         return super().eventFilter(watched, event)
 
     def resizeEvent(self, event):
-        super().resizeEvent(event); QTimer.singleShot(0, self, self._layout)
+        super().resizeEvent(event); self._queue_layout()
 
     def _queue_layout(self, *_):
-        QTimer.singleShot(0, self, self._layout)
+        if not hasattr(self, '_layout_timer'):
+            self._layout_timer = QTimer(self)
+            self._layout_timer.setSingleShot(True)
+            self._layout_timer.timeout.connect(self._layout)
+        if not self._layout_timer.isActive():
+            self._layout_timer.start(0)
 
     @staticmethod
     def _reserve_scroll_gutter(area):
@@ -300,6 +305,8 @@ class PromptEditor(QWidget):
         return browser, detail
 
     def _layout(self):
+        if hasattr(self, '_layout_timer'):
+            self._layout_timer.stop()
         from shiboken6 import isValid
         if not isValid(self) or not hasattr(self, 'preview_text') or not isValid(self.preview_text): return
         if not hasattr(self, 'browser'): return

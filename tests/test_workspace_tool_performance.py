@@ -28,6 +28,15 @@ class WorkspaceToolPerformanceTests(unittest.TestCase):
     tearDown = fixture.WorkspaceShellTests.tearDown
     events = fixture.WorkspaceShellTests.events
 
+    def test_document_hosts_use_memory_state_without_hidden_legacy_lists(self):
+        with patch.object(Storage,'load_current',side_effect=AssertionError('document is already prepared')):
+            for filename in ('Scene.pcs-category','Street.pcs-workflow'):
+                tab=self.w.open_path(self.root/filename,new_tab=True)
+                self.assertIsNotNone(tab,self.errors)
+                self.events()
+                self.assertFalse(hasattr(tab.host,'quick'))
+                self.assertFalse(hasattr(tab.host,'module_list'))
+
     def test_first_route_has_no_disk_seed_roundtrip_and_revisits_keep_page_owners(self):
         self.assertIsNone(self.w.utility)
         with patch.object(Storage, 'load_current', side_effect=AssertionError('fresh session state is already in memory')):

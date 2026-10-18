@@ -215,6 +215,10 @@ class WorkspacePanes:
         return tab
 
     def update_tab(self, tab):
+        from .workspace_file_title import title_for
+        title = title_for(tab)
+        if title is not None:
+            title.bind(self, tab)
         at = self.index_of(tab.key)
         if at < 0:return
         strip = self.pane_for(tab).strip
@@ -262,7 +266,8 @@ class WorkspacePanes:
                 layout.addWidget(host)
                 if document.kind == 'category':
                     page._workspace_minimum_width = host.prompt_editor.workspace_minimum_width
-                page._prepare_workspace_show = host.canvas.present if document.kind == 'workflow' else None
+                page._prepare_workspace_show = (host.canvas.present if document.kind == 'workflow'
+                                                else host.prompt_editor.prepare_workspace_show)
                 # A view survives Save As. Reopening its former source must
                 # therefore never reuse the former document id as a view key.
                 key = 'view:'+uuid.uuid4().hex

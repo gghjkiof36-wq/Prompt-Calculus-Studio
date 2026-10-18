@@ -1,6 +1,6 @@
 """Brief import notifications that never interrupt editing or take focus."""
 import json
-from PySide6.QtCore import Qt,QVariantAnimation,QEasingCurve,QTimer,QEvent
+from PySide6.QtCore import Qt,QEasingCurve,QTimer,QEvent
 from PySide6.QtWidgets import QFrame,QVBoxLayout,QGraphicsOpacityEffect
 from .widgets import label
 
@@ -15,7 +15,8 @@ class ImportErrorToast(QFrame):
         layout.addWidget(label('匯入失敗','Heading')); self.message=label('',None,True); layout.addWidget(self.message)
         # Only this small, short-lived notification gets an opacity effect.
         self.opacity=QGraphicsOpacityEffect(self); self.setGraphicsEffect(self.opacity)
-        self.motion=QVariantAnimation(self); self.motion.setEasingCurve(QEasingCurve.Type.OutCubic)
+        from .elapsed_animation import ElapsedAnimation
+        self.motion=ElapsedAnimation(self); self.motion.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.motion.valueChanged.connect(self.animate); self.motion.finished.connect(self.finished_motion)
         self.expire=QTimer(self); self.expire.setSingleShot(True); self.expire.timeout.connect(self.fade)
         self.retired=False; self.progress=0.0; parent.installEventFilter(self)

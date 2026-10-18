@@ -89,11 +89,8 @@ class DesktopDocument(QObject):
                 target = paths.checked(self.data, relative)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, target)
-        store = Storage(self.data)
-        try:
-            store.save(state)
-        finally:
-            store.close()
+        from .state_loading import prepare_state
+        self.state = prepare_state(state, multi=True)
 
     def attach(self, host):
         self.hosts.append(host)
@@ -263,6 +260,32 @@ class DocumentBrowser(PromptEditor):
         self.library_more.setToolTip('分類選單')
         self.library_more.setAccessibleName('分類選單')
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        from .workspace_file_title import FileTitle
+        previous = self.title
+        self.title = FileTitle(host.document.title)
+        self.heading_caption.layout().replaceWidget(previous, self.title)
+        previous.hide()
+        previous.deleteLater()
+
+    def prepare_workspace_show(self):
+        # Resolve the newly assigned pane size before its first paint. The
+        # queued layout is still useful for later font/preview changes.
+        ancestors = []
+        widget = self
+        while widget is not None and widget is not self.window.workspace_owner.workspace_stack:
+            ancestors.append(widget)
+            widget = widget.parentWidget()
+        for widget in reversed(ancestors):
+            if widget.layout() is not None:
+                widget.layout().activate()
+        if self.scroll.layout() is not None:
+            self.scroll.layout().activate()
+        self._layout()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.window.workspace_owner is not None:
+            self.prepare_workspace_show()
 
     def workspace_minimum_width(self):
         from .management_reading import READING_NARROW_MARGIN

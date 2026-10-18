@@ -165,13 +165,14 @@ class Catalog:
     """Images stay in separate SQLite rows and are paged, never in prompt state."""
     def __init__(self, store):
         self.store, self.db = store, store.db
-        self.db.execute("CREATE TABLE IF NOT EXISTS resources (id TEXT PRIMARY KEY, kind TEXT, parent TEXT, name TEXT, body TEXT)")
-        self.db.execute("CREATE INDEX IF NOT EXISTS resource_page ON resources(kind,parent,name)")
         if not self.db.execute("SELECT 1 FROM sqlite_master WHERE name='asset_sources'").fetchone() and self.db.execute('SELECT 1 FROM document WHERE id=1').fetchone():
             self.db.commit(); store.backup()
-        self.db.execute("CREATE TABLE IF NOT EXISTS asset_sources (sha256 TEXT PRIMARY KEY, provider TEXT NOT NULL, model_id INTEGER, version_id INTEGER, body TEXT NOT NULL, saved REAL NOT NULL)")
-        self.db.execute("CREATE INDEX IF NOT EXISTS asset_source_version ON asset_sources(provider,version_id)")
-        self.db.commit()
+        from .sqlite_schema import schema_transaction
+        with schema_transaction(self.db):
+            self.db.execute("CREATE TABLE IF NOT EXISTS resources (id TEXT PRIMARY KEY, kind TEXT, parent TEXT, name TEXT, body TEXT)")
+            self.db.execute("CREATE INDEX IF NOT EXISTS resource_page ON resources(kind,parent,name)")
+            self.db.execute("CREATE TABLE IF NOT EXISTS asset_sources (sha256 TEXT PRIMARY KEY, provider TEXT NOT NULL, model_id INTEGER, version_id INTEGER, body TEXT NOT NULL, saved REAL NOT NULL)")
+            self.db.execute("CREATE INDEX IF NOT EXISTS asset_source_version ON asset_sources(provider,version_id)")
 
     def put(self, kind, row, parent=""):
         with self.db:

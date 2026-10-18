@@ -32,6 +32,8 @@ class WorkspaceTreeDelegate(QStyledItemDelegate):
                 option.rect.adjust(-self.parent().indentation(), 0, 0, 0)
 
     def paint(self, painter, option, index):
+        if self.parent().indexWidget(index) is not None:
+            return  # The inline name/error editor owns this complete row.
         from .workspace_commands import KIND_ROLE
         badge = {'workflow': 'CANVAS', 'category': 'MANAGER'}.get(index.data(KIND_ROLE), '')
         clean = QStyleOptionViewItem(option)

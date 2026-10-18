@@ -55,6 +55,10 @@ class SnapshotUiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=ROOT/'qa') as folder:
             window=Window(folder)
             snapshot=make_snapshot(window.state)
+            # A migrated pre-Canvas selection must survive Undo, including
+            # the Redo entry; presenting it is not a new mode-switch action.
+            window.state['selection_view']='list'
+            window.canvas_mode=False
             window.state['draft']=''
             original=copy.deepcopy(window.state)
             window.gallery.record={'metadata':{'raw':{'prompt_studio':{'schema_version':1,'bindings':[
@@ -65,6 +69,8 @@ class SnapshotUiTests(unittest.TestCase):
             window.canvas.undo()
             self.assertEqual(window.state['workspace'],original['workspace'])
             self.assertEqual(window.state['draft'],'')
+            self.assertEqual(window.state['selection_view'],'list')
+            self.assertFalse(window.canvas_mode)
             window.canvas.redo()
             self.assertEqual(window.state['workspace'],restored_workspace)
             window.close()

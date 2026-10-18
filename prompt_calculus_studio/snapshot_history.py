@@ -29,9 +29,15 @@ def restore(canvas, source, destination, after):
     validate_state(value)
     source.pop();destination.append((before,later));canvas.window.state=value;canvas.last_state=canvas.history_state()
     window=canvas.window
-    window.refresh_workspaces();window.refresh_modules();window.refresh_library();window.refresh_builder()
-    window.canvas_mode=value.get('selection_view')=='canvas'
-    if window.canvas_mode:window.enter_canvas()
-    else:window.leave_canvas()
+    # Present the restored state without treating it as a new user mode
+    # switch, which would clear both stacks and replace the saved selection.
+    window._restoring_selection_history=True
+    try:
+        window.refresh_workspaces();window.refresh_modules();window.refresh_library();window.refresh_builder()
+        window.canvas_mode=value.get('selection_view')=='canvas'
+        if window.canvas_mode:window.enter_canvas()
+        else:window.leave_canvas()
+    finally:
+        window._restoring_selection_history=False
     canvas.last_state=canvas.history_state();window.changed('prompt',refresh=False)
     return True

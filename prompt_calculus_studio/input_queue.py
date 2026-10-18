@@ -11,7 +11,8 @@ ACTIVE = ('waiting','preparing','submitted','unconfirmed','failed')
 class InputQueue:
     def __init__(self, db, workspace=None):
         self.db=db;self.workspace=workspace
-        with db:
+        from .sqlite_schema import schema_transaction
+        with schema_transaction(db):
             db.execute('CREATE TABLE IF NOT EXISTS input_queue (id TEXT PRIMARY KEY, owner TEXT NOT NULL, position INTEGER NOT NULL, body TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS input_queue_control (owner TEXT PRIMARY KEY, body TEXT NOT NULL)')
         if workspace:self.migrate_owners();self.migrate_execution()

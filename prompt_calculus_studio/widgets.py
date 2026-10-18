@@ -169,7 +169,8 @@ class StudioDialog(QDialog):
         self.heading_row=row(self.heading,None,close);content.addLayout(self.heading_row)
         self.body=QVBoxLayout(); self.body.setSpacing(16); content.addLayout(self.body,1)
         self.windowTitleChanged.connect(self.heading.setText)
-        self.reveal=QVariantAnimation(self); self.reveal.setDuration(140)
+        from .elapsed_animation import ElapsedAnimation
+        self.reveal=ElapsedAnimation(self); self.reveal.setDuration(140)
         self.reveal.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.reveal.valueChanged.connect(self.setWindowOpacity)
         self._outside_dismiss=False
@@ -618,7 +619,8 @@ class SplitterFold(QObject):
         super().__init__(splitter)
         self.splitter=splitter; self.widget=widget; self.expanded=True
         self.extent=0; self.minimum=widget.minimumSize(); self.policy=widget.sizePolicy()
-        self.animation=QVariantAnimation(self); self.animation.setDuration(190)
+        from .elapsed_animation import ElapsedAnimation
+        self.animation=ElapsedAnimation(self); self.animation.setDuration(190)
         self.animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
         self.animation.valueChanged.connect(self.step); self.animation.finished.connect(self.finish)
 
@@ -680,21 +682,25 @@ def thumb_icon(store, relative, size):
 
 def record_pixmap(store,record,size):
     from .media_paths import preview_file
+    from .preview_decode import decode_image
     path=preview_file(store.directory,record)
-    if path is None: return QPixmap()
-    reader=QImageReader(str(path)); reader.setAutoTransform(True); reader.setAllocationLimit(128)
-    target=reader.size()
-    if target.isValid() and max(target.width(),target.height())>size*2:
-        target.scale(size*2,size*2,Qt.AspectRatioMode.KeepAspectRatio); reader.setScaledSize(target)
-    image=reader.read()
-    if image.isNull(): return QPixmap()
-    result=QPixmap.fromImage(image).scaled(size*2,size*2,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)
-    result.setDevicePixelRatio(2); return result
+    return QPixmap.fromImage(decode_image(path,size))
 
 def record_icon(store,record,size): return QIcon(record_pixmap(store,record,size))
 
 def set_record_preview(widget,store,record,size=240):
-    pixmap=record_pixmap(store,record,size); widget.setPixmap(pixmap)
+    from .media_paths import preview_file
+    from .preview_decode import decode_image
+    path=preview_file(store.directory,record) if record else None
+    try:
+        info=path.stat() if path else None
+        stamp=(str(path),info.st_size,info.st_mtime_ns,info.st_ctime_ns,size) if info else None
+    except OSError:stamp=None
+    key=(bool(record),stamp)
+    if getattr(widget,'_record_preview_stamp',object())==key:return
+    pixmap=QPixmap.fromImage(decode_image(path,size)) if path else QPixmap()
+    widget.setPixmap(pixmap)
+    widget._record_preview_stamp=key
     if pixmap.isNull(): widget.setText('圖片無法讀取，可重新連結原圖。' if record else '選擇圖片')
 
 def open_file(parent, path):

@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
-from prompt_calculus_studio.widgets import record_icon
+from prompt_calculus_studio.preview_decode import decode_image
 import test_workspace_shell as fixture
 
 
@@ -25,9 +25,10 @@ class GalleryRefreshCostTests(unittest.TestCase):
             image.save(str(path));files.append(path)
             host.catalog.put('image',dict(id=f'i{i:03}',name=path.name,path=str(path),
                              thumb='',owned=False,metadata={'raw':{}},manual=None),'a')
-        with patch('prompt_calculus_studio.pages.record_icon',wraps=record_icon) as decode:
+        with patch('prompt_calculus_studio.preview_decode.decode_image',wraps=decode_image) as decode:
+            def thumbnails():return sum(call.args[1]==384 for call in decode.call_args_list)
             self.w.open_route('gallery');self.events()
-            self.assertEqual(decode.call_count,60)
+            self.assertEqual(thumbnails(),60)
             gallery=host.gallery.load()
             gallery.images.setCurrentRow(4)
             selected=gallery.record['id']
@@ -40,11 +41,12 @@ class GalleryRefreshCostTests(unittest.TestCase):
             image.fill(Qt.GlobalColor.darkBlue);image.save(str(files[4]))
             os.utime(files[4],ns=(before.st_atime_ns,before.st_mtime_ns+1_000_000_000))
             gallery.refresh()
-            self.assertEqual(decode.call_count,1)
+            self.assertEqual(thumbnails(),1)
+            self.assertEqual(decode.call_count,2)  # changed thumbnail and selected detail
             self.assertEqual(gallery.record['id'],selected)
             decode.reset_mock()
             gallery.turn(1)
-            self.assertEqual(decode.call_count,1)
+            self.assertEqual(thumbnails(),1)
             self.assertEqual(set(gallery._page_icons),{'i060'})
             files[60].unlink()
             gallery.refresh()

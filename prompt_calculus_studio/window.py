@@ -42,6 +42,7 @@ class Window(QMainWindow):
         self.document_only = bool(embedded and document_only)
         workspace_tools = embedded and not self.document_only and getattr(self, 'workspace_owner', None) is not None
         self.workspace_tools = workspace_tools
+        self.compact_editor = workspace_tools or self.document_only
         from .tooltips import install_tooltip_styling
         install_tooltip_styling()
         from .button_focus import install_button_focus_styling
@@ -136,7 +137,7 @@ class Window(QMainWindow):
         # must not build it once more before that first visible presentation.
         if not self.document_only and not workspace_tools:self.refresh_builder()
         self.apply_theme()
-        if workspace_tools:
+        if workspace_tools or (self.document_only and self.document.kind == 'category'):
             # The outer workspace owns document editing. Its tool host never
             # needs to construct a hidden material editor on the first visit.
             self.canvas_mode=True
@@ -154,7 +155,7 @@ class Window(QMainWindow):
         self.store.save(self.state)
 
     def make_prompt_page(self):
-        if self.workspace_tools:
+        if self.compact_editor:
             from .tool_editor import make_tool_editor
             return make_tool_editor(self)
         page=QFrame(); page.setObjectName("WorkspaceSurface"); layout=QVBoxLayout(page); layout.setContentsMargins(12,16,12,16)
@@ -622,6 +623,8 @@ class Window(QMainWindow):
         elif self.surface_stack.currentWidget() is not self.welcome: self.return_to_prompt()
 
     def activate_prompt_view(self,view):
+        if getattr(self, '_restoring_selection_history', False):
+            return
         if view!=self.state.get('selection_view','list') and separate_selections(self.state):
             self.canvas.undo_stack.clear(); self.canvas.redo_stack.clear(); self.canvas.last_state=None
         activate_selection_view(self.state,view)
@@ -742,7 +745,7 @@ class Window(QMainWindow):
             if page_ready(self.settings_page.comfy_content):self.settings_page.workflow_manager.update_list_height()
             self.settings_page.refresh_icons()
         if not self.embedded_document: update_window_shape(self)
-        if self.workspace_tools:return
+        if self.compact_editor:return
         self.tagline.setVisible(appearance["ui_size"]<16)
         self.quick.setFixedHeight(max(54,int(appearance["ui_size"]*2.4+22)))
         self.library.doItemsLayout()
@@ -886,7 +889,7 @@ class Window(QMainWindow):
         self.sync_context_sidebar()
 
     def refresh_modules(self):
-        if self.workspace_tools:return
+        if self.compact_editor:return
         self.module_list.blockSignals(True); self.module_list.clear()
         for module in self.state["modules"]:
             mode="單選" if module["mode"]=="single" else "複選"
@@ -980,7 +983,7 @@ class Window(QMainWindow):
         self.library_page=max(0,self.library_page+delta); self.refresh_library()
 
     def refresh_library(self):
-        if self.workspace_tools:return
+        if self.compact_editor:return
         if not hasattr(self,"library"): return
         self.library.clear()
         query=self.quick.toPlainText().strip().casefold()
@@ -1073,12 +1076,12 @@ class Window(QMainWindow):
         text=text.strip().strip(",， ")
         if not text: self.notice("先輸入或選取要加入的提示詞。"); return
         self.state.setdefault("temporary",[]).append(text)
-        if clear and not self.workspace_tools: self.quick.clear(); self.quick.completer.popup().hide()
+        if clear and not self.compact_editor: self.quick.clear(); self.quick.completer.popup().hide()
         self.refresh_builder(); self.changed()
         self.notice("已加入臨時片段。"+ ("正在使用手動版本；清除手動內容後，會套用更新的組合。" if self.state["draft"] is not None else "可在右側組合中排序、複製或移除。"))
 
     def refresh_builder(self):
-        if self.workspace_tools:
+        if self.compact_editor:
             # Keep the canonical draft/Canvas adapter for explicit restore or
             # model actions, without populating a second, hidden list editor.
             composition.prune_instances(self.state)
@@ -1164,7 +1167,7 @@ class Window(QMainWindow):
 
     def update_draft_status(self):
         if hasattr(self,'generation_panel'): self.generation_panel.refresh()
-        if self.workspace_tools:
+        if self.compact_editor:
             if hasattr(self,'comfy'):self.run_controls.refresh()
             return
         draft=self.state["draft"] is not None
@@ -1298,6 +1301,10 @@ class Window(QMainWindow):
             if self.surface_stack.currentWidget() is self.gallery:
                 self.gallery.search.setFocus(); self.gallery.search.selectAll()
             return
+        if self.document_only:
+            if self.canvas.isVisible():self.canvas.palette()
+            elif hasattr(self, 'prompt_editor'):self.prompt_editor.search.setFocus()
+            return
         if self.canvas.isVisible(): self.canvas.palette(); return
         self.tabs.setCurrentIndex(0); self.quick.setFocus(); self.quick.selectAll()
 
@@ -1425,7 +1432,7 @@ class Window(QMainWindow):
         self.copy_timer.stop(); self.filter_timer.stop()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.shutdown()
         if hasattr(self,'sidebar_resize'):self.sidebar_resize.shutdown()
-        if not self.workspace_tools:
+        if not self.compact_editor:
             self.draft_fade.stop(); self.module_fold.animation.stop(); self.builder_fold.animation.stop()
         from PySide6.QtWidgets import QApplication
         from .application_events import unlisten

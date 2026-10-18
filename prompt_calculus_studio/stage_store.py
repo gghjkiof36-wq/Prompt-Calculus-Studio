@@ -11,7 +11,8 @@ ACTIVE=('waiting','running','preparing','submitted','collecting','failed','uncon
 class StageStore:
     def __init__(self,db):
         self.db=db;self.transaction_depth=0
-        with db:
+        from .sqlite_schema import schema_transaction
+        with schema_transaction(db):
             db.execute('CREATE TABLE IF NOT EXISTS stage_journal (id TEXT PRIMARY KEY, kind TEXT, workspace TEXT, owner TEXT, position INTEGER, body TEXT NOT NULL)')
             db.execute('CREATE INDEX IF NOT EXISTS stage_owner ON stage_journal(kind,workspace,owner,position)')
             db.execute("CREATE INDEX IF NOT EXISTS stage_latest ON stage_journal(kind,workspace,json_extract(body,'$.stage'),position)")

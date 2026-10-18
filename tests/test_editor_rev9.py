@@ -213,8 +213,8 @@ class EditorRev9Tests(unittest.TestCase):
         self.page.active_dialog.reject(); self.app.processEvents()
 
         point = QPointF(80, 80)
-        def wheel():
-            event = QWheelEvent(point, point, QPoint(), QPoint(0, -120),
+        def wheel(delta=-120):
+            event = QWheelEvent(point, point, QPoint(), QPoint(0, delta),
                                 Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
                                 Qt.ScrollPhase.NoScrollPhase, False)
             QApplication.sendEvent(listing.viewport(), event)
@@ -223,6 +223,9 @@ class EditorRev9Tests(unittest.TestCase):
         QTest.qWait(70); self.assertGreater(bar.value(), before)
         first_target = listing.scroll_motion.endValue(); wheel()
         self.assertGreater(listing.scroll_motion.endValue(), first_target)
+        # Reverse from the visible position, not an outstanding far target.
+        current = bar.value(); wheel(120)
+        self.assertLess(listing.scroll_motion.endValue(),current)
         QTest.keyClick(listing, Qt.Key.Key_Home)
         self.assertEqual(listing.scroll_motion.state(), QAbstractAnimation.State.Stopped)
         self.w.state['settings']['reduce_motion'] = True
@@ -570,23 +573,28 @@ class EditorRev9Tests(unittest.TestCase):
             with self.subTest(size=size):
                 self.w.resize(*size); self.page.resize(*size)
                 before = copy.deepcopy(self.w.state); dialog = self.edit()
-                viewport = dialog.form_scroll.viewport()
                 def reveal(control):
-                    dialog.form_scroll.ensureWidgetVisible(control, 8, 8)
+                    # Management fields now live on the separate side card,
+                    # whose scroll area is independent of the prompt editor.
+                    scroll = dialog.panels.scroll if dialog.panels.side.isAncestorOf(control) else dialog.form_scroll
+                    viewport = scroll.viewport()
+                    scroll.ensureWidgetVisible(control, 8, 8)
                     self.app.processEvents(); QTest.qWait(10)
                     # Qt's ensureWidgetVisible follows a text edit's cursor,
                     # which can leave its bottom clipped. Exercise the outer
                     # scrollbar to reveal the complete active field as well.
-                    center=control.mapTo(dialog.pages,control.rect().center())
-                    dialog.form_scroll.ensureVisible(center.x(),center.y(),8,control.height()//2+8)
+                    center=control.mapTo(scroll.widget(),control.rect().center())
+                    scroll.ensureVisible(center.x(),center.y(),8,control.height()//2+8)
                     self.app.processEvents()
                     position = control.mapTo(viewport, control.rect().center())
                     self.assertTrue(viewport.rect().contains(position), type(control).__name__)
                     return control
                 QTest.mouseClick(reveal(dialog.advanced_toggle), Qt.MouseButton.LeftButton)
+                QTest.qWait(260)
                 tabs=dialog.pages.details
-                for index,controls in enumerate(((dialog.form.edit_category,dialog.form.kind,dialog.form.aliases,dialog.form.notes),
-                                                (dialog.form.lookup,), (dialog.form.excludes,), (dialog.history_button,))):
+                self.assertEqual([tabs.tabText(i) for i in range(tabs.count())], ['資訊', '排除 Tag', '預覽圖'])
+                for index,controls in enumerate(((dialog.form.edit_category,dialog.form.kind,dialog.form.aliases,dialog.form.notes,dialog.form.lookup),
+                                                (dialog.form.excludes,), (dialog.form.preview,))):
                     tabs.setCurrentIndex(index); self.app.processEvents()
                     for control in controls:
                         self.assertTrue(control.isVisible()); reveal(control)
@@ -595,12 +603,13 @@ class EditorRev9Tests(unittest.TestCase):
                     self.assertFalse(dialog.form_scroll.isAncestorOf(control))
                     self.assertTrue(dialog.rect().contains(control.mapTo(dialog, control.rect().center())))
                 self.assertFalse(dialog.form_scroll.isAncestorOf(dialog.error))
+                reveal(dialog.history_button)
                 tabs.setCurrentIndex(0); self.app.processEvents()
                 QTest.mouseClick(reveal(dialog.form.aliases), Qt.MouseButton.LeftButton)
                 dialog.form.aliases.selectAll(); QTest.keyClicks(dialog.form.aliases, 'advanced aliases')
                 QTest.mouseClick(reveal(dialog.form.notes), Qt.MouseButton.LeftButton)
                 dialog.form.notes.selectAll(); QTest.keyClicks(dialog.form.notes, 'advanced notes')
-                tabs.setCurrentIndex(2); self.app.processEvents()
+                tabs.setCurrentIndex(1); self.app.processEvents()
                 QTest.mouseClick(reveal(dialog.form.excludes), Qt.MouseButton.LeftButton)
                 dialog.form.excludes.selectAll(); QTest.keyClicks(dialog.form.excludes, 'excluded_tag')
                 self.assertEqual(dialog._value()['aliases'], ['advanced aliases'])
@@ -610,15 +619,15 @@ class EditorRev9Tests(unittest.TestCase):
                 QTest.mouseClick(dialog.cancel_button, Qt.MouseButton.LeftButton)
                 self.assertEqual(self.w.state, before)
 
-    def test_expand_long_text_keeps_narrow_dialog_footer_within_host(self):
+    def test_long_text_and_management_keep_narrow_dialog_footer_within_host(self):
         self.w.resize(640, 480); self.page.resize(640, 480)
         dialog = self.edit()
-        dialog.expand_text(); self.app.processEvents()
-        self.assertLessEqual(dialog.height(), self.w.height()-24)
-        self.assertTrue(dialog.rect().contains(dialog.save_button.mapTo(dialog, dialog.save_button.rect().center())))
-        self.assertGreater(dialog.form_scroll.verticalScrollBar().maximum(), 0)
-        dialog.expand_text(); self.app.processEvents()
-        self.assertLessEqual(dialog.height(), self.w.height()-24)
+        dialog.prompt.setPlainText('\n'.join('long draft line' for _ in range(100)))
+        for opened in (True, False):
+            dialog.pages.details_toggle.setChecked(opened); QTest.qWait(260)
+            self.assertLessEqual(dialog.height(), self.w.height()-24)
+            self.assertTrue(dialog.rect().contains(dialog.save_button.mapTo(dialog, dialog.save_button.rect().center())))
+            self.assertGreater(dialog.prompt.verticalScrollBar().maximum(), 0)
 
     def test_save_add_partial_failure_retry_is_only_add_and_idempotent(self):
         self.page.set_destination(self.fixture.canvas); dialog = self.page.new_material()

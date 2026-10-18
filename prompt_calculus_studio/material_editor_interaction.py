@@ -16,12 +16,15 @@ class PreviewClickBridge(QObject):
 
     def arm(self, ident, position):
         self.cancel(); self.ident = ident; self.position = QPoint(position)
-        QApplication.instance().installEventFilter(self)
+        from .application_events import listen
+        listen(self,QEvent.Type.MouseButtonPress,QEvent.Type.MouseButtonDblClick,
+               QEvent.Type.MouseButtonRelease,QEvent.Type.Wheel,QEvent.Type.KeyPress,QEvent.Type.Hide)
         self.timer.start(QApplication.doubleClickInterval())
 
     def cancel(self):
         self.timer.stop(); self.ident = None; self.release_pending = False
-        QApplication.instance().removeEventFilter(self)
+        from .application_events import unlisten
+        unlisten(self)
 
     def eventFilter(self, watched, event):
         kind = event.type()

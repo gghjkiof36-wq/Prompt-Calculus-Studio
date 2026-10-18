@@ -2,7 +2,7 @@ import json
 import time
 from pathlib import Path
 from PySide6.QtCore import Qt, QSize, QTimer, QFile, QUrl, QEvent, Signal
-from PySide6.QtGui import QIcon, QDesktopServices
+from PySide6.QtGui import QIcon, QPixmap, QDesktopServices
 from PySide6.QtWidgets import (QWidget, QBoxLayout, QVBoxLayout, QHBoxLayout, QSplitter, QListWidget,
     QListWidgetItem, QLineEdit, QComboBox, QPlainTextEdit, QFormLayout, QFileDialog,
     QCheckBox, QDialog, QSizePolicy, QFrame, QAbstractItemView, QApplication, QSlider, QGridLayout)
@@ -929,6 +929,24 @@ class GalleryPage(QFrame):
         rows=self.catalog.rows('image',self.album,limit=60,offset=self.page*60,search=self.search.text().strip()) if self.album else []
         previous_icons=getattr(self,'_page_icons',{})
         page_icons={}
+        pending=[]
+        from .media_paths import preview_file
+        for record in rows:
+            path=preview_file(self.window.store.directory,record)
+            try:
+                info=path.stat() if path else None
+                stamp=(str(path),info.st_size,info.st_mtime_ns,info.st_ctime_ns) if info else None
+            except OSError:stamp=None
+            old=previous_icons.get(record['id'])
+            if stamp is not None and old and old[0]==stamp:
+                page_icons[record['id']]=old
+            else:
+                pending.append((record['id'],stamp,path))
+        if pending:
+            from .preview_decode import decode_batch
+            decoded=decode_batch([path for _,_,path in pending],384)
+            for (ident,stamp,_),image in zip(pending,decoded):
+                page_icons[ident]=(stamp,QIcon(QPixmap.fromImage(image)))
         current_item=None
         for record in rows:
             item=QListWidgetItem(record['name']); item.setData(Qt.ItemDataRole.UserRole,record); item.setToolTip(record['name'])
@@ -936,16 +954,7 @@ class GalleryPage(QFrame):
             # Reuse only the current page's already decoded icons (at most
             # 60). Check the actual source on every refresh so replacement,
             # relinking, missing/recreated files and portable paths stay fresh.
-            from .media_paths import preview_file
-            path=preview_file(self.window.store.directory,record)
-            try:
-                info=path.stat() if path else None
-                stamp=(str(path),info.st_size,info.st_mtime_ns,info.st_ctime_ns) if info else None
-            except OSError:stamp=None
-            old=previous_icons.get(record['id'])
-            value=old[1] if stamp is not None and old and old[0]==stamp else record_icon(self.window.store,record,384)
-            page_icons[record['id']]=(stamp,value)
-            item.setIcon(value)
+            item.setIcon(page_icons[record['id']][1])
             self.images.addItem(item)
             if record['id']==current:current_item=item
         self._page_icons=page_icons

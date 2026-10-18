@@ -145,6 +145,18 @@ class WorkspaceFileOperations(QObject):
                     self.inline = InlineRename(self.w.tree, item, op.source, commit, finish)
                     deferred = True
                     return None
+                from .workspace_file_title import title_for
+                tab = self.source_tab(op)
+                title = title_for(tab) if tab is not None else None
+                if title is not None:
+                    self.w.focus_tab(tab)
+                    def finish():
+                        self.inline = None
+                        self.end(op)
+                    self.inline = title
+                    deferred = True
+                    title.start(op.source, commit, finish)
+                    return None
                 dialog = RenameDialog(self.w, op.source, commit)
             elif action == 'move':
                 root = self.w.locations.root_for(op.source)

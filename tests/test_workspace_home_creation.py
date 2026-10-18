@@ -174,13 +174,14 @@ class HomeWorkflowCreationTests(unittest.TestCase):
         observed, failures = [], []
         timer = QTimer()
         def rename():
-            dialog = self.app.activeModalWidget()
+            dialog = self.app.activeModalWidget() if self.kind == 'workflow' else self.w.commands.files.inline
             if dialog is None:
                 return
             timer.stop()
             observed.append(dialog)
             try:
-                self.assertIsInstance(dialog, RenameDialog)
+                if self.kind == 'workflow':self.assertIsInstance(dialog, RenameDialog)
+                else:self.assertIsNone(self.app.activeModalWidget())
                 self.assertFalse(self.w.sidebar.isVisible())
                 dialog.name.setText('自己的工作流')
                 QTest.keyClick(dialog.name, Qt.Key.Key_Return)
@@ -192,6 +193,7 @@ class HomeWorkflowCreationTests(unittest.TestCase):
         try:
             QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(action).center())
         finally:
+            if self.kind != 'workflow':rename()
             timer.stop()
             if isValid(menu):
                 menu.close()

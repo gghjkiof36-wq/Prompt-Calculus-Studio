@@ -493,9 +493,22 @@ class NodeCard(ResizableCard):
              bool(affected),bool(affected.get('all')),self.key in getattr(self.canvas,'active_keys',set()),
              active==('canvas',self.key,self.canvas.window.state.get('workspace')))
         paint_cached(painter,key,self.boundingRect(),lambda target:self._paint_surface(target,colors,affected))
-        # Text and controls stay vector drawn. In particular, native glyph
-        # hinting must not jump when an image's origin changes at fractional zoom.
-        self._paint_content(painter,colors)
+        # Keep native glyph rasterization at the current transform while
+        # reusing unchanged layout/icon commands across pan/zoom frames.
+        from .canvas_raster import paint_recorded
+        seq=pm.sequence(self.value)
+        sequence=(seq['mode'],seq['selected'],tuple(g['id'] for g in seq['groups'])) if seq else None
+        content=(self.width,self.height,tuple(sorted(colors.items())),self.canvas.font().key(),
+                 self.value['name'],self.value['weight'],self.own,self.status,self.collapsed,
+                 self.muted,self.hot,self.pressed,self.drop_size,self.drop_y,
+                 self.header_extra,self.body_top,self.prompt_width,self.text_height,
+                 getattr(self,'weight_editor',None) is not None,sequence)
+        if self.drop_size:
+            # The live drop overlay uses device-dependent dashed strokes.
+            self._paint_content(painter,colors)
+        else:
+            paint_cached(painter,('text-content',content),self.boundingRect(),
+                lambda target:paint_recorded(target,self,content,lambda p:self._paint_content(p,colors)))
 
     def _paint_surface(self,painter,colors,affected):
         border=colors['secondary'] if self.muted or affected.get('all') else '#d4ac51' if affected else colors['canvas_line']

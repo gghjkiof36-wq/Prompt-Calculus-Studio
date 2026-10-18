@@ -20,6 +20,14 @@ if APP.platformName()=='offscreen':
         QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+font)
 
 
+def logical_capture(widget):
+    # Widget rectangles use logical coordinates; grab() uses physical pixels
+    # at Windows display scaling. Normalize before cropping individual rows.
+    image = widget.grab().toImage()
+    image.setDevicePixelRatio(1)
+    return image.scaled(widget.size())
+
+
 class MediaLayoutTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
@@ -255,7 +263,7 @@ class MediaLayoutTests(unittest.TestCase):
         for mode in ('images','list'):
             self.g.set_view_mode(mode); self.settle()
             item=self.g.images.item(0); rect=self.g.images.visualItemRect(item)
-            rendered=self.g.images.viewport().grab().toImage().copy(rect)
+            rendered=logical_capture(self.g.images.viewport()).copy(rect)
             pixels=[(x,y) for y in range(rendered.height()) for x in range(rendered.width()) if rendered.pixelColor(x,y).name()=='#008000']
             if mode=='list':
                 self.assertFalse(pixels); self.assertEqual(item.text(),item.data(Qt.ItemDataRole.UserRole)['name']); continue
@@ -276,7 +284,7 @@ class MediaLayoutTests(unittest.TestCase):
         self.assertGreaterEqual(rect.height(),self.g.images.fontMetrics().lineSpacing()+18)
         self.assertFalse(self.g.thumbnail_control.isVisible())
         self.assertEqual(item.text(),'Image 000.png')
-        rendered=self.g.images.viewport().grab().toImage().copy(rect)
+        rendered=logical_capture(self.g.images.viewport()).copy(rect)
         # The filename's light text has space above and below, and no image pixels remain.
         text_rows=[y for y in range(rendered.height()) if any(rendered.pixelColor(x,y).lightness()>150 for x in range(rendered.width()))]
         self.assertTrue(text_rows); self.assertGreater(min(text_rows),3); self.assertLess(max(text_rows),rect.height()-4)
@@ -473,7 +481,7 @@ class MediaLayoutTests(unittest.TestCase):
         accent=visual_tokens(self.w.state['settings'])['accent']
         for mode in ('list','images'):
             self.g.set_view_mode(mode); self.g.images.clearFocus(); self.settle()
-            rendered=self.g.images.viewport().grab().toImage()
+            rendered=logical_capture(self.g.images.viewport())
             def accent_pixels(item):
                 image=rendered.copy(self.g.images.visualItemRect(item))
                 return sum(image.pixelColor(x,y).name()==accent for y in range(image.height()) for x in range(image.width()))
