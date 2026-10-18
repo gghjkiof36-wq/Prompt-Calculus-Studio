@@ -1,4 +1,4 @@
-# Markdown source editing foundation
+# Markdown editing and source preservation
 
 The Markdown file is the source of truth. Each open file owns one shared plain
 `QTextDocument`, native Undo/Redo history, save receipt and composition state.
@@ -24,25 +24,43 @@ its exact pieces to the ledger, so untouched text between ranges is preserved.
 Saving does not discard provenance or history; closing/reopening starts a fresh
 native undo history. BOM and the existing 8 MiB limit are retained.
 
-The minimal A text-style operation demonstrates local font family, size and color
+The retained A text-style integration API demonstrates local font family, size and color
 using readable inline HTML. It accepts plain selected prose and conservatively
 rejects protected/unsupported syntax, entities and whitespace-sensitive selections
-instead of escaping them into different rendered content. It is an integration API, not the complete
-format toolbar: compound formatting, zero-width typing attributes, cross-paragraph
-selection and syntax-aware live editing are subsequent work.
+instead of escaping them into different rendered content. The B toolbar uses
+syntax-aware `markdown_commands` transactions for compound, partial and
+cross-paragraph selections. Unselected character formatting applies to subsequent
+input. Clearing format splits only affected wrappers and preserves prose, URLs,
+code and formula source. Paragraph indentation uses readable HTML; list indentation
+uses Markdown whitespace. Typing Tab in the source remains a source indentation action.
 
 ## Presentation component
 
-Native `QPlainTextEdit` remains the editable source/IME host. A separate disposable
-`MarkdownProjection` (`QTextDocument`) proves basic Markdown and inline style
-presentation from a versioned snapshot. Its resource loader returns handled empty
-bytes; it cannot retrieve local/remote attachments. It is never a write target.
+Each B view uses a local native `QTextEdit` for source text, selection, IME,
+paragraph layout and folding. Content changes forward exact UTF-16 ranges to the
+shared plain document. Local font/layout changes do not write source; native Undo
+routes to the shared document. IME's paragraph-wide notifications are trimmed to
+their changed slice while preserving the source ledger's byte provenance.
 
-Qt's built-in Markdown presentation is **not** full Obsidian support. Live preview,
-source-to-rendered selection mapping, formula/Mermaid rendering, attachment
-resolution, callouts and other extensions remain later presentation work. A
-projection preserves formula/code source; it does not claim rendered mathematics.
-No browser engine or downloaded dependency is introduced by this foundation.
+In **編寫**, syntax on the active line remains editable and inactive delimiters
+collapse visually. **原文** shows original syntax. **閱讀** is a separate read-only
+`QTextBrowser`; only recognized source syntax is rendered, never arbitrary HTML
+attributes or scripts. Its resource loader returns empty bytes except for internally
+drawn task-checkbox images. No file or remote attachment is fetched by B.
+
+The three views share content/history and retain independent pane positions and
+modes. Switching modes does not edit the document. Personal reading preferences
+are stored separately from source. The compact toolbar has native overflow and a
+keyboard entry (`Alt+F10`, `Esc` to return). Find/replace and command palette are
+document-local; reading can search but cannot replace. The outline navigates and
+reorders sections through one source transaction.
+
+The retained A `MarkdownProjection` and B's bounded presentation are **not** full
+Obsidian or CommonMark conformance. Advanced tables, formula/Mermaid rendering,
+attachments, callouts and related extensions belong to C; properties/relations
+belong to D, note management to E, recovery and advanced editing to F. B preserves
+their original source and does not claim their rendered/interactive support.
+No browser engine or downloaded dependency is introduced by B.
 
 References: [QTextDocument](https://doc.qt.io/qtforpython-6/PySide6/QtGui/QTextDocument.html)
 and [QTextCursor](https://doc.qt.io/qtforpython-6/PySide6/QtGui/QTextCursor.html).
@@ -72,6 +90,9 @@ are automatically compatible with an older version.
 
 `test_markdown_foundation.py` checks mixed-format bytes, native histories,
 Unicode range mapping, stale/cross-file transactions, rendering isolation,
-preedit and failures. `test_markdown_workspace.py` checks actual workspace timers,
-split views, blocked file operations, external reload and conflict rescue through
-Save As. Use synthetic files and an isolated data/temp directory with Qt offscreen.
+preedit and failures. `test_markdown_editing.py` checks reachable B operations,
+actual rendered styles/alignment, protected source, typing and task/fold behavior.
+`test_markdown_workspace.py` checks actual workspace timers, split views, view-mode
+and preference restart, blocked file operations, external reload and conflict rescue
+through Save As. Use synthetic files and isolated data/temp with Qt offscreen.
+These checks do not establish native clipboard, physical IME or user acceptance.

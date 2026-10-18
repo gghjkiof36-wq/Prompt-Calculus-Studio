@@ -44,7 +44,9 @@ def view_state(tab):
     if isinstance(page, MarkdownPage):
         cursor = page.textCursor()
         return dict(cursor=[cursor.position(), cursor.anchor()],
-                    scroll=[page.horizontalScrollBar().value(), page.verticalScrollBar().value()])
+                    scroll=[page.horizontalScrollBar().value(), page.verticalScrollBar().value()],
+                    markdown_mode=page.md_surface.mode,
+                    reading_scroll=page.md_surface.reader.verticalScrollBar().value())
     if tab.host:
         tab.host.remember_canvas_view()
         result = dict(camera=getattr(tab.host, 'local_canvas_view', None))
@@ -82,6 +84,7 @@ class RestoreView(QObject):
         tab, state = self.tab, self.state
         if isinstance(tab.widget, MarkdownPage):
             page = tab.widget
+            page.md_surface.set_mode(state.get('markdown_mode', 'write'))
             saved = state.get('cursor')
             if finite_values(saved, 2):
                 maximum = max(0, page.document().characterCount()-1)
@@ -93,6 +96,9 @@ class RestoreView(QObject):
             if finite_values(scroll, 2):
                 page.horizontalScrollBar().setValue(int(scroll[0]))
                 page.verticalScrollBar().setValue(int(scroll[1]))
+            reading_scroll = state.get('reading_scroll')
+            if type(reading_scroll) is int and reading_scroll >= 0:
+                page.md_surface.reader.verticalScrollBar().setValue(reading_scroll)
         elif tab.host:
             camera = state.get('camera')
             if finite_values(camera, 3) and .01 <= camera[0] <= 100:

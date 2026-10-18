@@ -5,6 +5,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QInputMethodEvent, QTextCursor
 from PySide6.QtTest import QTest
 from prompt_calculus_studio.markdown_source import SourceEdit
+from prompt_calculus_studio.workspace_shell import WorkspaceShell
+import test_workspace_layout as layout_fixture
 import test_workspace_panes as fixture
 
 
@@ -14,6 +16,30 @@ class MarkdownWorkspaceTests(unittest.TestCase):
     tearDown = fixture.WorkspacePaneTests.tearDown
     open = fixture.WorkspacePaneTests.open
     events = fixture.WorkspacePaneTests.events
+
+    def test_visible_editor_autosave_modes_preferences_and_restart(self):
+        self.w.autosave.delay_ms=35
+        left=self.open('Empty.md');page=left.widget;s=page.md_surface
+        self.app.sendEvent(s.editor,QInputMethodEvent('中文',[]))
+        commit=QInputMethodEvent();commit.setCommitString('中文筆記');self.app.sendEvent(s.editor,commit)
+        cursor=s.editor.textCursor();cursor.select(QTextCursor.SelectionType.Document);s.editor.setTextCursor(cursor)
+        s.format_selection({'bold':True,'color':'#123456','size':16})
+        right=self.w.duplicate_view(left,True);right.widget.md_surface.set_mode('read')
+        QTest.qWait(120);saved=left.path.read_bytes()
+        self.assertIn('中文筆記'.encode(),saved);self.assertFalse(left.dirty)
+        self.assertEqual(len(self.w.autosave.timers),1)
+        s.set_preference('reading_size',14);s.set_mode('source')
+        self.assertEqual(left.path.read_bytes(),saved)
+        self.assertTrue(page.document().isUndoAvailable())
+        expected=(s.editor.textCursor().position(),s.editor.textCursor().anchor())
+        layout_fixture.WorkspaceLayoutTests.restart(self)
+        pages=[tab.widget for tab in self.w.tabs_by_key.values() if tab.path and tab.path.name=='Empty.md']
+        self.assertEqual(len(pages),2)
+        self.assertEqual([p.md_surface.mode for p in pages],['source','read'])
+        self.assertEqual((pages[0].textCursor().position(),pages[0].textCursor().anchor()),expected)
+        self.assertEqual(pages[0].md_surface.preferences['reading_size'],14)
+        self.assertEqual(pages[0].encoded(),saved);self.assertIs(pages[0].buffer,pages[1].buffer)
+        self.assertIn('中文筆記',pages[1].md_surface.reader.toPlainText())
 
     def test_style_transaction_uses_one_autosave_and_shared_undo(self):
         self.w.autosave.delay_ms = 35

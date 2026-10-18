@@ -25,6 +25,8 @@ ICON_NAMES = frozenset({
     'workflow','history','external-link','alert','server','check-circle',
     'folder','plus','minus','copy','trash','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal','fold-all','unfold-all',
     'panel-left','type','file-text','list-ordered','arrow-down-up','arrow-up','arrow-down','shuffle','image-single','scan-eye','link-2','maximize','grip-vertical',
+    'text-bold','text-italic','text-underline','text-strike','text-color','highlight',
+    'heading','quote','align','indent','outdent','eraser','edit-undo','edit-redo','task',
 })
 MODE_ICONS={'fixed':'pin','increment':'arrow-up','decrement':'arrow-down','random':'shuffle'}
 _STYLE_RESOURCES = {}
@@ -108,7 +110,37 @@ def _draw(painter, name, filled=False):
             painter.fillPath(shape.subtracted(hole),painter.pen().color())
             return
 
-    if name == 'unfold-all':
+    if name in ('edit-undo', 'edit-redo'):
+        if name == 'edit-redo':painter.translate(24,0);painter.scale(-1,1)
+        poly((8,4),(3,9),(8,14))
+        path=QPainterPath(QPointF(3,9));path.lineTo(14,9);path.cubicTo(23,9,23,20,14,20);painter.drawPath(path)
+    elif name == 'text-bold':
+        line(6,3,6,21)
+        path=QPainterPath(QPointF(6,3));path.lineTo(12,3);path.cubicTo(20,3,20,11,12,11);path.lineTo(6,11)
+        path.moveTo(6,11);path.lineTo(13,11);path.cubicTo(22,11,22,21,13,21);path.lineTo(6,21);painter.drawPath(path)
+    elif name == 'text-italic':
+        line(10,3,20,3);line(4,21,14,21);line(15,3,9,21)
+    elif name == 'text-underline':
+        path=QPainterPath(QPointF(6,3));path.lineTo(6,12);path.cubicTo(6,20,18,20,18,12);path.lineTo(18,3);painter.drawPath(path);line(4,22,20,22)
+    elif name == 'text-strike':
+        path=QPainterPath(QPointF(18,5));path.cubicTo(7,-1,1,8,10,11);path.moveTo(14,13);path.cubicTo(24,17,15,25,5,19);painter.drawPath(path);line(3,12,21,12)
+    elif name == 'heading':
+        line(4,4,4,20);line(14,4,14,20);line(4,12,14,12);poly((18,16),(21,19),(24,16))
+    elif name == 'text-color':
+        poly((5,18),(12,3),(19,18));line(8,12,16,12);line(3,22,21,22)
+    elif name in ('highlight', 'eraser'):
+        poly((3,15),(14,4),(21,11),(10,22),(7,22),(3,18),closed=True);line(8,10,15,17)
+        if name == 'highlight':line(2,23,21,23)
+    elif name == 'quote':
+        for x in (3,14):rect(x,5,7,7,.5);poly((x+7,12),(x+5,18),(x+2,20))
+    elif name == 'align':
+        for y,width in ((4,18),(9,12),(14,18),(19,12)):line(12-width/2,y,12+width/2,y)
+    elif name in ('indent','outdent'):
+        for y in (4,9,14,19):line(11,y,22,y)
+        poly((2,8),(6,12),(2,16)) if name == 'indent' else poly((6,8),(2,12),(6,16))
+    elif name == 'task':
+        rect(3,3,18,18,2);poly((7,12),(10,15),(17,8))
+    elif name == 'unfold-all':
         poly((7,8),(12,3),(17,8)); poly((7,16),(12,21),(17,16))
     elif name == 'fold-all':
         poly((7,3),(12,8),(17,3)); poly((7,21),(12,16),(17,21))

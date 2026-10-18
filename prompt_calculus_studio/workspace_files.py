@@ -90,7 +90,7 @@ class MarkdownBuffer(QObject):
     def snapshot(self):
         return SourceSnapshot(source_text(self.text), self.text.revision(), self.document_id)
 
-    def apply(self, snapshot, edits):
+    def apply(self, snapshot, edits, *, join_previous=False):
         if self.composing:
             raise ValueError('請先完成目前的中文組字。')
         if snapshot != self.snapshot():
@@ -110,7 +110,7 @@ class MarkdownBuffer(QObject):
             return False
         cursor = QTextCursor(self.text)
         self.pending_pieces = prospective
-        cursor.beginEditBlock()
+        cursor.joinPreviousEditBlock() if join_previous else cursor.beginEditBlock()
         try:
             for edit in reversed(ordered):
                 cursor.setPosition(utf16_position(snapshot.text, edit.start))
@@ -164,12 +164,71 @@ class MarkdownPage(QPlainTextEdit):
         self.setStyleSheet('QPlainTextEdit { border:0; padding:28px 36px; background:transparent; }')
         from .workspace_file_title import FileTitle
         self.file_title = FileTitle(self.path.stem, self)
-        self.setViewportMargins(0, 60, 0, 0)
+        from .markdown_surface import MarkdownSurface
+        self.md_surface = MarkdownSurface(self)
+        self.setViewportMargins(0, 0, 0, 0)
+        super().viewport().hide()
+        super().horizontalScrollBar().hide()
+        super().verticalScrollBar().hide()
+        self.setFocusProxy(self.md_surface.editor)
+        self.md_surface.show()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if hasattr(self, 'file_title'):
-            self.file_title.setGeometry(36, 16, max(80, self.width()-72), 40)
+        if hasattr(self, 'md_surface'):
+            self.md_surface.setGeometry(self.rect())
+
+    def textCursor(self):
+        if not hasattr(self, 'md_surface'):return super().textCursor()
+        local = self.md_surface.editor.textCursor()
+        cursor = QTextCursor(self.document())
+        maximum = self.document().characterCount()-1
+        cursor.setPosition(min(local.anchor(), maximum))
+        cursor.setPosition(min(local.position(), maximum), QTextCursor.MoveMode.KeepAnchor)
+        return cursor
+
+    def setTextCursor(self, cursor):
+        if not hasattr(self, 'md_surface'):return super().setTextCursor(cursor)
+        local = self.md_surface.editor.textCursor()
+        maximum = self.md_surface.editor.document().characterCount()-1
+        local.setPosition(min(cursor.anchor(), maximum))
+        local.setPosition(min(cursor.position(), maximum), QTextCursor.MoveMode.KeepAnchor)
+        self.md_surface.editor.setTextCursor(local)
+
+    def insertPlainText(self, text):
+        if not hasattr(self, 'md_surface'):return super().insertPlainText(text)
+        if self.md_surface.mode == 'read':return
+        self.md_surface.editor.insertPlainText(text)
+
+    def moveCursor(self, operation, mode=QTextCursor.MoveMode.MoveAnchor):
+        if not hasattr(self, 'md_surface'):return super().moveCursor(operation, mode)
+        self.md_surface.editor.moveCursor(operation, mode)
+
+    def selectAll(self):
+        if not hasattr(self, 'md_surface'):return super().selectAll()
+        self.md_surface.editor.selectAll()
+
+    def undo(self):
+        if self.buffer.composing:return
+        if not hasattr(self, 'md_surface') or self.md_surface.mode != 'read':self.document().undo()
+
+    def redo(self):
+        if self.buffer.composing:return
+        if not hasattr(self, 'md_surface') or self.md_surface.mode != 'read':self.document().redo()
+
+    def verticalScrollBar(self):
+        return self.md_surface.editor.verticalScrollBar() if hasattr(self, 'md_surface') else super().verticalScrollBar()
+
+    def horizontalScrollBar(self):
+        return self.md_surface.editor.horizontalScrollBar() if hasattr(self, 'md_surface') else super().horizontalScrollBar()
+
+    def viewport(self):
+        return self.md_surface.editor.viewport() if hasattr(self, 'md_surface') else super().viewport()
+
+    def keyPressEvent(self, event):
+        if hasattr(self, 'md_surface') and self.md_surface.mode == 'read':event.ignore()
+        elif hasattr(self, 'md_surface'):self.md_surface.editor.keyPressEvent(event)
+        else:super().keyPressEvent(event)
 
     @property
     def dirty(self):
@@ -224,6 +283,9 @@ class MarkdownPage(QPlainTextEdit):
         return self.buffer.apply(snapshot, [text_style_edit(snapshot, start, end, **style)])
 
     def inputMethodEvent(self, event):
+        if hasattr(self, 'md_surface'):
+            if self.md_surface.mode == 'read':event.ignore();return
+            return self.md_surface.editor.inputMethodEvent(event)
         token = id(self)
         self.buffer.composing.add(token)  # Also guard synchronous commit signals.
         try:
