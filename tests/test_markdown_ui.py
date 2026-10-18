@@ -161,4 +161,13 @@ class MarkdownUiTests(unittest.TestCase):
         self.assertEqual(tab.widget.encoded(),raw.encode());self.assertFalse(tab.widget.dirty)
 
 
+    def test_initial_filename_tracks_body_after_first_layout_and_sidebar_toggle(self):
+        (self.root/'Notes.md').write_bytes('正文。\n'.encode())
+        self.w.resize(1440,900);self.events();s=self.open('Notes.md').widget.md_surface
+        for sidebar in (True,False,True):
+            self.w.sidebar_preference=sidebar;self.w.sync_sidebar();QTest.qWait(60)
+            expected=s.editor.viewportMargins().left()+round(s.editor.document().documentMargin())
+            self.assertEqual(s.title_layout.contentsMargins().left(),expected)
+
+
 if __name__ == '__main__':unittest.main()

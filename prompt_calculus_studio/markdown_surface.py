@@ -144,6 +144,9 @@ class MarkdownSurface(QWidget):
         if self.mode == 'read' and self.reader.advanced and self.reader.rich:
             left,right = getattr(self.reader.rich,'content_margins',(left,right))
         self.title_layout.setContentsMargins(left,20,right,6)
+        style_key=(self.preferences['reading_family'],self.zoom_percent)
+        if getattr(self,'_title_style_key',None)==style_key:return
+        self._title_style_key=style_key
         font = QFont(self.preferences['reading_family']);font.setPointSizeF(24*self.zoom_percent/100);font.setBold(True)
         self.page.file_title.setFont(font)
         family = self.preferences['reading_family'].replace('"','').replace('\\','')

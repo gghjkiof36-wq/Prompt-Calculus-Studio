@@ -477,6 +477,10 @@ class SourceView(QTextEdit):
     def resizeEvent(self, event):
         if hasattr(self, 'gutter'):self.update_measure()
         super().resizeEvent(event)
+        # The parent's resize arrives before Qt gives this viewport its final
+        # width. Align the independent filename after the editor has reflowed.
+        if hasattr(self.surface,'title_layout'):
+            QTimer.singleShot(0,self.surface,self.surface.update_title_layout)
         if hasattr(self,'presentation_timer'):self.schedule_presentation()
 
     def fold_control_rect(self,block):
