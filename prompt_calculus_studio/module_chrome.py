@@ -261,6 +261,9 @@ def paint_header(painter, width, title, font, colors, collapsed=False, icon_name
 
 
 def paint_shadow(painter, outline, nested=False, strength=1.0, covered=False):
+    from .canvas_shadow import paint_rounded_shadow
+    if paint_rounded_shadow(painter, outline, nested, strength, covered, _draw_shadow):
+        return
     from .canvas_raster import paint_cached, SHADOWS
     geometry = tuple((e.x, e.y, e.type.value)
                      for i in range(outline.elementCount())

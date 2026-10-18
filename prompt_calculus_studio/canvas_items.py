@@ -650,8 +650,9 @@ class CanvasView(QGraphicsView):
 
     def paintEvent(self,event):
         from .canvas_raster import paint_scope
-        # Zoom changes every card's device raster. Draw vectors while the
-        # transform is changing; reuse resumes without a repaint timer.
+        # Zoom changes every full-card raster. Draw those layers directly
+        # while it changes; small device-aligned shadow tiles remain bounded.
+        # Full-card reuse resumes without a repaint timer.
         # A frame has one appearance. Resolve it once rather than merging
         # workspace settings and deriving the palette for every port/card.
         previous=getattr(self.canvas,'_paint_colors',None)
