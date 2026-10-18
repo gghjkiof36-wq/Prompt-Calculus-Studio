@@ -174,9 +174,10 @@ class WorkspacePanes:
         bar = self.pane_for(tab).strip.bar if tab else self.tab_strip.bar
         return next((i for i in range(bar.count()) if bar.tabData(i) == key), -1)
 
-    def add_tab(self, tab, replace_current=False, position=None, pane=None, activate=True):
+    def add_tab(self, tab, replace_current=False, position=None, pane=None, activate=True, background=False):
         pane = pane or self.active_pane
         bar = pane.strip.bar
+        previous_index = bar.currentIndex()
         at = bar.currentIndex() if position is None else position
         current = self.tabs_by_key.get(bar.tabData(at)) if replace_current else None
         if current:
@@ -197,7 +198,11 @@ class WorkspacePanes:
         bar.setTabData(at, tab.key)
         bar.blockSignals(False)
         self.update_tab(tab)
-        if activate:
+        if background:
+            bar.blockSignals(True)
+            bar.setCurrentIndex(previous_index)
+            bar.blockSignals(False)
+        elif activate:
             bar.setCurrentIndex(at)
             self.activate_in(pane, at)
         else:
@@ -217,7 +222,7 @@ class WorkspacePanes:
         error = getattr(tab.document or tab.widget, 'error', '')
         if error:strip.bar.setTabToolTip(at, strip.bar.tabToolTip(at)+'\n'+error)
 
-    def open_path(self, path, retained=False, *, new_tab=False, pane=None, quiet=False):
+    def open_path(self, path, retained=False, *, new_tab=False, pane=None, quiet=False, background=False):
         from .workspace_shell import Tab
         from .workspace_layout import MissingDocument
         pane = pane or self.active_pane
@@ -228,10 +233,10 @@ class WorkspacePanes:
             if not new_tab:
                 current = next((t for t in matching if t.pane == pane.key and t.key in self.tabs_by_key), None)
                 if current:
-                    self.focus_tab(current)
+                    if not background:self.focus_tab(current)
                     return current
                 cached = next((t for t in matching if t.pane == pane.key and t.key in self.saved_pages), None)
-                if cached:return self.add_tab(cached, replace_current=True, pane=pane)
+                if cached:return self.add_tab(cached, replace_current=not background, pane=pane, background=background)
             if path.suffix.casefold() == '.md':
                 page = MarkdownPage(path, matching[0].widget.buffer if matching else None)
                 tab = Tab('md:'+uuid.uuid4().hex, path.stem, page, retained, path=path)
@@ -261,7 +266,7 @@ class WorkspacePanes:
                 tab = Tab(key, path.stem, page, retained, document, path, host=host)
                 document.changed.connect(lambda: self.document_changed(tab))
                 document.editing.connect(lambda: self.retain(tab))
-            return self.add_tab(tab, replace_current=not new_tab, pane=pane)
+            return self.add_tab(tab, replace_current=not new_tab and not background, pane=pane, background=background)
         except (ValueError, OSError, KeyError) as error:
             self.last_open_error = str(error)
             if not quiet:self.report_error(str(error))

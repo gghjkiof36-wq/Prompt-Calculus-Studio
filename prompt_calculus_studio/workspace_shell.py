@@ -118,6 +118,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.setPalette(widget_palette(self.settings))
         self.build()
         self.init_panes()
+        from .workspace_materials import WorkspaceMaterials
+        self.material_transfer = WorkspaceMaterials(self)
         self.arrange_navigation()
         from .window_chrome import install_expanded_chrome
         self.window_chrome = install_expanded_chrome(self)
@@ -895,8 +897,15 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.update_tab(tab)
         if not saved:
             reason = tab.document.error if tab.document else tab.widget.error
-            self.show_notice('「' + tab.title + '」尚未儲存：' + (reason or '請先完成目前的編輯。')
-                             + '\n內容已保留。Ctrl+S 重試；Ctrl+Shift+S 另存。')
+            pending = getattr(tab.document, 'pending_material_uses', set())
+            if pending and pending.intersection(tab.document.state.get('uses', {})):
+                self.material_transfer.error('已加入，尚未自動儲存：'+(reason or '請先完成目前的編輯。')
+                                             +'\n內容已保留。Ctrl+S 重試；Ctrl+Shift+S 另存。')
+            else:
+                self.show_notice('「' + tab.title + '」尚未儲存：' + (reason or '請先完成目前的編輯。')
+                                 + '\n內容已保留。Ctrl+S 重試；Ctrl+Shift+S 另存。')
+        elif tab.document:
+            tab.document.pending_material_uses = set()
         return saved
 
     def prepare_close(self, tab, decision=None):

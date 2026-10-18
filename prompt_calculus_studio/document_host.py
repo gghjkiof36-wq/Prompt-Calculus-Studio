@@ -466,6 +466,9 @@ class EmbeddedHost(Window):
             self.canvas_header.hide()
 
     def notice(self, text):
+        if getattr(self, '_material_transfer_reporting', False):
+            self.workspace_owner.material_transfer.error(text)
+            return
         super().notice(text)
         workspace = getattr(self, 'workspace_owner', None)
         if self._document_ready and workspace is not None:

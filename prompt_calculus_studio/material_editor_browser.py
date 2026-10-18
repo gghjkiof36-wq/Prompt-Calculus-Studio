@@ -229,6 +229,10 @@ class PromptEditor(QWidget):
         preview.addWidget(self.preview_text); preview.addWidget(self.variant_navigation)
         self.edit_button = button('編輯', lambda: self.edit_material(self.preview_id))
         self.edit_button.setIcon(icon('pencil')); preview.addWidget(self.edit_button)
+        if getattr(window, 'document', None) is not None and getattr(window, 'workspace_owner', None) is not None:
+            self.add_canvas_button = button('加入Canvas…', self.add_canvas_menu, 'Quiet')
+            self.add_canvas_button.setIcon(icon('plus'))
+            preview.addWidget(self.add_canvas_button)
         self.preview_card.hide()
         self.scroll.verticalScrollBar().rangeChanged.connect(self._queue_layout)
         self.listing.verticalScrollBar().rangeChanged.connect(self._queue_layout)
@@ -686,6 +690,8 @@ class PromptEditor(QWidget):
         self.listing.blockSignals(False)
         if self.preview_id != ident: self.preview_variant_id = None
         self.preview_id = ident; self.preview_name.setText(value['name'])
+        if hasattr(self, 'add_canvas_button'):
+            self.add_canvas_button.setVisible(pm.kind(value) == 'text')
         self.refresh_preview_content(value)
         image_path = preview_path(self.window.store, value.get('preview'))
         has_image = bool(image_path)
@@ -803,12 +809,19 @@ class PromptEditor(QWidget):
         self.preview_click.cancel()
         value = materials.item(self.window.state, ident)
         menu = RoundMenu(self); menu.addAction('編輯素材', lambda: self.edit_material(ident))
+        from .workspace_material_menu import add_entry
+        add_entry(self, menu, ident)
         menu.addAction('取消釘選' if value.get('pinned') else '釘選素材', lambda: self.pin_material(ident))
         menu.addAction('另存為新素材', lambda: self.duplicate_material(ident))
         from .prompt_editor import show_history
         menu.addAction('內容歷史', lambda: show_history(self.window, ident))
         menu.add_destructive_action('刪除', lambda: self.delete_material(ident))
         menu.open_at(position)
+
+    def add_canvas_menu(self):
+        from .workspace_material_menu import open_menu
+        return open_menu(self, self.preview_id,
+                         self.add_canvas_button.mapToGlobal(self.add_canvas_button.rect().bottomLeft()))
 
     def pin_material(self, ident):
         def apply(state):
