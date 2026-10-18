@@ -71,6 +71,17 @@ class PromptDialogTests(unittest.TestCase):
             self.assertEqual(dialog.geometry(),closed)
             self.assertFalse(dialog.panels.side.isVisible())
 
+    def test_close_during_side_motion_stops_timer_and_reopen_is_collapsed(self):
+        dialog=self.page.new_material(); QTest.qWait(30)
+        dialog.pages.details_toggle.setChecked(True)
+        self.assertEqual(dialog.panels.motion.state(), dialog.panels.motion.State.Running)
+        dialog.reject()
+        self.assertEqual(dialog.panels.motion.state(), dialog.panels.motion.State.Stopped)
+        reopened=self.page.new_material(); QTest.qWait(30)
+        self.assertFalse(reopened.panels.opened)
+        self.assertFalse(reopened.panels.side.isVisible())
+        reopened.reject()
+
     def test_overview_and_group_collapse_return_to_content_height(self):
         dialog,ed=self.populated()
         def listing_fits():

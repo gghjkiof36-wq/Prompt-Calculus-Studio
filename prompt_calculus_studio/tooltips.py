@@ -35,7 +35,8 @@ class TooltipStyler(QObject):
         super().__init__(app)
         self.owner=None
         self._dispatching_help=False
-        app.installEventFilter(self)
+        from .application_events import listen
+        listen(self, QEvent.Type.ToolTip, QEvent.Type.Show, QEvent.Type.Resize)
 
     @staticmethod
     def round_tip(tip):

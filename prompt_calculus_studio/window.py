@@ -41,6 +41,7 @@ class Window(QMainWindow):
         self.embedded_document = embedded
         self.document_only = bool(embedded and document_only)
         workspace_tools = embedded and not self.document_only and getattr(self, 'workspace_owner', None) is not None
+        self.workspace_tools = workspace_tools
         from .tooltips import install_tooltip_styling
         install_tooltip_styling()
         from .button_focus import install_button_focus_styling
@@ -108,11 +109,15 @@ class Window(QMainWindow):
             deferred = self.document_only or getattr(self, 'workspace_owner', None) is not None
             return DeferredToolPage(lambda: page_type(self)) if deferred else page_type(self)
         self.models=tool_page(ModelPage)
-        self.gallery=tool_page(GalleryPage); self.tabs.addTab(self.gallery,"媒體庫")
+        self.gallery=tool_page(GalleryPage)
+        if workspace_tools:self.surface_stack.addWidget(self.gallery)
+        else:self.tabs.addTab(self.gallery,"媒體庫")
         # CanvasResults shares the recent-result picker during initialization.
         # Keep that owner eager; only independent hidden tools are deferred.
         self.recent=RecentPage(self); self.tabs.addTab(self.recent,'最近生成')
-        self.clean_export=tool_page(ExportPage); self.tabs.addTab(self.clean_export,'匯出')
+        self.clean_export=tool_page(ExportPage)
+        if workspace_tools:self.surface_stack.addWidget(self.clean_export)
+        else:self.tabs.addTab(self.clean_export,'匯出')
         self.comfy=(client_factory or ComfyClient)(self); self.comfy.stateChanged.connect(self.comfy_changed)
         self.comfy.resultsReceived.connect(self.recent.receive_results)
         self.tabs.currentChanged.connect(self.page_changed)
@@ -139,7 +144,7 @@ class Window(QMainWindow):
         else: self.leave_canvas()
         self.display_recovery=DisplayRecovery(self)
         from .sidebar_peek import SidebarPeekController
-        self.sidebar_peek=SidebarPeekController(self,self.context_sidebar_target)
+        if not embedded:self.sidebar_peek=SidebarPeekController(self,self.context_sidebar_target)
         self.sync_context_sidebar()
         self.navigation_ready=True
         for sequence,handler in [("Ctrl+F",self.focus_search),("Ctrl+Shift+C",self.copy_final),("Ctrl+,",self.settings)]:
@@ -149,6 +154,9 @@ class Window(QMainWindow):
         self.store.save(self.state)
 
     def make_prompt_page(self):
+        if self.workspace_tools:
+            from .tool_editor import make_tool_editor
+            return make_tool_editor(self)
         page=QFrame(); page.setObjectName("WorkspaceSurface"); layout=QVBoxLayout(page); layout.setContentsMargins(12,16,12,16)
         self.quick=PromptEdit(self.completion); self.quick.setObjectName("QuickSearch"); self.quick.setFixedHeight(54)
         self.quick.setPlaceholderText("搜尋素材，或輸入 Tag／中文…")
@@ -454,6 +462,17 @@ class Window(QMainWindow):
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
         if self.surface_stack.currentWidget() is getattr(self,'settings_page',None):self.settings_page.flush()
         if page is self.models: self.settings('models'); return
+        if self.workspace_tools and page in (self.gallery,self.clean_export):
+            # These pages have one permanent parent. Re-inserting them into
+            # the legacy tab/editor stacks repolished their entire subtrees
+            # on every navigation, even after the first visit.
+            refresh_gallery = page is self.gallery and page_ready(page)
+            self.surface_stack.setCurrentWidget(page)
+            # Gallery construction already loads its first album. Repeating
+            # that refresh decoded the whole first page a second time.
+            if refresh_gallery:self.gallery.refresh_albums()
+            self.record_navigation('page','gallery' if page is self.gallery else 'clean_export')
+            return
         if self.canvas_mode and page is self.recent:
             self.show_recent_sheet(); return
         self.close_recent_sheet()
@@ -544,6 +563,9 @@ class Window(QMainWindow):
     def context_sidebar_target(self):
         current=self.surface_stack.currentWidget()
         if current is self.settings_page:return self.settings_page.navigation_area
+        if self.workspace_tools:
+            if current is self.gallery:return self.gallery.folder_panel
+            if current is self.clean_export:return self.clean_export.sidebar
         if current is self.canvas_shell:
             page=self.canvas_content.currentWidget()
             if page is self.gallery:return self.gallery.folder_panel
@@ -720,6 +742,7 @@ class Window(QMainWindow):
             if page_ready(self.settings_page.comfy_content):self.settings_page.workflow_manager.update_list_height()
             self.settings_page.refresh_icons()
         if not self.embedded_document: update_window_shape(self)
+        if self.workspace_tools:return
         self.tagline.setVisible(appearance["ui_size"]<16)
         self.quick.setFixedHeight(max(54,int(appearance["ui_size"]*2.4+22)))
         self.library.doItemsLayout()
@@ -863,6 +886,7 @@ class Window(QMainWindow):
         self.sync_context_sidebar()
 
     def refresh_modules(self):
+        if self.workspace_tools:return
         self.module_list.blockSignals(True); self.module_list.clear()
         for module in self.state["modules"]:
             mode="單選" if module["mode"]=="single" else "複選"
@@ -956,6 +980,7 @@ class Window(QMainWindow):
         self.library_page=max(0,self.library_page+delta); self.refresh_library()
 
     def refresh_library(self):
+        if self.workspace_tools:return
         if not hasattr(self,"library"): return
         self.library.clear()
         query=self.quick.toPlainText().strip().casefold()
@@ -1048,11 +1073,22 @@ class Window(QMainWindow):
         text=text.strip().strip(",， ")
         if not text: self.notice("先輸入或選取要加入的提示詞。"); return
         self.state.setdefault("temporary",[]).append(text)
-        if clear: self.quick.clear(); self.quick.completer.popup().hide()
+        if clear and not self.workspace_tools: self.quick.clear(); self.quick.completer.popup().hide()
         self.refresh_builder(); self.changed()
         self.notice("已加入臨時片段。"+ ("正在使用手動版本；清除手動內容後，會套用更新的組合。" if self.state["draft"] is not None else "可在右側組合中排序、複製或移除。"))
 
     def refresh_builder(self):
+        if self.workspace_tools:
+            # Keep the canonical draft/Canvas adapter for explicit restore or
+            # model actions, without populating a second, hidden list editor.
+            composition.prune_instances(self.state)
+            if self.state.get('uses'):self.state.setdefault('prompt_layout','paragraphs')
+            self.updating=True
+            try:self.final.setPlainText(self.state['draft'] if self.state['draft'] is not None else build_prompt(self.state))
+            finally:self.updating=False
+            self.canvas.refresh()
+            self.update_draft_status()
+            return
         if not hasattr(self,"selected"): return
         composition.prune_instances(self.state)
         if self.state.get('uses'): self.state.setdefault('prompt_layout','paragraphs')
@@ -1128,6 +1164,9 @@ class Window(QMainWindow):
 
     def update_draft_status(self):
         if hasattr(self,'generation_panel'): self.generation_panel.refresh()
+        if self.workspace_tools:
+            if hasattr(self,'comfy'):self.run_controls.refresh()
+            return
         draft=self.state["draft"] is not None
         self.conflict_notice.setText(('手動版本保留原文；自動組合將停用：' if draft else '已暫時停用衝突 Tag：')+getattr(self,'conflict_summary',''))
         has_canvas_output=any(key in self.state.get('uses',{}) for key in output_groups(self.state))
@@ -1255,6 +1294,10 @@ class Window(QMainWindow):
         self.builder_hint.setVisible(self.builder_fold.expanded)
         self.builder_toggle.setText("收合" if self.builder_fold.expanded else "展開組合")
     def focus_search(self):
+        if self.workspace_tools:
+            if self.surface_stack.currentWidget() is self.gallery:
+                self.gallery.search.setFocus(); self.gallery.search.selectAll()
+            return
         if self.canvas.isVisible(): self.canvas.palette(); return
         self.tabs.setCurrentIndex(0); self.quick.setFocus(); self.quick.selectAll()
 
@@ -1382,9 +1425,11 @@ class Window(QMainWindow):
         self.copy_timer.stop(); self.filter_timer.stop()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.shutdown()
         if hasattr(self,'sidebar_resize'):self.sidebar_resize.shutdown()
-        self.draft_fade.stop(); self.module_fold.animation.stop(); self.builder_fold.animation.stop()
+        if not self.workspace_tools:
+            self.draft_fade.stop(); self.module_fold.animation.stop(); self.builder_fold.animation.stop()
         from PySide6.QtWidgets import QApplication
-        QApplication.instance().removeEventFilter(self.host_shell)
+        from .application_events import unlisten
+        unlisten(self.host_shell)
         self.canvas.release_output(); self.canvas.output=None; self.canvas.cards={}; self.canvas.view.scene().clear()
         self.changes.stop()
         if getattr(self, 'owns_store', True):self.store.close()

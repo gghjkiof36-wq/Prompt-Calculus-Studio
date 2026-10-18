@@ -30,7 +30,8 @@ class WorkspaceFileOperations(QObject):
         self.w = workspace
         self.pending = []
         self.inline = None
-        QApplication.instance().installEventFilter(self)
+        from .application_events import listen
+        listen(self, QEvent.Type.KeyPress)
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_F2 and not event.modifiers():

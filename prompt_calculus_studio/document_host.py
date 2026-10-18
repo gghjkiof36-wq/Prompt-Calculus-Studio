@@ -311,7 +311,7 @@ class DocumentBrowser(PromptEditor):
 
 class EmbeddedHost(Window):
     """One existing editor/Canvas per canonical document; no global state swap."""
-    def __init__(self, data, document=None, *, workspace=None):
+    def __init__(self, data, document=None, *, workspace=None, service_state=None):
         self.document = document
         self.workspace_owner = workspace
         self._document_ready = False
@@ -319,14 +319,14 @@ class EmbeddedHost(Window):
         self.owns_store = document is None or document.host is not None
         client_factory = document.execution_client if document else LocalEditingClient
         super().__init__(data, embedded=True, client_factory=client_factory, document_only=document is not None,
-                         shared_state=document.state if document else None)
+                         shared_state=document.state if document else service_state)
         self.studio_navigation.hide()
         self.context_rail.hide()
         self.canvas_header.hide()
         self.surface_stack.rounded = False
         self.surface_stack.clearMask()
         self.display_recovery.stop()
-        self.sidebar_peek.shutdown()
+        if hasattr(self, 'sidebar_peek'):self.sidebar_peek.shutdown()
         if document is not None:
             if document.kind == 'category':
                 self.prompt_editor = DocumentBrowser(self)

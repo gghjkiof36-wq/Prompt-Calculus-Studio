@@ -91,7 +91,8 @@ class WindowShell(QFrame):
     def __init__(self,window):
         super().__init__(window)
         self.setObjectName("Shell"); self.setMouseTracking(True)
-        QApplication.instance().installEventFilter(self)
+        from .application_events import listen
+        listen(self, QEvent.Type.Enter, QEvent.Type.MouseMove)
 
     def paintEvent(self,event):
         from PySide6.QtGui import QColor
@@ -545,6 +546,10 @@ class _ComboPopupBehavior:
 
     def _sync_label_tooltip(self,*_):
         if not hasattr(self,'_auto_label_tooltip'):return
+        # Measuring a label while its form is still being assembled forces
+        # Qt to polish the control with an intermediate parent/font. The
+        # Show/paint path updates it using the final visible geometry.
+        if not self.isVisible():return
         current=self.toolTip()
         # Help supplied by the caller remains authoritative. Only replace a
         # tooltip which this control generated for its own shortened label.

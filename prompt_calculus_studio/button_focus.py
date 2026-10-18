@@ -14,7 +14,10 @@ def _scope(widget):
 class ButtonFocusStyler(QObject):
     def __init__(self, app):
         super().__init__(app)
-        app.installEventFilter(self)
+        from .application_events import listen
+        listen(self, QEvent.Type.MouseButtonPress, QEvent.Type.TouchBegin,
+               QEvent.Type.KeyPress, QEvent.Type.ShortcutOverride,
+               QEvent.Type.FocusIn, QEvent.Type.FocusOut)
 
     @staticmethod
     def present(widget, keyboard):

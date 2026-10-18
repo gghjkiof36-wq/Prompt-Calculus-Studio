@@ -7,7 +7,9 @@ class WorkspacePointerNavigation(QObject):
     def __init__(self, workspace):
         super().__init__(workspace)
         self.workspace = workspace
-        QApplication.instance().installEventFilter(self)
+        from .application_events import listen
+        listen(self, QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease,
+               QEvent.Type.MouseButtonDblClick)
 
     def eventFilter(self, watched, event):
         kind = event.type()

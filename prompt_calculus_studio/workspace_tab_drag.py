@@ -109,7 +109,10 @@ class TabDrag(QObject):
         self.scroll_timer = QTimer(self)
         self.scroll_timer.setInterval(240)
         self.scroll_timer.timeout.connect(self.scroll)
-        QApplication.instance().installEventFilter(self)
+        from .application_events import listen
+        listen(self, QEvent.Type.MouseMove, QEvent.Type.MouseButtonRelease,
+               QEvent.Type.MouseButtonPress, QEvent.Type.KeyPress,
+               QEvent.Type.ApplicationDeactivate, QEvent.Type.Hide, QEvent.Type.UngrabMouse)
 
     def register(self, pane):
         pass

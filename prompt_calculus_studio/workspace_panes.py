@@ -26,7 +26,8 @@ class PaneFocus(QObject):
     def __init__(self, workspace):
         super().__init__(workspace)
         self.w = workspace
-        QApplication.instance().installEventFilter(self)
+        from .application_events import listen
+        listen(self, QEvent.Type.MouseButtonPress, QEvent.Type.FocusIn)
 
     def eventFilter(self, obj, event):
         if event.type() in (QEvent.Type.MouseButtonPress, QEvent.Type.FocusIn):

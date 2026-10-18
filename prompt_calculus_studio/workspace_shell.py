@@ -31,7 +31,7 @@ from .workspace_panes import WorkspacePanes
 
 DISPLAY_KEYS = ('font_family', 'ui_size', 'prompt_size', 'material',
                 'mica_transparency', 'acrylic_transparency', 'menu_transparency',
-                'visual_palette', 'accent', 'density')
+                'visual_palette', 'accent', 'density', 'reduce_motion')
 
 
 @dataclass
@@ -362,6 +362,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 elif key=='accent' and value in ('neutral','blue','green'):
                     self.settings[key]=value
                 elif key=='density' and value in ('comfortable','compact'):
+                    self.settings[key]=value
+                elif key=='reduce_motion' and type(value) is bool:
                     self.settings[key]=value
                 elif key in ('ui_size','prompt_size') and type(value) is int and 9<=value<=22:
                     self.settings[key]=value
@@ -756,13 +758,15 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
     def ensure_utility(self):
         if self.utility is None:
             data = self.session / 'app-services'
-            store = Storage(data)
             state = initial_state()
             state['settings'].update({key:self.settings[key] for key in DISPLAY_KEYS})
             state['settings'].update(online=False, comfy_enabled=False)
-            store.save(state)
-            store.close()
-            self.utility = EmbeddedHost(data, workspace=self)
+            # This is a new session, not a historical database migration.
+            # Prepare once in memory instead of writing an old-format seed,
+            # reopening it, backing it up and migrating it on the first click.
+            from .state_loading import prepare_state
+            state = prepare_state(state, multi=True)
+            self.utility = EmbeddedHost(data, workspace=self, service_state=state)
             self.utility.bind_workspace(self)
             self.workspace_stack.addWidget(self.utility)
             self.utility.comfy.stateChanged.connect(self.refresh_connection)
@@ -1053,14 +1057,15 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             for execution in [document.execution, *document.retired_executions]:
                 if execution is not None:execution.close()
             document.deleteLater()
-        QApplication.instance().removeEventFilter(self.pane_focus)
-        QApplication.instance().removeEventFilter(self.tab_drag)
-        QApplication.instance().removeEventFilter(self.pointer_navigation)
+        from .application_events import unlisten
+        unlisten(self.pane_focus)
+        unlisten(self.tab_drag)
+        unlisten(self.pointer_navigation)
         self.recent_timer.stop()
         self.tree_state.save()
         self.save_recent()
         self.save_ui_preferences()
         self.sidebar_resize.shutdown()
-        QApplication.instance().removeEventFilter(self.centralWidget())
-        QApplication.instance().removeEventFilter(self.commands.files)
+        unlisten(self.centralWidget())
+        unlisten(self.commands.files)
         event.accept()

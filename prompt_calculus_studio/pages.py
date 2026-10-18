@@ -927,13 +927,28 @@ class GalleryPage(QFrame):
         self.previous.setEnabled(self.page>0); self.next.setEnabled((self.page+1)*60<total)
         for widget in (self.previous,self.next,self.page_counter):widget.setVisible(total>60)
         rows=self.catalog.rows('image',self.album,limit=60,offset=self.page*60,search=self.search.text().strip()) if self.album else []
+        previous_icons=getattr(self,'_page_icons',{})
+        page_icons={}
         current_item=None
         for record in rows:
             item=QListWidgetItem(record['name']); item.setData(Qt.ItemDataRole.UserRole,record); item.setToolTip(record['name'])
             item.setData(Qt.ItemDataRole.AccessibleTextRole,record['name'])
-            item.setIcon(record_icon(self.window.store,record,384))
+            # Reuse only the current page's already decoded icons (at most
+            # 60). Check the actual source on every refresh so replacement,
+            # relinking, missing/recreated files and portable paths stay fresh.
+            from .media_paths import preview_file
+            path=preview_file(self.window.store.directory,record)
+            try:
+                info=path.stat() if path else None
+                stamp=(str(path),info.st_size,info.st_mtime_ns,info.st_ctime_ns) if info else None
+            except OSError:stamp=None
+            old=previous_icons.get(record['id'])
+            value=old[1] if stamp is not None and old and old[0]==stamp else record_icon(self.window.store,record,384)
+            page_icons[record['id']]=(stamp,value)
+            item.setIcon(value)
             self.images.addItem(item)
             if record['id']==current:current_item=item
+        self._page_icons=page_icons
         if current_item:self.images.setCurrentItem(current_item)
         for i in range(self.images.count()):
             item=self.images.item(i); item.setSelected(item.data(Qt.ItemDataRole.UserRole)['id'] in selected)

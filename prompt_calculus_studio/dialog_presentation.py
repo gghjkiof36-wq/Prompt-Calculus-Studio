@@ -2,6 +2,7 @@
 from PySide6.QtCore import Qt, QEvent, QPoint, QRect, QSize, QObject, QVariantAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QWidget, QDialog, QFrame, QLayout, QApplication
+from .elapsed_animation import ElapsedAnimation
 
 
 def window_owner(widget):
@@ -11,8 +12,8 @@ def window_owner(widget):
 
 
 def reduced_motion(widget):
-    owner=window_owner(widget)
-    return bool(getattr(owner,'state',{}).get('settings',{}).get('reduce_motion',False))
+    from .theme import window_appearance
+    return bool(window_appearance(widget).get('reduce_motion', False))
 
 
 def presenting_parent(parent):
@@ -59,7 +60,7 @@ class CenteredPromptForm(QObject):
         dialog.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         dialog.layout().setEnabled(False)
         self.surface.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
-        self.motion=QVariantAnimation(self);self.motion.setDuration(180)
+        self.motion=ElapsedAnimation(self);self.motion.setDuration(180)
         self.motion.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.motion.valueChanged.connect(self.place)
         self.motion.finished.connect(self.finished)

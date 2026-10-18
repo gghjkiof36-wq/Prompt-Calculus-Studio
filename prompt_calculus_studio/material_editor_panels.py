@@ -7,6 +7,7 @@ from .image_drop import ImageDropLabel
 from .module_chrome import prompt_divider
 from .dialog_presentation import reduced_motion
 from .ui_icons import icon
+from .elapsed_animation import ElapsedAnimation
 
 
 class MaterialPreviewImage(ImageDropLabel):
@@ -67,9 +68,10 @@ class MaterialPanels(QWidget):
         content.addWidget(self.scroll, 1)
         if details is not None:self.set_content(details, title, close)
         self.main.show(); self.main.raise_(); self.side.hide()
-        self.motion = QVariantAnimation(self); self.motion.setDuration(220)
+        self.motion = ElapsedAnimation(self); self.motion.setDuration(220)
         self.motion.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.motion.valueChanged.connect(self.place); self.motion.finished.connect(self.finished)
+        dialog.installEventFilter(self)
         dialog.parentWidget().installEventFilter(self)
 
     def set_content(self, widget, title, close):
@@ -169,7 +171,10 @@ class MaterialPanels(QWidget):
 
     def eventFilter(self, watched, event):
         from shiboken6 import isValid
-        if event.type() in (QEvent.Type.Resize, QEvent.Type.Move) and isValid(self.dialog) and self.dialog.isVisible():
+        if not isValid(self.dialog) or not isValid(self.main):return False
+        if watched is self.dialog and event.type() == QEvent.Type.Hide:
+            self.motion.stop(); self.place(1. if self.opened else 0.); self.finished()
+        elif watched is self.dialog.parentWidget() and event.type() in (QEvent.Type.Resize, QEvent.Type.Move) and isValid(self.dialog) and self.dialog.isVisible():
             if self.opened:
                 self.motion.stop(); self.progress = 1.
             elif self._envelope:
