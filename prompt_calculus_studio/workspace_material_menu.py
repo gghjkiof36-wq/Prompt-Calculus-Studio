@@ -30,6 +30,7 @@ def open_menu(page, ident, position):
 class MaterialMenu:
     def __init__(self, page, ident, menu):
         self.page, self.menu = page, menu
+        menu.setStyleSheet('QMenu { menu-scrollable: 1; }')
         self.transfer = page.window.workspace_owner.material_transfer
         self.source = None
         try:
@@ -48,6 +49,7 @@ class MaterialMenu:
             title = path.stem
             if counts[title.casefold()] > 1:title += ' · '+str(path.parent)
             child = menu.addMenu(menu.fontMetrics().elidedText(title, Qt.TextElideMode.ElideMiddle, 420))
+            child.setStyleSheet('QMenu { menu-scrollable: 1; }')
             child.addAction('讀取畫布…').setEnabled(False)
             child.menuAction().setToolTip(str(path))
             child.menuAction().setData(str(path))
@@ -78,6 +80,7 @@ class MaterialMenu:
                                               'Canvas 文件 (*.pcs-workflow)')
         if not path:return
         menu = RoundMenu(self.page)
+        menu.setStyleSheet('QMenu { menu-scrollable: 1; }')
         self.populate_target(menu, Path(path))
         # This choice still asks for the explicit Canvas/blank destination.
         menu._material_menu = self

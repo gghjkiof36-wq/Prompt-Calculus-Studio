@@ -478,5 +478,20 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
         self.events()
         self.assertFalse(canvas.cards[key].sceneBoundingRect().intersects(canvas.outputs[output_key].sceneBoundingRect()))
 
+    def test_many_file_choices_scroll_and_remain_keyboard_reachable_without_opening_hosts(self):
+        paths = [self.root/f'Canvas-{i:02}.pcs-workflow' for i in range(64)]
+        before = len(self.w.documents)
+        with patch.object(self.transfer, 'candidates', return_value=paths):
+            menu = open_menu(self.page, self.ident, self.w.mapToGlobal(self.w.rect().topLeft()))
+            self.events()
+            for _ in range(65):QTest.keyClick(menu, Qt.Key.Key_Down)
+            self.assertEqual(menu.activeAction().text(), '選擇其他Canvas…')
+            self.assertTrue(menu.rect().contains(menu.actionGeometry(menu.activeAction())))
+            for _ in range(64):QTest.keyClick(menu, Qt.Key.Key_Up)
+            self.assertEqual(menu.activeAction().data(), str(paths[0]))
+            self.assertTrue(menu.rect().contains(menu.actionGeometry(menu.activeAction())))
+            self.assertEqual(len(self.w.documents), before)
+            menu.close()
+
 
 if __name__ == '__main__':unittest.main()
