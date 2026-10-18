@@ -32,6 +32,8 @@ from .workspace_panes import WorkspacePanes
 DISPLAY_KEYS = ('font_family', 'ui_size', 'prompt_size', 'material',
                 'mica_transparency', 'acrylic_transparency', 'menu_transparency',
                 'visual_palette', 'accent', 'density', 'reduce_motion')
+MATERIAL_KEYS = frozenset(('material', 'mica_transparency', 'acrylic_transparency',
+                           'menu_transparency'))
 
 
 @dataclass
@@ -285,22 +287,27 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.home_split.setStretchFactor(1, 1)
         self.home_split.setSizes([260, 1100])
 
-    def style_shell(self):
-        appearance = dict(self.settings, **self.appearance_preview)
+    def update_material(self):
+        """Preview the painted tint without repolishing the widget tree."""
+        appearance = self.display_settings()
         material_key = (appearance['material'], visual_tokens(appearance)['scheme'])
         if material_key != getattr(self, '_material_key', None):
             self.native_material = apply_backdrop(self, appearance['material'], appearance)
             self._material_key = material_key
         self.centralWidget().update()
+
+    def style_shell(self):
+        appearance = self.display_settings()
+        self.update_material()
         t = visual_tokens(appearance)
         palette = widget_palette(appearance)
         self.pane_split.seam_color = QColor(t['text'])
-        self.setPalette(palette)
-        QApplication.instance().setPalette(palette)
+        if self.palette() != palette:self.setPalette(palette)
+        if QApplication.instance().palette() != palette:QApplication.instance().setPalette(palette)
         for pane in self.panes:
             self.style_tab_strip(pane.strip, appearance)
         self.tree.row_colors = dict(t, **workspace_colors(appearance))
-        self.setStyleSheet(stylesheet(appearance) + f'''
+        sheet = stylesheet(appearance) + f'''
             QFrame#DocumentWorkspace, QFrame#DocumentRail {{ background:transparent; border:0; }}
             QWidget#DocumentPane, QStackedWidget#DocumentPages {{ background:{t['base']}; }}
             QFrame#DocumentSidebar {{ background:{t['sidebar']}; border:0; }}
@@ -320,7 +327,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             QTabBar#DocumentTabBar::tab:!selected:hover {{ background:transparent; }}
             QTabBar#DocumentTabBar QToolButton {{ padding:0; border:0; border-radius:4px; background:{t['chrome']}; }}
             QTabBar#DocumentTabBar QToolButton:hover {{ background:{t['raised']}; }}
-        ''' + sidebar_style(appearance))
+        ''' + sidebar_style(appearance)
+        if self.styleSheet() != sheet:self.setStyleSheet(sheet)
         self.refresh_connection()
         self.sync_navigation_density()
         self.workspace_stack.sync_surface()
@@ -410,12 +418,18 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             checkbox.setChecked(self.confirm_trash)
 
     def sync_display_settings(self, settings, preview=None):
+        previous = self.display_settings()
         changed=any(self.settings[key]!=settings[key] for key in DISPLAY_KEYS)
         self.settings.update({key:settings[key] for key in DISPLAY_KEYS})
         overlay={key:value for key,value in (preview or {}).items() if key in DISPLAY_KEYS}
-        if changed or self.appearance_preview!=overlay:
-            self.appearance_preview=overlay
-            self.style_shell()
+        self.appearance_preview=overlay
+        appearance = self.display_settings()
+        differences = {key for key in DISPLAY_KEYS if previous[key] != appearance[key]}
+        if differences:
+            # Opacity affects the frame/popups only. Reapplying inherited QSS
+            # here blocks every slider step on hundreds of hidden controls.
+            if differences <= MATERIAL_KEYS:self.update_material()
+            else:self.style_shell()
         if changed:
             self.save_ui_preferences()
 
