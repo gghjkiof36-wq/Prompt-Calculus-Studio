@@ -1,6 +1,7 @@
 """A scoped heading tree; hierarchy and navigation share source positions."""
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem
+from PySide6.QtCore import Qt, QTimer, QRect, QRectF, QPersistentModelIndex
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem, QStyleOptionViewItem
 from .markdown_commands import heading_sections, move_section_edits
 from .markdown_syntax import visible_text
 from .markdown_outline_items import HeadingDelegate
@@ -8,14 +9,58 @@ from .markdown_outline_items import HeadingDelegate
 
 class HeadingTree(QTreeWidget):
     def __init__(self, surface):
-        super().__init__();self.surface = surface;self.items = []
+        super().__init__();self.surface = surface;self.items = [];self.hovered=QPersistentModelIndex()
         self.setObjectName('MarkdownOutlineTree');self.setAccessibleName('文件大綱')
         self.setHeaderHidden(True);self.setIndentation(12);self.setUniformRowHeights(False)
         self.setItemDelegate(HeadingDelegate(self))
         self.setAnimated(False);self.setExpandsOnDoubleClick(False)
+        self.setMouseTracking(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
         self.itemClicked.connect(self.navigate);self.itemActivated.connect(self.navigate)
+
+    def drawRow(self,painter,option,index):
+        # Paint one complete row, as the file sidebar does. Windows otherwise
+        # adds selection/hover blocks and an accent marker in each branch cell.
+        colors=self.surface.editor.tokens()
+        selected=self.selectionModel().isSelected(index)
+        hovered=self.hovered==index
+        focused=(self.hasFocus() and self.testAttribute(Qt.WidgetAttribute.WA_KeyboardFocusChange)
+                 and self.currentIndex()==index)
+        gap=4 if not index.parent().isValid() and index.row() else 0
+        bounds=QRectF(0,option.rect.y()+gap,self.viewport().width(),option.rect.height()-gap)
+        painter.save();painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if selected or hovered:
+            painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(QColor(colors['selected' if selected else 'hover']))
+            painter.drawRoundedRect(bounds,4,4)
+        if focused:
+            color=QColor(colors['accent']);color.setAlpha(120)
+            painter.setPen(QPen(color,1));painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(bounds.adjusted(.5,.5,-.5,-.5),4,4)
+        painter.restore()
+        content=QStyleOptionViewItem(option);content.rect=self.visualRect(index)
+        self.drawBranches(painter,QRect(0,content.rect.y(),content.rect.x(),content.rect.height()),index)
+        self.itemDelegateForIndex(index).paint(painter,content,index)
+
+    def drawBranches(self,painter,rect,index):
+        if not self.model().hasChildren(index):return
+        gap=4 if not index.parent().isValid() and index.row() else 0
+        x=rect.right()-self.indentation()/2+1;y=rect.center().y()+gap/2+.5
+        path=QPainterPath()
+        if self.isExpanded(index):
+            path.moveTo(x-3,y-1.5);path.lineTo(x,y+1.5);path.lineTo(x+3,y-1.5)
+        else:
+            path.moveTo(x-1.5,y-3);path.lineTo(x+1.5,y);path.lineTo(x-1.5,y+3)
+        painter.save();painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor(self.surface.editor.tokens()['secondary']),1.2));painter.drawPath(path);painter.restore()
+
+    def mouseMoveEvent(self,event):
+        index=QPersistentModelIndex(self.indexAt(event.position().toPoint()))
+        if index!=self.hovered:self.hovered=index;self.viewport().update()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self,event):
+        self.hovered=QPersistentModelIndex();self.viewport().update();super().leaveEvent(event)
 
     def rebuild(self, text):
         sections = heading_sections(text,self.surface.editor.lines if hasattr(self.surface,'editor') else None)

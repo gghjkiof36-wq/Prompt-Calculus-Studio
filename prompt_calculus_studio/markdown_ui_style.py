@@ -32,11 +32,7 @@ def styles(t, ui_size=12):
         QFrame#MarkdownOutlinePanel QToolButton:focus {{border-color:{t['accent']};}}
         QTreeWidget#MarkdownOutlineTree {{font-size:{navigation_size}px;background:transparent;border:0;padding:0;outline:0;}}
         QTreeWidget#MarkdownOutlineTree::item {{padding:0;border:0;border-radius:4px;}}
-        QTreeWidget#MarkdownOutlineTree::item:selected {{background:{t['selected']};color:{t['text']};}}
-        QTreeWidget#MarkdownOutlineTree::item:hover {{background:{t['hover']};}}
-        QTreeWidget#MarkdownOutlineTree::branch {{background:transparent;}}
-        QTreeWidget#MarkdownOutlineTree::branch:has-children:closed {{image:url({paths['right']});}}
-        QTreeWidget#MarkdownOutlineTree::branch:has-children:open {{image:url({paths['down']});}}
+        QTreeWidget#MarkdownOutlineTree::item:selected {{color:{t['text']};}}
         QWidget#MarkdownToolbar QToolButton:checked {{background:{t['selected']};}}
         QPlainTextEdit[searchHit="true"], QTextBrowser[searchHit="true"] {{selection-background-color:#fff16a;selection-color:#272410;}}
         QToolBar#MarkdownRibbon QToolButton[hasMenu="true"], QFrame#MarkdownOverflow QToolButton[hasMenu="true"] {{padding-right:9px;}}

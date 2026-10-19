@@ -38,7 +38,7 @@ class HeadingDelegate(QStyledItemDelegate):
         opt = self.option(option, index);label = opt.text;opt.text = ''
         gap = 4 if not index.parent().isValid() and index.row() else 0
         opt.rect.adjust(0,gap,0,0)
-        tree = self.parent();tree.style().drawControl(QStyle.ControlElement.CE_ItemViewItem,opt,painter,tree)
+        # HeadingTree owns the row background/focus, including indentation.
         rect = opt.rect.adjusted(6,6,-6,-6)
         lines = self.lines(label, opt.font, rect.width())
         selected = bool(opt.state & QStyle.StateFlag.State_Selected)

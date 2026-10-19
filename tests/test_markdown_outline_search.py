@@ -70,6 +70,29 @@ class OutlineSearchTests(unittest.TestCase):
         s.close_panel(s.find_bar);self.assertEqual(s.editor.extraSelections(),[]);self.assertFalse(s.editor.property('searchHit'))
         self.assertEqual(tab.widget.encoded(),before)
 
+    def test_outline_selection_and_hover_are_continuous_through_all_indents(self):
+        raw=''.join('#'*level+' '+title+'\n\n正文。\n\n' for level,title in enumerate(('章節','場景','視角','動機','細節','最後標記'),1))
+        (self.root/'Notes.md').write_bytes(raw.encode());s=self.open('Notes.md').widget.md_surface
+        self.w.resize(1440,960);s.toggle_outline();self.events();tree=s.outline
+        for palette in ('graphite','paper'):
+            self.w.settings['visual_palette']=palette;self.w.style_shell();s.apply_appearance();self.events()
+            leaf=tree.items[-1];tree.setCurrentItem(leaf);tree.clearFocus();self.events()
+            rect=tree.visualItemRect(leaf);image=tree.viewport().grab().toImage();scale=image.devicePixelRatio()
+            sample=lambda x,y:image.pixelColor(round(x*scale),round(y*scale)).name()
+            expected=s.editor.tokens()['selected']
+            for x in range(6,rect.left(),tree.indentation()):self.assertEqual(sample(x,rect.center().y()),expected)
+            self.assertEqual(sample(tree.viewport().width()-8,rect.center().y()),expected)
+            parent=tree.items[1];hover=tree.visualItemRect(parent)
+            QTest.mouseMove(tree.viewport(),hover.center());self.events()
+            image=tree.viewport().grab().toImage()
+            self.assertEqual(sample(4,hover.center().y()),s.editor.tokens()['hover'])
+            self.assertEqual(sample(tree.viewport().width()-8,hover.center().y()),s.editor.tokens()['hover'])
+            first=tree.items[0];rect=tree.visualItemRect(first)
+            QTest.mouseClick(tree.viewport(),Qt.MouseButton.LeftButton,pos=QPoint(rect.left()-tree.indentation()//2,rect.center().y()))
+            self.assertFalse(first.isExpanded())
+            tree.setCurrentItem(first);QTest.keyClick(tree,Qt.Key.Key_Right);self.assertTrue(first.isExpanded())
+        self.assertEqual(s.page.encoded(),raw.encode());self.assertFalse(s.page.dirty)
+
     def test_search_enter_and_command_keys_do_not_edit_the_document(self):
         raw='Map and map.\n\nAnother map.'
         (self.root/'Notes.md').write_bytes(raw.encode());tab=self.open('Notes.md');s=tab.widget.md_surface
