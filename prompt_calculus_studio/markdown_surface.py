@@ -2,7 +2,7 @@
 import html
 import json
 import re
-from PySide6.QtCore import Qt, QTimer, QSaveFile, QIODevice, QEvent, QPoint
+from PySide6.QtCore import Qt, QTimer, QSaveFile, QIODevice, QEvent, QPoint, QSize
 from PySide6.QtGui import QFont, QFontDatabase, QTextCursor, QColor, QKeySequence, QShortcut, QPixmap, QIcon
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget,
     QSplitter, QToolButton, QComboBox, QSpinBox, QLineEdit, QLabel, QCheckBox,
@@ -37,14 +37,16 @@ class MarkdownSurface(QWidget):
         self.breadcrumb_name = ElidedLabel(page.path.stem, top);self.breadcrumb_name.setObjectName('MarkdownFileTitle')
         page.file_title.filenameChanged.connect(self.breadcrumb_name.setText)
         heading.addWidget(self.breadcrumb_name, 1)
+        self.search_button=self.tool('搜尋 · Ctrl+F',self.toggle_find,'search')
+        self.search_button.setCheckable(True)
         self.outline_button=self.tool('大綱',self.toggle_outline,'list')
-        self.outline_button.setCheckable(True);heading.addWidget(self.outline_button)
+        self.outline_button.setCheckable(True)
         self.mode_box = self.tool('編寫 · 切換文件視圖', self.mode_menu, 'pencil')
         self.mode_box.setObjectName('MarkdownMode')
-        heading.addWidget(self.mode_box)
-        self.view_tools = self.tool('搜尋、大綱與編輯偏好', self.view_menu, 'more-horizontal')
+        self.view_tools = self.tool('更多', self.view_menu, 'more-horizontal')
         self.view_tools.setObjectName('MarkdownViewTools')
-        heading.addWidget(self.view_tools)
+        for control in (self.search_button,self.outline_button,self.mode_box,self.view_tools):
+            control.setFixedSize(28,28);control.setIconSize(QSize(18,18));heading.addWidget(control)
         body.addWidget(top)
         self.toolbar_host = QWidget(self)
         tools_layout = QHBoxLayout(self.toolbar_host);tools_layout.setContentsMargins(12, 4, 12, 8)
@@ -183,9 +185,8 @@ class MarkdownSurface(QWidget):
         rgba = lambda c:f'rgba({c.red()},{c.green()},{c.blue()},{c.alpha()})'
         self.toolbar_shadow.setColor(QColor(0,0,0,24 if light else 65))
         self.setStyleSheet(f'''QWidget#MarkdownSurface {{background:transparent;}}
-            QWidget#MarkdownToolbar QToolButton {{padding:1px;min-width:0;min-height:0;border:1px solid transparent;border-radius:4px;background:transparent;}}
+            QWidget#MarkdownToolbar QToolButton {{padding:0;min-width:0;min-height:0;border:1px solid transparent;border-radius:4px;background:transparent;}}
             QWidget#MarkdownToolbar QToolButton:hover {{background:{t['hover']};}}
-            QWidget#MarkdownToolbar QToolButton#MarkdownViewTools, QWidget#MarkdownToolbar QToolButton#MarkdownMode {{min-width:24px;max-width:24px;}}
             QWidget#MarkdownToolbar QToolButton:focus {{border-color:{t['accent']};}}
             QWidget#MarkdownToolbar QComboBox {{background:transparent;border:0;padding:3px 23px 3px 6px;min-height:26px;}}
             QWidget#MarkdownToolbar QComboBox::drop-down {{width:20px;border:0;}}
@@ -218,7 +219,8 @@ class MarkdownSurface(QWidget):
 
     def close_panel(self, panel):
         panel.hide()
-        if panel is self.find_bar:self.clear_rich_search();self.search_highlight.clear()
+        if panel is self.find_bar:
+            self.search_button.setChecked(False);self.clear_rich_search();self.search_highlight.clear()
         self.focus_document()
 
     def focus_toolbar(self):
@@ -579,7 +581,12 @@ class MarkdownSurface(QWidget):
         self.editor.fold_all(False);cursor = self.editor.textCursor();cursor.setPosition(utf16_position(snapshot.text, position));self.editor.setTextCursor(cursor);self.editor.ensureCursorVisible();self.editor.setFocus()
 
     def open_find(self, replace=False):
-        self.find_bar.show();self.replace_row.setVisible(bool(replace) and self.mode != 'read');self.query.setFocus();self.query.selectAll();self.search_changed()
+        self.find_bar.show();self.search_button.setChecked(True)
+        self.replace_row.setVisible(bool(replace) and self.mode != 'read');self.query.setFocus();self.query.selectAll();self.search_changed()
+
+    def toggle_find(self):
+        if self.find_bar.isVisible():self.close_panel(self.find_bar)
+        else:self.open_find()
 
     def matches(self):
         return self.search_highlight.matches()

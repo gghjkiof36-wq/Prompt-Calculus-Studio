@@ -438,9 +438,7 @@ class SourceView(QPlainTextEdit):
                         if span.style.get('align'):fmt.setAlignment({'left':Qt.AlignmentFlag.AlignLeft,'center':Qt.AlignmentFlag.AlignHCenter,'right':Qt.AlignmentFlag.AlignRight,'justify':Qt.AlignmentFlag.AlignJustify}[span.style['align']])
                         if span.style.get('indent'):fmt.setLeftMargin(span.style['indent']*self.fontMetrics().horizontalAdvance('M'))
             height = self.surface.preferences.get('line_height',150) if self.mode == 'write' else 130
-            if self.mode == 'write':
-                if not item['text'].strip():height = 65
-                elif item['heading']:height = 120
+            if self.mode == 'write' and item['heading']:height = 120
             fmt.setLineHeight(height, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
             if fmt != original:
                 cursor=QTextCursor(block);cursor.setBlockFormat(fmt)

@@ -47,6 +47,32 @@ class MarkdownPerformanceTests(unittest.TestCase):
             self.assertLessEqual(line.x()+line.naturalTextWidth(),e.viewport().width()+1)
         self.assertEqual(s.page.encoded(),text.encode())
 
+    def test_blank_lines_keep_their_height_through_editing_and_undo(self):
+        raw='## 地圖上的標記\n\n他沿著地圖上的河流。\n\n\n看看書店裡的那一晚。\n'
+        (self.root/'Notes.md').write_bytes(raw.encode());s=self.open('Notes.md').widget.md_surface;e=s.editor
+        self.w.resize(1440,960);self.events()
+        for mode in ('write','source'):
+            s.set_mode(mode)
+            for zoom in (100,200):
+                s.set_zoom(zoom);self.events()
+                for number in (1,3,4):
+                    with self.subTest(mode=mode,zoom=zoom,line=number):
+                        block=e.document().findBlockByNumber(number)
+                        cursor=QTextCursor(block);e.setTextCursor(cursor);e.ensureCursorVisible();self.events()
+                        height=e.blockBoundingRect(block).height()
+                        after=e.blockBoundingGeometry(block.next()).top()
+                        self.assertGreaterEqual(height,e.cursorRect().height())
+                        QTest.keyClicks(e,'1');self.events()
+                        self.assertAlmostEqual(e.blockBoundingRect(block).height(),height,delta=1)
+                        self.assertAlmostEqual(e.blockBoundingGeometry(block.next()).top(),after,delta=1)
+                        QTest.keyClick(e,Qt.Key.Key_Backspace);self.events()
+                        self.assertAlmostEqual(e.blockBoundingRect(block).height(),height,delta=1)
+                        self.assertEqual(s.page.encoded(),raw.encode())
+                        s.page.undo();self.events();self.assertEqual(block.text(),'1')
+                        s.page.undo();self.events();self.assertEqual(s.page.encoded(),raw.encode())
+                        self.assertAlmostEqual(e.blockBoundingRect(block).height(),height,delta=1)
+                        self.assertAlmostEqual(e.blockBoundingGeometry(block.next()).top(),after,delta=1)
+
     def test_toolbar_shadow_fits_host_at_narrow_and_wide_sizes(self):
         s=self.open('Notes.md').widget.md_surface
         for width in (960,1440,2200):

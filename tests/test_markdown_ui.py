@@ -65,6 +65,25 @@ class MarkdownUiTests(unittest.TestCase):
         self.assertEqual(other.widget.md_surface.zoom_percent,100);self.assertEqual(tab.widget.encoded(),original)
         self.assertFalse(tab.widget.dirty);self.assertFalse(tab.widget.document().isUndoAvailable())
 
+    def test_header_search_button_and_shortcut_share_one_panel(self):
+        tab=self.open('Notes.md');s=tab.widget.md_surface;raw=tab.widget.encoded()
+        for mode in ('write','source','read'):
+            s.set_mode(mode);self.events()
+            controls=(s.search_button,s.outline_button,s.mode_box,s.view_tools)
+            self.assertEqual(len({(b.width(),b.height(),b.y()) for b in controls}),1)
+            self.assertEqual(len({(b.iconSize().width(),b.iconSize().height()) for b in controls}),1)
+            QTest.mouseClick(s.search_button,Qt.MouseButton.LeftButton);self.events()
+            self.assertTrue(s.find_bar.isVisible());self.assertTrue(s.query.hasFocus());self.assertTrue(s.search_button.isChecked())
+            s.query.setText('Notes');self.events()
+            QTest.mouseClick(s.search_button,Qt.MouseButton.LeftButton);self.events()
+            self.assertFalse(s.find_bar.isVisible());self.assertFalse(s.search_button.isChecked())
+            view=s.reader if mode=='read' else s.editor
+            QTest.keyClick(view,Qt.Key.Key_F,Qt.KeyboardModifier.ControlModifier);self.events()
+            self.assertTrue(s.search_button.isChecked());self.assertEqual(s.query.selectedText(),'Notes')
+            QTest.keyClick(s.query,Qt.Key.Key_Escape);self.events()
+            self.assertFalse(s.find_bar.isVisible());self.assertFalse(s.search_button.isChecked())
+        self.assertEqual(tab.widget.encoded(),raw);self.assertFalse(tab.widget.dirty)
+
     def test_properties_alignment_draft_cancel_raw_preservation_and_undo(self):
         raw = '---\naliases: [First]\ntags: [novel/draft, rain]\nchecked: false\ncustom:\n  source: notebook\n---\nbody\n'
         (self.root/'Notes.md').write_bytes(raw.encode())
