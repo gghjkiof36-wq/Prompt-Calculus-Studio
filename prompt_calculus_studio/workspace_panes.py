@@ -60,7 +60,7 @@ class WorkspacePanes:
         self.documents = []
         self.panes = []
         self.split_ratio = .5
-        self.pane_split = PaneSplitter()
+        self.pane_split = PaneSplitter(self)
         self.pane_split.setObjectName('DocumentPaneSplit')
         self.home_split.replaceWidget(1, self.pane_split)
         self._make_pane(self.tab_strip, self.pages)

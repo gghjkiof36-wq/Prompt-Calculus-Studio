@@ -210,6 +210,10 @@ def style_css(style):
 def inline_html(text):
     """Render only recognized styles; never pass document HTML attributes through."""
     items = spans(text)
+    if not items and '\\' not in text:
+        # Most manuscript prose has no inline formatting. Preserve the same
+        # entity escaping without building a Python style run per character.
+        return html.escape(html.unescape(text))
     hidden = set()
     for item in items:
         hidden.update(range(item.start, item.first));hidden.update(range(item.last, item.end))

@@ -1,4 +1,4 @@
-"""Split manager pages keep both columns reachable without horizontal scrolling."""
+"""Split managers adapt their preview without clipping or trapping the divider."""
 import copy
 import sys
 import unittest
@@ -63,7 +63,10 @@ class WorkspacePaneMinimumTests(unittest.TestCase):
             rect = QRect(widget.mapTo(viewport, QPoint()), widget.size())
             self.assertGreaterEqual(rect.left(), 0)
             self.assertLess(rect.right(), viewport.width())
-        self.assertGreater(page.preview_card.x(), page.browser.geometry().right())
+        if page.preview_card.x() == page.browser.x():
+            self.assertGreater(page.preview_card.y(), page.browser.geometry().bottom())
+        else:
+            self.assertGreater(page.preview_card.x(), page.browser.geometry().right())
 
     def test_divider_stops_before_preview_and_does_not_change_content(self):
         state = copy.deepcopy(self.tab.host.state)
@@ -71,6 +74,8 @@ class WorkspacePaneMinimumTests(unittest.TestCase):
         self.w.pane_split.setSizes([1500, 1])
         self.events()
         self.assert_visible_columns()
+        self.assertEqual(self.page.preview_card.x(), self.page.browser.x())
+        self.assertLess(self.right.container.width(), 650)
         self.assertEqual(self.tab.host.state, state)
         # Closing/reopening a preview does not shift the divider.
         sizes = self.w.pane_split.sizes()
@@ -95,6 +100,51 @@ class WorkspacePaneMinimumTests(unittest.TestCase):
         self.events()
         self.assert_visible_columns()
         self.assertIn(home.key, self.w.tabs_by_key)
+
+    def test_resize_restores_preferred_split_and_wide_preview(self):
+        self.preview()
+        self.w.pane_split.setSizes([700, 800]); self.w.remember_ratio(); self.events()
+        preferred = self.w.split_ratio
+        for width in (900, 1500, 1000, 1800):
+            self.w.resize(width, 900); self.events()
+            self.assert_visible_columns()
+            self.assertAlmostEqual(self.w.split_ratio, preferred, places=3)
+        sizes = self.w.pane_split.sizes()
+        self.assertAlmostEqual(sizes[0]/sum(sizes), preferred, places=2)
+        self.assertGreater(self.page.preview_card.x(), self.page.browser.geometry().right())
+
+    def test_utility_resize_keeps_both_tab_controls_separate(self):
+        from PySide6.QtWidgets import QToolButton
+        self.preview()
+        self.w.open_route('settings', 'appearance'); self.events()
+        for width in (1500, 900, 1800, 1000):
+            self.w.resize(width, 760); self.events()
+            strips = [p.strip for p in self.w.panes]
+            self.assertEqual(strips[0].geometry().right()+1, strips[1].x())
+            for strip in strips:
+                for control in strip.findChildren(QToolButton):
+                    if not control.isVisible(): continue
+                    rect = QRect(control.mapTo(strip, QPoint()), control.size())
+                    self.assertTrue(strip.rect().contains(rect), (width, rect, strip.rect()))
+                self.assertGreater(strip.bar.width(), 100)
+        self.assertAlmostEqual(strips[0].width()/self.w.pane_tab_row.width(), .5, places=2)
+
+    def test_one_tab_click_restores_both_pages_from_every_utility_route(self):
+        self.preview()
+        original = copy.deepcopy(self.tab.host.state)
+        for route in ('settings', 'gallery', 'explore', 'export'):
+            for chosen in self.w.panes:
+                self.w.open_route(route); self.events()
+                self.assertFalse(self.left.widget.isVisible())
+                self.assertFalse(self.tab.widget.isVisible())
+                QTest.mouseClick(chosen.strip.bar, Qt.MouseButton.LeftButton,
+                                 pos=chosen.strip.bar.tabRect(chosen.strip.bar.currentIndex()).center())
+                self.events()
+                self.assertEqual(self.w.active_route, 'home')
+                self.assertTrue(self.left.widget.isVisible(), (route, chosen.key, 'left'))
+                self.assertTrue(self.tab.widget.isVisible(), (route, chosen.key, 'right'))
+                self.assert_visible_columns()
+        self.assertEqual(self.tab.host.state, original)
 
     def test_two_managers_and_window_minimum_keep_both_previews(self):
         other = self.w.open_path(self.root/'Action.pcs-category', True, pane=self.w.panes[0])

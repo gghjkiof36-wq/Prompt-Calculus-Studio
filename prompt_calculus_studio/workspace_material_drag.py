@@ -105,7 +105,15 @@ class MaterialCopyDrag(QObject):
         if not self.matches(event.mimeData()):event.ignore(); return
         point = view.mapToScene(event.position().toPoint())
         valid, canvas_id = self.landing(view, point)
-        if not valid:event.ignore(); return
+        if not valid:
+            # Enter accepts this gesture, not this particular landing point.
+            # Rejecting entry over an output prevents Qt from delivering any
+            # subsequent moves into blank space within the same viewport.
+            document = view.canvas.window.document
+            if event.type() == QEvent.Type.DragEnter and document is not None and document.kind == 'workflow':
+                event.setDropAction(Qt.DropAction.CopyAction); event.accept()
+            else:event.ignore()
+            return
         overlay = self.overlays.get(view)
         if overlay is None:
             overlay = self.overlays[view] = PlacementPreview(view)

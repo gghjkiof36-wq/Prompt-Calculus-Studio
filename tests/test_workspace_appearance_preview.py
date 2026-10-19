@@ -108,7 +108,8 @@ class AppearancePreviewTests(unittest.TestCase):
         self.assertFalse(p.transparency_holder.isHidden());page.flush();self.events()
         settings=self.w.display_settings()
         self.assertEqual(settings['material'],'clear')
-        self.assertEqual(shell_color(dict(settings,clear_transparency=100)).rsplit(',',1)[-1],'0)')
+        self.assertEqual(shell_color(dict(settings,clear_transparency=100)).rsplit(',',1)[-1],'178)')
+        self.assertEqual(shell_color(dict(settings,clear_transparency=50)).rsplit(',',1)[-1],'217)')
         self.assertEqual(shell_color(dict(settings,clear_transparency=0)).rsplit(',',1)[-1],'255)')
         # The new choice also survives the ordinary settings storage validator.
         from prompt_calculus_studio.core import initial_state,validate_state

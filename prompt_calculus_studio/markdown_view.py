@@ -1,7 +1,7 @@
 """Per-view source presentation with one authoritative document and history."""
 import re
 from bisect import bisect_right
-from PySide6.QtCore import Qt, QTimer, QByteArray, QRectF, QPoint, QEvent
+from PySide6.QtCore import Qt, QTimer, QByteArray, QRectF, QPoint, QEvent, Slot
 from PySide6.QtGui import (QColor, QFont, QPainter, QTextCursor, QTextCharFormat,
     QKeySequence, QImage, QPen, QTextBlockFormat, QTextLayout)
 from PySide6.QtWidgets import QTextEdit, QPlainTextEdit, QWidget, QTextBrowser
@@ -449,11 +449,21 @@ class SourceView(QPlainTextEdit):
         transaction.endEditBlock()
 
     def visible_blocks(self):
+        for block, top in self.visible_block_positions():yield block
+
+    def visible_block_positions(self):
         block=self.firstVisibleBlock();remaining=max(100,self.viewport().height()//4+60)
+        if not block.isValid():return
+        # blockBoundingGeometry walks from the first visible paragraph each
+        # time. Accumulate once so gutter/markers cost O(visible paragraphs),
+        # rather than repeating that walk for every row on every arrow key.
+        top=self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
         while block.isValid() and remaining:
-            if self.blockBoundingGeometry(block).translated(self.contentOffset()).top()>self.viewport().height():break
+            if top>self.viewport().height():break
             remaining-=1
-            if block.isVisible():yield block
+            if block.isVisible():
+                yield block,top
+                top+=self.blockBoundingRect(block).height()
             number=block.blockNumber()
             block=self.document().findBlockByNumber(self.fold_end(number)) if number in self.folded else block.next()
 
@@ -464,9 +474,8 @@ class SourceView(QPlainTextEdit):
         painter.setClipRect(self.viewport().geometry().adjusted(-24,0,0,0))
         t=self.tokens();painter.setPen(QPen(QColor(t['secondary']),1.3))
         current=self.textCursor();first=self.document().findBlock(current.selectionStart()).blockNumber();last=self.document().findBlock(current.selectionEnd()).blockNumber()
-        for block in self.visible_blocks():
+        for block,top in self.visible_block_positions():
             number=block.blockNumber()
-            top=self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
             if block.isVisible() and number < len(self.lines) and not first <= number <= last:
                 item=self.lines[number];listing=item['listing']
                 if listing:
@@ -581,8 +590,7 @@ class SourceView(QPlainTextEdit):
         from .ui_icons import icon
         painter = QPainter(self.gutter);painter.setPen(QColor(self.tokens()['secondary']))
         painter.setFont(self.font())
-        for block in self.visible_blocks():
-            top = self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
+        for block,top in self.visible_block_positions():
             if block.isVisible():
                 number = block.blockNumber()
                 if self.surface.preferences.get('line_numbers'):painter.drawText(3, int(top)+self.fontMetrics().ascent(), str(number+1))
@@ -797,7 +805,7 @@ class ReadingView(QTextBrowser):
         scroll = self.verticalScrollBar().value()
         previous=self.textCursor();anchor,position=previous.anchor(),previous.position()
         source=self.surface.page.buffer.snapshot().text
-        from .markdown_render import advanced, Projection
+        from .markdown_render import advanced
         # The native rich-text importer becomes quadratic with many blocks.
         # Large manuscripts use the same local renderer as tables and media;
         # never build an invisible second rich-text layout for those documents.
@@ -809,14 +817,25 @@ class ReadingView(QTextBrowser):
         self.setVerticalScrollBarPolicy(policy);self.setHorizontalScrollBarPolicy(policy)
         if self.advanced:
             if self.rich is None:
+                # Keep WebEngine's compositor inside this reading surface.
+                # Adding its first texture-backed child directly to a shown
+                # raster shell makes Qt destroy/recreate the shell's HWND.
+                self.setAttribute(Qt.WidgetAttribute.WA_DontCreateNativeAncestors)
+                self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
                 from .markdown_rich_view import RichView
                 self.rich=RichView(self);self.rich.setGeometry(self.rect());self.rich.setZoomFactor(self.surface.zoom_percent/100)
-            projection=None
             if large and not complex_content:
                 editor=self.surface.editor
                 lines=editor.lines if editor._metadata_snapshot is self.surface.page.buffer.snapshot() else None
-                projection=Projection(body=reading_html(source,self.surface.preferences.get('hard_breaks',False),lines=lines,web=True))
-            self.rich.refresh(source,projection=projection)
+                if not hasattr(self,'plain_projection'):
+                    from .markdown_read_projection import PlainReadingProjection
+                    self.plain_projection=PlainReadingProjection(self)
+                    self.plain_projection.ready.connect(self.finish_plain_projection)
+                # Invalidate an older WebEngine completion before the new
+                # projection is ready to be sent to it.
+                self.rich.version+=1;self.rich.render_state='loading'
+                self.plain_projection.request(self.render_key(),source,self.surface.preferences.get('hard_breaks',False),lines)
+            else:self.rich.refresh(source)
             if large:self.clear()
             else:self.replace_html(self.rich.projection.body)
             self.rich.show();self.rich.raise_()
@@ -828,3 +847,14 @@ class ReadingView(QTextBrowser):
         cursor.setPosition(min(anchor,maximum));cursor.setPosition(min(position,maximum),QTextCursor.MoveMode.KeepAnchor);self.setTextCursor(cursor)
         self.verticalScrollBar().setValue(scroll)
         self._render_key=self.render_key()
+
+    @Slot(object,str,str)
+    def finish_plain_projection(self,key,body,error):
+        if key!=self.render_key():return
+        if self.surface.mode!='read':
+            self._render_key=None;return
+        if error:
+            self._render_key=None;self.rich.render_state='error'
+            self.surface.report('內容預覽未完成；原文仍可編輯。');return
+        from .markdown_render import Projection
+        self.rich.refresh(self.surface.page.buffer.snapshot().text,projection=Projection(body=body))

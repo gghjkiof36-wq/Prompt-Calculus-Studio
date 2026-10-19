@@ -1,6 +1,6 @@
 """Shared word counts; large manuscripts never recount in a key handler."""
 import re
-from PySide6.QtCore import QObject, Signal, QRunnable, QThreadPool, QTimer
+from PySide6.QtCore import QObject, Signal, Slot, QRunnable, QThreadPool, QTimer, Qt
 from .markdown_syntax import visible_text
 
 
@@ -35,9 +35,10 @@ class WordStatistics(QObject):
 
     def start(self):
         if self.job or self.pending is None:return
-        self.job=CountJob(self.pending);self.job.result.ready.connect(self.finished)
+        self.job=CountJob(self.pending);self.job.result.ready.connect(self.finished,Qt.ConnectionType.QueuedConnection)
         QThreadPool.globalInstance().start(self.job)
 
+    @Slot(object,int)
     def finished(self,snapshot,count):
         self.job=None
         if snapshot is self.pending:

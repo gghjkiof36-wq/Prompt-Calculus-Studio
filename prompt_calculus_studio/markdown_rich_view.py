@@ -54,8 +54,10 @@ class ContentBridge(QObject):
     def __init__(self,view):super().__init__(view);self.view=view
     @Slot(result=str)
     def document(self):return json.dumps(self.view.payload,ensure_ascii=False)
-    @Slot(str)
-    def finished(self,value):self.view.render_state=value;self.view.rendered.emit()
+    @Slot(str,int)
+    def finished(self,value,version):
+        if version==self.view.version:
+            self.view.render_state=value;self.view.rendered.emit()
     @Slot(str)
     def activate(self,command):self.view.action(command)
 
@@ -75,6 +77,7 @@ class RichView(QWebEngineView):
         self.gate=ResourceGate(self.profile);self.profile.setUrlRequestInterceptor(self.gate)
         self.profile.downloadRequested.connect(lambda request:request.cancel())
         page=PreviewPage(self.profile,self);self.setPage(page);page.action.connect(self.action)
+        page.setBackgroundColor(QColor(visual_tokens(window_appearance(self))['base']))
         settings=page.settings()
         for key,value in [('JavascriptEnabled',True),('JavascriptCanOpenWindows',False),('JavascriptCanAccessClipboard',False),('LocalStorageEnabled',False),('LocalContentCanAccessRemoteUrls',False),('LocalContentCanAccessFileUrls',True),('PluginsEnabled',False),('PdfViewerEnabled',False),('PlaybackRequiresUserGesture',True),('WebGLEnabled',False)]:
             settings.setAttribute(getattr(QWebEngineSettings.WebAttribute,key),value)
@@ -164,7 +167,7 @@ class RichView(QWebEngineView):
         self.relations.bind(self.projection.dependencies,root)
         tokens=dict(visual_tokens(window_appearance(self)));preferences=self.surface.preferences
         tokens['base']=tokens.get('canvas_background',tokens['base']);tokens['border']=tokens.get('line','#444444')
-        self.payload=dict(html=self.projection.body.replace('pcs-action:',f'pcs-action:{self.version}/'),math=self.projection.math,diagrams=self.projection.diagrams,
+        self.payload=dict(version=self.version,html=self.projection.body.replace('pcs-action:',f'pcs-action:{self.version}/'),math=self.projection.math,diagrams=self.projection.diagrams,
             palette=tokens,font=preferences['reading_family'],size=preferences['reading_size'],width=preferences['reading_width'],lineHeight=preferences['line_height'],light=QColor(tokens['base']).lightnessF()>.5)
         self.render_state='loading'
         if self.ready:self.page().runJavaScript('window.refreshDocument && window.refreshDocument()')

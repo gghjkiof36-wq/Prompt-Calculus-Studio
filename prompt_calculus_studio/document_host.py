@@ -290,9 +290,9 @@ class DocumentBrowser(PromptEditor):
     def workspace_minimum_width(self):
         from .management_reading import READING_NARROW_MARGIN
         browser, detail = self._column_minimums()
-        # Reserve the preview even when closed: selecting a material should
-        # not push the divider or move the canvas in the neighbouring pane.
-        return browser + 24 + detail + 2*READING_NARROW_MARGIN + self.scroll.verticalScrollBar().sizeHint().width()
+        # The preview stacks below the list in a narrow pane. Its desktop
+        # side-by-side width must not pin the workspace divider in place.
+        return max(browser, detail) + 2*READING_NARROW_MARGIN + self.scroll.verticalScrollBar().sizeHint().width()
 
     def _open_dialog(self, ident, text='', initial_value=None):
         for host in self.window.document.hosts:

@@ -351,9 +351,8 @@ class PromptEditor(QWidget):
         # Refresh also runs while an ancestor page is hidden. Reserve the
         # detail column until the preview itself is explicitly closed.
         has_preview = bool(self.preview_id and not self.preview_card.isHidden())
-        if has_preview:
-            # Workspace documents reserve this pair in the pane's minimum
-            # width. The standalone browser retains its overflow fallback.
+        stacked_preview = has_preview and area_width < minimum_pair
+        if has_preview and not stacked_preview:
             area_width = max(area_width, minimum_pair)
             detail_width = min(380, max(minimum_detail, round(area_width*.32)))
             detail_width = min(detail_width, area_width-minimum_browser-24)
@@ -370,7 +369,11 @@ class PromptEditor(QWidget):
         self.listing.setMinimumHeight(110); self.listing.setMaximumHeight(16777215)
         browser_layout = self.browser.layout(); browser_layout.invalidate()
         browser_height = max(browser_layout.totalMinimumSize().height(), browser_layout.totalHeightForWidth(central))
-        if self.listing.count(): browser_height = max(browser_height, height-start-24)
+        if self.listing.count():
+            if stacked_preview:
+                rows = self.listing.sizeHintForRow(0)*self.listing.count()
+                browser_height = max(browser_height,self.browser_header.sizeHint().height()+14+max(110,min(rows,round(height*.35))))
+            else:browser_height = max(browser_height, height-start-24)
         self.browser.setGeometry(x, start, central, browser_height)
         browser_layout.activate()
         self._reserve_scroll_gutter(self.listing)
@@ -382,7 +385,7 @@ class PromptEditor(QWidget):
         self.category_panel.raise_()
         bottom = start + browser_height + 24
         if has_preview:
-            card_width = detail_width
+            card_width = central if stacked_preview else detail_width
             self.preview_card.ensurePolished(); self.preview_card.setFixedWidth(card_width)
             layout = self.preview_card.layout(); margins = layout.contentsMargins()
             frame = self.preview_card.contentsMargins()
@@ -405,7 +408,7 @@ class PromptEditor(QWidget):
                 self.preview_image.setPixmap(image); self.preview_image.setFixedHeight(image.height())
             layout.invalidate()
             card_height = max(layout.totalMinimumSize().height(), layout.totalHeightForWidth(card_width))
-            px, py = x+central+24, self.search.mapTo(self.shell, QPoint()).y()
+            px, py = (x, bottom) if stacked_preview else (x+central+24, self.search.mapTo(self.shell, QPoint()).y())
             self.preview_card.setGeometry(px, py, card_width, card_height)
             layout.activate()
             bottom = max(bottom, py+card_height+24)

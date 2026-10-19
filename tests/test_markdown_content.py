@@ -9,7 +9,7 @@ from prompt_calculus_studio.workspace_files import MarkdownPage
 from prompt_calculus_studio.markdown_source import SourceEdit
 from prompt_calculus_studio.markdown_tables import tables,TableDialog,decode_cell
 from prompt_calculus_studio.markdown_paste import from_html
-from prompt_calculus_studio.markdown_render import render,local_target
+from prompt_calculus_studio.markdown_render import render,local_target,advanced
 from markdown_it import MarkdownIt
 
 
@@ -26,6 +26,14 @@ class ContentTests(unittest.TestCase):
         page=MarkdownPage(self.path);self.pages.append(page);page.resize(960,720);page.show();self.app.processEvents();return page
     def table_dialog(self,page):
         snap=page.buffer.snapshot();return TableDialog(page.md_surface,tables(snap.text)[0],snap)
+
+    def test_plain_manuscript_detection_keeps_every_rich_construct(self):
+        for source in ('---\ntitle: note\n---','[[Note]]','[Link](note.md)','[ref]: note.md',
+                       '```python\n1\n```','~~~\ncode\n~~~','| A | B |','--- | ---',
+                       '$$\nx\n$$','![Image](a.png)','[^note]','%% hidden %%','$x^2$',
+                       '> [!note] Title'):
+            with self.subTest(source=source):self.assertTrue(advanced(source))
+        self.assertFalse(advanced(('## Chapter\n\n普通散文 &amp; 😀 **重點**。\n\n')*5000))
 
     def test_table_draft_cancel_escaping_multiline_and_one_undo(self):
         raw=b'\xef\xbb\xbf'+('前文\r\n\r\n| 名稱 | 數量 | 註記 |\n| --- | ---: | :---: |\n| 中文 | 10 | **粗體** [連結](a.md) |\n| A\\|B | 2 | 一<br>二 |\n\n未知 <x z="v">保持</x>\r\n').encode()

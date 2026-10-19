@@ -138,7 +138,9 @@ def shell_color(settings):
         return t['chrome_solid']
     value = max(0, min(100, settings.get(material+'_transparency', 61)))
     rgb = ','.join(str(int(t['chrome'][i:i+2], 16)) for i in (1,3,5))
-    if material == 'clear':return f'rgba({rgb},{round(255*(1-value/100))})'
+    # The slider is the useful range, not a request to erase the chrome.
+    # 100% strength now corresponds to 30% desktop transmission.
+    if material == 'clear':return f'rgba({rgb},{round(255*(1-.3*value/100))})'
     # Keep existing low/middle settings; open up only the last fifth a little.
     tint=255-.55*min(value,80)-1.3*max(0,value-80)
     return f'rgba({rgb},{round(tint)})'

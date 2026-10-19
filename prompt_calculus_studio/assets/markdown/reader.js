@@ -1,5 +1,5 @@
 'use strict';
-let bridge, revision = 0;
+let bridge, revision = 0, request = 0, projectedVersion;
 // Dispatch only our versioned native actions. Unknown URL scheme policies
 // differ across WebEngine versions; no resource navigation is needed here.
 document.addEventListener('click', event => {
@@ -22,10 +22,15 @@ function restoreSelection(root,offsets) {
 }
 window.refreshDocument = function () {
   if (!bridge) return;
-  const ticket = ++revision;
+  const requestId = ++request;
   bridge.document(async raw => {
-    if (ticket !== revision) return;
+    if (requestId !== request) return;
     const data = JSON.parse(raw), root = document.getElementById('document'), y = window.scrollY;
+    // The channel and loadFinished can both request the first document. A
+    // repeated request must neither rebuild it nor cancel an active diagram.
+    if (data.version === projectedVersion) return;
+    projectedVersion = data.version;
+    const ticket = ++revision;
     const selection=selectionOffsets(root);
     const folded=new Map([...root.querySelectorAll('details')].map((element,index)=>[index+':'+element.querySelector('summary')?.textContent,element.open]));
     const tokens = data.palette || {};
@@ -33,12 +38,14 @@ window.refreshDocument = function () {
     root.style.fontFamily = '"'+data.font.replaceAll('"','')+'", "Microsoft JhengHei", system-ui, sans-serif'; root.style.fontSize = data.size+'pt'; root.style.maxWidth = data.width+'px';root.style.lineHeight = data.lineHeight+'%';
     document.documentElement.classList.toggle('light',!!data.light);
     document.documentElement.classList.toggle('note-preview',!!data.preview);
-    root.innerHTML = DOMPurify.sanitize(data.html || '', {
+    // Adopt the sanitized nodes directly, avoiding a serialize/parse cycle.
+    root.replaceChildren(DOMPurify.sanitize(data.html || '', {
+      RETURN_DOM_FRAGMENT:true,
       ADD_TAGS:['audio','video','source'], ADD_ATTR:['controls','preload','data-math','data-diagram'],
       ADD_URI_SAFE_ATTR:['width','height','type'],
       FORBID_TAGS:['script','iframe','object','embed','form','style','link'],
       ALLOWED_URI_REGEXP:/^(?:(?:file|data|pcs-action):|#)/i
-    });
+    }));
     root.querySelectorAll('details').forEach((element,index)=>{const key=index+':'+element.querySelector('summary')?.textContent;if(folded.has(key))element.open=folded.get(key);});
     root.querySelectorAll('audio,video').forEach(media => media.addEventListener('error', () => {
       const notice = media.parentElement.querySelector('.media-error');if(notice) notice.hidden = false;
@@ -59,7 +66,7 @@ window.refreshDocument = function () {
       } catch(error) { element.textContent = source;element.classList.add('render-error');element.title='圖表未能顯示；原文完整保留。'; }
     }
     restoreSelection(root,selection);window.scrollTo(0,y);
-    bridge.finished('ready');
+    bridge.finished('ready', data.version);
   });
 };
 new QWebChannel(qt.webChannelTransport,channel=>{bridge=channel.objects.content;window.refreshDocument();});

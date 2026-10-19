@@ -19,6 +19,41 @@ class MarkdownPerformanceTests(unittest.TestCase):
         self.w.notebook.stop();QThreadPool.globalInstance().waitForDone(5000)
         fixture.WorkspacePaneTests.tearDown(self)
 
+    def test_visible_geometry_is_linear_and_matches_native_cursor_layout(self):
+        from unittest.mock import patch
+        text='# 地圖\n\n'+('\n\n'.join('中文段落 '+str(i)+' **重點** '+('words '*12) for i in range(80)))
+        (self.root/'Notes.md').write_bytes(text.encode())
+        s=self.open('Notes.md').widget.md_surface;e=s.editor
+        for zoom in (100,200):
+            s.set_zoom(zoom);self.events()
+            for line in (0,25,80):
+                e.setTextCursor(QTextCursor(e.document().findBlockByNumber(line)))
+                e.ensureCursorVisible();self.events()
+                with patch.object(e,'blockBoundingGeometry',wraps=e.blockBoundingGeometry) as geometry:
+                    positions=list(e.visible_block_positions())
+                    self.assertLessEqual(geometry.call_count,1)
+                for block,top in positions:
+                    expected=e.blockBoundingGeometry(block).translated(e.contentOffset()).top()
+                    self.assertAlmostEqual(top,expected,places=3)
+        self.assertEqual(s.page.encoded(),text.encode())
+
+    def test_arrow_repeat_release_leaves_cursor_and_scroll_settled(self):
+        from PySide6.QtGui import QKeyEvent
+        text='\n\n'.join('第'+str(i)+'段。 **文字**' for i in range(100))
+        (self.root/'Notes.md').write_bytes(text.encode())
+        s=self.open('Notes.md').widget.md_surface;e=s.editor
+        e.setFocus()
+        for key in (Qt.Key.Key_Down,Qt.Key.Key_Up):
+            for _ in range(70):
+                self.app.sendEvent(e,QKeyEvent(QEvent.Type.KeyPress,key,Qt.KeyboardModifier.NoModifier,'',True,1))
+                self.app.processEvents()
+            self.app.sendEvent(e,QKeyEvent(QEvent.Type.KeyRelease,key,Qt.KeyboardModifier.NoModifier))
+            at=e.textCursor().position();scroll=e.verticalScrollBar().value()
+            QTest.qWait(180)
+            self.assertEqual(e.textCursor().position(),at)
+            self.assertEqual(e.verticalScrollBar().value(),scroll)
+        self.assertFalse(s.page.dirty);self.assertEqual(s.page.encoded(),text.encode())
+
     def test_idle_marker_overlay_does_not_schedule_another_viewport_paint(self):
         (self.root/'Notes.md').write_text('# Heading\n\n- [ ] check\n\n正文。\n',encoding='utf-8')
         s=self.open('Notes.md').widget.md_surface;e=s.editor
@@ -169,6 +204,34 @@ class MarkdownPerformanceTests(unittest.TestCase):
         self.assertIs(counter.snapshot,new);self.assertEqual(counter.request(new),word_count(new.text))
         self.assertIsNone(counter.job);self.assertIsNone(counter.pending)
 
+    def test_rich_refresh_keeps_existing_dom_for_duplicate_requests_and_ignores_old_completion(self):
+        from prompt_calculus_studio.markdown_render import Projection
+        (self.root/'Notes.md').write_bytes(b'| A | B |\n|---|---|\n| one | two |\n')
+        s=self.open('Notes.md').widget.md_surface;s.set_mode('read');rich=s.reader.rich
+        def wait_ready():
+            for _ in range(250):
+                if rich.render_state=='ready':break
+                QTest.qWait(20)
+            self.assertEqual(rich.render_state,'ready')
+        def script(source):
+            result=[];rich.page().runJavaScript(source,result.append)
+            for _ in range(100):
+                if result:return result[0]
+                QTest.qWait(20)
+            self.fail('Reading script did not complete')
+        wait_ready()
+        self.assertFalse(script('window.pcsUnsafeProbe === true'))
+        script('window.originalTable=document.querySelector("table");window.refreshDocument();window.refreshDocument()')
+        QTest.qWait(100)
+        self.assertTrue(script('document.querySelector("table")===window.originalTable'))
+        old_version=rich.version
+        rich.refresh(s.page.buffer.snapshot().text,projection=Projection(body='<p>新版 &amp; 😀</p><script>window.pcsUnsafeProbe=true</script><img onerror="window.pcsUnsafeProbe=true"><a href="https://example.invalid/">blocked</a>'))
+        rich.bridge.finished('ready',old_version)
+        self.assertEqual(rich.render_state,'loading')
+        wait_ready()
+        self.assertEqual(json.loads(script('JSON.stringify([document.querySelector("main p").textContent,!!document.querySelector("main script,main [onerror],main a[href]"),window.pcsUnsafeProbe === true])')),['新版 & 😀',False,False])
+        self.assertFalse(s.page.dirty)
+
     def test_large_reader_uses_visible_projection_without_native_html_copy(self):
         text='- [x] Done\n- [ ] Open\n\n'+('## Scene\n\nEvening.\n\n'*5000)+'## 最後一節\n\nEND 😀'
         (self.root/'Notes.md').write_bytes(text.encode());s=self.open('Notes.md').widget.md_surface
@@ -186,6 +249,62 @@ class MarkdownPerformanceTests(unittest.TestCase):
             QTest.qWait(20)
         self.assertEqual(json.loads(result[0]),[True,2,1]);self.assertTrue(s.reader.document().isEmpty())
         s.set_mode('write');self.assertEqual(s.page.encoded(),text.encode());self.assertFalse(s.page.dirty)
+
+    def test_large_reading_conversion_does_not_block_and_keeps_only_latest_request(self):
+        import threading
+        from prompt_calculus_studio import markdown_read_projection as projection
+        raw=('## Scene\n\nEvening.\n\n'*2600).encode()
+        (self.root/'Notes.md').write_bytes(raw);s=self.open('Notes.md').widget.md_surface
+        gate=threading.Event();entered=threading.Event();calls=[];worker_threads=[];completed_threads=[]
+        main_thread=threading.get_ident()
+        original=projection.reading_html
+        def slow(text,*args,**kwargs):
+            calls.append(text);worker_threads.append(threading.get_ident());entered.set();gate.wait(4)
+            return original(text,*args,**kwargs)
+        with patch.object(projection,'reading_html',side_effect=slow):
+            try:
+                s.set_mode('read')
+                self.assertTrue(entered.wait(2))
+                self.assertFalse(gate.is_set());self.assertEqual(s.reader.rich.render_state,'loading')
+                previous_version=s.reader.rich.version
+                first_job=s.reader.plain_projection.job
+                s.reader.plain_projection.ready.connect(lambda *args:completed_threads.append(threading.get_ident()),Qt.ConnectionType.DirectConnection)
+                # Another view can edit the shared source while conversion is
+                # running. Do not publish that obsolete document or start an
+                # unbounded worker per change.
+                snapshot=s.page.buffer.snapshot()
+                s.page.buffer.apply(snapshot,[SourceEdit(len(snapshot.text),len(snapshot.text),'LATEST')])
+                s.refresh();s.reader.refresh()
+                self.assertIs(s.reader.plain_projection.job,first_job)
+                s.reader.rich.bridge.finished('ready',previous_version)
+                self.assertEqual(s.reader.rich.render_state,'loading')
+                self.assertIsNone(s.reader.rich.projection)
+                gate.set()
+                for _ in range(250):
+                    if s.reader.rich.render_state=='ready':break
+                    QTest.qWait(20)
+                self.assertEqual(s.reader.rich.render_state,'ready')
+                self.assertEqual(len(calls),2)
+                self.assertTrue(all(thread!=main_thread for thread in worker_threads))
+                self.assertEqual(completed_threads,[main_thread])
+                self.assertIn('LATEST',s.reader.rich.projection.body)
+                self.assertEqual(s.page.encoded(),raw+b'LATEST')
+            finally:gate.set()
+
+    def test_large_reading_job_can_finish_after_view_is_closed(self):
+        import threading
+        from prompt_calculus_studio import markdown_read_projection as projection
+        raw=('plain\n\n'*5100).encode();(self.root/'Notes.md').write_bytes(raw)
+        tab=self.open('Notes.md');s=tab.widget.md_surface;gate=threading.Event();entered=threading.Event()
+        def slow(*args,**kwargs):entered.set();gate.wait(4);return '<p>complete</p>'
+        with patch.object(projection,'reading_html',side_effect=slow):
+            try:
+                s.set_mode('read');self.assertTrue(entered.wait(2))
+                self.w.close_tab(self.w.index_of(tab.key),decision='discard')
+                self.app.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+                gate.set();QThreadPool.globalInstance().waitForDone(5000);self.events()
+                self.assertEqual((self.root/'Notes.md').read_bytes(),raw)
+            finally:gate.set()
 
     def test_long_nested_highlight_preserves_explicit_ink_without_fragmenting(self):
         text='<span style="background-color:#fff16a">'+('plain '*2000)+'<span style="color:#123456">explicit</span></span>'

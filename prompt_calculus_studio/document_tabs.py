@@ -294,11 +294,11 @@ class DocumentTabs(QWidget):
     def fit(self):
         count = max(1, self.bar.count())
         available = self.width()-self.line.contentsMargins().left()
-        budget = max(80, available-(74 if self.pane_menu_always else 42))
-        width = max(124, min(228, budget//count))
+        budget = max(1, available-(74 if self.pane_menu_always else 42))
+        width = min(228,budget) if count==1 else max(124, min(228, budget//count))
         overflow = count*width > budget
         if overflow:
-            budget = max(80, available-74)
+            budget = max(1, available-74)
         self.has_overflow = overflow
         if self.bar.tab_width != width:
             self.bar.tab_width = width

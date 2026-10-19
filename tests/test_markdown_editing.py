@@ -13,7 +13,7 @@ from prompt_calculus_studio.workspace_files import MarkdownPage
 from prompt_calculus_studio.markdown_source import SourceSnapshot, edited_text, utf16_position
 from prompt_calculus_studio.markdown_commands import (format_edits, clear_edits,
     move_section_edits, heading_sections)
-from prompt_calculus_studio.markdown_syntax import reading_html, visible_text
+from prompt_calculus_studio.markdown_syntax import reading_html, visible_text, inline_html
 
 
 class MarkdownEditingTests(unittest.TestCase):
@@ -53,6 +53,17 @@ class MarkdownEditingTests(unittest.TestCase):
     def render(self, page):
         page.md_surface.reader.refresh()
         return page.md_surface.reader.document()
+
+    def test_plain_prose_fast_path_keeps_entities_unicode_and_literal_html(self):
+        cases={
+            '中文 😀 &amp; "標記"':'中文 😀 &amp; &quot;標記&quot;',
+            '<script>alert(1)</script>':'&lt;script&gt;alert(1)&lt;/script&gt;',
+            'A &lt; B &unknown;':'A &lt; B &amp;unknown;',
+            r'原文 \*符號\*':'原文 *符號*',
+            '**粗體**':'<span style="font-weight:bold">粗體</span>',
+        }
+        for source,expected in cases.items():
+            with self.subTest(source=source):self.assertEqual(inline_html(source),expected)
 
     def test_three_modes_are_independent_and_never_rewrite_original_bytes(self):
         raw=b'\xef\xbb\xbf'+('# A 😀\r\n\n**Bold**\rtext\n').encode()

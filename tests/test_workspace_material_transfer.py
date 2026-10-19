@@ -312,10 +312,17 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
         output = next(iter(tab.host.canvas.outputs.values()))
         view.centerOn(output.sceneBoundingRect().center())
         invalid = view.mapFromScene(output.sceneBoundingRect().center())
-        self.assertFalse(self.drag_event(view.viewport(), mime, invalid, QDragEnterEvent).isAccepted())
+        self.assertTrue(self.drag_event(view.viewport(), mime, invalid, QDragEnterEvent).isAccepted())
+        self.assertFalse(self.drag_event(view.viewport(), mime, invalid).isAccepted())
         self.assertIsNone(self.transfer.notification)
         view.centerOn(4700, 3600)
         point = view.viewport().rect().center()
+        # Recover within the SAME gesture; no second DragEnter is sent.
+        self.assertTrue(self.drag_event(view.viewport(), mime, point).isAccepted())
+        self.assertEqual(drag.overlays[view].kind, 'outline')
+        self.assertTrue(self.drag_event(view.viewport(), mime, point, QDropEvent).isAccepted())
+        drag.finish(); self.transfer.drag = None
+        drag, mime = self.begin_drag()
         wrong = QMimeData(); wrong.setData(MIME, b'unknown')
         self.assertFalse(self.drag_event(view.viewport(), wrong, point, QDragEnterEvent).isAccepted())
         self.assertTrue(self.drag_event(view.viewport(), mime, point, QDragEnterEvent).isAccepted())
@@ -341,6 +348,29 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
         self.assertEqual(copied, self.root/'Copied.pcs-workflow')
         self.assertFalse(self.transfer.add(self.capture(), stale))
         self.assertEqual(moved.read_bytes(), before)
+
+    def test_initial_functional_node_entry_recovers_into_canvas_in_same_drag(self):
+        tab = self.target_tab()
+        canvas, view = tab.host.canvas, tab.host.canvas.view
+        cid = next(iter(canvas.data()['canvases']))
+        old_members = list(canvas.data()['canvases'][cid]['members'])
+        output = next(iter(canvas.outputs.values()))
+        original = copy.deepcopy(self.source_tab.host.state)
+        drag, mime = self.begin_drag()
+        view.centerOn(output.sceneBoundingRect().center()); self.events()
+        point = view.mapFromScene(output.sceneBoundingRect().center())
+        self.assertTrue(self.drag_event(view.viewport(), mime, point, QDragEnterEvent).isAccepted())
+        self.assertFalse(self.drag_event(view.viewport(), mime, point).isAccepted())
+        target = canvas.cards[old_members[0]].sceneBoundingRect().center()
+        view.centerOn(target); self.events(); point = view.mapFromScene(target)
+        self.assertTrue(self.drag_event(view.viewport(), mime, point).isAccepted())
+        self.assertTrue(self.drag_event(view.viewport(), mime, point, QDropEvent).isAccepted())
+        drag.finish(); self.transfer.drag = None; self.events()
+        members = canvas.data()['canvases'][cid]['members']
+        self.assertEqual(members[:-1], old_members)
+        self.assertEqual(self.source_tab.host.state, original)
+        canvas.undo(); self.events()
+        self.assertEqual(canvas.data()['canvases'][cid]['members'], old_members)
 
     def test_real_unconfirmed_edit_is_preserved_then_confirmed_value_can_autosave(self):
         ident, dialog = fixture.WorkspaceShellTests.editor(self, self.source_tab)

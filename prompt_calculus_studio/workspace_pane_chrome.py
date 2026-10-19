@@ -35,10 +35,25 @@ class PaneDivider(QSplitterHandle):
 class PaneSplitter(QSplitter):
     seam_color = QColor('#e6e6e6')
 
-    def __init__(self):
+    def __init__(self,workspace=None):
         super().__init__(Qt.Orientation.Horizontal)
+        self.workspace = workspace
         self.setHandleWidth(1)
         self.setChildrenCollapsible(False)
+
+    def restore_ratio(self):
+        if self.workspace is not None and self.count()==2:
+            total=max(0,self.width()-self.handleWidth())
+            left=round(total*self.workspace.split_ratio)
+            self.setSizes([left,total-left])
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        self.restore_ratio()
+
+    def showEvent(self,event):
+        super().showEvent(event)
+        self.restore_ratio()
 
     def createHandle(self):
         return PaneDivider(self.orientation(), self)
@@ -110,7 +125,11 @@ class PaneTabRow(QWidget):
     def sync(self, *_):
         if len(self.w.panes) != 2 or self.isHidden():
             return
-        boundary = self.mapFromGlobal(self.w.panes[1].container.mapToGlobal(QPoint())).x()
+        if self.w.active_route=='home' and self.w.pane_split.isVisible():
+            boundary = self.mapFromGlobal(self.w.panes[1].container.mapToGlobal(QPoint())).x()
+        else:
+            # Hidden pane geometries are stale while a utility page resizes.
+            boundary = round(self.width()*self.w.split_ratio)
         # At the desktop minimum width the tab list remains reachable even if
         # the fixed caption controls leave less room than the content below.
         boundary = max(138, min(boundary, self.width()-138))
@@ -122,7 +141,7 @@ class PaneTabRow(QWidget):
     def eventFilter(self, obj, event):
         if event.type() in (QEvent.Type.Resize, QEvent.Type.Move, QEvent.Type.LayoutRequest) and not self.pending:
             self.pending = True
-            QTimer.singleShot(0, self.deferred_sync)
+            QTimer.singleShot(0, self, self.deferred_sync)
         return False
 
     def deferred_sync(self):

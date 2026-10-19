@@ -15,6 +15,11 @@ from .markdown_syntax import TAG_STYLES,css_style,style_css,display_style
 
 
 def advanced(text):
+    # None of the rich constructs can occur without one of these markers.
+    # Fast literal scans avoid running multiline expressions over an entire
+    # large plain manuscript while switching its view on the UI thread.
+    if not text.startswith('---\n') and not any(marker in text for marker in ('[','](','`','~','|','$','%%')):
+        return False
     return bool(text.startswith('---\n') or re.search(r'\[\[|\]\(|(?m:^\[[^]]+\]:)',text) or re.search(r'(?m)^\s*(`{3,}|~{3,}|\|.*\||\$\$)|!\[|\[\^[^]]+\]|%%|(?<!\\)\$[^$\n]+\$|^\s*>\s*\[!',text)
                 or re.search(r'(?m)^\s*:?-{3,}:?\s*\|',text))
 

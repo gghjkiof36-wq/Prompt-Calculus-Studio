@@ -900,6 +900,11 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             pane.strip.bar.pane_active = pane is self.active_pane
             pane.strip.bar.update()
         self.pages.setCurrentWidget(tab.widget)
+        # Stable editors are siblings of the route stack. Its Show event can
+        # precede the pane becoming visible, so restore BOTH current pages
+        # after the route switch, not only the tab that was clicked.
+        for pane in self.panes:pane.pages.sync_page()
+        self.pane_tab_row.sync()
         if tab.path:
             self.tree.setCurrentItem(self.path_items.get(path_key(tab.path)))
         if tab.path:
