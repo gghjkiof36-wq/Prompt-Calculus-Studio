@@ -174,6 +174,13 @@ class StudioNavigation(QWidget):
             self.window.windowHandle().startSystemMove()
         super().mousePressEvent(event)
 
+    def contextMenuEvent(self,event):
+        from .window_menu import open_window_menu
+        if open_window_menu(self.window,event.globalPos()):
+            event.accept()
+        else:
+            super().contextMenuEvent(event)
+
     def eventFilter(self,watched,event):
         if (watched in self._focus_buttons and event.type()==QEvent.Type.MouseButtonPress
                 and event.button()==Qt.MouseButton.LeftButton):

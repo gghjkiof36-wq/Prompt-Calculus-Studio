@@ -10,6 +10,7 @@ from .widgets import button
 class ContextRail(QWidget):
     def __init__(self,window):
         super().__init__();self.window=window;self.setObjectName('ContextRail')
+        self.setProperty('pcsTooltipSide','right')
         self.setFixedWidth(56);self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground,True)
         self.body=QVBoxLayout(self);self.body.setContentsMargins(8,10,8,10);self.body.setSpacing(6)
         self.buttons={};self._signature=None;self.peek_trigger=None;self.hide()

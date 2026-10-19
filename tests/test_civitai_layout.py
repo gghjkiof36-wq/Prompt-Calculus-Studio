@@ -36,6 +36,9 @@ class CivitAIRevisionLayoutTests(unittest.TestCase):
         page.query.setText('soft light')
         with patch.object(page, 'queue_search') as search:
             page.open_filters()
+            image=page.filters_popup.grab().toImage()
+            for x,y in ((0,0),(image.width()-1,0),(0,image.height()-1),(image.width()-1,image.height()-1)):
+                self.assertEqual(image.pixelColor(x,y).alpha(),0)
             page.filters_popup.types.button(1).setChecked(True)
             page.filters_popup.base.setText('SDXL 1.0')
             page.filters_popup.hide()

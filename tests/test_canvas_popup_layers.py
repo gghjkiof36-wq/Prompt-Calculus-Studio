@@ -66,7 +66,7 @@ class CanvasPopupLayersTests(StageFixture):
                 self.assertTrue(dialog._backdrop.isVisible())
                 dimmed=palette.grab().toImage().pixelColor(sample)
                 self.assertLess(dimmed.lightness(),initial.lightness())
-                editor=dialog.findChild(QFrame,'DialogEditor')
+                editor=dialog.findChild(QFrame,'DialogSurface')
                 self.assertNotEqual(editor.palette().window().color(),dialog.prompt.palette().base().color())
                 dialog.name.setText('取消後不能新增');dialog.prompt.setPlainText('unsaved')
                 seen.append(True)

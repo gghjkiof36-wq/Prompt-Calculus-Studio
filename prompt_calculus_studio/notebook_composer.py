@@ -5,7 +5,8 @@ import json
 import os
 import re
 import uuid
-from PySide6.QtWidgets import QComboBox,QFormLayout,QPlainTextEdit
+from PySide6.QtWidgets import QFormLayout, QPlainTextEdit
+from .widgets import ComboBox as QComboBox,style_completion
 from .markdown_source import SourceEdit,SourceSnapshot,edited_text,MAX_BYTES
 from .markdown_links import Notes,relocation_edits,links,note_paths
 from .markdown_relocation import checked_write,rewritten_bytes
@@ -197,6 +198,7 @@ class ComposerDialog(Sheet):
         super().__init__(actions.w,'擷取選取內容' if extract else '合併筆記',620,470)
         self.actions=actions;self.surface=surface;self.extract=extract;self.plan=None
         form=QFormLayout();self.destination=QComboBox();self.destination.setEditable(True)
+        style_completion(self.destination.completer(),self.destination)
         self.destination.setAccessibleName('目的筆記')
         if extract:self.destination.addItem('')
         for p in note_paths(actions.root()):

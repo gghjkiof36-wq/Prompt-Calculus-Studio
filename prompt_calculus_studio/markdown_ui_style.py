@@ -41,8 +41,6 @@ def styles(t, ui_size=12):
         QToolBar#MarkdownRibbon QToolButton#qt_toolbar_ext_button::menu-indicator {{image:none;width:0;height:0;}}
         QToolBar#MarkdownRibbon QToolButton:focus {{border-color:transparent;}}
         QToolBar#MarkdownRibbon QToolButton[keyboardFocus="true"] {{border-color:{t['accent']};}}
-        QMenu {{padding:5px;}}
-        QMenu::item {{padding:5px 12px;min-height:22px;}}
         QMenu::indicator {{width:12px;height:12px;border-radius:2px;}}
         QMenu::indicator:checked {{image:url({check});background:{t['accent']};}}
     '''

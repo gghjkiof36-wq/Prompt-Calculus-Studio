@@ -21,17 +21,17 @@ class MenuTransparencyDataTests(unittest.TestCase):
         state=initial_state();state['settings'].pop('menu_transparency');before=copy.deepcopy(state)
         self.assertEqual(prepare_state(state)['settings']['menu_transparency'],6)
         self.assertEqual(state,before)
-        for value in (0,6,40):
+        for value in (0,6,40,50):
             state['settings']['menu_transparency']=value;validate_state(state)
-        for value in (-1,41,True,6.0,'6',None):
+        for value in (-1,51,True,6.0,'6',None):
             state['settings']['menu_transparency']=value
             with self.assertRaisesRegex(ValueError,'選單透明度'):validate_state(state)
 
     def test_saved_menu_value_does_not_change_window_material_values(self):
-        state=initial_state();state['settings'].update(menu_transparency=40,mica_transparency=17,acrylic_transparency=83)
+        state=initial_state();state['settings'].update(menu_transparency=50,mica_transparency=17,acrylic_transparency=83)
         with tempfile.TemporaryDirectory() as directory:
             store=Storage(directory);store.save(state);loaded=store.load_current();store.db.close()
-        self.assertEqual([loaded['settings'][k] for k in ('menu_transparency','mica_transparency','acrylic_transparency')],[40,17,83])
+        self.assertEqual([loaded['settings'][k] for k in ('menu_transparency','mica_transparency','acrylic_transparency')],[50,17,83])
 
 
 class MenuTransparencySurfaceTests(unittest.TestCase):
@@ -50,7 +50,7 @@ class MenuTransparencySurfaceTests(unittest.TestCase):
         sample=QColor('#e1a53d');backdrop=QPixmap(popup.size());backdrop.fill(sample);surface.backdrop=backdrop
         raised=surface.surface_palette().color(QPalette.ColorRole.ToolTipBase)
         cache_key=surface.backdrop.cacheKey()
-        for value in (0,6,40):
+        for value in (0,6,40,50):
             self.host.appearance_preview={'menu_transparency':value};refresh_popup_surfaces(self.host);APP.processEvents()
             image=popup.grab().toImage();actual=image.pixelColor(110,70)
             alpha=round(255*(100-value)/100)
@@ -68,7 +68,7 @@ class MenuTransparencySurfaceTests(unittest.TestCase):
     def test_selected_row_stays_opaque_at_maximum_transparency(self):
         layout=QVBoxLayout(self.host);combo=ComboBox();combo.addItems(['First choice','Second choice']);layout.addWidget(combo)
         for palette in ('graphite','paper'):
-            settings=dict(DEFAULT_SETTINGS,menu_transparency=40,visual_palette=palette)
+            settings=dict(DEFAULT_SETTINGS,menu_transparency=50,visual_palette=palette)
             self.host.state['settings']=settings;self.host.setPalette(widget_palette(settings));self.host.setStyleSheet(stylesheet(settings))
             combo.showPopup();APP.processEvents();view=combo.view();index=view.model().index(0,0)
             view.setCurrentIndex(index);APP.processEvents()
@@ -104,13 +104,13 @@ class MenuTransparencySettingsTests(unittest.TestCase):
         self.assertTrue(prefs.menu_transparency.isVisible());self.assertTrue(prefs.menu_transparency.isEnabled())
         self.assertEqual(prefs.transparency.accessibleName(),'視窗透明度')
         with patch.object(self.w,'apply_theme',wraps=self.w.apply_theme) as apply:
-            for value in (0,20,40):
+            for value in (0,20,50):
                 prefs.menu_transparency.setValue(value)
                 self.assertEqual(self.w.appearance_preview['menu_transparency'],value)
                 self.assertEqual(prefs.menu_transparency_value.value(),value)
                 self.assertEqual(self.w.state['settings']['menu_transparency'],6)
             apply.assert_not_called()
-        page.flush();self.assertEqual(self.w.store.load()['settings']['menu_transparency'],40)
+        page.flush();self.assertEqual(self.w.store.load()['settings']['menu_transparency'],50)
         self.assertEqual({key:self.w.state['settings'][key] for key in old_material},old_material)
         page.reset_appearance(restore=True);self.assertEqual(page.preferences.menu_transparency.value(),6)
         page.preferences.menu_transparency_value.setValue(29);page.flush()

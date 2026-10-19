@@ -4,9 +4,8 @@ import json
 import re
 from PySide6.QtCore import Qt, QTimer, QSaveFile, QIODevice, QEvent, QPoint, QSize
 from PySide6.QtGui import QFont, QFontDatabase, QTextCursor, QColor, QKeySequence, QShortcut, QPixmap, QIcon
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget,
-    QSplitter, QToolButton, QComboBox, QSpinBox, QLineEdit, QLabel, QCheckBox,
-    QListWidget, QListWidgetItem, QMenu, QColorDialog, QFontDialog, QGraphicsDropShadowEffect, QFrame)
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget, QSplitter, QToolButton, QComboBox, QSpinBox, QLineEdit, QLabel, QCheckBox, QListWidget, QListWidgetItem, QColorDialog, QFontDialog, QGraphicsDropShadowEffect, QFrame
+from .widgets import RoundMenu as QMenu
 from .ui_icons import icon
 from .markdown_source import SourceEdit, python_position, utf16_position, source_text
 from .markdown_commands import format_edits, clear_edits, paragraph_edits, heading_sections, move_section_edits, selection_lines
@@ -78,6 +77,8 @@ class MarkdownSurface(QWidget):
         self.query.textChanged.connect(self.search_changed);self.case_sensitive.toggled.connect(self.search_changed)
         self.query.returnPressed.connect(self.find_next)
         self.command_box = QFrame(self,Qt.WindowType.Popup);self.command_box.setObjectName('MarkdownCommands')
+        from .popup_surface import PopupSurface
+        self.command_box_surface=PopupSurface(self.command_box,self)
         commands = QVBoxLayout(self.command_box);commands.setContentsMargins(10,10,10,10);commands.setSpacing(6)
         self.command_query = QLineEdit();self.command_query.setPlaceholderText('搜尋命令');self.command_query.setAccessibleName('搜尋 Markdown 命令')
         self.command_query.setFixedHeight(32);self.command_query.installEventFilter(self)
@@ -255,7 +256,7 @@ class MarkdownSurface(QWidget):
                 notes.addAction(name,lambda checked=False,fn=callback:actions.guarded(fn))
             menu.addAction('匯出 PDF…',lambda:actions.guarded(lambda:actions.pdf(self)))
         menu.addAction('命令…\tCtrl+Shift+P', self.open_commands)
-        menu.exec(self.view_tools.mapToGlobal(self.view_tools.rect().bottomLeft()))
+        menu.open_for(self.view_tools,align_right=True)
 
     def load_preferences(self):
         workspace = self.page.file_title.workspace
@@ -328,7 +329,7 @@ class MarkdownSurface(QWidget):
         for key,label,symbol in [('write','編寫','pencil'),('source','原文','source-code'),('read','閱讀','book-open')]:
             action=menu.addAction(icon(symbol),label,lambda value=key:self.set_mode(value))
             action.setCheckable(True);action.setChecked(self.mode==key)
-        menu.exec(self.mode_box.mapToGlobal(self.mode_box.rect().bottomLeft()))
+        menu.open_for(self.mode_box,align_right=True)
 
     def set_mode(self, mode):
         if self.page.buffer.composing:self.report('請先完成目前的中文組字。');return
@@ -476,7 +477,7 @@ class MarkdownSurface(QWidget):
         panel=self.toolbar.panel
         popup_button=next((b for b in panel.buttons if b.defaultAction() is self.format_actions['background' if background else 'color']),None) if panel and panel.isVisible() else None
         anchor=popup_button or (button if button and button.isVisible() else self.view_tools)
-        menu.exec(anchor.mapToGlobal(anchor.rect().bottomLeft()))
+        menu.open_for(anchor)
 
     def format_menu(self):
         menu = QMenu(self)
@@ -490,7 +491,7 @@ class MarkdownSurface(QWidget):
         menu.addAction('減少縮排', lambda:self.paragraph('outdent', self.preferences['tab_width']))
         menu.addAction('插入分隔線', self.insert_rule)
         menu.addSeparator();menu.addAction('全部折疊', lambda:self.editor.fold_all(True));menu.addAction('全部展開', lambda:self.editor.fold_all(False))
-        menu.exec(self.more.mapToGlobal(self.more.rect().bottomLeft()))
+        menu.open_for(self.more)
 
     def insert_rule(self):
         snapshot, start, end = self.selection();self.apply([SourceEdit(start,end,'\n\n---\n\n')],start+7)

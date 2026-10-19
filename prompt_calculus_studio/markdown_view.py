@@ -4,7 +4,8 @@ from bisect import bisect_right
 from PySide6.QtCore import Qt, QTimer, QByteArray, QRectF, QPoint, QEvent
 from PySide6.QtGui import (QColor, QFont, QPainter, QTextCursor, QTextCharFormat,
     QKeySequence, QImage, QPen, QTextBlockFormat, QTextLayout)
-from PySide6.QtWidgets import QTextEdit, QPlainTextEdit, QWidget, QTextBrowser, QMenu
+from PySide6.QtWidgets import QTextEdit, QPlainTextEdit, QWidget, QTextBrowser
+from .widgets import RoundMenu as QMenu
 from .markdown_layout import SourceLayout
 from .markdown_source import source_text, python_position, utf16_position, SourceEdit
 from .markdown_syntax import spans, line_info, reading_html, display_style, escaped_markers
@@ -203,6 +204,7 @@ class SourceView(QPlainTextEdit):
         self.document().contentsChange.connect(self.forward_change)
         self.page.buffer.text.contentsChange.connect(self.receive_change)
         self.cursorPositionChanged.connect(self.cursor_changed)
+        self.selectionChanged.connect(self.update_markers)
         self.document().documentLayout().update.connect(lambda rect: self.update_markers())
         self.verticalScrollBar().valueChanged.connect(self.update_markers)
         self.verticalScrollBar().valueChanged.connect(self.schedule_presentation)
@@ -392,6 +394,7 @@ class SourceView(QPlainTextEdit):
             block = self.document().findBlockByNumber(index)
             if block.isValid():self.highlighter.rehighlightBlock(block)
         self.last_block = number
+        self.update_markers()
         if hasattr(self.surface, 'statistics'):self.surface.update_statistics()
         if hasattr(self.surface,'outline'):self.surface.outline.sync_current()
         if hasattr(self.surface, 'format_actions'):self.surface.update_controls()
@@ -444,10 +447,6 @@ class SourceView(QPlainTextEdit):
                 cursor=QTextCursor(block);cursor.setBlockFormat(fmt)
             block = block.next()
         transaction.endEditBlock()
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        self.markers.update()
 
     def visible_blocks(self):
         block=self.firstVisibleBlock();remaining=max(100,self.viewport().height()//4+60)
@@ -592,6 +591,8 @@ class SourceView(QPlainTextEdit):
 
     def keyPressEvent(self, event):
         if self.surface.mode == 'read':event.ignore();return
+        if event.key()==Qt.Key.Key_V and event.modifiers()==(Qt.KeyboardModifier.ControlModifier|Qt.KeyboardModifier.ShiftModifier):
+            self.paste_plain();event.accept();return
         if hasattr(self.surface,'advanced') and self.surface.advanced.key(event):event.accept();return
         if event.matches(QKeySequence.StandardKey.Undo):self.page.undo();return
         if event.matches(QKeySequence.StandardKey.Redo):self.page.redo();return
@@ -653,6 +654,19 @@ class SourceView(QPlainTextEdit):
     def undo(self):self.page.undo()
     def redo(self):self.page.redo()
 
+    def paste_plain(self):
+        if self.isReadOnly() or self.surface.mode=='read' or self.page.buffer.composing:return
+        from PySide6.QtWidgets import QApplication
+        mime=QApplication.clipboard().mimeData()
+        if mime is None or not mime.hasText():return
+        text=mime.text().replace('\r\n','\n').replace('\r','\n')
+        if not text:return
+        advanced=getattr(self.surface,'advanced',None)
+        if advanced and advanced.cursors:
+            advanced.multi_insert(text);return
+        _,start,end=self.surface.selection()
+        self.surface.apply([SourceEdit(start,end,text)],start+len(text))
+
     def insertFromMimeData(self,mime):
         if self.surface.mode=='read' or self.page.buffer.composing:return
         from .markdown_attachments import insert
@@ -689,9 +703,10 @@ class SourceView(QPlainTextEdit):
         menu.addAction('剪下', self.cut).setEnabled(self.textCursor().hasSelection())
         menu.addAction('複製', self.copy).setEnabled(self.textCursor().hasSelection())
         menu.addAction('貼上', self.paste)
+        menu.addAction('貼上純文字\tCtrl+Shift+V',self.paste_plain)
         menu.addAction('全選', self.selectAll)
         menu.addSeparator();menu.addAction('清除格式', self.surface.clear_format)
-        menu.exec(event.globalPos())
+        menu.open_at(event.globalPos())
 
 
 class ReadingView(QTextBrowser):

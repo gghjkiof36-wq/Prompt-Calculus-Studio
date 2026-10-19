@@ -4,9 +4,8 @@ import io
 import re
 from dataclasses import dataclass
 from PySide6.QtCore import Qt, QEvent, QTimer
-from PySide6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout,
-    QTableWidget, QTableWidgetItem, QToolButton, QMenu, QDialogButtonBox,
-    QStyledItemDelegate, QPlainTextEdit, QAbstractItemDelegate, QLabel)
+from PySide6.QtWidgets import QApplication, QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, QToolButton, QDialogButtonBox, QStyledItemDelegate, QPlainTextEdit, QAbstractItemDelegate, QLabel
+from .widgets import RoundMenu as QMenu
 from .markdown_source import SourceEdit, literal_ranges
 from .markdown_syntax import visible_text
 from .ui_icons import icon
@@ -171,7 +170,7 @@ class TableDialog(QDialog):
             ('欄','grid',[('在右方新增欄',self.add_column),('刪除此欄',self.remove_column),('此欄左移',lambda:self.move_column(-1)),('此欄右移',lambda:self.move_column(1)),('依欄名排序',self.sort_columns)]),
             ('欄對齊','align',[(label,lambda value=value:self.set_alignment(value)) for label,value in [('預設',''),('靠左','left'),('置中','center'),('靠右','right')]])]:
             button=QToolButton(self);button.setText(title);button.setIcon(icon(symbol));button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-            button.setAccessibleName(title);menu=QMenu(button)
+            button.setAccessibleName(title);menu=QMenu(button,persistent=True)
             for label,callback in choices:menu.addAction(label,callback)
             button.setMenu(menu);button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup);tools.addWidget(button)
         tools.addStretch();layout.addWidget(self.grid)

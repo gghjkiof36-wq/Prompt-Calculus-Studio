@@ -1,7 +1,7 @@
 """One frosted popup surface, independent of Qt's native frame painting."""
 from PySide6.QtCore import Qt, QObject, QEvent, QPoint, QRect, QRectF
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPixmap
-from PySide6.QtWidgets import QWidget, QGraphicsScene, QGraphicsBlurEffect
+from PySide6.QtWidgets import QApplication, QWidget, QGraphicsScene, QGraphicsBlurEffect
 from .color_roles import mix
 
 
@@ -11,6 +11,11 @@ POPUP_MAX_WIDTH = 480
 
 
 def prepare_popup_window(popup):
+    # Qt's native effects animate a rectangular screen snapshot, not our alpha
+    # surface. They can briefly expose the controls underneath or an old size.
+    for effect in (Qt.UIEffect.UI_AnimateMenu, Qt.UIEffect.UI_FadeMenu,
+                   Qt.UIEffect.UI_AnimateCombo):
+        QApplication.setEffectEnabled(effect, False)
     # Qt's private combo container otherwise paints an opaque native palette
     # below the rounded stylesheet view, even when that view uses RGBA.
     popup.setWindowFlags(popup.windowFlags() | Qt.WindowType.FramelessWindowHint |
@@ -23,6 +28,28 @@ def prepare_popup_window(popup):
 def popup_row_height(metrics, icon_height=0):
     """A single measured text line and padding, never an input-control height."""
     return max(28, metrics.height() + 10, icon_height + 10)
+
+
+class NativePopupFinish(QObject):
+    """Keep Qt-created edit menus' actions/lifetimes, with one alpha edge."""
+    def __init__(self,app):
+        super().__init__(app)
+        from .application_events import listen
+        listen(self,QEvent.Type.Polish,QEvent.Type.MouseButtonPress)
+
+    def eventFilter(self,watched,event):
+        if not isinstance(watched,QWidget) or not watched.inherits('QMenu'):return False
+        if event.type()==QEvent.Type.Polish and not watched.property('pcsPopupSurface'):
+            prepare_popup_window(watched)
+        elif event.type()==QEvent.Type.MouseButtonPress and not watched.rect().contains(event.position().toPoint()):
+            watched.setAttribute(Qt.WidgetAttribute.WA_NoMouseReplay)
+        return False
+
+
+def install_native_popup_finish():
+    app=QApplication.instance()
+    if app is not None and not hasattr(app,'_pcs_native_popup_finish'):
+        app._pcs_native_popup_finish=NativePopupFinish(app)
 
 
 def popup_width(owner_width, text_width, available_width):
@@ -140,6 +167,8 @@ class PopupSurface(QObject):
         painter.setPen(border);painter.drawPath(path)
 
     def eventFilter(self,watched,event):
+        if event.type()==QEvent.Type.MouseButtonPress and not self.popup.rect().contains(event.position().toPoint()):
+            self.popup.setAttribute(Qt.WidgetAttribute.WA_NoMouseReplay)
         if event.type()==QEvent.Type.Show:
             self.capture()
         elif event.type()==QEvent.Type.Resize and watched.isVisible():

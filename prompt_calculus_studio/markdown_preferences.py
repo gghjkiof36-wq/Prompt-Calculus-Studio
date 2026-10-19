@@ -1,6 +1,7 @@
 """Document display controls with current values, in one anchored panel."""
 from PySide6.QtCore import Qt, QPoint
-from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QComboBox, QSpinBox, QCheckBox, QFontComboBox
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QSpinBox, QCheckBox
+from .widgets import ComboBox as QComboBox, FontComboBox as QFontComboBox
 from PySide6.QtGui import QFont
 from .theme import visual_tokens, window_appearance
 
@@ -8,6 +9,8 @@ from .theme import visual_tokens, window_appearance
 class DisplayPreferences(QFrame):
     def __init__(self, surface):
         super().__init__(surface, Qt.WindowType.Popup);self.surface = surface
+        from .popup_surface import PopupSurface
+        self._surface=PopupSurface(self,surface)
         self.setObjectName('MarkdownPreferences');self.setAccessibleName('編輯與閱讀設定');self.setFixedWidth(344)
         t = visual_tokens(window_appearance(surface))
         self.setStyleSheet(f'''QFrame#MarkdownPreferences {{background:{t['surface']};border:1px solid {t['line']};border-radius:8px;}}
@@ -30,8 +33,8 @@ class DisplayPreferences(QFrame):
             control.setAccessibleName(label);control.setFixedHeight(32);return control
         self.family = row('字體',QFontComboBox());self.family.setCurrentFont(QFont(p['reading_family']))
         self.family.currentFontChanged.connect(lambda font:surface.set_preference('reading_family',font.family()))
-        self.size = row('字級',QSpinBox());self.size.setRange(9,32);self.size.setSuffix(' pt');self.size.setValue(p['reading_size'])
-        self.size.setKeyboardTracking(False);self.size.valueChanged.connect(lambda value:surface.set_preference('reading_size',value))
+        self.size_control = row('字級',QSpinBox());self.size_control.setRange(9,32);self.size_control.setSuffix(' pt');self.size_control.setValue(p['reading_size'])
+        self.size_control.setKeyboardTracking(False);self.size_control.valueChanged.connect(lambda value:surface.set_preference('reading_size',value))
         def options(label,key,entries):
             control = row(label,QComboBox())
             for title,value in entries:control.addItem(title,value)

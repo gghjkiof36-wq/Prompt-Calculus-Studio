@@ -2,8 +2,8 @@
 from pathlib import Path
 import json,re
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLineEdit, QComboBox,
-    QTreeWidget, QTreeWidgetItem, QToolButton, QLabel, QMenu, QAbstractItemView)
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLineEdit, QTreeWidget, QTreeWidgetItem, QToolButton, QLabel, QAbstractItemView
+from .widgets import RoundMenu as QMenu, ComboBox as QComboBox
 from .ui_icons import icon
 from .notebook_index import Query, snippet
 
@@ -182,4 +182,4 @@ class NotebookPanel(QFrame):
             menu.addAction('預覽',lambda:self.manager.preview(Path(data['path']),data.get('position',0)))
             menu.addAction('開啟',lambda:self.activate(item))
         if 'bookmark' in data:menu.addAction('移除書籤',lambda:self.manager.remove_bookmark(data['bookmark']))
-        if menu.actions():menu.exec(self.results.viewport().mapToGlobal(point))
+        if menu.actions():menu.open_at(self.results.viewport().mapToGlobal(point))

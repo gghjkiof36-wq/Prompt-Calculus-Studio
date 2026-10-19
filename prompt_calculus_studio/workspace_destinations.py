@@ -30,6 +30,7 @@ class WorkspaceNavigation(QFrame):
 
     def arrange(self, position):
         horizontal = position == 'top'
+        self.setProperty('pcsTooltipSide','bottom' if horizontal else 'right')
         self.horizontal = horizontal
         while self.body.count():
             self.body.takeAt(0)

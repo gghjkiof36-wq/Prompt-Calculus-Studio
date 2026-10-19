@@ -1,8 +1,8 @@
 """A native, overflowing document ribbon; all entries perform real B actions."""
 from PySide6.QtCore import QSize, Qt, QEvent, QPoint, QTimer
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import (QToolBar, QToolButton, QMenu, QSizePolicy,
-    QProxyStyle, QStyle, QStyleFactory, QApplication, QFrame, QGridLayout)
+from PySide6.QtWidgets import QToolBar, QToolButton, QSizePolicy, QProxyStyle, QStyle, QStyleFactory, QApplication, QFrame, QGridLayout
+from .widgets import RoundMenu as QMenu
 from .ui_icons import icon
 
 
@@ -18,6 +18,8 @@ class OverflowPanel(QFrame):
         super().__init__(bar, Qt.WindowType.Popup)
         self.bar = bar
         self.setObjectName('MarkdownOverflow')
+        from .popup_surface import PopupSurface
+        self._surface=PopupSurface(self,bar)
         self.setAccessibleName('更多文件工具')
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(8, 8, 8, 8);self.grid.setSpacing(4)
@@ -119,7 +121,7 @@ def make_toolbar(surface):
     surface.redo_action = action('重做 · Ctrl+Y', 'edit-redo', surface.page.redo)
     bar.addSeparator()
     action('清除格式', 'eraser', surface.clear_format)
-    headings = QMenu('段落與標題', bar)
+    headings = QMenu(bar,persistent=True);headings.setTitle('段落與標題')
     headings.addAction('本文', lambda:surface.paragraph('heading', 0))
     for level in range(1, 7):
         headings.addAction('標題 '+str(level), lambda value=level:surface.paragraph('heading', value))
@@ -135,7 +137,7 @@ def make_toolbar(surface):
     action('文字顏色', 'text-color', lambda:surface.color_menu(False), key='color')
     action('高亮與底色', 'highlight', lambda:surface.color_menu(True), key='background')
     action('插入／編輯表格', 'grid', surface.edit_table, key='table')
-    insert=QMenu('插入內容',bar)
+    insert=QMenu(bar,persistent=True);insert.setTitle('插入內容')
     insert.addAction('連結… · Ctrl+K',surface.edit_link)
     insert.addAction('嵌入筆記或區塊…',lambda:surface.edit_link(True))
     insert.addAction(icon('image-single'),'圖片、影音或 PDF…',surface.insert_attachment)
@@ -143,21 +145,21 @@ def make_toolbar(surface):
         insert.addAction(label,lambda checked=False,value=kind:surface.insert_content(value))
     action('插入圖片、公式與其他內容','plus',menu=insert,key='insert')
     bar.addSeparator()
-    lists = QMenu('清單', bar)
+    lists = QMenu(bar,persistent=True);lists.setTitle('清單')
     lists.addAction(icon('list'), '無序清單', lambda:surface.paragraph('bullet'))
     lists.addAction(icon('list-ordered'), '有序清單', lambda:surface.paragraph('ordered'))
     lists.addAction(icon('task'), '待辦清單', lambda:surface.paragraph('task'))
     action('清單', 'list', menu=lists)
     action('待辦清單', 'task', lambda:surface.paragraph('task'))
     action('引用', 'quote', lambda:surface.paragraph('quote'))
-    align = QMenu('段落對齊', bar)
+    align = QMenu(bar,persistent=True);align.setTitle('段落對齊')
     for label, value in [('靠左','left'),('置中','center'),('靠右','right'),('左右對齊','justify')]:
         align.addAction(label, lambda direction=value:surface.paragraph('align', direction))
     action('段落對齊', 'align', menu=align)
     action('增加縮排', 'indent', lambda:surface.indent_paragraph(1))
     action('減少縮排', 'outdent', lambda:surface.indent_paragraph(-1))
     action('插入分隔線', 'minus', surface.insert_rule)
-    more = QMenu('其他格式', bar)
+    more = QMenu(bar,persistent=True);more.setTitle('其他格式')
     more.addAction('上標', lambda:surface.format_selection({'vertical':'super'}))
     more.addAction('下標', lambda:surface.format_selection({'vertical':'sub'}))
     more.addSeparator()

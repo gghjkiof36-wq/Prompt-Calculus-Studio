@@ -56,6 +56,13 @@ class Tab:
 
 
 class WorkspaceTop(QFrame):
+    def contextMenuEvent(self, event):
+        from .window_menu import open_window_menu
+        if open_window_menu(self.window(), event.globalPos()):
+            event.accept()
+        else:
+            super().contextMenuEvent(event)
+
     def paintEvent(self, event):
         super().paintEvent(event)
         for strip in self.findChildren(DocumentTabs):

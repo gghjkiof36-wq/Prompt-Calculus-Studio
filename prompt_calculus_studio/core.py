@@ -168,8 +168,8 @@ def validate_state(state):
         if type(transparency) is not int or not 0 <= transparency <= 100:
             raise ValueError("透明度必須介於 0 和 100%。")
     menu_transparency=settings.get('menu_transparency',DEFAULT_SETTINGS['menu_transparency'])
-    if type(menu_transparency) is not int or not 0<=menu_transparency<=40:
-        raise ValueError('選單透明度必須介於 0 和 40%。')
+    if type(menu_transparency) is not int or not 0<=menu_transparency<=50:
+        raise ValueError('選單透明度必須介於 0 和 50%。')
     for key in ("online", "artist_prefix", "confirm_clear_draft", "separate_selections", "search_cache", "hide_connections"):
         if type(settings.get(key, DEFAULT_SETTINGS[key])) is not bool:
             raise ValueError(f"設定 {key} 必須是布林值。")

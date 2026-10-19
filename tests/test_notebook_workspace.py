@@ -1,4 +1,5 @@
 import unittest
+import time
 from unittest.mock import patch
 from PySide6.QtCore import Qt,QThreadPool,QPoint
 from PySide6.QtGui import QTextCursor,QInputMethodEvent
@@ -23,6 +24,9 @@ class NotebookWorkspaceTests(unittest.TestCase):
     def wait_index(self):
         for _ in range(100):
             QTest.qWait(20)
+            # qWait pumps Qt, but tight repeated calls can starve Python
+            # QRunnable workers on Windows. Yield the GIL as well.
+            time.sleep(.002)
             if self.w.notebook.job is None:return
         self.fail('index timed out')
     def test_sidebar_query_bookmarks_and_commands(self):

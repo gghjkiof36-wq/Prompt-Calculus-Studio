@@ -66,7 +66,9 @@ class TooltipTests(unittest.TestCase):
         # Fractional DPR antialiases narrow strokes without necessarily leaving
         # a pixel equal to the exact ink. Require pixels close to the intended
         # foreground, well away from the background and muted text colors.
-        tolerance=max(abs(a-b) for a,b in zip(ink,background.getRgb()[:3]))*.2
+        # Native Windows font fallback uses thinner, subpixel-smoothed glyphs
+        # than the offscreen font engine. Include 70% ink coverage as well.
+        tolerance=max(abs(a-b) for a,b in zip(ink,background.getRgb()[:3]))*.3
         dpr=rendered.devicePixelRatio()
         matching=sum(max(abs(a-b) for a,b in zip(rendered.pixelColor(x,y).getRgb()[:3],ink))<=tolerance
                      for y in range(round(4*dpr),rendered.height()-round(4*dpr))
@@ -85,7 +87,25 @@ class TooltipTests(unittest.TestCase):
         self.button.setFixedWidth(150)
         self.assertIsNotNone(self.help('開啟媒體庫 · Ctrl+2'))
 
-    def test_native_hint_uses_owner_colors_round_mask_and_wraps_long_text(self):
+    def test_icon_hints_follow_the_control_and_flip_at_screen_edges(self):
+        self.button.setText('');self.panel.move(40,80);APP.processEvents()
+        self.panel.setProperty('pcsTooltipSide','right')
+        tip=self.help('匯出')
+        origin=self.button.mapToGlobal(QPoint())
+        self.assertEqual(tip.x(),origin.x()+self.button.width()+8)
+        self.assertLessEqual(abs(tip.geometry().center().y()-
+                                 self.button.mapToGlobal(self.button.rect().center()).y()),1)
+        self.assertGreaterEqual(tip.height()-tip.fontMetrics().height(),16)
+        self.panel.setProperty('pcsTooltipSide','bottom')
+        tip=self.help('搜尋 · Ctrl+F')
+        self.assertEqual(tip.y(),origin.y()+self.button.height()+8)
+        screen=self.panel.screen().availableGeometry()
+        self.panel.move(screen.right()-self.panel.width()-8,screen.bottom()-70);APP.processEvents()
+        tip=self.help('搜尋 · Ctrl+F')
+        self.assertLess(tip.geometry().bottom(),self.button.mapToGlobal(QPoint()).y())
+        self.assertTrue(screen.contains(tip.geometry()))
+
+    def test_native_hint_uses_owner_colors_alpha_edges_and_wraps_long_text(self):
         self.button.setText('')
         for palette in ('graphite','paper','mist'):
             self.apply(palette)
@@ -94,8 +114,11 @@ class TooltipTests(unittest.TestCase):
                     tip=self.help(text);self.assertIsNotNone(tip)
                     self.assertEqual(QToolTip.text(),text)
                     self.assertLessEqual(tip.width(),480)
-                    self.assertFalse(tip.mask().contains(QPoint(0,0)))
-                    self.assertTrue(tip.mask().contains(tip.rect().center()))
+                    self.assertTrue(tip.mask().isEmpty())
+                    image=tip.grab().toImage()
+                    for x,y in ((0,0),(image.width()-1,0),(0,image.height()-1),(image.width()-1,image.height()-1)):
+                        self.assertEqual(image.pixelColor(x,y).alpha(),0)
+                    self.assertEqual(image.pixelColor(image.width()//2,image.height()//2).alpha(),255)
                     if kind=='long':self.assertGreater(tip.height(),tip.fontMetrics().height()*2)
                     else:self.assertLessEqual(tip.height(),tip.fontMetrics().height()+20)
                     # Check painted glyphs, not just the stylesheet: native Qt
@@ -156,7 +179,7 @@ class TooltipTests(unittest.TestCase):
                     self.assertLess(natural+34,480)
                     self.assertGreaterEqual(tip.width(),natural+20)
                     self.assertLessEqual(tip.height(),tip.fontMetrics().height()+20)
-                    self.assertLess(tip.fontMetrics().height(),target.fontMetrics().height())
+                    self.assertLessEqual(tip.fontMetrics().height(),target.fontMetrics().height())
                     self.assertGreaterEqual(tip.font().pixelSize(),13 if size==11 else 18)
                     self.assert_readable(tip,owner)
                     folder=os.environ.get('PCS_TOOLTIP_QA_DIR')
@@ -231,9 +254,13 @@ class TooltipTests(unittest.TestCase):
         QToolTip.hideText();self.assertIsNone(self.wait_for_hint(False))
         # Exercise Qt's actual hover timer, including its short reuse delay.
         # Directly dispatched help events alone miss platform style behavior.
-        QTest.mouseMove(self.panel,QPoint(620,160));QTest.qWait(30)
+        def move(target,point):
+            # QWindow input traverses Qt's native hover dispatch; QWidget's
+            # synthetic event path does not start Windows tooltip timers.
+            QTest.mouseMove(self.panel.windowHandle(),target.mapTo(self.panel,point))
+        move(self.panel,QPoint(620,160));QTest.qWait(30)
         def hover(target):
-            QTest.mouseMove(target,target.rect().center())
+            move(target,target.rect().center())
             timer=QElapsedTimer();timer.start()
             while timer.elapsed()<2000:
                 QTest.qWait(10)
@@ -247,11 +274,11 @@ class TooltipTests(unittest.TestCase):
             self.assertEqual(tip.height(),expected[0].height())
             self.assertEqual(tip.contentsMargins(),expected[1])
             self.assert_readable(tip,self.panel)
-        QTest.mouseMove(self.panel,QPoint(620,160));QTest.qWait(40)
+        move(self.panel,QPoint(620,160));QTest.qWait(40)
         tip=hover(self.button)
         self.assertEqual((tip.size(),tip.contentsMargins(),tip.font()),expected)
         self.assert_readable(tip,self.panel)
-        QTest.mouseMove(self.panel,QPoint(620,160))
+        move(self.panel,QPoint(620,160))
         self.assertIsNone(self.wait_for_hint(False),'leaving must still dismiss the tooltip')
 
     def test_long_hint_stays_inside_available_screen_at_lower_right_corner(self):

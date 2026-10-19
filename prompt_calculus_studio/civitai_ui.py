@@ -52,6 +52,8 @@ class SearchFilters(QFrame):
     """Draft filters: dismissing the popup never changes the active request."""
     def __init__(self,page):
         super().__init__(page,Qt.WindowType.Popup); self.page=page; self.setObjectName('PopupPanel')
+        from .popup_surface import PopupSurface
+        self._surface=PopupSurface(self,page)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         body=QVBoxLayout(self); body.setContentsMargins(18,16,18,16); body.setSpacing(14)
         close=button('',self.hide,'Quiet'); close.setIcon(icon('close')); close.setFixedWidth(32); close.setAccessibleName('關閉篩選')

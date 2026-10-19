@@ -18,6 +18,8 @@ QFontDatabase.addApplicationFont('C:/Windows/Fonts/msjh.ttc')
 class PopupMenuOwnershipTests(unittest.TestCase):
     def setUp(self):
         self.windows=[];self.menus=[]
+        from prompt_calculus_studio.popup_surface import install_native_popup_finish
+        install_native_popup_finish()
 
     def tearDown(self):
         for menu in self.menus:
@@ -35,13 +37,15 @@ class PopupMenuOwnershipTests(unittest.TestCase):
 
     def assert_surface(self,menu,tokens,frosted):
         APP.processEvents();image=menu.grab().toImage()
-        actual=image.pixelColor(menu.width()//2,menu.height()-3);expected=QColor(tokens['raised'])
+        scale=image.devicePixelRatio()
+        actual=image.pixelColor(image.width()//2,image.height()-round(3*scale));expected=QColor(tokens['raised'])
         self.assertEqual(actual.alpha(),255)
         tolerance=16 if frosted else 0
         self.assertTrue(all(abs(a-b)<=tolerance for a,b in zip(actual.getRgb()[:3],expected.getRgb()[:3])),
                         (actual.getRgb(),expected.getRgb(),frosted))
         self.assertEqual(bool(menu.property('pcsPopupSurface')),frosted)
-        if frosted:self.assertEqual(image.pixelColor(0,0).alpha(),0)
+        for x,y in ((0,0),(image.width()-1,0),(0,image.height()-1),(image.width()-1,image.height()-1)):
+            self.assertEqual(image.pixelColor(x,y).alpha(),0)
         return image
 
     def test_standard_line_and_multiline_context_menus_have_opaque_readable_fallback(self):
@@ -56,13 +60,30 @@ class PopupMenuOwnershipTests(unittest.TestCase):
                     menu.popup(editor.mapToGlobal(QPoint(10,10)));APP.processEvents()
                     action=next(a for a in menu.actions() if a.isEnabled() and not a.isSeparator())
                     menu.setActiveAction(action);image=self.assert_surface(menu,tokens,False)
-                    rect=menu.actionGeometry(action);crop=image.copy(rect)
+                    rect=menu.actionGeometry(action);scale=image.devicePixelRatio()
+                    crop=image.copy(round(rect.x()*scale),round(rect.y()*scale),
+                                    round(rect.width()*scale),round(rect.height()*scale))
                     colors={crop.pixelColor(x,y).name() for x in range(crop.width()) for y in range(crop.height())}
                     self.assertIn(tokens['popup_active'],colors)
                     foreground=QColor(tokens['text'])
                     self.assertTrue(any(sum(abs(a-b) for a,b in zip(QColor(color).getRgb()[:3],foreground.getRgb()[:3]))<20
                                         for color in colors),'editor menu action text remains readable')
                     menu.close();host.close()
+
+    def test_qt_owned_menu_keeps_blocking_action_result_and_clipboard_actions(self):
+        from PySide6.QtCore import QTimer
+        host,tokens=self.host('graphite');editor=QLineEdit('native text');host.box.addWidget(editor)
+        editor.selectAll();menu=editor.createStandardContextMenu();self.menus.append(menu)
+        action=next(a for a in menu.actions() if a.isEnabled() and not a.isSeparator())
+        errors=[]
+        def choose():
+            try:self.assert_surface(menu,tokens,False)
+            except AssertionError as exc:errors.append(exc)
+            finally:QTest.mouseClick(menu,Qt.MouseButton.LeftButton,pos=menu.actionGeometry(action).center())
+        QTimer.singleShot(30,choose)
+        result=menu.exec(editor.mapToGlobal(QPoint(10,10)))
+        if errors:raise errors[0]
+        self.assertIs(result,action)
 
     def test_title_submenu_reopens_on_hover_and_lives_until_root_closes(self):
         for palette in ('graphite','mist','paper'):

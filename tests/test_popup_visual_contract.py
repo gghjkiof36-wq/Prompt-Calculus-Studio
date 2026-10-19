@@ -1,7 +1,7 @@
 """Popup colors keep the active keyboard choice visible across palettes."""
 import unittest
 
-from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QFontDatabase, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCompleter, QLineEdit, QVBoxLayout, QWidget
@@ -25,7 +25,8 @@ class PopupVisualContractTests(unittest.TestCase):
 
     def tearDown(self):
         for window in self.windows:
-            window.close()
+            window.close();window.deleteLater()
+        APP.sendPostedEvents(None,QEvent.Type.DeferredDelete)
         APP.processEvents()
         APP.setStyleSheet(self.original_style)
         APP.setPalette(self.original_palette)

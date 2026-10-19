@@ -71,7 +71,7 @@ class WindowChromeTests(unittest.TestCase):
         window.close()
 
     def test_solid_material_does_not_reset_the_expanded_frame(self):
-        margins=[];kinds=[]
+        margins=[];kinds=[];composition=[]
         def extend(_hwnd,pointer):
             value=pointer._obj
             margins.append((value.left,value.right,value.top,value.bottom))
@@ -79,8 +79,12 @@ class WindowChromeTests(unittest.TestCase):
         def attribute(_hwnd,key,pointer,_size):
             if key==38:kinds.append(pointer._obj.value)
             return 0
+        def compose(_hwnd,pointer):
+            value=pointer._obj
+            composition.append((value.flags,bool(value.enabled),value.region))
+            return 0
         dwm=SimpleNamespace(DwmSetWindowAttribute=attribute,
-                            DwmExtendFrameIntoClientArea=extend)
+                            DwmExtendFrameIntoClientArea=extend,DwmEnableBlurBehindWindow=compose)
         window=QMainWindow();window.winId()
         with patch('PySide6.QtGui.QGuiApplication.platformName',return_value='windows'), \
                 patch('prompt_calculus_studio.theme.ctypes.windll',SimpleNamespace(dwmapi=dwm),create=True), \
@@ -94,6 +98,10 @@ class WindowChromeTests(unittest.TestCase):
                 self.assertTrue(apply_backdrop(window,material,{}))
                 self.assertEqual(margins[-1],(-1,-1,-1,-1))
             self.assertEqual(kinds,[1,1,2,3,1,1])
+            self.assertEqual(composition,[(1,False,None)]*4+[(1,True,None),(1,False,None)])
+            dwm.DwmEnableBlurBehindWindow=lambda *_:-1
+            self.assertFalse(apply_backdrop(window,'clear',{}))
+            dwm.DwmEnableBlurBehindWindow=compose
             dwm.DwmExtendFrameIntoClientArea=lambda *_:-1
             self.assertFalse(apply_backdrop(window,'clear',{}))
         window.close()

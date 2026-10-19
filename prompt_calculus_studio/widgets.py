@@ -321,6 +321,10 @@ def rounded_mask(widget,radius=12):
 def sync_popup_appearance(popup,owner,host=None):
     """Carry the owning window's theme into a separate native popup."""
     host=host or QWidget.window(owner)
+    # A selector inside a flyout needs the application's complete popup
+    # rules, not just that flyout's few local form-control overrides.
+    while host.windowType() in (Qt.WindowType.Popup,Qt.WindowType.ToolTip) and host.parentWidget() is not None:
+        host=QWidget.window(host.parentWidget())
     popup.setPalette(QWidget.palette(owner))
     popup.setFont(QWidget.font(owner))
     source=QWidget.styleSheet(host)
@@ -375,7 +379,7 @@ class RoundMenu(QMenu):
     QMenu.exec() with this native custom menu crashes on the supported Qt build.
     Actions already connect to their handlers; callers never need a return value.
     """
-    def __init__(self,parent=None):
+    def __init__(self,parent=None,*,persistent=False):
         # Set the bypass flag before parenting: proxy embedding can happen
         # during QMenu construction, before its first show event.
         super().__init__()
@@ -393,7 +397,7 @@ class RoundMenu(QMenu):
         self.aboutToShow.connect(self._prepare_show)
         # A submenu hides whenever the pointer returns to its parent. Its
         # action must live until the root popup closes, not until that hover ends.
-        if not isinstance(parent,QMenu): self.aboutToHide.connect(self.deleteLater)
+        if not persistent and not isinstance(parent,QMenu): self.aboutToHide.connect(self.deleteLater)
 
     def add_destructive_action(self, text, callback):
         """A native menu action with semantic text color, including on hover."""
@@ -466,13 +470,13 @@ class RoundMenu(QMenu):
     def open_at(self,position):
         self.popup(position)
 
-    def open_for(self,control,view=None):
+    def open_for(self,control,view=None,*,align_right=False):
         """Anchor button menus to the visible trigger, including scene widgets."""
         top=widget_global_position(control,QPoint(0,0),view)
         bottom=widget_global_position(control,QPoint(control.width(),control.height()),view)
         self._prepare(top);size=self.sizeHint().expandedTo(self.minimumSize()).boundedTo(self.maximumSize())
         # The gap is in desktop pixels, independent of canvas zoom.
-        position=QPoint(top.x(),bottom.y()+4)
+        position=QPoint(bottom.x()-size.width() if align_right else top.x(),bottom.y()+4)
         screen=QApplication.screenAt(top) or control.screen()
         if screen is not None:
             area=screen.availableGeometry().adjusted(4,4,-4,-4)

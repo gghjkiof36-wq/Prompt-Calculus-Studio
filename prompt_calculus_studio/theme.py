@@ -5,7 +5,7 @@ from functools import lru_cache
 from .color_roles import ACTION_SEEDS, color, derive_roles, mix as _mix
 
 
-TOOLTIP_PADDING = (10, 6)
+TOOLTIP_PADDING = (12, 8)
 
 
 VISUAL_PALETTES = {
@@ -139,9 +139,9 @@ def shell_color(settings):
     value = max(0, min(100, settings.get(material+'_transparency', 61)))
     rgb = ','.join(str(int(t['chrome'][i:i+2], 16)) for i in (1,3,5))
     if material == 'clear':return f'rgba({rgb},{round(255*(1-value/100))})'
-    # A desktop backdrop needs a strong tint even at the top of this range.
-    # Using 0..255 alpha exposed bright backgrounds and flattened the chrome.
-    return f'rgba({rgb},{round(255-0.55*value)})'
+    # Keep existing low/middle settings; open up only the last fifth a little.
+    tint=255-.55*min(value,80)-1.3*max(0,value-80)
+    return f'rgba({rgb},{round(tint)})'
 
 
 def destructive_button_styles(tokens):
@@ -167,7 +167,7 @@ def stylesheet(settings):
     pad = 5 if settings["density"] == "compact" else 8
     family = settings.get("font_family", "Microsoft JhengHei UI").replace("'", "").replace(";", "")
     assets=stylesheet_icon_paths(t)
-    tooltip_size=font_pixels(max(10,round(settings['ui_size']*.78)))
+    tooltip_size=font_pixels(max(11,round(settings['ui_size']*.9)))
     return f"""
     QWidget {{ color:{t['text']}; font-family:'{family}'; font-size:{font_pixels(settings['ui_size'])}px; }}
     QMainWindow {{ background:transparent; }}
@@ -346,7 +346,7 @@ def stylesheet(settings):
     QCheckBox::indicator, QListView::indicator {{ width:18px; height:18px; border:1px solid {t['control']}; background:{t['field']}; border-radius:5px; }}
     QCheckBox::indicator:checked, QListView::indicator:checked {{ background:{accent}; border-color:{accent}; image:url('{assets['check']}'); }}
     QCheckBox:disabled {{ color:{t['disabled_text']}; }}
-    QToolTip {{ background:{t['raised']}; color:{t['text']}; font-size:{tooltip_size}px; font-weight:400; border:1px solid {t['divider']}; border-radius:8px; padding:{TOOLTIP_PADDING[1]}px {TOOLTIP_PADDING[0]}px; }}
+    QToolTip {{ background:{t['raised']}; color:{t['text']}; font-family:'{family}'; font-size:{tooltip_size}px; font-weight:500; border:1px solid {t['divider']}; border-radius:8px; padding:{TOOLTIP_PADDING[1]}px {TOOLTIP_PADDING[0]}px; }}
     QFrame#RecentOverlaySurface {{ background:{t['base']}; border:1px solid {t['divider']}; border-radius:18px; }}
     QWidget#CanvasWorkspaceInset {{ background:{t['base']}; }}
     QFrame#CanvasWorkspaceCapsule {{ background:{t['surface']}; border:1px solid {t['line']}; border-radius:14px; }}
@@ -391,6 +391,15 @@ def apply_backdrop(window, material, settings=None):
         dwm.DwmSetWindowAttribute(hwnd,34,ctypes.byref(border),ctypes.sizeof(border))
         kind = ctypes.c_int({"solid":1,"clear":1,"mica":2,"acrylic":3}[material])
         result = dwm.DwmSetWindowAttribute(hwnd,38,ctypes.byref(kind),ctypes.sizeof(kind))
+        # DWMSBT_NONE alone leaves transparent client pixels black. On Windows
+        # 8+ the legacy blur API enables alpha composition without adding blur.
+        # Disable it again when leaving clear mode so it cannot cover Mica.
+        from ctypes import wintypes
+        class BlurBehind(ctypes.Structure):
+            _fields_=[('flags',wintypes.DWORD),('enabled',wintypes.BOOL),
+                      ('region',wintypes.HRGN),('transition',wintypes.BOOL)]
+        blur=BlurBehind(1,material=='clear',None,False)
+        composed=dwm.DwmEnableBlurBehindWindow(hwnd,ctypes.byref(blur))
         class Margins(ctypes.Structure):
             _fields_ = [(n,ctypes.c_int) for n in ("left","right","top","bottom")]
         # Qt's expanded client area needs the frame extended even when our
@@ -401,7 +410,7 @@ def apply_backdrop(window, material, settings=None):
         expanded=bool(handle and handle.flags() & Qt.WindowType.ExpandedClientAreaHint)
         margins = Margins(-1,-1,-1,-1) if material != "solid" or expanded else Margins(0,0,0,0)
         extended = dwm.DwmExtendFrameIntoClientArea(hwnd,ctypes.byref(margins))
-        return result == 0 and extended == 0
+        return result == 0 and extended == 0 and composed == 0
     except (OSError, AttributeError):
         return False
 

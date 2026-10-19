@@ -21,6 +21,8 @@ class _WindowsCaptionApi:
         self.user.FindWindowExW.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p]
         self.user.FindWindowExW.restype = ctypes.c_void_p
         self.user.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        self.user.PostMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t]
+        self.user.PostMessageW.restype = wintypes.BOOL
         self.user.GetDpiForWindow.argtypes = [ctypes.c_void_p]
         self.user.GetDpiForWindow.restype = ctypes.c_uint
         self.user.GetSystemMetricsForDpi.argtypes = [ctypes.c_int, ctypes.c_uint]
@@ -48,6 +50,10 @@ class _WindowsCaptionApi:
     def refresh_frame(self, hwnd):
         # Recalculate the client region without moving, activating or resizing.
         self.user.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0020 | 0x0001 | 0x0002 | 0x0004 | 0x0010)
+
+    def post_system_command(self, hwnd, command):
+        if hwnd:
+            self.user.PostMessageW(hwnd, 0x0112, command, 0)
 
     def calculate_client_rect(self, hwnd, address, fullscreen=False):
         """Give Qt ownership of the full restored surface, including resize edges.
@@ -167,7 +173,7 @@ class CaptionPaintSurface(QWidget):
     Qt 6.11's separate layered titlebar sends straight-alpha pixels to a
     premultiplied-alpha Windows API. A white hover consequently turns opaque.
     This surface is input-transparent. ExpandedWindowChrome routes its native
-    caption hit tests and clicks; Windows still owns resize/move and Alt+Space.
+    caption hit tests and clicks; Windows still owns resize/move and commands.
     """
     def __init__(self, window):
         super().__init__(window)
@@ -367,6 +373,21 @@ class ExpandedWindowChrome(QObject):
                 return True, 0
         if not self.caption_replaced or not self.hwnd or hwnd != self.hwnd:
             return False, 0
+        # Qt's expanded-frame backend opens its native menu directly from
+        # WM_SYSKEYDOWN, before Windows produces SC_KEYMENU.
+        if message in (0x0104,0x0106) and parameter == 32:  # Alt+Space / SYSCHAR
+            if message == 0x0104 and not previous & (1 << 30):
+                from .window_menu import open_window_menu
+                QTimer.singleShot(0, lambda: open_window_menu(self.window))
+            return True, 0
+        command = parameter & 0xFFF0
+        keyboard_menu = message == 0x0112 and command == 0xF100 and previous == 32
+        mouse_menu = message == 0x0112 and command == 0xF090
+        if keyboard_menu or mouse_menu:
+            from .window_menu import open_window_menu
+            position = QCursor.pos() if mouse_menu else None
+            QTimer.singleShot(0, lambda: open_window_menu(self.window, position))
+            return True, 0
         if message == 0x0084:  # WM_NCHITTEST: never synthesize a click here.
             return True, self.native_api.hit_test(hwnd, previous, self.window.windowFlags(),
                                                   self.window.isFullScreen())

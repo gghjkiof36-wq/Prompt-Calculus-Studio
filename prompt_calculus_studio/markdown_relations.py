@@ -3,11 +3,11 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from PySide6.QtCore import QFileSystemWatcher,QTimer,QUrl,Qt
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QDialog,QVBoxLayout,QLineEdit,QFormLayout,QComboBox,
-    QDialogButtonBox,QListWidget,QCompleter,QLabel)
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QLineEdit, QFormLayout, QDialogButtonBox, QListWidget, QCompleter, QLabel
+from .widgets import ComboBox as QComboBox
 from .markdown_links import Notes,links,region
 from .markdown_source import SourceEdit,python_position
-from .widgets import StudioDialog
+from .widgets import StudioDialog,style_completion
 
 
 def notes_for(surface):
@@ -105,6 +105,7 @@ class LinkDialog(StudioDialog):
         try:
             notes=notes_for(surface);completion=QCompleter([p.relative_to(notes.root).with_suffix('').as_posix() for p in notes.files()],self)
             completion.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive);completion.setFilterMode(Qt.MatchFlag.MatchContains);self.target.setCompleter(completion)
+            style_completion(completion,self.target)
         except (ValueError,OSError):pass
         self.target.setFocus()
     def submit(self):

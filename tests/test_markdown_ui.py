@@ -103,8 +103,8 @@ class MarkdownUiTests(unittest.TestCase):
     def test_display_panel_current_values_changes_without_document_edits(self):
         tab = self.open('Notes.md');s = tab.widget.md_surface;before = tab.widget.encoded()
         s.preferences_menu();self.events();panel = s.display_panel
-        self.assertEqual(panel.size.value(),s.preferences['reading_size'])
-        panel.size.setValue(16);self.assertAlmostEqual(s.editor.font().pointSizeF(),16)
+        self.assertEqual(panel.size_control.value(),s.preferences['reading_size'])
+        panel.size_control.setValue(16);self.assertAlmostEqual(s.editor.font().pointSizeF(),16)
         panel.spacing.setCurrentIndex(panel.spacing.findData(180));self.assertEqual(s.preferences['line_height'],180)
         s.set_zoom(120);self.assertEqual(panel.zoom.text(),'120%')
         QTest.keyClick(panel,Qt.Key.Key_Escape);self.events();self.assertFalse(panel.isVisible())

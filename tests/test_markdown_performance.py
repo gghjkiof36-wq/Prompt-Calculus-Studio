@@ -2,7 +2,7 @@
 import json
 import unittest
 from unittest.mock import patch
-from PySide6.QtCore import Qt,QRectF,QThreadPool
+from PySide6.QtCore import Qt,QRectF,QThreadPool,QObject,QEvent
 from PySide6.QtGui import QTextCursor
 from PySide6.QtTest import QTest
 from prompt_calculus_studio.markdown_source import SourceSnapshot,SourceEdit
@@ -18,6 +18,30 @@ class MarkdownPerformanceTests(unittest.TestCase):
     def tearDown(self):
         self.w.notebook.stop();QThreadPool.globalInstance().waitForDone(5000)
         fixture.WorkspacePaneTests.tearDown(self)
+
+    def test_idle_marker_overlay_does_not_schedule_another_viewport_paint(self):
+        (self.root/'Notes.md').write_text('# Heading\n\n- [ ] check\n\n正文。\n',encoding='utf-8')
+        s=self.open('Notes.md').widget.md_surface;e=s.editor
+        class Paints(QObject):
+            def __init__(self,owner):
+                super().__init__(owner);self.count=0;owner.installEventFilter(self)
+            def eventFilter(self,owner,event):
+                if event.type()==QEvent.Type.Paint:self.count+=1
+                return False
+        QTest.qWait(250)
+        view=Paints(e.viewport());overlay=Paints(e.markers)
+        # Let cursor blinking repaint, but do not let the transparent overlay
+        # invalidate its underlay from inside every viewport paint.
+        QTest.qWait(350)
+        self.assertLessEqual(view.count,6)
+        self.assertLessEqual(overlay.count,6)
+        before=s.page.encoded();e.moveCursor(QTextCursor.MoveOperation.End)
+        e.moveCursor(QTextCursor.MoveOperation.Start,QTextCursor.MoveMode.KeepAnchor)
+        self.events();self.assertTrue(e.textCursor().hasSelection())
+        self.assertEqual(s.page.encoded(),before)
+        self.assertFalse(e.task_targets)
+        e.moveCursor(QTextCursor.MoveOperation.End);self.events()
+        self.assertTrue(e.task_targets)
 
     def test_many_search_hits_are_cached_visible_and_utf16_correct(self):
         text=('😀 地圖\n\n'*1800)+'最後的地圖'

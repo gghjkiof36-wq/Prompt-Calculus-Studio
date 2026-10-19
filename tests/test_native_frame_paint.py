@@ -81,8 +81,10 @@ class NativeFramePaintTests(unittest.TestCase):
         controller.caption_replaced = True
         controller.native_api = Mock()
         controller.caption_surface = Mock()
-        for message in (0x0005, 0x0084, 0x0083, 0x0112, 0x02E0):
+        for message in (0x0005, 0x0083, 0x0112, 0x02E0):
             self.assertEqual(controller.native_notification(123, message), (False, 0))
+        controller.native_api.hit_test.return_value=20
+        self.assertEqual(controller.native_notification(123,0x0084),(True,20))
         self.assertEqual(controller.native_notification(999, 0x0085), (False, 0))
         controller.native_api.clear_nonclient_background.assert_not_called()
         self.assertEqual(controller.native_notification(123, 0x0085, 1, 0), (True, 0))

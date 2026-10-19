@@ -3,7 +3,8 @@ from pathlib import Path
 import threading
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import QToolButton, QMenu
+from PySide6.QtWidgets import QToolButton
+from .widgets import RoundMenu as QMenu
 from .notebook_index import inventory, relations
 from .notebook_store import NotebookStore
 from .notebook_panel import NotebookPanel, MODES
@@ -35,7 +36,7 @@ class NotebookManager(QObject):
         heading=self.w.tree_heading.layout(); old=heading.takeAt(0).widget(); old.deleteLater()
         self.selector=QToolButton(); self.selector.setObjectName('NotebookSelector'); self.selector.setText('內容')
         self.selector.setAccessibleName('側欄檢視'); self.selector.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        menu=QMenu(self.selector)
+        menu=QMenu(self.selector,persistent=True)
         for key,title in MODES.items():menu.addAction(title,lambda checked=False,value=key:self.show(value))
         self.selector.setMenu(menu); heading.insertWidget(0,self.selector)
         self.timer=QTimer(self); self.timer.setSingleShot(True); self.timer.timeout.connect(self.refresh)

@@ -1,6 +1,7 @@
 """Quiet property type controls and editable, wrapping lists of values."""
 from PySide6.QtCore import Qt, Signal, QSize, QEvent
-from PySide6.QtWidgets import QToolButton, QMenu, QWidget, QHBoxLayout, QLineEdit, QSizePolicy
+from PySide6.QtWidgets import QToolButton, QWidget, QHBoxLayout, QLineEdit, QSizePolicy
+from .widgets import RoundMenu as QMenu
 from .ui_icons import icon
 
 TYPE_ICONS = dict(text='type',list='list',number='list-ordered',checkbox='task',date='clock',datetime='clock',tags='tag',complex='source-code')

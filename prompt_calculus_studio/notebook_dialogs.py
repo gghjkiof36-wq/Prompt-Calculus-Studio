@@ -4,8 +4,8 @@ from pathlib import Path
 import difflib,copy
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextCursor, QColor, QSyntaxHighlighter, QTextCharFormat
-from PySide6.QtWidgets import (QLineEdit,QListWidget,QListWidgetItem,QPlainTextEdit,QFormLayout,
-    QComboBox,QSplitter,QWidget,QVBoxLayout,QCheckBox,QTextBrowser)
+from PySide6.QtWidgets import QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QFormLayout, QSplitter, QWidget, QVBoxLayout, QCheckBox, QTextBrowser
+from .widgets import ComboBox as QComboBox
 from .widgets import StudioDialog,label,button,row
 from .markdown_links import Notes
 from .markdown_source import SourceEdit,SourceLedger

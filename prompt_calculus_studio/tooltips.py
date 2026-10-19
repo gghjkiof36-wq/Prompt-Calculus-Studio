@@ -1,7 +1,7 @@
 """Finish native hints synchronously, before their first visible paint."""
 import weakref
-from PySide6.QtCore import QEvent, QObject, QRectF
-from PySide6.QtGui import QPainterPath, QRegion, QPalette
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication, QAbstractButton, QToolTip, QWidget
 from shiboken6 import isValid
 
@@ -34,16 +34,17 @@ class TooltipStyler(QObject):
     def __init__(self,app):
         super().__init__(app)
         self.owner=None
+        self.target=None
         self._dispatching_help=False
         from .application_events import listen
-        listen(self, QEvent.Type.ToolTip, QEvent.Type.Show, QEvent.Type.Resize)
+        listen(self, QEvent.Type.ToolTip, QEvent.Type.Polish, QEvent.Type.Show, QEvent.Type.Resize)
 
     @staticmethod
     def round_tip(tip):
         if not isValid(tip):return
-        path=QPainterPath();radius=min(8,tip.height()/2)
-        path.addRoundedRect(QRectF(tip.rect()),radius,radius)
-        tip.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        # A binary QRegion cuts off the stylesheet's antialiasing at fractional
+        # DPI. The alpha window already supplies the rounded transparent edge.
+        if not tip.mask().isEmpty():tip.clearMask()
 
     def style_tip(self,tip,owner):
         if not isValid(tip) or not isValid(owner):return
@@ -73,8 +74,22 @@ class TooltipStyler(QObject):
         tip.setWordWrap(False)
         natural=tip.sizeHint().width()
         tip.setWordWrap(natural>limit);tip.adjustSize()
-        tip.move(max(screen.left()+8,min(tip.x(),screen.right()-tip.width()-8)),
-                 max(screen.top()+8,min(tip.y(),screen.bottom()-tip.height()-8)))
+        x,y=tip.x(),tip.y()
+        target=self.target() if self.target else None
+        if isinstance(target,QAbstractButton) and isValid(target) and target.isVisible():
+            bounds=QRect(target.mapToGlobal(QPoint()),target.size())
+            ancestor=target
+            side=None
+            while ancestor is not None and side is None:
+                side=ancestor.property('pcsTooltipSide');ancestor=ancestor.parentWidget()
+            if side=='right':
+                x=bounds.right()+9;y=bounds.center().y()-tip.height()//2
+                if x+tip.width()>screen.right()-8:x=bounds.left()-8-tip.width()
+            else:
+                x=bounds.center().x()-tip.width()//2;y=bounds.bottom()+9
+                if y+tip.height()>screen.bottom()-8:y=bounds.top()-8-tip.height()
+        tip.move(max(screen.left()+8,min(x,screen.right()-tip.width()-8)),
+                 max(screen.top()+8,min(y,screen.bottom()-tip.height()-8)))
         self.round_tip(tip)
 
     def refresh_tip(self):
@@ -87,6 +102,7 @@ class TooltipStyler(QObject):
         if event.type()==QEvent.Type.ToolTip and isinstance(watched,QWidget) and not self._dispatching_help:
             owner=hint_owner(watched)
             self.owner=weakref.ref(owner) if owner else None
+            self.target=weakref.ref(watched) if owner else None
             if owner and redundant_hint(watched):
                 QToolTip.hideText()
                 event.ignore();return True
@@ -104,6 +120,14 @@ class TooltipStyler(QObject):
                 self.refresh_tip()
                 return True
         if isinstance(watched,QWidget) and watched.inherits('QTipLabel'):
+            if event.type()==QEvent.Type.Polish:
+                # QTipLabel polishes in its constructor, before creating its
+                # native handle. Set translucency now, not after the first show.
+                watched.setWindowFlags(watched.windowFlags() | Qt.WindowType.FramelessWindowHint |
+                                       Qt.WindowType.NoDropShadowWindowHint)
+                watched.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+                watched.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent,False)
+                watched.setAutoFillBackground(False)
             owner=self.owner() if self.owner else None
             if owner is not None and isValid(owner):
                 if event.type()==QEvent.Type.Show:
@@ -113,6 +137,12 @@ class TooltipStyler(QObject):
 
 
 def install_tooltip_styling():
+    from .popup_surface import install_native_popup_finish
+    install_native_popup_finish()
     app=QApplication.instance()
     if app is not None and not hasattr(app,'_pcs_tooltip_styler'):
+        # Native fading captures the label before placeTip()/reuse has finished
+        # its geometry and style, producing a second, stale rectangular frame.
+        for effect in (Qt.UIEffect.UI_AnimateTooltip,Qt.UIEffect.UI_FadeTooltip):
+            app.setEffectEnabled(effect,False)
         app._pcs_tooltip_styler=TooltipStyler(app)
