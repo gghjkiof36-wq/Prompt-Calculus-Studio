@@ -265,7 +265,7 @@ class TextCanvas(QWidget):
 
     def showEvent(self,event):
         super().showEvent(event)
-        QTimer.singleShot(0,self.present)
+        QTimer.singleShot(0,self,self.present)
 
     def hideEvent(self,event):
         if self._has_presented_view:

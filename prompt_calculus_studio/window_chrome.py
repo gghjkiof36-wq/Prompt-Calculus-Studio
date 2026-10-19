@@ -378,7 +378,7 @@ class ExpandedWindowChrome(QObject):
         if message in (0x0104,0x0106) and parameter == 32:  # Alt+Space / SYSCHAR
             if message == 0x0104 and not previous & (1 << 30):
                 from .window_menu import open_window_menu
-                QTimer.singleShot(0, lambda: open_window_menu(self.window))
+                QTimer.singleShot(0, self.window, lambda: open_window_menu(self.window))
             return True, 0
         command = parameter & 0xFFF0
         keyboard_menu = message == 0x0112 and command == 0xF100 and previous == 32
@@ -386,7 +386,7 @@ class ExpandedWindowChrome(QObject):
         if keyboard_menu or mouse_menu:
             from .window_menu import open_window_menu
             position = QCursor.pos() if mouse_menu else None
-            QTimer.singleShot(0, lambda: open_window_menu(self.window, position))
+            QTimer.singleShot(0, self.window, lambda: open_window_menu(self.window, position))
             return True, 0
         if message == 0x0084:  # WM_NCHITTEST: never synthesize a click here.
             return True, self.native_api.hit_test(hwnd, previous, self.window.windowFlags(),
@@ -398,7 +398,7 @@ class ExpandedWindowChrome(QObject):
         if message == 0x00A2 and (self.caption_pressed or parameter in (8, 9, 20)):
             pressed, self.caption_pressed = self.caption_pressed, 0
             if pressed == parameter:
-                QTimer.singleShot(0, lambda action=pressed: self.activate_caption(action))
+                QTimer.singleShot(0, self.window, lambda action=pressed: self.activate_caption(action))
             return True, 0
         if message in (0x0202, 0x0215, 0x001F):  # Client release, capture lost, cancel mode.
             self.caption_pressed = 0

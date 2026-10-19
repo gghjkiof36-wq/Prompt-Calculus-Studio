@@ -323,7 +323,7 @@ class Window(QMainWindow):
         self.canvas_workspace_bar.refresh()
         self.canvas_workspace_bar.workspace_switch.set_mode('canvas')
         self.surface_stack.setCurrentWidget(self.canvas_shell)
-        self.refresh_builder(); self.changed(); QTimer.singleShot(0,self.canvas.restore_view)
+        self.refresh_builder(); self.changed(); QTimer.singleShot(0,self.canvas,self.canvas.restore_view)
         self.canvas.functions.mode_changed()
         self.record_navigation('home','canvas')
 
@@ -782,7 +782,7 @@ class Window(QMainWindow):
         super().resizeEvent(event)
         if hasattr(self,"state") and not self.embedded_document: update_window_shape(self)
         if hasattr(self,'builder_scroll'):self.adapt_prompt_layout()
-        if hasattr(self,'sidebar_peek'):QTimer.singleShot(0,self.sync_context_sidebar)
+        if hasattr(self,'sidebar_peek'):QTimer.singleShot(0,self,self.sync_context_sidebar)
     def compact_module_changed(self):
         if not hasattr(self,'module_list'):return
         target=self.compact_modules.currentData()

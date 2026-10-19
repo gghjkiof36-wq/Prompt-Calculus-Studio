@@ -1,7 +1,7 @@
 """Menu translucency is a saved appearance choice, independent of the shell."""
-import copy,os,tempfile,unittest
+import copy,os,tempfile,unittest,sys
 from unittest.mock import patch
-from PySide6.QtCore import QPoint,Qt
+from PySide6.QtCore import QPoint,Qt,QEvent,QCoreApplication
 from PySide6.QtGui import QColor,QFontDatabase,QPalette,QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication,QWidget,QVBoxLayout
@@ -41,7 +41,8 @@ class MenuTransparencySurfaceTests(unittest.TestCase):
         self.host.show();APP.processEvents()
 
     def tearDown(self):
-        self.host.close();APP.processEvents()
+        self.host.close();self.host.deleteLater()
+        QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete);APP.processEvents()
 
     def test_zero_default_and_maximum_change_only_sample_tint_with_solid_fallback(self):
         popup=QWidget(self.host,Qt.WindowType.Popup);popup.resize(220,140)
@@ -88,6 +89,8 @@ class MenuTransparencySurfaceTests(unittest.TestCase):
 
 class MenuTransparencySettingsTests(unittest.TestCase):
     def setUp(self):
+        self.callback_errors=[];self.old_hook=sys.excepthook
+        sys.excepthook=lambda _type,error,_trace:self.callback_errors.append(str(error))
         from prompt_calculus_studio.window import Window
         self.tmp=tempfile.TemporaryDirectory()
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_DATA':self.tmp.name});self.env.start()
@@ -96,7 +99,14 @@ class MenuTransparencySettingsTests(unittest.TestCase):
         self.w.state['settings'].update(online=False,material='solid');self.w.apply_theme();self.w.show();self.w.settings('appearance')
 
     def tearDown(self):
-        self.w.close();APP.processEvents();self.network.stop();self.env.stop();self.tmp.cleanup()
+        self.w.close();self.w.deleteLater()
+        # Dispose the settings page and its queued autosave before deleting
+        # its temporary storage or allowing a later test to change fonts.
+        QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete);APP.processEvents()
+        QTest.qWait(30)
+        self.network.stop();self.env.stop();self.tmp.cleanup()
+        sys.excepthook=self.old_hook
+        self.assertEqual(self.callback_errors,[])
 
     def test_live_preview_save_restore_and_reset_keep_window_transparency_independent(self):
         page=self.w.settings_page;prefs=page.preferences

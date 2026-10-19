@@ -178,7 +178,7 @@ class CivitAIPage(QFrame):
         self.detail_pane.setStyleSheet(f'QWidget#CivitaiDetails QLabel, QWidget#CivitaiDetails QPushButton, QWidget#CivitaiDetails QComboBox {{font-size:{size}px;}} QWidget#CivitaiDetails QLabel#Heading {{font-size:{max(19,size+3)}px;font-weight:600;}}')
     def showEvent(self,event):
         super().showEvent(event); self.schedule_thumbnails()
-        QTimer.singleShot(0,self.browse_on_entry)
+        QTimer.singleShot(0,self,self.browse_on_entry)
     def browse_on_entry(self):
         if not self.isVisible() or not self.policy.refresh():return
         if not self.initial_requested:self.search()

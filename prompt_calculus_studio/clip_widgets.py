@@ -238,7 +238,7 @@ class ExecutionBar(QFrame):
                       max(area.top(),min(self.y(),area.bottom()-self.height()+1)))
         self.place_zoom_controls()
     def eventFilter(self,watched,event):
-        if watched is self.parentWidget() and event.type()==QEvent.Type.Resize: QTimer.singleShot(0,self.place)
+        if watched is self.parentWidget() and event.type()==QEvent.Type.Resize: QTimer.singleShot(0,self,self.place)
         if watched is self.handle:
             if event.type()==QEvent.Type.MouseButtonPress and event.button()==Qt.MouseButton.LeftButton:
                 self.drag=(event.globalPosition().toPoint(),self.pos()); return True

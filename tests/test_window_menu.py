@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtCore import QEvent, QPoint, Qt, QCoreApplication
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget
 from shiboken6 import isValid
@@ -63,6 +63,16 @@ class WindowMenuTests(unittest.TestCase):
         self.assertFalse(actions[0xF000].isEnabled());self.assertFalse(actions[0xF030].isEnabled())
         QTest.mouseClick(menu,Qt.MouseButton.LeftButton,pos=menu.actionGeometry(actions[0xF060]).center())
         APP.processEvents();self.assertEqual(self.commands,[(123,0xF060)])
+
+    def test_pending_window_menu_is_cancelled_when_its_window_is_destroyed(self):
+        window=QMainWindow();window.setCentralWidget(QWidget())
+        with patch('prompt_calculus_studio.window_chrome.supported',return_value=True):
+            control=install_expanded_chrome(window)
+        control.hwnd,control.caption_replaced=456,True
+        with patch('prompt_calculus_studio.window_menu.open_window_menu') as show:
+            self.assertEqual(control.native_notification(456,0x104,32,1<<29),(True,0))
+            window.deleteLater();QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+            APP.processEvents();show.assert_not_called()
 
     def test_native_routes_only_alt_space_and_window_menu_requests(self):
         window=QMainWindow();window.setCentralWidget(QWidget())

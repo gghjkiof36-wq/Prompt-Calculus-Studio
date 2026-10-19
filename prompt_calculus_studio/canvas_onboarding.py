@@ -89,7 +89,7 @@ class CanvasZoomControls(QFrame):
         self.move(x,y);self.raise_()
 
     def eventFilter(self,watched,event):
-        if event.type() in (QEvent.Type.Resize,QEvent.Type.Show):QTimer.singleShot(0,self.place)
+        if event.type() in (QEvent.Type.Resize,QEvent.Type.Show):QTimer.singleShot(0,self,self.place)
         return super().eventFilter(watched,event)
 
 

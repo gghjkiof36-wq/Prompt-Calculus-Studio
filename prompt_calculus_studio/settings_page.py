@@ -392,7 +392,7 @@ class SettingsPage(QWidget):
                 inner=page.widget() if isinstance(page,QScrollArea) else page
                 if getattr(self.window,'workspace_owner',None) is not None:
                     inner.text_controls.append(self.preferences.material)
-                    self.preferences.material.currentIndexChanged.connect(lambda *_, page=inner:QTimer.singleShot(0,page.align_fields))
+                    self.preferences.material.currentIndexChanged.connect(lambda *_, page=inner:QTimer.singleShot(0,page,page.align_fields))
                     workspace=self.window.workspace_owner
                     if self.entry_navigation_position is None:
                         self.entry_navigation_position=workspace.navigation_position

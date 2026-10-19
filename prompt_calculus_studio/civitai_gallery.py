@@ -143,7 +143,7 @@ class Gallery(QListWidget):
         self.setItemDelegate(CardDelegate(self)); self.setGridSize(QSize(220,350)); self.setIconSize(QSize(320,320))
         self.viewport().installEventFilter(self)
     def eventFilter(self,watched,event):
-        if watched is self.viewport() and event.type()==QEvent.Type.Resize:QTimer.singleShot(0,self.reflow)
+        if watched is self.viewport() and event.type()==QEvent.Type.Resize:QTimer.singleShot(0,self,self.reflow)
         return super().eventFilter(watched,event)
     def resizeEvent(self,event):
         super().resizeEvent(event); self.reflow()
@@ -158,4 +158,4 @@ class Gallery(QListWidget):
             self.setGridSize(size)
             # The splitter may still be applying its viewport width here.
             # Lay out against the settled viewport when returning from details.
-            QTimer.singleShot(0,self.doItemsLayout)
+            QTimer.singleShot(0,self,self.doItemsLayout)

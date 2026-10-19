@@ -134,7 +134,7 @@ class AppearanceFormPage(QWidget):
         if event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange, QEvent.Type.Resize, QEvent.Type.Show):
             if hasattr(self, 'forms') and not self.sizing_pending:
                 self.sizing_pending = True
-                QTimer.singleShot(0, self.align_fields)
+                QTimer.singleShot(0, self, self.align_fields)
         return result
 
     def align_fields(self):
@@ -209,7 +209,7 @@ class SettingsDialog(StudioDialog):
         reading_layout.setContentsMargins(16,16,16,16); form.setVerticalSpacing(12); form.setHorizontalSpacing(16); appearance.forms.append(form)
         self.family = QFontComboBox(); self.family.setCurrentFont(QFont(s["font_family"]))
         appearance.text_controls.append(self.family)
-        self.family.currentFontChanged.connect(lambda *_:QTimer.singleShot(0,appearance.align_fields))
+        self.family.currentFontChanged.connect(lambda *_:QTimer.singleShot(0,appearance,appearance.align_fields))
         form.addRow("介面字型",self.family)
         self.ui_size = QSpinBox(); self.ui_size.setRange(9,22); self.ui_size.setValue(s["ui_size"])
         self.prompt_size = QSpinBox(); self.prompt_size.setRange(9,22); self.prompt_size.setValue(s["prompt_size"])

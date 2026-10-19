@@ -35,7 +35,7 @@ class OverflowPanel(QFrame):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
-            self.hide();QTimer.singleShot(0,self.bar.surface.focus_document);event.accept();return
+            self.hide();QTimer.singleShot(0,self.bar.surface,self.bar.surface.focus_document);event.accept();return
         if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
             current = next((i for i,b in enumerate(self.buttons) if b.hasFocus()), 0)
             step = {Qt.Key.Key_Left:-1,Qt.Key.Key_Right:1,Qt.Key.Key_Up:-self.columns,Qt.Key.Key_Down:self.columns}[event.key()]
