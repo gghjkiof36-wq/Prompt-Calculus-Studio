@@ -54,6 +54,44 @@ class MarkdownPerformanceTests(unittest.TestCase):
             shadow=s.toolbar_shadow.boundingRectFor(QRectF(s.toolbar.rect())).translated(s.toolbar.pos())
             self.assertTrue(QRectF(s.toolbar_host.rect()).contains(shadow))
 
+    def test_repeated_resources_share_resolution_only_within_one_projection(self):
+        from prompt_calculus_studio.markdown_links import Notes
+        from prompt_calculus_studio.markdown_render import render
+        asset=self.root/'asset.png';asset.write_bytes(b'synthetic image')
+        notes=Notes(self.root);source=('![One|32](asset.png) ![Two|64](asset.png) ![](later.png)\n\n')*120
+        with patch.object(notes,'resolve',wraps=notes.resolve) as resolve:
+            result=render(source,self.root/'Notes.md',self.root,notes=notes)
+            self.assertEqual(resolve.call_count,2)
+        self.assertEqual(len(result.attachments),360)
+        self.assertEqual([a['width'] for a in result.attachments[:3]],[32,64,None])
+        self.assertEqual(result.attachments[0]['path'],str(asset))
+        # A later render sees replacements and newly created resources even if
+        # the caller supplies the same Notes instance.
+        asset.unlink();(self.root/'later.png').write_bytes(b'new synthetic image')
+        with patch.object(notes,'resolve',wraps=notes.resolve) as resolve:
+            updated=render(source,self.root/'Notes.md',self.root,notes=notes)
+            self.assertEqual(resolve.call_count,2)
+        self.assertFalse(asset.exists())
+        self.assertEqual(updated.attachments[2]['path'],str(self.root/'later.png'))
+        escaped=render('![](../outside.png)\n\n'*2,self.root/'Notes.md',self.root,notes=notes)
+        self.assertTrue(all(a['path'] is None for a in escaped.attachments))
+
+    def test_repeated_image_headers_are_read_once_and_rechecked_on_refresh(self):
+        from PySide6.QtGui import QImage,QColor
+        from prompt_calculus_studio import markdown_rich_view as rich_module
+        asset=self.root/'asset.png';image=QImage(24,24,QImage.Format.Format_RGB32);image.fill(QColor('#6d8a7d'));image.save(str(asset))
+        source='![One|32](asset.png) ![Two|64](asset.png)\n\n'*30
+        (self.root/'Notes.md').write_bytes(source.encode());s=self.open('Notes.md').widget.md_surface
+        with patch.object(rich_module,'QImageReader',wraps=rich_module.QImageReader) as headers:
+            s.set_mode('read');self.assertEqual(headers.call_count,1)
+        self.assertEqual(s.reader.rich.projection.body.count('<img '),60)
+        self.assertIn('alt="One" width="32"',s.reader.rich.projection.body)
+        self.assertIn('alt="Two" width="64"',s.reader.rich.projection.body)
+        asset.write_bytes(b'not an image');s.reader.refresh()
+        self.assertNotIn('<img ',s.reader.rich.projection.body)
+        self.assertIn('圖片無法顯示',s.reader.rich.projection.body)
+        self.assertEqual(s.reader.rich.gate.allowed,set());self.assertEqual(s.page.encoded(),source.encode())
+
     def test_unwrapped_alignment_stays_within_the_available_measure(self):
         text='<p style="text-align:right">Right.</p>\n\n<p style="text-align:center">Centered.</p>'
         (self.root/'Notes.md').write_bytes(text.encode());s=self.open('Notes.md').widget.md_surface;e=s.editor

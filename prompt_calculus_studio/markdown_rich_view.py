@@ -66,7 +66,7 @@ class RichView(QWebEngineView):
         super().__init__(reader);self.reader=reader;self.surface=reader.surface
         self.document_path=document_path;self.interactive=interactive
         self.setAccessibleName('Markdown 內容閱讀區');self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-        self.payload={};self.projection=None;self.render_state='loading';self.pdf_pages={};self.ready=False;self.version=0;self.snapshot=None
+        self.payload={};self.projection=None;self.render_state='loading';self.pdf_pages={};self.ready=False;self.version=0;self.snapshot=None;self.image_sources={}
         from .markdown_relations import RelationWatch
         self.relations=RelationWatch(reader)
         self.profile=QWebEngineProfile(QApplication.instance())
@@ -126,14 +126,18 @@ class RichView(QWebEngineView):
                 if cached:return f'<img src="{cached}" alt="{html.escape(label,quote=True)}">'
                 return failure('遠端資源尚未載入')+f' <a class="source" href="pcs-action:remote/{index}">載入這個資源</a>'
             return failure('資源位置不在目前工作區')
-        if not local.is_file():return failure('找不到檔案')
         suffix=local.suffix.lower();width=entry['width'];height=entry['height']
         dims=(f' width="{max(16,min(1600,width))}"' if width else '')+(f' height="{max(16,min(1200,height))}"' if height else '')
         if suffix in IMAGES:
-            image=QImageReader(str(local));size=image.size()
-            if not image.canRead() or size.width()*size.height()>64_000_000:return failure('圖片無法顯示或尺寸過大')
-            self.gate.allowed.add(local.resolve())
-            return f'<img src="{html.escape(QUrl.fromLocalFile(str(local)).toString(),quote=True)}" alt="{html.escape(label,quote=True)}"{dims}>'
+            url=self.image_sources.get(local)
+            if url is None:
+                if not local.is_file():return failure('找不到檔案')
+                image=QImageReader(str(local));size=image.size()
+                if not image.canRead() or size.width()*size.height()>64_000_000:return failure('圖片無法顯示或尺寸過大')
+                self.gate.allowed.add(local.resolve());url=QUrl.fromLocalFile(str(local)).toString()
+                if len(self.image_sources)<2048:self.image_sources[local]=url
+            return f'<img src="{html.escape(url,quote=True)}" alt="{html.escape(label,quote=True)}"{dims}>'
+        if not local.is_file():return failure('找不到檔案')
         if suffix in AUDIO|VIDEO:
             self.gate.allowed.add(local.resolve());tag='audio' if suffix in AUDIO else 'video'
             return f'<span class="media"><{tag} controls preload="none"{dims} src="{html.escape(QUrl.fromLocalFile(str(local)).toString(),quote=True)}"></{tag}><span class="media-error" hidden>無法播放這個檔案或編碼。</span></span>'
@@ -153,7 +157,7 @@ class RichView(QWebEngineView):
 
     def refresh(self,text,*,projection=None):
         self.version+=1;self.snapshot=self.surface.page.buffer.snapshot()
-        self.gate.allowed.clear();workspace=self.surface.page.file_title.workspace
+        self.gate.allowed.clear();self.image_sources.clear();workspace=self.surface.page.file_title.workspace
         from .markdown_relations import notes_for
         notes=notes_for(self.surface);root=notes.root
         self.projection=projection if projection is not None else render(text,self.document_path or self.surface.page.path,root,self.resource,self.surface.preferences.get('hard_breaks',False),notes)

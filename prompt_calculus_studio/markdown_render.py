@@ -129,6 +129,9 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
             token=state.push('pcs_embed','',0);token.content=state.src[state.pos+3:end]
         state.pos=end+2;return True
     md.inline.ruler.before('image','pcs_embed',wiki_embed)
+    # A projection often references one image many times. Resolve once in this
+    # synchronous pass, never across refreshes or different embedded sources.
+    resolved_targets={}
     def embed(target,alt='',wiki=False):
         # Obsidian dimensions use |width or |widthxheight; the source is untouched.
         width=height=None
@@ -140,8 +143,14 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
             dimensions=re.search(r'\|(\d{1,4})(?:x(\d{1,4}))?$',alt)
             width=int(dimensions.group(1));height=int(dimensions.group(2)) if dimensions.group(2) else None;alt=alt[:dimensions.start()]
         elif wiki and '|' in target:target,alt=target.split('|',1)
-        candidates,anchor=notes.resolve(target,path,wiki)
-        local=candidates[0] if len(candidates)==1 else local_target(target,path,root)
+        key=(target,wiki)
+        resolved=resolved_targets.get(key)
+        if resolved is None:
+            candidates,anchor=notes.resolve(target,path,wiki)
+            local=candidates[0] if len(candidates)==1 else local_target(target,path,root)
+            resolved=(candidates,anchor,local)
+            if len(resolved_targets)<2048:resolved_targets[key]=resolved
+        candidates,anchor,local=resolved
         is_note=(local and local.suffix.lower()=='.md') or not Path(urlsplit(target).path).suffix
         if is_note and not urlsplit(target).scheme:
             label=alt or target
