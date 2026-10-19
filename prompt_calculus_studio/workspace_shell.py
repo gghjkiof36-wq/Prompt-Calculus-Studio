@@ -707,9 +707,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         page = MarkdownPage(path)
         if hasattr(self,'notebook'):self.notebook.opened(page)
         tab = Tab('md:' + uuid.uuid4().hex, path.stem, page, retained, path=path)
-        page.document().modificationChanged.connect(lambda _: self.update_tab(tab))
-        page.textChanged.connect(lambda: self.document_changed(tab))
-        page.compositionChanged.connect(lambda: self.document_changed(tab))
+        from .workspace_panes import PageObserver
+        PageObserver(self,tab)
         return self.add_tab(tab, replace_current=not new_tab)
 
 
@@ -1062,6 +1061,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         viewer = QPlainTextEdit()
         viewer.setReadOnly(True)
         candidates = [str(document.path)] + list(document.last_result.recovery_paths if document.last_result else ())
+        candidates += list(getattr(document,'recovery_paths',()))
         for path in dict.fromkeys(candidates):
             item = QListWidgetItem(Path(path).name)
             item.setToolTip(path)
@@ -1069,7 +1069,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             choices.addItem(item)
         def show(current, previous):
             try:
-                raw = Path(current.data(Qt.ItemDataRole.UserRole)).read_bytes()
+                with Path(current.data(Qt.ItemDataRole.UserRole)).open('rb') as stream:
+                    raw = stream.read(1024*1024+1)
                 text = raw[:1024*1024].decode('utf-8-sig', errors='replace')
                 if len(raw) > 1024*1024:
                     text += '\n\n（此處僅顯示前 1 MiB；完整內容保留在上列檔案。）'

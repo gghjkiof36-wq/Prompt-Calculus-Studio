@@ -2,7 +2,8 @@
 from pathlib import Path
 import json
 from shiboken6 import isValid
-from PySide6.QtCore import QObject,QTimer,QSaveFile,QIODevice,QMarginsF,Signal,Qt
+from PySide6.QtCore import QObject,QTimer,QSaveFile,QMarginsF,Signal,Qt
+from .file_publication import checked_replace
 from PySide6.QtGui import QPageLayout,QPageSize
 from PySide6.QtWidgets import QFileDialog,QWidget,QVBoxLayout
 
@@ -61,12 +62,7 @@ class PdfExport(QObject):
             if not raw.startswith(b'%PDF-') or len(raw)<500:raise ValueError('PDF 產生失敗。')
             current=self.path.read_bytes() if self.path.exists() else None
             if current!=self.before:raise ValueError('目的檔案已變更，請重新匯出。')
-            output=QSaveFile(str(self.path));output.setDirectWriteFallback(False)
-            if not output.open(QIODevice.OpenModeFlag.WriteOnly):raise OSError(output.errorString())
-            if output.write(raw)!=len(raw):output.cancelWriting();raise OSError(output.errorString())
-            if (self.path.read_bytes() if self.path.exists() else None)!=self.before:
-                output.cancelWriting();raise ValueError('目的檔案已變更，請重新匯出。')
-            if not output.commit():raise OSError(output.errorString())
+            checked_replace(self.path,self.before,raw,QSaveFile)
             self.finish(True,str(self.path))
         except (OSError,ValueError) as error:self.finish(False,str(error))
     def finish(self,ok,message):

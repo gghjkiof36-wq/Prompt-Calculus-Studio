@@ -10,6 +10,7 @@ from .widgets import ComboBox as QComboBox,style_completion
 from .markdown_source import SourceEdit,SourceSnapshot,edited_text,MAX_BYTES
 from .markdown_links import Notes,relocation_edits,links,note_paths
 from .markdown_relocation import checked_write,rewritten_bytes
+from .file_publication import PublicationError,block_recovery
 from .notebook_actions import template_edits,create_note
 from .notebook_dialogs import Sheet,decoded,NotePreview
 from .local_documents import paths
@@ -29,6 +30,7 @@ class Composition:
         self.actions=actions; self.w=actions.w; self.root=actions.root(); self.surface=surface
         self.source=surface.page.path; self.target=target; self.extract=extract; self.changes=[]; self.paused=[]
         self.journal=None; self.committed=False; self.written=[]; self.applied=[]; self.archived=False
+        self.recovery=[];self.recovery_needed=False
         if self.source==target:raise ValueError('來源與目的筆記不能相同。')
         if self.root not in target.parents:raise ValueError('目的筆記不在目前資料夾。')
         paths.checked(self.root,target.relative_to(self.root).as_posix())
@@ -85,6 +87,7 @@ class Composition:
         self.source_snapshot=snapshot
 
     def validate(self,undo=False):
+        if self.recovery_needed:raise ValueError('整理尚未完整復原，請先檢視保留的版本：'+str(self.journal))
         for c in self.changes:
             path=paths.checked(self.root,c['path'].relative_to(self.root).as_posix())
             expected=c['after'] if undo else c['before']
@@ -104,8 +107,23 @@ class Composition:
         for tab in self.paused:self.w.autosave.paused.discard(id(tab));self.w.autosave.schedule(tab)
         self.paused=[]
     def status(self,state):
-        (self.journal/'operation.json').write_text(json.dumps({'state':state,'source':str(self.source),'target':str(self.target),
+        (self.journal/'operation.json').write_text(json.dumps({'state':state,'source':str(self.source),'target':str(self.target),'recovery':self.recovery,
             'files':[{'path':str(c['path']),'index':i,'created':c['before'] is None,'removed':c['after'] is None} for i,c in enumerate(self.changes)]},ensure_ascii=False,indent=2),encoding='utf-8')
+    def retain_error(self,error):
+        if isinstance(error,PublicationError):
+            self.recovery.extend(error.result.recovery_paths)
+            return error.result.uncertain
+        return False
+    def block_recovery(self):
+        self.recovery_needed=True
+        locations=[*self.recovery,*self.journal.glob('*.md')]
+        message='整理尚未完整復原，請檢視回復版本。原稿保存於 '+str(self.journal)
+        affected={c['path'] for c in self.changes}
+        for tab in self.w.all_pages():
+            if tab.path in affected and hasattr(tab.widget,'buffer'):
+                block_recovery(tab.widget,message,locations)
+                self.w.autosave.stop(tab)
+                self.w.update_tab(tab)
     def commit(self):
         self.validate();self.pause()
         self.journal=self.w.data/'note-composition'/uuid.uuid4().hex;self.journal.mkdir(parents=True)
@@ -129,16 +147,22 @@ class Composition:
                     if c['edits']:c['page'].buffer.apply(c['snapshot'],c['edits'])
                     c['page'].baseline=c['after'];c['page'].document().setModified(False)
             self.status('complete');self.committed=True
-        except Exception:
-            failures=[]
+        except Exception as cause:
+            # The current write can have published and then discovered a
+            # conflict, before it was added to written. Do not call that a
+            # completed rollback or overwrite its external version.
+            failures=[str(cause)] if self.retain_error(cause) else []
             for c in reversed(self.written):
                 try:self.restore_file(c)
-                except Exception as error:failures.append(str(error))
+                except Exception as error:
+                    self.retain_error(error);failures.append(str(error))
             for c in reversed(self.applied):
                 try:self.restore_buffer(c,c['page'])
                 except Exception as error:failures.append(str(error))
+            if failures:self.block_recovery()
             self.status('recovery-needed' if failures else 'rolled-back')
-            if failures:raise ValueError('整理尚未完整復原。原稿保存於 '+str(self.journal)+'\n'+'\n'.join(failures))
+            if failures:
+                raise ValueError('整理尚未完整復原。原稿保存於 '+str(self.journal)+'\n'+'\n'.join(failures)) from cause
             raise
         finally:self.resume()
         if not self.extract:
@@ -172,13 +196,16 @@ class Composition:
         try:
             for c in reversed(self.changes):self.restore_file(c);restored.append(c)
             self.status('undone')
-        except Exception:
-            failures=[]
+        except Exception as cause:
+            failures=[str(cause)] if self.retain_error(cause) else []
             for c in reversed(restored):
                 try:self.restore_file(dict(c,before=c['after'],after=c['before']))
-                except Exception as error:failures.append(str(error))
+                except Exception as error:
+                    self.retain_error(error);failures.append(str(error))
+            if failures:self.block_recovery()
             self.status('recovery-needed' if failures else 'complete')
-            if failures:raise ValueError('復原尚未完成。原稿保存於 '+str(self.journal)+'\n'+'\n'.join(failures))
+            if failures:
+                raise ValueError('復原尚未完成。原稿保存於 '+str(self.journal)+'\n'+'\n'.join(failures)) from cause
             raise
         finally:self.resume()
         try:

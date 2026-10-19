@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 import uuid
-from PySide6.QtCore import QSaveFile,QIODevice
+from PySide6.QtCore import QSaveFile
+from .file_publication import checked_replace,PublicationError,block_recovery
 from .local_documents import paths
 from .markdown_source import SourceLedger,edited_text,MAX_BYTES
 from .markdown_links import Notes,relocation_edits
@@ -17,13 +18,7 @@ def rewritten_bytes(raw,edits):
 
 
 def checked_write(path,before,after):
-    path=paths.checked(path.parent,path.name)
-    if paths.read_bytes(path,MAX_BYTES)[0]!=before:raise ValueError('引用檔案已被外部修改：'+str(path))
-    output=QSaveFile(str(path));output.setDirectWriteFallback(False)
-    if not output.open(QIODevice.OpenModeFlag.WriteOnly):raise OSError(output.errorString())
-    if output.write(after)!=len(after) or paths.read_bytes(path,MAX_BYTES)[0]!=before:
-        output.cancelWriting();raise OSError('引用保存前內容已變更，原稿已保留：'+str(path))
-    if not output.commit():raise OSError(output.errorString())
+    return checked_replace(path,before,after,QSaveFile,max_bytes=MAX_BYTES)
 
 
 @dataclass
@@ -40,6 +35,7 @@ class Change:
 class RelocationPlan:
     def __init__(self,workspace,source,target):
         self.w=workspace;self.source=source;self.target=target;self.changes=[];self.written=[];self.applied=[];self.paused=[];self.journal=None;self.restored={}
+        self.failures=[];self.recovery=[]
         root=workspace.locations.root_for(source) or source.parent
         def read(path):
             tab=workspace.tab_for_path(path)
@@ -80,11 +76,16 @@ class RelocationPlan:
     def status(self,state):
         if self.journal:
             (self.journal/'operation.json').write_text(json.dumps(dict(state=state,source=str(self.source),target=str(self.target),
-                files=[dict(before=str(c.path),after=str(c.target),index=i) for i,c in enumerate(self.changes)]),ensure_ascii=False,indent=2),encoding='utf-8')
+                recovery=self.recovery,files=[dict(before=str(c.path),after=str(c.target),index=i) for i,c in enumerate(self.changes)]),ensure_ascii=False,indent=2),encoding='utf-8')
     def publish(self):
         for change in self.changes:
             if change.before!=change.after:
-                checked_write(change.target,change.before,change.after);self.written.append(change)
+                try:checked_write(change.target,change.before,change.after)
+                except PublicationError as error:
+                    self.recovery.extend(error.result.recovery_paths)
+                    if error.result.uncertain:self.failures.append(str(error))
+                    raise
+                self.written.append(change)
     def apply_buffers(self):
         for change in self.changes:
             if change.page:
@@ -98,21 +99,24 @@ class RelocationPlan:
         try:self.status('complete')
         except OSError:self.w.show_notice('引用與位置已更新；回復紀錄尚未標記完成：'+str(self.journal))
     def rollback(self):
-        errors=[]
+        errors=list(self.failures)
         for change in reversed(self.written):
             try:
                 checked_write(change.target,change.after,change.before)
                 info=change.target.stat()
                 self.restored[change.target]=(stamp(change.target),(info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns))
-            except (OSError,ValueError) as error:errors.append(str(error))
+            except (OSError,ValueError) as error:
+                errors.append(str(error))
+                if isinstance(error,PublicationError):self.recovery.extend(error.result.recovery_paths)
         for change in reversed(self.applied):
             change.page.document().undo();change.page.baseline=change.before
             change.page.document().setModified(change.page.encoded()!=change.before)
-        self.status('recovery-needed' if errors else 'rolled-back')
         if errors:
             for change in self.changes:
                 if change.page:
-                    change.page.operation_error=True;change.page.error='引用尚未完整回復，原稿保留於 '+str(self.journal)
+                    block_recovery(change.page,'引用尚未完整回復，請檢視回復版本。原稿保留於 '+str(self.journal),[self.journal,*self.recovery])
+        self.status('recovery-needed' if errors else 'rolled-back')
+        if errors:
             raise ValueError('\n'.join(errors)+'\n原稿副本：'+str(self.journal))
 
     def restored_source_stamp(self,expected):

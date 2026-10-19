@@ -2,7 +2,7 @@
 import html
 import json
 import re
-from PySide6.QtCore import Qt, QTimer, QSaveFile, QIODevice, QEvent, QPoint, QSize
+from PySide6.QtCore import Qt, QTimer, QSaveFile, QIODevice, QEvent, QPoint, QSize, Slot
 from PySide6.QtGui import QFont, QFontDatabase, QTextCursor, QColor, QKeySequence, QShortcut, QPixmap, QIcon
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget, QSplitter, QToolButton, QComboBox, QSpinBox, QLineEdit, QLabel, QCheckBox, QListWidget, QListWidgetItem, QColorDialog, QFontDialog, QGraphicsDropShadowEffect, QFrame
 from .widgets import RoundMenu as QMenu
@@ -111,7 +111,7 @@ class MarkdownSurface(QWidget):
         if not hasattr(page.buffer,'word_statistics'):page.buffer.word_statistics=WordStatistics(page.buffer)
         page.buffer.word_statistics.updated.connect(self.update_statistics)
         self.refresh_timer = QTimer(self);self.refresh_timer.setSingleShot(True);self.refresh_timer.timeout.connect(self.refresh)
-        page.buffer.text.contentsChanged.connect(lambda:self.refresh_timer.start(40))
+        page.buffer.text.contentsChanged.connect(self.schedule_refresh)
         page.buffer.text.modificationChanged.connect(self.update_statistics)
         page.buffer.text.undoAvailable.connect(self.update_controls)
         page.buffer.text.redoAvailable.connect(self.update_controls)
@@ -129,6 +129,10 @@ class MarkdownSurface(QWidget):
         self.apply_appearance();self.apply_preferences();self.refresh()
         self.editor.document().setLayoutEnabled(True)
         QTimer.singleShot(0, self.load_preferences)
+
+    @Slot()
+    def schedule_refresh(self):
+        self.refresh_timer.start(40)
 
     def tool(self, label, callback, symbol=None, text=None):
         control = QToolButton();control.setAccessibleName(label);control.setToolTip(label)

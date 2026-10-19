@@ -96,7 +96,7 @@ class WorkspaceFileOperations(QObject):
         for page in op.pages:
             owner = page.document or page.widget
             owner.error, owner.operation_error = message, True
-            owner.recovery_paths = [str(p) for p in locations]
+            owner.recovery_paths = list(dict.fromkeys([*getattr(owner,'recovery_paths',[]), *map(str,locations)]))
             self.w.autosave.stop(page)
             self.w.update_tab(page)
 
@@ -253,6 +253,8 @@ class WorkspaceFileOperations(QObject):
                     tab.widget.path, tab.widget.baseline, tab.widget.error = target, raw, ''
                     tab.widget.setAccessibleName(target.name + '，Markdown 編輯')
                     tab.widget.document().setModified(False)
+                    tab.widget.last_result = None
+                    tab.widget.recovery_paths = []
                 owner = tab.document or tab.widget
                 owner.operation_error = False
                 for view in op.pages:

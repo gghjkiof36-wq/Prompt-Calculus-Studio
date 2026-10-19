@@ -3,7 +3,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 import uuid
 
-from PySide6.QtCore import QObject, QEvent, Qt, QTimer
+from PySide6.QtCore import QObject, QEvent, Qt, QTimer, Slot
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QStackedWidget, QSplitter, QApplication
 
 from .document_tabs import DocumentTabs
@@ -20,6 +20,33 @@ class Pane:
     container: QWidget
     strip: DocumentTabs
     pages: QStackedWidget
+
+
+class PageObserver(QObject):
+    """Shared document signals stop at the lifetime of this view's QObject."""
+    def __init__(self, workspace, tab):
+        super().__init__(tab.widget)
+        self.workspace, self.tab = workspace, tab
+        tab.widget._workspace_observer = self
+        if tab.document:
+            tab.document.changed.connect(self.changed)
+            tab.document.editing.connect(self.editing)
+        else:
+            tab.widget.textChanged.connect(self.changed)
+            tab.widget.compositionChanged.connect(self.changed)
+            tab.widget.document().modificationChanged.connect(self.modified)
+
+    @Slot()
+    def changed(self):
+        self.workspace.document_changed(self.tab)
+
+    @Slot(bool)
+    def modified(self, _modified):
+        self.workspace.update_tab(self.tab)
+
+    @Slot()
+    def editing(self):
+        self.workspace.retain(self.tab)
 
 
 class PaneFocus(QObject):
@@ -215,12 +242,13 @@ class WorkspacePanes:
         return tab
 
     def update_tab(self, tab):
+        if self.tabs_by_key.get(tab.key) is not tab:return
+        at = self.index_of(tab.key)
+        if at < 0:return
         from .workspace_file_title import title_for
         title = title_for(tab)
         if title is not None:
             title.bind(self, tab)
-        at = self.index_of(tab.key)
-        if at < 0:return
         strip = self.pane_for(tab).strip
         if tab.dirty:tab.retained = True
         strip.decorate(at, tab.title, True, tab.dirty, str(tab.path or ''))
@@ -246,9 +274,7 @@ class WorkspacePanes:
                 page = MarkdownPage(path, matching[0].widget.buffer if matching else None)
                 tab = Tab('md:'+uuid.uuid4().hex, path.stem, page, retained, path=path)
                 if not hasattr(page.buffer, 'save_key'):page.buffer.save_key = tab.key
-                page.textChanged.connect(lambda: self.document_changed(tab))
-                page.compositionChanged.connect(lambda: self.document_changed(tab))
-                page.document().modificationChanged.connect(lambda _: self.update_tab(tab))
+                PageObserver(self,tab)
                 if hasattr(self,'notebook'):self.notebook.opened(page)
             else:
                 document = matching[0].document if matching else next((d for d in self.documents if d.path == path), None)
@@ -274,8 +300,7 @@ class WorkspacePanes:
                 # therefore never reuse the former document id as a view key.
                 key = 'view:'+uuid.uuid4().hex
                 tab = Tab(key, path.stem, page, retained, document, path, host=host)
-                document.changed.connect(lambda: self.document_changed(tab))
-                document.editing.connect(lambda: self.retain(tab))
+                PageObserver(self,tab)
             return self.add_tab(tab, replace_current=not new_tab and not background, pane=pane, background=background)
         except (ValueError, OSError, KeyError) as error:
             self.last_open_error = str(error)
@@ -478,8 +503,9 @@ class WorkspacePanes:
             editor = tab.host.canvas if tab.document else tab.widget
             menu.addAction('復原 · Ctrl+Z', editor.undo)
             menu.addAction('重做 · Ctrl+Y', editor.redo)
-            if tab.document and tab.document.error:
-                menu.addAction('檢視回復版本', lambda: self.show_recovery(tab.document))
+            owner = tab.document or tab.widget
+            if owner.error and (tab.document is not None or getattr(owner,'last_result',None)):
+                menu.addAction('檢視回復版本', lambda: self.show_recovery(owner))
             for location in getattr(tab.document or tab.widget, 'recovery_paths', []):
                 path = Path(location)
                 if path.is_file() and path.suffix.casefold() in ('.md', '.pcs-category', '.pcs-workflow'):

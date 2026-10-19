@@ -1,6 +1,6 @@
 """File creation and plain Markdown editing for the local workspace."""
 from pathlib import Path
-from PySide6.QtCore import QSaveFile, QIODevice, QObject, Signal, QEvent
+from PySide6.QtCore import QSaveFile, QObject, Signal, QEvent
 from PySide6.QtWidgets import QPlainTextEdit, QFrame, QPlainTextDocumentLayout
 from PySide6.QtGui import QTextDocument, QTextCursor
 import weakref
@@ -72,6 +72,8 @@ class MarkdownBuffer(QObject):
         self.loading = False
         self.mapping_error = ''
         self.pending_pieces = None
+        self.last_result = None
+        self.recovery_paths = []
 
     def changed(self, position, removed, added):
         self.snapshot_key=None
@@ -139,6 +141,8 @@ class MarkdownPage(QPlainTextEdit):
     baseline = BufferField()
     error = BufferField()
     operation_error = BufferField()
+    last_result = BufferField()
+    recovery_paths = BufferField()
 
     def __init__(self, path, buffer=None):
         super().__init__()
@@ -246,7 +250,8 @@ class MarkdownPage(QPlainTextEdit):
         return self.document().isModified()
 
     def save(self):
-        if self.buffer.composing:
+        from .file_publication import checked_replace, PublicationError
+        if self.buffer.composing or self.operation_error:
             return False
         if not self.dirty and not self.error and not self.buffer.mapping_error:
             return True
@@ -261,21 +266,18 @@ class MarkdownPage(QPlainTextEdit):
                 self.error = ''
                 self.buffer.external_error = ''
                 return True
-            output = QSaveFile(str(target))
-            output.setDirectWriteFallback(False)
-            if not output.open(QIODevice.OpenModeFlag.WriteOnly):
-                raise OSError(output.errorString())
-            if output.write(raw) != len(raw) or paths.read_bytes(target, 8*1024*1024)[0] != self.baseline:
-                output.cancelWriting()
-                raise OSError('保存前檔案已變更或無法完整寫入；編輯內容保留。')
-            if not output.commit():
-                raise OSError(output.errorString())
+            checked_replace(target, self.baseline, raw, QSaveFile, max_bytes=MAX_BYTES)
             self.baseline = raw
+            self.last_result = None
+            self.recovery_paths = []
             self.error = ''
             self.buffer.external_error = ''
             self.document().setModified(False)
             return True
         except (ValueError, OSError) as error:
+            if isinstance(error, PublicationError):
+                self.last_result = error.result
+                self.recovery_paths = list(dict.fromkeys([*self.recovery_paths, *error.result.recovery_paths]))
             self.error = str(error)
             self.buffer.external_error = ''  # Explicit save failure needs explicit retry.
             return False

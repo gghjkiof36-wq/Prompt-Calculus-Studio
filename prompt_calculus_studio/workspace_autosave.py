@@ -68,7 +68,7 @@ class WorkspaceAutosave(QObject):
     def flush(self, tab):
         self.stop(tab)
         if (tab in self.workspace.all_pages() and id(tab) not in self.paused and tab.dirty
-                and not self.editing_dialog(tab)):
+                and not (tab.document or tab.widget).error and not self.editing_dialog(tab)):
             self.workspace.save_tab(tab)
 
     def stop(self, tab):
