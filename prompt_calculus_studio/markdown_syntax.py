@@ -233,7 +233,7 @@ def inline_html(text):
     return ''.join(output)
 
 
-def reading_html(text, hard_breaks=False, *, lines=None):
+def reading_html(text, hard_breaks=False, *, lines=None, web=False):
     """B text presentation; advanced blocks retain source until C handles them."""
     output, paragraph = [], []
     def flush():
@@ -251,7 +251,10 @@ def reading_html(text, hard_breaks=False, *, lines=None):
             output.append(f'<h{level} id="line-{number}" style="'+html.escape(css,quote=True)+'">'+inline_html(heading.group(3))+f'</h{level}>')
         elif listing:
             flush();indent, marker, checked, body = listing.groups()
-            lead = ('<img src="pcs-task:'+('checked' if checked.lower() == 'x' else 'open')+'" width="14" height="14"/>') if checked is not None else ('•' if marker in '-+*' else item['display_marker'])
+            if checked is not None:
+                ticked=checked.lower()=='x'
+                lead=('<input type="checkbox" disabled'+(' checked' if ticked else '')+'>') if web else ('<img src="pcs-task:'+('checked' if ticked else 'open')+'" width="14" height="14"/>')
+            else:lead='•' if marker in '-+*' else item['display_marker']
             output.append(f'<p id="line-{number}" style="margin-left:{len(indent)*8}px">'+lead+' '+inline_html(body)+'</p>')
         elif re.fullmatch(r'\s{0,3}([-*_])(?:\s*\1){2,}\s*', line):
             flush();output.append('<hr/>')

@@ -35,7 +35,7 @@ window.refreshDocument = function () {
     document.documentElement.classList.toggle('note-preview',!!data.preview);
     root.innerHTML = DOMPurify.sanitize(data.html || '', {
       ADD_TAGS:['audio','video','source'], ADD_ATTR:['controls','preload','data-math','data-diagram'],
-      ADD_URI_SAFE_ATTR:['width','height'],
+      ADD_URI_SAFE_ATTR:['width','height','type'],
       FORBID_TAGS:['script','iframe','object','embed','form','style','link'],
       ALLOWED_URI_REGEXP:/^(?:(?:file|data|pcs-action):|#)/i
     });

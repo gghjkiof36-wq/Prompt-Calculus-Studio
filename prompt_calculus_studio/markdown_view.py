@@ -788,7 +788,7 @@ class ReadingView(QTextBrowser):
         # The native rich-text importer becomes quadratic with many blocks.
         # Large manuscripts use the same local renderer as tables and media;
         # never build an invisible second rich-text layout for those documents.
-        large=len(source)>128_000
+        large=len(source)>128_000 or self.surface.editor.lazy_presentation
         complex_content=advanced(source)
         self.advanced=large or complex_content
         self.viewport().setVisible(not self.advanced)
@@ -802,7 +802,7 @@ class ReadingView(QTextBrowser):
             if large and not complex_content:
                 editor=self.surface.editor
                 lines=editor.lines if editor._metadata_snapshot is self.surface.page.buffer.snapshot() else None
-                projection=Projection(body=reading_html(source,self.surface.preferences.get('hard_breaks',False),lines=lines))
+                projection=Projection(body=reading_html(source,self.surface.preferences.get('hard_breaks',False),lines=lines,web=True))
             self.rich.refresh(source,projection=projection)
             if large:self.clear()
             else:self.replace_html(self.rich.projection.body)

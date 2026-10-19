@@ -1,4 +1,5 @@
 """Rendering work stays local without changing source or selection semantics."""
+import json
 import unittest
 from unittest.mock import patch
 from PySide6.QtCore import Qt,QRectF,QThreadPool
@@ -81,8 +82,9 @@ class MarkdownPerformanceTests(unittest.TestCase):
         self.assertIsNone(counter.job);self.assertIsNone(counter.pending)
 
     def test_large_reader_uses_visible_projection_without_native_html_copy(self):
-        text=('## Scene\n\nA quiet evening.\n\n'*5000)+'## 最後一節\n\nEND 😀'
+        text='- [x] Done\n- [ ] Open\n\n'+('## Scene\n\nEvening.\n\n'*5000)+'## 最後一節\n\nEND 😀'
         (self.root/'Notes.md').write_bytes(text.encode());s=self.open('Notes.md').widget.md_surface
+        self.assertLess(len(text),128_000);self.assertTrue(s.editor.lazy_presentation)
         with patch.object(s.reader,'setHtml',side_effect=AssertionError('hidden rich-text import')):
             s.set_mode('read')
         rich=s.reader.rich
@@ -90,11 +92,11 @@ class MarkdownPerformanceTests(unittest.TestCase):
             if rich.render_state=='ready':break
             QTest.qWait(20)
         self.assertEqual(rich.render_state,'ready')
-        result=[];rich.page().runJavaScript('document.querySelector("main").innerText.endsWith("END 😀")',result.append)
+        result=[];rich.page().runJavaScript('JSON.stringify([document.querySelector("main").innerText.endsWith("END 😀"),document.querySelectorAll("input[type=checkbox]").length,document.querySelectorAll("input:checked").length])',result.append)
         for _ in range(100):
             if result:break
             QTest.qWait(20)
-        self.assertEqual(result,[True]);self.assertTrue(s.reader.document().isEmpty())
+        self.assertEqual(json.loads(result[0]),[True,2,1]);self.assertTrue(s.reader.document().isEmpty())
         s.set_mode('write');self.assertEqual(s.page.encoded(),text.encode());self.assertFalse(s.page.dirty)
 
     def test_long_nested_highlight_preserves_explicit_ink_without_fragmenting(self):
