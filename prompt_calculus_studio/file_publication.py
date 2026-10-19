@@ -4,11 +4,14 @@ QSaveFile stages a candidate only. The final Windows replacement keeps the
 actual displaced file; a preflight comparison is not a compare-and-swap.
 """
 from dataclasses import dataclass
+from contextlib import ExitStack
 import os
 import uuid
 
 from PySide6.QtCore import QIODevice
+from shiboken6 import delete, isValid
 from .local_documents import paths, windows
+from .local_documents.directory_pin import pinned_parent
 
 
 @dataclass(frozen=True)
@@ -49,7 +52,12 @@ must not be treated as an ordinary, side-effect-free transaction failure.
     retained = []
     attempted = False
     conflict = False
+    output = None
+    protection = ExitStack()
     try:
+        # Pin the original spelling before checked() can resolve any path.
+        # Keep the pin through error diagnostics and recovery-copy cleanup.
+        protection.enter_context(pinned_parent(path))
         path = paths.checked(path.parent, path.name)
         if max_bytes is not None and len(after) > max_bytes:
             raise ValueError('文件超過 8 MiB，尚未保存。')
@@ -119,6 +127,15 @@ must not be treated as an ordinary, side-effect-free transaction failure.
             message += '\n保留的回復版本：\n' + '\n'.join(copies)
         result = WriteResult('conflict' if attempted or conflict else 'failed', copies, message, attempted)
         raise PublicationError(result) from error
+    finally:
+        try:
+            # A staging failure can keep the writer alive in an exception
+            # traceback. Destroy its native temporary file before unpinning
+            # the directories, not later during Python garbage collection.
+            if output is not None and isValid(output):
+                delete(output)
+        finally:
+            protection.close()
 
 
 def block_recovery(page, message, locations):
