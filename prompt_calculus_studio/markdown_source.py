@@ -25,7 +25,8 @@ class SourcePiece:
         return self.storage[self.start:self.end]
 
     def text(self):
-        return BREAK.sub('\n', self.raw())
+        raw=self.raw()
+        return BREAK.sub('\n',raw) if '\r' in raw or '\u2029' in raw else raw
 
     def cut(self, offset):
         raw = self.raw()

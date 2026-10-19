@@ -1,5 +1,6 @@
 """Bounded Markdown presentation metadata. Source offsets never come from HTML."""
 from dataclasses import dataclass
+from functools import lru_cache
 import html
 import re
 
@@ -119,6 +120,25 @@ def spans(text):
     return sorted(result, key=lambda item: (item.start, -item.end))
 
 
+_FENCE=re.compile(r'^[ \t>]*(`{3,}|~{3,})(.*)')
+_HEADING=re.compile(r'( {0,3})(#{1,6})\s+(.*?)(?:\s+#+\s*)?$')
+_LISTING=re.compile(r'(\s*)([-+*]|\d+[.)])\s+(?:\[([ xX])\]\s+)?(.*)$')
+
+
+def _parse_line_shape(line,protected):
+    container=next((span for span in spans(line) if span.start==0 and span.end==len(line)
+                   and (re.match(r'<(?:p|div)\b',line,re.I) or 'align' in span.style or 'indent' in span.style)),None) if line.startswith('<') and not protected else None
+    first,last=(container.first,container.last) if container else (0,len(line))
+    return container,first,last,None if protected else _HEADING.match(line,first,last),None if protected else _LISTING.match(line,first,last)
+
+
+_cached_line_shape=lru_cache(maxsize=2048)(_parse_line_shape)
+
+
+def _line_shape(line,protected):
+    return (_cached_line_shape if len(line)<=1024 else _parse_line_shape)(line,protected)
+
+
 def line_info(text):
     """Line metadata is shared by folding, outline, presentation and commands."""
     offset, fence, yaml, math = 0, None, text.startswith('---\n'), False
@@ -126,7 +146,7 @@ def line_info(text):
     for number, raw in enumerate(text.split('\n')):
         line = raw
         protected = False
-        marker = re.match(r'^[ \t>]*(`{3,}|~{3,})(.*)', line)
+        marker = _FENCE.match(line)
         if yaml:
             protected = True
             if number and line in ('---', '...'):yaml = False
@@ -139,11 +159,7 @@ def line_info(text):
         elif line.strip() == '$$':math = not math;protected = True
         elif math:protected = True
         elif re.match(r'^(?: {4}|\t)', line) and not re.match(r'^\s*(?:[-+*]|\d+[.)])\s+', line):protected = True
-        container = next((span for span in spans(line) if span.start == 0 and span.end == len(line)
-                          and (re.match(r'<(?:p|div)\b',line,re.I) or 'align' in span.style or 'indent' in span.style)),None) if line.startswith('<') and not protected else None
-        first,last = (container.first,container.last) if container else (0,len(line))
-        heading = None if protected else re.compile(r'( {0,3})(#{1,6})\s+(.*?)(?:\s+#+\s*)?$').match(line,first,last)
-        listing = None if protected else re.compile(r'(\s*)([-+*]|\d+[.)])\s+(?:\[([ xX])\]\s+)?(.*)$').match(line,first,last)
+        container,first,last,heading,listing=_line_shape(line,protected)
         display_marker = None
         if listing:
             indent, marker = len(listing.group(1)), listing.group(2)
@@ -217,14 +233,14 @@ def inline_html(text):
     return ''.join(output)
 
 
-def reading_html(text, hard_breaks=False):
+def reading_html(text, hard_breaks=False, *, lines=None):
     """B text presentation; advanced blocks retain source until C handles them."""
     output, paragraph = [], []
     def flush():
         if paragraph:
             output.append('<p>'+(' <br/>' if hard_breaks else ' ').join(paragraph)+'</p>')
             paragraph.clear()
-    for item in line_info(text):
+    for item in line_info(text) if lines is None else lines:
         line, number = item['text'], item['number']
         if item['protected']:
             flush();output.append('<pre id="line-'+str(number)+'">'+html.escape(line)+'</pre>');continue

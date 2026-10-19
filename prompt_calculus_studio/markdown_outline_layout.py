@@ -31,6 +31,7 @@ class OutlineLayout(QObject):
         reserve=host if self.placement=='column' else 0
         if pane.layout().contentsMargins().left()!=reserve:
             pane.layout().setContentsMargins(reserve,0,0,0)
+            pane.layout().activate()
         panel=s.outline_panel
         left=max(0,round((width-measure)/2)-host-12) if self.placement=='gutter' else 0
         panel.available_height=pane.height();panel.resize(min(host,width),pane.height());panel.move(left,0)

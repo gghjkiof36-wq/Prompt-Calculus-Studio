@@ -38,7 +38,7 @@ class AdvancedEditing(QObject):
             result.append(item)
         return result
     def paint(self):
-        QTextEdit.setExtraSelections(self.e,list(getattr(self.e,'base_selections',[]))+self.extras())
+        self.e.paint_selections(list(getattr(self.e,'base_selections',[]))+self.extras())
     def next_occurrence(self):
         cursor=self.e.textCursor()
         if not cursor.hasSelection():cursor.select(QTextCursor.SelectionType.WordUnderCursor);self.e.setTextCursor(cursor);return

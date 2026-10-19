@@ -151,12 +151,12 @@ class RichView(QWebEngineView):
                 f'<span class="pdf-controls"><a href="pcs-action:pdf/{index}/{max(1,number-1)}">上一頁</a>　{number} / {total}　<a href="pcs-action:pdf/{index}/{min(total,number+1)}">下一頁</a></span></span>')
         return failure('這個格式尚不支援內嵌顯示')
 
-    def refresh(self,text):
+    def refresh(self,text,*,projection=None):
         self.version+=1;self.snapshot=self.surface.page.buffer.snapshot()
         self.gate.allowed.clear();workspace=self.surface.page.file_title.workspace
         from .markdown_relations import notes_for
         notes=notes_for(self.surface);root=notes.root
-        self.projection=render(text,self.document_path or self.surface.page.path,root,self.resource,self.surface.preferences.get('hard_breaks',False),notes)
+        self.projection=projection if projection is not None else render(text,self.document_path or self.surface.page.path,root,self.resource,self.surface.preferences.get('hard_breaks',False),notes)
         self.relations.bind(self.projection.dependencies,root)
         tokens=dict(visual_tokens(window_appearance(self)));preferences=self.surface.preferences
         tokens['base']=tokens.get('canvas_background',tokens['base']);tokens['border']=tokens.get('line','#444444')

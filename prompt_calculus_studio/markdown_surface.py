@@ -47,11 +47,11 @@ class MarkdownSurface(QWidget):
         heading.addWidget(self.view_tools)
         body.addWidget(top)
         self.toolbar_host = QWidget(self)
-        tools_layout = QHBoxLayout(self.toolbar_host);tools_layout.setContentsMargins(12, 2, 12, 7)
+        tools_layout = QHBoxLayout(self.toolbar_host);tools_layout.setContentsMargins(12, 4, 12, 8)
         tools_layout.addStretch(1)
         self.toolbar = make_toolbar(self);tools_layout.addWidget(self.toolbar);tools_layout.addStretch(1)
         self.toolbar_shadow = QGraphicsDropShadowEffect(self.toolbar)
-        self.toolbar_shadow.setOffset(0, 3);self.toolbar_shadow.setBlurRadius(12)
+        self.toolbar_shadow.setOffset(0, 2);self.toolbar_shadow.setBlurRadius(6)
         self.toolbar.setGraphicsEffect(self.toolbar_shadow)
         body.addWidget(self.toolbar_host)
         self.find_bar = QWidget(self);self.find_bar.setObjectName('MarkdownFind')
@@ -104,6 +104,9 @@ class MarkdownSurface(QWidget):
         self.content_pane.installEventFilter(self);self.zoom_handler = DocumentZoom(self)
         self.statistics = QLabel();self.statistics.setObjectName('MarkdownStatus');self.statistics.setMinimumHeight(28)
         self.statistics.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse);body.addWidget(self.statistics)
+        from .markdown_statistics import WordStatistics
+        if not hasattr(page.buffer,'word_statistics'):page.buffer.word_statistics=WordStatistics(page.buffer)
+        page.buffer.word_statistics.updated.connect(self.update_statistics)
         self.refresh_timer = QTimer(self);self.refresh_timer.setSingleShot(True);self.refresh_timer.timeout.connect(self.refresh)
         page.buffer.text.contentsChanged.connect(lambda:self.refresh_timer.start(40))
         page.buffer.text.modificationChanged.connect(self.update_statistics)
@@ -283,7 +286,7 @@ class MarkdownSurface(QWidget):
 
     def set_editor_font(self, font):
         family = font.family().replace('"','').replace('\\','')
-        self.editor.setStyleSheet(f'QTextEdit {{border:0;padding:0;background:transparent;font-family:"{family}";font-size:{font.pointSizeF()}pt;}}')
+        self.editor.setStyleSheet(f'QPlainTextEdit {{border:0;padding:0;background:transparent;font-family:"{family}";font-size:{font.pointSizeF()}pt;}}')
         self.editor.setFont(font);self.editor.document().setDefaultFont(font)
 
     def apply_preferences(self):
@@ -334,7 +337,7 @@ class MarkdownSurface(QWidget):
         self.toolbar_host.setVisible(mode != 'read');self.replace_row.setVisible(False)
         self.title_host.setVisible(True)
         self.outline.setDragEnabled(mode != 'read')
-        if mode == 'read':self.reader.refresh();self.stack.setCurrentWidget(self.reader);self.reader.setFocus()
+        if mode == 'read':self.reader.refresh_cached();self.stack.setCurrentWidget(self.reader);self.reader.setFocus()
         else:
             self.editor.mode = mode;self.editor.update_metadata();self.stack.setCurrentWidget(self.editor);self.editor.setFocus()
         self.update_title_layout();self.search_changed();self.update_statistics();self.update_controls()
@@ -417,15 +420,13 @@ class MarkdownSurface(QWidget):
     def active_style(self):
         # History signals may precede another view's text synchronization.
         # Toolbar state must use that view's own text/cursor, never cross maps.
-        text = source_text(self.editor.document())
         offset = self.editor.textCursor().selectionStart()
-        try:start = python_position(text, offset)
+        block=self.editor.document().findBlock(offset);text=block.text()
+        try:start = python_position(text,offset-block.position())
         except UnicodeError:return dict(self.typing_style)
-        line = text[:start].rfind('\n')+1
-        stop = text.find('\n', start)
         values = {}
-        for item in spans(text[line:stop if stop >= 0 else len(text)]):
-            if item.first <= start-line <= item.last:values.update(item.style)
+        for item in spans(text):
+            if item.first <= start <= item.last:values.update(item.style)
         values.update(self.typing_style)
         return values
 
@@ -547,7 +548,7 @@ class MarkdownSurface(QWidget):
 
     def refresh(self):
         if not self.editor.lazy_presentation or self.outline_layout.requested:self.outline.rebuild(self.page.buffer.snapshot().text)
-        if self.mode == 'read':self.reader.refresh()
+        if self.mode == 'read':self.reader.refresh_cached()
         snapshot=self.page.buffer.snapshot()
         if getattr(self,'_relations_snapshot',None) is not snapshot:
             self._relations_snapshot=snapshot
@@ -565,12 +566,9 @@ class MarkdownSurface(QWidget):
         if not hasattr(self, 'statistics'):return
         snapshot=self.page.buffer.snapshot();text=snapshot.text;cursor = self.editor.textCursor()
         selected = self.reader.selected_text() if self.mode == 'read' else cursor.selectedText()
-        if getattr(self,'_statistics_snapshot',None) is not snapshot:
-            self._statistics_snapshot=snapshot
-            self._word_count=len(re.findall(r'[\u3400-\u9fff]|\w+(?:[\x27-]\w+)*', visible_text(text)))
-        count=self._word_count
+        count=self.page.buffer.word_statistics.request(snapshot)
         state = self.page.error or self.message or ('尚未保存' if self.page.dirty else '已保存')
-        self.statistics.setText(f'{count} 詞　{len(text)} 字元'+(f'　選取 {len(selected)} 字元' if selected else '')+'　·　'+state+(f'　·　{self.zoom_percent}%' if self.zoom_percent != 100 else ''))
+        self.statistics.setText((f'{count} 詞　' if count is not None else '')+f'{len(text)} 字元'+(f'　選取 {len(selected)} 字元' if selected else '')+'　·　'+state+(f'　·　{self.zoom_percent}%' if self.zoom_percent != 100 else ''))
         self.statistics.setToolTip(self.statistics.text());self.statistics.setAccessibleName(self.statistics.text())
 
     def toggle_outline(self):self.outline_layout.toggle()
@@ -584,22 +582,20 @@ class MarkdownSurface(QWidget):
         self.find_bar.show();self.replace_row.setVisible(bool(replace) and self.mode != 'read');self.query.setFocus();self.query.selectAll();self.search_changed()
 
     def matches(self):
-        query = self.query.text()
-        if not query:return []
-        text = self.reader.toPlainText() if self.mode == 'read' else self.page.buffer.snapshot().text
-        return [match.span() for match in re.finditer(re.escape(query), text, 0 if self.case_sensitive.isChecked() else re.I)]
+        return self.search_highlight.matches()
 
     def search_changed(self, *args):
         if not hasattr(self,'query') or not hasattr(self,'reader'):return
         self.search_highlight.update()
+        if not self.query.text():
+            self.clear_rich_search()
+            self.match_count.clear();self.find_previous.setEnabled(False);self.find_forward.setEnabled(False)
+            return
         if self.mode=='read' and self.reader.advanced and self.reader.rich:
             self.reader.rich.search(self.query.text() if self.find_bar.isVisible() else '',self.case_sensitive.isChecked());return
-        if not self.query.text():self.clear_rich_search()
-        matches = self.matches();number = 0
+        matches = self.matches()
         view = self.reader if self.mode == 'read' else self.editor
-        text = view.toPlainText();cursor = view.textCursor()
-        pair = (python_position(text,cursor.selectionStart()),python_position(text,cursor.selectionEnd()))
-        if pair in matches:number = matches.index(pair)+1
+        number=self.search_highlight.current_index(view)+1
         self.match_count.setText(f'{number}/{len(matches)}' if self.query.text() else '')
         self.find_previous.setEnabled(bool(matches));self.find_forward.setEnabled(bool(matches))
 
@@ -609,13 +605,11 @@ class MarkdownSurface(QWidget):
     def find_next(self, direction=1):
         if self.mode=='read' and self.reader.advanced and self.reader.rich:
             self.reader.rich.search(self.query.text(),self.case_sensitive.isChecked(),direction);return
-        matches = self.matches()
-        if not matches:return
         view = self.reader if self.mode == 'read' else self.editor
-        text = view.toPlainText();cursor = view.textCursor();at = python_position(text, cursor.selectionStart() if direction < 0 else cursor.selectionEnd())
-        found = next((match for match in reversed(matches) if match[1] <= at), matches[-1]) if direction < 0 else next((match for match in matches if match[0] >= at), matches[0])
+        cursor=view.textCursor();found=self.search_highlight.next_span(cursor,direction)
+        if found is None:return
         if self.mode != 'read':self.editor.fold_all(False)
-        cursor.setPosition(utf16_position(text, found[0]));cursor.setPosition(utf16_position(text, found[1]), QTextCursor.MoveMode.KeepAnchor);view.setTextCursor(cursor);view.ensureCursorVisible()
+        cursor.setPosition(found[0]);cursor.setPosition(found[1],QTextCursor.MoveMode.KeepAnchor);view.setTextCursor(cursor);view.ensureCursorVisible()
         self.search_changed()
 
     def replace_one(self):

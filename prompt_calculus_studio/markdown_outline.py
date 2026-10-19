@@ -45,7 +45,7 @@ class HeadingTree(QTreeWidget):
 
     def sync_current(self):
         from .markdown_source import python_position
-        if not hasattr(self.surface, 'editor'):return
+        if not hasattr(self.surface, 'editor') or not self.items:return
         position = python_position(self.surface.page.buffer.snapshot().text, self.surface.editor.textCursor().position())
         current = None
         for item in self.items:

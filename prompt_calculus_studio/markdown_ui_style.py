@@ -38,7 +38,7 @@ def styles(t, ui_size=12):
         QTreeWidget#MarkdownOutlineTree::branch:has-children:closed {{image:url({paths['right']});}}
         QTreeWidget#MarkdownOutlineTree::branch:has-children:open {{image:url({paths['down']});}}
         QWidget#MarkdownToolbar QToolButton:checked {{background:{t['selected']};}}
-        QTextEdit[searchHit="true"], QTextBrowser[searchHit="true"] {{selection-background-color:#fff16a;selection-color:#272410;}}
+        QPlainTextEdit[searchHit="true"], QTextBrowser[searchHit="true"] {{selection-background-color:#fff16a;selection-color:#272410;}}
         QToolBar#MarkdownRibbon QToolButton[hasMenu="true"], QFrame#MarkdownOverflow QToolButton[hasMenu="true"] {{padding-right:9px;}}
         QToolBar#MarkdownRibbon QToolButton::menu-indicator, QFrame#MarkdownOverflow QToolButton::menu-indicator {{image:url({caret});width:6px;height:4px;subcontrol-origin:padding;subcontrol-position:right center;right:2px;}}
         QToolBar#MarkdownRibbon QToolButton[singleCaret="true"]::menu-indicator, QFrame#MarkdownOverflow QToolButton[singleCaret="true"]::menu-indicator {{image:none;width:0;height:0;}}

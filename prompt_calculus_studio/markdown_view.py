@@ -1,9 +1,11 @@
 """Per-view source presentation with one authoritative document and history."""
 import re
-from PySide6.QtCore import Qt, QTimer, QByteArray, QRectF, QPoint, QPointF, QEvent
+from bisect import bisect_right
+from PySide6.QtCore import Qt, QTimer, QByteArray, QRectF, QPoint, QEvent
 from PySide6.QtGui import (QColor, QFont, QPainter, QTextCursor, QTextCharFormat,
-    QSyntaxHighlighter, QKeySequence, QImage, QPen, QTextBlockFormat)
-from PySide6.QtWidgets import QTextEdit, QWidget, QTextBrowser, QMenu
+    QKeySequence, QImage, QPen, QTextBlockFormat, QTextLayout)
+from PySide6.QtWidgets import QTextEdit, QPlainTextEdit, QWidget, QTextBrowser, QMenu
+from .markdown_layout import SourceLayout
 from .markdown_source import source_text, python_position, utf16_position, SourceEdit
 from .markdown_syntax import spans, line_info, reading_html, display_style, escaped_markers
 from .markdown_commands import continuation, paragraph_edits
@@ -26,15 +28,68 @@ def char_style(values, code_color='#a8b7bd'):
     return result
 
 
-class Syntax(QSyntaxHighlighter):
+class Syntax:
     def __init__(self, editor):
-        super().__init__(editor.document());self.editor = editor
+        self.editor=editor
+
+    def currentBlock(self):return self._block
+
+    def format(self,position):
+        return QTextCharFormat(self._formats[position]) if self._formats and self._formats[position] else QTextCharFormat()
+
+    def setFormat(self,start,length,format_):
+        if not length:return
+        if self._formats is None:self._formats=[None]*(self._block.length()-1)
+        self._formats[start:start+length]=[format_]*length
+
+    def mergeFormat(self,start,length,format_):
+        if not length:return
+        if self._formats is None:self._formats=[None]*(self._block.length()-1)
+        stop=start+length
+        while start<stop:
+            previous=self._formats[start];end=start+1
+            while end<stop and self._formats[end] is previous:end+=1
+            merged=QTextCharFormat(previous) if previous is not None else QTextCharFormat()
+            merged.merge(format_);self._formats[start:end]=[merged]*(end-start);start=end
+
+    def resolve_contrast(self):
+        start=0
+        while self._formats and start<len(self._formats):
+            original=self._formats[start];end=start+1
+            while end<len(self._formats) and self._formats[end] is original:end+=1
+            if original is not None and original.background().style()!=Qt.BrushStyle.NoBrush and original.foreground().style()==Qt.BrushStyle.NoBrush:
+                adjusted=QTextCharFormat(original)
+                adjusted.setForeground(QColor(display_style({'background':original.background().color().name()})['color']))
+                self._formats[start:end]=[adjusted]*(end-start)
+            start=end
+
+    def rehighlightBlock(self,block):
+        if not block.isValid():return
+        self._block=block;self._formats=None;self.highlightBlock(block.text())
+        ranges=[];formats=self._formats or []
+        start=0
+        while start<len(formats):
+            fmt=formats[start];end=start+1
+            while end<len(formats) and (formats[end] is fmt or formats[end]==fmt):end+=1
+            if fmt is not None:
+                item=QTextLayout.FormatRange();item.start=start;item.length=end-start;item.format=fmt;ranges.append(item)
+            start=end
+        layout=block.layout()
+        if layout.formats()!=ranges:
+            layout.setFormats(ranges)
+            was_syncing=self.editor.syncing;self.editor.syncing=True
+            try:self.editor.document().markContentsDirty(block.position(),block.length())
+            finally:self.editor.syncing=was_syncing
+        self._block=None;self._formats=None
+
+    def rehighlight(self):
+        first,last=self.editor._format_window if self.editor.lazy_presentation else (0,len(self.editor.lines))
+        for number in range(first,last):self.rehighlightBlock(self.editor.document().findBlockByNumber(number))
 
     def highlightBlock(self, text):
         editor = self.editor
         number = self.currentBlock().blockNumber()
         if getattr(editor,'_suspend_highlight',False):return
-        if editor.lazy_presentation and not editor._format_window[0] <= number < editor._format_window[1]:return
         if number >= len(editor.lines):return
         item = editor.lines[number]
         current = editor.textCursor()
@@ -47,8 +102,7 @@ class Syntax(QSyntaxHighlighter):
             if values.get('size'):values['size'] *= editor.surface.zoom_percent/100
             format_ = char_style(values, editor.tokens()['info'])
             if replace:self.setFormat(begin,end-begin,format_);return
-            for offset in range(begin, end):
-                combined = self.format(offset);combined.merge(format_);self.setFormat(offset, 1, combined)
+            self.mergeFormat(begin,end-begin,format_)
         def syntax(a, b):
             format_ = QTextCharFormat();format_.setForeground(QColor(editor.tokens()['secondary']))
             if not reveal:
@@ -76,11 +130,7 @@ class Syntax(QSyntaxHighlighter):
         if editor.mode == 'write' and any(span.style.get('background') for span in text_spans):
             # Resolve nested foreground/background styles together. An explicit
             # author-selected foreground always wins over automatic ink.
-            for offset in range(utf16_position(text,len(text))):
-                current_format=self.format(offset)
-                if current_format.background().style() != Qt.BrushStyle.NoBrush and current_format.foreground().style() == Qt.BrushStyle.NoBrush:
-                    color=display_style({'background':current_format.background().color().name()})['color']
-                    current_format.setForeground(QColor(color));self.setFormat(offset,1,current_format)
+            self.resolve_contrast()
         for match in re.finditer(r'\]\([^)]*\)', text):syntax(match.start(), match.end())
         if '\\' in text:
             for offset in escaped_markers(text,text_spans):syntax(offset,offset+1)
@@ -115,7 +165,7 @@ class Markers(QWidget):
         self.editor.paint_markers(painter)
 
 
-class SourceView(QTextEdit):
+class SourceView(QPlainTextEdit):
     def mouseReleaseEvent(self,event):
         if hasattr(self.surface,'advanced') and self.surface.advanced.rectangle is not None:
             self.surface.advanced.rectangle=None;event.accept();return
@@ -131,18 +181,20 @@ class SourceView(QTextEdit):
         self.mode = 'write';self.syncing = False;self.forwarding = False
         self._metadata_snapshot=self.page.buffer.snapshot()
         self.lines = line_info(self._metadata_snapshot.text)
+        self._line_starts=[item['start'] for item in self.lines];self._source_change=None
         self._format_window=(0,160);self._presented=set();self._updating_presentation=False
         self.folded = set();self.last_block = 0
+        self.source_layout=SourceLayout(self.document(),self)
+        self.document().setDocumentLayout(self.source_layout)
         # The surface installs its final font, mode and margins before enabling
         # layout. Do not lay out a long document several times at startup.
         self.document().setLayoutEnabled(False)
         self.setPlainText(self.page.buffer.snapshot().text)
         self.setUndoRedoEnabled(False)
-        self.setAcceptRichText(False)
         self.setFrameShape(QTextEdit.Shape.NoFrame)
         self.setAccessibleName('Markdown 編寫區')
         self.setPlaceholderText('')
-        self.setStyleSheet('QTextEdit {border:0;padding:0;background:transparent;}')
+        self.setStyleSheet('QPlainTextEdit {border:0;padding:0;background:transparent;}')
         self.gutter = Gutter(self)
         self.markers = Markers(self);self.markers.raise_()
         self.highlighter = Syntax(self)
@@ -162,6 +214,7 @@ class SourceView(QTextEdit):
         previous = self.page.buffer.snapshot().text
         latest = source_text(self.document())
         if previous == latest:return  # Highlighting changes layout, not source.
+        self._source_change=(position,removed,added)
         a = python_position(previous, position);b = python_position(previous, position+removed)
         finish = python_position(latest, position+added)
         inserted = latest[a:finish]
@@ -194,6 +247,7 @@ class SourceView(QTextEdit):
         latest = self.page.buffer.snapshot().text
         previous = source_text(self.document())
         if latest == previous:return
+        self._source_change=(position,removed,added)
         self.syncing = True
         try:
             a = python_position(latest, position)
@@ -212,19 +266,38 @@ class SourceView(QTextEdit):
 
     def update_metadata(self):
         was_syncing=self.syncing;self.syncing=True
-        layout_enabled=self.document().isLayoutEnabled()
-        batched=False
+        transaction=QTextCursor(self.document());transaction.beginEditBlock()
         try:
             previous=self.lines
             snapshot=self.page.buffer.snapshot()
             unchanged=self._metadata_snapshot is snapshot
+            before=self._metadata_snapshot.text
             self._metadata_snapshot=snapshot
-            if not unchanged:self.lines = self.line_metadata(snapshot.text,previous)
+            changed_line=None
+            if not unchanged:
+                change=self._source_change;self._source_change=None
+                if change:
+                    position,removed,added=change
+                    at=python_position(before,position)
+                    n=max(0,bisect_right(self._line_starts,at)-1);old=previous[n]
+                    delta=len(snapshot.text)-len(before);end=old['end']+delta
+                    line=snapshot.text[old['start']:end]
+                    if (python_position(before,position+removed)<=old['end'] and '\n' not in line
+                            and not old['protected'] and not old['listing'] and not old['heading']
+                            and not re.search(r'[`~#>*+\-$]|^\s*\d+[.)]|^\s*<|^\s*\|',line)
+                            and not line.startswith(('    ','\t'))):
+                        item=line_info(line)[0];item.update(number=n,start=old['start'],end=end)
+                        self.lines=previous[:n]+[item]+[dict(x,start=x['start']+delta,end=x['end']+delta) for x in previous[n+1:]]
+                        changed_line=n
+                        if getattr(self,'_fold_lines',None) is previous:self._fold_lines=self.lines
+                if changed_line is None:self.lines=self.line_metadata(snapshot.text,previous)
+                self._line_starts=[item['start'] for item in self.lines]
             key=(self.mode,self.surface.zoom_percent,tuple(sorted(self.surface.preferences.items())),str(self.tokens()))
             if unchanged and getattr(self,'_presentation_key',None)==key:
                 self.update_measure();return
             first=0;last=len(self.lines)
-            if getattr(self,'_presentation_key',None)==key:
+            same_presentation=getattr(self,'_presentation_key',None)==key
+            if same_presentation and not self.lazy_presentation:
                 equal=lambda a,b:(a['text'],a['protected'],a['display_marker'])==(b['text'],b['protected'],b['display_marker'])
                 while first<min(len(previous),last) and equal(previous[first],self.lines[first]):first+=1
                 suffix=0
@@ -233,10 +306,9 @@ class SourceView(QTextEdit):
             self._presentation_key=key
             lazy=self.lazy_presentation
             if lazy:
-                if previous is not self.lines or first!=last:self._presented.clear()
+                if same_presentation and changed_line is not None:self._presented.discard(changed_line)
+                else:self._presented.clear()
                 first,last=self.presentation_range();self._format_window=(first,last)
-            batched=last-first>30
-            if batched:self.document().setLayoutEnabled(False)
             self.update_measure()
             self._suspend_highlight=True
             try:self.update_paragraphs(first,last)
@@ -247,11 +319,11 @@ class SourceView(QTextEdit):
                     for number in range(first,last):self.highlighter.rehighlightBlock(self.document().findBlockByNumber(number))
                 self._highlight_initialized=True
             if lazy:self._presented.update(range(first,last))
-            self.folded.intersection_update(range(len(self.lines)))
+            if self.folded:self.folded.intersection_update(range(len(self.lines)))
             self.apply_folds()
             self.gutter.update()
         finally:
-            if batched:self.document().setLayoutEnabled(layout_enabled)
+            transaction.endEditBlock()
             self.syncing=was_syncing
 
     @property
@@ -273,21 +345,24 @@ class SourceView(QTextEdit):
     def present_visible(self):
         if not self.lazy_presentation or self.syncing or self._updating_presentation:return
         first,last=self.presentation_range();self._format_window=(first,last)
-        pending=[number for number in range(first,last) if number not in self._presented]
+        numbers=set(range(first,last));numbers.update(block.blockNumber() for block in self.visible_blocks())
+        pending=sorted(numbers-self._presented)
         if not pending:return
-        anchor=self.firstVisibleBlock();offset=self.blockBoundingGeometry(anchor).top()-self.verticalScrollBar().value()
-        enabled=self.document().isLayoutEnabled();self._updating_presentation=True;self.syncing=True
+        transaction=QTextCursor(self.document());self._updating_presentation=True;self.syncing=True
+        transaction.beginEditBlock()
         try:
-            self.document().setLayoutEnabled(False)
             self._suspend_highlight=True
-            try:self.update_paragraphs(pending[0],pending[-1]+1)
+            try:
+                start=previous=pending[0]
+                for number in pending[1:]:
+                    if number!=previous+1:self.update_paragraphs(start,previous+1);start=number
+                    previous=number
+                self.update_paragraphs(start,previous+1)
             finally:self._suspend_highlight=False
             for number in pending:self.highlighter.rehighlightBlock(self.document().findBlockByNumber(number))
             self._presented.update(pending)
-            self.document().setLayoutEnabled(enabled)
-            if anchor.isValid():self.verticalScrollBar().setValue(round(self.blockBoundingGeometry(anchor).top()-offset))
         finally:
-            self.document().setLayoutEnabled(enabled);self.syncing=False;self._updating_presentation=False
+            transaction.endEditBlock();self.syncing=False;self._updating_presentation=False
         self.update_markers()
 
     @staticmethod
@@ -327,13 +402,15 @@ class SourceView(QTextEdit):
 
     def update_markers(self, *args):self.gutter.update();self.markers.update()
 
-    def firstVisibleBlock(self):return self.cursorForPosition(QPoint(0,0)).block()
+    def firstVisibleBlock(self):return super().firstVisibleBlock()
 
-    def blockBoundingGeometry(self, block):return self.document().documentLayout().blockBoundingRect(block)
+    def blockBoundingGeometry(self, block):return super().blockBoundingGeometry(block)
 
-    def blockBoundingRect(self, block):return self.blockBoundingGeometry(block)
+    def blockBoundingRect(self, block):return super().blockBoundingRect(block)
 
-    def contentOffset(self):return QPointF(-self.horizontalScrollBar().value(),-self.verticalScrollBar().value())
+    def contentOffset(self):return super().contentOffset()
+
+    def paint_selections(self,selections):super().setExtraSelections(selections)
 
     def update_measure(self):
         preferences = self.surface.preferences
@@ -374,6 +451,15 @@ class SourceView(QTextEdit):
         super().paintEvent(event)
         self.markers.update()
 
+    def visible_blocks(self):
+        block=self.firstVisibleBlock();remaining=max(100,self.viewport().height()//4+60)
+        while block.isValid() and remaining:
+            if self.blockBoundingGeometry(block).translated(self.contentOffset()).top()>self.viewport().height():break
+            remaining-=1
+            if block.isVisible():yield block
+            number=block.blockNumber()
+            block=self.document().findBlockByNumber(self.fold_end(number)) if number in self.folded else block.next()
+
     def paint_markers(self, painter):
         self.task_targets = []
         if self.mode != 'write':return
@@ -381,11 +467,9 @@ class SourceView(QTextEdit):
         painter.setClipRect(self.viewport().geometry().adjusted(-24,0,0,0))
         t=self.tokens();painter.setPen(QPen(QColor(t['secondary']),1.3))
         current=self.textCursor();first=self.document().findBlock(current.selectionStart()).blockNumber();last=self.document().findBlock(current.selectionEnd()).blockNumber()
-        block=self.firstVisibleBlock()
-        while block.isValid():
+        for block in self.visible_blocks():
             number=block.blockNumber()
             top=self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
-            if top > self.viewport().height():break
             if block.isVisible() and number < len(self.lines) and not first <= number <= last:
                 item=self.lines[number];listing=item['listing']
                 if listing:
@@ -405,7 +489,6 @@ class SourceView(QTextEdit):
                     painter.drawLine(x,int(y+2),x,int(y+self.blockBoundingRect(block).height()-2))
                 elif not item['protected'] and re.fullmatch(r'\s{0,3}([-*_])(?:\s*\1){2,}\s*',item['text']):
                     y=int(self.viewport().y()+top+self.blockBoundingRect(block).height()/2);painter.drawLine(self.viewport().x()+4,y,self.viewport().geometry().right()-6,y)
-            block=block.next()
 
     def toggle_task(self, number):
         if self.surface.mode == 'read' or self.page.buffer.composing:return
@@ -473,6 +556,7 @@ class SourceView(QTextEdit):
             block = block.next()
         self.document().markContentsDirty(0, self.document().characterCount())
         self.viewport().update();self.gutter.update();self.markers.update()
+        self.schedule_presentation()
 
     def resizeEvent(self, event):
         if hasattr(self, 'gutter'):self.update_measure()
@@ -490,29 +574,23 @@ class SourceView(QTextEdit):
         return QRectF(self.gutter.width()-20,center-9,18,18)
 
     def fold_number_at(self,point):
-        block=self.firstVisibleBlock()
-        while block.isValid():
-            if self.blockBoundingGeometry(block).translated(self.contentOffset()).top()>self.viewport().height():break
+        for block in self.visible_blocks():
             number=block.blockNumber()
             if block.isVisible() and number<len(self.lines) and self.fold_end(number)>number+1:
                 if self.fold_control_rect(block).adjusted(-2,-3,2,3).contains(point):return number
-            block=block.next()
         return None
 
     def paint_gutter(self, event):
         from .ui_icons import icon
         painter = QPainter(self.gutter);painter.setPen(QColor(self.tokens()['secondary']))
         painter.setFont(self.font())
-        block = self.firstVisibleBlock()
-        while block.isValid():
+        for block in self.visible_blocks():
             top = self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
-            if top > self.viewport().height():break
             if block.isVisible():
                 number = block.blockNumber()
                 if self.surface.preferences.get('line_numbers'):painter.drawText(3, int(top)+self.fontMetrics().ascent(), str(number+1))
                 if number < len(self.lines) and self.fold_end(number) > number+1:
                     icon('chevron-right' if number in self.folded else 'chevron-down',self.tokens()['secondary']).paint(painter,self.fold_control_rect(block).toRect())
-            block = block.next()
 
     def keyPressEvent(self, event):
         if self.surface.mode == 'read':event.ignore();return
@@ -689,12 +767,30 @@ class ReadingView(QTextBrowser):
             painter.drawLine(3,7,6,10);painter.drawLine(6,10,11,3)
         painter.end();return image
 
+    def render_key(self):
+        snapshot=self.surface.page.buffer.snapshot()
+        return (snapshot.revision,snapshot.document_id,str(self.surface.page.path),tuple(sorted(self.surface.preferences.items())),self.surface.zoom_percent,str(visual_tokens(window_appearance(self))))
+
+    def refresh_cached(self):
+        if getattr(self,'_render_key',None)!=self.render_key():self.refresh()
+
+    def replace_html(self, html):
+        document=self.document();enabled=document.isLayoutEnabled()
+        document.setLayoutEnabled(False)
+        try:self.setHtml(html)
+        finally:document.setLayoutEnabled(enabled)
+
     def refresh(self):
         scroll = self.verticalScrollBar().value()
         previous=self.textCursor();anchor,position=previous.anchor(),previous.position()
         source=self.surface.page.buffer.snapshot().text
-        from .markdown_render import advanced
-        self.advanced=advanced(source)
+        from .markdown_render import advanced, Projection
+        # The native rich-text importer becomes quadratic with many blocks.
+        # Large manuscripts use the same local renderer as tables and media;
+        # never build an invisible second rich-text layout for those documents.
+        large=len(source)>128_000
+        complex_content=advanced(source)
+        self.advanced=large or complex_content
         self.viewport().setVisible(not self.advanced)
         policy=Qt.ScrollBarPolicy.ScrollBarAlwaysOff if self.advanced else Qt.ScrollBarPolicy.ScrollBarAsNeeded
         self.setVerticalScrollBarPolicy(policy);self.setHorizontalScrollBarPolicy(policy)
@@ -702,12 +798,20 @@ class ReadingView(QTextBrowser):
             if self.rich is None:
                 from .markdown_rich_view import RichView
                 self.rich=RichView(self);self.rich.setGeometry(self.rect());self.rich.setZoomFactor(self.surface.zoom_percent/100)
-            self.rich.refresh(source);self.setHtml(self.rich.projection.body)
+            projection=None
+            if large and not complex_content:
+                editor=self.surface.editor
+                lines=editor.lines if editor._metadata_snapshot is self.surface.page.buffer.snapshot() else None
+                projection=Projection(body=reading_html(source,self.surface.preferences.get('hard_breaks',False),lines=lines))
+            self.rich.refresh(source,projection=projection)
+            if large:self.clear()
+            else:self.replace_html(self.rich.projection.body)
             self.rich.show();self.rich.raise_()
             QTimer.singleShot(0,self,self.fit_rich)
         else:
             if self.rich:self.rich.pause();self.rich.hide()
-            self.setHtml(reading_html(source, self.surface.preferences.get('hard_breaks', False)))
+            self.replace_html(reading_html(source, self.surface.preferences.get('hard_breaks', False)))
         cursor=self.textCursor();maximum=self.document().characterCount()-1
         cursor.setPosition(min(anchor,maximum));cursor.setPosition(min(position,maximum),QTextCursor.MoveMode.KeepAnchor);self.setTextCursor(cursor)
         self.verticalScrollBar().setValue(scroll)
+        self._render_key=self.render_key()
