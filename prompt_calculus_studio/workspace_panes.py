@@ -266,6 +266,7 @@ class WorkspacePanes:
             if not new_tab:
                 current = next((t for t in matching if t.pane == pane.key and t.key in self.tabs_by_key), None)
                 if current:
+                    if retained and not current.retained:self.retain(current)
                     if not background:self.focus_tab(current)
                     return current
                 cached = next((t for t in matching if t.pane == pane.key and t.key in self.saved_pages), None)

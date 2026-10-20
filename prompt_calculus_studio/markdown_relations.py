@@ -26,16 +26,29 @@ def link_at(surface,position=None):
     return next((entry for entry in links(snapshot.text) if entry.start<=position<=entry.end),None)
 
 
+def open_document(surface,path):
+    """Follow a note link without duplicating an already open document view."""
+    workspace=surface.page.file_title.workspace
+    if workspace is None:return
+    path=workspace.locations.file(path)
+    tab=workspace.tab_for_path(path)
+    if tab is not None:
+        if not tab.retained:workspace.retain(tab)
+        workspace.focus_tab(tab)
+        return tab
+    return workspace.open_path(path,retained=True,new_tab=True)
+
+
 def open_source(surface,path,position=0,read=None):
     workspace=surface.page.file_title.workspace
     if workspace is None:return
-    # Root validation happens before this action; normal file opening validates
-    # it again. Keep the originating note available for return navigation.
-    tab=workspace.open_path(path,retained=True,new_tab=True)
+    existing=workspace.tab_for_path(path)
+    tab=open_document(surface,path)
     if tab is None:return
     target=getattr(tab.widget,'md_surface',None)
     if target is None:return
-    target.set_mode('read' if (surface.mode=='read' if read is None else read) else 'write')
+    if existing is None or read is not None:
+        target.set_mode('read' if (surface.mode=='read' if read is None else read) else 'write')
     target.navigate_when_ready(position)
     return tab
 
@@ -52,7 +65,7 @@ def open_link(surface,target,source=None,wiki=False):
         def choose(path):
             if path.suffix.lower()!='.md':
                 from .workspace_locations import KINDS
-                if path.suffix.lower() in KINDS:return surface.page.file_title.workspace.open_path(path,retained=True,new_tab=True)
+                if path.suffix.lower() in KINDS:return open_document(surface,path)
                 # Never launch arbitrary executables/scripts from note links.
                 if path.suffix.lower() not in ('.pdf','.png','.jpg','.jpeg','.gif','.webp','.bmp','.wav','.mp3','.ogg','.flac','.m4a','.mp4','.webm','.ogv'):
                     raise ValueError('此檔案類型不能從筆記直接開啟。')

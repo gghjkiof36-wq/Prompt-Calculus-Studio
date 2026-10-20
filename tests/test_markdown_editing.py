@@ -1,5 +1,6 @@
 """B: reachable editing actions, rendering semantics, shared data, and Undo."""
 from pathlib import Path
+import json
 import sys
 import tempfile
 import unittest
@@ -54,6 +55,35 @@ class MarkdownEditingTests(unittest.TestCase):
         page.md_surface.reader.refresh()
         return page.md_surface.reader.document()
 
+    def reading_style(self,page,text):
+        surface=page.md_surface;mode=surface.mode
+        surface.set_mode('read')
+        try:
+            rich=surface.reader.rich
+            for _ in range(250):
+                self.app.processEvents()
+                if rich.render_state=='ready':break
+                QTest.qWait(10)
+            self.assertEqual(rich.render_state,'ready')
+            result=[]
+            rich.page().runJavaScript('''(() => {
+                const walker=document.createTreeWalker(document.querySelector('main'),NodeFilter.SHOW_TEXT);
+                let node;
+                while(node=walker.nextNode()) {
+                    if(node.textContent.includes('''+json.dumps(text)+''')) {
+                        const style=getComputedStyle(node.parentElement);
+                        return JSON.stringify([style.fontStyle,style.fontWeight,style.fontSize]);
+                    }
+                }
+            })()''',result.append)
+            for _ in range(250):
+                self.app.processEvents()
+                if result:break
+                QTest.qWait(10)
+            self.assertTrue(result and result[0],'Formatted text must be visible in the reading DOM')
+            return json.loads(result[0])
+        finally:surface.set_mode(mode)
+
     def test_plain_prose_fast_path_keeps_entities_unicode_and_literal_html(self):
         cases={
             '中文 😀 &amp; "標記"':'中文 😀 &amp; &quot;標記&quot;',
@@ -104,13 +134,13 @@ class MarkdownEditingTests(unittest.TestCase):
         left=self.open(raw);right=self.open(None,left);s=left.md_surface
         self.select(left,'mix');s.format_selection({'family':'Microsoft JhengHei UI','size':18,'color':'#123456'})
         styled=left.encoded();self.assertIn(b'<span',styled)
-        doc=self.render(left);fmt=doc.find('mix').charFormat()
-        self.assertTrue(fmt.fontItalic());self.assertGreater(fmt.fontWeight(),400)
-        self.assertEqual(fmt.fontPointSize(),18)
+        italic,weight,size=self.reading_style(left,'mix')
+        self.assertEqual(italic,'italic');self.assertGreater(int(weight),400)
+        self.assertEqual(size,'24px')
         s.clear_format();cleared=left.encoded()
         self.assertFalse(s.message)
-        doc=self.render(left);fmt=doc.find('mix').charFormat()
-        self.assertFalse(fmt.fontItalic());self.assertLessEqual(fmt.fontWeight(),400)
+        italic,weight,_=self.reading_style(left,'mix')
+        self.assertEqual(italic,'normal');self.assertLessEqual(int(weight),400)
         self.assertEqual(visible_text(left.buffer.snapshot().text).splitlines()[0],'bold mix tail')
         self.assertIn(b'(notes_a_b.md)',cleared)
         self.assertTrue(left.save());self.assertEqual(self.path.read_bytes(),cleared)

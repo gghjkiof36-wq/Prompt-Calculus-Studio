@@ -211,7 +211,7 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
     md.add_render_rule('math_inline',math_render(False));md.add_render_rule('math_block',math_render(True))
     def table_open(self,tokens,i,options,env):
         line=tokens[i].map[0]
-        return f'<a class="source" href="{source_action(line,"table")}">編輯表格</a><table id="{prefix}line-{line}">'
+        return f'<table id="{prefix}line-{line}">'
     md.add_render_rule('table_open',table_open)
     footnote_anchor=md.renderer.rules['footnote_anchor']
     def note_back(self,tokens,i,options,env):

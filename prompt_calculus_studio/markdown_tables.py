@@ -4,8 +4,8 @@ import io
 import re
 from dataclasses import dataclass
 from PySide6.QtCore import Qt, QEvent, QTimer
-from PySide6.QtWidgets import QApplication, QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, QToolButton, QDialogButtonBox, QStyledItemDelegate, QPlainTextEdit, QAbstractItemDelegate, QLabel
-from .widgets import RoundMenu as QMenu
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QTableWidget, QTableWidgetItem, QPushButton, QDialogButtonBox, QStyledItemDelegate, QPlainTextEdit, QAbstractItemDelegate, QLabel
+from .widgets import RoundMenu as QMenu, StudioDialog
 from .markdown_source import SourceEdit, literal_ranges
 from .markdown_syntax import visible_text
 from .ui_icons import icon
@@ -139,22 +139,27 @@ class TableGrid(QTableWidget):
             for c,value in enumerate(values,col):self.item(r,c).setText(value)
 
 
-class TableDialog(QDialog):
+class TableDialog(StudioDialog):
     def __init__(self,surface,table,snapshot):
         super().__init__(surface);self.surface=surface;self.table=table;self.snapshot=snapshot
-        self.setWindowTitle('編輯表格');self.resize(780,440);self.setMinimumSize(420,300)
-        colors=visual_tokens(window_appearance(surface))
+        self.setWindowTitle('編輯表格');self.resize(880,560);self.setMinimumSize(480,360)
+        from .module_chrome import dialog_colors
+        colors=dialog_colors(visual_tokens(window_appearance(surface)))
         self.setObjectName('MarkdownTableEditor')
-        self.setStyleSheet(f'''QDialog#MarkdownTableEditor {{background:{colors['base']};}}
-            QTableWidget {{background:{colors['field']};alternate-background-color:{colors['surface']};gridline-color:{colors['line']};border:1px solid {colors['line']};}}
-            QTableWidget::item {{padding:5px 8px;}}
-            QHeaderView::section {{background:{colors['surface']};border:0;padding:6px;}}
-            QLabel {{color:{colors['secondary']};}}''')
-        layout=QVBoxLayout(self);tools=QHBoxLayout();layout.addLayout(tools)
+        self.setStyleSheet(self.styleSheet()+f'''
+            QTableWidget#MarkdownTableGrid {{background:{colors['base']};gridline-color:{colors['line']};border:1px solid {colors['line']};border-radius:0;selection-background-color:{colors['selected']};selection-color:{colors['text']};}}
+            QTableWidget#MarkdownTableGrid::item {{padding:8px 10px;border:0;}}
+            QTableWidget#MarkdownTableGrid QPlainTextEdit {{padding:6px 8px;border:1px solid {colors['accent']};border-radius:3px;}}
+            QHeaderView::section {{background:{colors['surface']};color:{colors['secondary']};border:0;padding:6px;}}
+            QPushButton#TableMenu {{padding:6px 26px 6px 10px;min-height:22px;}}
+            QPushButton#TableMenu::menu-indicator {{subcontrol-origin:padding;subcontrol-position:right center;right:8px;}}
+            QLabel#TableHint {{color:{colors['secondary']};}}''')
+        layout=self.body;tools=QHBoxLayout();tools.setSpacing(8);layout.addLayout(tools)
         self.grid=TableGrid(len(table.rows),len(table.align),self)
+        self.grid.setObjectName('MarkdownTableGrid')
         self.grid.setAccessibleName('表格內容');self.grid.setItemDelegate(CellDelegate(self.grid))
         self.grid.setWordWrap(True);self.grid.horizontalHeader().setStretchLastSection(True)
-        self.grid.setAlternatingRowColors(True)
+        self.grid.setAlternatingRowColors(False)
         self.align=list(table.align)
         for r,row in enumerate(table.rows):
             for c,value in enumerate(row):
@@ -169,14 +174,15 @@ class TableDialog(QDialog):
             ('列','list',[('在下方新增列',lambda:self.add_row()),('刪除此列',self.remove_row),('此列上移',lambda:self.move_row(-1)),('此列下移',lambda:self.move_row(1)),('依此欄升冪排序',lambda:self.sort_rows(False)),('依此欄降冪排序',lambda:self.sort_rows(True))]),
             ('欄','grid',[('在右方新增欄',self.add_column),('刪除此欄',self.remove_column),('此欄左移',lambda:self.move_column(-1)),('此欄右移',lambda:self.move_column(1)),('依欄名排序',self.sort_columns)]),
             ('欄對齊','align',[(label,lambda value=value:self.set_alignment(value)) for label,value in [('預設',''),('靠左','left'),('置中','center'),('靠右','right')]])]:
-            button=QToolButton(self);button.setText(title);button.setIcon(icon(symbol));button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            button=QPushButton(title,self);button.setObjectName('TableMenu');button.setIcon(icon(symbol,colors['text']));button.setAutoDefault(False)
             button.setAccessibleName(title);menu=QMenu(button,persistent=True)
             for label,callback in choices:menu.addAction(label,callback)
-            button.setMenu(menu);button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup);tools.addWidget(button)
+            button.setMenu(menu);tools.addWidget(button)
         tools.addStretch();layout.addWidget(self.grid)
-        self.status=QLabel('第一列為欄名 · Tab 換格 · Shift+Enter 格內換行',self);layout.addWidget(self.status)
+        self.status=QLabel('第一列為欄名 · Tab 換格 · Shift+Enter 格內換行',self);self.status.setObjectName('TableHint');self.status.setWordWrap(True);layout.addWidget(self.status)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel,self)
         buttons.button(QDialogButtonBox.StandardButton.Save).setText('套用');buttons.button(QDialogButtonBox.StandardButton.Cancel).setText('取消')
+        buttons.button(QDialogButtonBox.StandardButton.Save).setObjectName('Primary')
         buttons.accepted.connect(self.commit);buttons.rejected.connect(self.reject);layout.addWidget(buttons)
 
     def empty_row(self,row):

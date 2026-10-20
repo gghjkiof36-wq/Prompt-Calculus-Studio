@@ -37,7 +37,7 @@ class OutlineSearchTests(unittest.TestCase):
         self.assertEqual(s.outline_layout.placement,'column');self.assertTrue(s.outline_panel.isVisible())
         width=s.editor.width();self.assertGreater(width,250)
         self.assertLess(s.outline_panel.geometry().right(),s.stack.geometry().left()+1)
-        QTest.mouseClick(s.outline_button,Qt.MouseButton.LeftButton);self.events()
+        QTest.mouseClick(s.outline_button,Qt.MouseButton.LeftButton);QTest.qWait(160);self.events()
         self.assertFalse(s.outline_panel.isVisible());self.assertGreater(s.editor.width(),width)
         QTest.mouseClick(s.outline_button,Qt.MouseButton.LeftButton);self.events();self.assertEqual(s.editor.width(),width)
         QTest.mouseClick(s.editor.viewport(),Qt.MouseButton.LeftButton,pos=QPoint(s.editor.viewport().width()-20,40))

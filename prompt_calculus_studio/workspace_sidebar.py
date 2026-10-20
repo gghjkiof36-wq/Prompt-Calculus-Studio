@@ -1,7 +1,7 @@
 """A shared sidebar edge, including deliberate drag-to-collapse."""
 from collections import OrderedDict
 from PySide6.QtCore import QObject, QEvent, QPoint, QTimer, QRect, QRectF, Qt, QPersistentModelIndex, QVariantAnimation, QEasingCurve
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPainterPath, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPainterPath, QPixmap, QMouseEvent
 from PySide6.QtWidgets import QApplication, QTreeWidget, QStyle, QStyleOptionViewItem, QStyledItemDelegate
 from shiboken6 import isValid
 from .sidebar_resize import SidebarResizeHandle
@@ -37,7 +37,8 @@ class WorkspaceTreeDelegate(QStyledItemDelegate):
         from .workspace_commands import KIND_ROLE
         badge = {'workflow': 'CANVAS', 'category': 'MANAGER'}.get(index.data(KIND_ROLE), '')
         clean = QStyleOptionViewItem(option)
-        clean.state &= ~(QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_MouseOver | QStyle.StateFlag.State_HasFocus)
+        clean.state &= ~(QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_MouseOver | QStyle.StateFlag.State_HasFocus |
+                         QStyle.StateFlag.State_Open | QStyle.StateFlag.State_Children | QStyle.StateFlag.State_Sibling)
         # The native QSS delegate is expensive on rapid disclosure repaints.
         # Cache its unchanged label/icon only; hover, focus and drop paint live.
         dpr = self.parent().devicePixelRatioF()
@@ -162,9 +163,30 @@ class WorkspaceTree(QTreeWidget):
     def mouseMoveEvent(self, event):
         index = QPersistentModelIndex(self.indexAt(event.position().toPoint()))
         if index != self.hovered:
+            previous=self.hovered
             self.hovered = index
-            self.viewport().update()
+            self.update_rows(previous,index)
         super().mouseMoveEvent(event)
+
+    def mouseDoubleClickEvent(self,event):
+        from .workspace_commands import KIND_ROLE
+        item=self.itemAt(event.position().toPoint())
+        if event.button()==Qt.MouseButton.LeftButton and item and item.data(0,KIND_ROLE) in ('root','folder'):
+            # A real rapid second click arrives as DoubleClick, not Press.
+            # Treat it as the next disclosure press so its release can toggle
+            # normally. Documents retain their distinct double-click action.
+            press=QMouseEvent(QEvent.Type.MouseButtonPress,event.position(),event.globalPosition(),
+                              event.button(),event.buttons(),event.modifiers())
+            super().mousePressEvent(press);event.accept();return
+        super().mouseDoubleClickEvent(event)
+
+    def update_rows(self,*indexes):
+        # Hover changes only these row backgrounds; avoid repainting every
+        # file (and the floating sidebar's full backing area) on each move.
+        for index in indexes:
+            if index.isValid():
+                bounds=self.visualRect(index)
+                if bounds.isValid():self.viewport().update(0,bounds.y(),self.viewport().width(),bounds.height())
 
     def startDrag(self, actions):
         if self.file_drag is not None:
@@ -188,8 +210,9 @@ class WorkspaceTree(QTreeWidget):
             self.file_drag.drop(event)
 
     def leaveEvent(self, event):
+        previous=self.hovered
         self.hovered = QPersistentModelIndex()
-        self.viewport().update()
+        self.update_rows(previous)
         super().leaveEvent(event)
 
     def scrollContentsBy(self, dx, dy):

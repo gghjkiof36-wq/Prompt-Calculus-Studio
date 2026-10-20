@@ -844,8 +844,10 @@ class ReadingView(QTextBrowser):
                 self.rich.version+=1;self.rich.render_state='loading'
                 self.plain_projection.request(self.render_key(),source,self.surface.preferences.get('hard_breaks',False),lines)
             else:self.rich.refresh(source)
-            if large:self.clear()
-            else:self.replace_html(self.rich.projection.body)
+            # The WebEngine projection is the only visible document. Importing
+            # the same HTML into a hidden QTextDocument adds layout work and
+            # synchronous resource decoding to every ordinary note opening.
+            self.clear()
             self.rich.show();self.rich.raise_()
             QTimer.singleShot(0,self,self.fit_rich)
         else:

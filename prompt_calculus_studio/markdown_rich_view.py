@@ -55,6 +55,11 @@ class ContentBridge(QObject):
     def __init__(self,view):super().__init__(view);self.view=view
     @Slot(result=str)
     def document(self):return json.dumps(self.view.payload,ensure_ascii=False)
+    @Slot(int)
+    def presented(self,version):
+        if version==self.view.version:
+            self.view.presented_version=version
+            self.view.sync_title_alignment()
     @Slot(str,int)
     def finished(self,value,version):
         if version==self.view.version:
@@ -69,7 +74,7 @@ class RichView(QWebEngineView):
         super().__init__(reader);self.reader=reader;self.surface=reader.surface
         self.document_path=document_path;self.interactive=interactive
         self.setAccessibleName('Markdown 內容閱讀區');self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-        self.payload={};self.projection=None;self.render_state='loading';self.pdf_pages={};self.ready=False;self.version=0;self.snapshot=None;self.image_sources={}
+        self.payload={};self.projection=None;self.render_state='loading';self.pdf_pages={};self.ready=False;self.version=0;self.presented_version=None;self.snapshot=None;self.image_sources={}
         from .markdown_relations import RelationWatch
         self.relations=RelationWatch(reader)
         self.profile=QWebEngineProfile(QApplication.instance())
@@ -85,6 +90,9 @@ class RichView(QWebEngineView):
         self.channel=QWebChannel(page);self.bridge=ContentBridge(self);self.channel.registerObject('content',self.bridge);page.setWebChannel(self.channel)
         page.selectionChanged.connect(self.surface.update_statistics)
         self.loadFinished.connect(self.loaded)
+        self.alignment_timer=QTimer(self);self.alignment_timer.setSingleShot(True)
+        self.alignment_timer.timeout.connect(self.sync_title_alignment)
+        self.alignment_ticket=0
         self.rendered.connect(self.sync_title_alignment)
         self.rendered.connect(self.surface.search_changed)
         self.setUrl(QUrl.fromLocalFile(str(ASSETS/'index.html')))
@@ -97,15 +105,25 @@ class RichView(QWebEngineView):
         elif not self.ready:self.surface.report('內容預覽未載入；原文仍可編輯。')
 
     def sync_title_alignment(self):
-        if not self.interactive or not self.ready or self.surface.mode!='read':return
+        if not self.interactive or not self.ready or self.surface.mode!='read' or not self.isVisible():return
+        self.alignment_ticket+=1;ticket=self.alignment_ticket
+        width=self.width();scale=self.zoomFactor()
         def apply(value):
             from shiboken6 import isValid
-            if not isValid(self) or self.surface.mode!='read' or not value:return
-            left,right=json.loads(value)
-            scale=self.zoomFactor()
+            if (not isValid(self) or not self.isVisible() or self.surface.mode!='read' or not value
+                    or ticket!=self.alignment_ticket or width!=self.width() or scale!=self.zoomFactor()):return
+            left,right,viewport=json.loads(value)
+            # Chromium resizes asynchronously after the QWidget. A result can
+            # belong to the old viewport even though this request is newest.
+            if abs(viewport*scale-width)>2:
+                self.alignment_timer.start(16);return
             self.content_margins=(round(left*scale),max(0,round(self.width()-right*scale)))
             self.surface.update_title_layout()
-        self.page().runJavaScript('(()=>{const r=document.querySelector("main")?.getBoundingClientRect();return r?JSON.stringify([r.left,r.right]):null})()',apply)
+        self.page().runJavaScript('(()=>{const r=document.querySelector("main")?.getBoundingClientRect();return r?JSON.stringify([r.left,r.right,innerWidth]):null})()',apply)
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        if hasattr(self,'alignment_timer'):self.alignment_timer.start(0)
 
     def search(self, query, case_sensitive=False, direction=0):
         self.search_ticket=getattr(self,'search_ticket',0)+1;ticket=self.search_ticket

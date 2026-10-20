@@ -1,5 +1,23 @@
 'use strict';
 let bridge, revision = 0, request = 0, projectedVersion;
+const engines = new Map();
+function loadEngine(name, source) {
+  if (!engines.has(name)) {
+    engines.set(name, new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = source;
+      script.onload = resolve;
+      script.onerror = () => { engines.delete(name); script.remove(); reject(new Error('無法載入內容顯示元件')); };
+      document.head.append(script);
+    }));
+  }
+  return engines.get(name);
+}
+const nextPaint = () => new Promise(resolve => {
+  // Hidden export views may throttle animation frames.
+  const fallback = setTimeout(resolve, 50);
+  requestAnimationFrame(() => { clearTimeout(fallback); setTimeout(resolve, 0); });
+});
 // Dispatch only our versioned native actions. Unknown URL scheme policies
 // differ across WebEngine versions; no resource navigation is needed here.
 document.addEventListener('click', event => {
@@ -50,22 +68,35 @@ window.refreshDocument = function () {
     root.querySelectorAll('audio,video').forEach(media => media.addEventListener('error', () => {
       const notice = media.parentElement.querySelector('.media-error');if(notice) notice.hidden = false;
     }));
-    root.querySelectorAll('[data-math]').forEach(element => {
+    // Show readable text before loading optional engines or laying out diagrams.
+    restoreSelection(root,selection);window.scrollTo(0,y);
+    await nextPaint();
+    if (ticket !== revision) return;
+    bridge.presented(data.version);
+    const formulas = [...root.querySelectorAll('[data-math]')];
+    const diagrams = [...root.querySelectorAll('[data-diagram]')];
+    let mathError, diagramError;
+    await Promise.all([
+      formulas.length ? loadEngine('math','katex/katex.min.js').catch(error => { mathError=error; }) : null,
+      diagrams.length ? loadEngine('diagram','mermaid/mermaid.min.js').catch(error => { diagramError=error; }) : null
+    ]);
+    if (ticket !== revision) return;
+    formulas.forEach(element => {
       const value = data.math[Number(element.dataset.math)];
-      try { katex.render(value.source, element, {displayMode:value.block,throwOnError:true,trust:false,strict:'warn',maxExpand:1000,maxSize:20}); }
+      try { if (mathError) throw mathError; katex.render(value.source, element, {displayMode:value.block,throwOnError:true,trust:false,strict:'warn',maxExpand:1000,maxSize:20}); }
       catch(error) { element.textContent = value.source; element.classList.add('render-error');element.title = '公式未能顯示；原文完整保留。'; }
     });
-    mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:'base',fontFamily:data.font,themeVariables:{darkMode:!data.light,primaryColor:tokens.surface,primaryTextColor:tokens.text,primaryBorderColor:tokens.secondary,lineColor:tokens.secondary},htmlLabels:false,flowchart:{htmlLabels:false},maxTextSize:50000,maxEdges:500,suppressErrorRendering:true});
-    for (const element of root.querySelectorAll('[data-diagram]')) {
+    if (diagrams.length && !diagramError) mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:'base',fontFamily:data.font,themeVariables:{darkMode:!data.light,primaryColor:tokens.surface,primaryTextColor:tokens.text,primaryBorderColor:tokens.secondary,lineColor:tokens.secondary},htmlLabels:false,flowchart:{htmlLabels:false},maxTextSize:50000,maxEdges:500,suppressErrorRendering:true});
+    for (const element of diagrams) {
       if (ticket !== revision) return;
       const source = data.diagrams[Number(element.dataset.diagram)];
       try {
+        if (diagramError) throw diagramError;
         const result = await mermaid.render('diagram-'+ticket+'-'+element.dataset.diagram,source);
         if (ticket !== revision) return;
         element.innerHTML = DOMPurify.sanitize(result.svg,{USE_PROFILES:{svg:true,svgFilters:true},FORBID_TAGS:['foreignObject','script'],FORBID_ATTR:['href','xlink:href']});
       } catch(error) { element.textContent = source;element.classList.add('render-error');element.title='圖表未能顯示；原文完整保留。'; }
     }
-    restoreSelection(root,selection);window.scrollTo(0,y);
     bridge.finished('ready', data.version);
   });
 };

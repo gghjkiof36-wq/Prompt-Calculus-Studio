@@ -150,7 +150,7 @@ def build(desktop, output):
     shutil.copytree(desktop, output)
     content = output/'files'
     content.mkdir()
-    lessons = content/'教學素材'
+    lessons = content/'入口'
     shutil.copytree(TEMPLATES/'Tutorial', lessons)
     shutil.copy2(TEMPLATES/'歡迎使用.md', content/'歡迎使用.md')
     (lessons/'媒體').mkdir()
@@ -168,7 +168,7 @@ def build(desktop, output):
     receipt = dict(package=str(full_zip), size=full_zip.stat().st_size, sha256=sha(full_zip),
                    binary_git_head=info['binary_git_head'], source_git_head=info['git_head'],
                    package_manifest_sha256=sha(output/'PACKAGE_MANIFEST.json'),
-                   welcome='files/歡迎使用.md', learning='files/教學素材',
+                   welcome='files/歡迎使用.md', learning='files/入口',
                    desktop_manifest_verified=True, learning_materials_verified=True,
                    windows_public=False)
     write(output.parent/'USER-DELIVERY.json', json.dumps(receipt, ensure_ascii=False, indent=2)+'\n')
