@@ -1,0 +1,375 @@
+{
+  "legacy_commit": "c02e40833936553437dceab0cc84c49ab72f0bb8",
+  "fixture": "Historical prepare_state(initial_state(), multi=True), empty manual draft, saved camera; synthetic built-in catalog only.",
+  "state": {
+    "version": 4,
+    "modules": [
+      {
+        "id": "a1ce2e3357b24e46808ce684b2c94399",
+        "name": "LoRA",
+        "mode": "multiple"
+      },
+      {
+        "id": "e36100a40f7c48a2a042488c78c8b57e",
+        "name": "Artist",
+        "mode": "multiple"
+      },
+      {
+        "id": "0627cad6dfcb46c0ab79fac32ed7b1ad",
+        "name": "角色",
+        "mode": "single"
+      },
+      {
+        "id": "e38a0434d5c546aa805c84d71a81010b",
+        "name": "動作",
+        "mode": "single"
+      },
+      {
+        "id": "8934a80168014a83a5824e2ec56a1de4",
+        "name": "表情",
+        "mode": "multiple"
+      },
+      {
+        "id": "68cf073ab01c412ebe0e4198810db0eb",
+        "name": "場景",
+        "mode": "single"
+      }
+    ],
+    "items": [
+      {
+        "id": "6b4ff93c75cb43cab5548616a548cd46",
+        "module": "0627cad6dfcb46c0ab79fac32ed7b1ad",
+        "name": "紅色洋裝女孩",
+        "prompt": "1girl, red dress",
+        "aliases": [
+          "紅裙",
+          "紅色衣服",
+          "女孩"
+        ],
+        "notes": "可修改或刪除的範例"
+      },
+      {
+        "id": "b668b31be4b744e8aaf54114eab9fbad",
+        "module": "0627cad6dfcb46c0ab79fac32ed7b1ad",
+        "name": "白襯衫女孩",
+        "prompt": "1girl, white shirt",
+        "aliases": [
+          "白衣",
+          "女孩"
+        ],
+        "notes": "可修改或刪除的範例"
+      },
+      {
+        "id": "ecdcac4245704920bcffb3dabf8bb84a",
+        "module": "e38a0434d5c546aa805c84d71a81010b",
+        "name": "自然站立",
+        "prompt": "standing, hands behind back",
+        "aliases": [
+          "站立",
+          "手放身後"
+        ],
+        "notes": "可修改或刪除的範例"
+      },
+      {
+        "id": "a52065c4261b4b43b183436cfe534356",
+        "module": "e38a0434d5c546aa805c84d71a81010b",
+        "name": "坐姿",
+        "prompt": "sitting",
+        "aliases": [
+          "坐下",
+          "坐著"
+        ],
+        "notes": "可修改或刪除的範例"
+      },
+      {
+        "id": "e3bab2b048334365b8bc72f790acb4a1",
+        "module": "8934a80168014a83a5824e2ec56a1de4",
+        "name": "微笑",
+        "prompt": "smile",
+        "aliases": [
+          "微笑",
+          "笑容"
+        ],
+        "notes": "可修改或刪除的範例"
+      },
+      {
+        "id": "a5da6f795e3f43369c37962071c1315a",
+        "module": "8934a80168014a83a5824e2ec56a1de4",
+        "name": "看向鏡頭",
+        "prompt": "looking at viewer",
+        "aliases": [
+          "看鏡頭",
+          "看向觀眾"
+        ],
+        "notes": "可修改或刪除的範例"
+      },
+      {
+        "id": "42b9d8e276e04b2591e94681f9291c60",
+        "module": "68cf073ab01c412ebe0e4198810db0eb",
+        "name": "夜晚街道",
+        "prompt": "street, night, city lights",
+        "aliases": [
+          "夜景",
+          "街道"
+        ],
+        "notes": "可修改或刪除的範例"
+      }
+    ],
+    "workspaces": [
+      {
+        "id": "30c4700fe5884a47b7ba3bc625833cf9",
+        "name": "預設工作區",
+        "fixed": [
+          "a1ce2e3357b24e46808ce684b2c94399",
+          "e36100a40f7c48a2a042488c78c8b57e"
+        ],
+        "picks": {}
+      }
+    ],
+    "workspace": "30c4700fe5884a47b7ba3bc625833cf9",
+    "selections": {},
+    "draft": "",
+    "draft_base": "",
+    "temporary": [],
+    "settings": {
+      "ui_size": 11,
+      "prompt_size": 12,
+      "density": "comfortable",
+      "context_sidebar_width": 240,
+      "gallery_columns": 12,
+      "separate_selections": true,
+      "interface_mode": "ask",
+      "connection_style": "curve",
+      "reduce_motion": false,
+      "hide_connections": false,
+      "material": "mica",
+      "visual_palette": "graphite",
+      "accent": "neutral",
+      "online": true,
+      "search_cache": true,
+      "acrylic_transparency": 61,
+      "mica_transparency": 61,
+      "menu_transparency": 6,
+      "confirm_clear_draft": true,
+      "formatter": "spaces",
+      "artist_prefix": true,
+      "translator": "dictionary",
+      "font_family": "Microsoft JhengHei UI",
+      "model_root": "",
+      "model_categories": [
+        "畫風",
+        "角色",
+        "背景",
+        "其他"
+      ]
+    },
+    "dictionary": {
+      "白色的牆壁": "white wall",
+      "白色牆壁": "white wall",
+      "白牆": "white wall",
+      "一個女孩": "1girl",
+      "女孩": "1girl",
+      "紅色衣服": "red clothes",
+      "簡單背景": "simple background",
+      "看鏡頭": "looking at viewer",
+      "微笑": "smile",
+      "站立": "standing"
+    },
+    "selection_view": "list",
+    "multi_output": {
+      "version": 7,
+      "canvases": {
+        "canvas_b809b90307be4d3d9da732eb5f691fdd": {
+          "name": "畫布1",
+          "members": [],
+          "position": [
+            -900,
+            -400
+          ],
+          "display_size": [
+            760,
+            620
+          ],
+          "edit_origin": [
+            0,
+            0
+          ],
+          "image": null
+        }
+      },
+      "outputs": {
+        "__text_output__": {
+          "name": "prompt輸出1",
+          "canvas": "canvas_b809b90307be4d3d9da732eb5f691fdd",
+          "draft": null,
+          "draft_base": "",
+          "list_state": {
+            "selections": {},
+            "temporary": []
+          },
+          "list_draft": {
+            "draft": "",
+            "draft_base": ""
+          },
+          "canvases": [
+            "canvas_b809b90307be4d3d9da732eb5f691fdd"
+          ],
+          "text_sources": [
+            "canvas_b809b90307be4d3d9da732eb5f691fdd"
+          ]
+        }
+      },
+      "current_output": "__text_output__",
+      "connections": [
+        {
+          "id": "line_f7ff9a62778e4563b63d15f32de4a796",
+          "source": "canvas_b809b90307be4d3d9da732eb5f691fdd",
+          "destination": "__text_output__",
+          "kind": "text"
+        },
+        {
+          "id": "line_14abe8908907494aa9575a3b872c6875",
+          "source": "__text_output__",
+          "destination": "clip_b287f5a4e6e144bd98da82e9dcc7520e",
+          "kind": "clip"
+        }
+      ],
+      "bindings": [],
+      "clip_inputs": {
+        "clip_b287f5a4e6e144bd98da82e9dcc7520e": {
+          "name": "文字輸入1",
+          "workflow": null
+        }
+      },
+      "workflow_order": {
+        "visible": false,
+        "items": [],
+        "established": []
+      },
+      "schedulers": {},
+      "image_inputs": {},
+      "stages": {}
+    },
+    "canvas_functions": {
+      "images": {},
+      "preview": true,
+      "preview_attached": false
+    },
+    "text_positions": {
+      "clip_b287f5a4e6e144bd98da82e9dcc7520e": [
+        530,
+        -350
+      ]
+    },
+    "uses": {},
+    "workspace_scenes": {
+      "version": 1,
+      "items": {
+        "30c4700fe5884a47b7ba3bc625833cf9": {
+          "uses": {},
+          "multi_output": {
+            "version": 7,
+            "canvases": {
+              "canvas_b809b90307be4d3d9da732eb5f691fdd": {
+                "name": "畫布1",
+                "members": [],
+                "position": [
+                  -900,
+                  -400
+                ],
+                "display_size": [
+                  760,
+                  620
+                ],
+                "edit_origin": [
+                  0,
+                  0
+                ],
+                "image": null
+              }
+            },
+            "outputs": {
+              "__text_output__": {
+                "name": "prompt輸出1",
+                "canvas": "canvas_b809b90307be4d3d9da732eb5f691fdd",
+                "draft": null,
+                "draft_base": "",
+                "list_state": {
+                  "selections": {},
+                  "temporary": []
+                },
+                "list_draft": {
+                  "draft": "",
+                  "draft_base": ""
+                },
+                "canvases": [
+                  "canvas_b809b90307be4d3d9da732eb5f691fdd"
+                ],
+                "text_sources": [
+                  "canvas_b809b90307be4d3d9da732eb5f691fdd"
+                ]
+              }
+            },
+            "current_output": "__text_output__",
+            "connections": [
+              {
+                "id": "line_f7ff9a62778e4563b63d15f32de4a796",
+                "source": "canvas_b809b90307be4d3d9da732eb5f691fdd",
+                "destination": "__text_output__",
+                "kind": "text"
+              },
+              {
+                "id": "line_14abe8908907494aa9575a3b872c6875",
+                "source": "__text_output__",
+                "destination": "clip_b287f5a4e6e144bd98da82e9dcc7520e",
+                "kind": "clip"
+              }
+            ],
+            "bindings": [],
+            "clip_inputs": {
+              "clip_b287f5a4e6e144bd98da82e9dcc7520e": {
+                "name": "文字輸入1",
+                "workflow": null
+              }
+            },
+            "workflow_order": {
+              "visible": false,
+              "items": [],
+              "established": []
+            },
+            "schedulers": {},
+            "image_inputs": {},
+            "stages": {}
+          },
+          "canvas_functions": {
+            "images": {},
+            "preview": true,
+            "preview_attached": false
+          },
+          "text_positions": {
+            "clip_b287f5a4e6e144bd98da82e9dcc7520e": [
+              530,
+              -350
+            ]
+          },
+          "selections": {},
+          "temporary": [],
+          "draft": "",
+          "draft_base": "",
+          "selection_view": "list",
+          "canvas_view": [
+            0.6,
+            120,
+            160
+          ],
+          "generation_local": {}
+        }
+      }
+    },
+    "canvas_view": [
+      0.6,
+      120,
+      160
+    ]
+  }
+}

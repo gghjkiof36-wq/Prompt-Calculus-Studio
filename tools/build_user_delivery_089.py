@@ -1,7 +1,7 @@
-"""Assemble a fresh local Windows delivery with optional, isolated learning materials.
+"""Assemble a fresh Windows delivery with an in-app Markdown welcome and lessons.
 
-The inner desktop package remains byte-identical to its recorded build. This
-outer package has its own manifest and never includes existing data/recovery files.
+The executable remains byte-identical to its recorded build. Authored documents
+are added to the initial files folder, then the package manifest is regenerated.
 """
 from __future__ import annotations
 
@@ -92,78 +92,6 @@ def make_materials(root):
             recovery.unlink()
 
 
-def make_launchers(out):
-    write(out/'Start-PCS.cmd', r'''@echo off
-setlocal
-cd /d "%~dp0"
-if not exist "%~dp0MyFiles" mkdir "%~dp0MyFiles"
-set "PROMPT_STUDIO_DATA=%~dp0UserData"
-start "" "%~dp0Program\PromptCalculusStudio.exe" --v0.8.9-alpha --root "%~dp0MyFiles" --data "%~dp0UserData"
-''')
-    write(out/'Start-Tutorial.cmd', r'''@echo off
-setlocal
-cd /d "%~dp0"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Open-Tutorial.ps1"
-if errorlevel 1 pause
-''')
-    write(out/'Open-Tutorial.ps1', r'''param([switch]$PrepareOnly)
-$ErrorActionPreference = 'Stop'
-try {
-    $kitRoot = $PSScriptRoot
-    $practiceRoot = Join-Path $kitRoot 'Practice'
-    $tutorialSource = Join-Path $kitRoot 'Tutorial'
-    if (-not (Test-Path -LiteralPath $practiceRoot)) {
-        Copy-Item -LiteralPath $tutorialSource -Destination $practiceRoot -Recurse -ErrorAction Stop
-    }
-    $guideFile = Join-Path $practiceRoot '00-從這裡開始.md'
-    $canvasFile = Join-Path $practiceRoot '03-練習畫布.pcs-workflow'
-    foreach ($requiredFile in @($guideFile, $canvasFile)) {
-        if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
-            throw '練習資料不完整。請先保留 Practice，再把它移到別處後重新開啟教學；既有內容不會自動覆寫。'
-        }
-    }
-    if ($PrepareOnly) { return }
-    $tutorialData = Join-Path $kitRoot 'TutorialData'
-    $env:PROMPT_STUDIO_DATA = $tutorialData
-    $program = Join-Path $kitRoot 'Program/PromptCalculusStudio.exe'
-    # Pass paths as quoted arguments to support spaces and Chinese folder names.
-    $arguments = @('--v0.8.9-alpha', '--root', ('"' + $practiceRoot + '"'),
-        '--data', ('"' + $tutorialData + '"'), '--open-left', ('"' + $guideFile + '"'),
-        '--open-right', ('"' + $canvasFile + '"'))
-    Start-Process -FilePath $program -ArgumentList $arguments -WorkingDirectory $kitRoot
-} catch {
-    Write-Host ('無法開啟教學：' + $_.Exception.Message)
-    exit 1
-}
-''', bom=True)
-    write(out/'Open-Guide.cmd',
-          '@echo off\nchcp 65001 >nul\ncd /d "%~dp0"\nstart "" "%~dp0開始使用.html"\n')
-
-
-def make_html(out):
-    from markdown_it import MarkdownIt
-    parser = MarkdownIt('commonmark', {'html': False}).enable('table')
-    body = parser.render((out/'開始使用.md').read_text(encoding='utf-8'))
-    page = '''<!doctype html><html lang="zh-Hant"><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>開始使用 PCS 0.8.9</title>
-<style>
-:root{color-scheme:dark;font-family:"Microsoft JhengHei UI","Segoe UI",sans-serif;background:#15191b;color:#edece7}
-body{margin:0;line-height:1.8}main{max-width:960px;margin:auto;padding:48px 28px 72px}
-h1{font-size:2.25rem;line-height:1.3;margin:0 0 20px}h2{font-size:1.5rem;margin:52px 0 14px}
-h3{font-size:1.15rem;margin:30px 0 10px}p,ul,ol{max-width:76ch}
-a{color:#e6d7b6;text-underline-offset:4px}a:hover{color:#fff0d1}
-a:focus-visible{outline:2px solid #e6d7b6;outline-offset:5px}
-img{max-width:100%;height:auto;display:block;border-radius:12px}
-table{width:100%;border-collapse:collapse;margin:20px 0;text-align:left}
-th,td{padding:12px 16px;border-bottom:1px solid #3d4345;vertical-align:top}
-th{color:#e6d7b6;background:#24292b}code{font-size:.95em;color:#e6d7b6;overflow-wrap:anywhere}
-::selection{background:#e6d7b6;color:#202527}*{scrollbar-color:#6c7273 #202527}
-@media(max-width:600px){main{padding:28px 18px 48px}h1{font-size:1.8rem}th,td{padding:10px 8px}h2{margin-top:38px}}
-</style><main>''' + body + '</main></html>'
-    write(out/'開始使用.html', page)
-
-
 def verify_desktop(desktop):
     manifest = json.loads((desktop/'PACKAGE_MANIFEST.json').read_text(encoding='utf-8'))
     files = {item['path']: item for item in manifest['files']}
@@ -208,6 +136,7 @@ def archive(folder, destination):
 
 
 def build(desktop, output):
+    from package_documents import package_manifest
     desktop, output = desktop.resolve(), output.absolute()
     if output.exists():
         raise ValueError('Use a fresh output directory.')
@@ -215,44 +144,33 @@ def build(desktop, output):
         if path.is_symlink() or path.is_junction():
             raise ValueError('Desktop contains a redirected path.')
     info = verify_desktop(desktop)
-    output.mkdir(parents=True)
-    shutil.copytree(desktop, output/'Program')
-    shutil.copytree(TEMPLATES/'Tutorial', output/'Tutorial')
-    shutil.copy2(TEMPLATES/'開始使用.md', output/'開始使用.md')
-    (output/'Preview').mkdir()
-    (output/'Tutorial/媒體').mkdir()
+    if (desktop/'files').exists():
+        raise ValueError('Use a pristine desktop build without user content.')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(desktop, output)
+    content = output/'files'
+    content.mkdir()
+    lessons = content/'教學素材'
+    shutil.copytree(TEMPLATES/'Tutorial', lessons)
+    shutil.copy2(TEMPLATES/'歡迎使用.md', content/'歡迎使用.md')
+    (lessons/'媒體').mkdir()
     for name in PREVIEWS:
-        source = ROOT/'docs/images'/name
-        shutil.copy2(source, output/'Preview'/name)
-        shutil.copy2(source, output/'Tutorial/媒體'/name)
-    make_materials(output/'Tutorial')
-    make_launchers(output)
-    make_html(output)
-    verify_learning(output/'Tutorial')
-    write(output/'先讀我.txt',
-          'PCS 0.8.9 Alpha 1 本機交付更新\n\n'
-          '先完整解壓，再開啟「開始使用.html」查看畫面與操作。\n'
-          '日常工作：雙擊 Start-PCS.cmd。\n'
-          '跟著教材練習：雙擊 Start-Tutorial.cmd。\n'
-          '請保留 Program 整個資料夾；Windows 完整包目前僅供本機使用。\n')
-    files = []
-    for path in sorted(output.rglob('*')):
-        if path.is_file():
-            files.append(dict(path=path.relative_to(output).as_posix(),
-                              size=path.stat().st_size, sha256=sha(path)))
-    record = dict(format='pcs-user-delivery-1', version=info['version'],
-                  binary_git_head=info['binary_git_head'], desktop_manifest_sha256=sha(desktop/'PACKAGE_MANIFEST.json'),
-                  windows_public=False, tutorial='fresh authored materials; no existing data copied',
-                  files=files)
-    write(output/'DELIVERY_MANIFEST.json', json.dumps(record, ensure_ascii=False, indent=2)+'\n')
+        shutil.copy2(ROOT/'docs/images'/name, lessons/'媒體'/name)
+    make_materials(lessons)
+    verify_learning(lessons)
+    for target in re.findall(r'!?\[[^\]]*\]\(([^)]+)\)', (content/'歡迎使用.md').read_text(encoding='utf-8')):
+        if '://' not in target and not (content/target).is_file():
+            raise ValueError('Missing welcome reference: '+target)
+    package_manifest(output, 'desktop')
+    verify_desktop(output)
     full_zip = output.with_name(output.name+'.zip')
     archive(output, full_zip)
-    lesson_zip = output.parent/'PCS-v0.8.9-Alpha1-Tutorial.zip'
-    archive(output/'Tutorial', lesson_zip)
     receipt = dict(package=str(full_zip), size=full_zip.stat().st_size, sha256=sha(full_zip),
-                   tutorial=str(lesson_zip), tutorial_sha256=sha(lesson_zip),
-                   binary_git_head=info['binary_git_head'], desktop_manifest_verified=True,
-                   learning_materials_verified=True, files=len(files), windows_public=False)
+                   binary_git_head=info['binary_git_head'], source_git_head=info['git_head'],
+                   package_manifest_sha256=sha(output/'PACKAGE_MANIFEST.json'),
+                   welcome='files/歡迎使用.md', learning='files/教學素材',
+                   desktop_manifest_verified=True, learning_materials_verified=True,
+                   windows_public=False)
     write(output.parent/'USER-DELIVERY.json', json.dumps(receipt, ensure_ascii=False, indent=2)+'\n')
     print(json.dumps(receipt, ensure_ascii=False))
 
