@@ -7,6 +7,11 @@ ROOT=Path(sys.executable).resolve().parent if getattr(sys,"frozen",False) else P
 sys.path.insert(0,str(ROOT/"vendor"))
 
 def main():
+    # The current release starts the document workspace. Explicit historical
+    # flags retain the old entry point for its diagnostics and saved packages.
+    if not any(arg.startswith('--v0') or arg.endswith('smoke-test') for arg in sys.argv[1:]) or '--v0.8.9-alpha' in sys.argv:
+        from run_workspace import main as workspace_main
+        return workspace_main()
     os.environ.setdefault('PROMPT_STUDIO_V08','1')
     if any(flag in sys.argv for flag in ('--v08-alpha','--v08-smoke-test','--v081-alpha','--v081-smoke-test','--v082-alpha','--v083-alpha','--v084-alpha','--v0.8.4-alpha','--v0.8.5-alpha','--v0.8.6-alpha','--v0.8.7-alpha','--v0.8.8-alpha')):os.environ['PROMPT_STUDIO_V08']='1'
     from PySide6.QtCore import QLockFile

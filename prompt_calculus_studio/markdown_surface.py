@@ -116,6 +116,7 @@ class MarkdownSurface(QWidget):
         page.buffer.text.undoAvailable.connect(self.update_controls)
         page.buffer.text.redoAvailable.connect(self.update_controls)
         page.buffer.compositionChanged.connect(self.update_controls)
+        page.buffer.opened.connect(self.source_ready)
         self.commands = self.command_entries()
         from .markdown_advanced import AdvancedEditing
         self.advanced = AdvancedEditing(self)
@@ -127,12 +128,12 @@ class MarkdownSurface(QWidget):
             shortcut = QShortcut(QKeySequence('Esc'), panel);shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             shortcut.activated.connect(self.focus_document if panel is self.toolbar else lambda p=panel:self.close_panel(p))
         self.apply_appearance();self.apply_preferences();self.refresh()
-        self.editor.document().setLayoutEnabled(True)
-        QTimer.singleShot(0, self.load_preferences)
+        self.editor.document().setLayoutEnabled(not self.page.buffer.opening)
+        QTimer.singleShot(0, self, self.load_preferences)
 
     @Slot()
     def schedule_refresh(self):
-        self.refresh_timer.start(40)
+        if not self.page.buffer.opening:self.refresh_timer.start(40)
 
     def tool(self, label, callback, symbol=None, text=None):
         control = QToolButton();control.setAccessibleName(label);control.setToolTip(label)
@@ -336,6 +337,9 @@ class MarkdownSurface(QWidget):
         menu.open_for(self.mode_box,align_right=True)
 
     def set_mode(self, mode):
+        if self.page.buffer.opening:
+            if mode in ('write','source','read'):self.pending_mode=mode
+            return
         if self.page.buffer.composing:self.report('請先完成目前的中文組字。');return
         if mode not in ('write', 'source', 'read'):return
         self.mode = mode
@@ -344,7 +348,9 @@ class MarkdownSurface(QWidget):
         self.toolbar_host.setVisible(mode != 'read');self.replace_row.setVisible(False)
         self.title_host.setVisible(True)
         self.outline.setDragEnabled(mode != 'read')
-        if mode == 'read':self.reader.refresh_cached();self.stack.setCurrentWidget(self.reader);self.reader.setFocus()
+        if mode == 'read':
+            self.stack.setCurrentWidget(self.reader)
+            self.reader.refresh_cached();self.reader.setFocus()
         else:
             self.editor.mode = mode;self.editor.update_metadata();self.stack.setCurrentWidget(self.editor);self.editor.setFocus()
         self.update_title_layout();self.search_changed();self.update_statistics();self.update_controls()
@@ -447,8 +453,9 @@ class MarkdownSurface(QWidget):
 
     def update_controls(self, *args):
         if not hasattr(self, 'editor'):return
-        ready = self.mode != 'read' and not self.page.buffer.composing
-        self.toolbar.setEnabled(ready);self.mode_box.setEnabled(not self.page.buffer.composing)
+        ready = self.mode != 'read' and not self.page.buffer.composing and not self.page.buffer.opening
+        self.toolbar.setEnabled(ready);self.mode_box.setEnabled(not self.page.buffer.composing and not self.page.buffer.opening)
+        if self.page.buffer.opening:return
         self.undo_action.setEnabled(ready and self.page.document().isUndoAvailable())
         self.redo_action.setEnabled(ready and self.page.document().isRedoAvailable())
         values = self.active_style()
@@ -554,6 +561,8 @@ class MarkdownSurface(QWidget):
         self.property_editor=dialog;dialog.show()
 
     def refresh(self):
+        if self.page.buffer.opening:
+            self.update_statistics();self.update_controls();return
         if not self.editor.lazy_presentation or self.outline_layout.requested:self.outline.rebuild(self.page.buffer.snapshot().text)
         if self.mode == 'read':self.reader.refresh_cached()
         snapshot=self.page.buffer.snapshot()
@@ -571,6 +580,8 @@ class MarkdownSurface(QWidget):
 
     def update_statistics(self, *args):
         if not hasattr(self, 'statistics'):return
+        if self.page.buffer.opening:
+            self.statistics.setText(self.page.error or '正在載入文件…');return
         snapshot=self.page.buffer.snapshot();text=snapshot.text;cursor = self.editor.textCursor()
         selected = self.reader.selected_text() if self.mode == 'read' else cursor.selectedText()
         count=self.page.buffer.word_statistics.request(snapshot)
@@ -581,9 +592,39 @@ class MarkdownSurface(QWidget):
     def toggle_outline(self):self.outline_layout.toggle()
 
     def navigate(self, position):
+        if self.page.buffer.opening:
+            self.pending_position=position
+            return
         snapshot = self.page.buffer.snapshot();line = snapshot.text[:position].count('\n')
         if self.mode == 'read':self.reader.scrollToAnchor('line-'+str(line));return
         self.editor.fold_all(False);cursor = self.editor.textCursor();cursor.setPosition(utf16_position(snapshot.text, position));self.editor.setTextCursor(cursor);self.editor.ensureCursorVisible();self.editor.setFocus()
+
+    @Slot()
+    def source_ready(self):
+        mode=getattr(self,'pending_mode',self.mode)
+        self.pending_mode=mode
+        self.set_mode(mode)
+        position=getattr(self,'pending_position',None)
+        if position is None:return
+        self.pending_position=None
+        self.navigate_when_ready(position)
+
+    def navigate_when_ready(self,position):
+        if self.page.buffer.opening:
+            self.pending_position=position;return
+        web=self.reader.rich if self.mode=='read' else None
+        if web and web.render_state!='ready':
+            self.read_position=position
+            if not getattr(self,'waiting_for_read',False):
+                self.waiting_for_read=True;web.rendered.connect(self.read_navigation_ready)
+        else:self.navigate(position)
+
+    @Slot()
+    def read_navigation_ready(self):
+        web=self.reader.rich
+        if not web or web.render_state!='ready':return
+        web.rendered.disconnect(self.read_navigation_ready);self.waiting_for_read=False
+        if self.mode=='read':self.navigate(self.read_position)
 
     def open_find(self, replace=False):
         self.find_bar.show();self.search_button.setChecked(True)
@@ -606,6 +647,9 @@ class MarkdownSurface(QWidget):
         if self.mode=='read' and self.reader.advanced and self.reader.rich:
             self.reader.rich.search(self.query.text() if self.find_bar.isVisible() else '',self.case_sensitive.isChecked());return
         matches = self.matches()
+        if self.search_highlight.searching:
+            self.match_count.setText('…');self.find_previous.setEnabled(False);self.find_forward.setEnabled(False)
+            return
         view = self.reader if self.mode == 'read' else self.editor
         number=self.search_highlight.current_index(view)+1
         self.match_count.setText(f'{number}/{len(matches)}' if self.query.text() else '')

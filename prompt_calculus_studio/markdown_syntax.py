@@ -1,8 +1,19 @@
 """Bounded Markdown presentation metadata. Source offsets never come from HTML."""
 from dataclasses import dataclass
 from functools import lru_cache
+from bisect import bisect_left, bisect_right
 import html
 import re
+
+
+def interval_bounds(ranges):
+    """Union sorted protection ranges once, instead of scanning them per span."""
+    merged=[]
+    for start,end in sorted(ranges):
+        if merged and start<=merged[-1][1]:
+            merged[-1]=(merged[-1][0],max(merged[-1][1],end))
+        else:merged.append((start,end))
+    return [start for start,end in merged],[end for start,end in merged]
 
 
 @dataclass(frozen=True)
@@ -82,7 +93,10 @@ def spans(text):
         a, b = match.span(2)
         item = Span(match.start(), match.end(), a, b, {'code': True}, True)
         code.append((item.start, item.end));result.append(item)
-    def protected(a, b):return any(a < y and b > x for x, y in code)
+    code_starts,code_ends=interval_bounds(code)
+    def protected(a, b):
+        index=bisect_right(code_ends,a)
+        return index<len(code_starts) and code_starts[index]<b
     stack = []
     for match in re.finditer(r'<(/?)([a-zA-Z][\w-]*)(\s[^<>]*?)?>', text):
         if protected(*match.span()):continue
@@ -107,6 +121,7 @@ def spans(text):
                           ('**', {'bold': True}), ('__', {'bold': True}),
                           ('~~', {'strike': True}), ('==', {'background': COLORS[0]}),
                           ('*', {'italic': True}), ('_', {'italic': True})):
+        starts,ends=interval_bounds(used)
         escaped = re.escape(marker)
         pattern = re.compile(r'(?<![\\'+re.escape(marker[0])+r'])'+escaped+r'(?!'+re.escape(marker[0])+r')(?=\S)(.+?)(?<=\S)(?<!\\)'+escaped+r'(?!'+re.escape(marker[0])+r')')
         for match in pattern.finditer(text):
@@ -114,7 +129,8 @@ def spans(text):
             first, last = match.span(1)
             if marker.startswith('_') and ((a and text[a-1].isalnum()) or (b < len(text) and text[b].isalnum())):continue
             if protected(a, first) or protected(last, b):continue
-            if any(x <= a < y or x < b <= y for x, y in used):continue
+            at=bisect_right(starts,a)-1;end_at=bisect_left(starts,b)-1
+            if at>=0 and a<ends[at] or end_at>=0 and b<=ends[end_at]:continue
             result.append(Span(a, b, first, last, style))
             used.extend(((a, first), (last, b)))
     return sorted(result, key=lambda item: (item.start, -item.end))

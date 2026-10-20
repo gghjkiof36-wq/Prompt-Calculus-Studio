@@ -235,6 +235,10 @@ class MarkdownPerformanceTests(unittest.TestCase):
     def test_large_reader_uses_visible_projection_without_native_html_copy(self):
         text='- [x] Done\n- [ ] Open\n\n'+('## Scene\n\nEvening.\n\n'*5000)+'## 最後一節\n\nEND 😀'
         (self.root/'Notes.md').write_bytes(text.encode());s=self.open('Notes.md').widget.md_surface
+        for _ in range(500):
+            if not s.page.buffer.opening:break
+            QTest.qWait(10)
+        self.assertFalse(s.page.buffer.opening)
         self.assertLess(len(text),128_000);self.assertTrue(s.editor.lazy_presentation)
         with patch.object(s.reader,'setHtml',side_effect=AssertionError('hidden rich-text import')):
             s.set_mode('read')

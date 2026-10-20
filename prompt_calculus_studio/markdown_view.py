@@ -7,7 +7,7 @@ from PySide6.QtGui import (QColor, QFont, QPainter, QTextCursor, QTextCharFormat
 from PySide6.QtWidgets import QTextEdit, QPlainTextEdit, QWidget, QTextBrowser
 from .widgets import RoundMenu as QMenu
 from .markdown_layout import SourceLayout
-from .markdown_source import source_text, python_position, utf16_position, SourceEdit
+from .markdown_source import source_text, changed_source, python_position, utf16_position, SourceEdit
 from .markdown_syntax import spans, line_info, reading_html, display_style, escaped_markers
 from .markdown_commands import continuation, paragraph_edits
 from .theme import visual_tokens, window_appearance, font_pixels
@@ -167,6 +167,9 @@ class Markers(QWidget):
 
 
 class SourceView(QPlainTextEdit):
+    def insertPlainText(self,text):
+        if self.page.buffer.opening:return
+        super().insertPlainText(text)
     def mouseReleaseEvent(self,event):
         if hasattr(self.surface,'advanced') and self.surface.advanced.rectangle is not None:
             self.surface.advanced.rectangle=None;event.accept();return
@@ -181,7 +184,7 @@ class SourceView(QPlainTextEdit):
         self.surface, self.page = surface, surface.page
         self.mode = 'write';self.syncing = False;self.forwarding = False
         self._metadata_snapshot=self.page.buffer.snapshot()
-        self.lines = line_info(self._metadata_snapshot.text)
+        self.lines = line_info('' if self.page.buffer.opening else self._metadata_snapshot.text)
         self._line_starts=[item['start'] for item in self.lines];self._source_change=None
         self._format_window=(0,160);self._presented=set();self._updating_presentation=False
         self.folded = set();self.last_block = 0
@@ -190,7 +193,8 @@ class SourceView(QPlainTextEdit):
         # The surface installs its final font, mode and margins before enabling
         # layout. Do not lay out a long document several times at startup.
         self.document().setLayoutEnabled(False)
-        self.setPlainText(self.page.buffer.snapshot().text)
+        self.setPlainText('' if self.page.buffer.opening else self.page.buffer.snapshot().text)
+        self.setReadOnly(self.page.buffer.opening)
         self.setUndoRedoEnabled(False)
         self.setFrameShape(QTextEdit.Shape.NoFrame)
         self.setAccessibleName('Markdown 編寫區')
@@ -212,9 +216,9 @@ class SourceView(QPlainTextEdit):
         self.update_metadata()
 
     def forward_change(self, position, removed, added):
-        if self.syncing:return
+        if self.syncing or self.page.buffer.opening:return
         previous = self.page.buffer.snapshot().text
-        latest = source_text(self.document())
+        latest = changed_source(self.document(),previous,position,removed,added)
         if previous == latest:return  # Highlighting changes layout, not source.
         self._source_change=(position,removed,added)
         a = python_position(previous, position);b = python_position(previous, position+removed)
@@ -245,9 +249,9 @@ class SourceView(QPlainTextEdit):
         self.update_metadata()
 
     def receive_change(self, position, removed, added):
-        if self.forwarding:return
+        if self.forwarding or self.page.buffer.opening:return
         latest = self.page.buffer.snapshot().text
-        previous = source_text(self.document())
+        previous = self._metadata_snapshot.text
         if latest == previous:return
         self._source_change=(position,removed,added)
         self.syncing = True
@@ -259,7 +263,8 @@ class SourceView(QPlainTextEdit):
             cursor.setPosition(min(position+removed, self.document().characterCount()-1), QTextCursor.MoveMode.KeepAnchor)
             cursor.insertText(latest[a:b])
             # Whole-document reload notifications may include Qt's final marker.
-            if source_text(self.document()) != latest:
+            if ((len(latest)<256_000 and source_text(self.document()) != latest)
+                    or self.document().characterCount()-1 != utf16_position(latest,len(latest))):
                 saved = self.textCursor().position()
                 self.setPlainText(latest)
                 cursor = self.textCursor();cursor.setPosition(min(saved, self.document().characterCount()-1));self.setTextCursor(cursor)
@@ -267,6 +272,7 @@ class SourceView(QPlainTextEdit):
         self.update_metadata()
 
     def update_metadata(self):
+        if self.page.buffer.opening:return
         was_syncing=self.syncing;self.syncing=True
         transaction=QTextCursor(self.document());transaction.beginEditBlock()
         try:
@@ -316,7 +322,7 @@ class SourceView(QPlainTextEdit):
             try:self.update_paragraphs(first,last)
             finally:self._suspend_highlight=False
             if hasattr(self, 'highlighter'):
-                if not getattr(self,'_highlight_initialized',False) or (first==0 and last==len(self.lines)):self.highlighter.rehighlight()
+                if not lazy and (not getattr(self,'_highlight_initialized',False) or (first==0 and last==len(self.lines))):self.highlighter.rehighlight()
                 else:
                     for number in range(first,last):self.highlighter.rehighlightBlock(self.document().findBlockByNumber(number))
                 self._highlight_initialized=True
@@ -345,6 +351,7 @@ class SourceView(QPlainTextEdit):
         if self.lazy_presentation and not self.syncing and not self._updating_presentation:self.presentation_timer.start(0)
 
     def present_visible(self):
+        if self.surface.mode=='read' or self.surface.page.buffer.opening or not self.isVisible():return
         if not self.lazy_presentation or self.syncing or self._updating_presentation:return
         first,last=self.presentation_range();self._format_window=(first,last)
         numbers=set(range(first,last));numbers.update(block.blockNumber() for block in self.visible_blocks())
@@ -388,6 +395,7 @@ class SourceView(QPlainTextEdit):
         return line_info(text)
 
     def cursor_changed(self):
+        if self.page.buffer.opening:return
         if self.syncing:return
         number = self.textCursor().blockNumber()
         for index in {number, self.last_block}:
@@ -452,6 +460,7 @@ class SourceView(QPlainTextEdit):
         for block, top in self.visible_block_positions():yield block
 
     def visible_block_positions(self):
+        if self.surface.mode=='read' or not self.isVisible() or self.surface.page.buffer.opening:return
         block=self.firstVisibleBlock();remaining=max(100,self.viewport().height()//4+60)
         if not block.isValid():return
         # blockBoundingGeometry walks from the first visible paragraph each
@@ -598,7 +607,7 @@ class SourceView(QPlainTextEdit):
                     icon('chevron-right' if number in self.folded else 'chevron-down',self.tokens()['secondary']).paint(painter,self.fold_control_rect(block).toRect())
 
     def keyPressEvent(self, event):
-        if self.surface.mode == 'read':event.ignore();return
+        if self.surface.mode == 'read' or self.page.buffer.opening:event.ignore();return
         if event.key()==Qt.Key.Key_V and event.modifiers()==(Qt.KeyboardModifier.ControlModifier|Qt.KeyboardModifier.ShiftModifier):
             self.paste_plain();event.accept();return
         if hasattr(self.surface,'advanced') and self.surface.advanced.key(event):event.accept();return
@@ -636,7 +645,7 @@ class SourceView(QPlainTextEdit):
         super().keyPressEvent(event)
 
     def inputMethodEvent(self, event):
-        if self.surface.mode == 'read':event.ignore();return
+        if self.surface.mode == 'read' or self.page.buffer.opening:event.ignore();return
         if hasattr(self.surface,'advanced'):self.surface.advanced.clear()
         token = id(self.page);self.page.buffer.composing.add(token)
         self.ime_inserted_range=None

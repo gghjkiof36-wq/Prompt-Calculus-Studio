@@ -14,6 +14,19 @@ def source_text(document):
     return document.toRawText().replace('\u2029', '\n')
 
 
+def changed_source(document, previous, position, removed, added):
+    """Read Qt's changed range, not every paragraph on each keystroke."""
+    from PySide6.QtGui import QTextCursor
+    start=python_position(previous,position)
+    end=python_position(previous,position+removed)
+    cursor=QTextCursor(document)
+    maximum=document.characterCount()-1
+    cursor.setPosition(min(position,maximum))
+    cursor.setPosition(min(position+added,maximum),QTextCursor.MoveMode.KeepAnchor)
+    inserted=cursor.selectedText().replace('\u2029','\n')
+    return previous[:start]+inserted+previous[end:]
+
+
 @dataclass(frozen=True)
 class SourcePiece:
     """A slice of original bytes decoded as UTF-8; CRLF is one editor position."""

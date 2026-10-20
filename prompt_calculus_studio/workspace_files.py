@@ -61,6 +61,7 @@ def create_file(root, kind, name):
 class MarkdownBuffer(QObject):
     """One source/undo owner per file; projections never write back HTML."""
     compositionChanged = Signal()
+    opened = Signal()
 
     def __init__(self):
         super().__init__()
@@ -70,17 +71,22 @@ class MarkdownBuffer(QObject):
         self.external_error = ''
         self.document_id = uuid.uuid4().hex
         self.loading = False
+        self.opening = False
         self.mapping_error = ''
         self.pending_pieces = None
         self.last_result = None
         self.recovery_paths = []
 
     def changed(self, position, removed, added):
+        previous=getattr(self,'cached_snapshot',None)
         self.snapshot_key=None
         if self.loading:
             return
         try:
-            text = source_text(self.text)
+            from .markdown_source import changed_source
+            text = changed_source(self.text,previous.text,position,removed,added) if previous is not None else source_text(self.text)
+            self.snapshot_key=(self.text.revision(),id(self.text))
+            self.cached_snapshot=SourceSnapshot(text,self.snapshot_key[0],self.document_id)
             if self.pending_pieces is not None:
                 if self.ledger.text_of(self.pending_pieces) != text:
                     raise ValueError('編輯交易尚未完整套用，內容尚未保存。')
@@ -91,12 +97,16 @@ class MarkdownBuffer(QObject):
             self.mapping_error = self.error = str(error)
 
     def snapshot(self):
+        if self.opening:
+            return self.opening_snapshot
         key=(self.text.revision(),id(self.text))
         if getattr(self,'snapshot_key',None)!=key:
             self.snapshot_key=key;self.cached_snapshot=SourceSnapshot(source_text(self.text),key[0],self.document_id)
         return self.cached_snapshot
 
     def apply(self, snapshot, edits, *, join_previous=False):
+        if self.opening:
+            raise ValueError('文件正在載入，請稍候。')
         if self.composing:
             raise ValueError('請先完成目前的中文組字。')
         if snapshot != self.snapshot():
@@ -155,9 +165,17 @@ class MarkdownPage(QPlainTextEdit):
             self.buffer.text = QTextDocument(self.buffer)
             self.buffer.text.setDocumentLayout(QPlainTextDocumentLayout(self.buffer.text))
             self.setDocument(self.buffer.text)
-            self.setPlainText(self.baseline.decode('utf-8-sig'))
-            self.document().setModified(False)
             self.buffer.ledger = SourceLedger(self.baseline)
+            text = self.buffer.ledger.text_of(self.buffer.ledger.pieces)
+            self.buffer.opening = len(text) > 1_000_000 or text.count('\n') > 20_000
+            if self.buffer.opening:
+                self.buffer.loading = True
+                self.buffer.opening_snapshot = SourceSnapshot(text, 0, self.buffer.document_id)
+                self.buffer.text.setLayoutEnabled(False)
+                self.buffer.text.setUndoRedoEnabled(False)
+            else:
+                self.setPlainText(text)
+            self.document().setModified(False)
             self.buffer.text.contentsChange.connect(self.buffer.changed)
         else:
             self.setDocument(buffer.text)
@@ -179,6 +197,9 @@ class MarkdownPage(QPlainTextEdit):
         super().verticalScrollBar().hide()
         self.setFocusProxy(self.md_surface.editor)
         self.md_surface.show()
+        if self.buffer.opening and not hasattr(self.buffer, 'source_loading'):
+            from .markdown_loading import SourceLoading
+            self.buffer.source_loading = SourceLoading(self.buffer, text)
 
     def event(self,event):
         handled=super().event(event)
@@ -247,11 +268,11 @@ class MarkdownPage(QPlainTextEdit):
 
     @property
     def dirty(self):
-        return self.document().isModified()
+        return not self.buffer.opening and self.document().isModified()
 
     def save(self):
         from .file_publication import checked_replace, PublicationError
-        if self.buffer.composing or self.operation_error:
+        if self.buffer.opening or self.buffer.composing or self.operation_error:
             return False
         if not self.dirty and not self.error and not self.buffer.mapping_error:
             return True
@@ -283,6 +304,8 @@ class MarkdownPage(QPlainTextEdit):
             return False
 
     def encoded(self):
+        if self.buffer.opening:
+            return self.baseline
         if self.buffer.mapping_error:
             raise ValueError(self.buffer.mapping_error)
         if self.buffer.ledger.text_of(self.buffer.ledger.pieces) != source_text(self.document()):
@@ -308,17 +331,22 @@ class MarkdownPage(QPlainTextEdit):
                 self.buffer.composing.discard(token)
             self.buffer.compositionChanged.emit()
 
-    def refresh_external(self):
+    def refresh_external(self, probe=None):
         """Reload only a clean shared document; a conflict never replaces a draft."""
-        if self.buffer.composing or self.operation_error:
+        if self.buffer.opening or self.buffer.composing or self.operation_error:
             return False
         try:
-            target = paths.checked(self.path.parent, self.path.name)
-            info = target.stat()
-            stamp = (str(target), info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
-            if stamp == self.buffer.external_stamp and not self.buffer.external_error:
-                return False
-            raw = paths.read_bytes(target, MAX_BYTES)[0]
+            if probe is None:
+                target = paths.checked(self.path.parent, self.path.name)
+                info = target.stat()
+                stamp = (str(target), info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
+                if stamp == self.buffer.external_stamp and not self.buffer.external_error:
+                    return False
+                raw = paths.read_bytes(target, MAX_BYTES)[0]
+            else:
+                stamp,raw,error=probe
+                if error:raise ValueError(error)
+                if raw is None:return False
             if raw == self.baseline:
                 self.buffer.external_stamp = stamp
                 if self.error == self.buffer.external_error:

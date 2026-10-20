@@ -1,4 +1,4 @@
-"""Explicit isolated entry for the local document workspace; no default data."""
+"""Start the local document workspace with portable data and content folders."""
 import argparse
 import os
 import sys
@@ -7,12 +7,22 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--root', type=Path, required=True)
-    parser.add_argument('--data', type=Path, required=True)
+    parser.add_argument('--root', type=Path, help='Content folder; defaults to files beside the program.')
+    parser.add_argument('--data', type=Path, help='Application data; defaults to PROMPT_STUDIO_DATA or data beside the program.')
+    parser.add_argument('--v0.8.9-alpha', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--open-left', type=Path, help='Open this file in the initial view.')
     parser.add_argument('--open-right', type=Path, help='Open this file beside the initial view.')
     parser.add_argument('--check', action='store_true', help='Check this launcher without writing its review files.')
+    parser.add_argument('--smoke-test', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    base = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
+    args.data = (args.data or Path(os.environ.get('PROMPT_STUDIO_DATA', base/'data'))).absolute()
+    if args.root is None:
+        args.root = base/'files'
+        if not args.check:
+            args.root.mkdir(exist_ok=True)
+    if args.smoke_test and args.data.exists() and any(args.data.iterdir()):
+        raise RuntimeError('Diagnostics require a new, empty data directory.')
     os.environ['PROMPT_STUDIO_DATA'] = str(args.data.absolute())
     os.environ['PROMPT_STUDIO_V08'] = '1'
     if args.check:
@@ -28,11 +38,13 @@ def main():
         return 0
     from PySide6.QtWidgets import QApplication, QMessageBox
     from PySide6.QtCore import QLockFile
-    from PySide6.QtGui import QFont
+    from PySide6.QtGui import QFont, QIcon
     app = QApplication(sys.argv)
     app.setApplicationName('Prompt Calculus Studio')
     app.setOrganizationName('Local Tools')
     app.setFont(QFont('Microsoft JhengHei UI', 12))
+    from prompt_calculus_studio import __file__ as package_file
+    app.setWindowIcon(QIcon(str(Path(package_file).parent/'assets/studio.ico')))
     args.data.mkdir(parents=True, exist_ok=True)
     lock = QLockFile(str(args.data/'workspace.lock'))
     lock.setStaleLockTime(0)
@@ -41,8 +53,9 @@ def main():
         return 0
     from prompt_calculus_studio.workspace_shell import WorkspaceShell
     window = WorkspaceShell(args.root, args.data)
+    left = None
     if args.open_left and not window.layout_restored:
-        window.open_path(args.open_left)
+        left = window.open_path(args.open_left)
     if args.open_right and not window.layout_restored:
         window.open_path(args.open_right, pane=window.ensure_split())
     def error(kind, value, traceback_):
@@ -52,6 +65,30 @@ def main():
         QMessageBox.warning(window, '操作未完成', str(value))
     sys.excepthook = error
     window.show()
+    if args.smoke_test:
+        from PySide6.QtCore import QTimer
+        import json
+        import time
+        deadline = time.monotonic()+20
+        surface = getattr(left.widget, 'md_surface', None) if left else None
+        if surface:
+            surface.set_mode('read')
+        def finish_test():
+            rich = surface.reader.rich if surface else None
+            ready = not surface or (not surface.page.buffer.opening and
+                (not surface.reader.advanced or rich is not None and rich.render_state == 'ready'))
+            if not ready and time.monotonic() < deadline:
+                QTimer.singleShot(100, window, finish_test)
+                return
+            (args.data/'smoke-result.json').write_text(json.dumps(dict(
+                ok=ready, entry='WorkspaceShell', title=window.windowTitle(),
+                reading=rich.render_state if rich else 'native',
+                blocked_urls=rich.gate.blocked if rich else [],
+                root=str(window.root), qt=__import__('PySide6').__version__)), encoding='utf-8')
+            window.close()
+            if not ready:
+                app.exit(1)
+        QTimer.singleShot(1200, window, finish_test)
     try:
         return app.exec()
     finally:

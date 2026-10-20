@@ -69,11 +69,15 @@ class NotebookPanel(QFrame):
     def note(self, record, position=0, parent=None, detail=''):
         return self.entry(record.path.stem, {'path':str(record.path),'position':position},parent,detail)
 
+    def context(self):
+        return (self.mode,str(self.selected_root()),self.query.text(),self.case.isChecked(),
+                 str(self.manager.current_path()) if self.mode in ('links','properties','footnotes') else None,
+                 json.dumps(self.manager.bookmarks(),sort_keys=True) if self.mode=='bookmarks' else '',
+                 tuple(map(str,self.manager.w.locations.roots)))
+
     def populate(self, records, relation_data=None, errors=()):
         errors=tuple(errors)
-        context=(self.mode,str(self.selected_root()),self.query.text(),self.case.isChecked(),
-                 str(self.manager.current_path()) if self.mode in ('links','properties','footnotes') else None,
-                 json.dumps(self.manager.bookmarks(),sort_keys=True) if self.mode=='bookmarks' else '')
+        context=self.context()
         same=getattr(self,'_context',None)==context
         if same and self.records==records and getattr(self,'_related',None)==relation_data and getattr(self,'_errors',None)==errors:return
         def walk(parent,prefix=()):
@@ -163,6 +167,7 @@ class NotebookPanel(QFrame):
     def show_status(self,text):self.status.setText(text); self.status.setVisible(bool(text))
 
     def activate(self,item,*_):
+        if getattr(self,'_context',None)!=self.context():self.manager.schedule();return
         data=item.data(0,Qt.ItemDataRole.UserRole)
         if not data:return
         if 'query' in data:
@@ -175,6 +180,7 @@ class NotebookPanel(QFrame):
         elif 'path' in data:self.manager.open_note(Path(data['path']),data.get('position',0),data.get('heading'))
 
     def context_menu(self,point):
+        if getattr(self,'_context',None)!=self.context():self.manager.schedule();return
         item=self.results.itemAt(point); data=item.data(0,Qt.ItemDataRole.UserRole) if item else None
         if not data:return
         menu=QMenu(self)

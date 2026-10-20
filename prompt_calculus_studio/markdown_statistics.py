@@ -5,7 +5,8 @@ from .markdown_syntax import visible_text
 
 
 def word_count(text):
-    return len(re.findall(r'[\u3400-\u9fff]|\w+(?:[\x27-]\w+)*',visible_text(text)))
+    # Yield the GIL between matches; findall holds it for an entire manuscript.
+    return sum(1 for _ in re.finditer(r'[\u3400-\u9fff]|\w+(?:[\x27-]\w+)*',visible_text(text)))
 
 
 class Result(QObject):

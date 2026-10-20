@@ -5,9 +5,10 @@ import json
 import os
 import mimetypes
 import re
+import time
 from pathlib import Path
 from urllib.parse import urlsplit,parse_qs
-from PySide6.QtCore import QObject,Slot,Signal,QUrl,QByteArray,QBuffer,QIODevice,QSize,Qt
+from PySide6.QtCore import QObject,Slot,Signal,QUrl,QByteArray,QBuffer,QIODevice,QSize,Qt,QTimer
 from PySide6.QtGui import QImageReader,QColor
 from PySide6.QtWidgets import QApplication
 if os.environ.get('QT_QPA_PLATFORM')=='offscreen':
@@ -159,11 +160,65 @@ class RichView(QWebEngineView):
         return failure('這個格式尚不支援內嵌顯示')
 
     def refresh(self,text,*,projection=None):
+        self.hydration=None
+        if hasattr(self,'hydration_timer'):self.hydration_timer.stop()
         self.version+=1;self.snapshot=self.surface.page.buffer.snapshot()
         self.gate.allowed.clear();self.image_sources.clear();workspace=self.surface.page.file_title.workspace
         from .markdown_relations import notes_for
         notes=notes_for(self.surface);root=notes.root
-        self.projection=projection if projection is not None else render(text,self.document_path or self.surface.page.path,root,self.resource,self.surface.preferences.get('hard_breaks',False),notes)
+        self.render_state='loading'
+        if projection is None and self.interactive and len(text)>128_000:
+            # Capture open-note edits on the GUI thread. The parser only receives
+            # immutable text/path values, never a callback into a QWidget.
+            overrides={}
+            if workspace:
+                for tab in workspace.all_pages():
+                    buffer=getattr(tab.widget,'buffer',None)
+                    if buffer is not None:overrides[buffer.path]=buffer.snapshot().text
+            if not hasattr(self,'projection_worker'):
+                from .markdown_read_projection import RichReadingProjection
+                self.projection_worker=RichReadingProjection(self)
+                self.projection_worker.ready.connect(self.projection_ready)
+            self.projection_worker.request(self.version,text,self.document_path or self.surface.page.path,
+                root,self.surface.preferences.get('hard_breaks',False),overrides)
+            return
+        self.publish(projection if projection is not None else render(text,self.document_path or self.surface.page.path,root,self.resource,self.surface.preferences.get('hard_breaks',False),notes),root)
+
+    @Slot(object,object,str)
+    def projection_ready(self,version,result,error):
+        if version!=self.version or self.snapshot!=self.surface.page.buffer.snapshot():return
+        if self.surface.mode!='read':
+            self.reader._render_key=None;return
+        if error:
+            self.render_state='error';self.reader._render_key=None
+            self.surface.report('內容預覽未完成；原文仍可編輯。');return
+        projection,marker=result
+        self.hydration=(version,projection,marker,[],0)
+        if not hasattr(self,'hydration_timer'):
+            self.hydration_timer=QTimer(self);self.hydration_timer.setSingleShot(True)
+            self.hydration_timer.timeout.connect(self.hydrate)
+        self.hydration_timer.start(0)
+
+    def hydrate(self):
+        if self.hydration is None:return
+        version,projection,marker,resources,index=self.hydration
+        if version!=self.version or self.snapshot!=self.surface.page.buffer.snapshot():return
+        if self.surface.mode!='read':
+            self.reader._render_key=None;return
+        deadline=time.perf_counter()+.006
+        while index<len(projection.attachments) and time.perf_counter()<deadline:
+            resources.append(self.resource(projection.attachments[index],index));index+=1
+        if index<len(projection.attachments):
+            self.hydration=(version,projection,marker,resources,index)
+            self.hydration_timer.start(1);return
+        projection.body=re.sub(r'<!--pcs-resource:'+marker+r':(\d+)-->',
+            lambda match:resources[int(match.group(1))],projection.body)
+        from .markdown_relations import notes_for
+        self.publish(projection,notes_for(self.surface).root)
+        self.hydration=None
+
+    def publish(self,projection,root):
+        self.projection=projection
         self.relations.bind(self.projection.dependencies,root)
         tokens=dict(visual_tokens(window_appearance(self)));preferences=self.surface.preferences
         tokens['base']=tokens.get('canvas_background',tokens['base']);tokens['border']=tokens.get('line','#444444')

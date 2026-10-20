@@ -100,6 +100,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.active_key = None
         self.active_route = 'home'
         self.sidebar_preference = None
+        self.sidebar_auto_hide = True
+        self.sidebar_open_delay = 450
+        self.sidebar_close_delay = 650
         self.confirm_trash = True
         self.sidebar_width = 264
         self.show_empty_folders = True
@@ -125,7 +128,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         # with its own host and is never swapped into the shell.
         self.state = {'settings': self.settings}
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setWindowTitle('Prompt Calculus Studio · 分頁檢視版')
+        from .releases import window_title
+        self.setWindowTitle(window_title())
         self.resize(1440, 900)
         self.setMinimumSize(720, 480)
         self.setPalette(widget_palette(self.settings))
@@ -141,6 +145,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             self.window_chrome.insetChanged.connect(self.caption_inset)
         self.style_shell()
         self.sidebar_resize = WorkspaceSidebarResize(self)
+        from .workspace_sidebar_peek import WorkspaceSidebarPeek
+        self.sidebar_peek = WorkspaceSidebarPeek(self)
         self.refresh_tree()
         self.new_tab()
         from .workspace_pointer_navigation import WorkspacePointerNavigation
@@ -369,6 +375,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             QTabBar#DocumentTabBar QToolButton:hover {{ background:{t['raised']}; }}
         ''' + sidebar_style(appearance)
         if self.styleSheet() != sheet:self.setStyleSheet(sheet)
+        peek=getattr(self,'sidebar_peek',None)
+        if peek and peek.is_open:peek._apply_surface()
         if hasattr(self,'notebook'):self.notebook.style()
         self.refresh_connection()
         self.sync_navigation_density()
@@ -424,6 +432,11 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             expanded=saved.get('sidebar_expanded')
             if type(expanded) is bool:
                 self.sidebar_preference=expanded
+            if type(saved.get('sidebar_auto_hide')) is bool:
+                self.sidebar_auto_hide=saved['sidebar_auto_hide']
+            for key,maximum in (('sidebar_open_delay',1200),('sidebar_close_delay',2000)):
+                value=saved.get(key)
+                if type(value) is int and 100<=value<=maximum:setattr(self,key,value)
             position=saved.get('navigation_position')
             if position in ('side','top'):
                 self.navigation_position=position
@@ -440,6 +453,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
     def save_ui_preferences(self):
         saved = {key:self.settings[key] for key in DISPLAY_KEYS}
         saved.update(sidebar_width=self.sidebar_width, sidebar_expanded=self.sidebar_preference,
+                     sidebar_auto_hide=self.sidebar_auto_hide, sidebar_open_delay=self.sidebar_open_delay,
+                     sidebar_close_delay=self.sidebar_close_delay,
                      navigation_position=self.navigation_position, show_empty_folders=self.show_empty_folders,
                      confirm_trash=self.confirm_trash)
         output=QSaveFile(str(self.data/'workspace-ui.json'))
@@ -555,7 +570,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
     def sync_tab_inset(self):
         if self.tabs_in_row:
             target = self.sidebar_target()
-            sidebar = target.width() if target is not None and target.isVisible() else 0
+            sidebar = target.width() if target is not None and target.isVisible() and not target.property('pcsSidebarBorrowed') else 0
             inset = sidebar if sidebar or self.navigation_position == 'side' or self.active_route == 'home' else 16
             if self.tab_row.layout().contentsMargins().left() != inset:
                 self.tab_row.layout().setContentsMargins(inset, 0, 16, 0)
@@ -698,6 +713,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
 
 
     def document_changed(self, tab):
+        if getattr(getattr(tab.widget, 'buffer', None), 'opening', False):
+            return
         self.update_tab(tab)
         self.autosave.schedule(tab)
         if hasattr(self, 'notebook'):self.notebook.schedule()
@@ -852,13 +869,15 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
 
     def sync_sidebar(self):
         expanded = self.width() >= 980 if self.sidebar_preference is None else self.sidebar_preference
+        peek=getattr(self,'sidebar_peek',None)
+        if peek and peek.is_open and (expanded or peek.target is not self.sidebar_target()):peek.close()
         if hasattr(self, 'sidebar_resize') and self.sidebar_resize.motion_target is not None:
             self.sidebar_resize.finish_motion()
         if self.active_route == 'home':
-            self.sidebar.setVisible(expanded)
+            if not self.sidebar.property('pcsSidebarBorrowed'):self.sidebar.setVisible(expanded)
         elif self.utility:
             target = self.utility.context_sidebar_target()
-            if target is not None:
+            if target is not None and not target.property('pcsSidebarBorrowed'):
                 self.utility._set_sidebar_in_layout(target, expanded)
         for route, entry in self.routes.items():
             entry.setChecked(route == self.active_route)
@@ -869,6 +888,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.sync_tab_inset()
         self.refresh_connection()
         self.workspace_stack.sync_surface()
+        if peek:peek.position_edge()
 
     def record_visit(self, entry):
         if not self.traversing and (not self.history or self.history[self.history_at] != entry):
@@ -1051,6 +1071,13 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.collapse.setAccessibleName(self.collapse.toolTip())
         self.save_ui_preferences()
 
+    def set_sidebar_hover(self, enabled, open_delay, close_delay):
+        self.sidebar_auto_hide=bool(enabled)
+        self.sidebar_open_delay=max(100,min(1200,int(open_delay)))
+        self.sidebar_close_delay=max(100,min(2000,int(close_delay)))
+        self.sidebar_peek.configure()
+        self.save_ui_preferences()
+
     def show_recovery(self, document):
         dialog = QDialog(self)
         dialog.setWindowTitle('檢視回復版本')
@@ -1136,6 +1163,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.tree_state.save()
         self.save_recent()
         self.save_ui_preferences()
+        self.sidebar_peek.shutdown()
         self.sidebar_resize.shutdown()
         unlisten(self.centralWidget())
         unlisten(self.commands.files)

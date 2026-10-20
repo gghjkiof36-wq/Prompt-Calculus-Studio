@@ -68,7 +68,7 @@ class WorkspaceSurface(QStackedWidget):
         w=self.workspace
         settings=dict(w.settings,**w.appearance_preview)
         sidebar=w.sidebar_target() if hasattr(w,'sidebar') else None
-        expanded=sidebar is not None and not sidebar.isHidden()
+        expanded=sidebar is not None and not sidebar.isHidden() and not sidebar.property('pcsSidebarBorrowed')
         key=(page,self.size(),self.joined_top(),w.active_route,expanded,
              sidebar.width() if expanded else 0,tuple(workspace_colors(settings).items()),
              visual_tokens(settings)['text'],self.devicePixelRatioF())
@@ -92,7 +92,7 @@ class WorkspaceSurface(QStackedWidget):
         settings = dict(self.workspace.settings, **self.workspace.appearance_preview)
         colors = workspace_colors(settings)
         sidebar = self.workspace.sidebar_target()
-        expanded = sidebar is not None and not sidebar.isHidden()
+        expanded = sidebar is not None and not sidebar.isHidden() and not sidebar.property('pcsSidebarBorrowed')
         fill = colors['sidebar'] if expanded else colors['content']
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

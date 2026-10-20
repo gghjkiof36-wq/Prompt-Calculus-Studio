@@ -11,6 +11,15 @@ import test_workspace_panes as fixture
 
 
 class MarkdownWorkspaceTests(unittest.TestCase):
+    def poll_external(self):
+        """Wait for the real background poll before checking its visible result."""
+        self.w.autosave.poll_markdown()
+        for _ in range(200):
+            self.events()
+            if all(getattr(getattr(getattr(tab.widget,'buffer',None),'external_refresh',None),'job',None) is None
+                   for tab in self.w.all_pages()):
+                return
+        self.fail('External file check did not finish within the bounded wait.')
     setUpClass = classmethod(fixture.WorkspacePaneTests.setUpClass.__func__)
     setUp = fixture.WorkspacePaneTests.setUp
     tearDown = fixture.WorkspacePaneTests.tearDown
@@ -87,11 +96,11 @@ class MarkdownWorkspaceTests(unittest.TestCase):
         right = self.w.duplicate_view(left, True)
         original_path = left.path
         left.path.write_bytes(b'# external\n')
-        self.w.autosave.poll_markdown()
+        self.poll_external()
         self.assertEqual(right.widget.toPlainText(), '# external\n')
         left.widget.insertPlainText('local ')
         left.path.write_bytes(b'# external second\n')
-        self.w.autosave.poll_markdown()
+        self.poll_external()
         self.assertTrue(left.dirty)
         self.assertIn('外部修改', right.widget.error)
         context = self.w.commands.context('tab', tab=right)
@@ -109,17 +118,17 @@ class MarkdownWorkspaceTests(unittest.TestCase):
         self.w.autosave.delay_ms = 35
         tab = self.open('Notes.md')
         original = tab.path.read_bytes()
-        self.w.autosave.poll_markdown()
+        self.poll_external()
         parked = tab.path.with_suffix('.parked')
         tab.path.rename(parked)
-        self.w.autosave.poll_markdown()
+        self.poll_external()
         self.assertTrue(tab.widget.error)
         tab.widget.moveCursor(QTextCursor.MoveOperation.End)
         tab.widget.insertPlainText('pending')
         QTest.qWait(80)
         self.assertFalse(tab.path.exists())
         parked.rename(tab.path)  # Same identity, mtime and bytes as last success.
-        self.w.autosave.poll_markdown()
+        self.poll_external()
         self.assertEqual(tab.widget.error, '')
         QTest.qWait(110)
         self.assertEqual(tab.path.read_bytes(), original+b'pending')

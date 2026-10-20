@@ -1,0 +1,38 @@
+# 開始使用 0.8.9
+
+[更新內容](../releases/0.8.9/alpha.1.md) · [驗證與限制](../releases/0.8.9/validation/alpha.1.md)
+
+## 來源版
+
+將 `PCS-v0.8.9-Alpha1-source.zip` 完整解壓到新的資料夾。使用 Windows 64 位元 Python 3.12，在含 `run.py` 的資料夾開啟 PowerShell：
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe run.py --v0.8.9-alpha
+```
+
+首次安裝依賴需網路，之後雙擊 `Start.cmd`。此入口開啟分頁工作區，不再是舊版單頁介面。
+
+## Windows 本機成品
+
+完整解壓 Windows ZIP，保留 `_internal`、`extensions` 及其他檔案，再雙擊 `Start-PCS-v0.8.9-Alpha1.cmd`。這個成品已含執行環境，不需要另外安裝 Python。它目前僅供本機使用，公開散布狀態以發布端確認為準。
+
+## 內容與資料
+
+預設 `files` 保存新文件，`data` 保存設定、工作區記錄及內部資料；兩者都在程式旁。可從「內容 → 加入本機資料夾」接入既有內容副本。原件不會因加入資料夾而自動複製；在該文件上編輯會保存到它所在的位置。
+
+進階啟動可用 `--root <內容資料夾>` 與 `--data <資料資料夾>` 指定獨立位置。`PROMPT_STUDIO_DATA` 亦可指定資料位置；內容資料夾須放在資料目錄外。
+
+## 先試一次完整操作
+
+1. 在內容側欄新增 Markdown 筆記，輸入文字，再切換閱讀模式。
+2. 新增 Prompt 分類與 Canvas 工作流，將文字素材拖入 Canvas。兩份文件可左右並排。
+3. 收合內容側欄，將游標移向左側，確認它暫時展開；移開後會收回。設定 → 介面個人化 → 操作行為可調整此功能。
+4. 關閉再重開文件，確認內容與工作區布局。Canvas 與分類沿既有保存流程自動保存。
+
+要使用 ComfyUI，安裝同版配套擴充，並由你重新啟動後端與刷新工作流網頁。通用、legacy 與 modern 配套擇一；相容設定名稱不代表已完成真實 GPU 驗收。
+
+## 更新前
+
+保留舊程式、舊擴充及原資料。先以新的資料目錄和內容副本使用 0.8.9，不讓新舊程式同時寫入同一份資料。完整舊資料庫導入仍有驗證限制；這個啟動器不會自行轉換或刪除原安裝。

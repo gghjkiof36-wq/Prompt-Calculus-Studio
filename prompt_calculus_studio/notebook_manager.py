@@ -1,14 +1,30 @@
 """Notebook services. Workers receive immutable text, never editor widgets."""
 from pathlib import Path
 import threading
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal, Qt
-from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import QToolButton
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal, Qt, QSize, QRect
+from PySide6.QtGui import QKeySequence, QShortcut, QPalette
+from PySide6.QtWidgets import QToolButton, QStyle, QStyleOptionToolButton, QStylePainter
 from .widgets import RoundMenu as QMenu
 from .notebook_index import inventory, relations
 from .notebook_store import NotebookStore
 from .notebook_panel import NotebookPanel, MODES
 from .workspace_files import MarkdownPage
+from .ui_icons import icon
+
+
+class NotebookSelector(QToolButton):
+    """A single title row; the disclosure belongs beside the label's centre."""
+    def sizeHint(self):
+        return QSize(self.fontMetrics().horizontalAdvance(self.text())+34,max(32,self.fontMetrics().height()+8))
+
+    def paintEvent(self,event):
+        option=QStyleOptionToolButton();self.initStyleOption(option)
+        option.features=QStyleOptionToolButton.ToolButtonFeature.None_
+        option.text=''
+        painter=QStylePainter(self);painter.drawComplexControl(QStyle.ComplexControl.CC_ToolButton,option)
+        painter.setPen(option.palette.color(QPalette.ColorRole.ButtonText))
+        painter.drawText(self.rect().adjusted(6,0,-22,0),Qt.AlignmentFlag.AlignLeft|Qt.AlignmentFlag.AlignVCenter,self.text())
+        self.arrow.paint(painter,QRect(self.width()-19,(self.height()-12)//2,12,12))
 
 
 class IndexSignals(QObject):
@@ -34,7 +50,7 @@ class NotebookManager(QObject):
         self.cache={}; self.job=None; self.cancelled=None; self.closed=False; self.dialogs=[]
         self.panel=NotebookPanel(self); self.w.sidebar.layout().addWidget(self.panel,1)
         heading=self.w.tree_heading.layout(); old=heading.takeAt(0).widget(); old.deleteLater()
-        self.selector=QToolButton(); self.selector.setObjectName('NotebookSelector'); self.selector.setText('內容')
+        self.selector=NotebookSelector(); self.selector.setObjectName('NotebookSelector'); self.selector.setText('內容')
         self.selector.setAccessibleName('側欄檢視'); self.selector.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu=QMenu(self.selector,persistent=True)
         for key,title in MODES.items():menu.addAction(title,lambda checked=False,value=key:self.show(value))
@@ -50,7 +66,7 @@ class NotebookManager(QObject):
             if isinstance(tab.widget,MarkdownPage):self.opened(tab.widget)
 
     def style(self):
-        from .theme import visual_tokens
+        from .theme import visual_tokens, font_pixels
         tokens=visual_tokens(dict(self.w.settings,**self.w.appearance_preview))
         from .module_chrome import dialog_colors
         t=dialog_colors(tokens)
@@ -63,7 +79,11 @@ class NotebookManager(QObject):
             QToolButton {{ min-width:24px; max-width:28px; min-height:28px; padding:0; border:0; background:transparent; }}
             QToolButton:hover,QToolButton:checked {{ background:{t['hover']}; }}
             QLabel {{ font-size:12px; }}''')
-        self.selector.setStyleSheet('QToolButton { border:0; background:transparent; font-size:15px; font-weight:600; padding:4px 10px 4px 0; }')
+        self.selector.arrow=icon('chevron-down',tokens['secondary'])
+        self.selector.setStyleSheet(f'''QToolButton {{ border:0; background:transparent; font-size:{font_pixels(self.w.display_settings()['ui_size'])}px; font-weight:600; padding:0; border-radius:6px; }}
+            QToolButton:hover,QToolButton:pressed {{ background:{t['hover']}; }}
+            QToolButton:focus {{ border:1px solid {tokens['secondary']}; }}
+            QToolButton::menu-indicator {{ image:none; width:0; height:0; }}''')
 
     def surface(self):
         tab=self.w.tabs_by_key.get(self.w.active_key)
@@ -78,6 +98,7 @@ class NotebookManager(QObject):
     def show(self,mode):
         if self.w.active_route!='home':return
         self.panel.mode=mode; self.selector.setText(MODES[mode]); self.w.sidebar.show()
+        self.invalidate()
         self.w.tree.setVisible(mode=='files'); self.panel.setVisible(mode!='files')
         for button in (self.w.tree_new,self.w.tree_folder,self.w.tree_fold,self.w.tree_more):button.setVisible(mode=='files')
         self.panel.search_host.setVisible(mode=='search'); self.panel.roots()
@@ -85,7 +106,17 @@ class NotebookManager(QObject):
         if mode!='files':self.refresh()
 
     def schedule(self,*_):
+        # Invalidate at the change, not after the debounce: a completed old job
+        # can already be queued while the new scope is waiting for its timer.
+        self.invalidate()
         if not self.closed and self.panel.mode!='files':self.timer.start(300)
+
+    def invalidate(self):
+        if self.cancelled:self.cancelled.set()
+        self.job=None
+        if getattr(self.panel,'_context',None)!=self.panel.context():
+            self.panel.records={};self.panel.results.clear();self.panel.show_status('')
+            self.panel._context=None
 
     def poll(self):
         context=(self.current_path(),tuple(self.w.locations.roots))
@@ -94,7 +125,9 @@ class NotebookManager(QObject):
         elif self.panel.isVisible() and not self.job:self.schedule()
 
     def refresh(self):
+        self.timer.stop()
         if self.closed or self.panel.mode=='files':return
+        self.invalidate()
         root=self.panel.selected_root()
         if not root:return
         if self.cancelled:self.cancelled.set()
@@ -103,10 +136,13 @@ class NotebookManager(QObject):
             if isinstance(tab.widget,MarkdownPage) and tab.path and root in tab.path.parents and tab.widget.dirty:
                 overrides[str(tab.path)]=tab.widget.buffer.snapshot().text
         self.job=IndexJob(root,self.cache.get(str(root),{}),overrides,self.current_path(),self.panel.mode=='links',self.cancelled)
+        self.job.context=self.panel.context()
         self.job.signals.ready.connect(self.ready); QThreadPool.globalInstance().start(self.job)
 
     def ready(self,job,records,related,errors):
         if self.closed or job is not self.job:return
+        if job.cancelled.is_set() or job.context!=self.panel.context():
+            self.invalidate();return
         self.job=None; self.cache[str(job.root)]=records; self.panel.populate(records,related,errors)
 
     def open_note(self,path,position=0,heading=None):

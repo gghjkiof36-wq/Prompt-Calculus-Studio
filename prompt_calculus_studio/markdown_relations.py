@@ -36,16 +36,7 @@ def open_source(surface,path,position=0,read=None):
     target=getattr(tab.widget,'md_surface',None)
     if target is None:return
     target.set_mode('read' if (surface.mode=='read' if read is None else read) else 'write')
-    if target.mode=='read' and target.reader.rich:
-        web=target.reader.rich
-        def ready():
-            if web.render_state=='ready':
-                target.navigate(position)
-                try:web.rendered.disconnect(ready)
-                except RuntimeError:pass
-        if web.render_state=='ready':ready()
-        else:web.rendered.connect(ready)
-    else:target.navigate(position)
+    target.navigate_when_ready(position)
     return tab
 
 

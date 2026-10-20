@@ -4,7 +4,7 @@
 
 **化繁為簡，從混亂中找出秩序。**
 
-[English](README.en.md) · [開始使用](docs/guide/getting-started.md) · [完整文件](docs/README.md) · [0.8.8 更新說明](docs/releases/0.8.8/alpha.1.md)
+[English](README.en.md) · [開始使用 0.8.9](docs/guide/workspace-089.md) · [完整文件](docs/README.md) · [0.8.9 更新說明](docs/releases/0.8.9/alpha.1.md)
 
 ## 能做什麼
 
@@ -26,17 +26,17 @@
 
 ## 這版更新
 
-三層素材共用取值、重複與保存規則，文字由 Prompt 輸出逐筆彙整，再交 CLIP 和 Stage。新版也整理變體管理、右側編輯子頁、素材預覽、綁定後預排程及獨立圖片預覽，改善拖移、窄視窗、回執處理與狀態查詢。取消全部、舊進度遷移、多輸出順序和生成快照的素材範圍均有修正。操作及已知問題見[完整更新說明](docs/releases/0.8.8/alpha.1.md)。
+0.8.9 將 Markdown、Canvas 與 Prompt 管理整合為本機分頁工作區，改善提示框、選單、透明材質、窄視窗分隔與素材拖入；新增可調整延遲的側欄自動展開。保存衝突、資料夾替換及視圖關閉回呼有修復，大型文件採分段載入與背景處理。接近上限的大量短段落文件仍可能卡頓，見[完整更新與限制](docs/releases/0.8.9/alpha.1.md)。
 
 ## 下載與啟動
 
-適用：**[0.8.8 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.8-alpha.1)**。
+本來源對應 **0.8.9 Alpha 1 交付候選**。公開日期與可下載附件以 [GitHub Releases](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases) 實際紀錄為準。
 
 | 附件 | 用途 |
 |---|---|
-| `PCS-v0.8.8-Alpha1-source.zip` | 來源主程式，內含同版配套及安裝腳本 |
-| `PCS-v0.8.8-Alpha1-ComfyUI.zip` | 通用配套擴充，另供手動安裝 |
-| `PCS-v0.8.8-Alpha1-ComfyUI-legacy-0.39.2.zip`、`PCS-v0.8.8-Alpha1-ComfyUI-modern-0.40.0.zip` | 兩個相容設定檔，擇一安裝；對照版本見[相容指南](docs/guide/comfyui-compatibility.md) |
+| `PCS-v0.8.9-Alpha1-source.zip` | 來源主程式，內含同版配套及安裝腳本 |
+| `PCS-v0.8.9-Alpha1-ComfyUI.zip` | 通用配套擴充，另供手動安裝 |
+| `PCS-v0.8.9-Alpha1-ComfyUI-legacy-0.39.2.zip`、`PCS-v0.8.9-Alpha1-ComfyUI-modern-0.40.0.zip` | 兩個相容設定檔，擇一安裝；對照版本見[相容指南](docs/guide/comfyui-compatibility.md) |
 | `SHA256SUMS.txt` | 下載完整性校驗 |
 
 來源版需要 Windows 64 位元 Python 3.12。在解壓後包含 `run.py` 的資料夾開啟 PowerShell：
@@ -44,7 +44,7 @@
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py --v0.8.8-alpha
+.\.venv\Scripts\python.exe run.py --v0.8.9-alpha
 ```
 
 首次安裝會下載依賴，之後雙擊 `Start.cmd`。公開下載以 Release 附件為準；本指南使用來源版啟動，本次不提供 Windows EXE 公開下載。
@@ -53,7 +53,7 @@ py -3.12 -m venv .venv
 
 ## 第一次使用
 
-在 Prompt Editor 保存一份文字模塊，回 Canvas 加入副本，從 Prompt 輸出複製文字。要做批次，建立組合與流程，再用「讀取流程」接入 Prompt 輸出。畫布在同批使用固定文字；讀取流程逐輪取值。十輪配六輪共十筆，較短者從頭循環，見[素材與批次](docs/guide/prompt-materials-088.md)。
+在內容側欄新增 Markdown、Prompt 分類或 Canvas 文件。先保存一份文字素材，將副本加入 Canvas，再從 Prompt 輸出複製文字。新文件預設在程式旁的 `files`，設定在 `data`；既有內容可透過內容選單加入。完整步驟見 [0.8.9 開始使用](docs/guide/workspace-089.md)。要做批次，仍可建立組合與流程，詳見[素材與批次](docs/guide/prompt-materials-088.md)。
 
 ## 使用前留意
 
@@ -67,3 +67,4 @@ py -3.12 -m venv .venv
 ## 授權
 
 [AGPL-3.0-only](LICENSE)
+- **一起編寫與整理**：在分頁開啟 Markdown、Canvas 與 Prompt 分類，左右並排，切換編寫與閱讀；收合側欄後可用游標靠近左側暫時展開。

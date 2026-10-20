@@ -2,6 +2,8 @@
 
 [回首頁](../../README.md) · 適用：0.8.8 Alpha 1
 
+本頁保留 0.8.8 的操作與資料入口。**0.8.9 請改讀[分頁工作區開始使用](workspace-089.md)**，其預設啟動器、內容資料夾與資料目錄有別。
+
 ## 下載與啟動
 
 從[0.8.8 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.8-alpha.1)下載 `PCS-v0.8.8-Alpha1-source.zip`，完整解壓到新資料夾，保留 `run.py`、`Start.cmd`、`extensions` 及安裝腳本。這是來源版，需自行安裝 Windows 64 位元 Python 3.12（含 Python Launcher）。

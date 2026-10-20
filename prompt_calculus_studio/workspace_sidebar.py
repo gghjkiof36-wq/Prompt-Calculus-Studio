@@ -94,9 +94,15 @@ class WorkspaceTree(QTreeWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self.viewport())
-        painter.fillRect(event.rect(), QColor(self.row_colors['sidebar']))
+        painter.fillRect(event.rect(), QColor(self.paint_colors['sidebar']))
         painter.end()
         super().paintEvent(event)
+
+    @property
+    def paint_colors(self):
+        if self.workspace.sidebar.property('pcsSidebarBorrowed'):
+            return getattr(self,'peek_colors',self.row_colors)
+        return self.row_colors
 
     def changeEvent(self, event):
         if event.type() in (QEvent.Type.StyleChange, QEvent.Type.FontChange, QEvent.Type.PaletteChange):
@@ -111,7 +117,7 @@ class WorkspaceTree(QTreeWidget):
         dropping = self.file_drag is not None and self.file_drag.target == index
         focused = (self.hasFocus() and self.testAttribute(Qt.WidgetAttribute.WA_KeyboardFocusChange)
                    and self.currentIndex() == index)
-        colors = self.row_colors
+        colors = self.paint_colors
         bounds = QRectF(2, option.rect.y()+1, self.viewport().width()-4, option.rect.height()-2)
         if selected or hovered or dropping:
             painter.save()
@@ -213,12 +219,17 @@ class WorkspaceSidebarResize(QObject):
         self.timer.timeout.connect(self.sync)
         QApplication.instance().installEventFilter(self)
 
-    def limit(self, width):
+    def limit(self, width, *, overlay=False):
         rail_width = self.window.rail.width() if self.window.navigation_position == 'side' else 0
-        available = max(MIN_WIDTH, self.window.width()-rail_width-380)
+        available = max(MIN_WIDTH, self.window.width()-rail_width-(64 if overlay else 380))
         return max(MIN_WIDTH, min(MAX_WIDTH, available, round(width)))
 
+    def preferred_width(self):
+        return self.window.sidebar_width
+
     def current_width(self):
+        if self.target is not None and self.target.property('pcsSidebarBorrowed'):
+            return self.window.sidebar_peek.overlay.width()
         return self.target.width() if self.target is not None else self.window.sidebar_width
 
     def sync(self):
@@ -231,10 +242,14 @@ class WorkspaceSidebarResize(QObject):
                 self.handle.hide()
                 return
             width = self.motion_width if self.target is self.motion_target else self.limit(self.window.sidebar_width)
+            borrowed=bool(self.target.property('pcsSidebarBorrowed'))
+            if borrowed:
+                self.window.sidebar_peek.set_width(self.limit(self.window.sidebar_width,overlay=True))
+                width=self.window.sidebar_peek.overlay.width()-2*self.window.sidebar_peek.PADDING
             if self.target.minimumWidth()!=width or self.target.maximumWidth()!=width:
                 self.target.setFixedWidth(width)
                 parent = self.target.parentWidget()
-                if self.target is self.window.sidebar:
+                if self.target is self.window.sidebar and not borrowed:
                     self.window.home_split.setSizes([width, max(0, self.window.home_split.width()-width)])
                 elif parent.layout():
                     parent.layout().activate()

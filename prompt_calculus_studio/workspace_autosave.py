@@ -1,5 +1,5 @@
 """Coalesce edits per file without accepting a still-open material dialog."""
-from PySide6.QtCore import QObject, QTimer
+from PySide6.QtCore import QObject, QTimer, Slot
 
 
 class WorkspaceAutosave(QObject):
@@ -25,13 +25,23 @@ class WorkspaceAutosave(QObject):
                     or self.key(tab) in self.saving):
                 continue
             checked.add(id(buffer))
-            before = page.error
-            page.refresh_external()
+            if not hasattr(buffer,'external_refresh'):
+                from .markdown_external import ExternalRefresh
+                buffer.external_refresh=ExternalRefresh(buffer)
+                buffer.external_refresh.applied.connect(self.external_applied)
+            buffer.external_refresh.request()
+
+    @Slot(object,str)
+    def external_applied(self,buffer,before):
+        for tab in self.workspace.all_pages():
+            page=tab.widget
+            if getattr(page,'buffer',None) is not buffer:continue
             if page.error and page.error != before:
                 self.stop(tab)
                 self.workspace.show_notice('「' + tab.title + '」' + page.error)
             elif before and not page.error:
                 self.schedule(tab)
+            break
 
     @staticmethod
     def key(tab):

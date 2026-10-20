@@ -18,7 +18,7 @@ class SidebarHeaders:
     def sync(self):
         w = self.workspace
         target = w.sidebar_target()
-        docked = w.tabs_in_row and target is not None and target.isVisible()
+        docked = w.tabs_in_row and target is not None and target.isVisible() and not target.property('pcsSidebarBorrowed')
         active = next((header for side, header, *_ in self.entries if side is target), None) if docked else None
         for sidebar, header, index, margins in self.entries:
             joined = header is active

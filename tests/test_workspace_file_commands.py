@@ -124,7 +124,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         edit(editor)
         self.events()
 
-    def test_toolbar_folder_menu_and_home_use_one_inline_name_row(self):
+    def test_toolbar_and_folder_use_inline_home_creates_unique_document(self):
         self.w.select_path(self.folder)
         QTest.mouseClick(self.w.tree_new, Qt.MouseButton.LeftButton)
         menu = self.app.activePopupWidget()
@@ -142,16 +142,17 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         menu.deleteLater()
         home = self.w.new_tab().widget
         self.w.select_path(self.folder)
-        self.inline_action(lambda: QTest.mouseClick(home.create_buttons['category'], Qt.MouseButton.LeftButton),
-                           lambda e: (e.name.setText('管理頁'), e.submit()))
-        self.assertTrue((self.folder/'管理頁.pcs-category').is_file())
+        QTest.mouseClick(home.create_buttons['category'], Qt.MouseButton.LeftButton)
+        self.events()
+        self.assertIsNone(self.w.commands.files.inline)
+        self.assertTrue((self.folder/'未命名.pcs-category').is_file())
 
     def test_cancel_and_invalid_inline_name_leave_no_files(self):
         before = set(self.root.rglob('*')), set(self.w.tabs_by_key)
         def cancel(editor):
             editor.name.setText('未提交')
             QTest.keyClick(editor.name, Qt.Key.Key_Escape)
-        self.inline_action(lambda: self.w.new_document('markdown'), cancel)
+        self.inline_action(lambda: self.w.commands.new('markdown', self.w.commands.context('toolbar')), cancel)
         def fix_error(editor):
             editor.name.setText('CON')
             editor.submit()
@@ -327,7 +328,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
                 self.assertIn('read-only', dialog.error.text())
                 self.assertEqual(dialog.name.text(), 'Denied')
                 dialog.cancel()
-            self.inline_action(lambda: self.w.new_document(kind), submit)
+            self.inline_action(lambda: self.w.commands.new(kind, self.w.commands.context('toolbar')), submit)
         self.assertEqual(self.note.read_bytes(), original)
         self.assertEqual(list(self.w.tabs_by_key), tabs)
         self.assertTrue(tab.dirty)
