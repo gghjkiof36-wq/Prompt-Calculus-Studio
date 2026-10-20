@@ -65,6 +65,7 @@ class ConversationImportDialog(StudioDialog):
         self.close_when_done = False
         self.completed = False
         self.completion_label = '完成'
+        self.completion_summary = ''
         self._owns_backdrop = True  # This utility sheet deliberately stays nonmodal.
         self.setWindowModality(Qt.WindowModality.NonModal)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -164,6 +165,11 @@ class ConversationImportDialog(StudioDialog):
         if self.job:return
         self.archive = None
         self.completed = False
+        self.source_button.setText('選擇 ZIP／JSON…')
+        self.search.show()
+        self.branches.show()
+        self.split.widget(0).show()
+        self.location_button.show()
         self.hint.setText('將匯入勾選對話的所有分支。')
         self.list.clear()
         self.branches.clear()
@@ -211,10 +217,16 @@ class ConversationImportDialog(StudioDialog):
             self.completed = True
             self.completion_label = '關閉' if result.cancelled or result.failed else '完成'
             self.set_busy(False)
-            self.show_status(f'完成 {len(result.completed)} 段 · 略過 {len(result.skipped)} 段'
-                             + (f' · 未完成 {len(result.failed)} 段' if result.failed else '')
-                             + (f' · 未處理 {len(result.unprocessed)} 段' if result.unprocessed else '')
-                             + (' · 已取消' if result.cancelled else ''))
+            self.completion_summary = (f'完成 {len(result.completed)} 段 · 略過 {len(result.skipped)} 段'
+                                       + (f' · 未完成 {len(result.failed)} 段' if result.failed else '')
+                                       + (f' · 未處理 {len(result.unprocessed)} 段' if result.unprocessed else '')
+                                       + (' · 已取消' if result.cancelled else ''))
+            self.show_status(self.completion_summary)
+            self.source_button.setText('選擇另一份…')
+            self.search.hide()
+            self.branches.hide()
+            self.split.widget(0).hide()
+            self.location_button.hide()
             lines = []
             for title, entries in (('已完成', result.completed), ('相同內容，已略過', result.skipped)):
                 if entries:lines.extend([title, *['• '+result.titles.get(str(path), path.parent.name) for path in entries], ''])
@@ -282,6 +294,7 @@ class ConversationImportDialog(StudioDialog):
 
     def update_selection(self, *_):
         count = len(self.selected())
+        self.count.setVisible(not self.completed)
         self.count.setText(f'共 {self.list.count()} 段 · 已選 {count}' if self.archive else '尚未選擇封存')
         self.import_button.setText(self.completion_label if self.completed else '匯入選取對話')
         self.import_button.setEnabled(not self.job and (self.completed or bool(count and self.archive)))

@@ -93,6 +93,9 @@ class ImportDialogTests(unittest.TestCase):
         self.assertFalse(d.list.isEnabled())
         self.assertFalse(d.location_button.isEnabled())
         self.assertTrue(d.source_button.isEnabled())
+        self.assertTrue(d.search.isHidden())
+        self.assertTrue(d.split.widget(0).isHidden())
+        self.assertTrue(d.count.isHidden())
         from prompt_calculus_studio.markdown_relations import open_link
         open_link(active.widget.md_surface, '分支-002-001.md')
         self.events()
@@ -108,6 +111,8 @@ class ImportDialogTests(unittest.TestCase):
         self.wait_job()
         self.assertFalse(d.completed)
         self.assertTrue(d.list.isEnabled())
+        self.assertFalse(d.search.isHidden())
+        self.assertFalse(d.split.widget(0).isHidden())
         self.assertEqual(d.selected(), ())
         self.assertFalse(self.errors, self.errors)
 
