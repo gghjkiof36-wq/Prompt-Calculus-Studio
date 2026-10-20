@@ -259,6 +259,7 @@ class MarkdownSurface(QWidget):
         menu.addAction(icon('list'), '隱藏大綱' if self.outline_panel.isVisible() else '大綱', self.toggle_outline)
         menu.addAction(icon('settings'), '編輯與閱讀…', self.preferences_menu)
         menu.addAction('筆記屬性…\tCtrl+;',self.edit_properties)
+        menu.addAction('匯入對話…', self.import_conversations)
         menu.addSeparator()
         menu.addAction('開啟連結\tCtrl+Enter',self.open_current_link)
         workspace=self.page.file_title.workspace
@@ -706,7 +707,12 @@ class MarkdownSurface(QWidget):
             entries.append(('插入'+label,lambda value=kind:self.insert_content(value)))
         for label,value in [('靠左','left'),('置中','center'),('靠右','right'),('左右對齊','justify')]:
             entries.append(('段落'+label,lambda direction=value:self.paragraph('align',direction)))
+        entries.append(('匯入對話…', self.import_conversations))
         return entries
+
+    def import_conversations(self):
+        from .conversation_dialog import open_import
+        return open_import(self)
 
     def open_commands(self):
         if self.page.buffer.composing:return

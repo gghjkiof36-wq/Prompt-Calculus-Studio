@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import uuid
 import json
+from shiboken6 import isValid
 
 from PySide6.QtCore import Qt, QSize, QUrl, QTimer, QSaveFile, QIODevice, QEvent
 from PySide6.QtGui import QShortcut, QKeySequence, QDesktopServices, QColor
@@ -1180,6 +1181,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             event.ignore()
             return
         self.layout_store.stopped = True
+        importer = getattr(self, '_conversation_import', None)
+        if importer is not None and isValid(importer):
+            importer.stop_for_workspace_close()
         if hasattr(self, 'notebook'):self.notebook.stop()
         for pane in self.panes:
             while pane.strip.bar.count():

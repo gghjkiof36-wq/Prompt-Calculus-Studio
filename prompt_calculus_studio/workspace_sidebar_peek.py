@@ -116,13 +116,25 @@ class WorkspaceSidebarPeek(SidebarPeekController):
             route = self.route_at(self.window.mapFromGlobal(position))
             if (route is not None and route != (self.hover_route or self.window.active_route)
                     and self._can_peek(self._current_target()) and not self._interaction_active()):
-                self.close()
                 self._changing = True
                 try:
-                    self.hover_target = self.route_targets.target(route)
-                    self.hover_route = route
+                    target = self.route_targets.target(route)
                 finally:
                     self._changing = False
+                if self.is_open:
+                    # Exchange live content without hiding or reanimating the
+                    # existing frame. Restoration still uses the shared owner contract.
+                    self.overlay.setUpdatesEnabled(False)
+                    try:
+                        self._restore(False, keep_surface=True)
+                        self.hover_target, self.hover_route = target, route
+                        if not self._borrow(target, reveal=False):
+                            self.close()
+                            self.overlay.hide()
+                    finally:
+                        self.overlay.setUpdatesEnabled(True)
+                else:
+                    self.hover_target, self.hover_route = target, route
                 self._edge_blocked = False
             if self.hiding:
                 local = self.window.mapFromGlobal(position)
@@ -141,10 +153,10 @@ class WorkspaceSidebarPeek(SidebarPeekController):
                     app.mouseButtons() != Qt.MouseButton.NoButton or
                     editing and focus.isVisible() and self._inside_sidebar(focus) or self._popup_owned(app.activePopupWidget()))
 
-    def _borrow(self, target, *, pinned=False):
+    def _borrow(self, target, *, pinned=False, reveal=True):
         self.motion.stop()
         self.hiding = False
-        self.progress = 1. if reduced_motion(self.window) else 0.
+        self.progress = 1. if not reveal or reduced_motion(self.window) else 0.
         self.effect.setEnabled(self.progress != 1.)
         self.effect.setOpacity(self.progress)
         margins=target.layout().contentsMargins() if target.layout() else None
@@ -196,7 +208,7 @@ class WorkspaceSidebarPeek(SidebarPeekController):
             return
         self.animate(True)
 
-    def _restore(self, pin):
+    def _restore(self, pin, *, keep_surface=False):
         self.hover_target = None
         self.hover_route = None
         self.motion.stop()
@@ -209,10 +221,10 @@ class WorkspaceSidebarPeek(SidebarPeekController):
             if target is self.window.sidebar:
                 self.window.tree_heading.setMinimumHeight(0)
                 self.window.tree_heading.setMaximumHeight(16777215)
-        result = super()._restore(pin)
+        result = super()._restore(pin, keep_surface=keep_surface)
         if result:
             self.window.sync_tab_inset()
-            self.position_edge()
+            if not keep_surface:self.position_edge()
         return result
 
     def _apply_surface(self):

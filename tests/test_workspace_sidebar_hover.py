@@ -115,6 +115,55 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
         self.assertEqual(settings.section, 'appearance')
         self.assertEqual(len(self.w.history), len(history)+1)
 
+    def test_open_frame_changes_content_without_another_reveal(self):
+        self.collapse()
+        self.w.open_route('gallery')
+        self.events()
+        self.hover_route('home')
+        peek = self.w.sidebar_peek
+        geometry = peek.overlay.geometry()
+        with patch.object(peek, 'animate', wraps=peek.animate) as animate:
+            for route in ('export', 'settings', 'home'):
+                entry = self.w.routes[route]
+                QTest.mouseMove(entry, entry.rect().center())
+                QTest.qWait(20)
+                self.assertEqual(peek.hover_route, route)
+                self.assertTrue(peek.is_open)
+                self.assertTrue(peek.overlay.isVisible())
+                self.assertEqual(peek.overlay.geometry(), geometry)
+                self.assertEqual(peek.progress, 1.)
+                self.assertFalse(peek.effect.isEnabled())
+            animate.assert_not_called()
+        self.away()
+        QTest.qWait(350)
+        self.assertFalse(peek.is_open)
+
+    def test_resize_preview_keeps_collapsed_preference_and_outer_edge(self):
+        self.collapse()
+        self.w.open_route('export')
+        self.events()
+        target = self.hover_route('home')
+        peek = self.w.sidebar_peek
+        resize = self.w.sidebar_resize
+        resize.sync()
+        self.assertIs(resize.target, target)
+        self.assertEqual(resize.handle.geometry().center().x(), peek.overlay.geometry().right())
+        before = self.tab.widget.geometry()
+        point = resize.handle.mapToGlobal(resize.handle.rect().center())
+        resize.begin(point)
+        resize.move(point+QPoint(60, 0))
+        resize.finish()
+        self.events()
+        self.assertFalse(self.w.sidebar_preference)
+        self.assertTrue(peek.is_open)
+        self.assertEqual(peek.overlay.width(), resize.origin_width+60)
+        self.assertEqual(self.tab.widget.geometry(), before)
+        self.assertEqual(self.w.active_route, 'export')
+        self.away()
+        QTest.qWait(350)
+        self.assertFalse(peek.is_open)
+        self.assertFalse(self.w.sidebar_preference)
+
     def test_home_preview_file_click_reuses_open_document(self):
         self.collapse()
         self.tab.widget.insertPlainText('unsaved ')
@@ -199,17 +248,20 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
                 break
         self.assertTrue(peek.is_open)
         initial_x = peek.overlay.x()
-        QTest.qWait(180)
+        for _ in range(100):
+            QTest.qWait(5)
+            if not peek.effect.isEnabled():break
         final_x = peek.overlay.x()
         self.assertGreater(final_x, initial_x)
         self.assertFalse(peek.effect.isEnabled())
         self.assertEqual(self.tab.widget.geometry(), self.before)
+        frames = []
+        peek.motion.valueChanged.connect(lambda _: frames.append((peek.overlay.x(), peek.effect.opacity())))
         self.away()
-        QTest.qWait(190)
-        self.assertTrue(peek.is_open)
-        self.assertLess(peek.overlay.x(), final_x)
-        self.assertLess(peek.effect.opacity(), 1.)
-        QTest.qWait(130)
+        for _ in range(100):
+            QTest.qWait(5)
+            if not peek.is_open:break
+        self.assertTrue(any(x < final_x and opacity < 1. for x, opacity in frames), frames)
         self.assertFalse(peek.is_open)
         self.assertEqual(self.tab.widget.geometry(), self.before)
 

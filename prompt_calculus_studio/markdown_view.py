@@ -686,8 +686,30 @@ class SourceView(QPlainTextEdit):
         self.surface.apply([SourceEdit(start,end,text)],start+len(text))
 
     def insertFromMimeData(self,mime):
-        if self.surface.mode=='read' or self.page.buffer.composing:return
+        if self.isReadOnly() or self.surface.mode=='read' or self.page.buffer.composing:return
+        from .markdown_paste import clipboard_text, MARKDOWN_MIMES
         from .markdown_attachments import insert
+        has_markdown=any(mime.hasFormat(kind) for kind in MARKDOWN_MIMES)
+        # Copy Image may contain an HTML <img> wrapper as well as the actual
+        # bitmap. Preserve that local bitmap instead of a remote/blob URL.
+        bitmap_first=mime.hasImage() and not mime.text().strip() and not has_markdown
+        if (has_markdown or mime.hasHtml()) and not bitmap_first:
+            if mime.hasHtml() and not has_markdown:
+                from .markdown_paste_job import PreparedPaste, LARGE_HTML
+                html=mime.html()
+                if len(html)>LARGE_HTML:
+                    if not hasattr(self,'prepared_paste'):self.prepared_paste=PreparedPaste(self)
+                    self.prepared_paste.start(html)
+                    return
+            try:
+                text=clipboard_text(mime)
+                if text:
+                    _,start,end=self.surface.selection()
+                    self.surface.apply([SourceEdit(start,end,text)],start+len(text))
+                return
+            except (ValueError, UnicodeError) as error:
+                self.surface.report(str(error)+' 可使用 Ctrl+Shift+V 貼上純文字。')
+                return
         if mime.hasUrls():
             files=[url.toLocalFile() for url in mime.urls() if url.isLocalFile()]
             if files:insert(self.surface,files=files);return
@@ -695,15 +717,14 @@ class SourceView(QPlainTextEdit):
             image=mime.imageData()
             if not isinstance(image,QImage):image=QImage(image)
             insert(self.surface,image=image);return
-        if mime.hasHtml() and self.surface.mode!='source':
-            from .markdown_paste import from_html
-            text=from_html(mime.html())
-            snapshot,start,end=self.surface.selection()
-            if text:self.surface.apply([SourceEdit(start,end,text)],start+len(text));return
-        super().insertFromMimeData(mime)
+        text=clipboard_text(mime)
+        if text:
+            _,start,end=self.surface.selection()
+            self.surface.apply([SourceEdit(start,end,text)],start+len(text))
 
     def canInsertFromMimeData(self,mime):
-        return mime.hasImage() or mime.hasUrls() or mime.hasHtml() or super().canInsertFromMimeData(mime)
+        from .markdown_paste import MARKDOWN_MIMES
+        return any(mime.hasFormat(kind) for kind in MARKDOWN_MIMES) or mime.hasImage() or mime.hasUrls() or mime.hasHtml() or super().canInsertFromMimeData(mime)
 
     def dropEvent(self,event):
         if event.mimeData().hasImage() or any(url.isLocalFile() for url in event.mimeData().urls()):

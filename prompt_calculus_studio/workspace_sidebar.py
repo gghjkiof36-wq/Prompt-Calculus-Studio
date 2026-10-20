@@ -260,12 +260,15 @@ class WorkspaceSidebarResize(QObject):
             return
         self.syncing = True
         try:
-            self.target = self.window.sidebar_target()
+            peek = self.window.sidebar_peek
+            self.target = peek.target if peek.is_open else self.window.sidebar_target()
             if self.target is None or not isValid(self.target) or not self.window.isVisible():
                 self.handle.hide()
                 return
             width = self.motion_width if self.target is self.motion_target else self.limit(self.window.sidebar_width)
             borrowed=bool(self.target.property('pcsSidebarBorrowed'))
+            self.handle.setToolTip('拖曳調整浮動側欄寬度' if borrowed else
+                                   '拖曳調整側欄；縮至最小後繼續向左拖曳可收合')
             if borrowed:
                 self.window.sidebar_peek.set_width(self.limit(self.window.sidebar_width,overlay=True))
                 width=self.window.sidebar_peek.overlay.width()-2*self.window.sidebar_peek.PADDING
@@ -289,9 +292,11 @@ class WorkspaceSidebarResize(QObject):
             if not self.target.isVisible() and not self.dragging:
                 self.handle.hide()
                 return
-            position = self.target.mapTo(self.window, QPoint())
-            edge = position.x() + (0 if self.collapsed and self.dragging else self.target.width())
-            self.handle.setGeometry(edge-4, position.y(), 8, self.target.height())
+            surface = peek.overlay if borrowed else self.target
+            position = surface.mapTo(self.window, QPoint())
+            edge = position.x() + (0 if self.collapsed and self.dragging else surface.width())
+            inset = 10 if borrowed else 0
+            self.handle.setGeometry(edge-4, position.y()+inset, 8, surface.height()-2*inset)
             self.handle.show()
             self.handle.raise_()
         finally:
@@ -308,15 +313,23 @@ class WorkspaceSidebarResize(QObject):
         self.origin_width = self.current_width()
         self.restore_width = self.window.sidebar_width
         self.drag_target = self.target
+        self.drag_overlay = self.window.sidebar_peek.is_open
+        self.window.sidebar_peek.close_timer.stop()
         self.handle.update()
 
     def move(self, global_position):
         if not self.dragging:
             return
-        if self.window.sidebar_target() is not self.drag_target:
+        peek = self.window.sidebar_peek
+        target = peek.target if peek.is_open else self.window.sidebar_target()
+        if target is not self.drag_target:
             self.finish()
             return
         width = self.origin_width+global_position.x()-self.origin_x
+        if self.drag_overlay:
+            self.window.sidebar_width = self.limit(width, overlay=True)
+            self.sync()
+            return
         self.collapsed = width < MIN_WIDTH-COLLAPSE_OVERSHOOT
         self.window.sidebar_preference = not self.collapsed
         self.window.sidebar_width = self.restore_width if self.collapsed else self.limit(width)
@@ -385,6 +398,8 @@ class WorkspaceSidebarResize(QObject):
         self.window.save_ui_preferences()
         self.handle.update()
         self.schedule()
+        if self.window.sidebar_peek.is_open:
+            self.window.sidebar_peek.close_timer.start()
 
     def schedule(self):
         if not self.stopped and not self.timer.isActive():

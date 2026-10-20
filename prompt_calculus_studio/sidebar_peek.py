@@ -230,7 +230,7 @@ class SidebarPeekController(QObject):
             if isValid(widget):widget.setMouseTracking(False)
         self._tracking.clear()
 
-    def _restore(self,pin):
+    def _restore(self,pin,*,keep_surface=False):
         self.open_timer.stop(); self.close_timer.stop(); self._pending=None
         self._edge_blocked=True
         target=self._borrowed; origin=self._origin
@@ -253,7 +253,7 @@ class SidebarPeekController(QObject):
                     origin['layout'].insertWidget(origin['index'],target,origin['stretch'],origin['alignment']); target.setVisible(pin or not origin['hidden'])
                 else:
                     origin['layout'].addWidget(target,*origin['position'],origin['alignment']); target.setVisible(pin or not origin['hidden'])
-            self.overlay.hide()
+            if not keep_surface:self.overlay.hide()
         finally:self._changing=False
         resize=getattr(self.window,'sidebar_resize',None)
         if resize:resize.schedule()
