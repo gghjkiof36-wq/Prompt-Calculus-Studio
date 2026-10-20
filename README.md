@@ -38,8 +38,6 @@
 
 ![0.8.9 自動展開內容側欄](docs/images/sidebar-peek-0.8.9.png)
 
-四張圖來自 0.8.9 Alpha 1 實際 Qt 控件與新建合成資料，未連接 ComfyUI。[完整介紹與已知限制](docs/releases/0.8.9/alpha.1.md)。
-
 ## 下載與啟動
 
 目前版本為 **[0.8.9 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-alpha.1)**。
@@ -67,9 +65,9 @@ py -3.12 -m venv .venv
 
 ## 使用前留意
 
-- 更新前保留舊程式、配套與原資料，新版先用副本。完整舊資料庫導入仍有驗證缺口，別讓新舊程式同時寫入同一份資料。
-- 大型文件效能尚未全部達標。近 8 MiB 大量短段落樣本首次閱讀仍約有 1.15 秒停頓，比 R2 同樣本約 0.52 秒退步，詳見[性能與限制](docs/releases/0.8.9/validation/alpha.1.md)。
-- 新機、完整原生輸入／DPI／媒體與真實 ComfyUI／GPU 尚未全部驗證。
+- 更新前保留舊程式、配套與原資料，先用獨立資料目錄和內容副本試用。舊資料庫導入仍有相容性待確認，新舊程式不要同時寫入同一份資料。
+- 接近 8 MiB、段落很多的 Markdown 文件，首次切換閱讀仍可能短暫停頓；複雜內容完整呈現可能需要數秒。
+- 不同輸入法、螢幕縮放、多螢幕、媒體格式與 ComfyUI／GPU 環境尚未逐一驗證，詳見[已知限制](docs/releases/0.8.9/validation/alpha.1.md)。
 - 生成 PNG 保留必要 Prompt 與還原參照，完整備份包含私人素材；分享前先[檢查附加資訊](docs/guide/data-backup-privacy.md#分享前)。
 
 [歷史發布](docs/releases/README.md) · [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues) · [貢獻指南](CONTRIBUTING.md) · [安全回報](SECURITY.md)
