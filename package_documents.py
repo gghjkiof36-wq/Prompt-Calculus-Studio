@@ -47,7 +47,9 @@ def source_paths(root=ROOT):
         if not name:continue
         rel=Path(name)
         if rel.is_absolute() or '..' in rel.parts or any(part.casefold() in blocked for part in rel.parts):continue
-        if len(rel.parts)>1 and rel.parts[0] not in folders:continue
+        delivery_tool=rel.as_posix()=='tools/build_user_delivery_089.py'
+        delivery_template=rel.as_posix().startswith('tools/user_delivery/') and rel.suffix.lower()=='.md'
+        if len(rel.parts)>1 and rel.parts[0] not in folders and not (delivery_tool or delivery_template):continue
         if rel.suffix.lower() not in suffixes and rel.name not in ('LICENSE','LICENSE-MPL','.gitignore','.gitattributes'):continue
         path=root/rel
         if any(p.is_symlink() or p.is_junction() for p in (path,*path.parents) if p!=root and p.is_relative_to(root)):
@@ -61,6 +63,7 @@ def source_paths(root=ROOT):
 def validation_reference(release, paths):
     """Use evidence for the exact build flag; other builds link to the index."""
     reports={
+        '--v0.8.9-alpha.1.repair.1':'docs/releases/0.8.9/validation/repair.1.md',
         '--v0.8.9-alpha.1':'docs/releases/0.8.9/validation/alpha.1.md',
         '--v0.8.8-alpha.1':'docs/releases/0.8.8/validation/alpha.1.md',
         '--v0.8.8-candidate.1':'docs/releases/0.8.8/development/candidate1.md',

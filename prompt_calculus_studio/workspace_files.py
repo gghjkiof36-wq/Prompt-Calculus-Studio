@@ -45,7 +45,15 @@ def create_file(root, kind, name):
             document = category.from_state(state, ident)
         else:
             from .state_loading import prepare_state
-            state = prepare_state(state, multi=True)
+            from .canvas_starter import initialize, guide
+            # Only explicit new files receive the starter. Opening a saved or
+            # imported Canvas must retain its layout, including an empty one.
+            state = initialize(prepare_state(state, multi=True), fresh_install=True)
+            starter = guide(state)
+            if starter:
+                # Local documents exclude application settings; retain the
+                # guide with its owning workspace so reopen keeps the entry.
+                state['workspaces'][0]['canvas_starter'] = dict(starter)
             document = workflow.from_state(state)
         result = io.create(root, relative, document)
         if result.status != 'saved':

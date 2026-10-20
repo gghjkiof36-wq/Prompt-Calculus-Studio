@@ -1,10 +1,10 @@
 # 開始使用 0.8.9
 
-[更新內容](../releases/0.8.9/alpha.1.md) · [驗證與限制](../releases/0.8.9/validation/alpha.1.md)
+[更新內容](../releases/0.8.9/repair.1.md) · [驗證與限制](../releases/0.8.9/validation/repair.1.md)
 
 ## 來源版
 
-將 `PCS-v0.8.9-Alpha1-source.zip` 完整解壓到新的資料夾。使用 Windows 64 位元 Python 3.12，在含 `run.py` 的資料夾開啟 PowerShell：
+將 `PCS-v0.8.9-Alpha1-Repair1-source.zip` 完整解壓到新的資料夾。使用 Windows 64 位元 Python 3.12，在含 `run.py` 的資料夾開啟 PowerShell：
 
 ```powershell
 py -3.12 -m venv .venv
@@ -12,7 +12,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe run.py --v0.8.9-alpha
 ```
 
-首次安裝依賴需網路，之後雙擊 `Start.cmd`。此入口開啟分頁工作區，不再是舊版單頁介面。
+首次安裝依賴需網路，之後雙擊 `Start.cmd`。首次會開啟「歡迎使用.md」，從裡面的連結進入「教學素材」。之後會接續已保存的分頁；關閉歡迎頁後，不會每次強制插回。教材可直接編輯，想保留初始內容可先複製文件。
 
 ## Windows 本機成品
 
@@ -26,8 +26,8 @@ py -3.12 -m venv .venv
 
 ## 先試一次完整操作
 
-1. 在內容側欄新增 Markdown 筆記，輸入文字，再切換閱讀模式。
-2. 新增 Prompt 分類與 Canvas 工作流，將文字素材拖入 Canvas。兩份文件可左右並排。
+1. 從歡迎頁開啟「從筆記到 Prompt」，依序試海岸筆記、海岸素材與練習畫布。新增自己的 Markdown 筆記，輸入文字，再切換閱讀模式。
+2. 新增 Prompt 分類與 Canvas 工作流，將文字素材拖入 Canvas。新建 Canvas 提供畫布、Prompt 輸出、CLIP 輸入、預排程、Stage 與圖片預覽六個已連接的模組。兩份文件可左右並排。
 3. 收合內容側欄，將游標移向左側，確認它暫時展開；移開後會收回。設定 → 介面個人化 → 操作行為可調整此功能。
 4. 關閉再重開文件，確認內容與工作區布局。Canvas 與分類沿既有保存流程自動保存。
 

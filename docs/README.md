@@ -4,7 +4,7 @@
 
 [安裝與啟動](guide/getting-started.md) · [完整使用指南](guide/README.md) · [ComfyUI 整合](guide/comfyui.md) · [疑難排解](guide/troubleshooting.md)
 
-現行入口適用 0.8.9 Alpha 1；先讀[分頁工作區與 Markdown](guide/workspace-089.md)。Prompt、Canvas 與 ComfyUI 主題指南沿用已保留的操作，個別歷史畫面會註明版本。
+現行入口適用 0.8.9 Alpha 1 Repair 1；先讀[分頁工作區與 Markdown](guide/workspace-089.md)。Prompt、Canvas 與 ComfyUI 主題指南沿用已保留的操作，個別歷史畫面會註明版本。
 
 
 ## 版本與發布

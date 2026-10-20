@@ -5,6 +5,26 @@ import sys
 from pathlib import Path
 
 
+def open_initial_documents(window, *, left_path=None, right_path=None):
+    """Keep restored sessions; show the bundled Markdown on first launch."""
+    if window.layout_restored:
+        return None
+    left = None
+    if left_path:
+        left = window.open_path(left_path)
+    elif not right_path:
+        from prompt_calculus_studio.local_documents.paths import is_link
+        welcome = window.root/'歡迎使用.md'
+        if welcome.is_file() and not is_link(welcome):
+            left = window.open_path(welcome)
+            surface = getattr(left.widget, 'md_surface', None) if left else None
+            if surface:
+                surface.set_mode('read')
+    if right_path:
+        window.open_path(right_path, pane=window.ensure_split())
+    return left
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, help='Content folder; defaults to files beside the program.')
@@ -53,11 +73,7 @@ def main():
         return 0
     from prompt_calculus_studio.workspace_shell import WorkspaceShell
     window = WorkspaceShell(args.root, args.data)
-    left = None
-    if args.open_left and not window.layout_restored:
-        left = window.open_path(args.open_left)
-    if args.open_right and not window.layout_restored:
-        window.open_path(args.open_right, pane=window.ensure_split())
+    left = open_initial_documents(window, left_path=args.open_left, right_path=args.open_right)
     def error(kind, value, traceback_):
         import traceback
         with (args.data/'error.log').open('a', encoding='utf-8') as stream:
@@ -82,6 +98,8 @@ def main():
                 return
             (args.data/'smoke-result.json').write_text(json.dumps(dict(
                 ok=ready, entry='WorkspaceShell', title=window.windowTitle(),
+                opened_files=[str(tab.path) for tab in window.tabs_by_key.values() if tab.path],
+                initial_document=str(left.path) if left else None,
                 reading=rich.render_state if rich else 'native',
                 blocked_urls=rich.gate.blocked if rich else [],
                 root=str(window.root), qt=__import__('PySide6').__version__)), encoding='utf-8')

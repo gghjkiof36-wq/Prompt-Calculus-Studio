@@ -1,4 +1,4 @@
-import copy,os,tempfile,unittest
+import copy,json,os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
@@ -16,16 +16,35 @@ def fresh():return prepare_state(initial_state(),multi=True)
 class CanvasStarterDataTests(unittest.TestCase):
     def test_new_workspace_upgrades_the_whole_legacy_document_before_switching(self):
         from prompt_calculus_studio.workspace_scene import create,switch,scene
-        state=fresh();self.assertLess(state['version'],6)
+        # Frozen output from the original test's historical implementation.
+        # Current fresh() legitimately migrates material records to format 7.
+        fixture=Path(__file__).parent/'fixtures'/'legacy_workspace_before_scheduler.json'
+        state=json.loads(fixture.read_text(encoding='utf-8'))['state']
+        self.assertEqual(state['version'],4);validate_state(state)
         old=state['workspace'];original=scene(state)
+        catalog={item['id']:(item['name'],item['prompt'],item['module']) for item in state['items']}
         created=create(state,'新的工作區')
         self.assertEqual(state['version'],6)
         self.assertEqual(state['workspace'],old);self.assertEqual(scene(state),original)
         validate_state(state)
         switch(state,created);switch(state,old);validate_state(state)
         with tempfile.TemporaryDirectory() as folder:
-            store=Storage(folder);store.save(state);restored=store.load_current(multi=True);store.close()
-        self.assertEqual(restored,state)
+            store=Storage(folder)
+            try:
+                store.save(state);restored=store.load_current(multi=True)
+                self.assertEqual(restored['version'],7)
+                self.assertEqual(restored['workspace'],old)
+                self.assertEqual({item['id']:(item['name'],item['prompt'],item['module']) for item in restored['items']},catalog)
+                self.assertEqual(restored['draft'],'')
+                self.assertEqual(restored['draft_base'],state['draft_base'])
+                self.assertEqual(restored['canvas_view'],[.6,120,160])
+                self.assertEqual(restored.get('output_order'),state.get('output_order'))
+                switch(restored,created);self.assertIsNotNone(guide(restored))
+                switch(restored,old);self.assertEqual(restored['draft'],'')
+                store.save(restored);reopened=store.load_current(multi=True)
+            finally:
+                store.close()
+        self.assertEqual(reopened,restored)
 
     def test_new_layout_has_ordered_typed_path_but_no_workflow_or_private_data(self):
         original=fresh();before=copy.deepcopy(original);state=initialize(original,fresh_install=True)
