@@ -82,8 +82,10 @@ class WorkspaceTop(QFrame):
 
 
 class WorkspaceShell(WorkspacePanes, QMainWindow):
-    def __init__(self, root, data):
+    def __init__(self, root, data, *, defer_restore=False):
         super().__init__()
+        self.workspace_ready = False
+        self._startup_loading = defer_restore
         # Choose the texture-capable backing store before the first native
         # window is created. Lazy WebEngine readers can then join the ordinary
         # widget hierarchy without recreating the shell or native child layers.
@@ -109,9 +111,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.active_route = 'home'
         self.sidebar_preference = None
         self.sidebar_auto_hide = True
-        self.sidebar_open_delay = 450
-        self.sidebar_close_delay = 650
-        self.confirm_trash = True
+        self.sidebar_open_delay = 90
+        self.sidebar_close_delay = 140
         self.sidebar_width = 264
         self.show_empty_folders = True
         self.navigation_position = 'side'
@@ -161,6 +162,13 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.sidebar_resize = WorkspaceSidebarResize(self)
         from .workspace_sidebar_peek import WorkspaceSidebarPeek
         self.sidebar_peek = WorkspaceSidebarPeek(self)
+        if not defer_restore:
+            self.initialize_documents()
+
+    def initialize_documents(self):
+        """Restore local documents after the in-window startup surface paints."""
+        if self.workspace_ready:
+            return
         self.refresh_tree()
         self.new_tab()
         from .workspace_pointer_navigation import WorkspacePointerNavigation
@@ -176,11 +184,13 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                                    ('Ctrl+Shift+S', self.commands.files.save_as_current),
                                    ('Alt+Right', lambda: self.go(1))):
             shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setEnabled(not self._startup_loading)
             shortcut.activated.connect(callback)
         if self.comfy_connection.enabled:
             QTimer.singleShot(0, self.ensure_utility)
         self.runtimes.recover()
         self.scheduler.ready = True
+        self.workspace_ready = True
 
     def read_navigation_json(self, name):
         try:
@@ -454,14 +464,16 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 self.sidebar_auto_hide=saved['sidebar_auto_hide']
             for key,maximum in (('sidebar_open_delay',1200),('sidebar_close_delay',2000)):
                 value=saved.get(key)
-                if type(value) is int and 100<=value<=maximum:setattr(self,key,value)
+                if type(value) is int and 50<=value<=maximum:
+                    if saved.get('sidebar_hover_version',1)<2 and (key,value) in (
+                            ('sidebar_open_delay',450),('sidebar_close_delay',650)):
+                        continue
+                    setattr(self,key,value)
             position=saved.get('navigation_position')
             if position in ('side','top'):
                 self.navigation_position=position
             if type(saved.get('show_empty_folders')) is bool:
                 self.show_empty_folders = saved['show_empty_folders']
-            if type(saved.get('confirm_trash')) is bool:
-                self.confirm_trash = saved['confirm_trash']
         except (ValueError,OSError):
             pass
 
@@ -471,25 +483,15 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
     def save_ui_preferences(self):
         saved = {key:self.settings[key] for key in DISPLAY_KEYS}
         saved.update(sidebar_width=self.sidebar_width, sidebar_expanded=self.sidebar_preference,
+                     sidebar_hover_version=2,
                      sidebar_auto_hide=self.sidebar_auto_hide, sidebar_open_delay=self.sidebar_open_delay,
                      sidebar_close_delay=self.sidebar_close_delay,
-                     navigation_position=self.navigation_position, show_empty_folders=self.show_empty_folders,
-                     confirm_trash=self.confirm_trash)
+                     navigation_position=self.navigation_position, show_empty_folders=self.show_empty_folders)
         output=QSaveFile(str(self.data/'workspace-ui.json'))
         output.setDirectWriteFallback(False)
         if output.open(QIODevice.OpenModeFlag.WriteOnly):
             output.write(json.dumps(saved,ensure_ascii=False).encode('utf-8'))
             output.commit()
-
-    def set_trash_confirmation(self, enabled):
-        self.confirm_trash = bool(enabled)
-        self.save_ui_preferences()
-        from .deferred_page import page_ready
-        page = getattr(self.utility, 'settings_page', None)
-        preferences = getattr(page, 'preferences', None) if page_ready(page) else None
-        checkbox = getattr(preferences, 'confirm_trash', None)
-        if checkbox is not None and checkbox.isChecked() != self.confirm_trash:
-            checkbox.setChecked(self.confirm_trash)
 
     def sync_display_settings(self, settings, preview=None):
         previous = self.display_settings()
@@ -839,13 +841,22 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 self.activate(self.tab_strip.bar.currentIndex())
                 return
             return self.new_tab()
-        self.ensure_utility()
-        if route == 'gallery':
-            self.utility.show_page(self.utility.gallery)
-        elif route == 'export':
-            self.utility.show_page(self.utility.clean_export)
-        else:
-            self.utility.settings(section or ('explore' if route == 'explore' else 'appearance'))
+        # Build and position the final surface before painting a route change.
+        # This prevents a frame at the old sidebar width/font geometry.
+        enabled = self.workspace_stack.updatesEnabled()
+        self.workspace_stack.setUpdatesEnabled(False)
+        try:
+            self.ensure_utility()
+            if route == 'gallery':
+                self.utility.show_page(self.utility.gallery)
+            elif route == 'export':
+                self.utility.show_page(self.utility.clean_export)
+            else:
+                self.utility.settings(section or ('explore' if route == 'explore' else 'appearance'))
+            from .workspace_startup import settle_layout
+            settle_layout(self.workspace_stack)
+        finally:
+            self.workspace_stack.setUpdatesEnabled(enabled)
 
     def ensure_utility(self):
         if self.utility is None:
@@ -1092,8 +1103,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
 
     def set_sidebar_hover(self, enabled, open_delay, close_delay):
         self.sidebar_auto_hide=bool(enabled)
-        self.sidebar_open_delay=max(100,min(1200,int(open_delay)))
-        self.sidebar_close_delay=max(100,min(2000,int(close_delay)))
+        self.sidebar_open_delay=max(50,min(1200,int(open_delay)))
+        self.sidebar_close_delay=max(50,min(2000,int(close_delay)))
         self.sidebar_peek.configure()
         self.save_ui_preferences()
 
@@ -1136,6 +1147,16 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.notification.present(message)
 
     def closeEvent(self, event):
+        if not self.workspace_ready:
+            # Cancelling startup must not replace the saved session with an
+            # empty, partially restored layout.
+            self.scheduler.stop()
+            self.runtimes.close()
+            self.autosave.external_poll.stop()
+            self.sidebar_peek.shutdown()
+            self.sidebar_resize.shutdown()
+            event.accept()
+            return
         # Resolve every dirty file first. Cancelling window close must not
         # silently remove earlier clean tabs or their native editor histories.
         if self.commands.files.pending:

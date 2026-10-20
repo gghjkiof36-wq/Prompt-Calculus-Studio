@@ -25,6 +25,48 @@ def open_initial_documents(window, *, left_path=None, right_path=None):
     return left
 
 
+def start_smoke(window, left, args, app):
+    from PySide6.QtCore import QTimer
+    import json
+    import time
+    deadline = time.monotonic()+20
+    surface = getattr(left.widget, 'md_surface', None) if left else None
+    if surface:
+        surface.set_mode('read')
+    client = None
+    if args.smoke_comfy_url:
+        from prompt_calculus_studio.core import local_address
+        client = window.ensure_utility().comfy
+        client.connect_to(local_address(args.smoke_comfy_url))
+    def finish_test():
+        rich = surface.reader.rich if surface else None
+        ready = not surface or (not surface.page.buffer.opening and
+            (not surface.reader.advanced or rich is not None and rich.render_state == 'ready'))
+        visible = not surface or surface.reader.isVisible()
+        if rich:
+            target = window.childAt(rich.mapTo(window, rich.rect().center()))
+            visible = visible and rich.isVisible() and (target is rich or rich.isAncestorOf(target))
+        ready = ready and visible and (client is None or client.connected)
+        if not ready and time.monotonic() < deadline:
+            QTimer.singleShot(100, window, finish_test)
+            return
+        window.grab().save(str(args.data/'smoke-reading.png'))
+        (args.data/'smoke-result.json').write_text(json.dumps(dict(
+            ok=ready, entry='WorkspaceShell', title=window.windowTitle(),
+            opened_files=[str(tab.path) for tab in window.tabs_by_key.values() if tab.path],
+            initial_document=str(left.path) if left else None,
+            reading=rich.render_state if rich else 'native',
+            reading_visible=visible,
+            comfy_connected=client.connected if client else None,
+            connection_label=window.connection.brand.text(),
+            blocked_urls=rich.gate.blocked if rich else [],
+            root=str(window.root), qt=__import__('PySide6').__version__)), encoding='utf-8')
+        window.close()
+        if not ready:
+            app.exit(1)
+    QTimer.singleShot(1200, window, finish_test)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, help='Content folder; defaults to files beside the program.')
@@ -74,59 +116,30 @@ def main():
     if not lock.tryLock(100):
         QMessageBox.information(None, 'Prompt Calculus Studio', '這個分頁檢視資料夾已在另一個視窗開啟。')
         return 0
-    from prompt_calculus_studio.workspace_shell import WorkspaceShell
-    window = WorkspaceShell(args.root, args.data)
-    left = open_initial_documents(window, left_path=args.open_left, right_path=args.open_right)
+    from prompt_calculus_studio.workspace_startup import StartupProgress
+
     def error(kind, value, traceback_):
         import traceback
         with (args.data/'error.log').open('a', encoding='utf-8') as stream:
             traceback.print_exception(kind, value, traceback_, file=stream)
         QMessageBox.warning(window, '操作未完成', str(value))
+
+    def ready(window, left):
+        if args.smoke_test:
+            start_smoke(window, left, args, app)
+
+    from prompt_calculus_studio.workspace_shell import WorkspaceShell
+    window = WorkspaceShell(args.root, args.data, defer_restore=True)
+    startup = StartupProgress(window,
+        lambda window: open_initial_documents(window, left_path=args.open_left, right_path=args.open_right),
+        ready, lambda value: error(type(value), value, value.__traceback__))
+    previous_hook = sys.excepthook
     sys.excepthook = error
-    window.show()
-    if args.smoke_test:
-        from PySide6.QtCore import QTimer
-        import json
-        import time
-        deadline = time.monotonic()+20
-        surface = getattr(left.widget, 'md_surface', None) if left else None
-        if surface:
-            surface.set_mode('read')
-        client = None
-        if args.smoke_comfy_url:
-            from prompt_calculus_studio.core import local_address
-            client = window.ensure_utility().comfy
-            client.connect_to(local_address(args.smoke_comfy_url))
-        def finish_test():
-            rich = surface.reader.rich if surface else None
-            ready = not surface or (not surface.page.buffer.opening and
-                (not surface.reader.advanced or rich is not None and rich.render_state == 'ready'))
-            visible = not surface or surface.reader.isVisible()
-            if rich:
-                target = window.childAt(rich.mapTo(window, rich.rect().center()))
-                visible = visible and rich.isVisible() and (target is rich or rich.isAncestorOf(target))
-            ready = ready and visible and (client is None or client.connected)
-            if not ready and time.monotonic() < deadline:
-                QTimer.singleShot(100, window, finish_test)
-                return
-            window.grab().save(str(args.data/'smoke-reading.png'))
-            (args.data/'smoke-result.json').write_text(json.dumps(dict(
-                ok=ready, entry='WorkspaceShell', title=window.windowTitle(),
-                opened_files=[str(tab.path) for tab in window.tabs_by_key.values() if tab.path],
-                initial_document=str(left.path) if left else None,
-                reading=rich.render_state if rich else 'native',
-                reading_visible=visible,
-                comfy_connected=client.connected if client else None,
-                connection_label=window.connection.brand.text(),
-                blocked_urls=rich.gate.blocked if rich else [],
-                root=str(window.root), qt=__import__('PySide6').__version__)), encoding='utf-8')
-            window.close()
-            if not ready:
-                app.exit(1)
-        QTimer.singleShot(1200, window, finish_test)
+    startup.start()
     try:
         return app.exec()
     finally:
+        sys.excepthook = previous_hook
         lock.unlock()
 
 

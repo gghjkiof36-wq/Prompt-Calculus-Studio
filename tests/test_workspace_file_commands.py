@@ -403,48 +403,32 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         context = self.w.commands.context('tree', self.item(self.folder/'Nested.md'))
         menu = self.w.commands.menu_for(context)
         actions = {action.text(): action for action in menu.actions()}
-        self.assertIn('移至資源回收筒…', actions)
+        self.assertIn('移至資源回收筒', actions)
         child = actions['另存新檔…']
         self.dialog_action(child.trigger, lambda d: (self.assertEqual(d.directory.text(), str(self.folder)), d.reject()))
         root_menu = self.w.commands.menu_for(self.w.commands.context('tree', self.item(self.root)))
         labels = [action.text() for action in root_menu.actions()]
-        self.assertNotIn('移至資源回收筒…', labels)
+        self.assertNotIn('移至資源回收筒', labels)
         self.assertIn('移除側欄連結（保留原檔）', labels)
 
-    def trash_action(self, path, confirm):
-        context = self.w.commands.context('tree', self.item(path))
-        def choose():
-            dialog = self.app.activeModalWidget()
-            if confirm:
-                dialog.remove_button.click()
-            else:
-                dialog.reject()
-        QTimer.singleShot(10, choose)
-        return self.w.commands.trash(context)
+    def trash_action(self, path, confirm=True):
+        return self.w.commands.trash(self.w.commands.context('tree', self.item(path)))
 
-    def test_trash_cancel_and_failure_keep_file_tab_and_recent(self):
+    def test_trash_failure_keeps_file_tab_recent_and_dirty_descendants(self):
         tab = self.w.open_path(self.note, True)
         before = self.note.read_bytes(), list(self.w.recent_files)
-        with patch('prompt_calculus_studio.workspace_commands.QFile.moveToTrash', return_value=(False, '')) as move:
-            self.assertFalse(self.trash_action(self.note, False))
-            move.assert_not_called()
-            self.assertFalse(self.trash_action(self.note, True))
-        self.assertIn('均已保留', self.errors.pop())
+        with patch.object(self.w.commands, 'move_to_trash', side_effect=OSError('access denied')):
+            self.assertFalse(self.trash_action(self.note))
+        self.assertIn('access denied', self.w.commands.delete_notice.message.text())
         self.assertIn(tab.key, self.w.tabs_by_key)
         self.assertEqual((self.note.read_bytes(), self.w.recent_files), before)
-
-    def test_trash_dirty_descendant_is_blocked_before_confirmation(self):
-        path = self.folder/'Nested.md'
-        tab = self.w.open_path(path, True)
-        QTest.keyClicks(tab.widget, 'unsaved ')
-        context = self.w.commands.context('tree', self.item(self.folder))
-        with patch('prompt_calculus_studio.workspace_commands.QFile.moveToTrash') as move:
-            self.assertFalse(self.w.commands.trash(context))
-            move.assert_not_called()
-        self.assertIn('未保存', self.errors.pop())
-        self.assertEqual(path.read_text(encoding='utf-8'), 'nested')
-        self.assertTrue(tab.dirty)
-        self.assertTrue(tab.widget.document().isUndoAvailable())
+        nested = self.w.open_path(self.folder/'Nested.md', True, new_tab=True)
+        QTest.keyClicks(nested.widget, 'unsaved ')
+        recycled = self.external/'folder'
+        with patch.object(self.w.commands, 'move_to_trash', side_effect=lambda p:p.rename(recycled)):
+            self.assertTrue(self.trash_action(self.folder))
+        self.assertNotIn(nested.key, self.w.tabs_by_key)
+        self.assertEqual((recycled/'Nested.md').read_text(encoding='utf-8'), 'nested')
 
     def test_trash_success_closes_only_affected_tabs_and_keeps_attachments(self):
         tab = self.w.open_path(self.note, True)
@@ -456,7 +440,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         def move(path):
             Path(path).rename(recycled)
             return True, str(recycled)
-        with patch('prompt_calculus_studio.workspace_commands.QFile.moveToTrash', side_effect=move):
+        with patch('prompt_calculus_studio.workspace_commands.WorkspaceCommands.move_to_trash', side_effect=move):
             self.assertTrue(self.trash_action(self.note, True))
         self.assertEqual(recycled.read_bytes(), b'\xef\xbb\xbf# draft\r\n')
         self.assertNotIn(tab.key, self.w.tabs_by_key)

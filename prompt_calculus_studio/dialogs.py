@@ -272,10 +272,6 @@ class SettingsDialog(StudioDialog):
         self.confirm_clear_draft.setChecked(s.get("confirm_clear_draft",True)); confirmations_layout.addWidget(self.confirm_clear_draft)
         workspace = getattr(window, 'workspace_owner', None)
         if workspace is not None:
-            self.confirm_trash = QCheckBox('移至資源回收筒前先詢問')
-            self.confirm_trash.setChecked(workspace.confirm_trash)
-            self.confirm_trash.toggled.connect(workspace.set_trash_confirmation)
-            confirmations_layout.addWidget(self.confirm_trash)
             self.sidebar_auto_hide=QCheckBox('側欄自動展開與收合')
             self.sidebar_auto_hide.setToolTip('側欄收合時，滑鼠靠近左側即可暫時展開，離開後自動收回。')
             self.sidebar_auto_hide.setChecked(workspace.sidebar_auto_hide)
@@ -283,7 +279,7 @@ class SettingsDialog(StudioDialog):
             hover_form=QFormLayout();hover_form.setHorizontalSpacing(16)
             hover_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
             for key,title,maximum in (('sidebar_open_delay','展開延遲',1200),('sidebar_close_delay','收回延遲',2000)):
-                control=QSpinBox();control.setRange(100,maximum);control.setSingleStep(50)
+                control=QSpinBox();control.setRange(50,maximum);control.setSingleStep(10)
                 control.setSuffix(' ms');control.setValue(getattr(workspace,key));control.setAccessibleName(title)
                 control.setEnabled(workspace.sidebar_auto_hide)
                 setattr(self,key,control);hover_form.addRow(title,control)

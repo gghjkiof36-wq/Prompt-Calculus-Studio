@@ -108,7 +108,8 @@ class Window(QMainWindow):
         self.tabs.addTab(self.make_prompt_page(),"提示詞")
         def tool_page(page_type):
             deferred = self.document_only or getattr(self, 'workspace_owner', None) is not None
-            return DeferredToolPage(lambda: page_type(self)) if deferred else page_type(self)
+            return DeferredToolPage(lambda parent: page_type(self,parent=parent),self.surface_stack,
+                                    parented=True) if deferred else page_type(self)
         self.models=tool_page(ModelPage)
         self.gallery=tool_page(GalleryPage)
         if workspace_tools:self.surface_stack.addWidget(self.gallery)
@@ -128,7 +129,8 @@ class Window(QMainWindow):
         outer.addLayout(row(self.status,None,self.cancel_button,QSizeGrip(self)))
         self.make_canvas_surface()
         if not self.document_only:
-            self.settings_page=DeferredToolPage(lambda: SettingsPage(self)) if workspace_tools else SettingsPage(self)
+            self.settings_page=DeferredToolPage(lambda parent: SettingsPage(self,parent=parent),
+                                               self.surface_stack,parented=True) if workspace_tools else SettingsPage(self)
             self.surface_stack.addWidget(self.settings_page)
         self.welcome=QWidget() if self.document_only or workspace_tools else InterfaceChoice(self,True)
         self.surface_stack.addWidget(self.welcome)
@@ -467,10 +469,9 @@ class Window(QMainWindow):
             # These pages have one permanent parent. Re-inserting them into
             # the legacy tab/editor stacks repolished their entire subtrees
             # on every navigation, even after the first visit.
-            refresh_gallery = page is self.gallery and page_ready(page)
+            refresh_gallery = page is self.gallery
             self.surface_stack.setCurrentWidget(page)
-            # Gallery construction already loads its first album. Repeating
-            # that refresh decoded the whole first page a second time.
+            # Startup prepares the surface only; load albums on actual visits.
             if refresh_gallery:self.gallery.refresh_albums()
             self.record_navigation('page','gallery' if page is self.gallery else 'clean_export')
             return
@@ -885,7 +886,7 @@ class Window(QMainWindow):
         self.close_recent_sheet()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
         if not isinstance(section,str): section='interface'
-        self.settings_page.open(section); self.surface_stack.setCurrentWidget(self.settings_page)
+        self.surface_stack.setCurrentWidget(self.settings_page); self.settings_page.open(section)
         self.sync_context_sidebar()
 
     def refresh_modules(self):

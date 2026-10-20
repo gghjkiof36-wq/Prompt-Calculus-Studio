@@ -22,6 +22,9 @@ def catalog_references(state):
         items.update(owner.get('weights', {}))
         items.update(owner.get('instances', {}))
     known_modules = {m['id'] for m in state['modules']}
+    library = set(state.get('library_categories', []))
+    modules.update(library)
+    items.update(item['id'] for item in state['items'] if item['module'] in library)
     modules.update(key for key in state.get('output_order', []) if key in known_modules)
     known_items = {i['id']: i for i in state['items']}
     if items - known_items.keys():

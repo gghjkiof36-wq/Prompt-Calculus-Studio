@@ -340,12 +340,13 @@ class MultiCanvas(TextCanvas):
         return self.history_projection(self.window.state)
     def commit(self,operation,label='編輯',merge_key=None):
         from .material_navigation import navigation_only
+        from .local_documents.library import change_only
         library_only = False
         old_connections=copy.deepcopy(self.data()['connections'])
         def apply(s):
             nonlocal library_only
             operation(s)
-            library_only = navigation_only(self.window.state, s)
+            library_only = navigation_only(self.window.state, s) or change_only(self.window.state, s)
             if library_only: return
             client=getattr(self.window,'comfy',None)
             if s['multi_output']['version']>=7 and client:
@@ -405,7 +406,8 @@ class MultiCanvas(TextCanvas):
         self._last_edit=None
         from .changes import layout_only
         from .material_navigation import navigation_only
-        library_only = navigation_only(expected, target)
+        from .local_documents.library import change_only
+        library_only = navigation_only(expected, target) or change_only(expected, target)
         self.sync('library' if library_only else 'layout' if layout_only(expected,target) else 'prompt')
         if reader_changed and self.data()['version']>=7:self.window.comfy.input_flow.chain.refresh_results()
         if not library_only and self.data()['version']>=7:self.window.comfy.input_flow.chain.route_changed()

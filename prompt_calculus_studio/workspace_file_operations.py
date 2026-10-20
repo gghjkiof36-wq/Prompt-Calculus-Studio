@@ -22,6 +22,8 @@ class FileOperation:
     pages: list
     expected: object
     result: object = None
+    cancel: object = None
+    cancelled: bool = False
 
 
 class WorkspaceFileOperations(QObject):
@@ -44,7 +46,16 @@ class WorkspaceFileOperations(QObject):
         return path is not None and any(path == op.source or path in op.source.parents
             or op.source in path.parents for op in self.pending)
 
-    def begin(self, context, rescue=False):
+    def cancel_pending(self, path):
+        """Release captured UI operations before an explicit deletion."""
+        for op in tuple(self.pending):
+            if path == op.source or path in op.source.parents or op.source in path.parents:
+                op.cancelled = True
+                if op.cancel is not None:
+                    op.cancel()
+                self.end(op)
+
+    def begin(self, context, rescue=False, *, allow_editing=False):
         source = context.path
         if source is None or context.kind == 'root':
             raise ValueError('請選擇文件或一般子資料夾。')
@@ -53,7 +64,7 @@ class WorkspaceFileOperations(QObject):
         pages = [tab for tab in self.w.all_pages() if tab.path and (tab.path == source or source in tab.path.parents)]
         if any(self.w.autosave.key(tab) in self.w.autosave.saving for tab in pages):
             raise ValueError('文件正在保存，請稍後再試。')
-        if any(self.w.autosave.editing_dialog(tab) for tab in pages):
+        if not allow_editing and any(self.w.autosave.editing_dialog(tab) for tab in pages):
             raise ValueError('請先完成素材表單的確認或取消。')
         for tab in pages:
             self.w.autosave.paused.add(id(tab))
@@ -71,14 +82,16 @@ class WorkspaceFileOperations(QObject):
                 self.w.autosave.schedule(tab)
             raise
 
-    def end(self, op):
+    def end(self, op, *, resume=True, refresh=True):
         if op not in self.pending:
             return
         self.pending.remove(op)
         for tab in op.pages:
             self.w.autosave.paused.discard(id(tab))
-            self.w.autosave.schedule(tab)
-        self.refresh(op.result if isinstance(op.result, Path) else None)
+            if resume:
+                self.w.autosave.schedule(tab)
+        if refresh:
+            self.refresh(op.result if isinstance(op.result, Path) else None)
 
     def refresh(self, selected=None):
         try:
@@ -143,6 +156,7 @@ class WorkspaceFileOperations(QObject):
                         self.inline = None
                         self.end(op)
                     self.inline = InlineRename(self.w.tree, item, op.source, commit, finish)
+                    op.cancel = self.inline.cancel
                     deferred = True
                     return None
                 from .workspace_file_title import title_for
@@ -156,6 +170,7 @@ class WorkspaceFileOperations(QObject):
                     self.inline = title
                     deferred = True
                     title.start(op.source, commit, finish)
+                    op.cancel = title.cancel
                     return None
                 dialog = RenameDialog(self.w, op.source, commit)
             elif action == 'move':
@@ -167,6 +182,7 @@ class WorkspaceFileOperations(QObject):
                     return commit(directory)
             else:
                 raise ValueError('不支援的文件操作。')
+            op.cancel = dialog.reject
             dialog.exec()
             return op.result
         except (ValueError, OSError) as error:
@@ -177,6 +193,7 @@ class WorkspaceFileOperations(QObject):
                 self.end(op)
 
     def save_as(self, op, name, directory):
+        self.check_active(op)
         w = self.w
         parent = w.locations.directory(directory)
         target = named_path(parent, name, op.source.suffix)
@@ -283,7 +300,13 @@ class WorkspaceFileOperations(QObject):
         op.result = target
         return target
 
+    @staticmethod
+    def check_active(op):
+        if op.cancelled:
+            raise ValueError('此操作已結束。')
+
     def check_source(self, op):
+        self.check_active(op)
         if stamp(op.source) != op.expected:
             raise ValueError('來源在操作期間已變更；原稿與位置已保留，請重新確認。')
         for tab in op.pages:
@@ -296,6 +319,7 @@ class WorkspaceFileOperations(QObject):
                     raise ValueError('Markdown 已被外部修改，請先處理衝突或另存本機稿：' + str(tab.path))
 
     def rename(self, op, name):
+        self.check_active(op)
         suffix = op.source.suffix if op.source.is_file() else ''
         target = named_path(op.source.parent, name, suffix)
         if str(target) == str(op.source):
@@ -304,6 +328,7 @@ class WorkspaceFileOperations(QObject):
         return self.relocate(op, target)
 
     def move(self, op, directory):
+        self.check_active(op)
         parent = self.w.locations.directory(directory)
         root = self.w.locations.root_for(op.source)
         if root is None or self.w.locations.root_for(parent) != root:

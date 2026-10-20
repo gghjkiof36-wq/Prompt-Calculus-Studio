@@ -44,13 +44,14 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
         QTest.qWait(150)
         self.assertTrue(self.w.sidebar_peek.is_open)
         self.assertEqual(self.tab.widget.geometry(), self.before)
+        QTest.qWait(120)  # The opening animation completes after the dwell.
         self.assertGreater(self.w.sidebar_peek.overlay.x(), self.w.rail.width())
         self.assertLess(self.w.sidebar_peek.overlay.geometry().bottom(), self.w.height()-1)
         self.assertIs(self.w.notebook.selector.parentWidget(), self.w.tree_heading)
         self.away()
         QTest.qWait(45)
         self.assertTrue(self.w.sidebar_peek.is_open)
-        QTest.qWait(180)
+        QTest.qWait(280)
         self.assertFalse(self.w.sidebar_peek.is_open)
         self.assertTrue(self.w.sidebar.isHidden())
         self.assertIs(self.w.sidebar.parentWidget(), self.w.home_split)
@@ -72,6 +73,31 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
         self.assertTrue(self.w.sidebar.isVisible())
         self.away();QTest.qWait(220)
         self.assertTrue(self.w.sidebar.isVisible())
+
+    def test_document_gutter_triggers_right_fade_in_and_left_fade_out(self):
+        self.collapse()
+        peek = self.w.sidebar_peek
+        point = QPoint(self.w.rail.width()+16, 210)
+        QTest.mouseMove(self.w, point)
+        for _ in range(35):
+            QTest.qWait(5)
+            if peek.is_open:
+                break
+        self.assertTrue(peek.is_open)
+        initial_x = peek.overlay.x()
+        QTest.qWait(180)
+        final_x = peek.overlay.x()
+        self.assertGreater(final_x, initial_x)
+        self.assertFalse(peek.effect.isEnabled())
+        self.assertEqual(self.tab.widget.geometry(), self.before)
+        self.away()
+        QTest.qWait(190)
+        self.assertTrue(peek.is_open)
+        self.assertLess(peek.overlay.x(), final_x)
+        self.assertLess(peek.effect.opacity(), 1.)
+        QTest.qWait(130)
+        self.assertFalse(peek.is_open)
+        self.assertEqual(self.tab.widget.geometry(), self.before)
 
     def test_disabled_feature_and_drag_do_not_reveal(self):
         self.collapse()

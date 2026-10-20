@@ -12,7 +12,7 @@ LOCAL_SETTINGS = (set(core.DEFAULT_SETTINGS) - CONTENT_SETTINGS) | {
 LOCAL_STATE = {'dictionary', 'content_history', 'material_navigation'}
 CONTENT_STATE = set(workspace_scene.FIELDS) | {
     'version', 'modules', 'items', 'workspaces', 'workspace', 'generation',
-    'settings', 'category_positions',
+    'settings', 'category_positions', 'library_categories',
 }
 DERIVED_STATE = {'workspace_scenes', '_execution_inputs', '_stage_results'}
 

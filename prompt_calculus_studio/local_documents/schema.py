@@ -11,6 +11,8 @@ MAX_BYTES = 32 * 1024 * 1024
 MAX_DEPTH = 256  # Core's 32 nested groups can occupy several JSON levels each.
 MAX_VALUES = 1_000_000
 SUFFIXES = {'category': '.pcs-category', 'workflow': '.pcs-workflow'}
+LIBRARY_FIELD = 'library_categories'
+LIBRARY_FEATURE = 'pcs.canvas-library.v1'
 
 
 class DocumentError(ValueError):
@@ -82,13 +84,18 @@ def validate(document):
             revision.get('parent') == revision.get('id')):
         fail('invalid', '文件修訂無效。')
     features = document.get('required_features', [])
-    if not isinstance(features, list) or features:
+    if (not isinstance(features, list) or any(feature != LIBRARY_FEATURE for feature in features)
+            or len(features) != len(set(features))):
         fail('unsupported', '文件需要尚未支援的必要語義。')
     extensions = document.get('extensions')
     if not isinstance(extensions, dict) or any('.' not in key or not key.strip('.') for key in extensions):
         fail('invalid', '擴充資料須使用命名空間。')
     if not isinstance(document.get('payload'), dict):
         fail('invalid', '文件缺少內容。')
+    state = document['payload'].get('state')
+    has_library = document['kind'] == 'workflow' and isinstance(state, dict) and LIBRARY_FIELD in state
+    if has_library != (LIBRARY_FEATURE in features):
+        fail('invalid', '匯入素材庫的必要語義標記不一致。')
     try:
         if document['kind'] == 'category':
             from .category import validate_payload
@@ -107,7 +114,8 @@ def validate(document):
 def new_document(kind, payload):
     value = dict(format='pcs-document', file_schema_version=1, kind=kind,
                  document_id=str(uuid.uuid4()), revision=dict(id=str(uuid.uuid4()), parent=None),
-                 payload=copy.deepcopy(payload), assets=[], extensions={}, required_features=[])
+                 payload=copy.deepcopy(payload), assets=[], extensions={},
+                 required_features=[LIBRARY_FEATURE] if kind == 'workflow' and LIBRARY_FIELD in payload.get('state', {}) else [])
     # Asset manifests are prepared separately; missing attachments are explicit issues.
     return validate(value)
 

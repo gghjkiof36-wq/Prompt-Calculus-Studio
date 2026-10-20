@@ -32,7 +32,7 @@ class OutlineLayout(QObject):
             self.settle();return
         if self.requested and not was_shown:self.offset=-28.;self.opacity=0.
         self.start_offset,self.start_opacity=self.offset,self.opacity
-        self.end_offset,self.end_opacity=(0.,1.) if self.requested else (28.,0.)
+        self.end_offset,self.end_opacity=(0.,1.) if self.requested else (-28.,0.)
         self.reflow()
         self.motion.setDuration(180 if self.requested else 140)
         self.motion.setEasingCurve(QEasingCurve.Type.OutCubic if self.requested else QEasingCurve.Type.InCubic)

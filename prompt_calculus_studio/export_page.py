@@ -34,8 +34,8 @@ class ExportSettingsScroll(QScrollArea):
 
 class ExportPage(QFrame):
     progressed=Signal(int,int)
-    def __init__(self,window):
-        super().__init__(); self.window=window; self.records=exporter.ExportRecords(window.store)
+    def __init__(self,window,parent=None):
+        super().__init__(parent); self.window=window; self.records=exporter.ExportRecords(window.store)
         self.inputs=[]; self.rows=[]; self.plan=None; self.result=None; self.page=0; self.loading=False; self.busy=False
         self.pending_sources=None; self.pending_action=None
         window.jobs.became_idle.connect(self.resume_pending)

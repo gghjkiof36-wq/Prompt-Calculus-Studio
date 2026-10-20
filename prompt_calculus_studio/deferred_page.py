@@ -3,9 +3,10 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout
 
 
 class DeferredToolPage(QWidget):
-    def __init__(self, factory):
-        super().__init__()
+    def __init__(self, factory, parent=None, *, parented=False):
+        super().__init__(parent)
         self._factory = factory
+        self._parented = parented
         self._page = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -17,8 +18,9 @@ class DeferredToolPage(QWidget):
 
     def load(self):
         if self._page is None:
-            self._page = self._factory()
+            self._page = self._factory(self) if self._parented else self._factory()
             self.layout().addWidget(self._page)
+            self.layout().activate()
         return self._page
 
     def __getattr__(self, name):

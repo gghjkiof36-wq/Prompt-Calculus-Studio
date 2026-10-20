@@ -165,8 +165,8 @@ class NavigationSidebar(QWidget):
         body.addWidget(self.navigation,1)
 
 class SettingsPage(QWidget):
-    def __init__(self,window):
-        super().__init__(); self.window=window; self.preferences=None; self.preference_pages=[]
+    def __init__(self,window,parent=None):
+        super().__init__(parent); self.window=window; self.preferences=None; self.preference_pages=[]
         self.setObjectName('SettingsSurface'); self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground,True)
         self.section='interface'; self.nav_routes=[]; self.manual_navigation=None
         outer=QVBoxLayout(self); outer.setContentsMargins(0,0,0,0); outer.setSpacing(0)
@@ -389,7 +389,7 @@ class SettingsPage(QWidget):
         self.syncing=True; self.preferences=SettingsDialog(self.window)
         self.entry_appearance=self.entry_appearance or copy.deepcopy(self.window.state['settings'])
         for key in ('appearance','completion','dictionary'):
-            page=self.preferences.tabs.widget(0); self.preferences.tabs.removeTab(0); page.setParent(None)
+            page=self.preferences.tabs.widget(0); self.preferences.tabs.removeTab(0)
             if key=='appearance':
                 inner=page.widget() if isinstance(page,QScrollArea) else page
                 if getattr(self.window,'workspace_owner',None) is not None:

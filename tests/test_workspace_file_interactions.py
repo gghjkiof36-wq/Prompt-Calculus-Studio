@@ -7,7 +7,6 @@ from PySide6.QtCore import Qt, QPoint, QPointF, QTimer, QMimeData, QEvent
 from PySide6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QDrag, QInputMethodEvent, QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialogButtonBox, QDialog, QWidget
-from prompt_calculus_studio.workspace_file_dialogs import TrashDialog
 from prompt_calculus_studio.workspace_locations import path_key
 from prompt_calculus_studio.workspace_shell import WorkspaceShell
 from prompt_calculus_studio.workspace_file_drag import MIME
@@ -244,60 +243,23 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
         self.assertEqual(self.w.active_key, active)
         drag.finish()
 
-    def trash(self, path, accept, skip=False):
-        context = self.context(path=path)
-        def choose(dialog):
-            self.assertFalse(dialog.skip.isChecked())
-            dialog.skip.setChecked(skip)
-            (dialog.remove_button if accept else dialog.cancel_button).click()
-        return self.dialog(lambda: self.w.commands.trash(context), choose, TrashDialog)
-
-    def test_trash_cancel_failure_external_change_and_success_preference(self):
+    def test_delete_ignores_legacy_confirmation_preference_and_has_no_modal(self):
+        self.w.save_ui_preferences()
+        config = self.w.data/'workspace-ui.json'
+        saved = json.loads(config.read_text(encoding='utf-8'))
+        saved['confirm_trash'] = True
+        config.write_text(json.dumps(saved), encoding='utf-8')
+        self.w.load_ui_preferences()
         path = self.root/'Notes.md'
-        with patch('prompt_calculus_studio.workspace_commands.QFile.moveToTrash', return_value=(False, '')) as remove:
-            self.assertFalse(self.trash(path, False, True))
-            remove.assert_not_called()
-            self.assertTrue(self.w.confirm_trash)
-            self.assertFalse(self.trash(path, True, True))
-            self.assertTrue(self.w.confirm_trash)
-            self.assertIn('均已保留', self.errors.pop())
-        def modify(dialog):
-            path.write_bytes(b'external')
-            dialog.remove_button.click()
-        with patch('prompt_calculus_studio.workspace_commands.QFile.moveToTrash') as remove:
-            self.dialog(lambda: self.w.commands.trash(self.context(path=path)), modify, TrashDialog)
-            remove.assert_not_called()
-        self.assertIn('已變更', self.errors.pop())
-        recycled = self.root.parent/'recycled.md'
-        def recycle(value):
-            Path(value).rename(recycled)
-            return True, str(recycled)
-        with patch('prompt_calculus_studio.workspace_commands.QFile.moveToTrash', side_effect=recycle):
-            self.assertTrue(self.trash(path, True, True))
-        self.assertFalse(self.w.confirm_trash)
-        saved = json.loads((self.w.data/'workspace-ui.json').read_text(encoding='utf-8'))
-        self.assertIs(saved['confirm_trash'], False)
-
-    def test_skip_confirmation_restores_from_settings_and_survives_restart(self):
-        self.w.set_trash_confirmation(False)
-        with patch.object(TrashDialog, 'exec', side_effect=AssertionError('should skip')):
-            with patch('prompt_calculus_studio.workspace_commands.QFile.moveToTrash', return_value=(False, '')):
-                self.assertFalse(self.w.commands.trash(self.context(path=self.root/'Notes.md')))
-                self.errors.pop()
-        self.w.close()
-        other = WorkspaceShell(self.root, self.w.data)
-        try:
-            self.assertFalse(other.confirm_trash)
-            other.open_route('settings')
-            self.events()
-            checkbox = other.utility.settings_page.preferences.confirm_trash
-            self.assertFalse(checkbox.isChecked())
-            checkbox.setChecked(True)
-            self.assertTrue(other.confirm_trash)
-            self.assertTrue(json.loads((other.data/'workspace-ui.json').read_text(encoding='utf-8'))['confirm_trash'])
-        finally:
-            other.close()
-            other.deleteLater()
+        with patch.object(QDialog, 'exec', side_effect=AssertionError('no modal')), \
+                patch.object(self.w.commands, 'move_to_trash', side_effect=OSError('locked')):
+            self.assertFalse(self.w.commands.trash(self.context(path=path)))
+        self.assertIn('locked', self.w.commands.delete_notice.message.text())
+        self.w.open_route('settings')
+        self.events()
+        self.assertFalse(hasattr(self.w.utility.settings_page.preferences, 'confirm_trash'))
+        self.w.save_ui_preferences()
+        self.assertNotIn('confirm_trash', json.loads(config.read_text(encoding='utf-8')))
 
     def test_disclosure_refresh_restart_selection_scroll_and_coalesced_save(self):
         for n in range(45):
@@ -529,7 +491,6 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
             self.skipTest('Native Windows recycle contract')
         workflow = self.open('Street.pcs-workflow')
         note = self.open('Notes.md')
-        self.w.set_trash_confirmation(False)
         for tab in (workflow, note):
             path = tab.path
             self.assertTrue(path.is_file())

@@ -90,16 +90,16 @@ class WorkspaceMaterials(QObject):
             state = workflow.to_state(io.load(target.path.parent, target.path.name).document)
         return [(key, value['name']) for key, value in state['multi_output']['canvases'].items()]
 
-    def candidates(self):
+    def candidates(self, kind='workflow'):
         found = {}
         for root in self.w.locations.roots:
             try:
-                for path, kind in self.w.locations.inventory(root):
-                    if kind == 'workflow': found[path_key(path)] = path
+                for path, candidate_kind in self.w.locations.inventory(root):
+                    if candidate_kind == kind: found[path_key(path)] = path
             except (ValueError, OSError):
                 continue
         for document in self.w.documents:
-            if document.kind == 'workflow': found[path_key(document.path)] = document.path
+            if document.kind == kind: found[path_key(document.path)] = document.path
         return sorted(found.values(), key=lambda p: (p.stem.casefold(), str(p).casefold()))
 
     def copy_root(self, source):

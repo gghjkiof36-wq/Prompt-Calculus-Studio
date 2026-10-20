@@ -1,7 +1,10 @@
 """Hover disclosure for the workspace's existing live sidebar."""
-from PySide6.QtCore import QPoint, QRect, Qt, QEvent, QTimer
-from PySide6.QtWidgets import QApplication, QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox, QWidget
+from PySide6.QtCore import QPoint, QRect, Qt, QEvent, QTimer, QEasingCurve
+from PySide6.QtWidgets import QApplication, QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox, QWidget, QGraphicsOpacityEffect
+from PySide6.QtGui import QCursor
 from .sidebar_peek import SidebarPeekController
+from .elapsed_animation import ElapsedAnimation
+from .dialog_presentation import reduced_motion
 
 
 class WorkspaceSidebarPeek(SidebarPeekController):
@@ -16,6 +19,15 @@ class WorkspaceSidebarPeek(SidebarPeekController):
     def __init__(self, window):
         super().__init__(window, window.sidebar_target)
         self.listening = True
+        self.progress = 1.
+        self.hiding = False
+        self.effect = QGraphicsOpacityEffect(self.overlay)
+        self.effect.setEnabled(False)
+        self.overlay.setGraphicsEffect(self.effect)
+        self.motion = ElapsedAnimation(self)
+        self.motion.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.motion.valueChanged.connect(self.motion_frame)
+        self.motion.finished.connect(self.finish_motion)
         self._layout.setContentsMargins(*([self.PADDING]*4))
         self.edge=QWidget(window)
         self.edge.setObjectName('SidebarHoverEdge')
@@ -53,7 +65,8 @@ class WorkspaceSidebarPeek(SidebarPeekController):
         self.edge.setVisible(visible)
         if visible:
             bounds=self._anchor(target)
-            self.edge.setGeometry(0,bounds.top(),6,bounds.height())
+            # Cover only the document gutter, leaving rail buttons clickable.
+            self.edge.setGeometry(bounds.left(),bounds.top(),24,bounds.height())
             self.edge.raise_()
 
     def eventFilter(self, watched, event):
@@ -72,10 +85,14 @@ class WorkspaceSidebarPeek(SidebarPeekController):
 
     def _edge_contains(self, position, target, *, tolerance=False):
         bounds = self._anchor(target)
-        return 0 <= position.x() < bounds.left()+(10 if tolerance else 6) and bounds.top() <= position.y() < bounds.bottom()
+        return 0 <= position.x() < bounds.left()+(32 if tolerance else 24) and bounds.top() <= position.y() < bounds.bottom()
 
     def _hover(self, position):
         if self.enabled:
+            if self.hiding:
+                local = self.window.mapFromGlobal(position)
+                if self.overlay.geometry().contains(local) or self._edge_contains(local,self.target,tolerance=True):
+                    self.animate(False)
             super()._hover(position)
 
     def _is_pin_control(self, widget):
@@ -90,6 +107,11 @@ class WorkspaceSidebarPeek(SidebarPeekController):
                     editing and focus.isVisible() and self._inside_sidebar(focus) or self._popup_owned(app.activePopupWidget()))
 
     def _borrow(self, target, *, pinned=False):
+        self.motion.stop()
+        self.hiding = False
+        self.progress = 1. if reduced_motion(self.window) else 0.
+        self.effect.setEnabled(self.progress != 1.)
+        self.effect.setOpacity(self.progress)
         margins=target.layout().contentsMargins() if target.layout() else None
         result = super()._borrow(target, pinned=pinned)
         if result:
@@ -100,9 +122,50 @@ class WorkspaceSidebarPeek(SidebarPeekController):
             if target is self.window.sidebar:
                 self.window.tree_heading.setFixedHeight(self.window.tab_row.height())
             self.position_edge()
+            if self.progress != 1.:
+                self.animate(False)
         return result
 
+    def animate(self, hiding):
+        self.motion.stop()
+        self.hiding = hiding
+        if reduced_motion(self.window):
+            self.finish_motion()
+            return
+        self.effect.setEnabled(True)
+        self.motion.setDuration(110 if hiding else 150)
+        self.motion.setStartValue(self.progress)
+        self.motion.setEndValue(0. if hiding else 1.)
+        self.motion.start()
+
+    def motion_frame(self, value):
+        self.progress = float(value)
+        self.effect.setOpacity(self.progress)
+        self._position_overlay()
+
+    def finish_motion(self):
+        self.motion.stop()
+        if self.hiding:
+            self.close()
+        else:
+            self.progress = 1.
+            self.effect.setEnabled(False)
+            self._position_overlay()
+
+    def _close_if_outside(self):
+        if not self.is_open or self.is_pinned_overlay:
+            return
+        point = self.window.mapFromGlobal(QCursor.pos())
+        if (self.overlay.geometry().contains(point) or self._edge_contains(point,self.target,tolerance=True)
+                or self._interaction_active()):
+            return
+        self.animate(True)
+
     def _restore(self, pin):
+        self.motion.stop()
+        self.hiding = False
+        self.progress = 1.
+        self.effect.setEnabled(False)
         target=self.target
         if target is not None and getattr(self,'borrowed_margins',None) is not None:
             target.layout().setContentsMargins(self.borrowed_margins)
@@ -136,13 +199,14 @@ class WorkspaceSidebarPeek(SidebarPeekController):
         if not self.is_open:return
         bounds=self._anchor(self.target).adjusted(self.INSET,self.INSET,-self.INSET,-self.INSET)
         width=min(self._origin['width'],max(1,bounds.width()-64))
-        self.overlay.setGeometry(bounds.x(),bounds.y(),width,max(1,bounds.height()))
+        self.overlay.setGeometry(bounds.x()-round((1.-self.progress)*24),bounds.y(),width,max(1,bounds.height()))
         # All children stay inside the rounded frame. A native integer mask
         # would cut off antialiasing and create jagged corners at fractional DPI.
         self.overlay.clearMask()
         self.target.setFixedWidth(max(1,width-2*self.PADDING))
 
     def shutdown(self):
+        self.motion.stop()
         self.edge_timer.stop()
         super().shutdown()
         self.edge.hide()

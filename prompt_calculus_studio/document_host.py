@@ -194,6 +194,7 @@ class DesktopDocument(QObject):
                 settings.pop(key)
         result = copy.deepcopy(self.document)
         result['payload'] = fresh['payload']
+        result['required_features'] = fresh['required_features']
         referenced = {ref for ref, _, _ in assets.references(result)}
         result['assets'] = [entry for entry in result['assets'] if entry['reference'] in referenced]
         if remap and self.identity_maps is not None:

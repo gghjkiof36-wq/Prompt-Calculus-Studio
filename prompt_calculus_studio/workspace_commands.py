@@ -1,6 +1,6 @@
 """Captured file commands shared by the tree, toolbar and new-tab page."""
 from pathlib import Path
-from PySide6.QtCore import Qt, QFile
+from PySide6.QtCore import Qt, QFile, QTimer
 from PySide6.QtWidgets import QApplication, QLineEdit, QHBoxLayout, QFileDialog, QDialog, QDialogButtonBox, QMessageBox
 
 from .widgets import StudioDialog, button, label, dialog_buttons, RoundMenu
@@ -197,13 +197,18 @@ class WorkspaceCommands:
             menu.addAction('複製路徑', lambda: QApplication.clipboard().setText(str(context.path)))
             if context.kind != 'root':
                 from .workspace_menu_action import destructive_action
-                action = destructive_action(menu, w, '移至資源回收筒…', 'trash', lambda: self.trash(context))
-                action.setEnabled(not self.files.busy(context.path))
+                destructive_action(menu, w, '移至資源回收筒', 'trash', lambda: self.trash(context))
         return menu
 
     def trash(self, context):
         w, path = self.workspace, context.path
         if path is None:
+            return False
+        def failed(error):
+            from .workspace_transfer_notice import TransferNotice
+            if not hasattr(self, 'delete_notice'):
+                self.delete_notice = TransferNotice(w.workspace_stack, w, '無法刪除')
+            self.delete_notice.present(f'無法刪除「{path.name}」：{error}')
             return False
         # Linked roots have a separate unlink command. Do not trash a folder
         # containing another enrolled root or follow a replaced symlink.
@@ -215,40 +220,35 @@ class WorkspaceCommands:
             if not path.exists():
                 raise ValueError('這個項目已不存在，請重新整理側欄。')
         except (OSError, ValueError) as error:
-            w.report_error(str(error))
-            return False
+            return failed(error)
         affected = [tab for tab in w.all_pages()
                     if tab.path and (tab.path == path or path in tab.path.parents)]
-        if any(not w.prepare_close(tab, decision='cancel') for tab in affected):
-            w.report_error('這個項目有未保存的變更；請先保存或關閉相關分頁，再移至資源回收筒。')
-            return False
+        # A reentrant request waits for the synchronous writer, not for the
+        # user to close a tab, form, inline name or a hovered Move submenu.
+        if any(w.autosave.key(tab) in w.autosave.saving for tab in affected):
+            QTimer.singleShot(0, lambda: self.trash(context))
+            return None
+        self.files.cancel_pending(path)
         op = None
-        skip = False
+        deleted = False
         try:
-            op = self.files.begin(context)
-            if w.confirm_trash:
-                from .workspace_file_dialogs import TrashDialog
-                prompt = TrashDialog(w, path)
-                if prompt.exec() != QDialog.DialogCode.Accepted:
-                    return False
-                skip = prompt.skip.isChecked()
+            op = self.files.begin(context, allow_editing=True)
             self.files.check_source(op)
-            moved = QFile.moveToTrash(str(path))
-            # Current PySide returns bool when no trash-path output is requested;
-            # older bindings may return (success, path).
-            if isinstance(moved, tuple):
-                moved = moved[0]
-            if not moved:
-                raise ValueError('無法移至資源回收筒；檔案與分頁均已保留。')
+            self.move_to_trash(path)
+            deleted = True
         except (OSError, ValueError) as error:
-            w.report_error(str(error))
-            return False
+            return failed(error)
         finally:
             if op is not None:
-                self.files.end(op)
-        if skip:
-            w.set_trash_confirmation(False)
+                # Deleted pages are about to close. Do not restart their
+                # autosave timers or rebuild the same tree twice.
+                self.files.end(op, resume=not deleted, refresh=not deleted)
         for tab in affected:
+            if tab.document:
+                for host in tab.document.hosts:
+                    dialog = getattr(getattr(host, 'prompt_editor', None), 'active_dialog', None)
+                    if dialog is not None:
+                        dialog.reject()
             at = w.index_of(tab.key)
             if at >= 0:
                 w.close_tab(at, decision='discard', pane=w.pane_for(tab))
@@ -263,3 +263,9 @@ class WorkspaceCommands:
                 tab.widget.set_recent(w.recent_files)
         w.refresh_tree()
         return True
+
+    @staticmethod
+    def move_to_trash(path):
+        file = QFile(str(path))
+        if not file.moveToTrash():
+            raise OSError(file.errorString())

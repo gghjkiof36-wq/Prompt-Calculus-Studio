@@ -179,7 +179,7 @@ class AssetDialog(StudioDialog):
         return next(i for i in self.window.state['items'] if i['id'] == ident)
 
 
-HISTORY_FIELDS = ('version', 'modules', 'items', 'selections', 'temporary', 'temporary_before', 'weights', 'instances', 'output_order', 'text_positions', 'text_sizes', 'uses', 'workspaces', 'workspace', 'workspace_scenes', 'prompt_layout', 'view_drafts','canvas_functions','generation', 'material_navigation')
+HISTORY_FIELDS = ('version', 'modules', 'items', 'library_categories', 'selections', 'temporary', 'temporary_before', 'weights', 'instances', 'output_order', 'text_positions', 'text_sizes', 'uses', 'workspaces', 'workspace', 'workspace_scenes', 'prompt_layout', 'view_drafts','canvas_functions','generation', 'material_navigation')
 
 
 class HistoryField:
@@ -328,10 +328,11 @@ class TextCanvas(QWidget):
         before = self.history_state(); value = copy.deepcopy(self.window.state)
         try:
             from .material_navigation import navigation_only
+            from .local_documents.library import change_only
             operation(value)
             from .prompt_groups import mark_version
             mark_version(value)
-            library_only = navigation_only(self.window.state, value)
+            library_only = navigation_only(self.window.state, value) or change_only(self.window.state, value)
             if not library_only:
                 comp.prune_instances(value)
                 if value.get('uses'): value.setdefault('prompt_layout','paragraphs')

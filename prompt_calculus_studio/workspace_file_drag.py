@@ -1,21 +1,25 @@
-"""Single-item sidebar moves. This MIME never represents Canvas materials."""
+"""Sidebar file moves and page opening share one captured drag identity."""
 from pathlib import Path
 import uuid
-from PySide6.QtCore import QMimeData, QTimer, Qt, QPersistentModelIndex
+from PySide6.QtCore import QMimeData, QTimer, Qt, QPersistentModelIndex, QObject, QEvent
 from PySide6.QtGui import QDrag
-from PySide6.QtWidgets import QAbstractItemView
+from PySide6.QtWidgets import QAbstractItemView, QWidget
+from shiboken6 import isValid
 from .workspace_commands import PATH_ROLE, KIND_ROLE
 
 MIME = 'application/x-pcs-sidebar-file-move'
 
 
-class WorkspaceFileDrag:
+class WorkspaceFileDrag(QObject):
     def __init__(self, tree):
+        super().__init__(tree)
         self.tree, self.w = tree, tree.workspace
         self.op = None
         self.token = ''
         self.target = QPersistentModelIndex()
         self.position = None
+        self.drop_widgets = []
+        self.page_preview = None
         self.expand_timer = QTimer(tree)
         self.expand_timer.setSingleShot(True)
         self.expand_timer.setInterval(650)
@@ -43,6 +47,18 @@ class WorkspaceFileDrag:
             self.w.show_notice(str(error))
             return False
         self.token = uuid.uuid4().hex
+        self.op.cancel = self.finish
+        if context.kind in ('markdown', 'workflow', 'category'):
+            from .application_events import listen
+            from .workspace_tab_drag import DropPreview
+            if self.page_preview is None:
+                self.page_preview = DropPreview(self.w)
+            for pane in self.w.panes:
+                for widget in (pane.pages, pane.strip, pane.strip.bar):
+                    self.drop_widgets.append((widget, widget.acceptDrops()))
+                    widget.setAcceptDrops(True)
+            listen(self, QEvent.Type.DragEnter, QEvent.Type.DragMove,
+                   QEvent.Type.DragLeave, QEvent.Type.Drop)
         return True
 
     def mime(self):
@@ -56,17 +72,83 @@ class WorkspaceFileDrag:
         drag = QDrag(self.tree)
         drag.setMimeData(self.mime())
         try:
-            drag.exec(Qt.DropAction.MoveAction)
+            drag.exec(Qt.DropAction.MoveAction | Qt.DropAction.CopyAction, Qt.DropAction.MoveAction)
         finally:
             self.finish()
             drag.deleteLater()
 
     def finish(self):
+        from .application_events import unlisten
+        unlisten(self)
+        for widget, accepted in self.drop_widgets:
+            if isValid(widget):
+                widget.setAcceptDrops(accepted)
+        self.drop_widgets.clear()
+        if self.page_preview is not None:
+            self.page_preview.clear()
         self.clear_target()
         if self.op is not None:
             op, self.op = self.op, None
             self.token = ''
             self.w.commands.files.end(op)
+
+    def eventFilter(self, watched, event):
+        if not isinstance(watched, QWidget) or self.op is None:
+            return False
+        if watched is self.tree or self.tree.isAncestorOf(watched):
+            if self.page_preview is not None:
+                self.page_preview.clear()
+            return False  # The tree's existing move target remains authoritative.
+        if event.type() == QEvent.Type.DragLeave:
+            self.page_preview.clear()
+            return False
+        if not self.owns(event):
+            return False
+        point = watched.mapToGlobal(event.position().toPoint())
+        target = self.w.tab_drag.destination(point, opening_file=True)
+        if target is None:
+            self.page_preview.clear()
+            event.ignore()
+            return True
+        self.clear_target()
+        if event.type() == QEvent.Type.Drop:
+            self.page_preview.clear()
+            if self.open_page(target) is None:
+                event.ignore()
+                return True
+        else:
+            self.page_preview.present(self.w.tab_drag.target_rect)
+        event.setDropAction(Qt.DropAction.CopyAction)
+        event.accept()
+        return True
+
+    def open_page(self, target):
+        """Opening never moves the file or replaces an existing retained page."""
+        if self.op is None or self.op.context.kind not in ('markdown', 'workflow', 'category'):
+            return None
+        try:
+            self.w.commands.files.check_source(self.op)
+            pane, at = target
+            created_split = pane == 'split'
+            if created_split:
+                pane = self.w.ensure_split(empty=True)
+            tab = next((tab for tab in self.w.tabs_by_key.values()
+                        if tab.path == self.op.source and self.w.pane_for(tab) is pane), None)
+            if tab is not None:
+                self.w.retain(tab)
+                self.w.focus_tab(tab)
+            else:
+                tab = self.w.open_path(self.op.source, True, new_tab=True, pane=pane)
+            if tab is not None and at is not None:
+                bar = pane.strip.bar
+                source = next(i for i in range(bar.count()) if bar.tabData(i) == tab.key)
+                bar.moveTab(source, min(at, bar.count()-1))
+            if tab is None and created_split:
+                self.w.collapse_empty_pane(pane)
+            return tab
+        except (ValueError, OSError) as error:
+            self.w.show_notice(str(error))
+            return None
 
     def owns(self, event):
         return (self.op is not None and event.source() is self.tree and

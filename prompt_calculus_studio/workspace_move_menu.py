@@ -27,6 +27,7 @@ class MoveMenu:
             return
         try:
             self.op = self.files.begin(self.context)
+            self.op.cancel = self.finish
         except (OSError, ValueError) as error:
             self.w.show_notice(str(error))
             self.menu.setEnabled(False)

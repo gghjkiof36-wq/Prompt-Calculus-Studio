@@ -76,6 +76,10 @@ def validate_state(state):
             if not isinstance(entry.get("name"), str) or not entry["name"].strip():
                 raise ValueError("名稱不能空白。")
     modules = {m["id"]: m for m in state["modules"]}
+    library = state.get('library_categories', [])
+    if (not isinstance(library, list) or any(not isinstance(key, str) or key not in modules for key in library)
+            or len(library) != len(set(library))):
+        raise ValueError('匯入素材庫的分類參照無效。')
     positions=state.get('category_positions',{})
     if not isinstance(positions,dict) or any(not isinstance(key,str) or not key or type(value) is not int
             or not 0<=value<=1000000 for key,value in positions.items()):

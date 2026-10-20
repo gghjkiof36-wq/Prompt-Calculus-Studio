@@ -6,7 +6,7 @@ TYPE_SHORTCUTS = {None: 'text', '@material-type:combination': 'combination', '@m
 
 
 class MaterialScope:
-    def __init__(self, state, allowed=None):
+    def __init__(self, state, allowed=None, *, include_uncategorized=True):
         self.state=state;self.allowed=set(allowed or pm.TYPES)
         self.shortcuts={key:kind for key,kind in TYPE_SHORTCUTS.items() if kind in self.allowed}
         self.default=next(iter(self.shortcuts))
@@ -43,7 +43,7 @@ class MaterialScope:
                 for cid in children:add(cid,self.categories[cid]['name'],counts[cid],parent=key)
             elif key in visible:add(key,self.categories[key]['name'],counts[key])
         unclassified=sum(count for key,count in counts.items() if key==self.uncategorized or key not in self.categories)
-        if 'text' in self.allowed or unclassified:
+        if include_uncategorized and ('text' in self.allowed or unclassified):
             add(self.uncategorized,'未分類',unclassified,'shortcut')
         self.keys={row['id'] for row in self.rows}
 

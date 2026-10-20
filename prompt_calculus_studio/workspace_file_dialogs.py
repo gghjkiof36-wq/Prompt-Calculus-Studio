@@ -2,7 +2,7 @@
 from pathlib import Path
 from PySide6.QtCore import Qt, QEvent, QTimer, QSize
 from PySide6.QtWidgets import (QApplication, QLineEdit, QWidget, QVBoxLayout, QSizePolicy,
-    QCheckBox, QHBoxLayout, QDialogButtonBox)
+    QHBoxLayout, QDialogButtonBox)
 from .widgets import StudioDialog, label, button, dialog_buttons
 from .workspace_commands import NewEntryDialog
 from .workspace_file_io import named_path
@@ -156,38 +156,3 @@ class InlineRename(QWidget):
         self.item.setSizeHint(0, QSize())
         self.tree.setUniformRowHeights(self.uniform_rows)
         self.finish()
-
-
-class TrashDialog(StudioDialog):
-    def __init__(self, workspace, path):
-        super().__init__(workspace)
-        from .widgets import ElidedLabel
-        self.setWindowTitle('移至資源回收筒')
-        self.resize(440, 230)
-        self.body.setSpacing(10)
-        name = ElidedLabel(path.name)
-        name.setObjectName('Heading')
-        name.setToolTip(path.name)
-        self.body.addWidget(name)
-        root = workspace.locations.root_for(path)
-        location = str(path.parent.relative_to(root)) if root else path.parent.name
-        location = root.name if root and location == '.' else location
-        caption = ElidedLabel(location)
-        caption.setObjectName('Subtle')
-        caption.setToolTip(str(path))
-        self.body.addWidget(caption)
-        if path.is_dir():
-            self.body.addWidget(label('資料夾內的內容也會一起移入。', 'Subtle'))
-        self.skip = QCheckBox('不再提醒')
-        controls = QHBoxLayout()
-        controls.addWidget(self.skip, 0, Qt.AlignmentFlag.AlignVCenter)
-        controls.addStretch()
-        self.cancel_button = button('取消', self.reject)
-        self.cancel_button.setDefault(True)
-        self.remove_button = button('移至資源回收筒', self.accept, 'Danger')
-        from .theme import visual_tokens
-        self.remove_button.setIcon(icon('trash', visual_tokens(workspace.display_settings())['destructive_text']))
-        controls.addWidget(self.cancel_button)
-        controls.addWidget(self.remove_button)
-        self.body.addLayout(controls)
-        self.cancel_button.setFocus()

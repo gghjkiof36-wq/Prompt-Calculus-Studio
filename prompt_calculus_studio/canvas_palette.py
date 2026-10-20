@@ -1,4 +1,4 @@
-"""Choose a local text module or create a blank Canvas copy."""
+"""Choose a local material or import a saved Prompt management page."""
 import copy
 from PySide6.QtCore import Qt, QPoint, QPointF, QSize, QRect, QEvent, QSignalBlocker
 from PySide6.QtGui import QPainter, QColor
@@ -107,7 +107,9 @@ class CanvasPalette(QDialog):
         self.split.addWidget(local)
         self.status=label('',None,True); self.status.hide(); self.body.addWidget(self.status)
         self.footer=QHBoxLayout(); self.footer.setSpacing(10)
-        self.new_button=button('新增空白模組',self.new_module); self.new_button.setIcon(icon('plus'))
+        self.new_button=button('',self.choose_import); self.new_button.setIcon(icon('plus'))
+        self.new_button.setToolTip('從儲存庫匯入prompt管理頁')
+        self.new_button.setAccessibleName('從儲存庫匯入prompt管理頁')
         self.footer.addWidget(self.new_button); self.footer.addStretch()
         self.body.addLayout(self.footer)
         for listing in (self.modules,self.assets):
@@ -160,13 +162,10 @@ class CanvasPalette(QDialog):
             self.update_destination(); self.show_error('請選擇有效的目的畫布後再加入。'); return False
         return True
 
-    def uncategorized_ids(self):
-        return {m['id'] for m in self.canvas.window.state['modules'] if m['name']=='未分類'}
-
     def populate_categories(self):
         selected=(self.get_browser_category() if self.category.count() else
                   getattr(self.canvas.window,'_material_browser_category',None))
-        self.scope=MaterialScope(self.canvas.window.state)
+        self.scope=MaterialScope(self.canvas.window.state, include_uncategorized=False)
         selected=self.scope.normalize(selected)
         blocked=QSignalBlocker(self.modules); combo_blocked=QSignalBlocker(self.category)
         populate(self.scope,self.modules,self.category,counts_in_combo=True)
@@ -336,8 +335,13 @@ class CanvasPalette(QDialog):
         elif report_cancel:
             self.show_error('未能加入，選擇已保留；請確認畫布後重試。')
 
-    def new_module(self):
-        if self.ready(): self.perform(lambda:self.canvas.add_new_with_destination(self.position,self.destination_id),False)
+    def choose_import(self):
+        from .canvas_library_import import choose
+        choose(self)
+
+    def import_category(self, path):
+        from .canvas_library_import import import_category
+        return import_category(self, path)
 
     def fit_window(self):
         parent=self.canvas.window
@@ -365,6 +369,7 @@ class CanvasPalette(QDialog):
         self.close_button.setFixedSize(max(36,line+16),max(36,line+16))
         for control in (self.new_button,self.destination,self.category,self.search):
             control.setMinimumHeight(max(36,control.fontMetrics().height()+16))
+        self.new_button.setFixedWidth(self.new_button.minimumHeight())
         self.assets.doItemsLayout(); self.align_search()
 
     def paintEvent(self,event):

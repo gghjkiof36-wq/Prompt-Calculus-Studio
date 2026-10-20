@@ -23,8 +23,8 @@ from .ui_icons import icon
 
 
 class ModelPage(QFrame):
-    def __init__(self, window):
-        super().__init__()
+    def __init__(self, window, parent=None):
+        super().__init__(parent)
         self.window, self.catalog = window,window.catalog
         self.record = None
         self.loading = False
@@ -499,8 +499,8 @@ MEDIA_LIST_COLUMN_GAP=20
 class GalleryPage(QFrame):
     sidebarExpansionChanged=Signal(bool)
 
-    def __init__(self,window):
-        super().__init__()
+    def __init__(self,window,parent=None):
+        super().__init__(parent)
         self.window,self.catalog=window,window.catalog
         self.album=None; self.page=0; self.record=None; self.queue=[]; self.importing=False
         self._sidebar_preference=None; self._last_sidebar_state=None; self._detail_open=False
@@ -624,7 +624,8 @@ class GalleryPage(QFrame):
         self.restore_button.setEnabled(False); action_layout.addWidget(self.restore_button)
         self.detail_card.resized.connect(self.fit_detail_card)
         self.split.splitterMoved.connect(self.remember_detail_width)
-        self.refresh_albums()
+        if not getattr(window,'workspace_tools',False):
+            self.refresh_albums()
 
     @property
     def sidebar_expanded(self):

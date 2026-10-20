@@ -1,11 +1,11 @@
-"""A bounded top-right failure card for Canvas placement only."""
+"""A bounded top-right failure card that leaves the current editor usable."""
 from PySide6.QtCore import QEvent, QTimer, Qt
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 from .theme import visual_tokens
 
 
 class TransferNotice(QFrame):
-    def __init__(self, parent, workspace):
+    def __init__(self, parent, workspace, title='加入 Canvas'):
         super().__init__(parent)
         self.workspace = workspace
         self.setObjectName('CanvasTransferNotice')
@@ -13,16 +13,16 @@ class TransferNotice(QFrame):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 12, 14)
-        title = QHBoxLayout()
-        title.addWidget(QLabel('加入 Canvas'))
-        title.addStretch()
+        header = QHBoxLayout()
+        header.addWidget(QLabel(title))
+        header.addStretch()
         self.close_button = QPushButton('×')
         self.close_button.setAccessibleName('關閉通知')
         self.close_button.setFixedSize(24, 24)
         self.close_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.close_button.clicked.connect(self.hide)
-        title.addWidget(self.close_button)
-        layout.addLayout(title)
+        header.addWidget(self.close_button)
+        layout.addLayout(header)
         self.message = QLabel()
         self.message.setTextFormat(Qt.TextFormat.PlainText)
         self.message.setWordWrap(True)

@@ -124,12 +124,11 @@ class WorkspaceMultiviewFileTests(unittest.TestCase):
         self.assertTrue(left.widget.document().isUndoAvailable())
         path, before = left.path, left.path.read_bytes()
         recycled = self.root.parent/'recycled-A.md'
-        self.w.confirm_trash = False
         self.w.autosave.timers[self.w.autosave.key(left)].start(25)
         def recycle(path):
             Path(path).rename(recycled)
             return True
-        with patch('prompt_calculus_studio.workspace_commands.QFile.moveToTrash', side_effect=recycle):
+        with patch('prompt_calculus_studio.workspace_commands.WorkspaceCommands.move_to_trash', side_effect=recycle):
             self.assertTrue(self.w.commands.trash(self.context(left)))
         QTest.qWait(140)
         self.events()

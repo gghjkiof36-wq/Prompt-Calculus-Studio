@@ -124,7 +124,7 @@ class TabDrag(QObject):
         rect.setTop(pane.strip.mapTo(parent, QPoint()).y())
         return rect
 
-    def destination(self, global_point):
+    def destination(self, global_point, *, opening_file=False):
         self.target_rect = None
         self.scroll_control = None
         if self.w.active_route != 'home':
@@ -158,7 +158,7 @@ class TabDrag(QObject):
                 rect.setLeft(rect.left()+round((rect.width()-1)*self.w.split_ratio)+1)
                 self.target_rect = rect
                 return 'split', None
-            if len(self.w.panes) == 2 and self.dragging is not None and pane is not self.w.pane_for(self.dragging):
+            if opening_file or (len(self.w.panes) == 2 and self.dragging is not None and pane is not self.w.pane_for(self.dragging)):
                 self.target_rect = self.pane_rect(pane)
                 return pane, None
 
