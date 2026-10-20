@@ -41,11 +41,31 @@
 - 生成快照夾帶未使用素材正文、分類及資料夾名稱；現只帶重建所需的內容與參照，完整備份仍保留整庫。
 - 新增功能頁以鍵盤選 Stage 時，唯讀預覽的回呼例外。
 
-## 實際畫面
+## 畫面預覽
 
-![PCS 0.8.8 Canvas](https://raw.githubusercontent.com/gghjkiof36-wq/Prompt-Calculus-Studio/v0.8.8-alpha.1/docs/images/canvas-0.8.8.png)
+### Canvas 串接工作流程
 
-固定 0.8.8 功能來源的實際 Qt Canvas，使用公開範例資料，未連接 ComfyUI。圖片來源及驗證範圍見[驗證紀錄](validation/alpha.1.md)。
+文字經 Prompt 輸出與 CLIP 輸入綁定工作流，再由預排程交給 Stage 執行。
+
+![PCS 0.8.8 Canvas 串接工作流程](../../images/canvas-overview-0.8.8.png)
+
+### 雙擊 Canvas 加入功能模組
+
+雙擊 Canvas 空白處，依文字、圖片或執行分類加入模組，右側可先看節點預覽。
+
+![PCS 0.8.8 雙擊 Canvas 加入功能模組](../../images/canvas-functions-0.8.8.png)
+
+### Prompt Editor 預覽素材
+
+雙擊點選素材查看完整 Prompt，右側可以自行添加有關提示詞的圖片。
+
+![PCS 0.8.8 Prompt Editor 預覽素材](../../images/prompt-editor-preview-0.8.8.png)
+
+### 編輯流程
+
+設定組合順序、起始組合與重複次數，將流程保存成可重用素材。
+
+![PCS 0.8.8 編輯流程](../../images/prompt-editor-flow-edit-0.8.8.png)
 
 ## 下載與啟動
 

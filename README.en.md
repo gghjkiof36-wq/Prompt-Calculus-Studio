@@ -1,41 +1,53 @@
 # Prompt Calculus Studio (PCS)
 
-PCS is a Windows desktop tool for reusable prompts and ComfyUI workflows. Keep text variants, combinations and flows in a local library, arrange them on Canvas, and send text and images to your workflows. Prompt editing and copying also work on their own.
+Keep Markdown notes, reusable prompts and Canvas workflows in a local workspace. Save text variants, combinations and flows, then send text and images to your own ComfyUI setup. Notes and prompt editing also work without a generation service.
 
-[繁體中文](README.md) · [Documentation](docs/README.md)
-
-This source is the **0.8.9 Alpha 1 delivery candidate**. Markdown notes, Canvas workflows and prompt categories share a local tabbed workspace, including split views and an optional sidebar that appears near the left edge. See [setup](docs/guide/workspace-089.md), [changes](docs/releases/0.8.9/alpha.1.md) and [validation limits](docs/releases/0.8.9/validation/alpha.1.md) (Chinese).
+[繁體中文](README.md) · [Setup](docs/guide/workspace-089.md) · [Documentation](docs/README.md) · [0.8.9 release notes](docs/releases/0.8.9/alpha.1.md) (Chinese)
 
 ## What it does
 
-- Organize named text variants, ordered combinations and flows with repeat settings.
-- Prepare batches with fixed Canvas text and multi-round flow readers; shorter sources cycle.
-- Bind text fields with CLIP and choose workflows and supported parameters in Stage.
-- Queue, pause, cancel and retry tasks while retaining their saved inputs.
-- Inspect results in independent image previews, export images and reuse selected outputs.
+- Open notes, prompt categories and Canvas workflows in tabs, including side-by-side views.
+- Write Markdown or inspect its source and reading view. Keep tables, formulas and Mermaid diagrams editable.
+- Organize reusable text variants, ordered combinations and flows with repeat settings.
+- Prepare batches, bind text fields, choose workflows and queue or retry tasks with their saved inputs.
+- Find local notes through outlines, search, tags, links, bookmarks and version history.
 
-Generation requires your own ComfyUI installation, models and workflows. Keep PCS, the backend and the workflow browser page open.
+Generation requires your own ComfyUI installation, models and workflows.
 
-## PCS 0.8.8
+## Screenshots
 
-![PCS 0.8.8 Canvas](docs/images/canvas-0.8.8.png)
+### Notes beside prompt materials
 
-![PCS 0.8.8 Prompt Editor](docs/images/editor-0.8.8.png)
+Record the scene on the left and inspect reusable prompt text on the right.
 
-Actual Qt screens from the fixed 0.8.8 functional source, using isolated public examples with ComfyUI disconnected. See the [capture and validation scope](docs/releases/0.8.8/validation/alpha.1.md) (Chinese).
+![PCS 0.8.9 notes and prompt materials](docs/images/workspace-split-0.8.9.png)
 
-This release unifies selection and saved progress across text variants, combinations and flows. It adds clearer variant management and side pages, bound-input scheduling and independent image previews. It also fixes whole-workspace cancellation, migrated repeat progress, ordering across output switches, and unnecessary library content in generation snapshots. See the [full release notes](docs/releases/0.8.8/alpha.1.md) (Chinese).
+### Markdown source beside its reading view
+
+Tables, diagrams and formulas retain their editable source in the same document.
+
+![PCS 0.8.9 Markdown source and reading](docs/images/markdown-source-reading-0.8.9.png)
+
+### Outlines and a sidebar that appears when needed
+
+Navigate by heading. When the content sidebar is collapsed, move near the left edge to reveal it; opening and closing delays can be changed in settings.
+
+![PCS 0.8.9 Markdown outline](docs/images/markdown-outline-0.8.9.png)
+
+![PCS 0.8.9 temporary sidebar](docs/images/sidebar-peek-0.8.9.png)
+
+These are actual Qt screens from the fixed 0.8.9 Alpha 1 functional source, using new synthetic local documents with ComfyUI disconnected.
 
 ## Download and start
 
-Publication status and available downloads are recorded on [GitHub Releases](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases). The 0.8.9 package names are:
+Current version: **[0.8.9 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-alpha.1)**.
 
-- `PCS-v0.8.9-Alpha1-source.zip`: source application, bundled extension and installer.
+- `PCS-v0.8.9-Alpha1-source.zip`: source application, bundled extension profiles and installer.
 - `PCS-v0.8.9-Alpha1-ComfyUI.zip`: universal extension for manual installation.
 - `PCS-v0.8.9-Alpha1-ComfyUI-legacy-0.39.2.zip` or `PCS-v0.8.9-Alpha1-ComfyUI-modern-0.40.0.zip`: alternative compatibility profiles; install one copy only.
 - `SHA256SUMS.txt`: download checksums.
 
-Install 64-bit Python 3.12 on Windows. Extract the source archive and open PowerShell beside `run.py`:
+No Windows executable is publicly distributed. The source edition needs 64-bit Python 3.12 on Windows. Extract the whole archive and open PowerShell beside `run.py`:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -43,21 +55,19 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe run.py --v0.8.9-alpha
 ```
 
-The first installation downloads dependencies. After that, double-click `Start.cmd`. Available public packages are listed on the Release page; these instructions use the source edition. No Windows executable is publicly distributed in this release.
+The first installation downloads dependencies. After that, double-click `Start.cmd`. Update the ComfyUI extension as well, restart the backend and refresh the workflow browser page. See [setup](docs/guide/workspace-089.md) and [compatibility](docs/guide/comfyui-compatibility.md) (Chinese).
 
-Update both PCS and its extension. In Explore → ComfyUI → Connection and workflows, choose the extension installer. Close ComfyUI for installation, then restart it and refresh the browser page yourself. Bind CLIP and select a Stage workflow. The [setup](docs/guide/getting-started.md) and [compatibility guide](docs/guide/comfyui-compatibility.md) explain the details (Chinese).
+## Before using it
 
-## First use and limits
+New documents default to `files` beside the program; settings use `data`. Adding a local folder opens its actual files, so edits are saved to their original locations. Back up and try copies when upgrading. Complete old-database migration has not been verified; do not let old and new applications write the same data at once.
 
-The current launcher opens the tabbed workspace. New content defaults to `files` beside the program, while settings use `data`; use copies of existing content when upgrading. Large Markdown documents near the 8 MiB limit can still pause during their first reading view. Windows runtime redistribution materials and final independent rechecks remain separate from local developer validation.
+Large-document performance is still incomplete. A fixed sample near 8 MiB with about 300,000 short paragraphs still paused the interface for about **1.15 seconds** on first reading, a regression from about **0.52 seconds in R2** with the same sample. Complex content may take several seconds to finish rendering. See [validation limits](docs/releases/0.8.9/validation/alpha.1.md) (Chinese).
 
-Save a text material in Prompt Editor, add a separate copy to Canvas, and copy its Prompt output. For a batch, create combinations and a flow, then connect a flow reader to Prompt output. Canvas text stays fixed within each batch. A ten-round source paired with six rounds produces ten tasks, cycling the shorter source.
+This release also fixes file-save conflicts and parent-directory substitution, callbacks after closing a shared view, and stale note-index results after switching roots. The index fix has developer checks but no final independent confirmation from its original reviewer. Complete native input, DPI, media, new-machine and live ComfyUI/GPU coverage remains incomplete.
 
-Saved tasks consume selection progress even when cancelled: after saving six tasks, the next batch starts at seven. Retry retains the original task values. Previewing does not consume progress, and identical prompts remain separate tasks.
+Generation images retain necessary prompts and restoration references; full backups contain the private library. Inspect files before sharing. See [data and privacy](docs/guide/data-backup-privacy.md) (Chinese).
 
-Back up before upgrading and use a data copy. Current documents support schemas 1–7; older applications or extensions may not read new data. Generation metadata still includes necessary prompts and restoration references. Full backups retain the private library, so inspect files before sharing. Some Stage PNGs from older candidates remain unrestorable. Offline checks do not establish new-machine, native desktop, GPU or all third-party node compatibility.
-
-[Guides](docs/guide/README.md) · [Troubleshooting](docs/guide/troubleshooting.md) · [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+[Release history](docs/releases/README.md) · [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 ## License
 

@@ -2,7 +2,7 @@
 
 [各版完整紀錄](docs/releases/README.md) · [現行使用指南](docs/guide/README.md)
 
-## 0.8.9 Alpha 1｜交付候選
+## 0.8.9 Alpha 1｜2026-10-20
 
 - 新增本機分頁工作區，整合 Markdown 編寫／閱讀、Canvas 與 Prompt 管理，支援左右並排。
 - 修正提示框、選單、透明材質、窄視窗分隔與素材拖放，新增可調整延遲的側欄自動展開／收回。

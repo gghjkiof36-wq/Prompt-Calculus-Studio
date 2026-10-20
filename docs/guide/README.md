@@ -1,11 +1,12 @@
 # 使用指南
 
-適用：0.8.8 Alpha 1 · [專案首頁](../../README.md) · [完整文件目錄](../README.md)
+適用：0.8.9 Alpha 1 · [專案首頁](../../README.md) · [完整文件目錄](../README.md)
 
-第一次使用，先完成[安裝與啟動](getting-started.md)，再到 Canvas 組合提示詞；要生成圖片，接著設定 ComfyUI 與 Stage。
+第一次使用，先讀[分頁工作區與 Markdown](workspace-089.md)，再依需要整理 Prompt 或接上 ComfyUI。部分主題圖仍保留當時版本標示；現行入口以 0.8.9 指南為準。
 
 | 想做的事 | 指南 |
 |---|---|
+| 分頁、Markdown、文件與資料位置 | [0.8.9 工作區](workspace-089.md) |
 | 下載、安裝、啟動與更新 | [開始使用](getting-started.md) |
 | 認識畫布、節點與工作區 | [Canvas 與工作區](canvas.md) |
 | 文字變體、組合、流程與批次取值 | [素材與批次](prompt-materials-088.md) |
@@ -21,6 +22,6 @@
 | 處理安裝、連線與生成問題 | [疑難排解](troubleshooting.md) |
 | 了解專案及第三方授權 | [授權說明](licensing.md) |
 
-版本變更與驗證紀錄見[0.8.8 版本主頁](../releases/0.8.8/README.md)。
+版本變更與驗證紀錄見[0.8.9 版本主頁](../releases/0.8.9/README.md)。
 
 [Prompt Editor：素材、資料夾與畫布副本](prompt-editor.md)

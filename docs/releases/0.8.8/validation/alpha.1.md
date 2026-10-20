@@ -29,15 +29,19 @@
 
 ## 公開示例圖片
 
-Canvas 與 Prompt Editor 圖使用固定功能來源的真實 Qt 控件、全新合成資料、實色材質與明確中文字型，離屏擷取。沒有連接 ComfyUI、提交生成或讀取私人資料；圖只展示介面，不能證明生成品質或原生材質效果。精確來源、尺寸及 SHA256 隨圖核對後記於下表。
+2026-10-15 補充四張主要功能畫面，取自公開來源提交 `32976d4b3a728dcdd97f294ebfdf22def499d02d`，執行標題為 `Prompt Calculus Studio · v0.8.8 Alpha 1`。
 
 | 圖片 | 尺寸 | SHA256 |
 |---|---|---|
-| [canvas-0.8.8.png](../../../images/canvas-0.8.8.png) | 1920×1080 | `77aed2c6eafc03e9eda89eb7c1699f9efddf3c075b522fb269c7f43b82058774` |
-| [editor-0.8.8.png](../../../images/editor-0.8.8.png) | 1920×1031 | `0b528e9793a83b6536771aa744328ae903d75dcbc9e41eead8119d6f4c64c350` |
+| [canvas-overview-0.8.8.png](../../../images/canvas-overview-0.8.8.png) | 1920×1080 | `35d3d3af5487ceb4e7720fe3f135e5dcdd4d63e40fd0911886546a24a06bff86` |
+| [canvas-functions-0.8.8.png](../../../images/canvas-functions-0.8.8.png) | 988×888 | `45bc51b97410d598ebe9956cfaae376b8bc3225ad5cf1814b11df79e995b5790` |
+| [prompt-editor-preview-0.8.8.png](../../../images/prompt-editor-preview-0.8.8.png) | 1920×1031 | `152be41d075fd0babb94bad1bf059f031f26d560b5299cdf4bbb7c8b0397a7ad` |
+| [prompt-editor-flow-edit-0.8.8.png](../../../images/prompt-editor-flow-edit-0.8.8.png) | 748×681 | `2904d325a40f799ee09c3ca63f1006695854a3e4601bde642099f7f9918bf001` |
 
-Canvas 使用視窗擷取，Editor 使用實際頁面控件擷取。此次重新取圖來源是正式版本整合提交 `11674e021c08f4ccd7a4f2965ec5993fd1f7dd3e`，執行標題為 `Prompt Calculus Studio · v0.8.8 Alpha 1`，CURRENT／build flag 為 `--v0.8.8-alpha.1`，來源啟動參數為 `--v0.8.8-alpha`。相對上方功能源，產品套件僅 releases.py 的版本身份改動，啟動入口另補正式參數，功能核心保持相同。
+使用實際 Qt 控件與 `QWidget.grab()` 離屏擷取，未重畫或修改圖片像素。Canvas 擷取整個視窗；功能模組頁擷取雙擊空白 Canvas 後開啟的選單面板；素材預覽擷取 Prompt Editor 頁面；流程編輯畫面擷取點選預覽區「編輯」後的編輯面板。四圖已逐張檢視，文字與主要操作完整可見。
 
-兩張新擷取圖片與前次功能源圖片的像素／SHA256 相同，表中 hash 因此不變；介面沒有顯示 runtime 視窗標題，沒有另加版本浮水印。擷取時使用全新合成資料、Microsoft JhengHei 與實色材質，配套啟動探查停用；網路／服務嘗試及 Qt 回呼例外均為零。取圖前後正式版本來源樹保持乾淨，舊圖片與取圖紀錄保留；此結果僅適用這次取圖。
+全新合成資料包含場景變體、文字、兩個組合及「花園與海岸」示例流程；示例流程的三個組合分別重複 2／2／1 次。Canvas 只調整示例文件中的 CLIP 輸入與預排程位置，產品程式與預設布局未改。取圖使用 Microsoft JhengHei、實色材質，未讀取私人資料、連接 ComfyUI 或提交生成；網路／服務嘗試與 Qt 回呼例外均為零。圖片展示介面操作，沒有生成結果。
+
+首次發布的兩張圖片與當時取圖紀錄保留於 [v0.8.8-alpha.1 驗證紀錄](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/blob/v0.8.8-alpha.1/docs/releases/0.8.8/validation/alpha.1.md#公開示例圖片)。
 
 公開下載及包內容以[發布頁](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.8-alpha.1)及[來源對照](../source-provenance.md)為準；來源通過與最終成品／實際環境驗證分開記錄。

@@ -1,6 +1,6 @@
 # 安全問題
 
-目前公開預覽版為 [0.8.8 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.8-alpha.1)；尚無長期支援或舊版修補期限的承諾。ComfyUI 擴充設計供本機連線使用，不應直接暴露到公共網路。
+目前公開預覽版為 [0.8.9 Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-alpha.1)；尚無長期支援或舊版修補期限的承諾。ComfyUI 擴充設計供本機連線使用，不應直接暴露到公共網路。
 
 請使用 GitHub 的[私人漏洞回報入口](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/security/advisories/new)，提交需要登入 GitHub。
 
