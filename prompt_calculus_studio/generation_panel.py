@@ -320,6 +320,10 @@ class GenerationPanel(QWidget):
         dialog.body.addLayout(row(button('載入為手動提示詞',load_text),restore,None,button('取消',dialog.reject))); dialog.exec()
 
     def history(self):
+        workspace = getattr(self.window, 'workspace_owner', None)
+        if workspace is not None:
+            from .workspace_history import show
+            return show(workspace)
         from .job_details import workflow_name
         dialog=StudioDialog(self.window); dialog.setWindowTitle('生成任務紀錄'); dialog.resize(760,600)
         listing=QListWidget(); detail=QPlainTextEdit(); detail.setReadOnly(True)

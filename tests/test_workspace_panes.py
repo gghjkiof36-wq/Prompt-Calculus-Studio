@@ -132,7 +132,7 @@ class WorkspacePaneTests(unittest.TestCase):
         self.assertEqual(right.path, renamed)
 
     def test_execution_controls_and_delayed_results_keep_the_frozen_document(self):
-        from prompt_calculus_studio.document_host import LocalEditingClient
+        from prompt_calculus_studio.workspace_connection import WorkspaceComfyClient
         a = self.open('Street.pcs-workflow')
         self.w.move_view(a)
         b = self.open('Night.pcs-workflow', pane=self.w.panes[0])
@@ -148,8 +148,8 @@ class WorkspacePaneTests(unittest.TestCase):
             client.input_flow.last_status = dict(queued_ids=[client.run_id], running_ids=[])
             client.stateChanged.emit()
         def stop(client, clear_pending=False):stopped.append(client.window.document_id)
-        with patch.object(LocalEditingClient, 'can_run', new_callable=PropertyMock, return_value=True), \
-                patch.object(LocalEditingClient, 'run', submit), patch.object(LocalEditingClient, 'interrupt', stop):
+        with patch.object(WorkspaceComfyClient, 'can_run', new_callable=PropertyMock, return_value=True), \
+                patch.object(WorkspaceComfyClient, 'run', submit), patch.object(WorkspaceComfyClient, 'interrupt', stop):
             for tab, count in ((a, 2), (b, 3)):
                 self.w.focus_tab(tab)
                 tab.host.comfy.stateChanged.emit()

@@ -210,6 +210,7 @@ class WorkspaceFileOperations(QObject):
                 if not document.flush_views():
                     raise ValueError('目前有尚未套用的畫布編輯，請先處理後再另存。')
                 document.host.remember_canvas_view()
+                retire_content = document.project()['payload'] != document.baseline
                 source = document.project(remap=False)
                 source_root = document.data
             else:
@@ -240,6 +241,8 @@ class WorkspaceFileOperations(QObject):
                 old_key = tab.key
                 new_key = result.document['document_id'] if result else 'md:' + uuid.uuid4().hex
                 if result:
+                    if retire_content and document.runtimes is not None:
+                        document.runtimes.retire_content(document)
                     document.document, document.receipt = result.document, result.receipt
                     document.path, document.key = target, new_key
                     document.identity_maps = duplicate.id_maps
@@ -328,6 +331,7 @@ class WorkspaceFileOperations(QObject):
         if not case_only:
             paths.checked(target.parent, target.name, new=True)
         previous = [(tab, tab.path, tab.title, tab.document.receipt if tab.document else None) for tab in op.pages]
+        bindings = None
         plan.pause()
         try:
             plan.preserve()
@@ -337,8 +341,11 @@ class WorkspaceFileOperations(QObject):
             plan.publish()
             self.apply_location(op.pages, source, target)
             plan.apply_buffers()
+            bindings = w.runtimes.relocate(source, target)
         except Exception as error:
             try:
+                if bindings is not None:
+                    w.runtimes.restore_bindings(bindings)
                 plan.rollback()
                 restored_expected=plan.restored_source_stamp(op.expected)
                 if target.exists() and (not source.exists() or case_only):

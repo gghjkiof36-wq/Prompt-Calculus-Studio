@@ -36,5 +36,7 @@ class ReadingWindowTests(unittest.TestCase):
             if s.reader.rich.render_state=='ready':break
             QTest.qWait(30)
         self.assertEqual(s.reader.rich.render_state,'ready')
-        self.assertIs(s.reader.rich.nativeParentWidget(),s.reader)
+        self.assertTrue(s.reader.isVisible())
+        self.assertTrue(s.reader.rich.isVisible())
+        self.assertIs(s.reader.rich.nativeParentWidget(),self.w)
         self.assertFalse(s.page.dirty)

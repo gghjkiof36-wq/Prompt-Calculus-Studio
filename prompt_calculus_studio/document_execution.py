@@ -1,16 +1,22 @@
 """A workflow execution owner outlives every view and never follows focus."""
 import copy
+from pathlib import Path
 from PySide6.QtCore import QObject
 
 
 class DocumentExecution(QObject):
-    def __init__(self, document, host, client_type):
-        super().__init__(document)
-        self.document_id = document.key
+    def __init__(self, document, host, client_type, *, workspace=None, store=None, state=None, metadata=None):
+        workspace = workspace or getattr(host, 'workspace_owner', None)
+        super().__init__(workspace or document)
+        self.workspace_owner = workspace
+        self.document_id = document.key if document else metadata['document_id']
+        self.runtime_token = document.runtime_token if document else metadata['token']
+        self._title = document.title if document else Path(metadata['path']).stem
         self.document = document
         self.view_host = host
-        self.store = host.store
-        self._state = None
+        self.store = host.store if host else store
+        self._state = state
+        self.closed = False
         self.client = client_type(self)
         self.received = []
         self.client.resultsReceived.connect(self.receive_results)
@@ -27,6 +33,9 @@ class DocumentExecution(QObject):
     @property
     def comfy(self):return self.client
 
+    @property
+    def title(self):return self.document.title if self.document else self._title
+
     def __getattr__(self, name):
         # Existing runners can reach their document's UI while it is attached.
         # A detached identity has no editable UI to accidentally mutate.
@@ -36,11 +45,13 @@ class DocumentExecution(QObject):
 
     def notice(self, message):
         if self.view_host is not None:self.view_host.notice(message)
+        elif self.workspace_owner is not None:self.workspace_owner.show_notice(self.title+'：'+message)
 
     def error(self, message):self.notice(message)
 
     def changed(self, scope='generation', refresh=True):
-        if self.document is not None:self.document.view_changed(self.view_host)
+        if scope == 'settings':self.persist()
+        elif self.document is not None:self.document.view_changed(self.view_host)
         else:self.persist()
 
     def persist(self):
@@ -56,7 +67,16 @@ class DocumentExecution(QObject):
         self._state = copy.deepcopy(self.state)
         self.document = None
         self.view_host = None
+        self.persist()
+
+    def attach(self, document, host):
+        document.state = self.state
+        self.document = document
+        self.view_host = host
 
     def close(self):
+        if self.closed:return
+        self.closed = True
         self.client.shutdown()
+        self.persist()
         self.store.close()

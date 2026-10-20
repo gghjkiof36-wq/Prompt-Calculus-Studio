@@ -161,6 +161,8 @@ class RunControls(QWidget):
         self.count.setEnabled(ready); self.stop.setEnabled(bool(client and client.connected and (client.running or client.pending or client.run_id)))
         if modern and client:
             self.stop.setEnabled(client.connected and client.input_flow.has_work())
+            if getattr(client, 'workspace', None) is not None:
+                self.stop.setEnabled(client.input_flow.has_work())
             self.stop.setToolTip('取消目前項目；其他等待項目保留並暫停。右鍵可取消全部流程。' if stage_mode else '取消本次流程及可確認的 PCS 任務，保留紀錄。' if chained else '取消目前 PCS 工作；預排程的後續項目保留並暫停。')
         self.activity_count=client.running+client.pending if client else 0
         if modern and client:
@@ -187,6 +189,14 @@ class RunControls(QWidget):
             if busy and not modern:self.run_button.setToolTip('目前工作尚未結束。')
             self.stop.setAccessibleName('取消執行'); self.count.show(); self.stop.show()
         else: self.stop.setText('取消')
+        scheduling = getattr(client, 'scheduling_message', '') if client else ''
+        if scheduling:
+            self.run_button.setToolTip(scheduling)
+            if scheduling.startswith('排隊'):
+                self.run_button.setText('已排隊')
+                self.stop.setToolTip('取消此文件的等待流程；不影響正在執行的其他文件。')
+            elif scheduling.startswith('任務紀錄'):
+                self.run_button.setEnabled(False)
         self.configure_geometry()
 
     def stop_menu(self,pos):

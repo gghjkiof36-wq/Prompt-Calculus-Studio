@@ -109,6 +109,7 @@ class ChainRunner:
 
     def pump(self):
         if self.pumping or self.preparing or not self.client.connected:return
+        if not self.client.dispatch_allowed:return
         self.pumping=True
         try:
             run=self.current()

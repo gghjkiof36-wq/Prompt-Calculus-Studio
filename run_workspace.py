@@ -34,7 +34,10 @@ def main():
     parser.add_argument('--open-right', type=Path, help='Open this file beside the initial view.')
     parser.add_argument('--check', action='store_true', help='Check this launcher without writing its review files.')
     parser.add_argument('--smoke-test', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--smoke-comfy-url', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.smoke_comfy_url and not args.smoke_test:
+        parser.error('--smoke-comfy-url requires --smoke-test')
     base = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
     args.data = (args.data or Path(os.environ.get('PROMPT_STUDIO_DATA', base/'data'))).absolute()
     if args.root is None:
@@ -89,18 +92,32 @@ def main():
         surface = getattr(left.widget, 'md_surface', None) if left else None
         if surface:
             surface.set_mode('read')
+        client = None
+        if args.smoke_comfy_url:
+            from prompt_calculus_studio.core import local_address
+            client = window.ensure_utility().comfy
+            client.connect_to(local_address(args.smoke_comfy_url))
         def finish_test():
             rich = surface.reader.rich if surface else None
             ready = not surface or (not surface.page.buffer.opening and
                 (not surface.reader.advanced or rich is not None and rich.render_state == 'ready'))
+            visible = not surface or surface.reader.isVisible()
+            if rich:
+                target = window.childAt(rich.mapTo(window, rich.rect().center()))
+                visible = visible and rich.isVisible() and (target is rich or rich.isAncestorOf(target))
+            ready = ready and visible and (client is None or client.connected)
             if not ready and time.monotonic() < deadline:
                 QTimer.singleShot(100, window, finish_test)
                 return
+            window.grab().save(str(args.data/'smoke-reading.png'))
             (args.data/'smoke-result.json').write_text(json.dumps(dict(
                 ok=ready, entry='WorkspaceShell', title=window.windowTitle(),
                 opened_files=[str(tab.path) for tab in window.tabs_by_key.values() if tab.path],
                 initial_document=str(left.path) if left else None,
                 reading=rich.render_state if rich else 'native',
+                reading_visible=visible,
+                comfy_connected=client.connected if client else None,
+                connection_label=window.connection.brand.text(),
                 blocked_urls=rich.gate.blocked if rich else [],
                 root=str(window.root), qt=__import__('PySide6').__version__)), encoding='utf-8')
             window.close()

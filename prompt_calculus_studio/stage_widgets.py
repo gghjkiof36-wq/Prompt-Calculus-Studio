@@ -391,38 +391,98 @@ def entry_detail(window,item):
     dialog.exec()
 
 
-def show_history(window,stage=None):
-    runner=window.comfy.input_flow.chain
+def show_history(window,stage=None,*,execution=None):
+    from PySide6.QtWidgets import QCheckBox
+    context=execution or window
+    runner=context.comfy.input_flow.chain
     if not hasattr(runner.store,'rows'):
         from .chain_history import show
         return show(window)
     dialog=StudioDialog(window);dialog.setWindowTitle('Stage 執行紀錄');dialog.resize(850,650)
     listing=QListWidget();detail=QPlainTextEdit();detail.setReadOnly(True)
+    listing.setAccessibleName('流程與提交紀錄');detail.setAccessibleName('選取紀錄的詳細內容')
+    detail.setPlaceholderText('尚無執行紀錄。執行流程後，可在這裡查看狀態及當次提交內容。')
+    technical=QCheckBox('顯示技術細節')
+    controls={}
+    def status(item):
+        if item['kind']=='run' and item['status']=='running' and getattr(context.comfy,'scheduling_message','').startswith('排隊'):
+            return '排隊中'
+        return NAMES.get(item['status'],item['status'])
     rows=[]
-    for run in runner.store.rows('run',window.state['workspace']):
-        if stage is not None and stage not in run['plan']['stages']:continue
-        rows.append(run);listing.addItem('流程：'+' → '.join(run['plan']['stages'][k]['name'] for k in run['plan']['order'])+' · '+NAMES.get(run['status'],run['status']))
-        for item in runner.store.rows('attempt',owner=run['id']):
-            if stage is None or item['stage']==stage:
-                rows.append(item);listing.addItem('    '+run['plan']['stages'][item['stage']]['name']+' · '+NAMES.get(item['status'],item['status'])+' · '+item['id'][:8])
     def select(*_):
-        if 0<=listing.currentRow()<len(rows):
-            item=runner.store.read(rows[listing.currentRow()]['id']);job=window.comfy.generation.record(item['id'])
+        for control in controls.values():control.setEnabled(False)
+        if not 0<=listing.currentRow()<len(rows):
+            detail.clear();return
+        item=runner.store.read(rows[listing.currentRow()]['id'])
+        run=item if item['kind']=='run' else runner.store.read(item['owner'])
+        job=context.comfy.generation.record(item['id'])
+        editable=execution is None or execution.document is not None
+        active=run['status'] not in ('complete','cancelled')
+        blocked_resume=any(a.get('cancel_requested') or a['status'] in ('failed','unconfirmed','result_error')
+            for a in runner.store.rows('attempt',owner=run['id'],active=True))
+        controls['resume'].setEnabled(editable and context.comfy.connected and run['status']=='paused' and not blocked_resume)
+        controls['cancel'].setEnabled(active)
+        controls['retry'].setEnabled(editable and context.comfy.connected and active and
+            item['kind']=='attempt' and item['status'] in ('failed','result_error') and not item.get('cancel_requested'))
+        controls['recheck'].setEnabled(context.comfy.connected and job is not None)
+        if item['kind']=='run':
+            name=' → '.join(run['plan']['stages'][k]['name'] for k in run['plan']['order']) or '輸入同步'
+            parts=['流程：'+name,'狀態：'+status(item)]
+            scheduling=getattr(context.comfy,'scheduling_message','')
+            if scheduling and active:parts.append(scheduling)
+            if item.get('message'):parts.append(item['message'])
+            entries=[e for e in runner.store.rows('entry',owner=None) if e['run']==item['id']]
+            if entries:parts.extend(['','流程項目：',*(e['label']+' · '+NAMES.get(e['status'],e['status']) for e in entries)])
+            text='\n'.join(parts)
+        else:
             from .job_details import describe
-            if item['kind']=='run':
-                entries=[e for e in runner.store.rows('entry') if e['run']==item['id']]
-                detail.setPlainText(item.get('message','')+'\n'+NAMES.get(item['status'],item['status'])+'\n\n'+ '\n'.join(e['label']+' · '+NAMES.get(e['status'],e['status']) for e in entries))
-            else:detail.setPlainText(item.get('error','')+'\n'+(describe(job) if job else '尚未提交')+'\n'+json.dumps(item.get('result',{}),ensure_ascii=False,indent=2))
-    listing.currentRowChanged.connect(select);dialog.body.addWidget(listing);dialog.body.addWidget(detail)
+            text=item.get('error','')+'\n'+(describe(job,include_workflow=technical.isChecked()) if job else '尚未提交到 ComfyUI。')
+            if technical.isChecked() and item.get('result'):
+                text+='\n\n回傳資料：\n'+json.dumps(item['result'],ensure_ascii=False,indent=2)
+        if detail.toPlainText()!=text.strip():
+            position=detail.verticalScrollBar().value()
+            detail.setPlainText(text.strip());detail.verticalScrollBar().setValue(position)
+
+    def refresh():
+        nonlocal rows
+        if runner.closed:return
+        selected=rows[listing.currentRow()]['id'] if 0<=listing.currentRow()<len(rows) else None
+        current=[];captions=[]
+        for run in runner.store.rows('run',context.state['workspace']):
+            if stage is not None and stage not in run['plan']['stages']:continue
+            current.append(run)
+            name=' → '.join(run['plan']['stages'][k]['name'] for k in run['plan']['order']) or '輸入同步'
+            captions.append('流程：'+name+' · '+status(run))
+            for number,item in enumerate(runner.store.rows('attempt',owner=run['id']),1):
+                if stage is None or item['stage']==stage:
+                    current.append(item)
+                    captions.append('    '+run['plan']['stages'][item['stage']]['name']+f' · 第 {number} 次提交 · '+status(item))
+        if captions!=[listing.item(i).text() for i in range(listing.count())]:
+            position=listing.verticalScrollBar().value();listing.blockSignals(True)
+            listing.clear();listing.addItems(captions)
+            listing.setCurrentRow(next((i for i,item in enumerate(current) if item['id']==selected),len(current)-1))
+            listing.verticalScrollBar().setValue(position);listing.blockSignals(False)
+        rows=current
+        listing.setFixedHeight(min(200,max(80,listing.fontMetrics().height()*2*max(1,len(rows))+12)))
+        select()
+
+    listing.currentRowChanged.connect(select);technical.toggled.connect(select)
+    dialog.body.addWidget(listing);dialog.body.addWidget(detail,1);dialog.body.addWidget(technical)
     def action(method):
         if not 0<=listing.currentRow()<len(rows):return
         item=rows[listing.currentRow()]
         try:
             if method in ('recheck','retry') and item['kind']=='run':raise ValueError('請選擇下方的實際提交項目；尚未提交的流程修正原因後可按繼續。')
-            if method=='recheck':window.comfy.generation.recheck(item['id'])
+            if execution is not None and execution.document is None and method in ('resume','retry'):
+                raise ValueError('這是已分離的舊任務，可以查詢或取消；新的執行請從文件開始。')
+            if method=='recheck':context.comfy.generation.recheck(item['id'])
             elif method=='retry':runner.retry(item['id'])
             else:getattr(runner,method)(item['id'] if item['kind']=='run' else item['owner'])
-            select()
-        except ValueError as exc:window.notice(str(exc))
-    dialog.body.addLayout(row(button('繼續',lambda:action('resume'),'Quiet'),button('取消這份流程',lambda:action('cancel'),'Quiet'),button('重取結果／重試失敗項',lambda:action('retry'),'Quiet'),button('查看原任務回覆',lambda:action('recheck'),'Quiet'),button('關閉',dialog.accept,'Quiet')))
-    listing.setCurrentRow(len(rows)-1);dialog.exec()
+            refresh()
+        except ValueError as exc:context.notice(str(exc))
+    for method,title,style in (('resume','繼續','Quiet'),('cancel','取消這份流程','DangerQuiet'),
+                               ('retry','重取結果／重試失敗項','Quiet'),('recheck','查看原任務回覆','Quiet')):
+        controls[method]=button(title,lambda checked=False,m=method:action(m),style)
+    dialog.body.addLayout(row(controls['resume'],controls['cancel'],controls['retry'],controls['recheck'],None,button('關閉',dialog.accept,'Quiet')))
+    timer=QTimer(dialog);timer.setInterval(500);timer.timeout.connect(refresh)
+    dialog.finished.connect(timer.stop);refresh();timer.start();dialog.exec()

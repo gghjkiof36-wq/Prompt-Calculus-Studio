@@ -29,7 +29,10 @@ class ConnectionPill(QPushButton):
         self.full = 'ComfyUI · ' + self.short
         self.brand.setText(self.full)
         self.setAccessibleName(self.full)
-        self.setToolTip(self.full + '\n' + ('正在確認連線，請稍候。' if checking else '使用已儲存的位址重新檢查並連線。'))
+        detail = getattr(client, 'message', '') or '使用已儲存的位址重新檢查並連線。'
+        address = getattr(client, 'url', '')
+        scheduling = getattr(client, 'scheduling_message', '') if client else ''
+        self.setToolTip('\n'.join(part for part in (self.full, address, detail, scheduling) if part))
         self.setEnabled(not checking)
         colors = visual_tokens(settings)
         dot_style = 'background:' + colors['warning' if checking else 'connected_indicator' if connected else 'control'] + '; border-radius:5px;'

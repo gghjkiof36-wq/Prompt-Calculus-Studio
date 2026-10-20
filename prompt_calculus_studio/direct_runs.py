@@ -36,6 +36,7 @@ class DirectRuns:
 
     def pump(self):
         if self.current or not self.pending or not self.client.connected:return
+        if not self.client.dispatch_allowed:return
         if self.runner.chain.preparing:return
         flow=self.runner.current
         if flow and not flow.get('waiting'):return

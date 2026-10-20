@@ -165,6 +165,7 @@ class StageRunner(QObject):
                 with self.accepting():
                     for value in saved:self.add_entry(active,frame['owner'],frame['node'],value)
                     self.reserve_supply(supply)
+                self.client.dispatch_allowed
                 self.notify('已保存 '+str(len(states))+' 項至 '+self.window.state['multi_output']['schedulers'][frame['node']['key']]['name']);self.later();return
             if any(f.get('auto') for f in active['stack']):self.notify('這批內容已在供應。');return
             # A scope already left is not re-entered in the same execution.
@@ -177,6 +178,9 @@ class StageRunner(QObject):
                 for state in states:self.create_run(plan,1,direct=True,frozen_state=state)
                 self.reserve_supply(supply)
         else:self.create_run(plan,count)
+        # The journal and consumed-source cursor must commit before a library
+        # registration can persist state or any asynchronous dispatch starts.
+        self.client.dispatch_allowed
         self.sync_free();self.later()
 
     def create_run(self,plan,count,direct=False,status='running',frozen_state=None):
@@ -240,6 +244,7 @@ class StageRunner(QObject):
 
     def pump(self):
         if self.closed or self.pumping or not self.client.connected:return
+        if (self.apply_queue or any(r['status']=='running' for r in self.runs(True))) and not self.client.dispatch_allowed:return
         self.pumping=True
         try:
             if self.applying:return
@@ -760,7 +765,9 @@ class StageRunner(QObject):
         if any(a.get('cancel_requested') or a['status'] in ('failed','unconfirmed','result_error') for a in self.store.rows('attempt',owner=ident,active=True)):raise ValueError('這份流程有失敗或取消待確認項目，請先處理該項；其他流程仍可使用。')
         self.store.restore_retained(run)
         for key in self.scheduler_keys(run['plan']):self.store.set_scheduler_paused(run['workspace'],key,False)
-        self.store.update(ident,status='running',message='',pause_reason='');self.later();self.notify('已繼續這份流程。')
+        self.store.update(ident,status='running',message='',pause_reason='')
+        self.client.dispatch_allowed
+        self.later();self.notify('已繼續這份流程。')
 
     def cancel(self,ident=None):
         runs=[self.store.read(ident)] if ident else self.runs(True)
@@ -949,8 +956,11 @@ class StageRunner(QObject):
             self.apply_cancellations.discard(ident)
             if self.closed or store is not self.store or not store.read(ident):return
             state=(result or {}).get('state','unknown')
-            changes=dict(cancel_state=state,cancel_error=str(error or ''),ended=state in ('failed','settled'),
-                status='cancelled' if state=='failed' else 'settled' if state=='settled' else 'unconfirmed')
+            ended=state in ('failed','settled','applied','opened','inspected','captured')
+            if not ended and store.read(ident).get('ended'):
+                store.update(ident,cancel_state=state,cancel_error=str(error or ''));return
+            changes=dict(cancel_state=state,cancel_error=str(error or ''),ended=ended,
+                status='cancelled' if state=='failed' else state if ended else 'unconfirmed')
             store.update(ident,**changes)
         self.client.request('workflow/native/cancel',dict(id=ident),done=lambda result:finish(result),failed=lambda error:finish(error=error))
 
@@ -968,6 +978,7 @@ class StageRunner(QObject):
 
     def apply_next(self):
         if self.closed or self.applying or not self.apply_queue:return
+        if not self.client.dispatch_allowed:return
         from .native_submission import prepare
         from .multi_output import new_output
         from .snapshots import make_snapshot
@@ -1004,6 +1015,8 @@ class StageRunner(QObject):
             if not self.closed and self.applying==ident:
                 self.applying=None;self.apply_owner=None;self.apply_abort=None;self.apply_operation=None
                 self.apply_queue=[item for item in self.apply_queue if item[5]!=batch]
+                if getattr(e,'rejected',False):
+                    journal(ended=True,rejected=True)
                 journal(error=str(e),status='unconfirmed' if operation['sent'] and not operation['ended'] else 'failed');failed(str(e));self.later()
         self.apply_abort=error
         self.notify()

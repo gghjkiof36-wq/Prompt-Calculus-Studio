@@ -71,7 +71,6 @@ class NavigationConnectionTests(unittest.TestCase):
 
     def test_old_extension_never_receives_new_library_and_can_recover_after_update(self):
         client=self.client;client.enabled=True;client.token='fixture-token';client.register_library=True
-        self.w.state['version']=6
         status=dict(ready=True,lease='lease',running=0,pending=0,
             capabilities=['native_queue_v1','native_bindings_v1','stage_execution_v1','workflow_transfer_v1'],
             snapshot_versions=[1,2,3,4],extension={'version':'舊擴充'})
@@ -84,7 +83,7 @@ class NavigationConnectionTests(unittest.TestCase):
             transfer.assert_not_called();self.assertFalse(client.sync_timer.isActive())
             client.run();notice.assert_called_once_with(client.compatibility_message)
             self.assertEqual(self.w.state,before)
-            status['snapshot_versions']=[1,2,3,4,5,6]
+            status['snapshot_versions']=list(range(1, self.w.state['version']+1))
             client.poll();self.calls[-1]['done'](status)
             self.assertTrue(client.snapshot_compatible);self.assertFalse(client.register_library)
             self.assertEqual(len([c for c in self.calls if c['route']=='config' and c['data']]),1)

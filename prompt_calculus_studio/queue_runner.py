@@ -120,6 +120,11 @@ class QueueRunner:
                             raw=body, content_type='multipart/form-data; boundary='+boundary)
 
     def prepare(self, snapshot, profile, source, token, failed, done=None, store_result=True, queue_texts=None):
+        workspace = getattr(self.client, 'workspace', None)
+        if workspace is not None and not workspace.scheduler.acquire_operation(self.client):
+            from .comfy_client import RequestFailure
+            failed(RequestFailure('另一份 PCS 工作流正在執行，這次未取得工作快照。', rejected=True))
+            return
         def capture(image=''):
             if self.preparing != token:
                 return
@@ -219,6 +224,7 @@ class QueueRunner:
     def pump(self):
         if not self.dispatching or not self.client.connected:
             return
+        if not self.client.dispatch_allowed:return
         item = self.store.claim(self.client.url)
         if item is None:
             if not any(r['state'] in ACTIVE for r in self.store.rows() if r['work']['scope']['server']==self.client.url):

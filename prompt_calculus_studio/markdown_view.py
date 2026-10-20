@@ -826,11 +826,10 @@ class ReadingView(QTextBrowser):
         self.setVerticalScrollBarPolicy(policy);self.setHorizontalScrollBarPolicy(policy)
         if self.advanced:
             if self.rich is None:
-                # Keep WebEngine's compositor inside this reading surface.
-                # Adding its first texture-backed child directly to a shown
-                # raster shell makes Qt destroy/recreate the shell's HWND.
-                self.setAttribute(Qt.WidgetAttribute.WA_DontCreateNativeAncestors)
-                self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
+                # Keep the reader in the widget stack. Promoting this scroll
+                # area to a native window during a mode change can hide it
+                # and promote its siblings/ancestors on Windows. WebEngine's
+                # texture child must share the shell's normal composition.
                 from .markdown_rich_view import RichView
                 self.rich=RichView(self);self.rich.setGeometry(self.rect());self.rich.setZoomFactor(self.surface.zoom_percent/100)
             if large and not complex_content:

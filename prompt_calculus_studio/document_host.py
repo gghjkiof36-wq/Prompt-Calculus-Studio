@@ -2,8 +2,7 @@
 
 The existing material editor and Canvas own their transactions and native text
 documents. File operations rebind their writer without rebuilding that model.
-Live task/AppServices routing is a later integration boundary; this entry edits
-locally and keeps its SQLite session in a separate directory.
+Each file keeps its SQLite session and execution owner in a separate directory.
 """
 import copy
 import shutil
@@ -13,25 +12,10 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal, Qt, QTimer
 
 from .core import Storage, separate_selections
-from .comfy_client import ComfyClient
+from .workspace_connection import WorkspaceComfyClient
 from .window import Window
 from .material_editor_browser import PromptEditor
 from .local_documents import assets, category, workflow, io, schema, paths
-
-
-class LocalEditingClient(ComfyClient):
-    """Use the existing offline engine state without enabling live dispatch."""
-    def recheck_connection(self):
-        self.connect_to(self.window.state['settings'].get('comfy_url', self.url))
-        return False
-
-    def connect_to(self, address):
-        self.window.notice('此分頁檢視版提供本機編輯；連線與任務整合尚未開放。')
-
-    def request(self, route, data=None, done=None, failed=None, raw=None,
-                content_type='application/json'):
-        if failed:
-            failed('分頁檢視版尚未開放連線。')
 
 
 class DesktopDocument(QObject):
@@ -66,12 +50,19 @@ class DesktopDocument(QObject):
         self.error = ''
         self.baseline = None
         self.opening_settings = None
+        self.runtimes = getattr(parent, 'runtimes', None)
+        self.runtime_token = None
 
     @property
     def title(self):
         return self.path.stem
 
     def prepare(self):
+        if self.runtimes is not None and self.runtimes.acquire(self):
+            # The journal and source cursors are committed together. When the
+            # file is unchanged, restore that runtime instead of rewinding it
+            # to an older portable-file save.
+            return
         state = (category if self.kind == 'category' else workflow).to_state(self.document)
         # The runtime loader fills defaults. Preserve the legacy missing-key
         # selection behavior, then omit unchanged runtime defaults on export.
@@ -80,7 +71,7 @@ class DesktopDocument(QObject):
                                  interface_mode='canvas', material='solid')
         if self.kind == 'category':
             state['workspaces'][0]['name'] = self.document['payload']['category']['name']
-        self.data.mkdir(parents=True, exist_ok=False)
+        self.data.mkdir(parents=True, exist_ok=self.runtimes is not None)
         for entry in self.document['assets']:
             source = assets.resolve(self.document, self.path.parent, entry['reference'])
             # The legacy UI reads logical names; the portable writer verifies
@@ -97,8 +88,13 @@ class DesktopDocument(QObject):
         if self.host is not None:
             return
         self.host = host
-        self.opening_settings = copy.deepcopy(host.state['settings'])
-        self.baseline = self.project()['payload']
+        if self.opening_settings is None:
+            self.opening_settings = copy.deepcopy(host.state['settings'])
+        if self.baseline is None:
+            self.baseline = self.project()['payload']
+        if self.runtimes is not None:
+            self.runtimes.remember(self)
+        self.update_dirty()
 
     def flush_views(self):
         # Forms keep their explicit confirmation boundary. Switching views or
@@ -110,7 +106,11 @@ class DesktopDocument(QObject):
     def execution_client(self, host):
         if self.execution is None:
             from .document_execution import DocumentExecution
-            self.execution = DocumentExecution(self, host, LocalEditingClient)
+            self.execution = DocumentExecution(self, host, WorkspaceComfyClient)
+            if self.runtimes is not None:
+                self.runtimes.executions[self.runtime_token] = self.execution
+        elif self.execution.document is not self:
+            self.execution.attach(self, host)
         return self.execution.client
 
     def retarget_execution(self):
@@ -121,11 +121,16 @@ class DesktopDocument(QObject):
         if old is None:return
         old.detach()
         self.retired_executions.append(old)
-        data = self.data.with_name(self.key+'-'+uuid.uuid4().hex[:8])
-        data.mkdir()
+        old_data = self.data
+        if self.runtimes is not None:
+            self.runtimes.acquire(self, fresh=True)
+            data = self.data
+        else:
+            data = self.data.with_name(self.key+'-'+uuid.uuid4().hex[:8])
+            data.mkdir()
         for entry in self.document['assets']:
             for relative in {entry['reference'], entry['path']}:
-                source = paths.checked(self.data, relative)
+                source = paths.checked(old_data, relative)
                 target = paths.checked(data, relative)
                 if source.is_file():
                     target.parent.mkdir(parents=True, exist_ok=True)
@@ -141,7 +146,9 @@ class DesktopDocument(QObject):
             host.catalog = Catalog(store)
             from .image_drop import ImageDropLabel
             for loader in host.findChildren(ImageDropLabel):loader.store = store
-        self.execution = DocumentExecution(self, self.host, LocalEditingClient)
+        self.execution = DocumentExecution(self, self.host, WorkspaceComfyClient)
+        if self.runtimes is not None:
+            self.runtimes.executions[self.runtime_token] = self.execution
         for host in self.hosts:
             old.client.stateChanged.disconnect(host.comfy_changed)
             host.comfy = self.execution.client
@@ -221,6 +228,11 @@ class DesktopDocument(QObject):
                 self.dirty = True
                 self.changed.emit()
                 return False
+            # Never bind newly saved file bytes to an older runtime snapshot.
+            # Persist local state first; a failed portable save can then recover
+            # the newer runtime without rewinding accepted source cursors.
+            if not self.host.persist():
+                raise OSError('本機內容與任務資料尚未保存，文件未覆寫。')
             candidate = assets.prepare(self.project(), self.data, self.path.parent)
             result = io.save(self.path.parent, self.path.name, candidate, self.receipt)
             self.last_result = result
@@ -233,7 +245,8 @@ class DesktopDocument(QObject):
             self.baseline = copy.deepcopy(candidate['payload'])
             self.dirty = False
             self.error = ''
-            self.host.persist()
+            if self.runtimes is not None:
+                self.runtimes.remember(self)
             self.changed.emit()
             return True
         except (ValueError, OSError, KeyError) as error:
@@ -339,10 +352,11 @@ class EmbeddedHost(Window):
         self.workspace_owner = workspace
         self._document_ready = False
         self.owns_comfy = document is None
-        self.owns_store = document is None or document.host is not None
-        client_factory = document.execution_client if document else LocalEditingClient
+        self.owns_store = document is None
+        client_factory = document.execution_client if document else WorkspaceComfyClient
         super().__init__(data, embedded=True, client_factory=client_factory, document_only=document is not None,
-                         shared_state=document.state if document else service_state)
+                         shared_state=document.state if document else service_state,
+                         shared_store=document.execution.store if document and document.execution else None)
         self.studio_navigation.hide()
         self.context_rail.hide()
         self.canvas_header.hide()

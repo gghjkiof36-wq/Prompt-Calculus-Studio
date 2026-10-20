@@ -17,6 +17,17 @@ class RequestFailure(str):
 class ComfyClient(QObject):
     stateChanged=Signal()
     resultsReceived=Signal(list)
+    document_polling=True
+    owns_library_registration=True
+    receives_unscoped_results=True
+
+    @property
+    def dispatch_allowed(self):
+        return True
+
+    @property
+    def workflow_import_owner(self):
+        return self.window
 
     def __init__(self,window):
         super().__init__(window); self.window=window; self.network=QNetworkAccessManager(self)
@@ -124,7 +135,8 @@ class ComfyClient(QObject):
     def connect_to(self,address):
         address=local_address(address); self.reset_connection()
         self.url=address; self.enabled=True; self.token=''; self.ready=False
-        self.window.state['settings'].update(comfy_url=self.url,comfy_enabled=True); self.window.changed()
+        self.window.state['settings'].update(comfy_url=self.url,comfy_enabled=True); self.window.changed('settings',refresh=False)
+        self.message='正在連接 ComfyUI…'
         self.connection_checking=True; self.stateChanged.emit()
         self.timer.start(); self.poll()
 
@@ -146,7 +158,7 @@ class ComfyClient(QObject):
         if not self.enabled:
             self.enabled=True;self.window.state['settings']['comfy_enabled']=True
             self.window.changed('settings',refresh=False)
-        self.connection_checking=True;self.stateChanged.emit();self.timer.start()
+        self.connection_checking=True;self.message='正在確認 ComfyUI 連線…';self.stateChanged.emit();self.timer.start()
         # poll() already merges a manual check into an outstanding status check.
         self.poll();return True
 
@@ -155,10 +167,11 @@ class ComfyClient(QObject):
         self.enabled=False; self.ready=False; self.connected=False; self.token=''; self.lease=''
         self.timer.stop(); self.sync_timer.stop(); self.message='已中斷桌面連線；可繼續複製 Prompt。'
         self.run_id=''
-        self.window.state['settings']['comfy_enabled']=False; self.window.changed(); self.stateChanged.emit()
+        self.window.state['settings']['comfy_enabled']=False; self.window.changed('settings',refresh=False); self.stateChanged.emit()
 
     def reset_connection(self):
         self.epoch+=1
+        self._connection_check_until=0.0
         self.native_supported=False;self.native_open_supported=False;self.opening_native=False;self.native_unavailable_reason=''
         self.images.reset(); self.images_supported=False
         self.generation.disconnected(); self.direct_supported=False; self.snapshot_versions=None
@@ -182,6 +195,10 @@ class ComfyClient(QObject):
                'native_supported','native_open_supported','native_inspect_supported',
                'native_unavailable_reason','images_supported','input_bridge_supported','flow_supported')
         return tuple(getattr(self,key,None) for key in names)+(tuple(self.snapshot_versions or ()),tuple(sorted(self.extension_info.items())))
+
+    def register_document_library(self):
+        self.register_library=False; self.window.persist()
+        self.request('config',dict(library=str(self.window.store.directory/'studio.sqlite3')),failed=self.window.notice)
 
     def poll(self):
         if self.stopped or not self.enabled or self.polling: return
@@ -219,9 +236,8 @@ class ComfyClient(QObject):
             required='stage_execution_v1' if version>=7 else 'typed_inputs_v2' if version>=6 else 'typed_inputs_v1' if version>=5 else 'workflow_images_v1' if version>=4 else 'clip_inputs_v3' if version>=3 else 'flow_connections_v2'
             self.flow_supported=required in status.get('capabilities',[])
             self.snapshot_versions=status.get('snapshot_versions',[1,2,3] if self.direct_supported else [1])
-            if self.register_library and self.snapshot_compatible and self.flow_supported and self.window.state.get('multi_output',{}).get('version',1)>=2:
-                self.register_library=False; self.window.persist()
-                self.request('config',dict(library=str(self.window.store.directory/'studio.sqlite3')),failed=self.window.notice)
+            if self.owns_library_registration and self.register_library and self.snapshot_compatible and self.flow_supported and self.window.state.get('multi_output',{}).get('version',1)>=2:
+                self.register_document_library()
             self.message=('已連線 · '+self.target) if self.ready else status.get('reason','請在 ComfyUI 啟用桌面版控制。')
             if direct_mode(self.window.state):
                 self.message='已連線 · 工作流直接生成' if self.direct_supported else '請更新 ComfyUI 擴充以啟用工作流直接生成。'
@@ -234,6 +250,7 @@ class ComfyClient(QObject):
                 self.message=self.compatibility_message
                 self.control_interrupted=True; self.sync_timer.stop()
             if self.visible_status()!=before:self.stateChanged.emit()
+            if not self.document_polling:return
             self.generation.observe(status)
             self.input_flow.observe(status)
             self.queue.observe()
@@ -241,7 +258,7 @@ class ComfyClient(QObject):
             if self.snapshot_compatible and 'workflow_transfer_v1' in status.get('capabilities',[]) and 'multi_output' in self.window.state: self.receive_workflow()
             if self.snapshot_compatible and self.ready and old!=self.lease and not direct_mode(self.window.state): self.last_signature=''; self.sync_timer.start()
             if self.run_id and not self.generation.batch: self.check_run()
-            if time.monotonic()-self.last_results>3:
+            if self.receives_unscoped_results and time.monotonic()-self.last_results>3:
                 self.last_results=time.monotonic(); self.request('desktop/results',done=self.resultsReceived.emit,failed=self.window.notice)
         def status(_=None): self.request('desktop/status',done=received,failed=fail)
         if not self.token:
@@ -256,10 +273,15 @@ class ComfyClient(QObject):
     def receive_workflow(self):
         if self.fetching_workflow: return
         self.fetching_workflow=True
+        owner=self.workflow_import_owner
         library=str(uuid.uuid5(uuid.NAMESPACE_URL,str((self.window.store.directory/'studio.sqlite3').resolve()).casefold()))
         def received(data):
             self.fetching_workflow=False
             if not data: return
+            if owner is None or self.workflow_import_owner is not owner:
+                self.request('desktop/workflows/ack',dict(id=data['id'],library=library,
+                    error='原文件已另存或關閉，工作流未匯入。請在目標 Canvas 重新傳送。'))
+                return
             ident=data['id']; db=self.window.store.db; prior=db.execute('SELECT error FROM workflow_receipts WHERE id=?',(ident,)).fetchone(); error=prior[0] if prior else ''
             if prior is None:
                 try:

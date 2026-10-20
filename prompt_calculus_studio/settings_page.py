@@ -107,7 +107,9 @@ class WorkflowSettings(QWidget):
 
     def refresh(self):
         self.status.setText(self.window.comfy.message)
-        self.connect_button.setText('重新連線' if self.window.comfy.connected else '連線')
+        checking = self.window.comfy.connection_checking
+        self.connect_button.setText('連線中…' if checking else '重新連線' if self.window.comfy.connected else '連線')
+        self.connect_button.setEnabled(not checking)
         self.disconnect_button.setVisible(bool(self.window.comfy.enabled))
         self.mode.blockSignals(True); self.mode.setCurrentIndex(self.window.generation_panel.mode.currentIndex()); self.mode.blockSignals(False)
 

@@ -171,6 +171,7 @@ class InputRunner:
     def pump(self):
         if self.window.state.get('multi_output',{}).get('version',0)>=7:return self.chain.pump()
         if self.pumping or self.current or not self.client.connected:return
+        if not self.client.dispatch_allowed:return
         self.direct.pump()
         if self.client.running or self.client.pending or self.direct.busy():return
         self.pumping=True

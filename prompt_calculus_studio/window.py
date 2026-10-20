@@ -36,7 +36,7 @@ from .deferred_page import DeferredToolPage, page_ready
 
 
 class Window(QMainWindow):
-    def __init__(self, data_dir, *, embedded=False, client_factory=None, document_only=False, shared_state=None):
+    def __init__(self, data_dir, *, embedded=False, client_factory=None, document_only=False, shared_state=None, shared_store=None):
         super().__init__()
         self.embedded_document = embedded
         self.document_only = bool(embedded and document_only)
@@ -57,7 +57,7 @@ class Window(QMainWindow):
         self.setWindowTitle(window_title())
         self.setWindowIcon(QIcon(str(Path(__file__).parent/"assets"/"studio.ico")))
         self.resize(1440,900); self.setMinimumSize(0,0) if embedded else self.setMinimumSize(640,480)
-        self.store=Storage(data_dir)
+        self.store=shared_store if shared_store is not None else Storage(data_dir)
         # A queued Canvas edit belongs to this document/workspace visit.
         self.canvas_edit_context=object()
         self.fresh_install=self.store.db.execute('SELECT 1 FROM document WHERE id=1').fetchone() is None

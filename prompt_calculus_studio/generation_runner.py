@@ -17,7 +17,7 @@ class GenerationRunner:
         self.db=self.window.store.db
         self.db.execute('CREATE TABLE IF NOT EXISTS generation_jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL, created REAL NOT NULL)'); self.db.commit()
         self.jobs={}
-        for row in self.db.execute("SELECT body FROM generation_jobs WHERE json_extract(body,'$.state') IN ('submitting','queued','running','unconfirmed') ORDER BY created DESC LIMIT 100"):
+        for row in self.db.execute("SELECT body FROM generation_jobs WHERE json_extract(body,'$.state') IN ('submitting','queued','running','unconfirmed') ORDER BY created"):
             job=json.loads(row[0])
             if 'workspace' not in job:
                 from .job_details import job_marker

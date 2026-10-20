@@ -28,7 +28,7 @@ def workflow_name(record):
     return job_marker(record).get('generation',{}).get('workflow') or record.get('requested_workflow','尚未確認')
 
 
-def describe(record,now=None):
+def describe(record,now=None,*,include_workflow=True):
     now=time.time() if now is None else now
     payload=record.get('payload',{}); marker=job_marker(record); gen=marker.get('generation',{})
     recovery=record.get('recovery',{})
@@ -81,5 +81,6 @@ def describe(record,now=None):
     for text in texts:
         value=payload['prompt'].get(text['node'],{}).get('inputs',{}).get(text['field'])
         lines.extend(['#'+text['node']+' / '+text['field'],str(value) if value else '（空白）'])
-    lines.extend(['','實際提交工作流：',json.dumps(payload['prompt'],ensure_ascii=False,indent=2)])
+    if include_workflow:
+        lines.extend(['','實際提交工作流：',json.dumps(payload['prompt'],ensure_ascii=False,indent=2)])
     return '\n'.join(lines)

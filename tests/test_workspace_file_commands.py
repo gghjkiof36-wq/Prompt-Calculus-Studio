@@ -495,7 +495,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
             self.w.set_navigation_position('top')
             self.events()
 
-    def test_connection_shortcut_preserves_page_and_offline_preview_state(self):
+    def test_connection_shortcut_preserves_page_and_navigation(self):
         host = self.w.ensure_utility()
         current = self.w.workspace_stack.currentWidget()
         history = list(self.w.history)
@@ -505,10 +505,6 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         self.assertIs(self.w.workspace_stack.currentWidget(), current)
         self.assertEqual(self.w.history, history)
         self.assertEqual(self.w.active_route, 'home')
-        self.w.connection.click()
-        self.assertFalse(host.comfy.enabled)
-        self.assertFalse(host.comfy.timer.isActive())
-        self.assertIn('本機編輯', self.w.notification.text())
         self.assertEqual(self.w.connection.brand.objectName(), 'Subtle')
         self.assertEqual(self.w.connection.dot.size().width(), 10)
         self.assertFalse(self.w.connection.brand.isHidden())

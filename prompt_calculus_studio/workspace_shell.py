@@ -84,6 +84,14 @@ class WorkspaceTop(QFrame):
 class WorkspaceShell(WorkspacePanes, QMainWindow):
     def __init__(self, root, data):
         super().__init__()
+        # Choose the texture-capable backing store before the first native
+        # window is created. Lazy WebEngine readers can then join the ordinary
+        # widget hierarchy without recreating the shell or native child layers.
+        # This empty, hidden widget loads no QML, document or browser page.
+        from PySide6.QtQuickWidgets import QQuickWidget
+        self._compositor = QQuickWidget(self)
+        self._compositor.setFixedSize(0, 0)
+        self._compositor.hide()
         from .tooltips import install_tooltip_styling
         install_tooltip_styling()
         self.data = Path(data).absolute()
@@ -127,6 +135,12 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         # Chrome has application appearance only; document state always stays
         # with its own host and is never swapped into the shell.
         self.state = {'settings': self.settings}
+        from .workspace_connection import WorkspaceConnection
+        self.comfy_connection = WorkspaceConnection(self)
+        from .workspace_runtime import WorkspaceRuntime
+        from .workspace_scheduler import WorkspaceScheduler
+        self.runtimes = WorkspaceRuntime(self)
+        self.scheduler = WorkspaceScheduler(self)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         from .releases import window_title
         self.setWindowTitle(window_title())
@@ -163,6 +177,10 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                                    ('Alt+Right', lambda: self.go(1))):
             shortcut = QShortcut(QKeySequence(sequence), self)
             shortcut.activated.connect(callback)
+        if self.comfy_connection.enabled:
+            QTimer.singleShot(0, self.ensure_utility)
+        self.runtimes.recover()
+        self.scheduler.ready = True
 
     def read_navigation_json(self, name):
         try:
@@ -853,6 +871,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.refresh_connection()
 
     def refresh_connection(self):
+        self.comfy_connection.activate_document()
         tab = self.tabs_by_key.get(self.active_key)
         host = tab.document.host if tab and tab.document else self.utility
         self.connection.refresh(self.display_settings(), getattr(host, 'comfy', None))
@@ -1146,13 +1165,19 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 if not self.close_tab(0, decision='discard', make_home=False, pane=pane):
                     event.ignore()
                     return
+        self.scheduler.stop()
         for document in self.documents:
             document.refresh_timer.stop()
             for host in reversed(document.hosts):
                 host.close()
-                host.deleteLater()
+        for document in self.documents:
             for execution in [document.execution, *document.retired_executions]:
                 if execution is not None:execution.close()
+        self.runtimes.close()
+        # Shutdown can run a bounded event loop while waiting for a cancel
+        # receipt. Keep every owner's UI alive until all clients have stopped.
+        for document in self.documents:
+            for host in document.hosts:host.deleteLater()
             document.deleteLater()
         from .application_events import unlisten
         unlisten(self.pane_focus)
