@@ -142,6 +142,18 @@ class SidebarNavigationDelegate(QStyledItemDelegate):
         super().paint(painter,option,index)
 
 
+def navigation_entries(section, *, workspace=False):
+    """One route map for the page and its inactive sidebar preview."""
+    if section in ('civitai','downloads','civitai_settings'):
+        return 'CivitAI', '返回探索', [('civitai','搜尋模型','search'),('downloads','下載記錄','download'),('civitai_settings','瀏覽設定','settings')]
+    if section in ('comfy','workflows','workflow_manager','models','nodes'):
+        return 'ComfyUI', '返回探索', [('workflows','連線與工作流','workflow'),('models','模型資產','media'),('nodes','管理與更新','package')]
+    if section=='explore':
+        return '探索', '返回工作區', [('explore','全部入口','explore')]
+    routes=[('interface','使用介面','canvas'),('appearance','介面個人化','settings'),('completion','候選與翻譯','search'),('dictionary','個人字典','info'),('data','資料與備份','package')]
+    return '設定', '返回工作區', [r for r in routes if not workspace or r[0]!='interface']
+
+
 class NavigationSidebar(QWidget):
     """Separate upward navigation from the current area's destinations."""
     def __init__(self,return_button):
@@ -270,19 +282,7 @@ class SettingsPage(QWidget):
         return reading_page(page)
 
     def configure_navigation(self,section):
-        if section in ('civitai','downloads','civitai_settings'):
-            routes=[('civitai','搜尋模型','search'),('downloads','下載記錄','download'),('civitai_settings','瀏覽設定','settings')]
-            parent='返回探索';area='CivitAI'
-        elif section in ('comfy','workflows','workflow_manager','models','nodes'):
-            routes=[('workflows','連線與工作流','workflow'),('models','模型資產','media'),('nodes','管理與更新','package')]
-            parent='返回探索';area='ComfyUI'
-        elif section=='explore':
-            routes=[('explore','全部入口','explore')]; parent='返回工作區';area='探索'
-        else:
-            routes=[('interface','使用介面','canvas'),('appearance','介面個人化','settings'),('completion','候選與翻譯','search'),('dictionary','個人字典','info'),('data','資料與備份','package')]
-            if getattr(self.window,'workspace_owner',None) is not None:
-                routes=[route for route in routes if route[0]!='interface']
-            parent='返回工作區';area='設定'
+        area,parent,routes=navigation_entries(section,workspace=getattr(self.window,'workspace_owner',None) is not None)
         self.nav_routes=routes; self.return_button.setText(parent)
         if self.window.embedded_document:
             nested=parent=='返回探索'

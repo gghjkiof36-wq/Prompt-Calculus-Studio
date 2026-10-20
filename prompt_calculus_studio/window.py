@@ -460,7 +460,7 @@ class Window(QMainWindow):
         self.notice('已加入「'+canvas.data()['canvases'][target]['name']+'」的獨立文字副本。')
         return True
 
-    def show_page(self,page):
+    def show_page(self,page,*,refresh_gallery=True):
         if not self.flush_editor_drafts():return
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
         if self.surface_stack.currentWidget() is getattr(self,'settings_page',None):self.settings_page.flush()
@@ -469,10 +469,9 @@ class Window(QMainWindow):
             # These pages have one permanent parent. Re-inserting them into
             # the legacy tab/editor stacks repolished their entire subtrees
             # on every navigation, even after the first visit.
-            refresh_gallery = page is self.gallery
             self.surface_stack.setCurrentWidget(page)
             # Startup prepares the surface only; load albums on actual visits.
-            if refresh_gallery:self.gallery.refresh_albums()
+            if page is self.gallery and refresh_gallery:self.gallery.refresh_albums()
             self.record_navigation('page','gallery' if page is self.gallery else 'clean_export')
             return
         if self.canvas_mode and page is self.recent:

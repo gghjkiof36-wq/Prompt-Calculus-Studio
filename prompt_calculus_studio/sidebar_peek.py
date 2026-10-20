@@ -52,6 +52,12 @@ class SidebarPeekController(QObject):
         except (AttributeError,RuntimeError):return None
         return target if isinstance(target,QWidget) and isValid(target) else None
 
+    def _can_borrow(self, target):
+        return bool(target and target.parentWidget() and target.parentWidget().isVisible())
+
+    def _can_peek(self, target):
+        return self._can_borrow(target) and target.isHidden()
+
     def _in_window(self,widget):
         return isValid(self.window) and isinstance(widget,QWidget) and isValid(widget) and (widget is self.window or self.window.isAncestorOf(widget))
 
@@ -117,8 +123,7 @@ class SidebarPeekController(QObject):
             if self.overlay.geometry().contains(position) or self._edge_contains(position,self._borrowed,tolerance=True):self.close_timer.stop()
             elif not self._interaction_active() and not self.close_timer.isActive():self.close_timer.start()
             return
-        if (self._edge_blocked or QApplication.mouseButtons()!=Qt.MouseButton.NoButton or not target or not target.isHidden()
-                or not target.parentWidget() or not target.parentWidget().isVisible()
+        if (self._edge_blocked or QApplication.mouseButtons()!=Qt.MouseButton.NoButton or not self._can_peek(target)
                 or not self._edge_contains(position,target,tolerance=self._pending is target)):
             self.open_timer.stop(); self._pending=None; return
         if self._pending is not target:
@@ -128,13 +133,13 @@ class SidebarPeekController(QObject):
     def _open_pending(self):
         target=self._pending; self._pending=None
         if (not target or not isValid(target) or target is not self._current_target()
-                or not target.isHidden() or QApplication.mouseButtons()!=Qt.MouseButton.NoButton
+                or not self._can_peek(target) or QApplication.mouseButtons()!=Qt.MouseButton.NoButton
                 or not self._edge_contains(self.window.mapFromGlobal(QCursor.pos()),target,tolerance=True)):
             return
         self._borrow(target)
 
     def _borrow(self,target,*,pinned=False):
-        if self._shutdown or not target or not target.parentWidget() or not target.parentWidget().isVisible():return False
+        if self._shutdown or not self._can_borrow(target):return False
         parent=target.parentWidget(); found=self._owning_layout(parent.layout(),target) if parent else None
         layout,index=found if found else (None,-1)
         if isinstance(parent,QSplitter):

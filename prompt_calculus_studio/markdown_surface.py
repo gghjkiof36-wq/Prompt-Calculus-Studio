@@ -127,9 +127,18 @@ class MarkdownSurface(QWidget):
         for panel in (self.command_box, self.find_bar, self.toolbar):
             shortcut = QShortcut(QKeySequence('Esc'), panel);shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             shortcut.activated.connect(self.focus_document if panel is self.toolbar else lambda p=panel:self.close_panel(p))
+        self.load_preferences(apply=False)
         self.apply_appearance();self.apply_preferences();self.refresh()
         self.editor.document().setLayoutEnabled(not self.page.buffer.opening)
-        QTimer.singleShot(0, self, self.load_preferences)
+
+    def prepare_workspace_show(self):
+        # Standalone adapters may bind their workspace after construction.
+        if not self.preferences_loaded:self.load_preferences()
+        from .workspace_startup import settle_layout
+        settle_layout(self)
+        self.editor.update_measure()
+        self.update_title_layout()
+        self.title_layout.activate()
 
     @Slot()
     def schedule_refresh(self):
@@ -263,7 +272,7 @@ class MarkdownSurface(QWidget):
         menu.addAction('命令…\tCtrl+Shift+P', self.open_commands)
         menu.open_for(self.view_tools,align_right=True)
 
-    def load_preferences(self):
+    def load_preferences(self, *, apply=True):
         workspace = self.page.file_title.workspace
         if workspace is None:return
         previous=dict(self.preferences)
@@ -278,7 +287,7 @@ class MarkdownSurface(QWidget):
         self.preferences['reading_size'] = max(9, min(32, self.preferences['reading_size']))
         self.preferences['line_height'] = max(120, min(200, self.preferences['line_height']))
         self.preferences_loaded = True
-        if self.preferences!=previous:self.apply_preferences()
+        if apply and self.preferences!=previous:self.apply_preferences()
         self.advanced.configure()
         from .markdown_shortcuts import apply_shortcuts
         apply_shortcuts(self)

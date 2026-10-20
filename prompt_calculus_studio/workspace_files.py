@@ -162,8 +162,8 @@ class MarkdownPage(QPlainTextEdit):
     last_result = BufferField()
     recovery_paths = BufferField()
 
-    def __init__(self, path, buffer=None):
-        super().__init__()
+    def __init__(self, path, buffer=None, *, workspace=None):
+        super().__init__(workspace.workspace_stack if workspace else None)
         self.buffer = buffer or MarkdownBuffer()
         if buffer is None:
             self.path = Path(path)
@@ -197,8 +197,10 @@ class MarkdownPage(QPlainTextEdit):
         self.setStyleSheet('QPlainTextEdit { border:0; padding:28px 36px; background:transparent; }')
         from .workspace_file_title import FileTitle
         self.file_title = FileTitle(self.path.stem, self)
+        self.file_title.workspace = workspace
         from .markdown_surface import MarkdownSurface
         self.md_surface = MarkdownSurface(self)
+        self._prepare_workspace_show = self.md_surface.prepare_workspace_show
         self.setViewportMargins(0, 0, 0, 0)
         super().viewport().hide()
         super().horizontalScrollBar().hide()

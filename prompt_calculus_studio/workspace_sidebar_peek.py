@@ -17,7 +17,11 @@ class WorkspaceSidebarPeek(SidebarPeekController):
         QEvent.Type.WindowDeactivate, QEvent.Type.PaletteChange))
 
     def __init__(self, window):
+        self.hover_route = None
+        self.hover_target = None
         super().__init__(window, window.sidebar_target)
+        from .workspace_peek_routes import PeekRoutes
+        self.route_targets = PeekRoutes(self)
         self.listening = True
         self.progress = 1.
         self.hiding = False
@@ -40,7 +44,7 @@ class WorkspaceSidebarPeek(SidebarPeekController):
     def _enable_tracking(self, widget):
         # Observe stable shell widgets only. ChildAdded can expose partially
         # constructed native widgets; wrapping every child there is unsafe.
-        for target in (self.window, self.window.rail, self.overlay):
+        for target in (self.window, self.window.rail, self.overlay, *self.window.routes.values()):
             if target not in self._tracking and not target.hasMouseTracking():
                 target.setMouseTracking(True)
                 self._tracking.add(target)
@@ -56,7 +60,7 @@ class WorkspaceSidebarPeek(SidebarPeekController):
 
     def position_edge(self):
         target=self._current_target()
-        visible=self.enabled and target is not None and target.isHidden() and target.parentWidget().isVisible()
+        visible=self.enabled and self._can_peek(target) and not self.is_open
         listening=self.enabled and (visible or self.is_open)
         if listening!=self.listening:
             app=QApplication.instance()
@@ -68,6 +72,25 @@ class WorkspaceSidebarPeek(SidebarPeekController):
             # Cover only the document gutter, leaving rail buttons clickable.
             self.edge.setGeometry(bounds.left(),bounds.top(),24,bounds.height())
             self.edge.raise_()
+
+    def _current_target(self):
+        return self.hover_target if self.hover_target is not None else super()._current_target()
+
+    def _can_borrow(self, target):
+        # An inactive destination's real sidebar can be borrowed too. Its
+        # hidden page retains its layout, selection and scroll position.
+        return bool(target is not None and target.parentWidget() and self.window.isVisible())
+
+    def _can_peek(self, target):
+        w = self.window
+        expanded = w.width() >= 980 if w.sidebar_preference is None else w.sidebar_preference
+        return not expanded and self._can_borrow(target)
+
+    def route_at(self, position):
+        for route, entry in self.window.routes.items():
+            if entry.isVisible() and entry.rect().contains(entry.mapFrom(self.window, position)):
+                return route
+        return None
 
     def eventFilter(self, watched, event):
         if self._shutdown:return False
@@ -84,11 +107,23 @@ class WorkspaceSidebarPeek(SidebarPeekController):
         return QRect(left, top, max(0, window.width()-left), max(0, window.height()-top))
 
     def _edge_contains(self, position, target, *, tolerance=False):
+        if self.route_at(position) is not None:return True
         bounds = self._anchor(target)
         return 0 <= position.x() < bounds.left()+(32 if tolerance else 24) and bounds.top() <= position.y() < bounds.bottom()
 
     def _hover(self, position):
-        if self.enabled:
+        if self.enabled and not self._changing:
+            route = self.route_at(self.window.mapFromGlobal(position))
+            if (route is not None and route != (self.hover_route or self.window.active_route)
+                    and self._can_peek(self._current_target()) and not self._interaction_active()):
+                self.close()
+                self._changing = True
+                try:
+                    self.hover_target = self.route_targets.target(route)
+                    self.hover_route = route
+                finally:
+                    self._changing = False
+                self._edge_blocked = False
             if self.hiding:
                 local = self.window.mapFromGlobal(position)
                 if self.overlay.geometry().contains(local) or self._edge_contains(local,self.target,tolerance=True):
@@ -162,6 +197,8 @@ class WorkspaceSidebarPeek(SidebarPeekController):
         self.animate(True)
 
     def _restore(self, pin):
+        self.hover_target = None
+        self.hover_route = None
         self.motion.stop()
         self.hiding = False
         self.progress = 1.

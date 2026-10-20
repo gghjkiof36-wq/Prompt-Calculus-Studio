@@ -272,7 +272,7 @@ class WorkspacePanes:
                 cached = next((t for t in matching if t.pane == pane.key and t.key in self.saved_pages), None)
                 if cached:return self.add_tab(cached, replace_current=not background, pane=pane, background=background)
             if path.suffix.casefold() == '.md':
-                page = MarkdownPage(path, matching[0].widget.buffer if matching else None)
+                page = MarkdownPage(path, matching[0].widget.buffer if matching else None, workspace=self)
                 tab = Tab('md:'+uuid.uuid4().hex, path.stem, page, retained, path=path)
                 if not hasattr(page.buffer, 'save_key'):page.buffer.save_key = tab.key
                 PageObserver(self,tab)

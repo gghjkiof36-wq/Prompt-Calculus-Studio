@@ -425,7 +425,7 @@ class SourceView(QPlainTextEdit):
 
     def update_measure(self):
         preferences = self.surface.preferences
-        margin = max(24, (self.width()-preferences.get('reading_width',880))//2) if self.mode == 'write' else 16
+        margin = max(24, (self.width()-preferences.get('reading_width',880))//2)
         gutter = 60 if preferences.get('line_numbers') else 22
         self.setViewportMargins(margin+gutter, 22, margin, 16)
         self.gutter.setGeometry(margin, self.viewport().y(), gutter, self.viewport().height())
@@ -576,10 +576,11 @@ class SourceView(QPlainTextEdit):
     def resizeEvent(self, event):
         if hasattr(self, 'gutter'):self.update_measure()
         super().resizeEvent(event)
-        # The parent's resize arrives before Qt gives this viewport its final
-        # width. Align the independent filename after the editor has reflowed.
-        if hasattr(self.surface,'title_layout'):
-            QTimer.singleShot(0,self.surface,self.surface.update_title_layout)
+        # Align within this resize, before the first paint can expose the
+        # title's previous (often far-left) position.
+        if hasattr(self.surface,'editor'):
+            self.surface.update_title_layout()
+            self.surface.title_layout.activate()
         if hasattr(self,'presentation_timer'):self.schedule_presentation()
 
     def fold_control_rect(self,block):

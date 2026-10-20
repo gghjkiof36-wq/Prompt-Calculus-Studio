@@ -408,12 +408,12 @@ class EmbeddedHost(Window):
             # The appearance owner is the shell, never the saved file settings.
             self.apply_theme(preserve_layout=True)
 
-    def prepare_workspace_sidebar(self):
+    def prepare_workspace_sidebar(self, target=None):
         """Attach only the tool being visited; unopened tools stay unbuilt."""
         workspace = getattr(self, 'workspace_owner', None)
         if workspace is None or self.document is not None:
             return
-        target = self.context_sidebar_target()
+        target = target if target is not None else self.context_sidebar_target()
         if target is None or target.property('pcsWorkspaceSidebar'):
             return
         target.setProperty('pcsSidebarManaged', True)
@@ -421,7 +421,7 @@ class EmbeddedHost(Window):
         target.setFixedWidth(workspace.sidebar_width)
         target.layout().setContentsMargins(12, 16, 12, 12)
         from .deferred_page import page_ready
-        if page_ready(self.settings_page) and target is self.settings_page.navigation_area:
+        if hasattr(target, 'sidebar_header'):
             header = target.sidebar_header
         else:
             if page_ready(self.gallery) and target is self.gallery.folder_panel:

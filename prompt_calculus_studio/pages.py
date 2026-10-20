@@ -824,6 +824,11 @@ class GalleryPage(QFrame):
         menu.open_at(self.import_options.mapToGlobal(self.import_options.rect().bottomLeft()))
 
     def refresh_albums(self):
+        self.populate_albums()
+        self.choose_album(self.albums.currentItem(),collapse_sidebar=False)
+
+    def populate_albums(self):
+        """Update folder navigation without loading images or changing albums."""
         selected=self.album
         self.albums.blockSignals(True); self.albums.clear()
         rows=self.catalog.rows("album",limit=10000)
@@ -831,7 +836,7 @@ class GalleryPage(QFrame):
             item=QListWidgetItem(icon('folder'),album['name']); item.setData(Qt.ItemDataRole.UserRole,album['id']); self.albums.addItem(item)
             if album["id"]==selected: self.albums.setCurrentItem(item)
         if self.albums.currentItem() is None and rows: self.albums.setCurrentRow(0)
-        self.albums.blockSignals(False); self.choose_album(self.albums.currentItem(),collapse_sidebar=False)
+        self.albums.blockSignals(False)
 
     def choose_album(self,item,previous=None,*,collapse_sidebar=True):
         previous_album=self.album
