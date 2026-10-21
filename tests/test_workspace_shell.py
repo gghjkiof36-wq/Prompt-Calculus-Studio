@@ -186,7 +186,7 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertNotIn(tab.key, self.w.tabs_by_key)
         self.assertEqual(io.load(self.root, tab.path.name).document['payload']['items'][0]['prompt'], expected)
 
-    def test_external_save_conflict_keeps_both_versions_and_failed_close(self):
+    def test_external_save_conflict_keeps_both_versions_and_allows_close(self):
         tab = self.open()
         host = tab.document.host
         ident = host.state['items'][0]['id']
@@ -195,8 +195,8 @@ class WorkspaceShellTests(unittest.TestCase):
         external.document['payload']['items'][0]['prompt'] = 'external edit'
         self.assertEqual(io.save(self.root, tab.path.name, external.document, external.receipt).status, 'saved')
         external_bytes = tab.path.read_bytes()
-        self.assertFalse(self.w.close_tab(self.w.index_of(tab.key), decision='save'))
-        self.assertIn(tab.document.error, self.w.notification.text())
+        self.assertTrue(self.w.close_tab(self.w.index_of(tab.key), decision='save'))
+        self.assertIn('恢復副本', self.w.notification.text())
         self.assertTrue(tab.document.dirty)
         self.assertEqual(tab.path.read_bytes(), external_bytes)
         self.assertEqual(materials.item(host.state, ident)['prompt'], 'local edit')
@@ -217,18 +217,15 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertTrue(any('external edit' in s for s in captured))
         self.assertTrue(any('local edit' in s for s in captured))
 
-    def test_failed_window_close_keeps_all_tabs_and_their_history(self):
+    def test_failed_save_does_not_block_window_close_and_keeps_recovery(self):
         a = self.open(retained=True)
         b = self.open('Action', retained=True)
         ident = b.document.host.state['items'][0]['id']
         self.assertTrue(b.document.host.canvas.commit(lambda s: materials.save(s, dict(id=ident, prompt='pending'))))
-        pages = {key: tab.widget for key, tab in self.w.tabs_by_key.items()}
         with patch.object(b.document, 'save', return_value=False):
-            self.assertFalse(self.w.close())
-        self.assertEqual({key: tab.widget for key, tab in self.w.tabs_by_key.items()}, pages)
-        self.assertTrue(b.document.dirty)
-        b.document.host.canvas.undo()
-        self.assertNotEqual(materials.item(b.document.host.state, ident)['prompt'], 'pending')
+            self.assertTrue(self.w.close())
+        value=self.w.close_recovery.get(b.path)
+        self.assertEqual(materials.item(value['state'],ident)['prompt'],'pending')
 
     def test_workflow_real_canvas_switch_preserves_camera_selection_history_and_other_file(self):
         a = self.open('Street', 'pcs-workflow', True)
@@ -684,8 +681,8 @@ class WorkspaceShellTests(unittest.TestCase):
         self.assertTrue(reopened.widget.toPlainText().endswith('kept'))
         QTest.keyClicks(reopened.widget, 'local')
         reopened.path.write_bytes(b'external')
-        self.assertFalse(self.w.close_tab(self.w.index_of(reopened.key), decision='save'))
-        self.assertIn('外部修改', self.w.notification.text())
+        self.assertTrue(self.w.close_tab(self.w.index_of(reopened.key), decision='save'))
+        self.assertIn('恢復副本', self.w.notification.text())
         self.assertEqual(reopened.path.read_bytes(), b'external')
         self.assertTrue(reopened.dirty)
 

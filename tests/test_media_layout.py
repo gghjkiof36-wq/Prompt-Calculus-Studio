@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 from PySide6.QtCore import Qt, QPoint, QPointF, QRect
 from PySide6.QtGui import QFontDatabase, QHelpEvent, QImage, QPainter, QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QListWidget, QPushButton, QStyleOptionViewItem
+from PySide6.QtWidgets import QApplication, QListWidget, QPushButton, QStyleOptionViewItem, QLineEdit
 
 from prompt_calculus_studio.window import Window
 
@@ -115,10 +115,14 @@ class MediaLayoutTests(unittest.TestCase):
             self.assertTrue(rail.buttons[key].isVisible()); self.assertEqual(rail.buttons[key].accessibleName(),title)
             self.assertFalse(rail.buttons[key].isCheckable())
         self.assertEqual(rail.buttons['folder-more'].property('iconName'),'more-horizontal')
-        with patch('prompt_calculus_studio.pages.QInputDialog.getText',return_value=('新資料夾',True)):
+        with patch('prompt_calculus_studio.pages.QInputDialog.getText',side_effect=AssertionError('folder creation must be inline')):
             rail.buttons['add-folder'].click()
         self.settle()
-        self.assertEqual(self.w.catalog.count('album'),1); self.assertEqual(self.g.albums.currentItem().text(),'新資料夾')
+        self.assertEqual(self.w.catalog.count('album'),1); self.assertEqual(self.g.albums.currentItem().text(),'未命名資料夾')
+        edit=self.g.albums.findChild(QLineEdit)
+        self.assertIsNotNone(edit);self.assertTrue(edit.isVisible())
+        edit.setText('新資料夾');QTest.keyClick(edit,Qt.Key.Key_Return);self.settle()
+        self.assertEqual(self.w.catalog.get(self.g.album)['name'],'新資料夾')
         self.assertFalse(self.g.sidebar_expanded)
         menus=[]
         with patch('prompt_calculus_studio.pages.QMenu.open_at',autospec=True,side_effect=lambda menu,position:menus.append((menu,position))):

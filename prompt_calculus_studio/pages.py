@@ -50,10 +50,7 @@ class ModelPage(QFrame):
         self.root_panel=QWidget(); root_body=QVBoxLayout(self.root_panel); root_body.setContentsMargins(0,0,0,0)
         self.root_summary=ElidedLabel(); self.root_summary.setMinimumWidth(0)
         self.root_summary.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred)
-        choose=button('更換資料夾',self.choose_root,'Quiet'); choose.setIcon(icon('folder')); choose.setAccessibleName('選擇模型資料夾')
-        rescan=button('',self.scan,'IconButton'); rescan.setIcon(icon('update')); rescan.setToolTip('重新掃描'); rescan.setAccessibleName('重新掃描')
-        root_line=row(self.root_summary,choose,rescan); root_line.setStretch(0,1)
-        root_body.addLayout(root_line); layout.addWidget(self.root_panel)
+        root_body.addWidget(self.root_summary); layout.addWidget(self.root_panel)
         self.root.textChanged.connect(self.update_root_summary); self.update_root_summary()
         split = QSplitter(); self.split=split
         split.setHandleWidth(24)
@@ -103,57 +100,10 @@ class ModelPage(QFrame):
         self.library_empty=scrolling(empty_container); self.library_empty.setMinimumWidth(0)
         self.library_empty.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         left.addWidget(self.library_empty,1)
-        detail, right = panel("InsetPanel"); detail.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Maximum)
-        right.setContentsMargins(18,18,18,18); right.setSpacing(12)
-        detail_container=QWidget(); detail_layout=QVBoxLayout(detail_container); detail_layout.setContentsMargins(0,2,0,16); detail_layout.setSpacing(0)
-        detail_layout.addWidget(detail,0,Qt.AlignmentFlag.AlignTop); detail_layout.addStretch()
-        self.detail_scroll=scrolling(detail_container); self.detail_scroll.setMinimumWidth(0)
-        self.detail_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        split.addWidget(self.detail_scroll); split.setSizes([580,380])
-        self.detail=detail
-        split.setChildrenCollapsible(False)
-        close=button('',lambda:self.list.setCurrentRow(-1),'IconButton'); close.setIcon(icon('close')); close.setToolTip('關閉模型詳情'); close.setAccessibleName('關閉模型詳情')
-        self.detail_title=label('模型詳情','Heading',True); self.detail_title.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred)
-        right.addLayout(row(self.detail_title,close)); right.itemAt(0).layout().setStretch(0,1)
-        self.identity=label('','Subtle',True)
-        self.overview=QWidget(); self.overview_layout=QGridLayout(self.overview)
-        self.overview_layout.setContentsMargins(0,0,0,0); self.overview_layout.setSpacing(12)
-        right.addWidget(self.overview)
-        self.preview = ImageDropLabel(window.store); self.preview.pathReady.connect(self.receive_image); self.preview.failed.connect(window.notice); self.preview.setFixedSize(200,200); self.preview.setWordWrap(True)
-        self.preview_actions=QWidget(); preview_actions=row(); preview_actions.setContentsMargins(0,0,0,0); self.preview_actions.setLayout(preview_actions)
-        self.preview_buttons=[]
-        for title,callback,symbol in (('設定預覽圖',self.choose_image,'media'),('移除預覽',self.clear_preview,'trash')):
-            control=button(title,callback,'DangerQuiet' if symbol == 'trash' else 'Quiet'); control.setToolTip(title); control.setAccessibleName(title)
-            control.setIcon(icon(symbol)); preview_actions.addWidget(control); self.preview_buttons.append(control)
-        self.compact_preview=None
-        right.addWidget(label('本機資料','Heading'))
-        form = QFormLayout(); self.name = QLineEdit(); self.category = QComboBox()
-        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self.category.addItems(categories(window.state['settings']))
-        self.trigger = QPlainTextEdit(); self.trigger.setMaximumHeight(85); self.trigger.setPlaceholderText("觸發詞與建議權重，可手動填寫")
-        self.url = QLineEdit(); self.url.setPlaceholderText("https://civitai.com/models/…")
-        self.base_model=label('—','Subtle',True); self.creator=label('—','Subtle',True); self.civitai_status=label('尚未辨識','Subtle',True)
-        self.source_type=selectable(); self.source_version=selectable(); self.source_trigger=selectable()
-        self.source_link=button('開啟 CivitAI 版本頁面',self.open_source_link,'Quiet')
-        self.notes = QPlainTextEdit(); self.notes.setMaximumHeight(90)
-        for title,widget in [('顯示名稱',self.name),('用途分類',self.category),('觸發詞',self.trigger),('我的備註',self.notes)]: form.addRow(title,widget)
-        right.addLayout(form)
-        right.addLayout(row(button("複製觸發詞",lambda:self.window.copy_text(self.trigger.toPlainText()),'Quiet'),button("觸發詞加入組合",lambda:self.window.add_temporary(self.trigger.toPlainText()),'Quiet')))
-        right.addWidget(label('來源資訊','Heading'))
-        source_form=QFormLayout(); source_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        source_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        for title,widget in [('Type',self.source_type),('Base Model',self.base_model),('來源版本',self.source_version),('作者',self.creator),('CivitAI',self.civitai_status),('來源 Trigger',self.source_trigger),('相關網址',self.url)]:source_form.addRow(title,widget)
-        right.addLayout(source_form); right.addWidget(self.source_link)
-        right.addWidget(button('開啟網址',self.open_link,'Quiet'))
-        right.addWidget(label('檔案','Heading'))
-        self.path = label("選擇左側模型即可編輯。","Subtle",True); self.path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        # Long unbroken filenames must wrap inside the detail pane, rather than
-        # forcing the entire scroll content wider than its viewport.
-        self.path.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred)
-        right.addWidget(self.path)
-        right.addWidget(button("顯示檔案位置",self.reveal,'Quiet'))
-        right.addWidget(button("將模型檔案移至資源回收筒…",self.recycle,"Danger"))
+        from .model_details import build
+        build(self)
+        from .draft_cache import DraftCache
+        self.draft_cache = DraftCache(window.store.directory)
         self.saver = QTimer(self); self.saver.setSingleShot(True); self.saver.timeout.connect(self.save)
         for widget in (self.name,self.url,self.trigger,self.notes): widget.textChanged.connect(self.edit_changed)
         self.category.currentTextChanged.connect(self.edit_changed)
@@ -178,6 +128,9 @@ class ModelPage(QFrame):
 
     def model_menu(self):
         menu=QMenu(self)
+        menu.addAction(icon('folder'),'更換資料夾…',self.choose_root)
+        refresh=menu.addAction(icon('update'),'重新整理',self.scan);refresh.setEnabled(bool(self.root.text()))
+        menu.addSeparator()
         menu.addAction('CivitAI 搜尋',lambda:self.window.settings('civitai')); menu.addSeparator()
         menu.addAction('辨識來源',self.identify_civitai); menu.addAction('管理分類',self.manage_categories)
         menu.addSeparator(); menu.add_destructive_action('清除缺失項目',self.clean_missing); menu.addAction('還原已清除',self.restore_missing)
@@ -225,32 +178,24 @@ class ModelPage(QFrame):
         if not narrow and selected:self.split.setSizes([max(1,self.content.width()-404),380])
 
     def adapt_preview(self,compact):
-        if self.compact_preview==compact:return
-        self.compact_preview=compact
-        grid=self.overview_layout
-        for widget in (self.identity,self.preview,self.preview_actions):grid.removeWidget(widget)
-        if compact:
-            self.preview.setFixedSize(104,104)
-            grid.addWidget(self.preview,0,0,2,1,Qt.AlignmentFlag.AlignTop)
-            grid.addWidget(self.identity,0,1); grid.addWidget(self.preview_actions,1,1,Qt.AlignmentFlag.AlignLeft)
-            grid.setColumnStretch(0,0); grid.setColumnStretch(1,1)
-        else:
-            self.preview.setFixedSize(200,200)
-            grid.addWidget(self.identity,0,0,1,2)
-            grid.addWidget(self.preview,1,0,1,2,Qt.AlignmentFlag.AlignHCenter)
-            grid.addWidget(self.preview_actions,2,0,1,2)
-            grid.setColumnStretch(0,1); grid.setColumnStretch(1,1)
-        for control,title in zip(self.preview_buttons,('設定預覽圖','移除預覽')):
-            control.setText('' if compact else title); control.setObjectName('IconButton' if compact else 'Quiet')
-            control.style().unpolish(control); control.style().polish(control); control.updateGeometry()
-        self.detail.layout().setSpacing(8 if compact else 12)
-        inset=14 if compact else 18
-        self.detail.layout().setContentsMargins(inset,inset,inset,inset)
+        if self.compact_preview == compact:return
+        self.compact_preview = compact
         self.refresh_preview()
 
     def refresh_preview(self):
-        set_preview(self.preview,self.window.store,(self.record or {}).get('thumb'),self.preview.width())
-        if self.compact_preview and self.preview.pixmap().isNull():self.preview.setText('加入預覽')
+        ref=(self.record or {}).get('thumb')
+        set_preview(self.preview,self.window.store,ref,self.preview.width())
+        if self.preview.pixmap().isNull():self.preview.setText('＋\n新增預覽')
+        self.preview.setAccessibleName('預覽圖；Enter 更換，Delete 移除' if ref else '新增預覽圖')
+        set_preview(self.summary_preview,self.window.store,ref,180)
+        self.summary_preview.setVisible(bool(ref) and not self.summary_preview.pixmap().isNull())
+
+    def open_details(self):
+        if not self.record:return
+        self.details_editor.setWindowTitle(self.record['name'])
+        self.details_editor.show()
+        self.details_editor.raise_()
+        self.details_editor.activateWindow()
 
     def compact_model_layout(self):
         return self.content.width()<max(950,self.fontMetrics().height()*45)
@@ -383,7 +328,13 @@ class ModelPage(QFrame):
         self.save(); self.loading=True
         self.record = self.catalog.get(item.data(Qt.ItemDataRole.UserRole)["id"]) if item else None
         if self.record and self.compact_model_layout():self.compact_view.setCurrentIndex(1)
-        r = self.record or {}
+        r = dict(self.record or {})
+        if self.record:
+            cached = self.draft_cache.read('model:'+self.record['id'])
+            if cached:r.update(cached)
+        if not self.record:self.details_editor.hide()
+        self.summary_trigger.setText(r.get('trigger',''))
+        self.summary_trigger.setVisible(bool(r.get('trigger')))
         self.detail_title.setText(r.get('name') or '模型詳情')
         self.detail_title.setToolTip(r.get('name',''))
         if r:
@@ -410,12 +361,22 @@ class ModelPage(QFrame):
     def save(self):
         self.saver.stop()
         if self.loading or not self.record: return
-        latest=self.catalog.get(self.record['id'])
-        if not latest: return
-        self.record=latest
-        self.record.update(name=self.name.text().strip() or Path(self.record["path"]).stem,
+        fields=dict(name=self.name.text().strip() or Path(self.record["path"]).stem,
             category=self.category.currentText(),trigger=self.trigger.toPlainText(),url=self.url.text().strip(),notes=self.notes.toPlainText())
-        self.catalog.put("model",self.record,self.record["root"])
+        if all(self.record.get(key,'')==value for key,value in fields.items()):return
+        try:
+            latest=self.catalog.get(self.record['id'])
+            if not latest:return
+            updated=dict(latest,**fields)
+            self.catalog.put("model",updated,updated["root"])
+            self.record=updated
+            self.draft_cache.clear('model:'+self.record['id'])
+        except Exception as error:
+            try:self.draft_cache.write('model:'+self.record['id'],fields)
+            except (OSError,ValueError) as cache_error:self.window.notice(str(cache_error))
+            self.window.notice('模型資料儲存失敗：'+str(error))
+        self.summary_trigger.setText(fields['trigger'])
+        self.summary_trigger.setVisible(bool(fields['trigger']))
         current=self.list.currentItem()
         if current and current.data(Qt.ItemDataRole.UserRole)["id"]==self.record["id"]:
             r=self.record
@@ -431,13 +392,22 @@ class ModelPage(QFrame):
     def receive_image(self,path):
         if not self.record: self.window.notice('先選取模型，再拖入預覽圖片。'); return
         try:
-            preview=thumbnail(path,self.window.store.directory); self.save(); self.record=self.catalog.get(self.record['id'])
-            self.record['thumb']=preview; self.catalog.put('model',self.record,self.record['root']); self.refresh()
-        except Exception as exc: self.window.error(str(exc))
+            self.save_preview(thumbnail(path,self.window.store.directory))
+        except Exception as exc:self.window.notice('預覽圖無法更新：'+str(exc))
 
     def clear_preview(self):
         if self.record:
-            self.save(); self.record['thumb']=''; self.catalog.put('model',self.record,self.record['root']); self.refresh()
+            try:self.save_preview('')
+            except Exception as exc:self.window.notice('預覽圖無法移除：'+str(exc))
+
+    def save_preview(self,relative):
+        self.save()
+        latest=self.catalog.get(self.record['id'])
+        if not latest:raise ValueError('找不到這個模型。')
+        updated=dict(latest,thumb=relative)
+        self.catalog.put('model',updated,updated['root'])
+        self.record=updated
+        self.refresh()
 
     def open_source_link(self):
         source=(self.record or {}).get('civitai') or {}
@@ -524,6 +494,8 @@ class GalleryPage(QFrame):
         self.albums=QListWidget(); self.albums.setObjectName('MediaFolders'); self.albums.setIconSize(QSize(18,18)); self.albums.currentItemChanged.connect(self.choose_album); left.addWidget(self.albums,1)
         self.albums.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.albums.customContextMenuRequested.connect(self.album_context)
+        self.albums.setEditTriggers(QAbstractItemView.EditTrigger.EditKeyPressed)
+        self.albums.itemChanged.connect(self.album_renamed)
         self.media_workspace=QFrame(); self.media_workspace.setObjectName('MediaContent')
         workspace_layout=QVBoxLayout(self.media_workspace); workspace_layout.setContentsMargins(0,0,0,0); workspace_layout.setSpacing(0)
         self.media_group=QWidget()
@@ -629,7 +601,7 @@ class GalleryPage(QFrame):
 
     @property
     def sidebar_expanded(self):
-        return not self.folder_panel.isHidden()
+        return not self.folder_panel.property('pcsSidebarBorrowed') and not self.folder_panel.isHidden()
 
     def set_sidebar_expanded(self,expanded):
         self._sidebar_preference=bool(expanded); self.adapt_panels()
@@ -833,7 +805,7 @@ class GalleryPage(QFrame):
         self.albums.blockSignals(True); self.albums.clear()
         rows=self.catalog.rows("album",limit=10000)
         for album in rows:
-            item=QListWidgetItem(icon('folder'),album['name']); item.setData(Qt.ItemDataRole.UserRole,album['id']); self.albums.addItem(item)
+            item=QListWidgetItem(icon('folder'),album['name']); item.setData(Qt.ItemDataRole.UserRole,album['id']); item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable); self.albums.addItem(item)
             if album["id"]==selected: self.albums.setCurrentItem(item)
         if self.albums.currentItem() is None and rows: self.albums.setCurrentRow(0)
         self.albums.blockSignals(False)
@@ -860,14 +832,42 @@ class GalleryPage(QFrame):
         menu.open_at(self.albums.viewport().mapToGlobal(pos))
 
     def add_album(self):
-        name,ok=QInputDialog.getText(self,"新增資料夾","自訂名稱，例如：9 月 10 日、下江小春")
-        if ok and name.strip():
-            self.album=uid(); self.catalog.put("album",dict(id=self.album,name=name.strip())); self.refresh_albums()
+        existing={album['name'] for album in self.catalog.rows('album',limit=10000)}
+        name='未命名資料夾';number=2
+        while name in existing:name=f'未命名資料夾 {number}';number+=1
+        try:
+            self.album=uid();self.catalog.put('album',dict(id=self.album,name=name));self.refresh_albums()
+            self.rename_album()
+        except Exception as error:self.window.notice('無法新增資料夾：'+str(error))
 
     def rename_album(self):
-        if not self.album: return
-        album=self.catalog.get(self.album); name,ok=QInputDialog.getText(self,"重新命名","資料夾名稱",text=album["name"])
-        if ok and name.strip(): album["name"]=name.strip(); self.catalog.put("album",album); self.refresh_albums()
+        item=self.albums.currentItem()
+        if item is None:return
+        if not self.folder_panel.isVisible():
+            workspace=getattr(self.window,'workspace_owner',None)
+            peek=getattr(workspace or self.window,'sidebar_peek',None)
+            if peek is not None:peek.reveal(self.folder_panel)
+        self.albums.scrollToItem(item)
+        self.albums.editItem(item)
+
+    def album_renamed(self,item):
+        album=self.catalog.get(item.data(Qt.ItemDataRole.UserRole))
+        if not album:return
+        name=item.text().strip() or album['name']
+        if name!=album['name']:
+            try:
+                album['name']=name;self.catalog.put('album',album)
+            except Exception as error:
+                self.window.notice('無法重新命名：'+str(error));name=self.catalog.get(album['id'])['name']
+        self.albums.blockSignals(True);item.setText(name);self.albums.blockSignals(False)
+        if self.album==album['id']:self.album_title.setText(name);self.album_title.setToolTip(name)
+
+    def finish_album_edit(self):
+        edit=next((e for e in self.albums.findChildren(QLineEdit) if e.isVisible()),None)
+        if edit is not None:
+            from PySide6.QtWidgets import QAbstractItemDelegate
+            self.albums.commitData(edit)
+            self.albums.closeEditor(edit,QAbstractItemDelegate.EndEditHint.NoHint)
 
     def set_album_directory(self):
         if not self.album: self.window.notice('先選擇資料夾。'); return

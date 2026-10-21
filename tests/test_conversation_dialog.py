@@ -3,7 +3,8 @@ import threading
 import unittest
 import time
 from unittest.mock import patch
-from PySide6.QtCore import Qt, QPoint
+from PySide6.QtCore import Qt, QPoint, QPointF, QMimeData, QUrl
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtTest import QTest
 from shiboken6 import isValid
 import test_workspace_panes as fixture
@@ -47,9 +48,19 @@ class ImportDialogTests(unittest.TestCase):
 
     def test_preview_selection_filter_and_no_write_until_confirm(self):
         d = self.create()
+        self.assertTrue(d.drop_area.isVisible())
+        self.assertFalse(d.search.isVisible())
+        self.assertFalse(d.split.isVisible())
+        self.assertFalse(d.location_row.isVisible())
         existing = set(self.root.rglob('*'))
-        d.load_source(self.source)
+        mime=QMimeData();mime.setUrls([QUrl.fromLocalFile(str(self.source))])
+        enter=QDragEnterEvent(QPoint(20,50),Qt.DropAction.CopyAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier)
+        self.app.sendEvent(d,enter);self.assertTrue(enter.isAccepted())
+        drop=QDropEvent(QPointF(20,50),Qt.DropAction.CopyAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier)
+        self.app.sendEvent(d,drop);self.assertTrue(drop.isAccepted())
         self.wait_job()
+        self.assertFalse(d.drop_area.isVisible())
+        self.assertTrue(d.search.isVisible())
         self.assertEqual(d.list.count(), 2)
         self.assertEqual(d.selected(), ())
         self.assertFalse(d.import_button.isEnabled())
@@ -174,7 +185,7 @@ class ImportDialogTests(unittest.TestCase):
     def test_cancel_without_writes_does_not_claim_saved_results(self):
         d = self.create()
         d.job_finished(ImportResult(cancelled=True, unprocessed=['尚未匯入']), '')
-        self.assertIn('沒有新增完成項目', d.hint.text())
+        self.assertIn('完成 0 段', d.status.text())
         self.assertIn('未處理 1 段', d.status.text())
         self.assertEqual(d.import_button.text(), '關閉')
         self.assertFalse(d.list.isEnabled())

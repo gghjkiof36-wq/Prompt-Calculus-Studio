@@ -18,8 +18,8 @@ def reduced_motion(widget):
 
 def presenting_parent(parent):
     """A nested sheet covers its visible parent, even for legacy Window callers."""
-    active=QApplication.activeModalWidget()
-    if active is not None and active.isVisible() and window_owner(active) is window_owner(parent):
+    active=QApplication.activeModalWidget() or QApplication.activeWindow()
+    if isinstance(active,QDialog) and active.isVisible() and window_owner(active) is window_owner(parent):
         return active
     # Embedded editors occupy only the content column. Modal sheets belong to
     # the workspace window, so changing either sidebar cannot shift the center.

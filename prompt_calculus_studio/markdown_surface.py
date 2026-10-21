@@ -347,6 +347,7 @@ class MarkdownSurface(QWidget):
         menu.open_for(self.mode_box,align_right=True)
 
     def set_mode(self, mode):
+        self.page.buffer.flush_mutation()
         if self.page.buffer.opening:
             if mode in ('write','source','read'):self.pending_mode=mode
             return

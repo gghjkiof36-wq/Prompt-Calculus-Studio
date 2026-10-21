@@ -6,7 +6,7 @@ import time
 from PySide6.QtCore import QObject, Signal, Slot, QRunnable, QThreadPool, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QApplication, QFileDialog, QLineEdit, QListWidget, QListWidgetItem,
-                              QSplitter, QTextBrowser, QVBoxLayout, QWidget, QProgressBar, QSizePolicy)
+                              QSplitter, QTextBrowser, QVBoxLayout, QWidget, QProgressBar, QSizePolicy, QFrame)
 from shiboken6 import isValid
 from .widgets import StudioDialog, label, button, row, ComboBox, ElidedLabel
 from .conversation_archive import Cancelled, load_archive
@@ -70,15 +70,30 @@ class ConversationImportDialog(StudioDialog):
         self.setWindowModality(Qt.WindowModality.NonModal)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle('匯入對話')
-        self.resize(920, 700)
-        self.setMinimumSize(480, 560)
-        self.source_button = button('選擇 ZIP／JSON…', self.choose_source)
+        self.resize(600, 340)
+        self.setMinimumSize(480, 300)
+        self.setAcceptDrops(True)
+        self.drop_area = QFrame()
+        self.drop_area.setObjectName('DialogEditor')
+        drop = QVBoxLayout(self.drop_area)
+        drop.setContentsMargins(24, 28, 24, 28)
+        drop.setSpacing(16)
+        drop.addStretch()
+        drop.addWidget(label('拖入 ZIP 或 JSON', 'Heading'), 0, Qt.AlignmentFlag.AlignHCenter)
+        self.drop_button = button('選擇檔案…', self.choose_source, 'Primary')
+        drop.addWidget(self.drop_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        drop.addStretch()
+        self.body.addWidget(self.drop_area, 1)
+        self.source_button = button('更換檔案…', self.choose_source, 'Quiet')
         self.source_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.source_name = ElidedLabel('ChatGPT 對話封存')
+        self.source_name = ElidedLabel('')
         self.source_name.setObjectName('Subtle')
         self.source_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.source_name.setTextFormat(Qt.TextFormat.PlainText)
-        self.body.addLayout(row(self.source_button, self.source_name))
+        self.source_row = QWidget()
+        self.source_row.setLayout(row(self.source_name, self.source_button))
+        self.source_row.layout().setContentsMargins(0, 0, 0, 0)
+        self.body.addWidget(self.source_row)
         self.search = QLineEdit()
         self.search.setPlaceholderText('搜尋對話標題…')
         self.search.setAccessibleName('搜尋對話標題')
@@ -91,8 +106,8 @@ class ConversationImportDialog(StudioDialog):
         for box in (left_box, right_box):
             box.setContentsMargins(0, 0, 0, 0)
             box.setSpacing(8)
-        self.select_visible = button('選取搜尋結果', lambda: self.check_visible(True), 'Quiet')
-        self.clear_selection = button('清除選取', lambda: self.check_visible(False), 'Quiet')
+        self.select_visible = button('全選', lambda: self.check_visible(True), 'Quiet')
+        self.clear_selection = button('清除', lambda: self.check_visible(False), 'Quiet')
         left_box.addLayout(row(self.select_visible, self.clear_selection))
         self.list = QListWidget()
         self.list.setProperty('moduleChoices', True)
@@ -114,14 +129,11 @@ class ConversationImportDialog(StudioDialog):
         self.preview.setMinimumHeight(130)
         self.preview.setMinimumWidth(160)
         self.preview.document().setDocumentMargin(16)
-        self.preview.setPlainText('選擇封存後，點選對話即可預覽。\n\n勾選方框才會加入匯入；會保存該對話的所有分支。')
         right_box.addWidget(self.preview, 1)
         self.split.addWidget(left)
         self.split.addWidget(right)
         self.split.setSizes([310, 550])
         self.body.addWidget(self.split, 1)
-        self.hint = label('將匯入勾選對話的所有分支。', 'Subtle', True)
-        self.body.addWidget(self.hint)
         self.location = QLineEdit(str(self.destination.path))
         self.location.setReadOnly(True)
         self.location.setAccessibleName('匯入位置')
@@ -129,7 +141,10 @@ class ConversationImportDialog(StudioDialog):
         self.location.setCursorPosition(0)
         self.location.setMinimumWidth(0)
         self.location_button = button('選擇位置…', self.choose_destination)
-        self.body.addLayout(row(label('匯入至'), self.location, self.location_button))
+        self.location_row = QWidget()
+        self.location_row.setLayout(row(label('儲存至'), self.location, self.location_button))
+        self.location_row.layout().setContentsMargins(0, 0, 0, 0)
+        self.body.addWidget(self.location_row)
         self.status = label('', 'Subtle', True)
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.hide()
@@ -146,8 +161,39 @@ class ConversationImportDialog(StudioDialog):
         self.import_button = button('匯入選取對話', self.submit, 'Primary')
         self.open_folder = button('開啟資料夾', self.open_destination)
         self.open_folder.hide()
-        self.body.addLayout(row(self.count, None, self.open_folder, self.cancel_button, self.import_button))
+        self.footer = QWidget()
+        self.footer.setLayout(row(self.count, None, self.open_folder, self.cancel_button, self.import_button))
+        self.footer.layout().setContentsMargins(0, 0, 0, 0)
+        self.body.addWidget(self.footer)
+        self.show_contents(False)
         self.update_selection()
+
+    def show_contents(self, loaded):
+        self.drop_area.setVisible(not loaded)
+        for control in (self.source_row, self.search, self.split, self.location_row, self.footer):
+            control.setVisible(loaded)
+        if loaded:
+            self.setMinimumSize(480, 560)
+            if self.width() <= 600:
+                bounds=self.parentWidget().size() if self.parentWidget() else self.screen().availableGeometry().size()
+                self.resize(min(960,max(480,bounds.width()-64)),min(740,max(560,bounds.height()-64)))
+
+    @staticmethod
+    def dropped_source(mime):
+        urls = mime.urls()
+        if len(urls) != 1 or not urls[0].isLocalFile():return None
+        path = Path(urls[0].toLocalFile())
+        return path if path.suffix.casefold() in ('.zip', '.json') and path.is_file() else None
+
+    def dragEnterEvent(self, event):
+        if not self.job and self.dropped_source(event.mimeData()):event.acceptProposedAction()
+        else:event.ignore()
+
+    def dropEvent(self, event):
+        path = self.dropped_source(event.mimeData())
+        if path and not self.job:
+            event.acceptProposedAction();self.load_source(path)
+        else:event.ignore()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -165,12 +211,12 @@ class ConversationImportDialog(StudioDialog):
         if self.job:return
         self.archive = None
         self.completed = False
-        self.source_button.setText('選擇 ZIP／JSON…')
-        self.search.show()
+        self.source_button.setText('更換檔案…')
+        self.show_contents(False)
         self.branches.show()
         self.split.widget(0).show()
         self.location_button.show()
-        self.hint.setText('將匯入勾選對話的所有分支。')
+        self.search.clear()
         self.list.clear()
         self.branches.clear()
         self.open_folder.hide()
@@ -194,6 +240,7 @@ class ConversationImportDialog(StudioDialog):
 
     def set_busy(self, busy):
         self.source_button.setEnabled(not busy)
+        self.drop_button.setEnabled(not busy)
         for control in (self.search, self.list, self.branches,
                         self.location_button, self.select_visible, self.clear_selection):
             control.setEnabled(not busy and not self.completed)
@@ -233,16 +280,6 @@ class ConversationImportDialog(StudioDialog):
             for title, folder, reason in result.failed:lines.extend([title+'：'+reason, folder, ''])
             if result.unprocessed:lines.extend(['尚未處理', *['• '+title for title in result.unprocessed]])
             self.preview.setPlainText('\n'.join(lines))
-            if result.failed:
-                hint = '未完成項目未標記為成功。重試會另建資料夾，保留本次紀錄。'
-            elif result.cancelled:
-                hint = ('匯入已取消，已完成項目保留；其餘對話尚未匯入。' if result.completed else
-                        '匯入已取消，沒有新增完成項目。')
-            elif result.completed:
-                hint = '完成項目已保存。相同對話的既有編輯會保留。'
-            else:
-                hint = '選取內容已經匯入，保留既有筆記與你的修改。'
-            self.hint.setText(hint)
             self.open_folder.show()
             if isValid(self.workspace) and not self.workspace.layout_store.stopped:
                 if result.completed:
@@ -257,6 +294,7 @@ class ConversationImportDialog(StudioDialog):
             if kind == 'read':self.preview.setPlainText('無法載入這份封存。\n\n'+error+'\n\n請選擇另一份 ZIP／JSON。')
         elif kind == 'read' and not self.close_when_done:
             self.archive = result
+            self.show_contents(True)
             self.list.blockSignals(True)
             for index, item in enumerate(result.conversations):
                 entry = QListWidgetItem(item.title.replace('\n', ' ')+f'  ·  {len(item.leaves)} 分支')
@@ -295,8 +333,8 @@ class ConversationImportDialog(StudioDialog):
     def update_selection(self, *_):
         count = len(self.selected())
         self.count.setVisible(not self.completed)
-        self.count.setText(f'共 {self.list.count()} 段 · 已選 {count}' if self.archive else '尚未選擇封存')
-        self.import_button.setText(self.completion_label if self.completed else '匯入選取對話')
+        self.count.setText(f'{self.list.count()} 段對話' if self.archive else '')
+        self.import_button.setText(self.completion_label if self.completed else f'匯入 {count} 段' if count else '匯入')
         self.import_button.setEnabled(not self.job and (self.completed or bool(count and self.archive)))
         self.cancel_button.setVisible(not self.completed)
         self.clear_selection.setEnabled(bool(count and not self.job and not self.completed))
@@ -312,6 +350,7 @@ class ConversationImportDialog(StudioDialog):
                 suffix = ' · 目前路徑' if leaf == item.current else ''
                 self.branches.addItem(f'分支 {number}{suffix}', leaf)
         self.branches.blockSignals(False)
+        self.branches.setVisible(self.branches.count() > 1)
         self.show_branch()
 
     def show_branch(self, *_):
@@ -343,6 +382,7 @@ class ConversationImportDialog(StudioDialog):
             self.job.cancel.set()
             self.show_status('正在停止…')
             self.cancel_button.setEnabled(False)
+            self.hide()
             return
         super().reject()
 

@@ -84,6 +84,19 @@ class MarkdownBuffer(QObject):
         self.pending_pieces = None
         self.last_result = None
         self.recovery_paths = []
+        self.syntax_cache = []
+        self.mutation = None
+
+    def flush_mutation(self):
+        if self.mutation is not None:self.mutation.finish()
+
+    def remember_syntax(self, text, lines):
+        # A few whole revisions cover shared views and native Undo/Redo without
+        # retaining an unbounded history of large manuscripts.
+        self.syntax_cache = [(text, lines)] + [(source, value) for source, value in self.syntax_cache if source != text][:2]
+
+    def cached_syntax(self, text):
+        return next((lines for source, lines in self.syntax_cache if source == text), None)
 
     def changed(self, position, removed, added):
         previous=getattr(self,'cached_snapshot',None)
@@ -105,6 +118,7 @@ class MarkdownBuffer(QObject):
             self.mapping_error = self.error = str(error)
 
     def snapshot(self):
+        if self.mutation is not None:return self.mutation.snapshot
         if self.opening:
             return self.opening_snapshot
         key=(self.text.revision(),id(self.text))
@@ -112,7 +126,8 @@ class MarkdownBuffer(QObject):
             self.snapshot_key=key;self.cached_snapshot=SourceSnapshot(source_text(self.text),key[0],self.document_id)
         return self.cached_snapshot
 
-    def apply(self, snapshot, edits, *, join_previous=False):
+    def prepare_edit(self, snapshot, edits):
+        self.flush_mutation()
         if self.opening:
             raise ValueError('文件正在載入，請稍候。')
         if self.composing:
@@ -131,7 +146,13 @@ class MarkdownBuffer(QObject):
         finally:
             self.ledger.pieces = pieces
         if result == snapshot.text:
-            return False
+            return None
+        return result, ordered, prospective
+
+    def apply(self, snapshot, edits, *, join_previous=False):
+        prepared = self.prepare_edit(snapshot, edits)
+        if prepared is None:return False
+        result, ordered, prospective = prepared
         cursor = QTextCursor(self.text)
         self.pending_pieces = prospective
         cursor.joinPreviousEditBlock() if join_previous else cursor.beginEditBlock()
@@ -255,10 +276,12 @@ class MarkdownPage(QPlainTextEdit):
         self.md_surface.editor.selectAll()
 
     def undo(self):
+        self.buffer.flush_mutation()
         if self.buffer.composing:return
         if not hasattr(self, 'md_surface') or self.md_surface.mode != 'read':self.document().undo()
 
     def redo(self):
+        self.buffer.flush_mutation()
         if self.buffer.composing:return
         if not hasattr(self, 'md_surface') or self.md_surface.mode != 'read':self.document().redo()
 
@@ -281,6 +304,7 @@ class MarkdownPage(QPlainTextEdit):
         return not self.buffer.opening and self.document().isModified()
 
     def save(self):
+        self.buffer.flush_mutation()
         from .file_publication import checked_replace, PublicationError
         if self.buffer.opening or self.buffer.composing or self.operation_error:
             return False
@@ -299,6 +323,7 @@ class MarkdownPage(QPlainTextEdit):
                 return True
             checked_replace(target, self.baseline, raw, QSaveFile, max_bytes=MAX_BYTES)
             self.baseline = raw
+            self.buffer.recovery_source_sha = None
             self.last_result = None
             self.recovery_paths = []
             self.error = ''
@@ -314,6 +339,7 @@ class MarkdownPage(QPlainTextEdit):
             return False
 
     def encoded(self):
+        self.buffer.flush_mutation()
         if self.buffer.opening:
             return self.baseline
         if self.buffer.mapping_error:

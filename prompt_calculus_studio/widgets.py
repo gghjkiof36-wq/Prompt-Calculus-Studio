@@ -192,9 +192,11 @@ class StudioDialog(QDialog):
 
     def eventFilter(self,watched,event):
         if (self._outside_dismiss and self.isVisible() and event.type()==QEvent.Type.MouseButtonPress
-                and QApplication.activeModalWidget() is self and QApplication.activePopupWidget() is None
-                and not self.frameGeometry().contains(event.globalPosition().toPoint())):
-            self.reject();return True
+                and QApplication.activeModalWidget() in (None, self) and QApplication.activePopupWidget() is None
+                and not getattr(self, 'contains_global', self.frameGeometry().contains)(event.globalPosition().toPoint())):
+            self.reject()
+            # A nonmodal sheet never swallows the main window's close button.
+            return self.windowModality() != Qt.WindowModality.NonModal
         return super().eventFilter(watched,event)
 
     def exec(self):

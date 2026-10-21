@@ -8,6 +8,7 @@ CONTENT_SETTINGS = {'formatter', 'artist_prefix', 'separate_selections', 'comfy_
 LOCAL_SETTINGS = (set(core.DEFAULT_SETTINGS) - CONTENT_SETTINGS) | {
     'comfy_enabled', 'comfy_url', 'canvas_palette', 'execution_bar_position',
     'model_category_types', 'ui_language', 'window_geometry', 'window_state', 'canvas_starter',
+    'material_library_order', 'material_folder_collapsed',
 }
 LOCAL_STATE = {'dictionary', 'content_history', 'material_navigation'}
 CONTENT_STATE = set(workspace_scene.FIELDS) | {
@@ -20,7 +21,7 @@ DERIVED_STATE = {'workspace_scenes', '_execution_inputs', '_stage_results'}
 def content_settings(settings):
     unknown = set(settings) - CONTENT_SETTINGS - LOCAL_SETTINGS
     if unknown:
-        fail('unsupported', '設定尚未分類責任，停止匯出以免漏存。', fields=sorted(unknown))
+        fail('unsupported', '無法保存：有不支援的設定（'+', '.join(sorted(unknown))+'）。', fields=sorted(unknown))
     # Absence can carry a legacy fallback different from today's default.
     # Conversion belongs to prepare_state; export does not invent new settings.
     return {key: copy.deepcopy(settings[key]) for key in sorted(CONTENT_SETTINGS) if key in settings}

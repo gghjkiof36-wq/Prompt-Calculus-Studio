@@ -284,7 +284,10 @@ class WorkspaceFileOperations(QObject):
                         view.widget.path = target
                         view.widget.setAccessibleName(target.name + '，Markdown 編輯')
                     w.update_tab(view)
-                if isinstance(tab.widget, MarkdownPage):tab.widget.buffer.save_key = new_key
+                if isinstance(tab.widget, MarkdownPage):
+                    tab.widget.buffer.save_key = new_key
+                    tab.widget.buffer.recovery_source_sha = None
+                w.close_recovery.clear(op.source)
                 w.layout_changed()
             else:
                 # Explicit file command on an unopened item leaves the current

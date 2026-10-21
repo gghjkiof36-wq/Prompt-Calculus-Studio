@@ -478,13 +478,14 @@ class PromptEditor(QWidget):
         self.type_filter.setVisible(not fixed)
 
     def _order_changed(self):
+        if self._refreshing or self.window.state['settings'].get('material_library_order', 'name') == self.order.currentData():return
         self.window.state['settings']['material_library_order'] = self.order.currentData()
         self.refresh_list()
         changed = getattr(self.window, 'changed', None)
         if changed: changed('settings', refresh=False)
 
     def _reorder_materials(self, before, after):
-        if before != self.listing.order_ids(): return
+        if before == after or before != self.listing.order_ids(): return
         def apply(state):
             _replace_visible_order(state, 'items', before, after)
             state['settings']['material_library_order'] = 'manual'
@@ -875,11 +876,20 @@ class PromptEditor(QWidget):
 
 
 class MaterialEditDialog(StudioDialog):
-    """Only explicit save crosses from this dialog's draft to canonical data."""
+    """Save publishes; dismissal keeps a local draft without blocking the app."""
     def __init__(self, page, ident, text='', initial_value=None):
         super().__init__(page.window,defer_style=True)
         from .module_chrome import apply_prompt_dialog, prompt_divider
         apply_prompt_dialog(self,page.window)
+        self.setWindowModality(Qt.WindowModality.NonModal)
+        self.set_outside_dismiss(True)
+        self._dismissed = False
+        from .draft_cache import DraftCache
+        self.draft_cache = DraftCache(page.window.store.directory)
+        self.draft_key = 'material:'+str(ident or '@new')
+        self.draft_memory = getattr(page.window, '_pending_material_drafts', {})
+        page.window._pending_material_drafts = self.draft_memory
+        self.restored_draft = (self.draft_memory.get(self.draft_key) or self.draft_cache.read(self.draft_key)) if initial_value is None else None
         # Assemble the empty shell first. Moving a populated, styled widget
         # tree between parents synchronously repolishes every descendant.
         from .material_editor_panels import MaterialPanels
@@ -895,6 +905,10 @@ class MaterialEditDialog(StudioDialog):
         if initial_value is not None:
             f.target = None
             f.load_value(copy.deepcopy(initial_value), 'new')
+        if self.restored_draft:
+            saved = copy.deepcopy(self.restored_draft['form'])
+            if saved['target'] is not None:saved['target'] = tuple(saved['target'])
+            f._restore_session(saved)
         self.initial_id = f.base['id']
         self.name, self.prompt = f.name, f.prompt
         self.prompt.setProperty('modulePrompt',True)
@@ -912,7 +926,7 @@ class MaterialEditDialog(StudioDialog):
         self.pages.setAutoFillBackground(False)
         self.error = StatusLabel(); f.status = self.error
         self.destination_label = label('', 'Subtle', True)
-        self.cancel_button = button('取消', self.reject, 'Quiet')
+        self.cancel_button = button('捨棄修改', self.discard, 'Quiet')
         self.save_button = button('保存', lambda: self.save(bool(self.form.destination_id) and not self.target_id), 'Primary')
         self.add_button = button('保存並加入畫布', lambda: self.save(True), 'Quiet')
         self.identity = label('', 'Subtle')
@@ -938,6 +952,32 @@ class MaterialEditDialog(StudioDialog):
         for control in self.findChildren(QPushButton): control.setAutoDefault(False)
         self.save_button.setDefault(True)
         self.pages.page_changed(0)
+
+    def draft_snapshot(self):
+        return dict(form=self.form.export_state(), type=self.pages.material_type,
+                    groups={key: copy.deepcopy(editor.sequence) for key, editor in self.pages.group_editors.items()},
+                    variants=copy.deepcopy(self.pages.variant_editor.sequence) if self.pages.variant_editor else None)
+
+    def reject(self):
+        if self._dismissed:return
+        self._dismissed = True
+        if self.form.dirty or self.restored_draft:
+            self.draft_memory[self.draft_key] = self.draft_snapshot()
+            try:self.draft_cache.write(self.draft_key, self.draft_memory[self.draft_key])
+            except (OSError, ValueError) as error:
+                self.page.window.notice(str(error))
+        super().reject()
+
+    def discard(self):
+        self.draft_cache.clear(self.draft_key)
+        self.draft_memory.pop(self.draft_key, None)
+        self._dismissed = True
+        super().reject()
+
+    def contains_global(self, position):
+        for surface in (self.panels.main, self.panels.side):
+            if surface.isVisible() and surface.rect().contains(surface.mapFromGlobal(position)):return True
+        return False
 
     def fit_page(self):
         self.panels.fit_content()
@@ -1043,6 +1083,10 @@ class MaterialEditDialog(StudioDialog):
         session['active'] = f.target; session['serial'] += 1
 
     def done(self, result):
+        if result == QDialog.DialogCode.Accepted:
+            self.draft_cache.clear(self.draft_key)
+            self.draft_memory.pop(self.draft_key, None)
+        self.set_outside_dismiss(False)
         self.native_history.rollback()
         self.form.timer.stop(); self.page.window.completion.cancel(self.prompt); self.prompt.completer.popup().hide()
         cache = getattr(self.page.window, '_material_editor_documents', {})

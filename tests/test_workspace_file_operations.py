@@ -129,19 +129,30 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
         self.assertEqual(self.w.tab_strip.bar.count(), 3)
         self.assertEqual(self.w.tabs_by_key[self.w.active_key].path, self.root/'Action.pcs-category')
 
-    def test_failed_navigation_and_cancel_leave_current_page_and_order(self):
+    def test_failed_save_keeps_recovery_and_allows_navigation_cancel_still_stays_put(self):
         tab = self.open()
+        source, before = tab.path, tab.path.read_bytes()
         QTest.keyClicks(tab.widget, 'local')
+        expected = tab.widget.toPlainText()
         history = list(self.w.history)
         with patch('prompt_calculus_studio.workspace_files.QSaveFile.commit', return_value=False):
-            self.assertIsNone(self.w.open_path(self.root/'Street.pcs-workflow'))
-        self.assertEqual(self.w.active_key, tab.key)
-        self.assertEqual(self.w.history, history)
+            destination = self.w.open_path(self.root/'Street.pcs-workflow')
+        self.assertIsNotNone(destination)
+        self.assertEqual(self.w.active_key, destination.key)
+        self.assertGreater(len(self.w.history), len(history))
         self.assertEqual(self.w.tab_strip.bar.count(), 1)
+        self.assertEqual(source.read_bytes(), before)
+        from prompt_calculus_studio.workspace_recovery import key
+        self.assertIsNotNone(self.w.close_recovery.cache.read(key(source)))
         self.assertTrue(tab.dirty)
         with patch.object(QFileDialog, 'getOpenFileName', return_value=('', '')):
             self.w.choose_file()
+        self.assertEqual(self.w.active_key, destination.key)
+        QTest.mouseClick(self.w.back, Qt.MouseButton.LeftButton)
+        self.events()
         self.assertEqual(self.w.active_key, tab.key)
+        self.assertEqual(tab.widget.toPlainText(), expected)
+        self.assertTrue(tab.widget.document().isUndoAvailable())
 
     def test_save_as_waits_without_saving_source_other_page_continues_and_cancel_resumes(self):
         a = self.open()
@@ -524,11 +535,18 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
         self.assertTrue((self.root/'Saved copy.md').exists())
         self.assertEqual(source.read_bytes(), before)
         self.assertTrue(tab.widget.operation_error)
-        self.assertFalse(self.w.close_tab(self.w.index_of(tab.key)))
         QTest.keyClicks(tab.widget, 'later')
         self.w.autosave.flush(tab)
         self.assertEqual(source.read_bytes(), before)
         self.assertIn(str(self.root/'Saved copy.md'), tab.widget.recovery_paths)
+        expected = tab.widget.toPlainText()
+        target = tab.path
+        self.assertTrue(self.w.close_tab(self.w.index_of(tab.key)))
+        from prompt_calculus_studio.workspace_recovery import key
+        self.assertIsNotNone(self.w.close_recovery.cache.read(key(target)))
+        reopened = self.open(target.name)
+        self.assertEqual(reopened.widget.toPlainText(), expected)
+        self.assertEqual(source.read_bytes(), before)
 
     def test_markdown_published_copy_cleanup_failure_stops_source_writer(self):
         tab = self.open()

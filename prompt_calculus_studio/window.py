@@ -58,10 +58,18 @@ class Window(QMainWindow):
         self.setWindowIcon(QIcon(str(Path(__file__).parent/"assets"/"studio.ico")))
         self.resize(1440,900); self.setMinimumSize(0,0) if embedded else self.setMinimumSize(640,480)
         self.store=shared_store if shared_store is not None else Storage(data_dir)
+        from .draft_cache import DraftCache
+        self.close_cache = DraftCache(self.store.directory)
         # A queued Canvas edit belongs to this document/workspace visit.
         self.canvas_edit_context=object()
         self.fresh_install=self.store.db.execute('SELECT 1 FROM document WHERE id=1').fetchone() is None
         self.state=shared_state if shared_state is not None else self.store.load_current(multi=os.environ.get('PROMPT_STUDIO_V08')=='1'); self.catalog=Catalog(self.store)
+        if shared_state is None:
+            recovered = self.close_cache.read('local-state')
+            if recovered:
+                from .state_loading import prepare_state
+                try:self.state = prepare_state(recovered, multi=os.environ.get('PROMPT_STUDIO_V08')=='1')
+                except (ValueError, KeyError, TypeError):pass
         from .canvas_starter import initialize
         if shared_state is None:self.state=initialize(self.state,fresh_install=self.fresh_install)
         interface=self.state['settings'].get('interface_mode','ask')
@@ -685,13 +693,14 @@ class Window(QMainWindow):
         if record is None: self.latest_preview.hide(); return
         self.latest_preview.setIcon(thumb_icon(self.store,record.get('thumb'),96)); self.latest_preview.setVisible(not self.canvas_mode)
 
-    def persist(self):
+    def persist(self, *, quiet=False):
         try:
             self.remember_canvas_view()
             self.store.save(self.state)
+            self.close_cache.clear('local-state')
             return True
         except Exception as exc:
-            self.error("資料儲存失敗，請先匯出備份。\n"+str(exc))
+            if not quiet:self.notice('資料儲存失敗：'+str(exc))
             return False
 
     def apply_theme(self, preserve_layout=False, refresh_fonts=False):
@@ -1396,6 +1405,7 @@ class Window(QMainWindow):
         except Exception as exc: self.error(str(exc))
 
     def closeEvent(self,event):
+        if page_ready(self.gallery):self.gallery.finish_album_edit()
         sheet=getattr(self,'stage_parameter_sheet',None)
         if sheet is not None and not getattr(sheet,'closed',False) and hasattr(sheet,'save_draft') and not sheet.save_draft():
             event.ignore();return
@@ -1420,11 +1430,13 @@ class Window(QMainWindow):
             self.notice("正在收尾背景工作，完成後關閉。")
             QTimer.singleShot(300,self.close); return
         try:
-            if page_ready(self.models):self.models.save()
+            if page_ready(self.models):self.models.details_editor.reject()
         except Exception as exc:
             self.error(str(exc)); event.ignore(); return
         self.save_timer.stop()
-        if not self.persist(): event.ignore(); return
+        if not self.persist(quiet=True):
+            try:self.close_cache.write('local-state',self.state)
+            except (OSError,ValueError) as error:self.notice(str(error))
         self.canvas_edit_context=object()
         if getattr(self, 'owns_comfy', True):self.comfy.shutdown()
         self.recent.refresh_timer.stop()

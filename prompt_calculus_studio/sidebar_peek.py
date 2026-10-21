@@ -217,6 +217,15 @@ class SidebarPeekController(QObject):
         if self.is_open:self.close()
         return self._borrow(target,pinned=True)
 
+    def reveal(self, target=None):
+        """Reveal for an inline edit without changing the pinned preference."""
+        target = target or self._current_target()
+        if self.is_open and self._borrowed is target:
+            self.close_timer.stop()
+            return True
+        if self.is_open:self._restore(False)
+        return bool(target is not None and self._borrow(target))
+
     def shutdown(self):
         """Release application-wide observers even when a closed window survives."""
         if self._shutdown:return

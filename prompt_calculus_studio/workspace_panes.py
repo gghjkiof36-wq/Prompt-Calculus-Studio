@@ -273,6 +273,7 @@ class WorkspacePanes:
                 if cached:return self.add_tab(cached, replace_current=not background, pane=pane, background=background)
             if path.suffix.casefold() == '.md':
                 page = MarkdownPage(path, matching[0].widget.buffer if matching else None, workspace=self)
+                if not matching:self.close_recovery.restore_markdown(page)
                 tab = Tab('md:'+uuid.uuid4().hex, path.stem, page, retained, path=path)
                 if not hasattr(page.buffer, 'save_key'):page.buffer.save_key = tab.key
                 PageObserver(self,tab)
@@ -285,6 +286,7 @@ class WorkspacePanes:
                         document.deleteLater()
                         raise ValueError('另一個位置的同身分文件已開啟，請先建立獨立副本。')
                     document.prepare()
+                    self.close_recovery.restore_document(document)
                     self.documents.append(document)
                 host = EmbeddedHost(document.data, document, workspace=self)
                 host.bind_workspace(self)

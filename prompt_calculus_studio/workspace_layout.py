@@ -124,6 +124,8 @@ class WorkspaceLayout(QObject):
         super().__init__(workspace)
         self.w = workspace
         self.path = workspace.data/'workspace-layout.json'
+        from .draft_cache import DraftCache
+        self.recovery = DraftCache(workspace.data)
         self.restoring = False
         self.stopped = False
         self.timer = QTimer(self)
@@ -177,12 +179,15 @@ class WorkspaceLayout(QObject):
                 output.cancelWriting()
                 raise OSError('無法完整寫入分頁布局。')
             if not output.commit():raise OSError(output.errorString())
+            self.recovery.clear('layout')
             return True
         except (OSError, ValueError, RuntimeError) as error:
-            self.w.show_notice('分頁布局尚未儲存：'+str(error)+'\n文件內容仍由各文件保存。')
+            try:self.recovery.write('layout', self.snapshot())
+            except (OSError, ValueError) as cache_error:self.w.show_notice(str(cache_error))
             return False
 
     def restore(self, value=None):
+        if value is None:value = self.recovery.read('layout')
         if value is None and not self.path.exists():return False
         try:
             if value is None:

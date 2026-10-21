@@ -283,8 +283,9 @@ class SourceView(QPlainTextEdit):
             self._metadata_snapshot=snapshot
             changed_line=None
             if not unchanged:
+                prepared = self.page.buffer.cached_syntax(snapshot.text)
                 change=self._source_change;self._source_change=None
-                if change:
+                if change and prepared is None:
                     position,removed,added=change
                     at=python_position(before,position)
                     n=max(0,bisect_right(self._line_starts,at)-1);old=previous[n]
@@ -298,7 +299,10 @@ class SourceView(QPlainTextEdit):
                         self.lines=previous[:n]+[item]+[dict(x,start=x['start']+delta,end=x['end']+delta) for x in previous[n+1:]]
                         changed_line=n
                         if getattr(self,'_fold_lines',None) is previous:self._fold_lines=self.lines
-                if changed_line is None:self.lines=self.line_metadata(snapshot.text,previous)
+                if prepared is not None:self.lines=prepared
+                elif changed_line is None:self.lines=self.line_metadata(snapshot.text,previous)
+                self.page.buffer.remember_syntax(before,previous)
+                self.page.buffer.remember_syntax(snapshot.text,self.lines)
                 self._line_starts=[item['start'] for item in self.lines]
             key=(self.mode,self.surface.zoom_percent,tuple(sorted(self.surface.preferences.items())),str(self.tokens()))
             if unchanged and getattr(self,'_presentation_key',None)==key:

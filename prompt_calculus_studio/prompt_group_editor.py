@@ -624,6 +624,9 @@ class MaterialPages(QWidget):
         root = copy.deepcopy(comp.prototype(f.base)); root['name'] = root['name'] or '組合 1'
         self.group_editor = None;self.group_editors={};self.variant_editor=None
         self.material_type=pm.kind(root);self.is_group=self.material_type!='text';self.root=root
+        self.restored = getattr(dialog, 'restored_draft', None) or {}
+        self.material_type = self.restored.get('type', self.material_type)
+        self.is_group = self.material_type != 'text'
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 8, 0, 4); layout.setSpacing(12)
         self.type_picker = ComboBox(self)
         for key,name in pm.TYPES.items():self.type_picker.addItem(name,key)
@@ -689,13 +692,13 @@ class MaterialPages(QWidget):
         self.group_details=button('管理',self.show_group_details,'Quiet');self.group_details.setCheckable(True);self.name_row.addWidget(self.group_details)
         self.details_toggle.toggled.connect(self.layout_limits)
         self.switch_type()
-        if root.get('variants'):self.enable_variants(existing=True)
+        if root.get('variants') or self.restored.get('variants'):self.enable_variants(existing=True)
 
     def enable_variants(self,existing=False):
         if self.variant_editor is not None:return
         from .prompt_variant_editor import VariantEditor
         root=copy.deepcopy(self.root);root['prompt']=self.dialog.prompt.toPlainText()
-        self.variant_editor=VariantEditor(root.get('variants') or pm.variants(root),self.single)
+        self.variant_editor=VariantEditor(self.restored.get('variants') or root.get('variants') or pm.variants(root),self.single)
         self.variant_editor.changed.connect(self.dialog.form.edited)
         self.variant_editor.layoutChanged.connect(self.dialog.fit_page)
         self.single_layout.insertWidget(1,self.variant_editor,1)
@@ -733,6 +736,7 @@ class MaterialPages(QWidget):
             standalone=self.material_type=='combination'
             group=pm.as_group(root,preserve_outer=False) if standalone else None
             sequence=(dict(version=1,mode='fixed',start=group['id'],selected=group['id'],groups=[group]) if standalone else groups.from_node(root))
+            sequence = copy.deepcopy(self.restored.get('groups', {}).get(self.material_type, sequence))
             self.group_editor = GroupEditor(self.dialog.page.window, sequence, standalone=standalone);self.gl.insertWidget(0,self.group_editor,1)
             self.group_editors[self.material_type]=self.group_editor
             self.group_editor.preview_renderer=self.render_preview

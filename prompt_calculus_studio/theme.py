@@ -273,6 +273,7 @@ def stylesheet(settings):
     {destructive_button_styles(t)}
     QLineEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {{ background:{t['field']}; border:1px solid {t['line']}; border-radius:8px; padding:7px 10px; selection-background-color:{t['selected']}; selection-color:{t['text']}; }}
     QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{ border-color:{accent}; }}
+    QListWidget#MediaFolders QLineEdit {{ padding:0px 6px; margin:0; border-radius:5px; }}
     QLineEdit:disabled, QPlainTextEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {{ background:{t['disabled_bg']}; color:{t['disabled_text']}; border-color:{t['line']}; }}
     QPlainTextEdit#Prompt {{ font-family:'Cascadia Mono','Consolas','Microsoft JhengHei'; font-size:{font_pixels(settings['prompt_size'])}px; background:{t['field']}; border-color:transparent; }}
     QPlainTextEdit#QuickSearch {{ background:{t['field']}; }}

@@ -58,6 +58,27 @@ class FormattedPasteTests(unittest.TestCase):
         self.app.clipboard().clear()
         fixture.WorkspacePaneTests.tearDown(self)
 
+    def test_chunked_insertion_shared_views_and_close_keep_one_complete_edit(self):
+        from prompt_calculus_studio.markdown_insertion import SourceInsertion
+        from prompt_calculus_studio.markdown_source import SourceEdit
+        from prompt_calculus_studio.markdown_syntax import line_info
+        tab=self.open('Notes.md');other=self.w.duplicate_view(tab,True)
+        buffer=tab.widget.buffer;before=buffer.snapshot()
+        replacement='## Heading\n\n保留內容 😀\n'*1200
+        merged=replacement+before.text
+        buffer.remember_syntax(merged,line_info(merged))
+        finished=[]
+        insertion=SourceInsertion(buffer,before,[SourceEdit(0,0,replacement)],lambda:finished.append(True))
+        insertion.step()
+        self.assertIsNotNone(buffer.mutation)
+        # Close while the transaction is between GUI turns, not only at rest.
+        self.assertTrue(self.w.close_tab(self.w.index_of(tab.key),pane=self.w.pane_for(tab)))
+        self.assertEqual(finished,[True])
+        self.assertEqual(other.widget.toPlainText(),merged)
+        self.assertEqual(tab.path.read_bytes(),other.widget.encoded())
+        other.widget.undo();self.assertEqual(other.widget.toPlainText(),before.text)
+        other.widget.redo();self.assertEqual(other.widget.toPlainText(),merged)
+
     def test_mime_priority_selection_shared_undo_save_and_reopen(self):
         (self.root/'Notes.md').write_text('before SELECT after', encoding='utf-8')
         tab = self.open('Notes.md')

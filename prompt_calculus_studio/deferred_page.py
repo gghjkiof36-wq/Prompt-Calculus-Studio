@@ -8,6 +8,7 @@ class DeferredToolPage(QWidget):
         self._factory = factory
         self._parented = parented
         self._page = None
+        self.hide()  # A parented tool outside the active stack must stay deferred.
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)

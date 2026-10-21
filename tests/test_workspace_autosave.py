@@ -121,7 +121,7 @@ class WorkspaceAutosaveTests(unittest.TestCase):
         self.assertEqual(b.path.read_text(), 'B')
         self.assertFalse(a.dirty or b.dirty)
 
-    def test_failed_write_keeps_editor_and_only_shows_an_expiring_notice(self):
+    def test_failed_write_keeps_recovery_and_only_shows_an_expiring_notice(self):
         tab = self.open('Notes', 'md', True)
         before = tab.path.read_bytes()
         geometry = self.w.centralWidget().geometry()
@@ -129,10 +129,10 @@ class WorkspaceAutosaveTests(unittest.TestCase):
             QTest.keyClicks(tab.widget, 'unsaved')
             self.settled()
             self.assertTrue(tab.dirty)
-            self.assertFalse(self.w.close_tab(self.w.index_of(tab.key)))
-        self.assertIn(tab.key, self.w.tabs_by_key)
+            self.assertTrue(self.w.close_tab(self.w.index_of(tab.key)))
+        self.assertNotIn(tab.key, self.w.tabs_by_key)
         self.assertEqual(tab.path.read_bytes(), before)
-        self.assertIn('尚未儲存', self.w.notification.text())
+        self.assertIn('恢復副本', self.w.notification.text())
         self.assertTrue(self.w.notification.isVisible())
         self.assertIsNone(self.app.activeModalWidget())
         self.assertEqual(self.w.centralWidget().geometry(), geometry)
@@ -140,6 +140,7 @@ class WorkspaceAutosaveTests(unittest.TestCase):
         self.events()
         self.assertFalse(self.w.notification.isVisible())
         self.assertEqual(self.w.centralWidget().geometry(), geometry)
+        tab=self.open('Notes','md',True)
         self.assertTrue(self.w.save_current())
         self.assertFalse(tab.dirty)
         self.assertTrue(tab.path.read_bytes().startswith(b'\xef\xbb\xbfunsaved'))
@@ -159,12 +160,12 @@ class WorkspaceAutosaveTests(unittest.TestCase):
         self.settled()
         self.assertEqual(tuple(io.recovery_files(self.root, tab.path.name)), retained)
         with patch.object(QMessageBox, 'exec', side_effect=AssertionError('modal save prompt')):
-            self.assertFalse(self.w.close_tab(self.w.index_of(tab.key)))
-        self.assertIn(tab.key, self.w.tabs_by_key)
+            self.assertTrue(self.w.close_tab(self.w.index_of(tab.key)))
+        self.assertNotIn(tab.key, self.w.tabs_by_key)
         candidates = [Path(p) for p in tab.document.last_result.recovery_paths if p.endswith('.candidate')]
         self.assertTrue(candidates)
         self.assertEqual(schema.decode(candidates[0].read_bytes())['payload']['state']['multi_output']['outputs'][key]['draft'], 'local text')
-        self.assertIn('外部', self.w.notification.text())
+        self.assertIn('恢復副本', self.w.notification.text())
 
     def test_window_close_flushes_all_files_before_removing_tabs(self):
         a = self.open('Notes', 'md', True)

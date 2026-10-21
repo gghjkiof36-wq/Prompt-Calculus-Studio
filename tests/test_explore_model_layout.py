@@ -66,6 +66,30 @@ class ExploreModelLayoutTests(unittest.TestCase):
         self.assertEqual(model.search.text(),''); self.assertEqual(model.list.count(),1)
         self.assertEqual(self.w.catalog.get(record['id'])['trigger'],'original trigger')
 
+    def test_failed_model_edit_is_cached_and_can_retry_after_dismissal(self):
+        self.w.settings('models');record=self.add_model();model=self.w.models
+        model.list.setCurrentRow(0);model.open_details();self.settle()
+        model.notes.setPlainText('keep this draft')
+        with patch.object(model.catalog,'put',side_effect=OSError('write failed')):
+            model.details_editor.reject()
+        self.assertFalse(model.details_editor.isVisible())
+        self.assertEqual(model.draft_cache.read('model:'+record['id'])['notes'],'keep this draft')
+        self.assertNotEqual(model.catalog.get(record['id'])['notes'],'keep this draft')
+        model.save()
+        self.assertEqual(model.catalog.get(record['id'])['notes'],'keep this draft')
+        self.assertIsNone(model.draft_cache.read('model:'+record['id']))
+
+    def test_failed_preview_removal_preserves_current_image_without_modal(self):
+        self.w.settings('models');record=self.add_model();model=self.w.models
+        record['thumb']='previews/retained.png'
+        model.catalog.put('model',record,record['root'])
+        model.refresh();model.list.setCurrentRow(0)
+        with patch.object(model.catalog,'put',side_effect=OSError('write failed')),patch.object(self.w,'error') as modal:
+            model.clear_preview()
+        modal.assert_not_called()
+        self.assertEqual(model.record['thumb'],record['thumb'])
+        self.assertEqual(model.catalog.get(record['id'])['thumb'],record['thumb'])
+
     def test_narrow_large_type_detail_stays_reachable_and_returns_without_losing_edits(self):
         self.w.settings('models'); self.add_model(); model=self.w.models
         for palette,width,size in (('graphite',1440,11),('paper',800,18),('mist',640,18)):
@@ -75,10 +99,15 @@ class ExploreModelLayoutTests(unittest.TestCase):
             model.list.setCurrentRow(0); model.select(model.list.currentItem()); self.settle()
             self.assertTrue(model.detail_scroll.isVisible())
             self.assertLessEqual(model.detail.width(),model.detail_scroll.viewport().width())
-            model.detail_scroll.ensureWidgetVisible(model.notes); self.settle()
-            local=model.notes.mapTo(model.detail_scroll.viewport(),QPoint())
-            self.assertLess(local.y(),model.detail_scroll.viewport().height())
+            self.assertFalse(model.name.isVisible())
+            QTest.mouseClick(model.details_button,Qt.MouseButton.LeftButton); self.settle()
+            content=model.details_editor.tabs.widget(0)
+            local=model.notes.mapTo(content,model.notes.rect().bottomRight())
+            self.assertLess(local.y(),content.height())
+            self.assertGreater(model.notes.height(),model.notes.fontMetrics().height())
             model.notes.setPlainText('preserved '+palette)
+            QTest.keyClick(model.notes,Qt.Key.Key_Escape);self.settle()
+            self.assertFalse(model.details_editor.isVisible())
             model.list.setCurrentRow(-1); self.settle()
             self.assertFalse(model.detail_scroll.isVisible()); self.assertTrue(model.library_panel.isVisible())
             self.assertEqual(self.w.catalog.get('model')['notes'],'preserved '+palette)
@@ -101,7 +130,11 @@ class ExploreModelLayoutTests(unittest.TestCase):
         self.assertEqual(model.detail_title.text(),record['name'])
         self.assertLessEqual(model.detail_scroll.width(),400)
         self.assertLessEqual(abs(model.detail.mapTo(model,QPoint()).y()-model.list.mapTo(model,QPoint()).y()),4)
-        self.assertLess(model.notes.mapTo(model.detail,QPoint()).y(),model.source_version.mapTo(model.detail,QPoint()).y())
+        self.assertFalse(model.name.isVisible())
+        model.open_details();self.settle()
+        self.assertTrue(model.name.isVisible());self.assertFalse(model.source_version.isVisible())
+        model.details_editor.tabs.setCurrentIndex(1);self.settle()
+        self.assertTrue(model.source_version.isVisible());self.assertFalse(model.name.isVisible())
         before=dict(self.w.catalog.get('model')['civitai'])
         model.trigger.setPlainText('personal trigger'); model.notes.setPlainText('personal notes'); model.save()
         saved=self.w.catalog.get('model')
@@ -131,14 +164,21 @@ class ExploreModelLayoutTests(unittest.TestCase):
         self.assertLess(model.base_filter.fontMetrics().horizontalAdvance(model.base_filter.currentText()),model.base_filter.width()-40)
         self.assertIn('SDXL',model.base_filter.toolTip())
         self.w.resize(640,480); model.list.setCurrentRow(0); self.settle()
-        self.assertLessEqual(model.preview.height(),120)
-        self.assertLessEqual(model.preview.pixmap().height(),model.preview.height())
-        self.assertEqual(model.preview.pixmap().width()*2,model.preview.pixmap().height())
+        self.assertTrue(model.summary_preview.isVisible())
+        self.assertLessEqual(model.summary_preview.pixmap().height(),model.summary_preview.height())
+        self.assertEqual(model.summary_preview.pixmap().width()*2,model.summary_preview.pixmap().height())
         self.assertEqual(model.detail_title.text(),record['name'])
         viewport=model.detail_scroll.viewport()
-        first_edit=model.name.mapTo(viewport,QPoint())
+        viewport_scroll=model.detail_scroll
+        viewport_scroll.ensureWidgetVisible(model.details_button);self.settle()
+        action=model.details_button.mapTo(viewport,QPoint())
+        self.assertGreaterEqual(action.y(),0)
+        self.assertLessEqual(action.y()+model.details_button.height(),viewport.height())
+        model.open_details();self.settle()
+        content=model.details_editor.tabs.widget(0)
+        first_edit=model.name.mapTo(content,QPoint())
         self.assertGreaterEqual(first_edit.y(),0)
-        self.assertLessEqual(first_edit.y()+model.name.height(),viewport.height())
+        self.assertLessEqual(first_edit.y()+model.name.height(),content.height())
         model.notes.setPlainText('retained narrow edit'); model.list.setCurrentRow(-1); self.settle()
         self.assertEqual(model.base_filter.currentText(),'SDXL')
         self.assertEqual(self.w.catalog.get('model')['notes'],'retained narrow edit')

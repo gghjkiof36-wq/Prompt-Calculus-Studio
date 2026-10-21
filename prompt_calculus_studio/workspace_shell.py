@@ -100,6 +100,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.data = Path(data).absolute()
         self.root = remembered_root(root, (self.data/'workspace-layout.json').is_file())
         self.data.mkdir(parents=True, exist_ok=True)
+        from .workspace_recovery import CloseRecovery
+        self.close_recovery = CloseRecovery(self)
         self.session = self.data / 'sessions' / uuid.uuid4().hex
         self.session.mkdir(parents=True)
         self.tabs_by_key = {}
@@ -1005,7 +1007,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         tab = self.tabs_by_key.get(self.active_key)
         return self.save_tab(tab) if tab else False
 
-    def save_tab(self, tab):
+    def save_tab(self, tab, *, quiet=False):
         if id(tab) in self.autosave.paused or self.autosave.key(tab) in self.autosave.saving:
             return False
         if getattr(tab.document or tab.widget, 'operation_error', False):
@@ -1023,46 +1025,48 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         finally:
             self.autosave.saving.discard(self.autosave.key(tab))
         self.update_tab(tab)
-        if not saved:
+        if not saved and not quiet:
             reason = tab.document.error if tab.document else tab.widget.error
             pending = getattr(tab.document, 'pending_material_uses', set())
             if pending and pending.intersection(tab.document.state.get('uses', {})):
                 self.material_transfer.error('已加入，尚未自動儲存：'+(reason or '請先完成目前的編輯。')
                                              +'\n內容已保留。Ctrl+S 重試；Ctrl+Shift+S 另存。')
             else:
-                self.show_notice('「' + tab.title + '」尚未儲存：' + (reason or '請先完成目前的編輯。')
-                                 + '\n內容已保留。Ctrl+S 重試；Ctrl+Shift+S 另存。')
-        elif tab.document:
+                self.show_notice('「' + tab.title + '」儲存失敗：' + (reason or '無法寫入檔案。'))
+        elif saved and tab.document:
             tab.document.pending_material_uses = set()
         elif saved and hasattr(self, 'notebook') and isinstance(tab.widget, MarkdownPage):
             self.notebook.saved(tab.widget)
+        if saved:self.close_recovery.clear(tab.path)
         return saved
 
     def prepare_close(self, tab, decision=None):
+        buffer = getattr(tab.widget, 'buffer', None)
+        if buffer is not None:buffer.flush_mutation()
         if id(tab) in self.autosave.paused:
             self.show_notice('請先完成或取消目前的文件操作。')
             return False
         if decision == 'discard':
             return True
-        if getattr(getattr(tab.widget, 'buffer', None), 'composing', False):
-            self.show_notice('請先完成目前的中文組字。')
-            return False
-        if getattr(tab.document or tab.widget, 'operation_error', False):
-            self.show_notice((tab.document or tab.widget).error)
-            return False
-        document = tab.document
-        if document:
-            if decision == 'save':
-                for host in document.hosts:
-                    dialog = getattr(getattr(host, 'prompt_editor', None), 'active_dialog', None)
-                    if dialog is not None and not dialog.save():return False
-            if not document.flush_views():
-                self.show_notice('請先完成素材表單的確認或取消，內容已保留。')
-                return False
-            document.update_dirty()
         if decision == 'cancel':
             return not tab.dirty
-        return not tab.dirty or self.save_tab(tab)
+        if getattr(getattr(tab.widget, 'buffer', None), 'composing', False):
+            QApplication.inputMethod().commit()
+        document = tab.document
+        if document:
+            for host in document.hosts:
+                dialog = getattr(getattr(host, 'prompt_editor', None), 'active_dialog', None)
+                if dialog is not None:
+                    if decision == 'save' and not dialog.save(False):return False
+                    dialog.reject()  # Normal dismissal persists its isolated draft.
+            if not document.flush_views():
+                self.close_recovery.preserve(tab)
+                return True
+            document.update_dirty()
+        if not tab.dirty:return True
+        if not getattr(tab.document or tab.widget, 'operation_error', False) and self.save_tab(tab, quiet=True):return True
+        self.close_recovery.preserve(tab)
+        return True
 
 
 
@@ -1174,9 +1178,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             if not self.prepare_close(tab):
                 event.ignore()
                 return
-        if not self.layout_store.save():
-            event.ignore()
-            return
+        self.layout_store.save()
         if self.utility and not self.utility.close():
             event.ignore()
             return
