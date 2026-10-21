@@ -81,16 +81,24 @@ class ImageLoader(QObject):
 class Preview(QLabel):
     def __init__(self):
         super().__init__(); self.image=QImage(); self.height_limit=420; self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.relayout=QTimer(self); self.relayout.setSingleShot(True); self.relayout.timeout.connect(self.fit_height)
         self.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed); self.setMinimumWidth(0); self.fit_height()
     def clear(self):
         self.image=QImage(); super().clear(); self.fit_height(); self.update()
     def set_image(self,image):
         self.image=image; self.setText(''); self.fit_height(); self.update()
     def fit_height(self):
+        self.relayout.stop()
         limit=max(1,int(self.height_limit))
         height=220 if self.image.isNull() else max(1,round(self.width()*self.image.height()/self.image.width()))
-        self.setFixedHeight(min(limit,height))
-    def resizeEvent(self,event):super().resizeEvent(event); self.fit_height()
+        height=min(limit,height)
+        if self.minimumHeight()!=height or self.maximumHeight()!=height:self.setFixedHeight(height)
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        # A height change here re-enters QScrollArea layout while it is applying
+        # a new viewport width. Defer and coalesce width changes to break that
+        # recursion; height-only events do not need another measurement.
+        if event.size().width()!=event.oldSize().width():self.relayout.start(0)
     def paintEvent(self,event):
         painter=QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing); painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         area=QRectF(self.contentsRect()); path=QPainterPath(); path.addRoundedRect(area,12,12)

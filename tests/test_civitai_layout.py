@@ -109,6 +109,27 @@ class CivitAIRevisionLayoutTests(unittest.TestCase):
         self.assertLess(page.filter_button.mapTo(page, page.filter_button.rect().topRight()).x(), page.width())
         self.assertEqual(page.list.visualItemRect(item).y(),page.list.visualItemRect(second).y())
 
+    def test_repeated_image_details_and_width_changes_do_not_reenter_layout(self):
+        page=self.page
+        for index in range(30):
+            record=dict(id=index,name=f'Model {index}',type='LORA',modelVersions=[
+                dict(id=100+index,name='v1',baseModel='SDXL 1.0',images=[],_details_loaded=True,
+                     trainedWords=['coastal light'],stats={'downloadCount':1200} if index%2 else {},files=[])])
+            item=QListWidgetItem('Example');item.setData(Qt.ItemDataRole.UserRole,record);page.list.addItem(item)
+        image=QImage(600,900,QImage.Format.Format_RGB32);image.fill(0xff65827a)
+        for attempt in range(40):
+            page.list.setCurrentRow(attempt%30);page.preview.set_image(image)
+            QTest.mouseClick(page.details_toggle,Qt.MouseButton.LeftButton);QTest.qWait(5)
+            QTest.mouseClick(page.detail_back,Qt.MouseButton.LeftButton);QTest.qWait(5)
+            QTest.mouseClick(page.detail_toggle,Qt.MouseButton.LeftButton);QTest.qWait(5)
+            if attempt%8==0:
+                self.w.resize(*((800,640) if attempt%16 else (1440,960)));QTest.qWait(5)
+        QTest.qWait(30)
+        self.assertTrue(self.w.isVisible());self.assertEqual(page.current['id'],9)
+        expected=min(page.preview.height_limit,round(page.preview.width()*1.5))
+        self.assertEqual(page.preview.height(),expected)
+        self.assertGreater(page.brief.y(),page.preview.geometry().bottom())
+
 
 if __name__ == '__main__':
     unittest.main()
