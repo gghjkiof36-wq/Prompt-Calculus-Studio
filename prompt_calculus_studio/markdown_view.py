@@ -458,10 +458,13 @@ class SourceView(QPlainTextEdit):
             if self.mode == 'write':
                 if item['heading']:
                     fmt.setTopMargin(6 if number else 2);fmt.setBottomMargin(6)
-                for span in spans(item['text']):
-                    if span.start == 0 and span.end == len(item['text']):
-                        if span.style.get('align'):fmt.setAlignment({'left':Qt.AlignmentFlag.AlignLeft,'center':Qt.AlignmentFlag.AlignHCenter,'right':Qt.AlignmentFlag.AlignRight,'justify':Qt.AlignmentFlag.AlignJustify}[span.style['align']])
-                        if span.style.get('indent'):fmt.setLeftMargin(span.style['indent']*self.fontMetrics().horizontalAdvance('M'))
+                # Only a tag starting at the original first character can
+                # supply an alignment/indent span covering the whole line.
+                if item['text'].startswith('<'):
+                    for span in spans(item['text']):
+                        if span.start == 0 and span.end == len(item['text']):
+                            if span.style.get('align'):fmt.setAlignment({'left':Qt.AlignmentFlag.AlignLeft,'center':Qt.AlignmentFlag.AlignHCenter,'right':Qt.AlignmentFlag.AlignRight,'justify':Qt.AlignmentFlag.AlignJustify}[span.style['align']])
+                            if span.style.get('indent'):fmt.setLeftMargin(span.style['indent']*self.fontMetrics().horizontalAdvance('M'))
             height = self.surface.preferences.get('line_height',150) if self.mode == 'write' else 130
             if self.mode == 'write' and item['heading']:height = 120
             fmt.setLineHeight(height, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
