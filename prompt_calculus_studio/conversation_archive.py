@@ -216,6 +216,7 @@ class Archive:
     conversations: list
     members: tuple
     limits: Limits
+    conversation_members: frozenset = frozenset()
 
     def verify(self, stream, cancel, *, full=True):
         path, stamp = safe_source(self.path, self.limits)
@@ -229,11 +230,14 @@ class Archive:
         value = str(reference)
         for prefix in ('file-service://', 'sandbox:/mnt/data/', 'attachment://'):
             if value.startswith(prefix):value = value[len(prefix):]
-        exact = [name for name in self.members if name == value]
-        if exact:return exact[0], ''
         # File IDs and explicit exported filenames only; never match by message title.
-        matches = [name for name in self.members if PurePosixPath(name).name == value or
-                   value.startswith('file-') and PurePosixPath(name).name.startswith((value+'-', value+'_', value+'.'))]
+        names = self.members + tuple(self.conversation_members)
+        matches = [value] if value in names else [name for name in names if PurePosixPath(name).name == value or
+                  value.startswith('file-') and PurePosixPath(name).name.startswith((value+'-', value+'_', value+'.'))]
+        # Retain carrier matches for an explicit explanation and ambiguity
+        # checks, but never let an attachment reference copy the conversation set.
+        if matches and all(name in self.conversation_members for name in matches):
+            return None, '對話來源檔不作為附件匯入；所選對話另存於原始對話.json'
         if len(matches) == 1:return matches[0], ''
         return None, '有多個可能附件，未猜測配對' if matches else '封存未提供這個附件'
 
@@ -242,7 +246,7 @@ def load_archive(path, cancel=None, progress=lambda text: None, limits=Limits())
     cancel = cancel or Event()
     path, stamp = safe_source(path, limits)
     if path.suffix.lower() not in ('.json', '.zip'):raise ValueError('請選擇 ZIP 或 JSON 對話封存。')
-    conversations, seen, members = [], set(), ()
+    conversations, seen, members, sources = [], set(), (), frozenset()
     nodes = 0
     with pinned_parent(path), reader(path) as stream:
         if identity(os.fstat(stream.fileno())) != stamp:raise ValueError('來源檔案在開啟時被替換。')
@@ -264,9 +268,9 @@ def load_archive(path, cancel=None, progress=lambda text: None, limits=Limits())
             try:
                 with ZipFile(stream) as archive:
                     entries = zip_members(archive, limits)
-                    members = tuple(entries)
-                    sources = [name for name in entries if re.fullmatch(r'conversations(?:[-_]\d+)?\.json', PurePosixPath(name).name, re.I)]
+                    sources = frozenset(name for name in entries if re.fullmatch(r'conversations(?:[-_]\d+)?\.json', PurePosixPath(name).name, re.I))
                     if not sources:raise ValueError('ZIP 裡找不到 conversations.json 或 conversations-數字.json。')
+                    members = tuple(name for name in entries if name not in sources)
                     for name in sorted(sources):
                         progress('正在讀取 '+name+'…')
                         with archive.open(name) as member:
@@ -274,7 +278,7 @@ def load_archive(path, cancel=None, progress=lambda text: None, limits=Limits())
             except (BadZipFile, RuntimeError, NotImplementedError) as error:
                 raise ValueError('ZIP 無法讀取：'+str(error)) from error
         else:add(read_chunks(stream, limits.source, cancel))
-        result = Archive(path, stamp, digest, conversations, members, limits)
+        result = Archive(path, stamp, digest, conversations, members, limits, sources)
         result.verify(stream, cancel, full=False)
     if not conversations:raise ValueError('封存沒有可匯入的對話。')
     progress(f'已讀取 {len(conversations)} 段對話')

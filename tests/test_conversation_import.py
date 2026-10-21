@@ -117,6 +117,112 @@ class ConversationImportTests(unittest.TestCase):
         self.assertIn('missing', index)
         self.assertFalse((folder/'account.json').exists())
 
+    def test_conversation_carriers_cannot_be_imported_as_attachments(self):
+        cases = (
+            ('conversations.json', 'conversations.json'),
+            ('nested/Conversations.JSON', 'nested/Conversations.JSON'),
+            ('nested/conversations-1.json', 'conversations-1.json'),
+            ('nested/deep/conversations_2.json', 'sandbox:/mnt/data/nested/deep/conversations_2.json'),
+            ('nested/conversations-3.json', 'attachment://nested/conversations-3.json'),
+            ('conversations_4.json', 'file-service://conversations_4.json'),
+        )
+        marker = 'SYNTHETIC_UNSELECTED_CARRIER_MESSAGE'
+        for number, (member, reference) in enumerate(cases):
+            with self.subTest(member=member, reference=reference):
+                value = sample('selected-'+str(number))
+                value['mapping']['a']['message']['metadata']['attachments'] = [
+                    {'name': reference}, {'path': 'notes/settings.json'}, {'file_id': 'file-picture'}]
+                private = sample('unselected', marker)
+                source_path = self.base/f'carrier-{number}.zip'
+                ordinary_json = b'{"setting":"selected attachment"}'
+                media = b'synthetic selected image'
+                with ZipFile(source_path, 'w') as zipped:
+                    zipped.writestr(member, json.dumps([value, private]))
+                    zipped.writestr('notes/settings.json', ordinary_json)
+                    zipped.writestr('file-picture.png', media)
+                before = source_path.read_bytes()
+                archive = load_archive(source_path)
+                result = self.run_import(archive)
+                self.assertEqual(len(result.completed), 1)
+                self.assertEqual(result.failed, [])
+                folder = result.completed[0].parent
+                self.assertFalse(any(marker.encode() in path.read_bytes()
+                                     for path in folder.rglob('*') if path.is_file()))
+                self.assertEqual(json.loads((folder/'原始對話.json').read_text(encoding='utf-8')), value)
+                self.assertEqual(len(list(folder.glob('分支-*.md'))), 2)
+                self.assertEqual({path.read_bytes() for path in (folder/'assets').iterdir()},
+                                 {ordinary_json, media})
+                receipt = json.loads((folder/RECEIPT).read_text(encoding='utf-8'))
+                self.assertEqual(set(receipt['attachments']), {'notes/settings.json', 'file-picture.png'})
+                self.assertTrue(any('對話來源檔' in warning for warning in receipt['warnings']))
+                index = result.completed[0].read_text(encoding='utf-8')
+                self.assertIn('對話來源檔', index)
+                self.assertIn(reference, index.replace(r'\_', '_'))
+                self.assertEqual(source_path.read_bytes(), before)
+
+    def test_other_nested_shards_and_duplicate_carriers_stay_out_of_attachments(self):
+        value = sample()
+        names = ('a/conversations-1.json', 'b/deep/conversations_2.json',
+                 'c/conversations.json', 'd/conversations.json')
+        references = [*names, 'conversations_2.json', 'conversations.json']
+        value['mapping']['c']['message']['metadata']['attachments'] = [{'name': ref} for ref in references]
+        marker = 'SYNTHETIC_UNSELECTED_OTHER_SHARD'
+        private = sample('unselected', marker)
+        self.source = self.base/'shards.zip'
+        with ZipFile(self.source, 'w') as zipped:
+            zipped.writestr(names[0], json.dumps([value]))
+            zipped.writestr(names[1], json.dumps([private]))
+            zipped.writestr(names[2], json.dumps([value, private]))
+            zipped.writestr(names[3], json.dumps([private]))
+        before = self.source.read_bytes()
+        archive = load_archive(self.source)
+        self.assertEqual(len(archive.conversations), 2)
+        result = self.run_import(archive)
+        self.assertEqual(len(result.completed), 1)
+        self.assertEqual(result.failed, [])
+        folder = result.completed[0].parent
+        self.assertFalse((folder/'assets').exists())
+        self.assertFalse(any(marker.encode() in path.read_bytes()
+                             for path in self.dest.rglob('*') if path.is_file()))
+        self.assertEqual(json.loads((folder/'原始對話.json').read_text(encoding='utf-8')), value)
+        receipt = json.loads((folder/RECEIPT).read_text(encoding='utf-8'))
+        self.assertEqual(receipt['attachments'], {})
+        self.assertEqual(len(receipt['warnings']), len(references))
+        self.assertTrue(all('對話來源檔' in warning for warning in receipt['warnings']))
+        self.assertEqual(self.source.read_bytes(), before)
+
+    def test_reimport_after_carrier_fix_preserves_old_edits_and_creates_safe_copy(self):
+        value = sample()
+        value['mapping']['a']['message']['metadata']['attachments'] = [{'name': 'conversations.json'}]
+        marker = 'SYNTHETIC_UNSELECTED_OLD_IMPORT'
+        self.source = self.base/'previous-import.zip'
+        with ZipFile(self.source, 'w') as zipped:
+            zipped.writestr('conversations.json', json.dumps([value, sample('unselected', marker)]))
+        before = self.source.read_bytes()
+        archive = load_archive(self.source)
+        # Reproduce the prior resolver in this fixture only, retaining its receipt
+        # and edited note to exercise migration without rewriting old output.
+        with patch.object(archive, 'attachment', return_value=('conversations.json', '')):
+            old = self.run_import(archive).completed[0]
+        self.assertTrue(any(marker.encode() in path.read_bytes() for path in old.parent.rglob('*') if path.is_file()))
+        old.write_text('existing user edit', encoding='utf-8')
+        old_files = {path.relative_to(old.parent): path.read_bytes()
+                     for path in old.parent.rglob('*') if path.is_file()}
+
+        result = self.run_import(archive)
+        self.assertEqual(result.failed, [])
+        self.assertEqual(result.skipped, [])
+        self.assertEqual(len(result.completed), 1)
+        fresh = result.completed[0]
+        self.assertNotEqual(fresh, old)
+        self.assertFalse(any(marker.encode() in path.read_bytes() for path in fresh.parent.rglob('*') if path.is_file()))
+        self.assertEqual(json.loads((fresh.parent/'原始對話.json').read_text(encoding='utf-8')), value)
+        self.assertEqual(len(list(fresh.parent.glob('分支-*.md'))), 2)
+        self.assertEqual(self.run_import(archive).skipped, [fresh])
+        self.assertEqual({path.relative_to(old.parent): path.read_bytes()
+                          for path in old.parent.rglob('*') if path.is_file()}, old_files)
+        self.assertEqual(self.source.read_bytes(), before)
+
     def test_unknown_parts_tool_messages_and_metadata_are_not_dropped(self):
         value = sample()
         value['mapping']['b']['message']['author']['role'] = 'tool'
