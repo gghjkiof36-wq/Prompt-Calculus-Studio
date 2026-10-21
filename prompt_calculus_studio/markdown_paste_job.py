@@ -13,6 +13,7 @@ class PreparedPaste(QObject):
         super().__init__(editor)
         self.editor = editor
         self.job = None
+        self.insertion = None
 
     def start(self, html):
         surface = self.editor.surface
@@ -56,6 +57,7 @@ class PreparedPaste(QObject):
             text, merged, lines = result
             def complete():
                 self.job = None
+                self.insertion = None
                 cursor = editor.textCursor()
                 cursor.setPosition(utf16_position(editor.page.buffer.snapshot().text, self.start_at+len(text)))
                 editor.setTextCursor(cursor)

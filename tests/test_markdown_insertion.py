@@ -2,8 +2,9 @@
 import time
 import unittest
 
-from PySide6.QtCore import QMimeData, QTimer
+from PySide6.QtCore import QEvent, QMimeData, QTimer
 from PySide6.QtTest import QTest
+from shiboken6 import isValid
 
 from prompt_calculus_studio.markdown_source import utf16_position
 import test_workspace_panes as fixture
@@ -77,6 +78,56 @@ class InsertionViewTests(unittest.TestCase):
         self.assertFalse(reopened.widget.buffer.opening)
         self.assertEqual(self.assert_source(reopened, expected_text), expected_bytes)
         self.assertEqual(path.read_bytes(), expected_bytes)
+
+    def paste_complete(self, tab):
+        editor = tab.widget.md_surface.editor
+        mime = QMimeData()
+        mime.setHtml('<p>再次貼上 retained 😀</p>' * 7000)
+        editor.insertFromMimeData(mime)
+        deadline = time.monotonic()+15
+        while editor.prepared_paste.job is not None and time.monotonic() < deadline:
+            QTest.qWait(5)
+        self.assertEqual(self.errors, [])
+        self.assertIsNone(editor.prepared_paste.job)
+        self.assertIsNone(editor.prepared_paste.insertion)
+        self.assertIsNone(tab.widget.buffer.mutation)
+        self.assertFalse(editor.isReadOnly())
+
+    def surviving_paste(self, close_initiator):
+        path = self.root/'Notes.md'
+        original = path.read_bytes()
+        first = self.open('Notes.md', new_tab=True)
+        second = self.w.duplicate_view(first, True)
+        self.paste_complete(second)
+        once = self.assert_source(second, second.widget.buffer.snapshot().text)
+        closed, survivor = (second, first) if close_initiator else (first, second)
+        # Deliberately retain the Python wrappers after native destruction.
+        # Later transactions must still exclude this closed view.
+        old_page, old_editor = closed.widget, closed.widget.md_surface.editor
+        self.assertTrue(self.w.close_tab(self.w.index_of(closed.key), pane=self.w.pane_for(closed)))
+        self.app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.assertFalse(isValid(old_page))
+        self.assertFalse(isValid(old_editor))
+        self.paste_complete(survivor)
+        twice_text = survivor.widget.buffer.snapshot().text
+        twice = self.assert_source(survivor, twice_text)
+        self.assertNotEqual(twice, once)
+        survivor.widget.undo()
+        self.assertEqual(survivor.widget.encoded(), once)
+        survivor.widget.undo()
+        self.assertEqual(survivor.widget.encoded(), original)
+        survivor.widget.redo()
+        survivor.widget.redo()
+        self.assertEqual(self.assert_source(survivor, twice_text), twice)
+        self.assertTrue(self.w.save_tab(survivor, quiet=True), survivor.widget.error)
+        self.assertTrue(self.w.close_tab(self.w.index_of(survivor.key), pane=self.w.pane_for(survivor)))
+        self.reopen(path, twice, twice_text)
+
+    def test_paste_again_after_closing_peer_with_retained_wrapper(self):
+        self.surviving_paste(False)
+
+    def test_paste_in_survivor_after_closing_paste_initiator(self):
+        self.surviving_paste(True)
 
     def test_new_split_view_input_save_reopen_and_separate_paste_undo(self):
         marker = 'NEWVIEWTYPED'
