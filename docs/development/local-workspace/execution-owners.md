@@ -25,8 +25,16 @@ Stage pump、輸入套用與 Queue／Direct dispatch 在取出項目之前取得
 
 「任務紀錄」集中列出工作區文件及另存前任務，可查詢或停止後續流程。已分離的紀錄不提供繼續／重試入口，避免從舊內容發起新任務；重新執行由開啟的文件明確開始。
 
+## 連線與執行能力
+
+連線成功不代表工作流可以執行。`snapshot_version_compatible` 單獨核對資料格式，`snapshot_compatible` 繼續連同所需的工作流能力阻擋不相容操作。資料格式可讀但能力缺少時，優先顯示服務回報的 `native_unavailable_reason`；例如單一使用者模式限制，不能當成擴充版本過舊。沒有具體原因時只顯示工作流功能未提供；確定資料格式不支援才提示更新配套擴充。Canvas 與連線流程共用 `compatibility_message`，不另寫一份更新判定。
+
+斷線仍保留原有暫停與任務核對流程；只有斷線前確實存在待處理工作時，才通知內容已保留。無工作時不產生這則通知。
+
 ## 驗證
 
 `tests/test_workspace_execution.py` 使用共用的合成原生回執／佇列服務，經實際 Qt 執行控制與正式 journal／Stage 引擎，檢查多文件順序、多步流程、輸入凍結、取消、回覆遺失、無分頁恢復、Save As、路徑更名及保存失敗。`test_workspace_connection.py` 使用隔離的本機 HTTP peer 檢查實際 Qt 連線傳輸與燈號。這些不等於真實 ComfyUI、GPU 或使用者桌面驗收。
 
 `test_workspace_binding.py` 直接經分頁 Canvas 的綁定按鈕驗證節點選擇、復原／重做、保存及重開，並檢查圖片綁定、Stage 參數套用、同文件共用目錄及不同文件的取消／延遲回覆隔離。`test_workflow_picker.py` 保留舊介面的工作流讀取、過期連線及原生／已儲存版本區分。
+
+`test_workspace_connection.py` 另檢查已知模式限制、缺少能力而未回報原因、能力恢復，以及空閒斷線的通知。`test_navigation_connection.py` 保留舊版擴充阻擋新資料及更新後恢復案例；這些合成回覆不能代替使用者已安裝擴充的版本與實際狀態核對。

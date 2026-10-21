@@ -102,13 +102,19 @@ class ComfyClient(QObject):
         return self.ready
 
     @property
+    def snapshot_version_compatible(self):
+        return self.snapshot_versions is None or self.window.state['version'] in self.snapshot_versions
+
+    @property
     def snapshot_compatible(self):
-        return (self.snapshot_versions is None or self.window.state['version'] in self.snapshot_versions) and not (self.window.state.get('multi_output',{}).get('version',1)>=2 and self.flow_supported is False)
+        return self.snapshot_version_compatible and not (self.window.state.get('multi_output',{}).get('version',1)>=2 and self.flow_supported is False)
 
     @property
     def compatibility_message(self):
+        if self.snapshot_version_compatible and self.flow_supported is False:
+            return self.native_unavailable_reason or 'PCS 擴充未提供所需的工作流功能，請核對配套版本。'
         version=self.extension_info.get('version','未知版本')
-        return f'目前載入的 PCS 擴充（{version}）不支援這份資料。請在連線設定更新配套擴充，再重新啟動 ComfyUI 並重新整理工作流頁面。'
+        return f'PCS 擴充（{version}）不支援這份資料格式，請更新配套擴充並重啟 ComfyUI。'
 
     def request(self,route,data=None,done=None,failed=None,raw=None,content_type='application/json'):
         if self.stopped: return

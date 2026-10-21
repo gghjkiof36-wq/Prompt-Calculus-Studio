@@ -182,6 +182,63 @@ class WorkspaceConnectionTests(unittest.TestCase):
         self.connected()
         self.assertIn('已連線', self.w.connection.brand.text())
 
+    def test_runtime_restriction_is_not_reported_as_an_extension_update(self):
+        available = copy.deepcopy(self.peer.status)
+        reason = '此原生入口目前只支援 ComfyUI 單一使用者模式。'
+        self.peer.status.update(capabilities=['direct_generation_v1', 'workflow_transfer_v1'],
+                                native_unavailable_reason=reason)
+        tab = self.canvas('Restricted')
+        before = copy.deepcopy(tab.host.state['multi_output'])
+        self.w.connection.click()
+        client = tab.host.comfy
+        self.wait(lambda: client.connected)
+        client.timer.stop()
+        self.assertFalse(client.snapshot_compatible)
+        self.assertFalse(client.can_run)
+        self.assertEqual(client.message, reason)
+        tab.host.canvas.execution_bar.update_progress()
+        message = tab.host.canvas.execution_bar.status.text()
+        self.assertIn(reason, message)
+        self.assertNotIn('更新', message)
+        self.assertFalse(any(method == 'POST' and route.endswith('/config')
+                             for method, route, _ in self.peer.calls))
+        self.peer.status = available
+        client.poll()
+        self.wait(lambda: client.snapshot_compatible)
+        self.assertTrue(client.can_run)
+        tab.host.canvas.execution_bar.update_progress()
+        self.assertNotIn(reason, tab.host.canvas.execution_bar.status.text())
+        self.assertEqual(tab.host.state['multi_output'], before)
+
+    def test_missing_execution_capability_does_not_invent_a_version_mismatch(self):
+        self.peer.status['capabilities'] = ['direct_generation_v1']
+        tab = self.canvas('Missing capability')
+        self.w.connection.click()
+        client = tab.host.comfy
+        self.wait(lambda: client.connected)
+        self.assertFalse(client.can_run)
+        self.assertIn('未提供', client.message)
+        self.assertNotIn('重啟', client.message)
+        tab.host.canvas.execution_bar.update_progress()
+        self.assertIn(client.compatibility_message, tab.host.canvas.execution_bar.status.text())
+
+    def test_idle_disconnect_does_not_claim_to_preserve_nonexistent_work(self):
+        tab = self.canvas('Idle')
+        client = tab.host.comfy
+        self.w.connection.click()
+        self.wait(lambda: client.connected and not client.replies)
+        for live in self.w.comfy_connection.live_clients():
+            live.timer.stop()
+        self.assertFalse(client.input_flow.has_work())
+        before = copy.deepcopy(tab.host.state['multi_output'])
+        with patch.object(client.window, 'notice') as notice:
+            self.peer.failure = True
+            client.poll()
+            self.wait(lambda: not client.connected)
+            self.assertFalse(any('保留' in str(call) for call in notice.call_args_list))
+        self.assertFalse(client.input_flow.has_work())
+        self.assertEqual(tab.host.state['multi_output'], before)
+
     def test_restart_restores_endpoint_and_disconnect_does_not_auto_reconnect(self):
         self.w.connection.click()
         self.connected()

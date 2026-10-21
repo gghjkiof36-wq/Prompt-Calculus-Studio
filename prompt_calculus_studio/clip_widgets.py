@@ -191,7 +191,7 @@ class ExecutionBar(QFrame):
             pending=pending_setup(self.canvas.window.state)
             notes=[]
             if client and client.connected:
-                if not client.snapshot_compatible:notes.append('請更新 PCS 擴充並重啟 ComfyUI')
+                if not client.snapshot_compatible:notes.append(client.compatibility_message)
                 elif not client.can_run:notes.append('請在連線設定確認 ComfyUI 擴充')
             if pending:
                 notes.append({'clip_inputs':'CLIP 待綁定','image_inputs':'圖片輸入待綁定','stages':'Stage 待選擇工作流'}[pending[0][0]])
