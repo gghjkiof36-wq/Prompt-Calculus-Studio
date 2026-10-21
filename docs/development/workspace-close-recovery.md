@@ -19,6 +19,8 @@
 
 舊快取仍可由沒有 runtime 的新 reader 讀回；遇到兩份不同稿則提示人工判斷。快取不是執行 journal，也不直接寫回可攜原件。`execution-close-state` 是保存錯誤時的額外 state 記錄，不自動注入 runtime；人工恢復應先保留原件，核對 token、原檔及內容，不能將它當作可攜文件開啟。
 
+當啟動布局沒有原文件，但 `WorkspaceRuntime.recover()` 已為未結任務建立 detached `DocumentExecution` 時，後續開檔仍依 prepare → restore → EmbeddedHost/client_factory → attach 的順序。通過上述原檔與前稿檢查的恢復 state，會同時交給既有 execution 與新 document；attach 因而不會再以舊 `_state` 蓋回新稿。這只交接可編輯內容，不改 runtime_token、accepted operation、generation journal 或該次生成凍結的輸入，也不重新提交。
+
 ## 獨立完成各個關閉階段
 
 `DocumentExecution.close()` 依序嘗試 client shutdown、state 保存、store close，分開記錄成功階段。保存失敗時獨立嘗試 runtime 目錄中的 `DraftCache` state 記錄與工作區既有的文件恢復副本。任一個保存位置失效，不會取消另一個備份嘗試。
@@ -33,6 +35,8 @@ Shell 的 `close_execution_owners()` 接收彙整結果，顯示錯誤並寫入�
 
 已完成的 host close 不在重試時重跑，避免 host 再次查詢已關閉的其他 owner 資料庫。所有 client 完成前保留 host／document 的 native 物件，之後才 `deleteLater()`。關閉已進入資源收尾時，分頁可能已卸載；失敗後保留的是待完成的關閉與稿件，不恢復為可繼續提交工作的正常工作區。
 
+`Window.closeEvent` 在完整關閉 store 後記錄 `_close_completed`，後續 close event 直接接受。此規則也涵蓋共用服務頁，以及它在背景工作取消後先自行完成關閉、Shell 稍後才重試的情況。提前拒絕關閉不設此旗標，因此正常取消、未完成草稿與背景工作仍走原有處理；旗標不能用來跳過未完成的保存或資源釋放。
+
 ## 密集 Markdown 的同步工作範圍
 
 原本不足 10,001 行且不足 128,001 字元的文件，仍可能一次格式化數千行。SourceView 現在對超過 1,000 行的文件沿用可見範圍語法標色；這是切換工作方式的界線，不是延遲保證。段落高度／縮排仍保留原來的 10,000 行界線（`lazy_paragraphs`），避免較短文件捲到末段時因未排版段落改變 scrollbar 範圍。捲動時補齊語法樣式，文字、BOM／換行、共享 buffer 及 Undo／Redo 仍由原資料流程管理。
@@ -45,5 +49,6 @@ Shell 的 `close_execution_owners()` 接收彙整結果，顯示錯誤並寫入�
 
 - `test_workspace_recovery_contract.py`：普通 None／映射、完整 state 與空 draft、前稿指紋、較新 runtime、舊／非法快取及原件保護。
 - `test_workspace_cleanup.py`、`test_workspace_cleanup_shell.py`：保存、備份、shutdown、store／index 失敗；其他 owner 收尾；重試與錯誤紀錄。
+- `test_workspace_recovery_handoff.py`：真啟動恢復與 detached owner 接回、映射／普通恢復、較新 runtime 優先、accepted journal／凍結輸入保護；真 utility 的保存／紀錄失敗重試、正常取消與背景工作收尾。
 - 既有 `test_workspace_close_recovery.py`：完整關閉恢復流程。一次正常退出不能解除歷史原生 GC 崩潰的未確認狀態。
 - `test_markdown_dense_rendering.py`、既有 `test_markdown_performance.py` 和 `test_markdown_insertion.py`：密集文件、末段格式、歷史、背景轉換與最新結果，以及既有共享文件生命週期。

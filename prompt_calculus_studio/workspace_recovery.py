@@ -122,6 +122,12 @@ class CloseRecovery:
                 self.workspace.show_notice('「'+document.title+'」保留目前本機稿；另有內容不同的恢復副本。')
                 return
         document.state = state
+        # acquire() may have retained an unfinished owner before any view was
+        # opened. Accepted recovery replaces its editable state too; attach()
+        # must not restore the predecessor over this cache. Its journal and
+        # frozen submissions remain in the same owner/store.
+        if document.execution is not None:
+            document.execution.state = state
         for name in ('baseline', 'runtime_document', 'identity_maps', 'opening_settings'):
             setattr(document, name, copy.deepcopy(value[name]))
         # Reuse only a known runtime directory below this workspace's document root.

@@ -1405,6 +1405,11 @@ class Window(QMainWindow):
         except Exception as exc: self.error(str(exc))
 
     def closeEvent(self,event):
+        # A containing workspace can reject its own close after this host has
+        # finished. Hidden widgets still receive later close events, and the
+        # completed shutdown must not query an already closed store again.
+        if self.__dict__.get('_close_completed', False):
+            event.accept();return
         if page_ready(self.gallery):self.gallery.finish_album_edit()
         sheet=getattr(self,'stage_parameter_sheet',None)
         if sheet is not None and not getattr(sheet,'closed',False) and hasattr(sheet,'save_draft') and not sheet.save_draft():
@@ -1452,4 +1457,5 @@ class Window(QMainWindow):
         self.canvas.release_output(); self.canvas.output=None; self.canvas.cards={}; self.canvas.view.scene().clear()
         self.changes.stop()
         if getattr(self, 'owns_store', True):self.store.close()
+        self._close_completed = True
         event.accept()
