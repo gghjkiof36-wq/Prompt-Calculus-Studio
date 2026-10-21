@@ -234,8 +234,22 @@ class RecentPage(QFrame):
 
     def request_refresh(self):
         self.refresh_destinations()
-        if self.window.comfy.connected: self.window.comfy.request('desktop/results',done=self.receive_results)
+        catalog=self.catalog
+        def received(records):
+            if self.catalog is catalog and not self.window.closing:self.receive_results(records)
+        if self.window.comfy.connected: self.window.comfy.request('desktop/results',done=received)
         else: self.window.notice('連接 ComfyUI 後可更新生成結果。'); self.refresh()
+
+    def retarget_catalog(self,catalog):
+        """Move this view to a new owner without retargeting accepted work."""
+        self.catalog=catalog
+        self.pending=[]
+        self.known={r[0] for r in catalog.db.execute("SELECT id FROM resources WHERE kind='recent'")}
+        self.record=None;self.page=0;self.collecting=set()
+        self.refresh_timer.stop()
+        # An active preview or accepted collection retains its captured store
+        # and catalog. Its completion releases processing and pumps this view.
+        self.refresh_destinations();self.refresh()
 
     def receive_results(self,records):
         queued={result_id(r) for r in self.pending}
@@ -253,10 +267,14 @@ class RecentPage(QFrame):
         if self.window.jobs.active: QTimer.singleShot(250,self.pump); return
         self.processing=True
         if self.saves:
-            ident,result,destination,album=self.saves.pop(0)
+            ident,result,destination,album,store,catalog=self.saves.pop(0)
             def finished(record):
-                self.processing=False; self.collecting.discard(ident)
-                if album and not self.catalog.get(album):
+                self.processing=False
+                current=self.catalog is catalog
+                if current:self.collecting.discard(ident)
+                if album and not catalog.get(album):
+                    if not current:
+                        QTimer.singleShot(0,self.pump);return
                     # A late collection callback must not recreate records under
                     # a removed album or mark that collection as successful.
                     if self.window.state['settings'].get('recent_destination')=='album:'+album:
@@ -267,20 +285,25 @@ class RecentPage(QFrame):
                     self.window.notice(message); self.refresh(); QTimer.singleShot(0,self.pump)
                     return
                 if album:
-                    duplicate=self.catalog.db.execute("SELECT id FROM resources WHERE kind='image' AND parent=? AND json_extract(body,'$.path')=?",(album,record['path'])).fetchone()
+                    duplicate=catalog.db.execute("SELECT id FROM resources WHERE kind='image' AND parent=? AND json_extract(body,'$.path')=?",(album,record['path'])).fetchone()
                     if not duplicate:
                         path=Path(record['path'])
-                        if path.is_relative_to(self.window.store.directory): record.update(owned=True,original_relative=str(path.relative_to(self.window.store.directory)).replace('\\','/'))
-                        self.catalog.put('image',record,album)
-                recent=self.catalog.get(ident)
+                        if path.is_relative_to(store.directory): record.update(owned=True,original_relative=str(path.relative_to(store.directory)).replace('\\','/'))
+                        catalog.put('image',record,album)
+                recent=catalog.get(ident)
                 if recent:
-                    recent.setdefault('collected',{})[destination]=result; self.catalog.put('recent',recent)
+                    recent.setdefault('collected',{})[destination]=result; catalog.put('recent',recent)
+                if not current:
+                    QTimer.singleShot(0,self.pump);return
                 self.window.notice('已收藏：'+result['path']); self.refresh(); QTimer.singleShot(0,self.pump)
             def work(cancel):
-                try: return import_image(result['path'],self.window.store.directory,album),''
+                try: return import_image(result['path'],store.directory,album),''
                 except Exception as exc: return None,str(exc)
             def failed(message):
-                self.processing=False; self.collecting.discard(ident)
+                self.processing=False
+                if self.catalog is not catalog:
+                    QTimer.singleShot(0,self.pump);return
+                self.collecting.discard(ident)
                 self.window.notice('原圖已收藏，但媒體庫加入失敗：'+message); self.refresh(); QTimer.singleShot(0,self.pump)
             def done(value):
                 if value[0]: finished(value[0])
@@ -288,18 +311,22 @@ class RecentPage(QFrame):
             self.window.jobs.start('正在將收藏圖片加入媒體庫…',work,done,failed)
         else:
             source=self.pending.pop(0); ident=result_id(source)
+            store,catalog=self.window.store,self.catalog
             def work(cancel):
-                try: return import_image(source['path'],self.window.store.directory,''),''
+                try: return import_image(source['path'],store.directory,''),''
                 except Exception as exc: return None,str(exc)
             def done(value):
                 self.processing=False; record,error=value
                 if record:
-                    record.update(id=ident,source=source,collected={}); self.catalog.put('recent',record); self.known.add(ident)
-                    self.catalog.db.execute("DELETE FROM resources WHERE kind='recent' AND id NOT IN (SELECT id FROM resources WHERE kind='recent' ORDER BY json_extract(body,'$.created') DESC LIMIT 120)"); self.catalog.db.commit()
+                    record.update(id=ident,source=source,collected={}); catalog.put('recent',record)
+                    catalog.db.execute("DELETE FROM resources WHERE kind='recent' AND id NOT IN (SELECT id FROM resources WHERE kind='recent' ORDER BY json_extract(body,'$.created') DESC LIMIT 120)"); catalog.db.commit()
+                    if self.catalog is not catalog:
+                        QTimer.singleShot(0,self.pump);return
+                    self.known.add(ident)
                     self.refresh_timer.start()
                     self.window.show_latest_generated(record)
                     if not self.pending and not self.saves:self.window.notice('最近生成預覽已更新。')
-                elif error: self.window.notice('結果預覽無法讀取：'+error)
+                elif error and self.catalog is catalog: self.window.notice('結果預覽無法讀取：'+error)
                 QTimer.singleShot(0,self.pump)
             self.window.jobs.start('更新最近生成預覽…',work,done)
 
@@ -350,8 +377,11 @@ class RecentPage(QFrame):
         try: destination,album=self.destination()
         except (ValueError,OSError) as exc: self.window.notice(str(exc)); return
         ident=record['id']; source=record['source']; self.collecting.add(ident); self.update_save_button()
-        def done(result): self.saves.append((ident,result,destination,album)); self.pump()
-        def fail(message): self.collecting.discard(ident); self.window.notice('收藏失敗：'+message); self.update_save_button(); self.refresh()
+        store,catalog=self.window.store,self.catalog
+        def done(result): self.saves.append((ident,result,destination,album,store,catalog)); self.pump()
+        def fail(message):
+            if self.catalog is not catalog:return
+            self.collecting.discard(ident); self.window.notice('收藏失敗：'+message); self.update_save_button(); self.refresh()
         self.window.comfy.request('desktop/collect',dict(image=source['image'],prompt_id=source['prompt_id'],destination=destination),done,fail)
 
     def context(self,pos):

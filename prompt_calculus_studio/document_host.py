@@ -146,6 +146,7 @@ class DesktopDocument(QObject):
             host.store = store
             host.owns_store = False
             host.catalog = Catalog(store)
+            host.recent.retarget_catalog(host.catalog)
             from .image_drop import ImageDropLabel
             for loader in host.findChildren(ImageDropLabel):loader.store = store
         self.execution = DocumentExecution(self, self.host, WorkspaceComfyClient)

@@ -9,6 +9,7 @@ LOCAL_SETTINGS = (set(core.DEFAULT_SETTINGS) - CONTENT_SETTINGS) | {
     'comfy_enabled', 'comfy_url', 'canvas_palette', 'execution_bar_position',
     'model_category_types', 'ui_language', 'window_geometry', 'window_state', 'canvas_starter',
     'material_library_order', 'material_folder_collapsed',
+    'recent_destination', 'recent_external',
 }
 LOCAL_STATE = {'dictionary', 'content_history', 'material_navigation'}
 CONTENT_STATE = set(workspace_scene.FIELDS) | {

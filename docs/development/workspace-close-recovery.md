@@ -47,6 +47,11 @@ Shell 的 `close_execution_owners()` 接收彙整結果，顯示錯誤並寫入�
 
 ## 相關驗證入口
 
+Save As 切換 execution 時，`RecentPage.retarget_catalog` 同步切換列表、known IDs、目的地與 Catalog。舊預覽／收藏工作在開始時凍結 store 與 Catalog，完成後寫回原 owner；新視圖不接受其 UI 更新。已排隊但未開始的舊預覽可由新視圖丟棄，原 execution 的 received 紀錄仍保留；已接受的收藏保留原目的地並繼續完成。手動更新的舊回覆也不再導入新文件。這不重新提交生成任務。
+
+`recent_destination`／`recent_external` 屬於本機偏好，留在 runtime；可攜分類／工作流不匯出收藏目錄。未知設定仍由原 allowlist 拒絕。
+
+- `test_recent_retarget.py`：另存後新結果、晚到預覽／收藏／刷新與本機收藏偏好保存；檢查兩個資料庫和縮圖目錄的歸屬。
 - `test_workspace_recovery_contract.py`：普通 None／映射、完整 state 與空 draft、前稿指紋、較新 runtime、舊／非法快取及原件保護。
 - `test_workspace_cleanup.py`、`test_workspace_cleanup_shell.py`：保存、備份、shutdown、store／index 失敗；其他 owner 收尾；重試與錯誤紀錄。
 - `test_workspace_recovery_handoff.py`：真啟動恢復與 detached owner 接回、映射／普通恢復、較新 runtime 優先、accepted journal／凍結輸入保護；真 utility 的保存／紀錄失敗重試、正常取消與背景工作收尾。
