@@ -89,6 +89,16 @@ class RetargetTests(unittest.TestCase):
         self.assertEqual(target.read_bytes(), copy_bytes)
         self.assertFalse(self.errors)
         self.assertTrue(window.close())
+        reopened = self.window()
+        source_tab = reopened.open_path(self.paths[0], True, new_tab=True)
+        copy_tab = reopened.open_path(target, True, new_tab=True)
+        self.assertEqual(list(source_tab.host.store.db.execute('SELECT id,body FROM resources ORDER BY id')), old_rows)
+        self.assertEqual(list(copy_tab.host.store.db.execute('SELECT id,body FROM resources ORDER BY id')), new_rows)
+        for page in (source_tab, copy_tab):
+            for row in page.host.catalog.rows('recent'):
+                self.assertTrue((page.host.store.directory / row['thumb']).is_file())
+        self.assertFalse(self.errors)
+        self.assertTrue(reopened.close())
 
     def test_inflight_preview_finishes_in_original_owner(self):
         window = self.window()
@@ -192,3 +202,20 @@ class RetargetTests(unittest.TestCase):
         self.assertEqual(tab.host.recent.known, set())
         self.assertEqual(tab.document.execution.store.db.execute('SELECT COUNT(*) FROM resources').fetchone()[0], 0)
         self.assertFalse(self.errors)
+
+    def test_unknown_and_malformed_preferences_are_rejected(self):
+        window = self.window()
+        tab = window.open_path(self.paths[0], True, new_tab=True)
+        before = self.paths[0].read_bytes()
+        settings = tab.document.state['settings']
+        for key, value in (('synthetic_unknown_setting', 'keep rejection'),
+                           ('recent_destination', {'not': 'text'}), ('recent_external', [])):
+            with self.subTest(key=key):
+                settings[key] = value
+                try:
+                    self.assertFalse(window.save_tab(tab, quiet=True))
+                    self.assertEqual(self.paths[0].read_bytes(), before)
+                    self.assertTrue(tab.document.error)
+                finally:
+                    settings.pop(key)
+        self.assertTrue(window.save_tab(tab, quiet=True), tab.document.error)

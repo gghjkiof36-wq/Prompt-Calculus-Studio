@@ -23,6 +23,9 @@ def content_settings(settings):
     unknown = set(settings) - CONTENT_SETTINGS - LOCAL_SETTINGS
     if unknown:
         fail('unsupported', '無法保存：有不支援的設定（'+', '.join(sorted(unknown))+'）。', fields=sorted(unknown))
+    for key in ('recent_destination', 'recent_external'):
+        if key in settings and not isinstance(settings[key], str):
+            fail('type', '收藏位置設定必須是文字。', field=key)
     # Absence can carry a legacy fallback different from today's default.
     # Conversion belongs to prepare_state; export does not invent new settings.
     return {key: copy.deepcopy(settings[key]) for key in sorted(CONTENT_SETTINGS) if key in settings}
