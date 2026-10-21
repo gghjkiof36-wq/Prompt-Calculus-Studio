@@ -1,14 +1,16 @@
 # 開始使用
 
-[回首頁](../../README.md) · 適用：0.8.9 Alpha 1 Repair 1
+[回首頁](../../README.md) · 適用：0.8.9 Beta
 
 本版預設開啟分頁工作區。完整的下載、Python 環境、文件與資料位置，以及更新注意事項見[0.8.9 開始使用](workspace-089.md)。
 
 ## 先試本機文件
 
-1. 首次啟動先讀「歡迎使用.md」，從連結打開教材；再從內容側欄新增自己的 Markdown 筆記，輸入文字並切換閱讀模式。
+1. 首次啟動先讀「歡迎使用.md」，從連結打開「入口」資料夾的教材；再從內容側欄新增自己的 Markdown 筆記，輸入文字並切換閱讀模式。
 2. 新增 Prompt 分類，保存一份文字素材；再開一份 Canvas，把素材的獨立副本加入畫布。
 3. 將筆記與 Prompt 分類或 Canvas 放到左右兩邊。這些操作不需要連接 ComfyUI。
+
+也可以把網頁或對話直接貼進筆記；從「⋯ → 匯入對話…」挑選本機 ZIP／JSON，預覽後匯入。步驟與限制見[貼上與對話匯入](markdown-import.md)。
 
 預設 `files` 保存文件，`data` 保存設定與內部資料。加入其他本機資料夾後會直接編輯其中的文件；先以副本試用。
 
@@ -16,7 +18,7 @@
 
 1. 確認自己的 ComfyUI、模型與工作流原本能生成；保存工作流後關閉 ComfyUI。
 2. 在「探索 → ComfyUI → 連線與工作流」安裝／更新同版 PCS 擴充。通用、legacy 與 modern 擇一，詳見[相容指南](comfyui-compatibility.md)。
-3. 重新啟動後端與刷新工作流網頁，核對實際載入版本。
+3. 重新啟動後端與刷新工作流網頁，核對實際載入版本及格式支援。只看到連線燈亮，還不能確認目前工作流可用。
 4. CLIP 選擇工作流文字欄位，Stage 選擇生成工作流；把 Prompt 輸出接到 CLIP，再連到 Stage。生成期間保持 PCS、後端及網頁開啟。
 
 更多接法見[ComfyUI 整合](comfyui.md)、[Stage 參數](stage-parameters.md)及[素材與批次](prompt-materials-088.md)。
@@ -27,4 +29,4 @@
 
 完整備份包含私人素材，生成 PNG 也保留必要 Prompt 與還原參照，分享前[檢查附加資訊](data-backup-privacy.md)。`SHA256SUMS.txt` 用於下載完整性核對，並非數位簽章。
 
-0.8.8 的操作與驗證保留於[版本頁](../releases/0.8.8/README.md)。
+本版的保存恢復、大型操作及實機驗證界線見[Beta 紀錄](../releases/0.8.9/validation/beta.md)。0.8.8 的操作與驗證保留於[版本頁](../releases/0.8.8/README.md)。
