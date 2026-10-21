@@ -2,13 +2,20 @@
 import base64
 import copy
 import hashlib
+import json
 from pathlib import Path
+import sqlite3
 
 from .draft_cache import DraftCache
 
 
 def key(path):
     return 'document:'+str(Path(path).absolute()).casefold()
+
+
+def state_digest(state):
+    raw = json.dumps(state, sort_keys=True, ensure_ascii=False, allow_nan=False).encode('utf-8')
+    return hashlib.sha256(raw).hexdigest()
 
 
 class CloseRecovery:
@@ -27,6 +34,17 @@ class CloseRecovery:
                          opening_settings=copy.deepcopy(document.opening_settings))
             # Runtime directories own attachments; closing a view does not delete them.
             value['data'] = str(document.data)
+            # Record the committed predecessor, not a wall-clock timestamp.
+            # A later runtime commit must never be replaced by this cache.
+            store = getattr(document.host, 'store', None)
+            if store is not None:
+                from .state_loading import prepare_state
+                try:
+                    value['runtime_base_sha256'] = state_digest(prepare_state(store.load(), multi=True))
+                except (OSError, sqlite3.Error, ValueError, TypeError, KeyError):
+                    # Still preserve the edit. Without an ordering proof a
+                    # conflicting runtime will keep priority during restore.
+                    pass
         else:
             page = tab.widget
             try:raw = page.encoded()
@@ -80,7 +98,9 @@ class CloseRecovery:
         value = self.get(document.path)
         if not value or value.get('kind') != document.kind:return
         if not all(isinstance(value.get(name),dict) for name in
-                   ('state','baseline','runtime_document','identity_maps','opening_settings')):return
+                   ('state','baseline','runtime_document','opening_settings')):return
+        if 'identity_maps' not in value or (value['identity_maps'] is not None
+                                           and not isinstance(value['identity_maps'], dict)):return
         if not isinstance(value.get('sha'),str) or not isinstance(value.get('data'),str):return
         if value['sha'] != document.receipt.sha256:
             document.recovery_paths = [str(root/self.cache.name(key(document.path))) for root in self.cache.roots
@@ -95,6 +115,12 @@ class CloseRecovery:
         except (ValueError, TypeError, KeyError) as error:
             self.workspace.show_notice('無法恢復「'+document.title+'」的編輯：'+str(error))
             return
+        if getattr(document, 'runtime_restored', False) and document.state != state:
+            if value.get('runtime_base_sha256') != state_digest(document.state):
+                document.recovery_paths = [str(root/self.cache.name(key(document.path))) for root in self.cache.roots
+                                           if (root/self.cache.name(key(document.path))).is_file()]
+                self.workspace.show_notice('「'+document.title+'」保留目前本機稿；另有內容不同的恢復副本。')
+                return
         document.state = state
         for name in ('baseline', 'runtime_document', 'identity_maps', 'opening_settings'):
             setattr(document, name, copy.deepcopy(value[name]))

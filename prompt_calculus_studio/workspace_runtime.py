@@ -163,7 +163,11 @@ class WorkspaceRuntime:
     def recover(self):
         """Monitor pending owners even when their tab/file is no longer open."""
         from .document_execution import DocumentExecution
+        from .draft_cache import DraftCache
         from .workspace_connection import WorkspaceComfyClient
+        previous_close = DraftCache(self.workspace.data).read('execution-close-errors')
+        if previous_close:
+            self.workspace.show_notice('上次關閉有未完成的保存或清理；錯誤與恢復副本位置已保留於本機恢復紀錄。')
         for value in self.rows():
             token = value['token']
             if token in self.executions:
@@ -209,10 +213,24 @@ class WorkspaceRuntime:
             store.close()
             raise
 
-    def close(self):
-        if self.closed:
-            return
-        self.closed = True
-        for execution in self.executions.values():
-            execution.close()
-        self.db.close()
+    def close(self, additional=()):
+        if self.closed or self.__dict__.get('_closing', False):return
+        from .close_errors import CloseError
+        owners = list({id(owner): owner for owner in (*self.executions.values(), *additional)}.values())
+        failures = []
+        self._closing = True
+        try:
+            for execution in owners:
+                try:execution.close()
+                except Exception as error:failures.append((execution.runtime_token, error))
+            clients_stopped = all(owner.__dict__.get('_client_closed', owner.closed) for owner in owners)
+            if clients_stopped and not self.__dict__.get('_index_closed', False):
+                try:
+                    self.db.close()
+                    self._index_closed = True
+                except Exception as error:failures.append(('關閉任務索引', error))
+            self.closed = self.__dict__.get('_index_closed', False) and all(owner.closed for owner in owners)
+            self.close_errors = [*self.__dict__.get('close_errors', []), *failures]
+        finally:
+            self._closing = False
+        if failures:raise CloseError(failures) from failures[0][1]

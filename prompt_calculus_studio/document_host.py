@@ -52,6 +52,7 @@ class DesktopDocument(QObject):
         self.opening_settings = None
         self.runtimes = getattr(parent, 'runtimes', None)
         self.runtime_token = None
+        self.runtime_restored = False
 
     @property
     def title(self):
@@ -62,6 +63,7 @@ class DesktopDocument(QObject):
             # The journal and source cursors are committed together. When the
             # file is unchanged, restore that runtime instead of rewinding it
             # to an older portable-file save.
+            self.runtime_restored = True
             return
         state = (category if self.kind == 'category' else workflow).to_state(self.document)
         # The runtime loader fills defaults. Preserve the legacy missing-key

@@ -1151,12 +1151,41 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
     def show_notice(self, message):
         self.notification.present(message)
 
+    def close_execution_owners(self):
+        from .close_errors import CloseError
+        from .draft_cache import DraftCache
+        owners = [execution for document in self.documents
+                  for execution in (document.execution, *document.retired_executions)
+                  if execution is not None]
+        try:
+            self.runtimes.close(owners)
+        except CloseError:
+            pass  # The aggregate remains on runtimes, including earlier retries.
+        failures = self.runtimes.__dict__.get('close_errors', [])
+        if failures:
+            error = CloseError(failures)
+            self.show_notice('關閉時發生錯誤，請檢查恢復紀錄：'+str(error))
+            all_owners = {id(owner):owner for owner in (*self.runtimes.executions.values(), *owners)}
+            try:
+                DraftCache(self.data).write('execution-close-errors', dict(error=str(error),
+                    recovery_paths=[owner.__dict__[name] for owner in all_owners.values()
+                                    for name in ('close_recovery_path', 'document_recovery_path')
+                                    if owner.__dict__.get(name)]))
+            except (OSError, ValueError) as report_error:
+                self.show_notice('關閉錯誤紀錄未能寫入：'+str(report_error))
+                return False
+        else:
+            DraftCache(self.data).clear('execution-close-errors')
+        return self.runtimes.closed
+
     def closeEvent(self, event):
         if not self.workspace_ready:
             # Cancelling startup must not replace the saved session with an
             # empty, partially restored layout.
             self.scheduler.stop()
-            self.runtimes.close()
+            if not self.close_execution_owners():
+                event.ignore()
+                return
             self.autosave.external_poll.stop()
             self.sidebar_peek.shutdown()
             self.sidebar_resize.shutdown()
@@ -1193,14 +1222,18 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                     event.ignore()
                     return
         self.scheduler.stop()
+        closed_hosts = self.__dict__.setdefault('_closed_document_hosts', set())
         for document in self.documents:
             document.refresh_timer.stop()
             for host in reversed(document.hosts):
-                host.close()
-        for document in self.documents:
-            for execution in [document.execution, *document.retired_executions]:
-                if execution is not None:execution.close()
-        self.runtimes.close()
+                if id(host) in closed_hosts:continue
+                if not host.close():
+                    event.ignore()
+                    return
+                closed_hosts.add(id(host))
+        if not self.close_execution_owners():
+            event.ignore()
+            return
         # Shutdown can run a bounded event loop while waiting for a cancel
         # receipt. Keep every owner's UI alive until all clients have stopped.
         for document in self.documents:

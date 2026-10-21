@@ -339,7 +339,10 @@ class SourceView(QPlainTextEdit):
             self.syncing=was_syncing
 
     @property
-    def lazy_presentation(self):return len(self.lines)>10000
+    def lazy_presentation(self):
+        # Dense tables/lists can contain thousands of blocks in less than
+        # 128 KiB. Bound their initial formatting to the visible window too.
+        return len(self.lines)>1000
 
     def presentation_range(self):
         if not self.document().isLayoutEnabled():return 0,min(160,len(self.lines))
@@ -844,7 +847,9 @@ class ReadingView(QTextBrowser):
         # The native rich-text importer becomes quadratic with many blocks.
         # Large manuscripts use the same local renderer as tables and media;
         # never build an invisible second rich-text layout for those documents.
-        large=len(source)>128_000 or self.surface.editor.lazy_presentation
+        # Source formatting can be lazy before the native reader needs to be
+        # replaced. Keep ordinary medium notes on their existing reading path.
+        large=len(source)>128_000 or len(self.surface.editor.lines)>10000
         complex_content=advanced(source)
         self.advanced=large or complex_content
         self.viewport().setVisible(not self.advanced)

@@ -75,8 +75,52 @@ class DocumentExecution(QObject):
         self.view_host = host
 
     def close(self):
-        if self.closed:return
-        self.closed = True
-        self.client.shutdown()
-        self.persist()
-        self.store.close()
+        if self.closed or self.__dict__.get('_closing', False):return
+        from .close_errors import CloseError
+        from .draft_cache import DraftCache
+        failures = []
+        self._closing = True
+        try:
+            if not self.__dict__.get('_client_closed', False):
+                try:
+                    self.client.shutdown()
+                    self._client_closed = True
+                except Exception as error:failures.append(('停止連線', error))
+            if not self.__dict__.get('_state_saved', False):
+                try:
+                    self.persist()
+                    # A client whose shutdown failed may still change state.
+                    self._state_saved = self.__dict__.get('_client_closed', False)
+                    self._state_preserved = True
+                except Exception as error:
+                    failures.append(('保存文件', error))
+                    self._state_preserved = False
+                    try:
+                        self.close_recovery_path = str(DraftCache(self.store.directory).write(
+                            'execution-close-state', dict(token=self.runtime_token, state=copy.deepcopy(self.state))))
+                        self._state_preserved = True
+                    except Exception as recovery_error:failures.append(('保存執行狀態副本', recovery_error))
+                    recovery = getattr(self.workspace_owner, 'close_recovery', None)
+                    if self.document is not None and recovery is not None:
+                        try:
+                            from types import SimpleNamespace
+                            location = recovery.preserve(SimpleNamespace(document=self.document,
+                                path=self.document.path, title=self.document.title))
+                            if location is None:raise OSError('文件恢復副本未能寫入。')
+                            self._state_preserved = True
+                            self.document_recovery_path = location
+                        except Exception as recovery_error:failures.append(('保存文件恢復副本', recovery_error))
+            # Shutdown can use the journal. Keep it available for a failed
+            # client's retry. If all preservation failed, retain this owner and
+            # store for a later save; unrelated owners must still finish.
+            if (self.__dict__.get('_client_closed', False) and self.__dict__.get('_state_preserved', False)
+                    and not self.__dict__.get('_store_closed', False)):
+                try:
+                    self.store.close()
+                    self._store_closed = True
+                except Exception as error:failures.append(('關閉文件資料庫', error))
+            self.closed = self.__dict__.get('_client_closed', False) and self.__dict__.get('_store_closed', False)
+            self.close_errors = [*self.__dict__.get('close_errors', []), *failures]
+        finally:
+            self._closing = False
+        if failures:raise CloseError(failures) from failures[0][1]

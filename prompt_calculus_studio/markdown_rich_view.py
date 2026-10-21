@@ -185,7 +185,8 @@ class RichView(QWebEngineView):
         from .markdown_relations import notes_for
         notes=notes_for(self.surface);root=notes.root
         self.render_state='loading'
-        if projection is None and self.interactive and len(text)>128_000:
+        if projection is None and self.interactive and (
+                len(text)>128_000 or self.surface.editor.lazy_presentation):
             # Capture open-note edits on the GUI thread. The parser only receives
             # immutable text/path values, never a callback into a QWidget.
             overrides={}
