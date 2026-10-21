@@ -261,15 +261,28 @@ class CivitAIPage(QFrame):
         if preferences is not None and hasattr(preferences,'online'):preferences.online.setChecked(online)
         if not online:self.stop_images(); self.drain()
         elif not self.results:self.search()
-    def token_changed(self):self.token_revision+=1
+    def token_changed(self):
+        self.token_revision+=1; self.serial+=1; self.preview_generation+=1
+        self.search_timer.stop(); self.thumb_timer.stop(); self.images.cancel()
+        self.pending_search=self.pending_detail=self.pending_preview=None
+        if self.browse_jobs.active:self.browse_jobs.active.cancel.set()
+        self.search_job=self.preview_job=None
+        self.cursor=''; self.more.setEnabled(False)
+        self.counter.setText('請重新搜尋。')
+        self.set_detail_state('')
+        if self.preview.text()=='正在載入預覽…':self.preview.setText('請重新選取版本以載入預覽。')
+        self.connection.setText('Token 已變更，請重新測試連線。')
     def allowed(self):
         if self.policy.refresh():return True
         self.window.notice('目前已關閉聯網，可在 CivitAI 連線設定中開啟。'); return False
     def start_job(self,message,task,done,failed=None):
         if not self.allowed():return False
+        revision=self.token_revision
         def accept(result):
-            if self.policy.refresh():done(result)
-        started=self.browse_jobs.start(message,task,accept,failed)
+            if revision==self.token_revision and self.policy.refresh():done(result)
+        def reject(error):
+            if revision==self.token_revision and self.policy.refresh() and failed:failed(error)
+        started=self.browse_jobs.start(message,task,accept,reject if failed else None)
         if started:self.policy.track(self.browse_jobs.active.cancel)
         return started
     def test_connection(self):
@@ -280,7 +293,10 @@ class CivitAIPage(QFrame):
             save_token(directory,token); self.connection.setText('Token 連線正常，已儲存' if result['authenticated'] else '公開連線正常')
         self.start_job('正在測試 CivitAI…',lambda cancel:CivitAIClient(token,cancel=cancel).test_connection(),done,lambda error:self.connection.setText(error))
     def clear_token(self):
-        self.token_revision+=1; clear_token(self.window.store.directory); self.token.clear(); self.connection.setText('已清除 Token')
+        clear_token(self.window.store.directory)
+        if self.token.text():self.token.clear()
+        else:self.token_changed()
+        self.connection.setText('已清除 Token')
 
     def search(self):
         self.search_timer.stop()
@@ -309,8 +325,8 @@ class CivitAIPage(QFrame):
             serial,args,token,append=self.pending_search; self.pending_search=None
             settings=self.content_settings(); cache_key=json.dumps([args,hashlib.sha256(token.encode()).hexdigest(),settings.get('civitai_filter_minor',True)],sort_keys=True)
             def done(result):
-                self.search_job=None
                 if serial!=self.serial:return
+                self.search_job=None
                 self.search_cache[cache_key]=(time.monotonic(),copy.deepcopy(result)); self.search_cache.move_to_end(cache_key)
                 while len(self.search_cache)>12:self.search_cache.popitem(last=False)
                 result=filter_content(result,settings)
@@ -330,8 +346,8 @@ class CivitAIPage(QFrame):
                 self.more.setEnabled(bool(self.cursor) and len(self.results)<1000)
                 self.counter.setText(f'{len(self.results)} 個結果'+(' · 請縮小搜尋範圍' if len(self.results)>=1000 else '') if self.results else '沒有相符結果'); self.schedule_thumbnails()
             def failed(error):
-                self.search_job=None
-                if serial==self.serial:self.counter.setText(error); self.more.setEnabled(bool(self.cursor))
+                if serial!=self.serial:return
+                self.search_job=None; self.counter.setText(error); self.more.setEnabled(bool(self.cursor))
             cached=self.search_cache.get(cache_key)
             if cached and time.monotonic()-cached[0]<120:done(copy.deepcopy(cached[1])); return
             if self.start_job('正在搜尋 CivitAI…',lambda cancel:CivitAIClient(token,cancel=cancel).search_models(**args),done,failed):self.search_job=self.browse_jobs.active
