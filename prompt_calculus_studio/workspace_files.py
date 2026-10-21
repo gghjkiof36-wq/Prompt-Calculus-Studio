@@ -207,6 +207,10 @@ class MarkdownPage(QPlainTextEdit):
             self.document().setModified(False)
             self.buffer.text.contentsChange.connect(self.buffer.changed)
         else:
+            # A new projection must attach to a complete source transaction.
+            # Finish before registering the page or connecting its editor, so
+            # new input cannot interleave with chunks using the old snapshot.
+            buffer.flush_mutation()
             self.setDocument(buffer.text)
         self.buffer.views.add(self)
         self.buffer.compositionChanged.connect(self.compositionChanged)
