@@ -309,12 +309,13 @@ class SourceView(QPlainTextEdit):
                 self.update_measure();return
             first=0;last=len(self.lines)
             same_presentation=getattr(self,'_presentation_key',None)==key
-            if same_presentation and not self.lazy_presentation:
+            if same_presentation and not self.lazy_paragraphs:
                 equal=lambda a,b:(a['text'],a['protected'],a['display_marker'])==(b['text'],b['protected'],b['display_marker'])
                 while first<min(len(previous),last) and equal(previous[first],self.lines[first]):first+=1
                 suffix=0
                 while suffix<min(len(previous),last)-first and equal(previous[-1-suffix],self.lines[-1-suffix]):suffix+=1
                 last-=suffix
+            paragraph_first,paragraph_last=first,last
             self._presentation_key=key
             lazy=self.lazy_presentation
             if lazy:
@@ -323,7 +324,9 @@ class SourceView(QPlainTextEdit):
                 first,last=self.presentation_range();self._format_window=(first,last)
             self.update_measure()
             self._suspend_highlight=True
-            try:self.update_paragraphs(first,last)
+            try:
+                if self.lazy_paragraphs:self.update_paragraphs(first,last)
+                else:self.update_paragraphs(paragraph_first,paragraph_last)
             finally:self._suspend_highlight=False
             if hasattr(self, 'highlighter'):
                 if not lazy and (not getattr(self,'_highlight_initialized',False) or (first==0 and last==len(self.lines))):self.highlighter.rehighlight()
@@ -341,8 +344,11 @@ class SourceView(QPlainTextEdit):
     @property
     def lazy_presentation(self):
         # Dense tables/lists can contain thousands of blocks in less than
-        # 128 KiB. Bound their initial formatting to the visible window too.
+        # 128 KiB. Bound syntax highlighting to the visible window too.
         return len(self.lines)>1000
+
+    @property
+    def lazy_paragraphs(self):return len(self.lines)>10000
 
     def presentation_range(self):
         if not self.document().isLayoutEnabled():return 0,min(160,len(self.lines))
@@ -367,14 +373,15 @@ class SourceView(QPlainTextEdit):
         transaction=QTextCursor(self.document());self._updating_presentation=True;self.syncing=True
         transaction.beginEditBlock()
         try:
-            self._suspend_highlight=True
-            try:
-                start=previous=pending[0]
-                for number in pending[1:]:
-                    if number!=previous+1:self.update_paragraphs(start,previous+1);start=number
-                    previous=number
-                self.update_paragraphs(start,previous+1)
-            finally:self._suspend_highlight=False
+            if self.lazy_paragraphs:
+                self._suspend_highlight=True
+                try:
+                    start=previous=pending[0]
+                    for number in pending[1:]:
+                        if number!=previous+1:self.update_paragraphs(start,previous+1);start=number
+                        previous=number
+                    self.update_paragraphs(start,previous+1)
+                finally:self._suspend_highlight=False
             for number in pending:self.highlighter.rehighlightBlock(self.document().findBlockByNumber(number))
             self._presented.update(pending)
         finally:
@@ -849,7 +856,7 @@ class ReadingView(QTextBrowser):
         # never build an invisible second rich-text layout for those documents.
         # Source formatting can be lazy before the native reader needs to be
         # replaced. Keep ordinary medium notes on their existing reading path.
-        large=len(source)>128_000 or len(self.surface.editor.lines)>10000
+        large=len(source)>128_000 or self.surface.editor.lazy_paragraphs
         complex_content=advanced(source)
         self.advanced=large or complex_content
         self.viewport().setVisible(not self.advanced)

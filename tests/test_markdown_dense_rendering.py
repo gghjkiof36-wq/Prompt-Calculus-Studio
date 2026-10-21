@@ -9,7 +9,7 @@ from PySide6.QtGui import QFont, QTextCursor
 from PySide6.QtTest import QTest
 
 from prompt_calculus_studio.markdown_source import SourceEdit
-from prompt_calculus_studio.markdown_view import SourceView
+from prompt_calculus_studio.markdown_view import Syntax
 import test_workspace_panes as fixture
 
 
@@ -28,22 +28,23 @@ class DenseRenderingTests(unittest.TestCase):
         while not predicate() and time.monotonic()<deadline:QTest.qWait(10)
         self.assertTrue(predicate())
 
-    def test_dense_source_formats_visible_blocks_and_preserves_edit_history(self):
+    def test_dense_source_highlights_visible_blocks_and_preserves_edit_history(self):
         text = ('## 海岸筆記\n\n**晨光**與薄霧\n\n|方向|文字|\n|---|---|\n|甲|light|\n\n```text\nmist\n```\n\n'*780)+'**FINAL**'
         raw = b'\xef\xbb\xbf'+text.replace('\n','\r\n').encode()
         path = self.root/'Notes.md';path.write_bytes(raw)
-        formatted = []
-        original = SourceView.update_paragraphs
-        def observe(editor, first=0, last=None):
-            formatted.append((first, len(editor.lines) if last is None else last))
-            return original(editor, first, last)
-        with patch.object(SourceView, 'update_paragraphs', observe):
+        highlighted = []
+        original = Syntax.rehighlightBlock
+        def observe(syntax, block):
+            highlighted.append(block.blockNumber())
+            return original(syntax, block)
+        with patch.object(Syntax, 'rehighlightBlock', observe):
             tab = self.open('Notes.md');s = tab.widget.md_surface;self.events()
-        self.assertLess(sum(last-first for first,last in formatted), 500)
+        self.assertLess(len(highlighted), 500)
         self.assertEqual(tab.widget.encoded(), raw)
         self.assertFalse(tab.widget.dirty)
         cursor = s.editor.textCursor();cursor.movePosition(QTextCursor.MoveOperation.End)
         s.editor.setTextCursor(cursor);s.editor.ensureCursorVisible();self.events()
+        self.assertTrue(s.editor.viewport().rect().intersects(s.editor.cursorRect()))
         block = s.editor.document().lastBlock()
         self.assertTrue(any(item.format.fontWeight()==QFont.Weight.Bold for item in block.layout().formats()))
         snap = tab.widget.buffer.snapshot()
