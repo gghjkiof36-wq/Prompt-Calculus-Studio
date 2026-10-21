@@ -135,6 +135,25 @@ def archive(folder, destination):
                 stream.write(path, (Path(folder.name)/path.relative_to(folder)).as_posix())
 
 
+def assemble_learning(content):
+    """Add the same welcome and lessons to a fresh source or desktop package."""
+    content = Path(content)
+    if content.exists():
+        raise ValueError('Learning content requires a fresh destination.')
+    content.mkdir()
+    lessons = content/'入口'
+    shutil.copytree(TEMPLATES/'Tutorial', lessons)
+    shutil.copy2(TEMPLATES/'歡迎使用.md', content/'歡迎使用.md')
+    (lessons/'媒體').mkdir()
+    for name in PREVIEWS:
+        shutil.copy2(ROOT/'docs/images'/name, lessons/'媒體'/name)
+    make_materials(lessons)
+    verify_learning(lessons)
+    for target in re.findall(r'!?\[[^\]]*\]\(([^)]+)\)', (content/'歡迎使用.md').read_text(encoding='utf-8')):
+        if '://' not in target and not (content/target).is_file():
+            raise ValueError('Missing welcome reference: '+target)
+
+
 def build(desktop, output):
     from package_documents import package_manifest
     desktop, output = desktop.resolve(), output.absolute()
@@ -148,19 +167,7 @@ def build(desktop, output):
         raise ValueError('Use a pristine desktop build without user content.')
     output.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(desktop, output)
-    content = output/'files'
-    content.mkdir()
-    lessons = content/'入口'
-    shutil.copytree(TEMPLATES/'Tutorial', lessons)
-    shutil.copy2(TEMPLATES/'歡迎使用.md', content/'歡迎使用.md')
-    (lessons/'媒體').mkdir()
-    for name in PREVIEWS:
-        shutil.copy2(ROOT/'docs/images'/name, lessons/'媒體'/name)
-    make_materials(lessons)
-    verify_learning(lessons)
-    for target in re.findall(r'!?\[[^\]]*\]\(([^)]+)\)', (content/'歡迎使用.md').read_text(encoding='utf-8')):
-        if '://' not in target and not (content/target).is_file():
-            raise ValueError('Missing welcome reference: '+target)
+    assemble_learning(output/'files')
     package_manifest(output, 'desktop')
     verify_desktop(output)
     full_zip = output.with_name(output.name+'.zip')

@@ -2,6 +2,12 @@
 
 [各版完整紀錄](docs/releases/README.md) · [現行使用指南](docs/guide/README.md)
 
+## 0.8.9 Alpha 1 Repair 1｜2026-10-20
+
+- 首次啟動顯示程式內歡迎頁，附上可編輯的筆記、Prompt 素材與 Canvas 教材。
+- 新建 Canvas 提供六個已連接的預設模組；恢復分頁時不強制插入已關閉的歡迎頁。
+- [下載與使用說明](docs/releases/0.8.9/repair.1.md)。
+
 ## 0.8.9 Alpha 1｜2026-10-20
 
 - 新增本機分頁工作區，整合 Markdown 編寫／閱讀、Canvas 與 Prompt 管理，支援左右並排。
