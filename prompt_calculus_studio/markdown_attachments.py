@@ -9,6 +9,7 @@ from PySide6.QtCore import QBuffer,QByteArray,QIODevice,QUrl,QSaveFile,QTimer
 from PySide6.QtGui import QImage,QImageReader
 from PySide6.QtWidgets import QFileDialog
 from .local_documents import paths
+from .local_documents.directory_pin import pinned_target
 from .markdown_source import SourceEdit
 
 SUPPORTED={'.png','.jpg','.jpeg','.gif','.webp','.bmp','.wav','.mp3','.ogg','.flac','.m4a','.mp4','.webm','.ogv','.pdf'}
@@ -20,7 +21,7 @@ def root_for(surface):
 
 
 def prepare(surface,source=None,image=None):
-    root=paths.root_path(root_for(surface));note=surface.page.path
+    root=Path(root_for(surface)).absolute();paths.root_path(root)
     if image is not None:
         if image.isNull():raise ValueError('剪貼簿沒有可用的圖片。')
         buffer=QBuffer();buffer.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -38,21 +39,20 @@ def prepare(surface,source=None,image=None):
             if not checked.is_file():raise ValueError('找不到附件。')
             return checked
         raw,_=paths.read_bytes(original,256*1024*1024)
-    folder=paths.checked(root,'assets');folder.mkdir(exist_ok=True)
-    target=paths.checked(root,'assets/'+hashlib.sha256(raw).hexdigest()+suffix)
-    if target.exists():
-        if paths.read_bytes(target,256*1024*1024)[0]!=raw:raise ValueError('同名附件內容不同，沒有覆蓋。')
-    else:
-        # Exclusive creation prevents replacing a resource shared by another note.
-        temporary=folder/('.md-prepare-'+uuid.uuid4().hex+'.tmp')
-        try:
-            with temporary.open('xb') as stream:stream.write(raw);stream.flush();os.fsync(stream.fileno())
-            try:os.link(temporary,target)
-            except FileExistsError:
-                if paths.read_bytes(target,256*1024*1024)[0]!=raw:raise ValueError('附件目的地已改變，請重試。')
-        finally:
-            if temporary.exists():temporary.unlink()
-    return target
+    with pinned_target(root,'assets/'+hashlib.sha256(raw).hexdigest()+suffix,create_parents=True) as target:
+        if target.exists():
+            if paths.read_bytes(target,256*1024*1024)[0]!=raw:raise ValueError('同名附件內容不同，沒有覆蓋。')
+        else:
+            # Exclusive creation prevents replacing a resource shared by another note.
+            temporary=target.parent/('.md-prepare-'+uuid.uuid4().hex+'.tmp')
+            try:
+                with temporary.open('xb') as stream:stream.write(raw);stream.flush();os.fsync(stream.fileno())
+                try:os.link(temporary,target)
+                except FileExistsError:
+                    if paths.read_bytes(target,256*1024*1024)[0]!=raw:raise ValueError('附件目的地已改變，請重試。')
+            finally:
+                if temporary.exists():temporary.unlink()
+        return target
 
 
 def insert(surface,files=None,image=None):

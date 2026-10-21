@@ -10,6 +10,7 @@ from .markdown_source import (MAX_BYTES, SourceSnapshot, SourceLedger, source_te
                               edited_text, utf16_position, text_style_edit)
 from .core import initial_state, uid
 from .local_documents import category, workflow, io, paths
+from .local_documents.directory_pin import pinned_target
 
 
 def create_file(root, kind, name):
@@ -21,9 +22,10 @@ def create_file(root, kind, name):
     if name.casefold() in ('.pcs', 'assets'):
         raise ValueError('這個名稱保留給程式內部資料，請使用其他名稱。')
     if kind == 'folder':
-        target = paths.checked(root, name, new=True)
-        target.mkdir()  # Exclusive; a concurrent directory is not our success.
-        return target
+        with pinned_target(root, name) as target:
+            paths.checked(root, name, new=True)
+            target.mkdir()  # Exclusive; a concurrent directory is not our success.
+            return target
     suffix = {'category': '.pcs-category', 'workflow': '.pcs-workflow', 'markdown': '.md'}[kind]
     stem = name[:-len(suffix)] if name.casefold().endswith(suffix) else name
     if not stem.strip():
@@ -31,8 +33,10 @@ def create_file(root, kind, name):
     relative = name if name.casefold().endswith(suffix) else name+suffix
     target = paths.checked(root, relative, new=True)
     if kind == 'markdown':
-        with target.open('xb'):
-            pass
+        with pinned_target(root, relative) as target:
+            paths.checked(root, relative, new=True)
+            with target.open('xb'):
+                pass
     else:
         state = initial_state()
         state['items'] = []

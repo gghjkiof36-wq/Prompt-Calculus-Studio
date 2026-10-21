@@ -6,12 +6,14 @@ dirty. All recovery paths are visible sibling files, never a hidden cache.
 from __future__ import annotations
 
 import copy
+from contextlib import ExitStack
 from dataclasses import dataclass
 import os
 from pathlib import Path
 import uuid
 
 from . import assets
+from .directory_pin import pinned_target
 from .paths import checked, read_bytes
 from .schema import DocumentError, MAX_BYTES, SUFFIXES, decode, digest, encode, fail
 
@@ -91,8 +93,10 @@ def _existing(paths):
 
 def create(root, relative, document):
     recovery = {}
+    protection = ExitStack()
     try:
         raw = encode(document)
+        protection.enter_context(pinned_target(root, relative))
         path = checked(root, relative, new=True)
         _suffix(path, document)
         if not path.parent.is_dir():
@@ -118,14 +122,18 @@ def create(root, relative, document):
         return SaveResult('conflict' if getattr(error, 'code', '') in ('exists', 'collision', 'conflict')
                           or isinstance(error, FileExistsError) else 'failed',
                           recovery_paths=_existing(recovery), error=str(error))
+    finally:
+        protection.close()
 
 
 def save(root, relative, document, expected):
     recovery = {}
     replaced = False
+    protection = ExitStack()
     try:
         # Validate before any filesystem mutation. Never mutate the dirty model.
         encode(document)
+        protection.enter_context(pinned_target(root, relative))
         path = checked(root, relative)
         _suffix(path, document)
         if (not isinstance(expected, LoadReceipt) or expected.path != str(path) or
@@ -172,6 +180,8 @@ def save(root, relative, document, expected):
         uncertain = replaced or recovery.get('external') is not None and recovery['external'].exists()
         status = 'conflict' if uncertain or getattr(error, 'code', '') == 'conflict' else 'failed'
         return SaveResult(status, recovery_paths=_existing(recovery), error=str(error))
+    finally:
+        protection.close()
 
 
 def recovery_files(root, relative):

@@ -164,24 +164,23 @@ def prepare(document, source_root, destination_directory):
         fail('assets', '附件尚未完整可攜；未保存文件。', issues=issues)
     candidate['assets'] = list(manifest.values())
     validate(candidate)
+    from .directory_pin import pinned_target
     for relative, raw in content.items():
-        path = checked(destination_directory, relative)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path = checked(destination_directory, relative)
-        temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
-        try:
-            with temporary.open('xb') as output:
-                output.write(raw)
-                output.flush()
-                os.fsync(output.fileno())
+        with pinned_target(destination_directory, relative, create_parents=True) as path:
+            temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
             try:
-                os.link(temporary, path)
-            except FileExistsError:
-                existing, _ = read_bytes(checked(destination_directory, relative), MAX_ASSET_BYTES)
-                if existing != raw:
-                    fail('asset-hash', '附件目的地已有不同內容，未覆蓋。')
-        finally:
-            temporary.unlink(missing_ok=True)
+                with temporary.open('xb') as output:
+                    output.write(raw)
+                    output.flush()
+                    os.fsync(output.fileno())
+                try:
+                    os.link(temporary, path)
+                except FileExistsError:
+                    existing, _ = read_bytes(checked(destination_directory, relative), MAX_ASSET_BYTES)
+                    if existing != raw:
+                        fail('asset-hash', '附件目的地已有不同內容，未覆蓋。')
+            finally:
+                temporary.unlink(missing_ok=True)
     return candidate
 
 

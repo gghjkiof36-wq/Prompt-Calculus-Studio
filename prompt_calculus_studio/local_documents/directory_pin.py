@@ -17,6 +17,29 @@ import uuid
 from .windows import _api, _path
 
 
+@contextmanager
+def pinned_target(root, relative, *, create_parents=False):
+    """Pin the lexical root and each parent before creating private files.
+
+    Non-Windows creation retains its existing path checks; the native
+    directory guarantee is Windows-only. Resolve only after pinning.
+    """
+    from .paths import checked, relative_parts, root_path
+    parts = relative_parts(relative)
+    base = Path(root).absolute()
+    with ExitStack() as protection:
+        if os.name == 'nt':
+            protection.enter_context(pinned_parent(base / '.pcs-parent-anchor'))
+        root_path(base)
+        for index in range(1, len(parts)):
+            parent = checked(base, '/'.join(parts[:index]))
+            if create_parents:
+                parent.mkdir(exist_ok=True)
+            if os.name == 'nt':
+                protection.enter_context(pinned_parent(parent / '.pcs-parent-anchor'))
+        yield checked(base, relative)
+
+
 class _UnicodeString(ctypes.Structure):
     _fields_ = [('Length', wintypes.USHORT), ('MaximumLength', wintypes.USHORT),
                 ('Buffer', wintypes.LPWSTR)]
