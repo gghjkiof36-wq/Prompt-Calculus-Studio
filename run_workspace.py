@@ -72,6 +72,7 @@ def main():
     parser.add_argument('--root', type=Path, help='Content folder; defaults to files beside the program.')
     parser.add_argument('--data', type=Path, help='Application data; defaults to PROMPT_STUDIO_DATA or data beside the program.')
     parser.add_argument('--v0.8.9-alpha', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--v0.8.9-beta', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--open-left', type=Path, help='Open this file in the initial view.')
     parser.add_argument('--open-right', type=Path, help='Open this file beside the initial view.')
     parser.add_argument('--check', action='store_true', help='Check this launcher without writing its review files.')

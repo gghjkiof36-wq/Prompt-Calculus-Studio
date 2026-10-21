@@ -63,6 +63,7 @@ def source_paths(root=ROOT):
 def validation_reference(release, paths):
     """Use evidence for the exact build flag; other builds link to the index."""
     reports={
+        '--v0.8.9-beta':'docs/releases/0.8.9/validation/beta.md',
         '--v0.8.9-alpha.2':'docs/releases/0.8.9/validation/alpha.2.md',
         '--v0.8.9-alpha.1.repair.1':'docs/releases/0.8.9/validation/repair.1.md',
         '--v0.8.9-alpha.1':'docs/releases/0.8.9/validation/alpha.1.md',
