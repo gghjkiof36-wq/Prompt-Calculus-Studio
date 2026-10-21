@@ -1,7 +1,7 @@
 """A compact model preview with one dismissible details editor."""
 from PySide6.QtCore import Qt, QRect, QRectF
 from PySide6.QtGui import QPainter, QColor, QPainterPath
-from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QFormLayout, QGridLayout, QLineEdit, QPlainTextEdit, QTabWidget, QSizePolicy
+from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QFormLayout, QLineEdit, QPlainTextEdit, QTabWidget, QSizePolicy
 from .widgets import StudioDialog, label, row, button, panel, scrolling, ComboBox
 from .civitai_controls import selectable
 from .civitai_assets import categories
@@ -62,17 +62,20 @@ class ModelPreview(ImageDropLabel):
         self.update()
         super().leaveEvent(event)
 
+    def replace_height(self):
+        return self.height()*2//3
+
     def paintEvent(self, event):
         super().paintEvent(event)
         if self.pixmap().isNull() or self.hover_y < 0:return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         clip=QPainterPath();clip.addRoundedRect(QRectF(self.rect()),8,8);painter.setClipPath(clip)
-        half = self.height()//2
-        for top, text, rgb in ((0, '更換', (255,255,255)), (half, '移除', (153,63,76))):
-            rect = QRect(0,top,self.width(),half if top == 0 else self.height()-half)
-            active = (self.hover_y < half) == (top == 0)
-            painter.fillRect(rect,QColor(*rgb,(125 if active else 55) if top == 0 else (100 if active else 38)))
+        split = self.replace_height()
+        for top, text, rgb in ((0, '更換', (255,255,255)), (split, '移除', (153,63,76))):
+            rect = QRect(0,top,self.width(),split if top == 0 else self.height()-split)
+            active = (self.hover_y < split) == (top == 0)
+            painter.fillRect(rect,QColor(*rgb,76 if active else 26))
             # A text shadow keeps captions legible without a separate button surface.
             painter.setPen(QColor(255,255,255,180) if top == 0 else QColor(0,0,0,150))
             painter.drawText(rect.translated(0,1),Qt.AlignmentFlag.AlignCenter,text)
@@ -81,7 +84,7 @@ class ModelPreview(ImageDropLabel):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
-            if not self.pixmap().isNull() and event.position().y() >= self.height()/2:self.page.clear_preview()
+            if not self.pixmap().isNull() and event.position().y() >= self.replace_height():self.page.clear_preview()
             else:self.page.choose_image()
             event.accept()
         else:super().mouseReleaseEvent(event)
@@ -101,7 +104,7 @@ class ModelDetails(StudioDialog):
         self.setWindowModality(Qt.WindowModality.NonModal)
         self.set_outside_dismiss(True)
         self.setWindowTitle('模型詳細資料')
-        self.resize(1080, 800)
+        self.resize(800, 800)
         self.setMinimumSize(480, 480)
         self.heading.setWordWrap(True)
         self.heading.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
@@ -181,16 +184,18 @@ def build(page):
     top = row();top.setSpacing(24);top.addLayout(preview_column);top.addLayout(form,1)
     local.addLayout(top)
     local.addSpacing(10)
-    form = QGridLayout();form.setHorizontalSpacing(16);form.setVerticalSpacing(16)
+    page.copy_trigger = button('', lambda: page.window.copy_text(page.trigger.toPlainText()), 'IconButton')
+    page.copy_trigger.setIcon(icon('copy'));page.copy_trigger.setFixedSize(32,32)
+    page.copy_trigger.setToolTip('複製觸發詞');page.copy_trigger.setAccessibleName('複製觸發詞')
+    page.copy_trigger.setEnabled(False)
+    page.trigger.textChanged.connect(lambda: page.copy_trigger.setEnabled(bool(page.trigger.toPlainText().strip())))
     for index,(title, widget) in enumerate((('觸發詞', page.trigger), ('備註', page.notes))):
-        form.addWidget(label(title),index,0,Qt.AlignmentFlag.AlignTop)
-        form.addWidget(widget,index,1)
-        form.setRowStretch(index,2+index)
-    form.setColumnStretch(1,1)
-    local.addLayout(form,1)
-    local.addLayout(row(button('複製觸發詞', lambda: page.window.copy_text(page.trigger.toPlainText()), 'Quiet'),
-                        button('加入組合', lambda: page.window.add_temporary(page.trigger.toPlainText()), 'Quiet')))
-    source = editor.section('來源')
+        field = QVBoxLayout();field.setSpacing(6)
+        if index == 0:field.addLayout(row(label(title),None,page.copy_trigger))
+        else:field.addWidget(label(title))
+        field.addWidget(widget,1)
+        local.addLayout(field,2+index)
+    source = editor.section('來源與檔案')
     page.url = QLineEdit();page.url.setPlaceholderText('https://…')
     page.base_model = selectable();page.creator = selectable();page.civitai_status = selectable()
     page.source_type = selectable();page.source_version = selectable();page.source_trigger = selectable()
@@ -201,13 +206,13 @@ def build(page):
     source.addLayout(form)
     page.source_link = button('開啟 CivitAI', page.open_source_link, 'Quiet')
     source.addLayout(row(page.source_link, button('開啟網址', page.open_link, 'Quiet')))
-    source.addStretch()
-    files = editor.section('檔案')
+    source.addSpacing(16)
+    source.addWidget(label('檔案位置', 'Subtle'))
     page.path = label('', 'Subtle', True)
     page.path.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     page.path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-    files.addWidget(page.path)
-    files.addWidget(button('顯示檔案位置', page.reveal, 'Quiet'))
-    files.addStretch()
-    files.addWidget(button('移至資源回收筒…', page.recycle, 'DangerQuiet'))
+    source.addWidget(page.path)
+    source.addWidget(button('顯示檔案位置', page.reveal, 'Quiet'))
+    source.addStretch()
+    source.addWidget(button('移至資源回收筒…', page.recycle, 'DangerQuiet'))
     page.compact_preview = None

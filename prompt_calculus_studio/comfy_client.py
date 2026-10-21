@@ -29,6 +29,14 @@ class ComfyClient(QObject):
     def workflow_import_owner(self):
         return self.window
 
+    @property
+    def workflow_catalog(self):
+        """One catalog per execution client, independent of any settings page."""
+        if self._workflow_catalog is None:
+            from .workflow_catalog import WorkflowCatalog
+            self._workflow_catalog=WorkflowCatalog(self)
+        return self._workflow_catalog
+
     def __init__(self,window):
         super().__init__(window); self.window=window; self.network=QNetworkAccessManager(self)
         self.url=window.state['settings'].get('comfy_url','http://127.0.0.1:8188')
@@ -42,6 +50,7 @@ class ComfyClient(QObject):
         self.connection_checking=False; self._connection_check_until=0.0
         self.run_id=''; self.run_started=0; self.checking_run=False; self.last_signature=''; self.last_results=0
         self.running=0; self.pending=0; self.epoch=0
+        self._workflow_catalog=None
         self.had_control=False; self.control_interrupted=False
         self.direct_supported=False; self.snapshot_versions=None; self.generation=GenerationRunner(self)
         from .queue_runner import QueueRunner

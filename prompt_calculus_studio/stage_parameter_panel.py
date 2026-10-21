@@ -118,7 +118,7 @@ class ParameterSheet(QFrame):
     def __init__(self,canvas,stage_id,item=None,language=None):
         window=canvas.window;super().__init__(window.centralWidget())
         self.canvas=canvas;self.window=window;self.stage_id=stage_id;self.item=copy.deepcopy(item)
-        self.client=window.comfy;self.catalog=window.settings_page.workflow_manager.catalog
+        self.client=window.comfy;self.catalog=self.client.workflow_catalog
         self.owner=(window.store,window.state['workspace'],self.client.url,self.client.epoch)
         self.language=language or window.state.get('settings',{}).get('language','zh-TW')
         self.tokens=dialog_colors(visual_tokens({**window.state.get('settings',{}),**getattr(window,'appearance_preview',{})}))

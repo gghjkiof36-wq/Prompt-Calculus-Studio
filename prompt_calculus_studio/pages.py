@@ -186,6 +186,7 @@ class ModelPage(QFrame):
         ref=(self.record or {}).get('thumb')
         set_preview(self.preview,self.window.store,ref,self.preview.width())
         if self.preview.pixmap().isNull():self.preview.setText('＋\n新增預覽')
+        self.preview.setToolTip('拖入或選擇預覽圖' if self.preview.pixmap().isNull() else '')
         self.preview.setAccessibleName('預覽圖；Enter 更換，Delete 移除' if ref else '新增預覽圖')
         set_preview(self.summary_preview,self.window.store,ref,180)
         self.summary_preview.setVisible(bool(ref) and not self.summary_preview.pixmap().isNull())

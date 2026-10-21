@@ -19,7 +19,7 @@ class WorkflowBindingDialog(StudioDialog):
         self.profiles=copy.deepcopy(options(canvas.window.state)['profiles'])
         self.originals={p['id']:copy.deepcopy(p) for p in self.profiles}
         self.bindings=copy.deepcopy(canvas.data()['bindings'])
-        self.catalog=canvas.window.settings_page.workflow_manager.catalog
+        self.catalog=canvas.window.comfy.workflow_catalog
         self.staged={}; self.read_sources={}; self.remote_entries={}; self.serial=0; self.loading=False; self.closed=False; self.force_read=False
         self.connection=(self.catalog.client.url,self.catalog.client.epoch)
         self.workflow=ComboBox(); self.workflow.setMinimumWidth(400)

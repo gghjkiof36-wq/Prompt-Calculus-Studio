@@ -13,6 +13,8 @@
 
 ## 單一執行順序
 
+CLIP／圖片節點綁定與 Stage 參數頁從文件的 `ComfyClient.workflow_catalog` 取得工作流，無須建立設定頁。目錄按執行 client 延後建立一次；同文件多視圖共用，不同文件各自保有讀取身分及綁定草稿。一般設定頁的工作流管理也使用自己的 client 目錄。原生讀取仍通過 `WorkspaceComfyClient` 的排程檢查，不能借工具頁 client 繞過文件的執行權。
+
 WorkspaceScheduler 以 runtime token 持有一次執行權。Stage 接受輸入與來源游標的 transaction 完成後才登記順序、註冊 library 或派送。不同文件依序執行，同文件的多個視圖共享同一個 executor。
 
 Stage pump、輸入套用與 Queue／Direct dispatch 在取出項目之前取得執行權；WorkspaceComfyClient 的 transport 再核對變更 ComfyUI 的操作。查看／切換原生工作流和取得 Queue 快照也屬受保護操作。執行期間 library 固定到 owner，不隨分頁焦點切換。
@@ -26,3 +28,5 @@ Stage pump、輸入套用與 Queue／Direct dispatch 在取出項目之前取得
 ## 驗證
 
 `tests/test_workspace_execution.py` 使用共用的合成原生回執／佇列服務，經實際 Qt 執行控制與正式 journal／Stage 引擎，檢查多文件順序、多步流程、輸入凍結、取消、回覆遺失、無分頁恢復、Save As、路徑更名及保存失敗。`test_workspace_connection.py` 使用隔離的本機 HTTP peer 檢查實際 Qt 連線傳輸與燈號。這些不等於真實 ComfyUI、GPU 或使用者桌面驗收。
+
+`test_workspace_binding.py` 直接經分頁 Canvas 的綁定按鈕驗證節點選擇、復原／重做、保存及重開，並檢查圖片綁定、Stage 參數套用、同文件共用目錄及不同文件的取消／延遲回覆隔離。`test_workflow_picker.py` 保留舊介面的工作流讀取、過期連線及原生／已儲存版本區分。

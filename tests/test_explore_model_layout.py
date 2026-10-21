@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import Qt, QPoint, QRect
-from PySide6.QtGui import QFontDatabase, QImage, QColor
+from PySide6.QtGui import QFontDatabase, QImage, QColor, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton
 from prompt_calculus_studio.window import Window
@@ -90,6 +90,26 @@ class ExploreModelLayoutTests(unittest.TestCase):
         self.assertEqual(model.record['thumb'],record['thumb'])
         self.assertEqual(model.catalog.get(record['id'])['thumb'],record['thumb'])
 
+    def test_preview_regions_and_copy_use_current_draft(self):
+        self.w.settings('models');self.add_model();model=self.w.models
+        model.list.setCurrentRow(0);model.open_details();self.settle()
+        model.trigger.setPlainText('edited trigger')
+        QTest.mouseClick(model.copy_trigger,Qt.MouseButton.LeftButton)
+        self.assertEqual(APP.clipboard().text(),'edited trigger')
+        model.trigger.clear();self.assertFalse(model.copy_trigger.isEnabled())
+        picture=QPixmap(80,80);picture.fill(QColor('#567a82'));model.preview.setPixmap(picture)
+        width,height=model.preview.width(),model.preview.height();split=height*2//3
+        with patch.object(model,'choose_image') as choose,patch.object(model,'clear_preview') as remove:
+            for point in (QPoint(2,2),QPoint(width-3,split-1),QPoint(width//2,height*3//5)):
+                QTest.mouseClick(model.preview,Qt.MouseButton.LeftButton,pos=point)
+            self.assertEqual(choose.call_count,3);remove.assert_not_called()
+            for point in (QPoint(2,split),QPoint(width-3,height-3)):
+                QTest.mouseClick(model.preview,Qt.MouseButton.LeftButton,pos=point)
+            self.assertEqual(choose.call_count,3);self.assertEqual(remove.call_count,2)
+            model.preview.setPixmap(QPixmap())
+            QTest.mouseClick(model.preview,Qt.MouseButton.LeftButton,pos=QPoint(width//2,height-3))
+            self.assertEqual(choose.call_count,4);self.assertEqual(remove.call_count,2)
+
     def test_narrow_large_type_detail_stays_reachable_and_returns_without_losing_edits(self):
         self.w.settings('models'); self.add_model(); model=self.w.models
         for palette,width,size in (('graphite',1440,11),('paper',800,18),('mist',640,18)):
@@ -135,6 +155,8 @@ class ExploreModelLayoutTests(unittest.TestCase):
         self.assertTrue(model.name.isVisible());self.assertFalse(model.source_version.isVisible())
         model.details_editor.tabs.setCurrentIndex(1);self.settle()
         self.assertTrue(model.source_version.isVisible());self.assertFalse(model.name.isVisible())
+        self.assertEqual(model.details_editor.tabs.count(),2)
+        self.assertTrue(model.path.isVisible());self.assertIn(record['path'],model.path.text())
         before=dict(self.w.catalog.get('model')['civitai'])
         model.trigger.setPlainText('personal trigger'); model.notes.setPlainText('personal notes'); model.save()
         saved=self.w.catalog.get('model')

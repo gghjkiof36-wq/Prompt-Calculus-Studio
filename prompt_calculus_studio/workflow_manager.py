@@ -4,7 +4,6 @@ from PySide6.QtCore import Qt,QTimer,QSize,QEvent
 from PySide6.QtWidgets import QWidget,QVBoxLayout,QBoxLayout,QListWidget,QListWidgetItem,QFileDialog,QLineEdit,QCheckBox,QDialog,QSizePolicy,QStyle,QStyleOptionComboBox
 from .widgets import label,button,row,ComboBox,InputDialog,StudioDialog,RoundMenu,ActionHeader,ElidedLabel
 from .generation import active_profile,validate_profile
-from .workflow_catalog import WorkflowCatalog
 from .ui_icons import icon
 
 
@@ -45,7 +44,7 @@ class WorkflowManager(QWidget):
     def __init__(self,window):
         super().__init__(); self.window=window; self.signature=None; self.deleted=None; self.updating=False; self.loading=False; self.connection_epoch=window.comfy.epoch
         self.owner=(window.store,window.state['workspace']); self.request_serial=0
-        self.catalog=WorkflowCatalog(window.comfy); self.catalog.changed.connect(self.rebuild)
+        self.catalog=window.comfy.workflow_catalog; self.catalog.changed.connect(self.rebuild)
         window.store.db.execute('CREATE TABLE IF NOT EXISTS workflow_deletions (id INTEGER PRIMARY KEY, body TEXT NOT NULL)'); window.store.db.commit()
         saved=window.store.db.execute('SELECT body FROM workflow_deletions ORDER BY id DESC LIMIT 1').fetchone()
         if saved: self.deleted=json.loads(saved[0])
