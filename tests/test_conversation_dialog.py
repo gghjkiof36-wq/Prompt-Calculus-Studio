@@ -9,7 +9,7 @@ from PySide6.QtTest import QTest
 from shiboken6 import isValid
 import test_workspace_panes as fixture
 from test_conversation_import import sample
-from test_conversation_crc import TITLES, write_crc_archive
+from test_conversation_crc import TITLES, ZIP_DEFLATED, ZIP_STORED, write_attachment_archive
 from prompt_calculus_studio.conversation_dialog import open_import
 from prompt_calculus_studio.conversation_archive import Cancelled
 from prompt_calculus_studio.conversation_import import ImportResult
@@ -129,9 +129,15 @@ class ImportDialogTests(unittest.TestCase):
         self.assertFalse(self.errors, self.errors)
 
     def test_late_attachment_crc_reaches_partial_summary_through_import_job(self):
+        self.assert_attachment_error_summary(ZIP_STORED, 'CRC')
+
+    def test_invalid_deflate_reaches_partial_summary_through_import_job(self):
+        self.assert_attachment_error_summary(ZIP_DEFLATED, 'invalid block type')
+
+    def assert_attachment_error_summary(self, compression, error_text):
         d = self.create()
         self.source = self.root.parent/'crc-export.zip'
-        original = write_crc_archive(self.source)
+        original = write_attachment_archive(self.source, compression=compression)
         d.load_source(self.source)
         self.wait_job()
         d.check_visible(True)
@@ -142,7 +148,7 @@ class ImportDialogTests(unittest.TestCase):
         self.assertEqual(d.import_button.text(), '關閉')
         for title in TITLES:
             self.assertIn(title, d.preview.toPlainText())
-        self.assertIn('CRC', d.preview.toPlainText())
+        self.assertIn(error_text, d.preview.toPlainText())
         receipts = list(self.root.glob('*/匯入完成.json'))
         self.assertEqual(len(receipts), 1)
         active = self.w.tabs_by_key[self.w.active_key]

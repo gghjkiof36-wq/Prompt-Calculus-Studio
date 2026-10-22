@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import uuid
+import zlib
 from zipfile import BadZipFile, ZipFile
 
 from .conversation_archive import Cancelled, MIB, checkpoint, canonical
@@ -187,7 +188,7 @@ def import_selected(source, selected, destination, cancel, progress=lambda text:
                     if folder:result.failed.append((item.title, str(folder), '已取消；這個資料夾尚未完成。'))
                     result.unprocessed = [source.conversations[i].title for i in indices[position if folder else position-1:]]
                     break
-                except (OSError, ValueError, KeyError, RuntimeError, BadZipFile) as error:
+                except (OSError, ValueError, KeyError, RuntimeError, BadZipFile, zlib.error) as error:
                     result.failed.append((item.title, str(folder) if folder else '', str(error)))
                     result.unprocessed = [source.conversations[i].title for i in indices[position:]]
                     # Source and destination failures cannot be safely retried

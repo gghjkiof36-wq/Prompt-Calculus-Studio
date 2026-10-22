@@ -6,7 +6,7 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
-from zipfile import ZIP_STORED, ZipFile
+from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 from test_conversation_import import sample
 from prompt_calculus_studio.conversation_archive import load_archive
@@ -16,11 +16,11 @@ from prompt_calculus_studio.conversation_import import Destination, RECEIPT, imp
 TITLES = ('First complete', 'Second attachment', 'Third unprocessed')
 
 
-def write_crc_archive(path, *, damaged=True, attachment_index=1):
+def write_attachment_archive(path, *, damaged=True, attachment_index=1, compression=ZIP_STORED):
     records = [sample('crc-'+str(i), title) for i, title in enumerate(TITLES)]
     records[attachment_index]['mapping']['a']['message']['content']['parts'].append(
         dict(content_type='image_asset_pointer', asset_pointer='file-service://file-tiny.png'))
-    with ZipFile(path, 'w', compression=ZIP_STORED) as archive:
+    with ZipFile(path, 'w', compression=compression) as archive:
         archive.writestr('conversations.json', json.dumps(records))
         archive.writestr('file-tiny.png', b'synthetic tiny attachment')
         info = archive.getinfo('file-tiny.png')
@@ -28,7 +28,11 @@ def write_crc_archive(path, *, damaged=True, attachment_index=1):
     if damaged:
         raw = bytearray(path.read_bytes())
         name_size, extra_size = struct.unpack_from('<HH', raw, header_offset+26)
-        raw[header_offset+30+name_size+extra_size] ^= 1
+        offset = header_offset+30+name_size+extra_size
+        if compression == ZIP_DEFLATED:
+            raw[offset] = (raw[offset] & ~7) | 7  # Reserved first-block BTYPE=3.
+        else:
+            raw[offset] ^= 1  # Keep the stored member's original CRC.
         path.write_bytes(raw)  # Fixed before load_archive, never changed mid-import.
     return path.read_bytes()
 
@@ -51,7 +55,13 @@ class ConversationCrcTests(unittest.TestCase):
         return import_selected(archive, (0, 1, 2), Destination.choose(self.destination), threading.Event())
 
     def test_valid_attachment_completes_all_conversations(self):
-        original = write_crc_archive(self.path, damaged=False)
+        self.assert_valid_attachment(ZIP_STORED)
+
+    def test_valid_deflated_attachment_completes_all_conversations(self):
+        self.assert_valid_attachment(ZIP_DEFLATED)
+
+    def assert_valid_attachment(self, compression):
+        original = write_attachment_archive(self.path, damaged=False, compression=compression)
         result = self.run_import(load_archive(self.path))
         self.assertEqual(len(result.completed), 3)
         self.assertFalse(result.failed or result.unprocessed or result.cancelled)
@@ -59,7 +69,13 @@ class ConversationCrcTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), original)
 
     def test_late_crc_preserves_completed_and_retry_does_not_overwrite(self):
-        original = write_crc_archive(self.path)
+        self.assert_late_failure(ZIP_STORED, 'CRC')
+
+    def test_invalid_deflate_preserves_completed_and_retry_does_not_overwrite(self):
+        self.assert_late_failure(ZIP_DEFLATED, 'invalid block type')
+
+    def assert_late_failure(self, compression, error_text):
+        original = write_attachment_archive(self.path, compression=compression)
         archive = load_archive(self.path)
         result = self.run_import(archive)
         self.assertEqual(len(result.completed), 1)
@@ -67,7 +83,7 @@ class ConversationCrcTests(unittest.TestCase):
         self.assertFalse(result.cancelled)
         self.assertEqual(len(result.failed), 1)
         self.assertEqual(result.failed[0][:2], (TITLES[1], ''))
-        self.assertIn('CRC', result.failed[0][2])
+        self.assertIn(error_text, result.failed[0][2])
         self.assertEqual(result.unprocessed, [TITLES[2]])
         complete = result.completed[0]
         self.assertEqual(result.titles[str(complete)], TITLES[0])
@@ -84,7 +100,7 @@ class ConversationCrcTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), original)
 
     def test_first_crc_returns_failure_and_all_later_titles(self):
-        original = write_crc_archive(self.path, attachment_index=0)
+        original = write_attachment_archive(self.path, attachment_index=0)
         result = self.run_import(load_archive(self.path))
         self.assertEqual(result.completed, [])
         self.assertEqual(result.failed[0][:2], (TITLES[0], ''))
@@ -94,7 +110,7 @@ class ConversationCrcTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), original)
 
     def test_unexpected_program_error_is_not_converted_to_partial_success(self):
-        write_crc_archive(self.path, damaged=False)
+        write_attachment_archive(self.path, damaged=False)
         archive = load_archive(self.path)
         with patch('prompt_calculus_studio.conversation_import.attachment_plan', side_effect=TypeError('program error')):
             with self.assertRaisesRegex(TypeError, 'program error'):
