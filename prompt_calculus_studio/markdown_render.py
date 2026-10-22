@@ -10,6 +10,7 @@ from mdit_py_plugins.dollarmath import dollarmath_plugin
 from mdit_py_plugins.tasklists import tasklists_plugin
 from pygments import highlight
 from pygments.lexers import get_lexer_by_name
+from pygments.lexers.special import TextLexer
 from pygments.formatters import HtmlFormatter
 from .markdown_syntax import TAG_STYLES,css_style,style_css,display_style
 
@@ -69,7 +70,7 @@ def local_target(target,path,root):
     except (OSError,ValueError):return None
 
 
-def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_result=None,_trail=(),_origin=None,_offset=0):
+def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_result=None,_trail=(),_origin=None,_offset=0,before_embed=None):
     from .markdown_links import Notes,region
     from .markdown_properties import frontmatter
     result=_result or Projection();path=Path(path);root=Path(root);origin=_origin or path
@@ -148,6 +149,11 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
             dimensions=re.search(r'\|(\d{1,4})(?:x(\d{1,4}))?$',alt)
             width=int(dimensions.group(1));height=int(dimensions.group(2)) if dimensions.group(2) else None;alt=alt[:dimensions.start()]
         elif wiki and '|' in target:target,alt=target.split('|',1)
+        address=urlsplit(target)
+        if before_embed is not None and (wiki or (not address.scheme and not address.netloc
+                and Path(unquote(address.path)).suffix.lower() in ('','.md'))):
+            # Covers both ![[Child]] and ![](Child.md), before any lookup/I/O.
+            before_embed()
         key=(target,wiki)
         resolved=resolved_targets.get(key)
         if resolved is None:
@@ -180,7 +186,11 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
         result.attachments.append(entry)
         if media_renderer:return media_renderer(entry,index)
         return '<span class="resource">'+html.escape(alt or target)+'</span>'
-    md.add_render_rule('pcs_embed',lambda self,tokens,i,options,env:embed(tokens[i].content,wiki=True))
+    def render_embed(self,tokens,i,options,env):
+        # Interactive callers may transfer the complete projection to a worker
+        # before resolving or reading a Child. Literal code never reaches here.
+        return embed(tokens[i].content,wiki=True)
+    md.add_render_rule('pcs_embed',render_embed)
     md.add_render_rule('image',lambda self,tokens,i,options,env:embed(tokens[i].attrGet('src') or '',tokens[i].content))
     md.add_render_rule('html_inline',lambda self,tokens,i,options,env:safe_tag(tokens[i].content))
     def html_block(self,tokens,i,options,env):
@@ -192,13 +202,23 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
             return safe_tag(match.group(1))+md.renderInline(match.group(2))+safe_tag(match.group(3))
         return '<pre class="unknown">'+html.escape(raw)+'</pre>'
     md.add_render_rule('html_block',html_block)
+    plain_lexer=None
     def fence(self,tokens,i,options,env):
+        nonlocal plain_lexer
         token=tokens[i];language=token.info.strip().split(' ')[0];code=token.content
         if language.lower()=='mermaid':
             index=len(result.diagrams);result.diagrams.append(code)
             return f'<div class="diagram" data-diagram="{index}"></div><a class="source" href="{source_action(token.map[0])}">編輯圖表原文</a>'
         index=len(result.codes);result.codes.append(code)
-        try:painted=highlight(code,get_lexer_by_name(language),HtmlFormatter(nowrap=True)) if language else html.escape(code)
+        try:
+            if language.lower()=='text':
+                # TextLexer has no coloured tokens. Keep its public newline/BOM
+                # normalization without building an unused stylesheet per block.
+                if plain_lexer is None:plain_lexer=TextLexer()
+                painted=''.join(html.escape(value).replace('&#x27;','&#39;')
+                    for _,value in plain_lexer.get_tokens(code))
+            else:
+                painted=highlight(code,get_lexer_by_name(language),HtmlFormatter(nowrap=True)) if language else html.escape(code)
         except Exception:painted=html.escape(code)
         return f'<section class="code"><header>{html.escape(language or "純文字")}<a href="pcs-action:copy/{index}">複製程式碼</a><a href="{source_action(token.map[0])}">編輯</a></header><pre><code>{painted}</code></pre></section>'
     md.add_render_rule('fence',fence)
@@ -225,9 +245,13 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
     front_end,properties,_=frontmatter(text)
     rendered_text='\n'*text[:front_end].count('\n')+text[front_end:]
     # Block IDs are anchors, not visible prose. Keep source line numbering.
-    from .markdown_links import prose_mask
-    for marker in reversed(list(re.finditer(r'(?m)(?:^|[ \t])\^[A-Za-z0-9-]+[ \t]*$',prose_mask(rendered_text)))):
-        rendered_text=rendered_text[:marker.start()]+rendered_text[marker.end():]
+    if '^' in rendered_text:
+        from .markdown_links import prose_mask
+        pieces=[];at=0
+        for marker in re.finditer(r'(?m)(?:^|[ \t])\^[A-Za-z0-9-]+[ \t]*$',prose_mask(rendered_text)):
+            pieces.append(rendered_text[at:marker.start()]);at=marker.end()
+        if pieces:
+            pieces.append(rendered_text[at:]);rendered_text=''.join(pieces)
     env={};tokens=md.parse(rendered_text,env);stack=[]
     for i,token in enumerate(tokens):
         if token.type=='blockquote_open':

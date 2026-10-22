@@ -97,9 +97,10 @@ def links(text):
     return sorted(result,key=lambda item:item.start)
 
 
-def note_paths(root):
+def note_paths(root,*,visited=None):
     root=paths.root_path(root)
     for directory,folders,files in os.walk(root,followlinks=False):
+        if visited is not None:visited(Path(directory))
         folders[:]=[name for name in folders if name.casefold() not in ('.obsidian','.pcs','assets','.git') and not paths.is_link(Path(directory)/name)]
         for name in files:
             if name.lower().endswith('.md'):
@@ -125,6 +126,9 @@ class Notes:
         path=paths.checked(self.root,Path(path).relative_to(self.root).as_posix())
         if path not in self.cache:self.cache[path]=self.read(path)
         return self.cache[path]
+    def candidate(self,value,base):
+        candidate=local_target(value,base/'_.md',self.root)
+        return candidate if candidate and candidate.is_file() else None
     def resolve(self,target,source,wiki=False):
         target=target.split('|',1)[0] if wiki else target;address=address_of(target,wiki)
         if address.scheme or address.netloc:return [],address.fragment
@@ -136,8 +140,8 @@ class Notes:
         bases=[self.root,source.parent] if wiki and '/' in name and not name.startswith('.') else [source.parent,self.root]
         for base in dict.fromkeys(bases):
             for value in names:
-                candidate=local_target(value,base/'_.md',self.root)
-                if candidate and candidate.is_file():return [candidate],anchor
+                candidate=self.candidate(value,base)
+                if candidate is not None:return [candidate],anchor
         if '/' not in name:
             matches=[p for p in self.files() if p.name.casefold() in {n.casefold() for n in names}]
             if matches:return matches,anchor

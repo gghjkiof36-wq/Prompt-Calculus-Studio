@@ -1,4 +1,5 @@
 """Recent ComfyUI results remain references until explicitly collected."""
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -7,6 +8,7 @@ from PySide6.QtGui import QColor,QPainter,QPainterPath,QPen
 from PySide6.QtWidgets import QFrame,QVBoxLayout,QHBoxLayout,QBoxLayout,QWidget,QListWidget,QListWidgetItem,QFileDialog,QScrollArea,QSizePolicy,QStyledItemDelegate,QStyle
 from .widgets import label,button,row,ComboBox,RoundMenu,record_icon,set_record_preview,open_file,reveal_file,ElidedLabel
 from .media import import_image
+from .image_capture import capture_image
 from .media_gallery import GalleryPreview,GalleryDetailCard,ImageMetadataDialog
 from .theme import visual_tokens
 from .ui_icons import icon
@@ -79,6 +81,7 @@ class RecentPage(QFrame):
     def __init__(self,window):
         super().__init__(); self.window=window; self.catalog=window.catalog
         self.record=None; self.page=0; self.pending=[]; self.saves=[]; self.processing=False; self.collecting=set()
+        self._preview_receipts={}
         self.known={r[0] for r in self.catalog.db.execute("SELECT id FROM resources WHERE kind='recent'")}
         self.details_open=False;self._adapting=False
         self.setObjectName('WorkspaceSurface'); layout=QVBoxLayout(self); layout.setContentsMargins(24,20,24,20);layout.setSpacing(16)
@@ -244,6 +247,7 @@ class RecentPage(QFrame):
         """Move this view to a new owner without retargeting accepted work."""
         self.catalog=catalog
         self.pending=[]
+        self._preview_receipts={}
         self.known={r[0] for r in catalog.db.execute("SELECT id FROM resources WHERE kind='recent'")}
         self.record=None;self.page=0;self.collecting=set()
         self.refresh_timer.stop()
@@ -256,12 +260,13 @@ class RecentPage(QFrame):
         for record in reversed(records):
             ident=result_id(record)
             if record.get('path') and ident not in self.known and ident not in queued:
-                self.pending.append(record); queued.add(ident)
+                self.pending.append(copy.deepcopy(record)); queued.add(ident)
         self.pump()
 
     def pump(self):
         if self.window.closing:
             self.pending=[]
+            self._preview_receipts={}
             if not self.saves: return
         if self.processing or not (self.pending or self.saves): return
         if self.window.jobs.active: QTimer.singleShot(250,self.pump); return
@@ -312,23 +317,64 @@ class RecentPage(QFrame):
         else:
             source=self.pending.pop(0); ident=result_id(source)
             store,catalog=self.window.store,self.catalog
+            receipts=self._preview_receipts
+            previous=receipts.get(ident)
+            # A result ID identifies an output, not its contents. Only compare
+            # a complete accepted record and the bytes the importer consumes.
+            try:source_key=json.dumps(source,sort_keys=True,ensure_ascii=False)
+            except (TypeError,ValueError):source_key=None
+            produced=None; committed=False
             def work(cancel):
-                try: return import_image(source['path'],store.directory,''),''
-                except Exception as exc: return None,str(exc)
-            def done(value):
-                self.processing=False; record,error=value
-                if record:
-                    record.update(id=ident,source=source,collected={}); catalog.put('recent',record)
-                    catalog.db.execute("DELETE FROM resources WHERE kind='recent' AND id NOT IN (SELECT id FROM resources WHERE kind='recent' ORDER BY json_extract(body,'$.created') DESC LIMIT 120)"); catalog.db.commit()
-                    if self.catalog is not catalog:
-                        QTimer.singleShot(0,self.pump);return
-                    self.known.add(ident)
-                    self.refresh_timer.start()
-                    self.window.show_latest_generated(record)
-                    if not self.pending and not self.saves:self.window.notice('最近生成預覽已更新。')
-                elif error and self.catalog is catalog: self.window.notice('結果預覽無法讀取：'+error)
+                nonlocal produced
+                try:
+                    captured=capture_image(source['path'],cancel)
+                    receipt=(source_key,captured.digest) if source_key is not None and captured.digest is not None else None
+                    if receipt is not None and receipt==previous:return None,'',receipt,True
+                    produced=import_image(source['path'],store.directory,'',cancel=cancel,captured=captured)
+                    return produced,'',receipt,False
+                except Exception as exc: return None,str(exc),None,False
+            def release():
+                self.processing=False
+                # Receipts exist only for already accepted work in this batch.
+                # Retargeting replaces the dictionary, isolating late writers.
+                if self._preview_receipts is receipts and not self.pending:receipts.clear()
                 QTimer.singleShot(0,self.pump)
-            self.window.jobs.start('更新最近生成預覽…',work,done)
+            def discard_uncommitted():
+                if produced and not committed:
+                    try:(store.directory/produced['thumb']).unlink(missing_ok=True)
+                    except OSError:pass
+            def failed(message):
+                try:
+                    discard_uncommitted()
+                    if self.catalog is catalog:self.window.notice('結果預覽無法讀取：'+message)
+                finally:release()
+            def done(value):
+                nonlocal committed
+                record,error,receipt,reused=value
+                try:
+                    if reused:return
+                    if record:
+                        record.update(id=ident,source=source,collected={}); catalog.put('recent',record)
+                        committed=True
+                        catalog.db.execute("DELETE FROM resources WHERE kind='recent' AND id NOT IN (SELECT id FROM resources WHERE kind='recent' ORDER BY json_extract(body,'$.created') DESC LIMIT 120)"); catalog.db.commit()
+                        # Keep only the latest successful version for each ID:
+                        # A→B→A must publish A again, not reuse an older receipt.
+                        if receipt is None:receipts.pop(ident,None)
+                        else:receipts[ident]=receipt
+                        if self.catalog is not catalog:return
+                        self.known.add(ident)
+                        self.refresh_timer.start()
+                        self.window.show_latest_generated(record)
+                        if not self.pending and not self.saves:self.window.notice('最近生成預覽已更新。')
+                    elif error and self.catalog is catalog:self.window.notice('結果預覽無法讀取：'+error)
+                finally:
+                    discard_uncommitted()
+                    release()
+            try:started=self.window.jobs.start('更新最近生成預覽…',work,done,failed)
+            except Exception:
+                self.pending.insert(0,source);self.processing=False;raise
+            if not started:
+                self.pending.insert(0,source);release()
 
     def refresh(self):
         selected=self.record['id'] if self.record else None

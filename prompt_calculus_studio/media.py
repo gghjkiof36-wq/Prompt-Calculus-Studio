@@ -3,6 +3,7 @@
 Model files are only listed/copied/recycled. Their tensor data is never loaded.
 """
 import copy
+import io
 import json
 import os
 import shutil
@@ -11,8 +12,9 @@ import time
 import uuid
 import zlib
 from pathlib import Path
-from .pnginfo import png_metadata
-from PySide6.QtCore import QSize, Qt
+from .pnginfo import png_metadata, png_metadata_stream
+from .image_capture import CapturedImage
+from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QSize, Qt
 from PySide6.QtGui import QImage, QImageReader, QPainter
 
 MODEL_EXTENSIONS = {".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf"}
@@ -109,7 +111,14 @@ def copy_model(source, root, folder, cancel=None):
 def thumbnail(source, data_dir):
     folder = Path(data_dir) / "thumbnails"
     folder.mkdir(parents=True, exist_ok=True)
-    reader = QImageReader(str(source))
+    device = None
+    if isinstance(source, CapturedImage) and source.data is not None:
+        device = QBuffer()
+        device.setData(QByteArray(source.data))
+        device.open(QIODevice.OpenModeFlag.ReadOnly)
+        reader = QImageReader(device)
+    else:
+        reader = QImageReader(str(source.path if isinstance(source, CapturedImage) else source))
     reader.setAutoTransform(True)
     reader.setAllocationLimit(128)
     size = reader.size()
@@ -131,13 +140,14 @@ def thumbnail(source, data_dir):
     return relative
 
 
-def import_image(path, data_dir, album, copy_original=False, cancel=None):
-    path = Path(path).resolve(strict=True)
+def import_image(path, data_dir, album, copy_original=False, cancel=None, *, captured=None):
+    path = captured.path if captured is not None else Path(path).resolve(strict=True)
     if path.suffix.lower() not in IMAGE_EXTENSIONS:
         raise ValueError("不支援的圖片格式。")
-    preview = thumbnail(path, data_dir)
+    preview = thumbnail(captured if captured is not None else path, data_dir)
     try:
-        metadata = png_metadata(path)
+        metadata = (png_metadata_stream(io.BytesIO(captured.data))
+                    if captured is not None and captured.data is not None else png_metadata(path))
     except (OSError, ValueError):
         metadata = dict(source="none", note="無法讀取內嵌資料；仍可手動附註。")
     original = str(path)
@@ -147,7 +157,9 @@ def import_image(path, data_dir, album, copy_original=False, cancel=None):
         dest = Path(data_dir)/"originals"/(uuid.uuid4().hex+path.suffix.lower())
         dest.parent.mkdir(exist_ok=True)
         try:
-            with path.open("rb") as source, dest.open("xb") as output:
+            source_input = (io.BytesIO(captured.data) if captured is not None and captured.data is not None
+                            else path.open("rb"))
+            with source_input as source, dest.open("xb") as output:
                 while block := source.read(4*1024*1024):
                     if cancel and cancel.is_set(): raise ValueError("已取消圖片匯入。")
                     output.write(block)

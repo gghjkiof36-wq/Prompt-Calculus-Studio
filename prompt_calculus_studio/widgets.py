@@ -1,10 +1,10 @@
 from pathlib import Path
 from PySide6.QtCore import Qt, QSize, QPoint, QPointF, QRectF, QObject, QVariantAnimation, QEasingCurve, QEvent
-from PySide6.QtGui import QPixmap, QDesktopServices, QIcon, QPainterPath, QRegion, QPainter, QPalette, QImageReader, QFont, QFontMetrics
+from PySide6.QtGui import QPixmap, QDesktopServices, QIcon, QPainterPath, QRegion, QPainter, QPalette, QImageReader, QFont, QFontMetrics, QTextOption
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QFrame,
                               QDialogButtonBox, QFileDialog, QMessageBox, QDialog, QScrollArea,
-                              QLineEdit, QPlainTextEdit, QComboBox, QFontComboBox, QListView, QListWidget, QMenu, QWidgetAction, QSizePolicy, QWidget, QBoxLayout, QApplication,QStyledItemDelegate,QStyle,QStyleOptionViewItem,QStyleOptionComboBox,QStylePainter)
+                              QLineEdit, QPlainTextEdit, QComboBox, QFontComboBox, QListView, QListWidget, QMenu, QWidgetAction, QSizePolicy, QWidget, QBoxLayout, QApplication,QStyledItemDelegate,QStyle,QStyleOptionViewItem,QStyleOptionComboBox,QStylePainter,QSizeGrip)
 from .popup_surface import POPUP_WIDTH, PopupSurface, popup_row_height, popup_width
 
 def label(text, role=None, wrap=False):
@@ -309,10 +309,42 @@ def ask(parent, title, text):
     return dialog.exec()==QDialog.DialogCode.Accepted
 
 
+class InformationDialog(StudioDialog):
+    """Keep full recovery messages readable without enlarging the action area."""
+    def __init__(self,parent,title,text):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        long_message=len(text)>180 or text.count('\n')>3
+        self.resize(620,420) if long_message else self.resize(520,250)
+        self.message=QPlainTextEdit(self)
+        self.message.setObjectName('InformationText')
+        self.message.setAccessibleName('完整訊息')
+        self.message.setReadOnly(True)
+        self.message.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse|Qt.TextInteractionFlag.TextSelectableByKeyboard)
+        self.message.setTabChangesFocus(True)
+        self.message.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.message.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.message.setMinimumSize(0,0)
+        self.message.setStyleSheet('QPlainTextEdit { background: transparent; border: 0; padding: 0; }')
+        self.message.document().setDocumentMargin(0)
+        self.message.setPlainText(text)
+        self.body.addWidget(self.message,1)
+        self.confirm=button('知道了',self.accept,'Primary')
+        self.confirm.setDefault(True)
+        self.copy_button=button('複製全文',lambda:QApplication.clipboard().setText(text)) if long_message else None
+        actions=row(None,self.confirm)
+        if self.copy_button is not None:
+            actions.insertWidget(0,self.copy_button)
+            actions.addWidget(QSizeGrip(self))
+            QWidget.setTabOrder(self.message,self.copy_button)
+            QWidget.setTabOrder(self.copy_button,self.confirm)
+        else:QWidget.setTabOrder(self.message,self.confirm)
+        self.body.addLayout(actions)
+        self.confirm.setFocus()
+
+
 def information(parent,title,text):
-    dialog=StudioDialog(parent); dialog.setWindowTitle(title); dialog.resize(520,250)
-    dialog.body.addWidget(label(text,None,True)); dialog.body.addLayout(row(None,button("知道了",dialog.accept,"Primary")))
-    dialog.exec()
+    InformationDialog(parent,title,text).exec()
 
 
 def rounded_mask(widget,radius=12):

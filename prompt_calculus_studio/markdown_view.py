@@ -448,29 +448,35 @@ class SourceView(QPlainTextEdit):
     def update_paragraphs(self,first=0,last=None):
         block = self.document().findBlockByNumber(first)
         transaction=QTextCursor(self.document());transaction.beginEditBlock()
+        writing=self.mode=='write'
+        normal_height=self.surface.preferences.get('line_height',150) if writing else 130
+        formats={}
         while block.isValid() and (last is None or block.blockNumber()<last):
-            number = block.blockNumber()
-            if number >= len(self.lines):break
-            item = self.lines[number];fmt = block.blockFormat();original = QTextBlockFormat(fmt)
-            fmt.setLeftMargin(22 if self.mode == 'write' and (item['listing'] or item['text'].lstrip().startswith('>')) else 0)
-            fmt.setAlignment(Qt.AlignmentFlag.AlignLeft)
-            fmt.setTopMargin(0);fmt.setBottomMargin(0)
-            if self.mode == 'write':
-                if item['heading']:
-                    fmt.setTopMargin(6 if number else 2);fmt.setBottomMargin(6)
-                # Only a tag starting at the original first character can
-                # supply an alignment/indent span covering the whole line.
+            number=block.blockNumber()
+            if number>=len(self.lines):break
+            item=self.lines[number]
+            left=22 if writing and (item['listing'] or item['text'].lstrip().startswith('>')) else 0
+            align=Qt.AlignmentFlag.AlignLeft;top=bottom=0;height=normal_height
+            if writing:
+                if item['heading']:top=6 if number else 2;bottom=6;height=120
                 if item['text'].startswith('<'):
                     for span in spans(item['text']):
-                        if span.start == 0 and span.end == len(item['text']):
-                            if span.style.get('align'):fmt.setAlignment({'left':Qt.AlignmentFlag.AlignLeft,'center':Qt.AlignmentFlag.AlignHCenter,'right':Qt.AlignmentFlag.AlignRight,'justify':Qt.AlignmentFlag.AlignJustify}[span.style['align']])
-                            if span.style.get('indent'):fmt.setLeftMargin(span.style['indent']*self.fontMetrics().horizontalAdvance('M'))
-            height = self.surface.preferences.get('line_height',150) if self.mode == 'write' else 130
-            if self.mode == 'write' and item['heading']:height = 120
-            fmt.setLineHeight(height, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
-            if fmt != original:
-                cursor=QTextCursor(block);cursor.setBlockFormat(fmt)
-            block = block.next()
+                        if span.start==0 and span.end==len(item['text']):
+                            if span.style.get('align'):align={'left':Qt.AlignmentFlag.AlignLeft,'center':Qt.AlignmentFlag.AlignHCenter,'right':Qt.AlignmentFlag.AlignRight,'justify':Qt.AlignmentFlag.AlignJustify}[span.style['align']]
+                            if span.style.get('indent'):left=span.style['indent']*self.fontMetrics().horizontalAdvance('M')
+            # QTextDocument interns formats. Reuse a computed result only for
+            # the same original format and desired geometry in this update.
+            # Every paragraph is still applied before returning; no lazy height.
+            key=(block.blockFormatIndex(),left,align,top,bottom,height)
+            if key not in formats:
+                original=block.blockFormat();fmt=QTextBlockFormat(original)
+                fmt.setLeftMargin(left);fmt.setAlignment(align)
+                fmt.setTopMargin(top);fmt.setBottomMargin(bottom)
+                fmt.setLineHeight(height,QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
+                formats[key]=fmt if fmt!=original else None
+            fmt=formats[key]
+            if fmt is not None:QTextCursor(block).setBlockFormat(fmt)
+            block=block.next()
         transaction.endEditBlock()
 
     def visible_blocks(self):

@@ -29,7 +29,12 @@ class BackupJobsTests(unittest.TestCase):
         store.save(state)
         store.close()
         self.w = Window(data)
-        self.notices, self.errors = [], []
+        self.notices, self.errors, self.details = [], [], []
+        # This hidden-window test observes callbacks; real modal interactions
+        # are exercised separately by test_backup_message_readability.
+        detail_patch=patch('prompt_calculus_studio.window.information',
+            side_effect=lambda parent,title,text:self.details.append((title,text)))
+        detail_patch.start();self.addCleanup(detail_patch.stop)
         self.w.notice = self.notices.append
         self.w.error = self.errors.append
         self.destination = self.root / 'backup.zip'
@@ -103,6 +108,7 @@ class BackupJobsTests(unittest.TestCase):
         self.assertFalse(self.errors)
         self.assertIn('ZIP 備份完成', self.notices[-1])
         self.assertIn('恢復檔未能清理', self.notices[-1])
+        self.assertEqual(self.details,[('備份訊息',self.notices[-1])])
         for path in self.root.glob('.pcs-backup-*'):
             self.assertIn(str(path), self.notices[-1])
             self.assertEqual(path.read_bytes(), self.before)

@@ -57,12 +57,12 @@ class ContentBridge(QObject):
     def document(self):return json.dumps(self.view.payload,ensure_ascii=False)
     @Slot(int)
     def presented(self,version):
-        if version==self.view.version:
+        if self.view.presentation_current(version):
             self.view.presented_version=version
             self.view.sync_title_alignment()
     @Slot(str,int)
     def finished(self,value,version):
-        if version==self.view.version:
+        if self.view.presentation_current(version):
             self.view.render_state=value;self.view.rendered.emit()
     @Slot(str)
     def activate(self,command):self.view.action(command)
@@ -77,6 +77,12 @@ class RichView(QWebEngineView):
         self.payload={};self.projection=None;self.render_state='loading';self.pdf_pages={};self.ready=False;self.version=0;self.presented_version=None;self.snapshot=None;self.image_sources={}
         from .markdown_relations import RelationWatch
         self.relations=RelationWatch(reader)
+        self.read_request=None
+        # Invalidate immediately, before the watcher's existing debounced refresh.
+        self.relations.fileChanged.connect(self.dependency_changed)
+        self.relations.directoryChanged.connect(self.dependency_changed)
+        self.input_timer=QTimer(self);self.input_timer.setInterval(180)
+        self.input_timer.timeout.connect(self.check_inputs)
         self.profile=QWebEngineProfile(QApplication.instance())
         self.profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.MemoryHttpCache)
         self.profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.NoPersistentCookies)
@@ -177,41 +183,158 @@ class RichView(QWebEngineView):
                 f'<span class="pdf-controls"><a href="pcs-action:pdf/{index}/{max(1,number-1)}">上一頁</a>　{number} / {total}　<a href="pcs-action:pdf/{index}/{min(total,number+1)}">下一頁</a></span></span>')
         return failure('這個格式尚不支援內嵌顯示')
 
+    def open_inputs(self):
+        workspace=self.surface.page.file_title.workspace
+        result={}
+        if workspace:
+            for tab in workspace.all_pages():
+                buffer=getattr(tab.widget,'buffer',None)
+                if buffer is not None:result[buffer.path]=(buffer,buffer.snapshot())
+        return result
+
+    def attached(self):
+        if not self.interactive:return True
+        workspace=self.surface.page.file_title.workspace
+        return workspace is None or any(tab.widget is self.surface.page for tab in workspace.all_pages())
+
+    def inputs_current(self,request):
+        current=self.open_inputs();captured=request['buffers']
+        receipt=request.get('receipt')
+        keys=receipt.read_paths if receipt is not None else set(current)|set(captured)
+        for path in keys:
+            old=captured.get(path);new=current.get(path)
+            if old is None or new is None:
+                if old is not new:return False
+            elif old[0] is not new[0] or old[1] is not new[1]:return False
+        return True
+
+    def request_current(self,version,*,inputs=True,mode=True):
+        request=self.read_request
+        return bool(request and not request['invalid'] and version==self.version==request['version']
+            and request['buffer'] is self.surface.page.buffer
+            and request['snapshot'] is self.surface.page.buffer.snapshot()
+            and request['path']==self.surface.page.path and self.attached()
+            and (not mode or not self.interactive or self.surface.mode=='read')
+            and (not inputs or self.inputs_current(request)))
+
+    def presentation_current(self,version):
+        if version!=self.version:return False
+        if self.read_request is None:return True
+        return self.read_request['stage']=='published' and self.request_current(version,mode=False)
+
+    def discard_request(self,*,retry=False):
+        request=self.read_request
+        if request is None:return
+        request['invalid']=True
+        request.pop('result',None)
+        self.hydration=None
+        if hasattr(self,'hydration_timer'):self.hydration_timer.stop()
+        if hasattr(self,'projection_worker'):self.projection_worker.discard()
+        self.input_timer.stop()
+        if request['stage']!='published':
+            self.gate.allowed.clear();self.image_sources.clear();self.render_state='stale'
+        # Preserve the accepted hidden-view contract: invalidate its key, but
+        # only the existing visible/read debounce may start a replacement.
+        self.reader._render_key=None
+        if retry and self.attached():self.relations.timer.start()
+
+    def dependency_changed(self,*_):
+        self.discard_request(retry=True)
+
+    def check_inputs(self):
+        request=self.read_request
+        if request is None or request['invalid']:
+            self.input_timer.stop();return
+        if not self.request_current(request['version'],inputs='receipt' in request,
+                mode=request['stage']!='published'):
+            self.discard_request(retry=True)
+
+    def start_projection(self,text,root):
+        buffers=self.open_inputs()
+        self.read_request=dict(version=self.version,buffer=self.surface.page.buffer,
+            snapshot=self.snapshot,path=self.surface.page.path,buffers=buffers,
+            root=root,stage='render',invalid=False)
+        if not hasattr(self,'projection_worker'):
+            from .markdown_read_projection import RichReadingProjection
+            self.projection_worker=RichReadingProjection(self)
+            self.projection_worker.ready.connect(self.projection_ready)
+            self.projection_worker.verified.connect(self.projection_verified)
+        self.input_timer.start()
+        self.projection_worker.request(self.version,text,self.document_path or self.surface.page.path,
+            root,self.surface.preferences.get('hard_breaks',False),
+            {path:value[1].text for path,value in buffers.items()})
+
     def refresh(self,text,*,projection=None):
+        if hasattr(self,'projection_worker'):self.projection_worker.discard()
+        self.read_request=None;self.input_timer.stop();self.relations.timer.stop()
         self.hydration=None
         if hasattr(self,'hydration_timer'):self.hydration_timer.stop()
         self.version+=1;self.snapshot=self.surface.page.buffer.snapshot()
-        self.gate.allowed.clear();self.image_sources.clear();workspace=self.surface.page.file_title.workspace
+        self.gate.allowed.clear();self.image_sources.clear()
         from .markdown_relations import notes_for
         notes=notes_for(self.surface);root=notes.root
         self.render_state='loading'
         if projection is None and self.interactive and (
                 len(text)>128_000 or self.surface.editor.lazy_presentation):
-            # Capture open-note edits on the GUI thread. The parser only receives
-            # immutable text/path values, never a callback into a QWidget.
-            overrides={}
-            if workspace:
-                for tab in workspace.all_pages():
-                    buffer=getattr(tab.widget,'buffer',None)
-                    if buffer is not None:overrides[buffer.path]=buffer.snapshot().text
-            if not hasattr(self,'projection_worker'):
-                from .markdown_read_projection import RichReadingProjection
-                self.projection_worker=RichReadingProjection(self)
-                self.projection_worker.ready.connect(self.projection_ready)
-            self.projection_worker.request(self.version,text,self.document_path or self.surface.page.path,
-                root,self.surface.preferences.get('hard_breaks',False),overrides)
-            return
-        self.publish(projection if projection is not None else render(text,self.document_path or self.surface.page.path,root,self.resource,self.surface.preferences.get('hard_breaks',False),notes),root)
+            self.start_projection(text,root);return
+        from .markdown_read_receipt import EmbedHandoff,handoff_embed
+        try:
+            result=projection if projection is not None else render(text,self.document_path or self.surface.page.path,
+                root,self.resource,self.surface.preferences.get('hard_breaks',False),notes,
+                before_embed=handoff_embed if self.interactive else None)
+        except EmbedHandoff:
+            # The aborted prefix may have hydrated ordinary media. These are
+            # request-local indexes; remote caches and PDF page choices survive.
+            self.gate.allowed.clear();self.image_sources.clear()
+            self.start_projection(text,root);return
+        self.publish(result,root)
 
     @Slot(object,object,str)
     def projection_ready(self,version,result,error):
-        if version!=self.version or self.snapshot!=self.surface.page.buffer.snapshot():return
-        if self.surface.mode!='read':
-            self.reader._render_key=None;return
+        if version!=self.version:return
+        if not self.request_current(version,inputs=False):
+            self.discard_request(retry=True);return
         if error:
+            if not self.inputs_current(self.read_request):
+                self.discard_request(retry=True);return
+            self.discard_request()
             self.render_state='error';self.reader._render_key=None
             self.surface.report('內容預覽未完成；原文仍可編輯。');return
-        projection,marker=result
+        if not result or len(result)!=3:return
+        projection,marker,receipt=result
+        request=self.read_request;request['receipt']=receipt
+        request['buffers']={path:value for path,value in request['buffers'].items() if path in receipt.read_paths}
+        if not self.request_current(version):
+            self.discard_request(retry=True);return
+        from .local_documents import paths
+        try:
+            paths.root_path(receipt.root)
+            wanted=receipt.watch_paths()
+        except (OSError,ValueError):
+            self.discard_request();self.relations.timer.stop();self.render_state='error'
+            self.surface.report('無法確認嵌入來源的根目錄；原文仍可編輯。');return
+        self.relations.bind(wanted,receipt.root)
+        expected={str(p) for p in wanted if p.exists()}|{str(p.parent) for p in wanted if p.parent.exists()}|{str(receipt.root)}
+        if not expected.issubset(set(self.relations.files()+self.relations.directories())):
+            self.discard_request();self.render_state='error'
+            self.surface.report('無法監看嵌入來源；原文仍可編輯。');return
+        request.update(stage='verify',result=(projection,marker))
+        if not receipt.reads and not receipt.probes and receipt.names is None and not receipt.directories:
+            self.projection_verified(version,True,'')
+        else:self.projection_worker.verify(version,receipt)
+
+    @Slot(object,object,str)
+    def projection_verified(self,version,valid,error):
+        if version!=self.version:return
+        if not self.request_current(version):
+            self.discard_request(retry=True);return
+        if error:
+            self.discard_request();self.render_state='error'
+            self.surface.report('無法確認嵌入來源；原文仍可編輯。');return
+        if not valid:
+            self.discard_request(retry=True);return
+        projection,marker=self.read_request.pop('result')
+        self.read_request['stage']='hydrate'
         self.hydration=(version,projection,marker,[],0)
         if not hasattr(self,'hydration_timer'):
             self.hydration_timer=QTimer(self);self.hydration_timer.setSingleShot(True)
@@ -221,9 +344,9 @@ class RichView(QWebEngineView):
     def hydrate(self):
         if self.hydration is None:return
         version,projection,marker,resources,index=self.hydration
-        if version!=self.version or self.snapshot!=self.surface.page.buffer.snapshot():return
-        if self.surface.mode!='read':
-            self.reader._render_key=None;return
+        if version!=self.version:return
+        if not self.request_current(version):
+            self.discard_request(retry=True);return
         deadline=time.perf_counter()+.006
         while index<len(projection.attachments) and time.perf_counter()<deadline:
             resources.append(self.resource(projection.attachments[index],index));index+=1
@@ -232,13 +355,20 @@ class RichView(QWebEngineView):
             self.hydration_timer.start(1);return
         projection.body=re.sub(r'<!--pcs-resource:'+marker+r':(\d+)-->',
             lambda match:resources[int(match.group(1))],projection.body)
-        from .markdown_relations import notes_for
-        self.publish(projection,notes_for(self.surface).root)
+        # No event-loop yield between this final identity check and publication.
+        if not self.request_current(version):
+            self.discard_request(retry=True);return
+        self.publish(projection,self.read_request['root'])
         self.hydration=None
 
     def publish(self,projection,root):
+        if self.read_request is not None and not self.request_current(self.version):
+            self.discard_request(retry=True);return
         self.projection=projection
-        self.relations.bind(self.projection.dependencies,root)
+        if self.read_request is None:self.relations.bind(self.projection.dependencies,root)
+        else:
+            self.read_request['stage']='published'
+            if not self.read_request['receipt'].read_paths:self.input_timer.stop()
         tokens=dict(visual_tokens(window_appearance(self)));preferences=self.surface.preferences
         tokens['base']=tokens.get('canvas_background',tokens['base']);tokens['border']=tokens.get('line','#444444')
         self.payload=dict(version=self.version,html=self.projection.body.replace('pcs-action:',f'pcs-action:{self.version}/'),math=self.projection.math,diagrams=self.projection.diagrams,
@@ -248,6 +378,8 @@ class RichView(QWebEngineView):
 
     def action(self,command):
         if not self.interactive:return
+        if self.read_request is not None and not self.request_current(self.version):
+            self.discard_request(retry=True);return
         parts=command.split('/')
         try:
             if int(parts.pop(0))!=self.version or self.snapshot!=self.surface.page.buffer.snapshot():return

@@ -827,7 +827,8 @@ class CanvasView(QGraphicsView):
             y+=height+gap
 
     def eventFilter(self,watched,event):
-        if event.type()==QEvent.Type.Paint and getattr(watched,'_canvas_status_elided',False):
+        if (event.type()==QEvent.Type.Paint and getattr(watched,'_canvas_status_elided',False)
+                and watched.textFormat()==Qt.TextFormat.PlainText):
             # Paint an abbreviated view only: QLabel.text() and accessibility
             # keep the original message for subsequent resize/layout passes.
             painter=QPainter(watched);option=QStyleOption();option.initFrom(watched)

@@ -648,11 +648,60 @@ class Window(QMainWindow):
         if index>=0: self.workspace.setCurrentIndex(index)
 
     def notice(self,text):
-        if hasattr(self,"status"): self.status.setText(text)
+        had_backup_details=getattr(self,'_backup_notice_text',None) is not None
+        self._backup_notice_text=None
+        if had_backup_details:
+            for name in ('status','canvas_status'):
+                status=getattr(self,name,None)
+                if status is not None:
+                    status.setTextFormat(Qt.TextFormat.PlainText)
+                    status.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+                    status.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                    status.setAccessibleName('')
+                    status.setToolTip('')
+                    for shortcut in getattr(status,'_backup_detail_shortcuts',()):shortcut.setEnabled(False)
+        if hasattr(self,'status'):self.status.setText(text)
         if hasattr(self,'canvas_status'):
-            self.canvas_status.setText(text); self.canvas_status.setToolTip(text)
+            if had_backup_details:self.canvas_status.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents,True)
+            self.canvas_status.setText(text);self.canvas_status.setToolTip(text)
             self.canvas.view.position_status()
         if hasattr(self,"cancel_button"): self.cancel_button.setVisible(bool(self.jobs.active))
+
+    def backup_notice(self,text,summary):
+        """Expose recovery details through a keyboard-accessible status action."""
+        if not any(getattr(self,name,None) is not None and getattr(self,name).isVisible()
+                   for name in ('status','canvas_status')):
+            information(self,'備份訊息',text)
+            return
+        self._backup_notice_text=text
+        for name in ('status','canvas_status'):
+            status=getattr(self,name,None)
+            if status is None:continue
+            if not getattr(status,'_backup_details_connected',False):
+                status.linkActivated.connect(self.show_backup_notice)
+                status._backup_detail_shortcuts=[]
+                for key in (Qt.Key.Key_Return,Qt.Key.Key_Enter,Qt.Key.Key_Space):
+                    shortcut=QShortcut(QKeySequence(key),status)
+                    shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+                    shortcut.setAutoRepeat(False)
+                    shortcut.activated.connect(lambda:self.show_backup_notice('backup-details'))
+                    status._backup_detail_shortcuts.append(shortcut)
+                status._backup_details_connected=True
+            for shortcut in status._backup_detail_shortcuts:shortcut.setEnabled(True)
+            color=status.palette().color(status.foregroundRole()).name()
+            status.setTextFormat(Qt.TextFormat.RichText)
+            status.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse|Qt.TextInteractionFlag.LinksAccessibleByKeyboard)
+            status.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            status.setOpenExternalLinks(False)
+            status.setText(f'<a href="backup-details" style="color:{color}">{summary}</a>')
+            status.setAccessibleName(summary)
+            status.setToolTip('查看完整備份訊息')
+            status.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents,False)
+        if hasattr(self,'canvas_status'):self.canvas.view.position_status()
+
+    def show_backup_notice(self,link):
+        if link=='backup-details' and self._backup_notice_text is not None:
+            information(self,'備份訊息',self._backup_notice_text)
 
     def error(self,text):
         information(self,"未能完成",text)
@@ -1349,11 +1398,18 @@ class Window(QMainWindow):
                 recovery=getattr(result,'recovery_paths',())
                 if recovery: message+='\n恢復檔未能清理：\n'+'\n'.join(recovery)
                 self.notice(message)
+                if recovery:self.backup_notice(message,'ZIP 備份完成，查看清理詳情')
             def failed(error):
                 # Jobs may observe cancel after archive_data has committed.
                 # Preserve other jobs' cancellation rules and this ZIP's result.
                 if published is not None: complete()
-                elif error.startswith("已取消") or self.closing: self.notice(error)
+                elif error.startswith("已取消") or self.closing:
+                    self.notice(error)
+                    if '\n' in error and not self.closing:self.backup_notice(error,'已取消備份，查看暫存檔詳情')
+                elif getattr(self,'workspace_owner',None) is not None:
+                    # The workspace's general error route is a transient toast.
+                    # Backup recovery paths must remain selectable and visible.
+                    information(self,'未能完成',error)
                 else: self.error(error)
             self.jobs.start("正在備份資料庫、縮圖與應用內的圖片副本…",work,complete,failed)
         except Exception as exc: self.error(str(exc))
