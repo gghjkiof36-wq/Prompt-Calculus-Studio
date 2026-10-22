@@ -96,12 +96,9 @@ class BackupJobsTests(unittest.TestCase):
         self.assertEqual(list(self.root.glob('.pcs-backup-*')), [])
 
     def test_success_with_cleanup_warning_shows_retained_paths(self):
-        unlink = Path.unlink
-        def fail_recovery_cleanup(path, *args, **kwargs):
-            if path.name.startswith('.pcs-backup-') and path.suffix in ('.before', '.external'):
-                raise PermissionError('controlled recovery cleanup refusal')
-            return unlink(path, *args, **kwargs)
-        with patch.object(Path, 'unlink', fail_recovery_cleanup):
+        def fail_recovery_cleanup(*args):
+            raise PermissionError('controlled recovery cleanup refusal')
+        with patch.object(backup, '_delete_stream', fail_recovery_cleanup):
             self.invoke(backup.archive_data)
         self.assertFalse(self.errors)
         self.assertIn('ZIP 備份完成', self.notices[-1])
@@ -109,3 +106,33 @@ class BackupJobsTests(unittest.TestCase):
         for path in self.root.glob('.pcs-backup-*'):
             self.assertIn(str(path), self.notices[-1])
             self.assertEqual(path.read_bytes(), self.before)
+
+    def test_late_cancel_with_gap_collision_reports_recovery_not_cancellation(self):
+        archive_data, native_rename = backup.archive_data, backup._rename_owned
+        foreign = b'foreign destination created after the original moved'
+        def operation(directory, snapshot, destination, cancel):
+            def rename(stream, target):
+                if target == self.destination:
+                    self.assertFalse(target.exists())
+                    target.write_bytes(foreign)
+                result = native_rename(stream, target)
+                if target.suffix == '.external':
+                    cancel.set()
+                return result
+            with patch.object(backup, '_rename_owned', side_effect=rename):
+                return archive_data(directory, snapshot, destination, cancel)
+        self.invoke(operation)
+        self.assertEqual(len(self.errors), 1)
+        self.assertIn('備份發布未能確認完成', self.errors[0])
+        self.assertFalse(any('ZIP 備份完成' in text or '既有 ZIP 未變更' in text
+                             for text in self.notices))
+        self.assertEqual(self.destination.read_bytes(), foreign)
+        retained = {p.suffix: p for p in self.root.glob('.pcs-backup-*')}
+        self.assertEqual(set(retained), {'.partial', '.before', '.external'})
+        for suffix, path in retained.items():
+            self.assertIn(str(path), self.errors[0])
+            if suffix != '.partial':
+                self.assertEqual(path.read_bytes(), self.before)
+        with zipfile.ZipFile(retained['.partial']) as archive:
+            self.assertIn('data/studio.sqlite3', archive.namelist())
+            self.assertIsNone(archive.testzip())

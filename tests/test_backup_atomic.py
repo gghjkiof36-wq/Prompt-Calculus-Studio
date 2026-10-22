@@ -1,4 +1,4 @@
-"""R21: streamed backups preserve originals and expose uncertain publication."""
+"""R21/R22: held-file publication preserves originals and reports uncertainty."""
 import hashlib
 import io
 import os
@@ -7,7 +7,6 @@ import sqlite3
 import tempfile
 import threading
 import unittest
-import uuid
 from unittest.mock import patch
 import zipfile
 
@@ -16,7 +15,8 @@ from prompt_calculus_studio.local_documents import windows
 
 
 NATIVE_REPLACE = windows.replace
-NATIVE_RENAME = os.rename
+NATIVE_PUBLISH = backup._publish
+NATIVE_RENAME = backup._rename_owned
 ZIP_WRITE = zipfile.ZipFile.write
 
 
@@ -62,7 +62,8 @@ class BackupAtomicTests(unittest.TestCase):
         return raw
 
     def assert_bytes(self, path, expected):
-        actual = path.read_bytes()
+        with windows.reader(path) as stream:
+            actual = stream.read()
         self.assertEqual(hashlib.sha256(actual).digest(), hashlib.sha256(expected).digest())
         self.assertEqual(actual, expected)
 
@@ -92,13 +93,6 @@ class BackupAtomicTests(unittest.TestCase):
         for path in files:
             self.assertIn(str(path), message)
         return {path.suffix: path for path in files}
-
-    def foreign_replace(self, destination, raw):
-        candidate = destination.with_name('other-writer-' + uuid.uuid4().hex + '.zip')
-        candidate.write_bytes(raw)
-        previous = candidate.with_suffix('.previous')
-        NATIVE_REPLACE(destination, candidate, previous)
-        return previous
 
     def test_new_backup_keeps_stored_format_and_original_inclusion_scope(self):
         additional = {
@@ -130,19 +124,19 @@ class BackupAtomicTests(unittest.TestCase):
             self.assert_bytes(path, raw)
         self.assert_no_recovery()
 
-    def test_existing_backup_uses_real_replace_and_blocks_in_place_write(self):
+    def test_existing_backup_uses_handle_renames_and_blocks_in_place_write(self):
         old = self.old_backup()
         denied = []
 
-        def replace(destination, temporary, displaced):
+        def publish(source, stream, destination, displaced):
             try:
                 destination.write_bytes(b'in-place writer must not truncate the original')
             except PermissionError:
                 denied.append(True)
             self.assert_bytes(destination, old)
-            NATIVE_REPLACE(destination, temporary, displaced)
+            NATIVE_PUBLISH(source, stream, destination, displaced)
 
-        with patch.object(windows, 'replace', side_effect=replace) as publication:
+        with patch.object(backup, '_publish', side_effect=publish) as publication:
             result = self.run_backup()
         self.assertEqual(publication.call_count, 1)
         self.assertEqual(denied, [True])
@@ -235,7 +229,7 @@ class BackupAtomicTests(unittest.TestCase):
                     return native_fsync(descriptor)
 
                 with patch.object(backup.os, 'fsync', side_effect=fsync):
-                    with patch.object(windows, 'replace', wraps=NATIVE_REPLACE) as publication:
+                    with patch.object(backup, '_publish', wraps=NATIVE_PUBLISH) as publication:
                         with self.assertRaisesRegex(OSError, 'injected fsync failure'):
                             self.run_backup(destination)
                 self.assertEqual(len(calls), failure_call)
@@ -273,9 +267,9 @@ class BackupAtomicTests(unittest.TestCase):
         self.assert_bytes(unrelated, b'keep unrelated file')
         self.assert_no_recovery()
 
-    def test_native_call_failure_before_replace_retains_candidate_and_before(self):
+    def test_native_call_failure_before_publish_retains_candidate_and_before(self):
         old = self.old_backup()
-        with patch.object(windows, 'replace', side_effect=OSError('native call denied')) as publication:
+        with patch.object(backup, '_publish', side_effect=OSError('native call denied')) as publication:
             with self.assertRaises(OSError) as caught:
                 self.run_backup()
         self.assertEqual(publication.call_count, 1)
@@ -285,14 +279,14 @@ class BackupAtomicTests(unittest.TestCase):
         self.assert_bytes(files['.before'], old)
         self.assert_archive(files['.partial'])
 
-    def test_native_call_error_after_real_replace_preserves_recovery(self):
+    def test_native_call_error_after_real_renames_preserves_recovery(self):
         old = self.old_backup()
 
-        def replace(destination, temporary, displaced):
-            NATIVE_REPLACE(destination, temporary, displaced)
+        def publish(source, stream, destination, displaced):
+            NATIVE_PUBLISH(source, stream, destination, displaced)
             raise OSError('injected error after native replacement')
 
-        with patch.object(windows, 'replace', side_effect=replace) as publication:
+        with patch.object(backup, '_publish', side_effect=publish) as publication:
             with self.assertRaises(OSError) as caught:
                 self.run_backup()
         self.assertEqual(publication.call_count, 1)
@@ -301,19 +295,16 @@ class BackupAtomicTests(unittest.TestCase):
         self.assert_bytes(files['.external'], old)
         self.assert_archive(self.destination)
 
-    def test_native_partial_move_model_preserves_all_available_versions(self):
+    def test_failure_after_original_handle_move_retains_all_versions(self):
         old = self.old_backup()
 
-        def partial(destination, temporary, displaced):
-            # Controlled model of a failed native call after moving the old
-            # destination away. It is not a claim to induce a real OS fault.
-            stand_in = self.output / 'native-partial-stand-in.zip'
-            stand_in.write_bytes(zip_bytes(b'temporary native stand-in'))
-            NATIVE_REPLACE(destination, stand_in, displaced)
-            destination.unlink()
+        def partial(source, stream, destination, displaced):
+            # Real first handle rename, then an injected interruption. This is
+            # not a claim to induce an OS fault or terminate the application.
+            NATIVE_RENAME(source, displaced)
             raise OSError('injected partial native failure')
 
-        with patch.object(windows, 'replace', side_effect=partial) as publication:
+        with patch.object(backup, '_publish', side_effect=partial) as publication:
             with self.assertRaises(OSError) as caught:
                 self.run_backup()
         self.assertEqual(publication.call_count, 1)
@@ -326,11 +317,11 @@ class BackupAtomicTests(unittest.TestCase):
     def test_new_destination_race_does_not_overwrite_competitor(self):
         competitor = zip_bytes(b'external new destination')
 
-        def rename(temporary, destination):
+        def rename(stream, destination):
             destination.write_bytes(competitor)
-            return NATIVE_RENAME(temporary, destination)
+            return NATIVE_RENAME(stream, destination)
 
-        with patch.object(backup.os, 'rename', side_effect=rename) as publication:
+        with patch.object(backup, '_rename_owned', side_effect=rename) as publication:
             with self.assertRaises(OSError) as caught:
                 self.run_backup()
         self.assertEqual(publication.call_count, 1)
@@ -338,7 +329,7 @@ class BackupAtomicTests(unittest.TestCase):
         files = self.retained(caught.exception, {'.partial'})
         self.assert_archive(files['.partial'])
 
-    def test_actual_displaced_and_postpublication_races_never_roll_back(self):
+    def test_held_original_and_candidate_block_foreign_replacement(self):
         for timing in ('before', 'after'):
             with self.subTest(timing=timing):
                 # Separate directories keep both subtests' recovery evidence.
@@ -347,31 +338,88 @@ class BackupAtomicTests(unittest.TestCase):
                 self.destination = self.output / 'backup.zip'
                 old = self.old_backup()
                 external = zip_bytes(('external ' + timing).encode('ascii'))
-                foreign_previous = []
+                candidate = self.output / 'foreign.zip'
+                candidate.write_bytes(external)
+                foreign_previous = self.output / 'foreign.previous'
+                denied = []
 
-                def replace(destination, temporary, displaced):
+                def attempt(destination):
+                    with self.assertRaises(OSError):
+                        NATIVE_REPLACE(destination, candidate, foreign_previous)
+                    denied.append(timing)
+                    self.assertFalse(foreign_previous.exists())
+                    self.assert_bytes(candidate, external)
+
+                def publish(source, stream, destination, displaced):
                     if timing == 'before':
-                        foreign_previous.append(self.foreign_replace(destination, external))
-                    NATIVE_REPLACE(destination, temporary, displaced)
+                        attempt(destination)
+                        self.assert_bytes(destination, old)
+                    NATIVE_PUBLISH(source, stream, destination, displaced)
                     if timing == 'after':
-                        foreign_previous.append(self.foreign_replace(destination, external))
+                        attempt(destination)
 
-                with patch.object(windows, 'replace', side_effect=replace) as publication:
-                    with self.assertRaises(OSError) as caught:
-                        self.run_backup()
+                with patch.object(backup, '_publish', side_effect=publish) as publication:
+                    result = self.run_backup()
                 self.assertEqual(publication.call_count, 1)
-                files = self.retained(caught.exception, {'.before', '.external'})
-                self.assert_bytes(files['.before'], old)
-                if timing == 'before':
-                    self.assertIn('替換時發現外部修改', str(caught.exception))
-                    self.assert_bytes(files['.external'], external)
-                    self.assert_bytes(foreign_previous[0], old)
-                    self.assert_archive(self.destination)
-                else:
-                    self.assertIn('發布後備份檔再次被修改', str(caught.exception))
-                    self.assert_bytes(files['.external'], old)
-                    self.assert_bytes(self.destination, external)
-                    self.assert_archive(foreign_previous[0])
+                self.assertEqual(denied, [timing])
+                self.assertEqual(result.recovery_paths, ())
+                self.assert_archive(self.destination)
+                self.assert_bytes(candidate, external)
+                self.assert_no_recovery()
+
+    def test_gap_collision_preserves_foreign_destination_and_all_our_versions(self):
+        old = self.old_backup()
+        foreign = zip_bytes(b'foreign writer during name gap')
+        calls = []
+
+        def rename(stream, destination):
+            calls.append(destination)
+            if destination == self.destination:
+                self.assertFalse(destination.exists())
+                destination.write_bytes(foreign)
+            return NATIVE_RENAME(stream, destination)
+
+        with patch.object(backup, '_rename_owned', side_effect=rename):
+            with self.assertRaises(OSError) as caught:
+                self.run_backup()
+        self.assertEqual(len(calls), 2)
+        files = self.retained(caught.exception, {'.partial', '.before', '.external'})
+        self.assert_bytes(self.destination, foreign)
+        self.assert_bytes(files['.before'], old)
+        self.assert_bytes(files['.external'], old)
+        self.assert_archive(files['.partial'])
+
+    def test_recovery_name_collision_preserves_foreign_file_and_original(self):
+        old = self.old_backup()
+        foreign = b'foreign file at the proposed recovery name'
+        occupied = []
+        def rename(stream, destination):
+            self.assertEqual(destination.suffix, '.external')
+            destination.write_bytes(foreign)
+            occupied.append(destination)
+            return NATIVE_RENAME(stream, destination)
+        with patch.object(backup, '_rename_owned', side_effect=rename):
+            with self.assertRaises(OSError) as caught:
+                self.run_backup()
+        self.assertEqual(len(occupied), 1)
+        self.assert_bytes(self.destination, old)
+        self.assert_bytes(occupied[0], foreign)
+        files = self.retained(caught.exception, {'.partial', '.before', '.external'})
+        self.assert_bytes(files['.before'], old)
+        self.assert_archive(files['.partial'])
+
+    def test_cancel_after_original_move_finishes_publication(self):
+        self.old_backup()
+        def rename(stream, destination):
+            NATIVE_RENAME(stream, destination)
+            if destination.suffix == '.external':
+                self.cancel.set()
+        with patch.object(backup, '_rename_owned', side_effect=rename):
+            result = self.run_backup()
+        self.assertTrue(self.cancel.is_set())
+        self.assertEqual(result.recovery_paths, ())
+        self.assert_archive(self.destination)
+        self.assert_no_recovery()
 
     def test_destination_inside_data_is_rejected_without_writes(self):
         destination = self.data / 'inside.zip'
@@ -383,16 +431,16 @@ class BackupAtomicTests(unittest.TestCase):
 
     def test_successful_publication_reports_recovery_cleanup_failure(self):
         old = self.old_backup()
-        native_unlink = Path.unlink
         denied = []
 
-        def unlink(path, *args, **kwargs):
-            if path.name.startswith('.pcs-backup-') and path.suffix == '.before':
-                denied.append(path)
+        def refuse_held_copy(stream):
+            if not denied:
+                denied.extend(self.output.glob('.pcs-backup-*.before'))
                 raise PermissionError('injected recovery cleanup denial')
-            return native_unlink(path, *args, **kwargs)
+            return native_delete(stream)
 
-        with patch.object(Path, 'unlink', new=unlink):
+        native_delete = backup._delete_stream
+        with patch.object(backup, '_delete_stream', side_effect=refuse_held_copy):
             result = self.run_backup()
         self.assertEqual(result, str(self.destination))
         self.assertEqual(len(denied), 1)
