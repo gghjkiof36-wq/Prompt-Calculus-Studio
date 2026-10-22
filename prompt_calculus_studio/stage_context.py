@@ -1,13 +1,54 @@
 """Isolated per-item intentions; unspecified native fields stay live at dispatch."""
 import copy
+from hashlib import sha256
+from io import BytesIO
+from pathlib import Path
+from .image_capture import CapturedImage
+from .pnginfo import png_metadata_stream
 from .flow_data import incoming,resolve,materialize,capture_inputs
 from .stage_model import input_nodes as upstream
 
 
 from .flow_data import image_list
 
+MAX_SOURCE_BYTES = 25 * 1024 * 1024
+
+
+def _capture_source(path):
+    # Raw I/O bounds actual reads, including short reads and a growing file.
+    blocks=[];remaining=MAX_SOURCE_BYTES+1
+    with path.open('rb',buffering=0) as stream:
+        while remaining:
+            block=stream.read(min(1024*1024,remaining))
+            if not block:break
+            blocks.append(block);remaining-=len(block)
+    data=b''.join(blocks)
+    return CapturedImage(path,data,sha256(data).hexdigest() if len(data)<=MAX_SOURCE_BYTES else None)
+
+
+def _project_source(path, digest, readers):
+    """Keep bytes/metadata local to one source group, never across project calls."""
+    from .image_source import content_from_metadata
+    try:
+        captured = _capture_source(path)
+        if len(captured.data) > MAX_SOURCE_BYTES or captured.digest != digest:
+            for item in readers:
+                item['content_error'] = '構圖圖片已變更：' + item['source']['name']
+            return
+        with BytesIO(captured.data) as stream:
+            metadata = png_metadata_stream(stream)
+    except (ValueError, OSError) as exc:
+        for item in readers:
+            item['content_error'] = str(exc)
+        return
+    for item in readers:
+        try:
+            item['content'] = content_from_metadata(metadata, item.get('prompt_choice'))
+        except (ValueError, OSError) as exc:
+            item['content_error'] = str(exc)
+
+
 def project(state,directory,results=None,source_values=None,readers=None):
-    from .image_source import read_content
     from .composition_image import source_path
     state=copy.deepcopy(state);state['_stage_results']=copy.deepcopy(results or {})
     images=state.get('canvas_functions',{}).get('images',{})
@@ -15,7 +56,7 @@ def project(state,directory,results=None,source_values=None,readers=None):
         if key in images:
             for name in ('output_node','text_field','input_index','stage_reference','prompt_choice'):images[key].pop(name,None)
             images[key].update(copy.deepcopy(settings))
-    visiting=set();done=set()
+    visiting=set();done=set();groups={}
     def load(key):
         if key in done:return
         if key in visiting:raise ValueError('圖片來源形成循環。')
@@ -30,10 +71,18 @@ def project(state,directory,results=None,source_values=None,readers=None):
             item['source']=copy.deepcopy(source);item.pop('content',None);item.pop('content_error',None)
             matches=[i for i,v in enumerate(item.get('items',[])) if v==source]
             if matches:item['index']=matches[0]
-            try:item['content']=read_content(source_path(directory,source,verify=True),item.get('prompt_choice'))
+            try:
+                root=Path(directory).resolve();path=source_path(root,source)
+                digest=source['sha256']
+                if not isinstance(digest,str):raise ValueError('構圖圖片已變更：'+source['name'])
+                groups.setdefault((root,path,digest),[]).append(item)
             except (ValueError,OSError) as exc:item['content_error']=str(exc)
         visiting.remove(key);done.add(key)
+    # The existing DFS selects sources before content is derived. image_list's
+    # image routes depend on sources, indices/results and frozen inputs, not content.
     for key in images:load(key)
+    for (_,path,digest),items in groups.items():
+        _project_source(path,digest,items)
     # Source overrides select the current item, including wired batch sources.
     for key,source in (source_values or {}).items():
         if key in images:

@@ -80,7 +80,11 @@ def metadata_sources(metadata):
 
 
 def read_content(path, choice=None):
-    metadata = png_metadata(path)
+    return content_from_metadata(png_metadata(path), choice)
+
+
+def content_from_metadata(metadata, choice=None):
+    """Derive one reader's independent content without mutating shared metadata."""
     raw = metadata.get('raw',{})
     fields = positive_fields(raw.get('prompt',{}))
     explicit=None
