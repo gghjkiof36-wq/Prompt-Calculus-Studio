@@ -861,12 +861,25 @@ class ReadingView(QTextBrowser):
         painter.end();return image
 
     def render_key(self):
+        from .markdown_relations import reading_root
         snapshot=self.surface.page.buffer.snapshot()
-        return (snapshot.revision,snapshot.document_id,str(self.surface.page.path),tuple(sorted(self.surface.preferences.items())),self.surface.zoom_percent,str(visual_tokens(window_appearance(self))))
+        return (snapshot.revision,snapshot.document_id,str(self.surface.page.path),str(reading_root(self.surface)),tuple(sorted(self.surface.preferences.items())),self.surface.zoom_percent,str(visual_tokens(window_appearance(self))))
 
     def _invalidate_cache(self):
         # Dependency changes invalidate this view, never the source buffer.
         self._render_key=None
+
+    def root_changed(self):
+        self._invalidate_cache()
+        if self.rich:
+            self.rich.discard_request()
+            # Synchronous projections have no request guard for late browser
+            # completions. Retire their version as well as their resource scope.
+            if self.rich.read_request is None:self.rich.version+=1
+            self.rich.gate.allowed.clear();self.rich.image_sources.clear()
+            self.rich.render_state='stale'
+            self.rich.relations.timer.start()
+        elif self.isVisible() and self.surface.mode=='read':self.refresh_cached()
 
     def refresh_cached(self):
         if getattr(self,'_render_key',None)!=self.render_key():self.refresh()

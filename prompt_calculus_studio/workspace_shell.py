@@ -785,8 +785,19 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         if not output.commit():
             raise OSError(output.errorString())
 
+    def reading_roots(self):
+        from .markdown_relations import reading_root
+        return {tab.widget.md_surface.reader:reading_root(tab.widget.md_surface)
+                for tab in self.all_pages() if isinstance(tab.widget, MarkdownPage)}
+
+    def refresh_reading_roots(self, previous):
+        from .markdown_relations import reading_root
+        for reader, root in previous.items():
+            if reading_root(reader.surface)!=root:reader.root_changed()
+
     def add_root(self, directory):
         previous = list(self.locations.roots), self.locations.current
+        reading_roots = self.reading_roots()
         try:
             root = self.locations.directory(directory)
             if root not in self.locations.roots:
@@ -797,12 +808,14 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             self.locations.roots, self.locations.current = previous
             self.report_error(str(error))
             return False
+        self.refresh_reading_roots(reading_roots)
         self.refresh_tree()
         self.select_path(root)
         return True
 
     def remove_root(self, root):
         previous = list(self.locations.roots), self.locations.current
+        reading_roots = self.reading_roots()
         self.locations.roots = [p for p in self.locations.roots if p != root]
         if self.locations.current == root:
             self.locations.current = next(iter(self.locations.roots), None)
@@ -812,6 +825,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             self.locations.roots, self.locations.current = previous
             self.report_error(str(error))
             return False
+        self.refresh_reading_roots(reading_roots)
         self.refresh_tree()
         return True
 

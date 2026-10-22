@@ -10,14 +10,19 @@ from .markdown_source import SourceEdit,python_position
 from .widgets import StudioDialog,style_completion
 
 
-def notes_for(surface):
+def reading_root(surface):
+    """Logical scope shared by rendering, request identity and view caching."""
     workspace=surface.page.file_title.workspace;path=surface.page.path
     root=workspace.locations.root_for(path) if workspace else path.parent
-    root=root or path.parent
+    return root or path.parent
+
+
+def notes_for(surface):
+    workspace=surface.page.file_title.workspace
     def read(target):
         tab=workspace.tab_for_path(target) if workspace else None
         return tab.widget.buffer.snapshot().text if tab and hasattr(tab.widget,'buffer') else Notes.disk(target)
-    return Notes(root,read)
+    return Notes(reading_root(surface),read)
 
 
 def link_at(surface,position=None):

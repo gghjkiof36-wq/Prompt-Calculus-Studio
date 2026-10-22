@@ -234,11 +234,13 @@ class RichView(QWebEngineView):
         return True
 
     def request_current(self,version,*,inputs=True,mode=True):
+        from .markdown_relations import reading_root
         request=self.read_request
         return bool(request and not request['invalid'] and version==self.version==request['version']
             and request['buffer'] is self.surface.page.buffer
             and request['snapshot'] is self.surface.page.buffer.snapshot()
             and request['path']==self.surface.page.path and self.attached()
+            and request['root']==reading_root(self.surface)
             and (not mode or not self.interactive or self.surface.mode=='read')
             and (not inputs or self.inputs_current(request)))
 
