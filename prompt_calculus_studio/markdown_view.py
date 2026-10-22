@@ -370,6 +370,9 @@ class SourceView(QPlainTextEdit):
         numbers=set(range(first,last));numbers.update(block.blockNumber() for block in self.visible_blocks())
         pending=sorted(numbers-self._presented)
         if not pending:return
+        cursor=self.textCursor()
+        keep_cursor=(self.lazy_paragraphs and cursor.block().isVisible()
+                     and self.viewport().rect().intersects(self.cursorRect(cursor)))
         transaction=QTextCursor(self.document());self._updating_presentation=True;self.syncing=True
         transaction.beginEditBlock()
         try:
@@ -386,6 +389,17 @@ class SourceView(QPlainTextEdit):
             self._presented.update(pending)
         finally:
             transaction.endEditBlock();self.syncing=False;self._updating_presentation=False
+        if self.lazy_paragraphs:
+            # SourceLayout changes paragraph heights without changing the
+            # native line count. Refresh the scrollbar limit once, otherwise
+            # ensureCursorVisible can be clamped above the newly laid-out tail.
+            layout=self.document().documentLayout()
+            layout.documentSizeChanged.emit(layout.documentSize())
+        # Lazy line heights can push an already-visible caret below the view.
+        # Preserve that navigation intent, but do not pull a manually scrolled
+        # viewport back to a caret the user has deliberately left off screen.
+        if keep_cursor and self.textCursor()==cursor and cursor.block().isVisible():
+            self.ensureCursorVisible()
         self.update_markers()
 
     @staticmethod
