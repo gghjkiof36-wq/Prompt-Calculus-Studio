@@ -9,6 +9,7 @@ from PySide6.QtTest import QTest
 from shiboken6 import isValid
 import test_workspace_panes as fixture
 from test_conversation_import import sample
+from test_conversation_crc import TITLES, write_crc_archive
 from prompt_calculus_studio.conversation_dialog import open_import
 from prompt_calculus_studio.conversation_archive import Cancelled
 from prompt_calculus_studio.conversation_import import ImportResult
@@ -125,6 +126,28 @@ class ImportDialogTests(unittest.TestCase):
         self.assertFalse(d.search.isHidden())
         self.assertFalse(d.split.widget(0).isHidden())
         self.assertEqual(d.selected(), ())
+        self.assertFalse(self.errors, self.errors)
+
+    def test_late_attachment_crc_reaches_partial_summary_through_import_job(self):
+        d = self.create()
+        self.source = self.root.parent/'crc-export.zip'
+        original = write_crc_archive(self.source)
+        d.load_source(self.source)
+        self.wait_job()
+        d.check_visible(True)
+        d.submit()
+        self.wait_job()
+        self.assertTrue(d.completed)
+        self.assertEqual(d.status.text(), '完成 1 段 · 略過 0 段 · 未完成 1 段 · 未處理 1 段')
+        self.assertEqual(d.import_button.text(), '關閉')
+        for title in TITLES:
+            self.assertIn(title, d.preview.toPlainText())
+        self.assertIn('CRC', d.preview.toPlainText())
+        receipts = list(self.root.glob('*/匯入完成.json'))
+        self.assertEqual(len(receipts), 1)
+        active = self.w.tabs_by_key[self.w.active_key]
+        self.assertEqual(active.path, receipts[0].parent/'對話.md')
+        self.assertEqual(self.source.read_bytes(), original)
         self.assertFalse(self.errors, self.errors)
 
     def test_close_during_background_read_cancels_without_stale_ui(self):
