@@ -141,4 +141,6 @@ class RelationWatch(QFileSystemWatcher):
         if current-wanted:self.removePaths(list(current-wanted))
         if wanted-current:self.addPaths(list(wanted-current))
     def refresh(self):
+        invalidate=getattr(self.reader,'_invalidate_cache',None)
+        if callable(invalidate):invalidate()
         if self.reader.isVisible() and self.reader.surface.mode=='read':self.reader.refresh()

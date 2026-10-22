@@ -821,7 +821,11 @@ class ReadingView(QTextBrowser):
 
     def showEvent(self,event):
         super().showEvent(event)
-        QTimer.singleShot(0,self,self.fit_rich)
+        QTimer.singleShot(0,self,self._refresh_on_show)
+
+    def _refresh_on_show(self):
+        if self.isVisible() and self.surface.mode=='read':self.refresh_cached()
+        self.fit_rich()
 
     def fit_rich(self):
         if self.rich:
@@ -839,6 +843,10 @@ class ReadingView(QTextBrowser):
     def render_key(self):
         snapshot=self.surface.page.buffer.snapshot()
         return (snapshot.revision,snapshot.document_id,str(self.surface.page.path),tuple(sorted(self.surface.preferences.items())),self.surface.zoom_percent,str(visual_tokens(window_appearance(self))))
+
+    def _invalidate_cache(self):
+        # Dependency changes invalidate this view, never the source buffer.
+        self._render_key=None
 
     def refresh_cached(self):
         if getattr(self,'_render_key',None)!=self.render_key():self.refresh()
