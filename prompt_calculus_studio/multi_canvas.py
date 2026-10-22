@@ -338,37 +338,38 @@ class MultiCanvas(TextCanvas):
     def next_z(self): self.z_counter+=.0001; return min(-.2,self.z_counter)
     def history_state(self):
         return self.history_projection(self.window.state)
-    def commit(self,operation,label='編輯',merge_key=None):
+    def content_operation_hooks(self):
+        return dict(begin=self.begin_content_operation,
+                    prepare=self.prepare_content_operation, complete=self.complete_content_operation)
+
+    def begin_content_operation(self):
+        return dict(connections=copy.deepcopy(self.data()['connections']), library_only=False)
+
+    def prepare_content_operation(self, state, context):
         from .material_navigation import navigation_only
         from .local_documents.library import change_only
-        library_only = False
-        old_connections=copy.deepcopy(self.data()['connections'])
-        def apply(s):
-            nonlocal library_only
-            operation(s)
-            library_only = navigation_only(self.window.state, s) or change_only(self.window.state, s)
-            if library_only: return
-            client=getattr(self.window,'comfy',None)
-            if s['multi_output']['version']>=7 and client:
-                from .stage_context import sync_result_view
-                sync_result_view(s,self.window.store.directory,client.input_flow.chain.results)
-            elif s['multi_output']['version']>=5:
-                from .flow_data import materialize
-                materialize(s)
-            model.reconcile(s)
-        result=super().commit(apply,label=label,merge_key=merge_key)
+        context['library_only'] = navigation_only(self.window.state, state) or change_only(self.window.state, state)
+        if context['library_only']: return
         client=getattr(self.window,'comfy',None)
-        if result and client and not library_only and self.data()['version']>=7:
+        if state['multi_output']['version']>=7 and client:
+            from .stage_context import sync_result_view
+            sync_result_view(state,self.window.store.directory,client.input_flow.chain.results)
+        elif state['multi_output']['version']>=5:
+            from .flow_data import materialize
+            materialize(state)
+        model.reconcile(state)
+
+    def complete_content_operation(self, context):
+        client=getattr(self.window,'comfy',None)
+        if client and not context['library_only'] and self.data()['version']>=7:
             client.input_flow.chain.route_changed()
-        if result and client and old_connections!=self.data()['connections']:
+        old_connections=context['connections']
+        if client and old_connections!=self.data()['connections']:
             removed=[c for c in old_connections if c not in self.data()['connections']]
             for owner,control in client.input_flow.local_controls():
                 scheduler=control.get('route',{}).get('scheduler')
                 if scheduler and any(scheduler in (c['source'].split('::')[0],c['destination'].split('::')[0]) for c in removed):
                     client.input_flow.detach(owner)
-        if result and self.undo_stack:
-            before,_=self.undo_stack[-1]; after=self.history_state(); self.undo_stack[-1]=(before,after); self.last_state=after
-        return result
     def restore_history(self,source,destination,after):
         from .queue_history import restore as restore_queue
         if restore_queue(self,source,destination,after):return

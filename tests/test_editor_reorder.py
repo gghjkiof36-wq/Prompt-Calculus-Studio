@@ -229,7 +229,7 @@ class EditorReorderTests(unittest.TestCase):
         fields = ('items', 'modules', 'uses', 'settings', 'output_order', 'selections', 'draft', 'draft_base', 'content_history')
         project = lambda: {key: self.w.state.get(key) for key in fields}
         state = copy.deepcopy(project()); before = self.page.listing.order_ids()
-        with patch.object(self.w.canvas, 'commit', return_value=False): self.drag(self.page.listing, before[-1], before[0])
+        with patch.object(self.w.document_operations, 'commit', return_value=False): self.drag(self.page.listing, before[-1], before[0])
         self.assertEqual(project(), state); self.assertEqual(self.page.listing.order_ids(), before)
         self.assertEqual(self.page.order.currentData(), 'name')
         foreign = MaterialList(); foreign.addItem('foreign'); foreign.item(0).setData(Qt.ItemDataRole.UserRole, before[0])

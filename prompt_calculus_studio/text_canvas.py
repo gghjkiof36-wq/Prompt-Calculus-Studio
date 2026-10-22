@@ -1,6 +1,5 @@
 """A light Graphics View over the same selected compositions as the list."""
 import copy
-import time
 from PySide6.QtCore import Qt, QPointF, QRectF, QTimer
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLineEdit, QPlainTextEdit, QFormLayout,
     QDoubleSpinBox, QCheckBox, QDialog, QListWidget, QListWidgetItem, QScrollArea, QFrame)
@@ -9,9 +8,10 @@ from . import composition as comp
 from . import prompt_materials as pm
 from .canvas_palette import CanvasPalette
 from .canvas_items import TextCard, PreviewCard, NodeCard, CanvasView
-from .core import uid, validate_state, output_groups, prune_output_order, TEMPORARY_GROUP
+from .core import uid, validate_state, output_groups, TEMPORARY_GROUP
 from .widgets import label, button, row, StudioDialog, dialog_buttons, RoundMenu, InputDialog
 from .error_dialog import import_error
+from .document_operations import DocumentOperations, HISTORY_FIELDS
 
 
 class NodeDialog(StudioDialog):
@@ -179,9 +179,6 @@ class AssetDialog(StudioDialog):
         return next(i for i in self.window.state['items'] if i['id'] == ident)
 
 
-HISTORY_FIELDS = ('version', 'modules', 'items', 'library_categories', 'selections', 'temporary', 'temporary_before', 'weights', 'instances', 'output_order', 'text_positions', 'text_sizes', 'uses', 'workspaces', 'workspace', 'workspace_scenes', 'prompt_layout', 'view_drafts','canvas_functions','generation', 'material_navigation')
-
-
 class HistoryField:
     """One transaction history per local document; legacy windows stay local."""
     def __set_name__(self, owner, name): self.name = name
@@ -201,8 +198,17 @@ class TextCanvas(QWidget):
     _last_edit = HistoryField()
     def __init__(self, window):
         super().__init__(); self.window = window; self.root_id = None; self.path = []
-        if self.undo_stack is None:
-            self.undo_stack = []; self.redo_stack = []; self.last_state = None
+        from .changes import layout_only
+        self.operations = DocumentOperations(
+            state=lambda: self.window.state,
+            replace_state=lambda value: setattr(self.window, 'state', value),
+            history=type(self).undo_stack.storage(self), project=lambda value: self.history_projection(value),
+            checkpoint=self.checkpoint_content, sync=lambda scope: self.sync(scope),
+            notice=lambda text: self.window.notice(text),
+            is_layout_only=layout_only, **self.content_operation_hooks())
+        # Non-Canvas editors use the same transaction owner directly. The
+        # adapter callbacks remain here until this host presents another view.
+        window.document_operations = self.operations
         self.entries = {}; self.output=None; self.preview_card=None; self.cards={}
         self._hidden_view=None; self._has_presented_view=False
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0)
@@ -325,56 +331,17 @@ class TextCanvas(QWidget):
         return history_projection(state,HISTORY_FIELDS)
 
     def commit(self, operation, label='編輯', merge_key=None):
-        before = self.history_state(); value = copy.deepcopy(self.window.state)
-        try:
-            from .material_navigation import navigation_only
-            from .local_documents.library import change_only
-            operation(value)
-            from .prompt_groups import mark_version
-            mark_version(value)
-            library_only = navigation_only(self.window.state, value) or change_only(self.window.state, value)
-            if not library_only:
-                comp.prune_instances(value)
-                if value.get('uses'): value.setdefault('prompt_layout','paragraphs')
-                prune_output_order(value)
-            validate_state(value)
-            if value == self.window.state: return
-            if value['version'] > self.window.state['version']:
-                self.window.store.save(self.window.state)
-                self.window.store.backup()
-            after = self.history_projection(value)
-            previous=getattr(self,'_last_edit',None);now=time.monotonic()
-            coalesce=bool(merge_key and previous and previous[0]==merge_key and now-previous[1]<.65 and self.undo_stack and isinstance(self.undo_stack[-1],tuple) and self.undo_stack[-1][1]==before)
-            from .content_history import record
-            record(value,before,after,label=label,merge_key=merge_key,coalesce=coalesce)
-            validate_state(value)
-            self.window.state = value
-            if coalesce:self.undo_stack[-1]=(self.undo_stack[-1][0],after)
-            else:self.undo_stack.append((before,after))
-            self.trim_history()
-            self._last_edit=(merge_key,now)
-            self.redo_stack.clear(); self.last_state = after
-            from .changes import layout_only
-            self.sync('library' if library_only else 'layout' if layout_only(before,after) else 'prompt')
-            return True
-        except (ValueError, KeyError, StopIteration) as exc:
-            self.window.notice(str(exc))
-            return False
+        return self.operations.commit(operation, label=label, merge_key=merge_key)
+
+    def content_operation_hooks(self):
+        return {}
+
+    def checkpoint_content(self, state):
+        self.window.store.save(state)
+        self.window.store.backup()
 
     def trim_history(self):
-        # Entries are immutable snapshots. Cache only still-retained identities
-        # so each keystroke/drag does not serialize the whole 100-step stack.
-        import json
-        self.undo_stack=self.undo_stack[-100:]
-        cached=getattr(self,'_undo_sizes',{});sizes=[];retained={}
-        for entry in self.undo_stack:
-            prior=cached.get(id(entry))
-            size=prior[1] if prior and prior[0] is entry else len(json.dumps(entry,ensure_ascii=False,default=str).encode('utf-8'))
-            sizes.append(size);retained[id(entry)]=(entry,size)
-        total=sum(sizes)
-        while len(self.undo_stack)>1 and total>32_000_000:
-            removed=self.undo_stack.pop(0);total-=sizes.pop(0);retained.pop(id(removed),None)
-        self._undo_sizes=retained
+        self.operations.trim_history()
 
     def sync(self,scope='prompt'):
         if scope == 'library':

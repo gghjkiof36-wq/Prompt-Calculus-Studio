@@ -1,7 +1,8 @@
 """Isolated document adapters for the local workspace development entry.
 
-The existing material editor and Canvas own their transactions and native text
-documents. File operations rebind their writer without rebuilding that model.
+Content editors share document.history through DocumentOperations; Canvas
+supplies presentation/runtime callbacks and the existing Undo restoration.
+File operations rebind their writer without rebuilding that model.
 Each file keeps its SQLite session and execution owner in a separate directory.
 """
 import copy

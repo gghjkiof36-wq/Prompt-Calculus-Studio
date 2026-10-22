@@ -373,8 +373,8 @@ class EditorRev9Tests(unittest.TestCase):
     def test_partial_add_save_is_new_checkpoint_even_when_followup_cancelled(self):
         self.saved_text('before'); self.page.set_destination(self.fixture.canvas)
         dialog = self.edit(); dialog.prompt.selectAll(); QTest.keyClicks(dialog.prompt, 'saved before retry')
-        original_commit = self.w.canvas.commit
-        with patch.object(self.w.canvas, 'commit', lambda op,label='Edit',**kw: False if label=='加入文字素材' else original_commit(op,label,**kw)):
+        original_commit = self.w.document_operations.commit
+        with patch.object(self.w.document_operations, 'commit', lambda op,label='Edit',**kw: False if label=='加入文字素材' else original_commit(op,label,**kw)):
             self.assertFalse(dialog.save(True))
         saved_state = copy.deepcopy(self.w.state); saved_session = copy.deepcopy(self.w._material_editor_session)
         self.undo_key(dialog); self.assertEqual(dialog.prompt.toPlainText(), 'before')
@@ -632,12 +632,12 @@ class EditorRev9Tests(unittest.TestCase):
     def test_save_add_partial_failure_retry_is_only_add_and_idempotent(self):
         self.page.set_destination(self.fixture.canvas); dialog = self.page.new_material()
         dialog.name.setText('retry source'); dialog.prompt.setPlainText('retry text')
-        original_commit = self.w.canvas.commit; calls=[]
+        original_commit = self.w.document_operations.commit; calls=[]
         def commit(operation, label='Edit', **kwargs):
             calls.append(label)
             if label == '加入文字素材' and calls.count(label) == 1: return False
             return original_commit(operation,label,**kwargs)
-        with patch.object(self.w.canvas,'commit',commit):
+        with patch.object(self.w.document_operations,'commit',commit):
             self.assertFalse(dialog.save(True)); ident=dialog.target_id
             self.assertEqual(len([v for v in self.w.state['items'] if v['id']==ident]),1)
             self.assertIn('已保存',dialog.error.text())
@@ -648,12 +648,12 @@ class EditorRev9Tests(unittest.TestCase):
     def test_partial_retry_changed_content_requires_new_save(self):
         self.page.set_destination(self.fixture.canvas); dialog = self.page.new_material()
         dialog.name.setText('changed'); dialog.prompt.setPlainText('one')
-        original_commit=self.w.canvas.commit; calls=[]
+        original_commit=self.w.document_operations.commit; calls=[]
         def commit(operation,label='Edit',**kwargs):
             calls.append(label)
             if label=='加入文字素材' and calls.count(label)==1:return False
             return original_commit(operation,label,**kwargs)
-        with patch.object(self.w.canvas,'commit',commit):
+        with patch.object(self.w.document_operations,'commit',commit):
             self.assertFalse(dialog.save(True));dialog.prompt.selectAll();QTest.keyClicks(dialog.prompt,'two')
             self.assertTrue(dialog.save(True))
         self.assertEqual(calls.count('保存文字素材'),2)
@@ -663,8 +663,8 @@ class EditorRev9Tests(unittest.TestCase):
     def test_retry_destination_change_never_uses_old_target(self):
         self.page.set_destination(self.fixture.canvas); dialog=self.page.new_material()
         dialog.name.setText('destination');dialog.prompt.setPlainText('text')
-        original_commit=self.w.canvas.commit
-        with patch.object(self.w.canvas,'commit',lambda op,label='Edit',**kw: False if label=='加入文字素材' else original_commit(op,label,**kw)):
+        original_commit=self.w.document_operations.commit
+        with patch.object(self.w.document_operations,'commit',lambda op,label='Edit',**kw: False if label=='加入文字素材' else original_commit(op,label,**kw)):
             self.assertFalse(dialog.save(True))
         ident=dialog.target_id;self.page.set_destination(None)
         self.assertFalse(dialog.save(True));self.assertIn('選擇',dialog.error.text())

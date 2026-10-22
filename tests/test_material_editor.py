@@ -270,6 +270,7 @@ class MaterialEditorTests(unittest.TestCase):
                 history.record(after, before, after, label, merge_key)
                 return True
         self.w.canvas = Canvas()
+        self.w.document_operations = self.w.canvas
         self.editor = PromptEditor(self.w, compact=True)
         self.canvas = guide(self.w.state)['canvas']
         self.editor.set_destination(self.canvas)

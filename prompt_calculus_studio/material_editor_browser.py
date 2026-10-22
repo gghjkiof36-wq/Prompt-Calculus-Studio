@@ -489,7 +489,7 @@ class PromptEditor(QWidget):
         def apply(state):
             _replace_visible_order(state, 'items', before, after)
             state['settings']['material_library_order'] = 'manual'
-        if self.window.canvas.commit(apply, label='調整素材順序'): self.refresh()
+        if self.window.document_operations.commit(apply, label='調整素材順序'): self.refresh()
 
     def _reorder_categories(self, before, after):
         if before != self.categories.order_ids(): return
@@ -510,7 +510,7 @@ class PromptEditor(QWidget):
         try: operation(value)
         except ValueError as exc: self.window.notice(str(exc)); return False
         if state.get(navigation.FIELD) == value.get(navigation.FIELD): return False
-        return self.window.canvas.commit(lambda target: target.update({navigation.FIELD: value[navigation.FIELD]}), label=label)
+        return self.window.document_operations.commit(lambda target: target.update({navigation.FIELD: value[navigation.FIELD]}), label=label)
 
     def toggle_folder(self, ident):
         collapsed = set(self.window.state['settings'].get('material_folder_collapsed', []))
@@ -579,7 +579,7 @@ class PromptEditor(QWidget):
     def rename_category(self, ident):
         value = materials.category(self.window.state, ident)
         name, ok = InputDialog.getText(self.window, '重新命名分類', '分類名稱', text=value['name'])
-        if ok and self.window.canvas.commit(lambda state: materials.rename_category(state, ident, name), label='重新命名分類'):
+        if ok and self.window.document_operations.commit(lambda state: materials.rename_category(state, ident, name), label='重新命名分類'):
             self.refresh()
 
     def remove_category(self, ident):
@@ -587,7 +587,7 @@ class PromptEditor(QWidget):
         if not ask(self.window, '刪除分類', f'刪除「{value["name"]}」分類？其中的素材會移到「未分類」保留。'): return
         destination = []
         selected = self.get_browser_category()
-        if self.window.canvas.commit(lambda state: destination.append(materials.remove_category(state, ident)), label='刪除分類'):
+        if self.window.document_operations.commit(lambda state: destination.append(materials.remove_category(state, ident)), label='刪除分類'):
             self.refresh()
             if selected == ident: self.set_browser_category(destination[0])
 
@@ -840,7 +840,7 @@ class PromptEditor(QWidget):
     def pin_material(self, ident):
         def apply(state):
             value = materials.item(state, ident); value['pinned'] = not value.get('pinned', False)
-        if self.window.canvas.commit(apply, label='變更素材釘選'): self.refresh()
+        if self.window.document_operations.commit(apply, label='變更素材釘選'): self.refresh()
 
     def library_menu(self):
         menu = RoundMenu(self); menu.addAction('新增分類', self.new_category)
@@ -858,7 +858,7 @@ class PromptEditor(QWidget):
 
     def delete_material(self, ident):
         if not ask(self.window, '刪除素材', '刪除此素材原件？畫布中的獨立副本會保留。'): return
-        if self.window.canvas.commit(lambda state: materials.remove(state, ident), label='刪除文字素材'):
+        if self.window.document_operations.commit(lambda state: materials.remove(state, ident), label='刪除文字素材'):
             if self.preview_id == ident: self.close_preview()
             self.refresh()
 
@@ -871,7 +871,7 @@ class PromptEditor(QWidget):
             if any(v['name'] == name.strip() for v in state['modules']): raise ValueError('已有同名分類，請使用其他名稱。')
             added.append(materials.add_category(state, name))
             if navigation.is_folder(selected): navigation.move(state, added[0], selected)
-        if self.window.canvas.commit(apply, label='新增素材分類'):
+        if self.window.document_operations.commit(apply, label='新增素材分類'):
             self.refresh(); self.set_browser_category(added[0])
 
 
@@ -1063,7 +1063,7 @@ class MaterialEditDialog(StudioDialog):
         finally: self.busy = False
 
     def _commit(self, operation, label, adding=False):
-        try: success = self.page.window.canvas.commit(operation, label=label)
+        try: success = self.page.window.document_operations.commit(operation, label=label)
         except (ValueError, KeyError) as exc:
             self.error.setText(('素材已保存，但未加入畫布。可重試加入。\n' if adding else '') + str(exc)); return False
         if not success:
