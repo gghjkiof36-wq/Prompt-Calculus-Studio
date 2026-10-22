@@ -1337,7 +1337,25 @@ class Window(QMainWindow):
         try:
             self.models.save(); self.persist(); snapshot=self.store.backup()
             from .backup import archive_data
-            self.jobs.start("正在備份資料庫、縮圖與應用內的圖片副本…",lambda cancel:archive_data(self.store.directory,snapshot,path,cancel),lambda _:self.notice("ZIP 備份完成；外部連結的原圖與模型需另外備份。"))
+            published=None
+            def work(cancel):
+                nonlocal published
+                result=archive_data(self.store.directory,snapshot,path,cancel)
+                published=result
+                return result
+            def complete(result=None):
+                result=published if result is None else result
+                message="ZIP 備份完成；外部連結的原圖與模型需另外備份。"
+                recovery=getattr(result,'recovery_paths',())
+                if recovery: message+='\n恢復檔未能清理：\n'+'\n'.join(recovery)
+                self.notice(message)
+            def failed(error):
+                # Jobs may observe cancel after archive_data has committed.
+                # Preserve other jobs' cancellation rules and this ZIP's result.
+                if published is not None: complete()
+                elif error.startswith("已取消") or self.closing: self.notice(error)
+                else: self.error(error)
+            self.jobs.start("正在備份資料庫、縮圖與應用內的圖片副本…",work,complete,failed)
         except Exception as exc: self.error(str(exc))
 
     def export_json(self):
