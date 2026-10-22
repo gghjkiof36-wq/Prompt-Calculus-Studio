@@ -1052,6 +1052,12 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             return not tab.dirty
         if getattr(getattr(tab.widget, 'buffer', None), 'composing', False):
             QApplication.inputMethod().commit()
+            # The active native input context may belong to another shared
+            # view, or may not have committed yet. Preedit is not document
+            # text and cannot be protected by the recovery snapshot below.
+            if tab.widget.buffer.composing:
+                self.show_notice('請先完成目前的輸入法組字，再關閉文件。')
+                return False
         document = tab.document
         if document:
             for host in document.hosts:
@@ -1060,13 +1066,12 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                     if decision == 'save' and not dialog.save(False):return False
                     dialog.reject()  # Normal dismissal persists its isolated draft.
             if not document.flush_views():
-                self.close_recovery.preserve(tab)
-                return True
+                return self.close_recovery.preserve(tab) is not None
             document.update_dirty()
         if not tab.dirty:return True
         if not getattr(tab.document or tab.widget, 'operation_error', False) and self.save_tab(tab, quiet=True):return True
-        self.close_recovery.preserve(tab)
-        return True
+        # A memory-only copy does not survive closing the application.
+        return self.close_recovery.preserve(tab) is not None
 
 
 
