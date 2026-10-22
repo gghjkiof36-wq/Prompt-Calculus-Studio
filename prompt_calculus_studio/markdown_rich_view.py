@@ -132,7 +132,27 @@ class RichView(QWebEngineView):
         if hasattr(self,'alignment_timer'):self.alignment_timer.start(0)
 
     def search(self, query, case_sensitive=False, direction=0):
-        self.search_ticket=getattr(self,'search_ticket',0)+1;ticket=self.search_ticket
+        self.search_ticket=getattr(self,'search_ticket',0)+1
+        previous=getattr(self,'pending_search',None)
+        reset=bool(previous and (previous[4] or previous[:2]!=(query,case_sensitive)))
+        self.pending_search=(query,case_sensitive,direction,self.search_ticket,reset)
+        if not hasattr(self,'search_timer'):
+            self.search_timer=QTimer(self);self.search_timer.setSingleShot(True)
+            self.search_timer.timeout.connect(self.dispatch_search)
+        if direction:
+            # Navigation consumes the newest query immediately. Never combine
+            # next/previous steps: their order matters at the first match.
+            self.search_timer.stop();self.dispatch_search()
+        else:
+            # Opening find and entering/replacing its query can happen in one
+            # GUI turn. Only the latest refresh needs to scan the rendered DOM.
+            self.search_timer.start(0)
+
+    def dispatch_search(self):
+        pending=self.pending_search;self.pending_search=None
+        if pending is None:return
+        query,case_sensitive,direction,ticket,reset=pending
+        if ticket!=self.search_ticket:return
         def finished(value):
             from shiboken6 import isValid
             if not isValid(self) or ticket!=self.search_ticket or not value:return
@@ -142,7 +162,12 @@ class RichView(QWebEngineView):
             s.find_previous.setEnabled(result['total']>0);s.find_forward.setEnabled(result['total']>0)
         if self.ready:
             args=json.dumps([query,case_sensitive,direction],ensure_ascii=False)
-            self.page().runJavaScript('window.markSearch && window.markSearch(...'+args+')',finished)
+            # A -> B -> A in one GUI turn must reset A's former match index,
+            # even when B's expensive scan was never dispatched.
+            clear=reset and getattr(self,'search_identity',None)==(query,case_sensitive)
+            script=('window.markSearch("",false);' if clear else '')
+            self.search_identity=(query,case_sensitive)
+            self.page().runJavaScript('(()=>{if(!window.markSearch)return null;'+script+'return window.markSearch(...'+args+');})()',finished)
 
     def resource(self,entry,index):
         target=entry['target'];local=Path(entry['path']) if entry['path'] else None
