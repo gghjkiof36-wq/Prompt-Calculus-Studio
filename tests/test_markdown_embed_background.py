@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from PySide6.QtCore import QEvent, QThreadPool, QTimer
+from PySide6.QtCore import QEvent, QThreadPool, QTimer, Slot
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from shiboken6 import isValid
@@ -239,10 +239,11 @@ class EmbeddedBackgroundTests(unittest.TestCase):
         from prompt_calculus_studio.local_documents import paths
         from prompt_calculus_studio.markdown_rich_view import RichView
         surface=self.open_parent();original_ready=RichView.projection_ready;original_link=paths.is_link
-        def ready(view,*args):
+        @Slot(object,object,str)
+        def projection_ready(view,version,result,error):
             with patch.object(paths,'is_link',side_effect=lambda path:path==self.root or original_link(path)):
-                original_ready(view,*args)
-        with patch.object(RichView,'projection_ready',ready):
+                original_ready(view,version,result,error)
+        with patch.object(RichView,'projection_ready',projection_ready):
             surface.set_mode('read');rich=surface.reader.rich
             with patch.object(rich.relations,'bind',wraps=rich.relations.bind) as bind:
                 self.wait(lambda:rich.render_state=='error')
