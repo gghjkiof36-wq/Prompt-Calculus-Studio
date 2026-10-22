@@ -2,6 +2,7 @@
 from pathlib import Path
 from urllib.parse import urlsplit,parse_qs
 import copy,time,hashlib,json
+from uuid import uuid4
 from collections import OrderedDict
 from PySide6.QtCore import Qt,QSize,QPoint,QTimer,QEvent,Signal,QStringListModel
 from PySide6.QtGui import QIcon
@@ -13,6 +14,8 @@ from .civitai_controls import DownloadDialog,selectable,details
 from .civitai_assets import DownloadReceipts,perform_download,check_download,register_download,installed_version
 from .media import thumbnail
 from .jobs import Jobs
+from .service_adapters import ServiceRequest
+from .civitai_adapter import CivitAIBrowseAdapter
 from .job_outcomes import JobOutcome
 from .civitai_gallery import Gallery,Preview,ImageLoader
 from .widgets import label,button,row,panel,scrolling,ComboBox,ElidedLabel,set_preview,open_url,thumb_icon,style_completion,sync_popup_appearance
@@ -92,6 +95,7 @@ class CivitAIPage(QFrame):
     progress=Signal(str,object,object)
     def __init__(self,window):
         super().__init__(); self.window=window; self.policy=network_policy(window)
+        self.service_owner_id=str(uuid4())
         self.results=[]; self.current=None; self.source=None; self.cursor=''; self.search_args=None
         self.serial=0; self.preview_generation=0; self.token_revision=0; self.search_cache=OrderedDict(); self.initial_requested=False
         self.pending_search=None; self.pending_detail=None; self.pending_preview=None; self.pending_download=None
@@ -286,13 +290,23 @@ class CivitAIPage(QFrame):
         started=self.browse_jobs.start(message,task,accept,reject if failed else None)
         if started:self.policy.track(self.browse_jobs.active.cancel)
         return started
+    def service_task(self,operation,inputs,token):
+        # Freeze identity and parameters on the UI thread. Current token/serial/
+        # detail guards still decide whether this page may accept the result.
+        request=ServiceRequest('civitai',operation,input=inputs,scope=dict(
+            owner_id=self.service_owner_id,token_revision=self.token_revision,
+            serial=self.serial,preview_generation=self.preview_generation))
+        adapter=CivitAIBrowseAdapter(lambda cancel:CivitAIClient(token,cancel=cancel))
+        # Unwrap in the worker: correlation and provider errors must follow
+        # Jobs.failed, so pending UI state is cleared by its existing owner.
+        return lambda cancel:adapter.execute(request,cancel).value_for(request)
     def test_connection(self):
         if not self.allowed():return
         token=self.token.text(); revision=self.token_revision; directory=self.window.store.directory
         def done(result):
             if revision!=self.token_revision:return
             save_token(directory,token); self.connection.setText('Token 連線正常，已儲存' if result['authenticated'] else '公開連線正常')
-        self.start_job('正在測試 CivitAI…',lambda cancel:CivitAIClient(token,cancel=cancel).test_connection(),done,lambda error:self.connection.setText(error))
+        self.start_job('正在測試 CivitAI…',self.service_task('connection',{},token),done,lambda error:self.connection.setText(error))
     def clear_token(self):
         clear_token(self.window.store.directory)
         if self.token.text():self.token.clear()
@@ -351,7 +365,7 @@ class CivitAIPage(QFrame):
                 self.search_job=None; self.counter.setText(error); self.more.setEnabled(bool(self.cursor))
             cached=self.search_cache.get(cache_key)
             if cached and time.monotonic()-cached[0]<120:done(copy.deepcopy(cached[1])); return
-            if self.start_job('正在搜尋 CivitAI…',lambda cancel:CivitAIClient(token,cancel=cancel).search_models(**args),done,failed):self.search_job=self.browse_jobs.active
+            if self.start_job('正在搜尋 CivitAI…',self.service_task('search',args,token),done,failed):self.search_job=self.browse_jobs.active
             return
         if self.pending_detail:self.start_detail(); return
         if self.pending_preview:self.start_preview(); return
@@ -389,7 +403,7 @@ class CivitAIPage(QFrame):
             self.set_detail_state(''); self.source=normalize_version(version,parent=self.current); self.render_details(); self.queue_preview(generation,version)
         def failed(error):
             if generation==self.preview_generation:self.set_detail_state(error); self.download.setEnabled(False)
-        self.start_job('正在讀取模型版本…',lambda cancel:CivitAIClient(token,cancel=cancel).version(ident),done,failed)
+        self.start_job('正在讀取模型版本…',self.service_task('version',{'version_id':ident},token),done,failed)
     def set_detail_state(self,text):
         self.detail_state.setText(text); self.detail_state.setVisible(bool(text))
 

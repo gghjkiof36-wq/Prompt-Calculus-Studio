@@ -7,6 +7,7 @@ from prompt_calculus_studio.civitai import identify_models,normalize_version,dow
 from prompt_calculus_studio.core import Storage
 from prompt_calculus_studio.media import Catalog,scan_models
 from prompt_calculus_studio.window import Window
+from prompt_calculus_studio.service_adapters import ServiceFailure
 from test_civitai import version,parent,Response
 
 APP=QApplication.instance() or QApplication([])
@@ -120,7 +121,12 @@ class DeferredUiTests(unittest.TestCase):
         task,done,failed,job=self.pending.pop(0); results=[]
         with patch('prompt_calculus_studio.civitai_ui.CivitAIClient') as client,patch.object(self.page.sort,'currentText',side_effect=AssertionError('worker read UI')):
             client.return_value.search_models.return_value={'items':[]}
-            thread=threading.Thread(target=lambda:results.append(task(job.cancel))); thread.start(); thread.join(5)
+            # This case measures frozen input, separately from pre-cancel rejection.
+            # The original cancelled job must not contact the provider.
+            with self.assertRaisesRegex(ServiceFailure,'已取消'):
+                task(job.cancel)
+            client.assert_not_called()
+            thread=threading.Thread(target=lambda:results.append(task(threading.Event()))); thread.start(); thread.join(5)
             self.assertFalse(thread.is_alive()); self.assertEqual(len(results),1)
             self.assertEqual(client.call_args.args,('before',)); self.assertEqual(client.return_value.search_models.call_args.kwargs['query'],'first')
             self.assertFalse(client.return_value.search_models.call_args.kwargs['nsfw'])
