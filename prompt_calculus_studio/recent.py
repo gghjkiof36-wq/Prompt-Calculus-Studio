@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+from .job_outcomes import JobOutcome
 from pathlib import Path
 from PySide6.QtCore import Qt,QSize,QTimer,QRectF,Signal
 from PySide6.QtGui import QColor,QPainter,QPainterPath,QPen
@@ -302,8 +303,8 @@ class RecentPage(QFrame):
                     QTimer.singleShot(0,self.pump);return
                 self.window.notice('已收藏：'+result['path']); self.refresh(); QTimer.singleShot(0,self.pump)
             def work(cancel):
-                try: return import_image(result['path'],store.directory,album),''
-                except Exception as exc: return None,str(exc)
+                try:return JobOutcome.completed((import_image(result['path'],store.directory,album),''))
+                except Exception as exc:return JobOutcome.failed(str(exc))
             def failed(message):
                 self.processing=False
                 if self.catalog is not catalog:
@@ -313,7 +314,9 @@ class RecentPage(QFrame):
             def done(value):
                 if value[0]: finished(value[0])
                 else:failed(value[1])
-            self.window.jobs.start('正在將收藏圖片加入媒體庫…',work,done,failed)
+            # desktop/collect already accepted this save. Closing may cancel
+            # new work, but must still register this result in its old owner.
+            self.window.jobs.start('正在將收藏圖片加入媒體庫…',work,done,failed,finish_accepted=True)
         else:
             source=self.pending.pop(0); ident=result_id(source)
             store,catalog=self.window.store,self.catalog

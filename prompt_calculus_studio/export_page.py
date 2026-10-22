@@ -12,6 +12,7 @@ from .widgets import (label,button,row,panel,scrolling,ComboBox,StudioDialog,
 from .export_views import ExportDelegate,ExportHeader
 from . import clean_export as exporter
 from .clean_metadata import inspect
+from .job_outcomes import JobOutcome
 from .theme import visual_tokens
 
 def combo(choices):
@@ -223,13 +224,15 @@ class ExportPage(QFrame):
         self.progress.setVisible(busy)
         if busy: self.progress.setRange(0,0)
 
-    def job(self,title,function,done):
+    def job(self,title,function,done,terminal=False):
         if self.busy or self.window.jobs.active:
-            self.pending_action=(title,function,done)
+            self.pending_action=(title,function,done,terminal)
             self.set_feedback('正在等待背景工作完成…',False); return
         def work(cancel):
-            try: return function(cancel),''
-            except Exception as exc: return None,str(exc)
+            try:
+                result=function(cancel)
+                return JobOutcome.completed((result,'')) if terminal else (result,'')
+            except Exception as exc:return JobOutcome.failed(str(exc))
         def finish(pair):
             self.set_busy(False)
             self.window.cancel_button.hide()
@@ -237,7 +240,11 @@ class ExportPage(QFrame):
             else: done(pair[0])
         self.set_feedback('')
         self.set_busy(True)
-        if not self.window.jobs.start(title,work,finish): self.set_busy(False)
+        try:
+            if not self.window.jobs.start(title,work,finish,lambda error:finish((None,error))):self.set_busy(False)
+        except Exception:
+            self.set_busy(False)
+            raise
 
     def set_feedback(self,text,error=True):
         self.feedback.setText(text); self.feedback.setProperty('tone','error' if error else 'warning'); self.refresh_colors()
@@ -330,7 +337,7 @@ class ExportPage(QFrame):
         def done(result):
             self.records.save_run(result); self.result=result; self.plan=None; self.export_button.setEnabled(False); self.only_failed.setChecked(False)
             self.only_failed.show(); self.page=0; self.render(); self.window.notice(self.summary.text())
-        self.job('正在建立乾淨圖片…',lambda cancel:exporter.execute(plan,cancel,self.progressed.emit),done)
+        self.job('正在建立乾淨圖片…',lambda cancel:exporter.execute(plan,cancel,self.progressed.emit),done,terminal=True)
 
     def update_progress(self,current,total): self.progress.setRange(0,total); self.progress.setValue(current)
 

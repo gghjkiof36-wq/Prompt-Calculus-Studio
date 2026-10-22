@@ -12,6 +12,7 @@ from .error_dialog import import_error,error_message
 from .core import uid
 from .media import scan_models, checked_model, copy_model, thumbnail, import_image, IMAGE_EXTENSIONS, model_root
 from .civitai import CivitAIClient,identify_models
+from .job_outcomes import JobOutcome
 from .credentials import load_token
 from .civitai_network import network_policy
 from .civitai_controls import FilterRow,selectable
@@ -438,7 +439,11 @@ class ModelPage(QFrame):
         target = Path(self.root.text())/kind/Path(source).name
         if not ask(self,"匯入模型",f"將複製模型到：\n{target}\n\n原檔會保留，同名檔案不會覆寫。"): return
         root=self.root.text()
-        self.window.jobs.start("正在複製模型，可從右下角取消…",lambda cancel:copy_model(source,root,kind,cancel),lambda _:self.scan())
+        def work(cancel):
+            return JobOutcome.completed(copy_model(source,root,kind,cancel))
+        def done(_):
+            if not self.window.closing:self.scan()
+        self.window.jobs.start("正在複製模型，可從右下角取消…",work,done)
 
     def recycle(self):
         if not self.record: return
@@ -474,6 +479,7 @@ class GalleryPage(QFrame):
         super().__init__(parent)
         self.window,self.catalog=window,window.catalog
         self.album=None; self.page=0; self.record=None; self.queue=[]; self.importing=False
+        window.jobs.became_idle.connect(self.resume_import)
         self._sidebar_preference=None; self._last_sidebar_state=None; self._detail_open=False
         self._detail_width=380
         self.list_columns=1
@@ -1062,28 +1068,52 @@ class GalleryPage(QFrame):
         self.importing=True; self.import_total=len(files); self.import_done=0; self.import_errors=[]
         self.next_image()
 
+    def resume_import(self):
+        if self.importing and self.window.jobs.active is None:
+            QTimer.singleShot(0,self.next_image)
+
     def next_image(self):
+        if not self.importing:return
+        if self.window.closing:self.queue=[]
         if not self.queue:
-            self.importing=False; self.refresh()
+            self.importing=False
+            if self.window.closing:
+                if self.import_errors:self.window.notice(f'已匯入 {self.import_done} 張，{len(self.import_errors)} 張未完成。\n'+self.import_errors[0])
+                return
+            self.refresh()
             if self.import_errors:
                 self.window.notice(''); import_error(self.window,f'已匯入 {self.import_done} 張，{len(self.import_errors)} 張失敗。\n'+self.import_errors[0])
             else: self.window.notice(f'已匯入 {self.import_done} 張圖片。')
             return
+        if self.window.jobs.active:
+            return
         source=self.queue.pop(0)
+        store,catalog,album,copy_original=self.window.store,self.catalog,self.import_album,self.import_copy
         def work(cancel):
-            try: return import_image(source,self.window.store.directory,self.import_album,self.import_copy,cancel),""
-            except Exception as exc: return None,f"{Path(source).name}：{error_message(exc)}"
-        def done(result):
-            record,error=result
-            if record:
-                original=Path(record['path'])
-                if original.is_relative_to(self.window.store.directory/'originals'):
-                    record.update(owned=True,original_relative=str(original.relative_to(self.window.store.directory)).replace('\\','/'))
-                self.catalog.put("image",record,self.import_album); self.import_done+=1
-            else: self.import_errors.append(error)
-            if self.import_done%10==0: self.refresh()
+            try:
+                return JobOutcome.completed(import_image(source,store.directory,album,copy_original,cancel))
+            except Exception as exc:
+                return JobOutcome.failed(error_message(exc))
+        def advance():
+            # Cancel/close stops future files; a completed current file still
+            # belongs to its captured owner and must finish registration.
+            if self.window.closing:self.queue=[]
             QTimer.singleShot(0,self.next_image)
-        self.window.jobs.start(f"建立縮圖 {self.import_total-len(self.queue)} / {self.import_total}…",work,done)
+        def failed(error):
+            try:self.import_errors.append(f"{Path(source).name}：{error}")
+            finally:advance()
+        def done(record):
+            try:
+                original=Path(record['path'])
+                if original.is_relative_to(store.directory/'originals'):
+                    record.update(owned=True,original_relative=str(original.relative_to(store.directory)).replace('\\','/'))
+                catalog.put("image",record,album); self.import_done+=1
+                if self.import_done%10==0 and not self.window.closing:self.refresh()
+            except Exception as exc:
+                self.import_errors.append(f"{Path(source).name}：{error_message(exc)}")
+            finally:advance()
+        if not self.window.jobs.start(f"建立縮圖 {self.import_total-len(self.queue)} / {self.import_total}…",work,done,failed):
+            self.queue.insert(0,source)
 
     def open_original(self):
         if self.record: open_file(self,self.record["path"])

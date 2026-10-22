@@ -1,5 +1,6 @@
 """Public backup entry and real Jobs completion, using synthetic local data."""
 import tempfile
+import threading
 import time
 import unittest
 import zipfile
@@ -82,10 +83,17 @@ class BackupJobsTests(unittest.TestCase):
 
     def test_public_cancel_preserves_previous_zip_and_reports_cancellation(self):
         archive_data = backup.archive_data
+        entered = threading.Event()
         def cancel_then_write(directory, snapshot, destination, cancel):
+            entered.set()
             self.assertTrue(cancel.wait(2), 'public cancel did not reach the job')
             return archive_data(directory, snapshot, destination, cancel)
-        self.invoke(cancel_then_write, self.w.cancel_jobs)
+        def cancel_started_backup():
+            # This case exercises the backup checkpoint. Runner pre-cancel is
+            # separately checked to prevent entering the worker at all.
+            self.assertTrue(entered.wait(2), 'backup worker did not enter')
+            self.w.cancel_jobs()
+        self.invoke(cancel_then_write, cancel_started_backup)
         self.assertFalse(self.errors)
         self.assertEqual(self.notices[-1], '已取消備份；既有 ZIP 未變更。')
         self.assertEqual(self.destination.read_bytes(), self.before)
@@ -112,6 +120,29 @@ class BackupJobsTests(unittest.TestCase):
         for path in self.root.glob('.pcs-backup-*'):
             self.assertIn(str(path), self.notices[-1])
             self.assertEqual(path.read_bytes(), self.before)
+
+    def test_success_with_cleanup_warning_during_close_keeps_notice_without_modal(self):
+        archive_data = backup.archive_data
+        ready, release = threading.Event(), threading.Event()
+        def work(directory, snapshot, destination, cancel):
+            result = archive_data(directory, snapshot, destination, cancel)
+            ready.set()
+            self.assertTrue(release.wait(2), 'close fixture did not release')
+            return result
+        def close_after_publish():
+            self.assertTrue(ready.wait(2), 'backup did not publish')
+            self.w.closing = True
+            self.w.cancel_jobs()
+            release.set()
+        with patch.object(backup, '_delete_stream', side_effect=PermissionError('controlled cleanup refusal')):
+            self.invoke(work, close_after_publish)
+        self.assertFalse(self.errors)
+        self.assertFalse(self.details)
+        self.assertIn('ZIP 備份完成', self.notices[-1])
+        self.assertIn('恢復檔未能清理', self.notices[-1])
+        retained = list(self.root.glob('.pcs-backup-*'))
+        self.assertTrue(retained)
+        for path in retained:self.assertIn(str(path), self.notices[-1])
 
     def test_late_cancel_with_gap_collision_reports_recovery_not_cancellation(self):
         archive_data, native_rename = backup.archive_data, backup._rename_owned

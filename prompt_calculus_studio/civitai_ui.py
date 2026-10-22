@@ -13,6 +13,7 @@ from .civitai_controls import DownloadDialog,selectable,details
 from .civitai_assets import DownloadReceipts,perform_download,check_download,register_download,installed_version
 from .media import thumbnail
 from .jobs import Jobs
+from .job_outcomes import JobOutcome
 from .civitai_gallery import Gallery,Preview,ImageLoader
 from .widgets import label,button,row,panel,scrolling,ComboBox,ElidedLabel,set_preview,open_url,thumb_icon,style_completion,sync_popup_appearance
 from .ui_icons import icon
@@ -509,6 +510,11 @@ class CivitAIPage(QFrame):
         def done(record):self.active_download=None; self.finish_registration(record)
         def failed(error):
             self.active_download=None; record=receipts.get(ident)
+            # Runner pre-cancel never entered perform_download, so its queued
+            # receipt still needs a terminal state that permits an explicit retry.
+            if record.get('state')=='queued':
+                record.update(state='cancelled' if error.startswith('已取消') else 'failed',error=error)
+                receipts.save(record)
             self.install_state.setText('檔案已下載，可在下載紀錄重新登記' if record.get('state')=='downloaded' else error); self.refresh_history()
         directory=self.window.store.directory
         def task(cancel):
@@ -519,7 +525,7 @@ class CivitAIPage(QFrame):
                     relative=download_preview(preview_url(previews[0]['url'],450),directory,cancel)
                     if not cancel.is_set():record['thumb']=thumbnail(Path(directory)/relative,directory); receipts.save(record)
                 except Exception:pass  # A preview failure never loses the completed model.
-            return record
+            return JobOutcome.completed(record)
         started=self.window.jobs.start('正在下載模型…',task,done,failed)
         if started:self.policy.track(self.window.jobs.active.cancel)
         else:self.pending_download=plan; self.active_download=None

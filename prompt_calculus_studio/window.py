@@ -1386,24 +1386,18 @@ class Window(QMainWindow):
         try:
             self.models.save(); self.persist(); snapshot=self.store.backup()
             from .backup import archive_data
-            published=None
+            from .job_outcomes import JobOutcome
+            directory = self.store.directory
             def work(cancel):
-                nonlocal published
-                result=archive_data(self.store.directory,snapshot,path,cancel)
-                published=result
-                return result
-            def complete(result=None):
-                result=published if result is None else result
+                return JobOutcome.completed(archive_data(directory,snapshot,path,cancel))
+            def complete(result):
                 message="ZIP 備份完成；外部連結的原圖與模型需另外備份。"
                 recovery=getattr(result,'recovery_paths',())
                 if recovery: message+='\n恢復檔未能清理：\n'+'\n'.join(recovery)
                 self.notice(message)
-                if recovery:self.backup_notice(message,'ZIP 備份完成，查看清理詳情')
+                if recovery and not self.closing:self.backup_notice(message,'ZIP 備份完成，查看清理詳情')
             def failed(error):
-                # Jobs may observe cancel after archive_data has committed.
-                # Preserve other jobs' cancellation rules and this ZIP's result.
-                if published is not None: complete()
-                elif error.startswith("已取消") or self.closing:
+                if error.startswith("已取消") or self.closing:
                     self.notice(error)
                     if '\n' in error and not self.closing:self.backup_notice(error,'已取消備份，查看暫存檔詳情')
                 elif getattr(self,'workspace_owner',None) is not None:
