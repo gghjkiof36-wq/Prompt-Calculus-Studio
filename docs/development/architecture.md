@@ -2,6 +2,8 @@
 
 適用：0.8.6 Alpha 1 主分支。主程式套件是 `prompt_calculus_studio`，擴充原始碼是 `comfyui_prompt_calculus_studio`。
 
+本頁保留上述版本的架構說明。2026-10-23 候選的文件交易、背景工作、外部服務與 Stage 來源整理，見[擴充接點補充](extension-boundaries-20261023.md)。
+
 ## 資料與畫布
 
 `run.py` 建立 Qt、資料鎖與 `Window`。`core.Storage` 管理 SQLite 文件；`Storage.load_current` 經 `state_loading.prepare_state` 準備載入副本。JSON 匯入和快照恢復共用載入邊界。模型與圖片索引由 `media.Catalog` 管理。

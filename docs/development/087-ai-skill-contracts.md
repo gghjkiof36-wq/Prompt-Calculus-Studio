@@ -11,10 +11,11 @@ AI 回傳的是可編輯建議；使用者採用後，才成為一般文字卡�
 | `content_kind = tags / text / markdown` | tags 保留權重語義；自然語言採 text；Markdown 保留標記及換行，不套用 tags 清理。 |
 | `preview`、`source_id`、`source_revision` | 沿用手動自訂預覽；素材加入畫布時保存來源 fingerprint，副本不隨原件更新。 |
 | [image_source.py](../../prompt_calculus_studio/image_source.py)：`metadata_sources` | 取得正面／負面／未判定的原文及 choice；分類建議不另猜極性。 |
-| [text_canvas.py](../../prompt_calculus_studio/text_canvas.py)：`commit` | 全部接受項目用一次操作提交，驗證後同步畫布並產生一次 Undo。 |
+| [document_operations.py](../../prompt_calculus_studio/document_operations.py)：`DocumentOperations.commit` | 全部接受項目用一次操作提交，驗證後同步文件並產生一次 Undo；`TextCanvas.commit` 保留為相容入口。 |
 | [content_history.py](../../prompt_calculus_studio/content_history.py)：`record`、`entries`、`restore` | 內容版本、歷史查閱及透過新交易還原；不回捲生成紀錄。 |
 
 模型 adapter、候選暫存、取消 token、以下 request/result schema 與 skill bundle 都是待實作契約，不能當作現有 API 呼叫。
+2026-10-23 的[擴充接點整理](extension-boundaries-20261023.md)已加入程序內 `service_adapters` 封套及 CivitAI 三項瀏覽讀取 adapter；這些不是以下 AI 內容 schema、模型接入或候選採用的實作。
 未來若保存 `ai_provenance` 等資料，須先補版本化驗證、clone、匯入匯出、歷史及往返保存測試，不能只在 UI 掛欄位。
 
 ## 共用 request／result
@@ -86,7 +87,7 @@ Qt 游標採 UTF-16 計數，adapter 必須轉換；不得把 UTF-16 offset 當 
 3. 回覆先核對 request、schema、取消狀態、workspace/use 是否存在、原文 hash、revision 與 output version。
 4. 切工作區、刪除或編輯目標後的晚到結果只標記過期；不重新建立被刪卡片、不套到同名對象、不沿用失效 offsets。
 5. 使用者審閱接受後，在交易內再次比對相同條件，再用既有 helper 對副本修改；任何驗證失敗都保留原狀。
-6. 單次採用呼叫一次 `canvas.commit(..., label='採用文字建議', merge_key=None)`，避免與相鄰 Editor 打字合併；一次 Undo 還原整批。
+6. 單次採用呼叫一次 `host.document_operations.commit(..., label='採用文字建議', merge_key=None)`，避免與相鄰 Editor 打字合併；一次 Undo 還原整批。
 7. `content_history.record` 記錄實際內容變更；查看、取消及失敗不冒充內容版本。歷史還原也走新交易，生成／排程紀錄不回捲。
 
 ## 後續實作最低驗收
