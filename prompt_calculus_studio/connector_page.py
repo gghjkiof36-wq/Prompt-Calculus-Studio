@@ -13,7 +13,7 @@ from .ui_icons import icon
 
 EXTENSION_ID = 'migmpicacfjoipmfcgdjocgdbplgldan'
 STATE_NAMES = dict(receiving='傳送中', previewing='等待匯入', committing='保存中',
-                   committed='已匯入', cancelled='已取消', failed='未完成', unknown='待查看')
+                   cancelled='已取消', failed='未完成', unknown='待查看')
 
 
 class ConnectorPage(QWidget):
@@ -241,7 +241,8 @@ class ConnectorPage(QWidget):
         records = self.service.store.records() if self.service and self.service.store else []
         for record in records[:100]:
             title = record.get('title', '正在接收對話' if record['state'] == 'receiving' else '對話')
-            item = QListWidgetItem(title + '\n' + STATE_NAMES.get(record['state'], record['state']))
+            state_text = STATE_NAMES.get(record['state'], '')
+            item = QListWidgetItem(title + ('\n' + state_text if state_text else ''))
             self.records_by_id[record['operation_id']] = record
             item.setData(Qt.ItemDataRole.UserRole, record['operation_id'])
             self.items.addItem(item)
