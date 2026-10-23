@@ -196,7 +196,9 @@ class ConnectorInterfaceTests(unittest.TestCase):
             self.assertTrue(response['ok'], response)
             return response['result']
         live = request('hello')
-        self.assertEqual(live['instances'], [dict(instance_id=self.service.instance_id, display_name=self.root.name)])
+        self.assertEqual(live['instances'][0]['instance_id'], self.service.instance_id)
+        self.assertEqual(live['instances'][0]['display_name'], self.root.name)
+        self.assertIn('save_destination_v1', live['instances'][0]['capabilities'])
         denied = self.off_thread(lambda: pipe_request(self.service.pipe_name, dict(
             request_id=uuid.uuid4().hex, token='wrong-token', command='hello')))
         self.assertFalse(denied['ok'])
@@ -226,7 +228,7 @@ class ConnectorInterfaceTests(unittest.TestCase):
         self.assertEqual(request('cancel', **fields)['state'], 'cancelled')
         self.assertEqual(request('begin', size=len(data), sha256=hashlib.sha256(data).hexdigest(), **fields)['state'], 'cancelled')
 
-    def test_rich_capture_readable_preview_and_saved_source(self):
+    def test_rich_capture_compact_confirmation_and_saved_source(self):
         value = sample()
         value['title'] = '旅遊資料整理 · 範例'
         value['messages'] = [
@@ -238,10 +240,11 @@ class ConnectorInterfaceTests(unittest.TestCase):
                 resources=[dict(kind='chart', label='預算分布', url=None),
                            dict(kind='attachment', label='行程.pdf', url=None)])]
         operation, sheet = self.transfer(value)
-        self.assertIn('<table', sheet.preview.toHtml())
-        self.assertIn('https://example.org/travel', sheet.preview.toHtml())
-        self.assertIn('圖表：預算分布', sheet.preview.toPlainText())
-        self.screenshot(sheet, 'pcs-rich-receive.png')
+        from PySide6.QtWidgets import QTextBrowser
+        self.assertEqual(sheet.findChildren(QTextBrowser), [])
+        self.assertEqual(sheet.source_name.text(), value['title'])
+        self.assertLess(sheet.height(), 380)
+        self.screenshot(sheet, 'pcs-legacy-save-location.png')
         sheet.import_button.click()
         self.wait_job(sheet)
         path = self.service.store.saved_path(operation)
@@ -281,15 +284,24 @@ class ConnectorInterfaceTests(unittest.TestCase):
         endpoint.unlink()
         other.deleteLater()
 
-    def test_actual_preview_save_review_lookup_and_navigation(self):
+    def test_compact_save_closes_without_review_or_opening_document(self):
+        self.w.resize(720, 640)
+        self.w.move(20, 20)
+        self.events()
         operation, dialog = self.transfer()
-        self.screenshot(dialog, 'pcs-receive.png')
-        self.assertEqual(dialog.selected(), (0,))
-        self.assertFalse(dialog.source_button.isVisible())
+        before_tabs = set(self.w.tabs_by_key)
+        center = self.w.mapToGlobal(self.w.rect().center())
+        self.assertLessEqual(abs(dialog.frameGeometry().center().x() - center.x()), 4,
+                             (dialog.frameGeometry(), self.w.frameGeometry(), dialog.screen().availableGeometry()))
+        self.assertLessEqual(abs(dialog.frameGeometry().center().y() - center.y()), 4,
+                             (dialog.frameGeometry(), self.w.frameGeometry(), dialog.screen().availableGeometry()))
+        self.assertFalse(hasattr(dialog, 'arrange_button'))
         dialog.import_button.click()
         self.wait_job(dialog)
-        self.assertEqual(self.service.store.get(operation)['state'], 'committed', dialog.status.text())
-        self.screenshot(dialog, 'pcs-saved.png')
+        self.assertEqual(self.service.store.get(operation)['state'], 'committed')
+        self.assertTrue(not isValid(dialog) or not dialog.isVisible())
+        self.assertEqual(set(self.w.tabs_by_key), before_tabs)
+        self.assertFalse(getattr(self.w, '_retained_sheets', []))
         self.service.open_saved(operation)
         target = self.service.store.saved_path(operation)
         self.assertTrue(target.exists())
@@ -307,15 +319,36 @@ class ConnectorInterfaceTests(unittest.TestCase):
         page.search.clear()
         self.assertEqual(page.selected(), operation)
         self.assertTrue(page.open_button.isVisible())
-        dialog.arrange_button.click()
-        self.events()
-        sheets = list(getattr(self.w, '_retained_sheets', []))
-        for sheet in sheets:
-            if isValid(sheet):
-                self.wait_job(sheet)
-                self.assertIsNotNone(sheet.source_data)
-                sheet.reject()
-        self.assertTrue(sheets)
+
+    def test_close_during_published_write_keeps_completion_owner_alive(self):
+        operation, dialog = self.transfer()
+        written, release = Event(), Event()
+        complete = self.service.store.complete
+
+        def hold_completion(*args, **kwargs):
+            written.set()
+            if not release.wait(5):
+                raise TimeoutError('test completion gate timed out')
+            return complete(*args, **kwargs)
+
+        with patch.object(self.service.store, 'complete', side_effect=hold_completion):
+            dialog.import_button.click()
+            try:
+                deadline = time.monotonic() + 4
+                while not written.is_set() and time.monotonic() < deadline:
+                    self.app.processEvents()
+                    time.sleep(.01)
+                self.assertTrue(written.is_set())
+                dialog.close()
+                self.events()
+                self.assertTrue(isValid(dialog))
+                self.assertIn(operation, self.service.writing)
+            finally:
+                release.set()
+            self.wait_job(dialog)
+        self.assertFalse(self.service.writing)
+        self.assertEqual(self.service.store.get(operation)['state'], 'committed')
+        self.assertTrue(self.service.store.saved_path(operation).is_file())
 
     def test_close_veto_resumes_connection_and_preview_cancel_has_no_output(self):
         operation, dialog = self.transfer()

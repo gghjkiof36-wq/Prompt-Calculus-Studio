@@ -63,16 +63,18 @@ test('long payload uses bounded frames and refuses over-limit payload before beg
   assert.equal(calls, 0);
 });
 
-test('finish preview is not a save receipt; lost finish is never retried', async () => {
+test('finish committing is not a save receipt; lost finish is never retried', async () => {
   const requests = [];
   const identity = {instance_id: 'instance-one', operation_id: '12345678-1234-1234-1234-123456789abc'};
   const request = async (command, fields) => {
     requests.push({command, fields});
-    return {state: command === 'finish' ? 'previewing' : 'receiving'};
+    return {state: command === 'finish' ? 'committing' : 'receiving'};
   };
-  const result = await transferCapture(request, selectCapture(sample, ['one']), identity);
-  assert.equal(result.state, 'previewing');
-  assert.equal(statusLabel(result.state), '請在 PCS 預覽並保存');
+  const result = await transferCapture(request, selectCapture(sample, ['one']), identity, undefined, 'a'.repeat(32));
+  assert.equal(requests[0].fields.destination_id,'a'.repeat(32));
+  assert.ok(requests.slice(1).every(item=>!item.fields.destination_id));
+  assert.equal(result.state, 'committing');
+  assert.equal(statusLabel(result.state), '正在保存…');
   assert.deepEqual(requests.map(item => item.command), ['begin', 'chunk', 'finish']);
   assert.ok(requests.every(item => item.fields.instance_id === identity.instance_id));
   let finishes = 0;
@@ -118,10 +120,10 @@ test('native response request IDs prevent cross-request completion', async () =>
     const first = client.request('hello'); const second = client.request('status', {operation_id: 'one'});
     assert.notEqual(fake.sent[0].request_id, fake.sent[1].request_id);
     fake.receive({request_id: 'unrelated', ok: true, result: {state: 'committed'}});
-    fake.receive({request_id: fake.sent[1].request_id, ok: true, result: {state: 'previewing'}});
+    fake.receive({request_id: fake.sent[1].request_id, ok: true, result: {state: 'committing'}});
     fake.receive({request_id: fake.sent[0].request_id, ok: true, result: {instances: []}});
     assert.deepEqual(await first, {instances: []});
-    assert.equal((await second).state, 'previewing');
+    assert.equal((await second).state, 'committing');
     assert.equal(fake.sent[0].command, 'hello');
     assert.equal(fake.sent[0].cmd, undefined);
   } finally { client.close(); }

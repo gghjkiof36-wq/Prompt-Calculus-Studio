@@ -55,7 +55,19 @@ function identityOf(message) {
 
 async function handle(message,sender) {
   if (message.action === 'capture') return await readPage(sender.tab.id);
-  if (message.action === 'hello') return await client.request('hello');
+  if (message.action === 'hello') {
+    const hello = await client.request('hello');
+    const {preferred_destination} = await chrome.storage.local.get('preferred_destination');
+    return {...hello, preferred_destination};
+  }
+  if (message.action === 'destinations') {
+    if (typeof message.instance_id !== 'string' || !message.instance_id ||
+        (message.folder_id !== undefined && !/^[a-f\d]{32}$/i.test(message.folder_id))) {
+      throw new BridgeError('invalid_request', '請重新選擇資料夾。');
+    }
+    return await client.request('destinations', {instance_id: message.instance_id,
+      ...(message.folder_id ? {folder_id: message.folder_id} : {})});
+  }
   if (message.action === 'recents') {
     await storageQueue;
     return (await chrome.storage.local.get('recent')).recent || [];
@@ -67,6 +79,9 @@ async function handle(message,sender) {
   }
   if (message.action === 'transfer') {
     const identity = identityOf(message);
+    if (!/^[a-f\d]{32}$/i.test(message.destination_id || '')) {
+      throw new BridgeError('invalid_request', '請先選擇資料夾。');
+    }
     const key = identity.instance_id + ':' + identity.operation_id;
     if (inFlight.has(key)) throw new BridgeError('busy', '這份對話正在傳送。');
     inFlight.add(key);
@@ -87,11 +102,18 @@ async function handle(message,sender) {
       const selected=selectCapture(fresh.capture,message.capture.messages.map(item=>item.id));
       await encodeCapture(selected);
       await record(identity, {state: 'receiving'}, selected.title);
-      const result = await transferCapture((command, fields) => client.request(command, fields), selected, identity);
+      const result = await transferCapture((command, fields) => client.request(command, fields), selected, identity,
+        undefined, message.destination_id);
       await record(identity, result, selected.title);
+      await chrome.storage.local.set({preferred_destination: {
+        instance_id: identity.instance_id, folder_id: message.destination_id,
+      }});
       return result;
     } catch (error) {
       // Unknown outcomes remain queryable. Never retry begin/chunk/finish here.
+      if (['destination_changed', 'destination_limit'].includes(error.code)) {
+        await record(identity, {state: 'failed', message: error.message});
+      }
       throw error;
     } finally { inFlight.delete(key); }
   }

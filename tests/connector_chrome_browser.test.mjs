@@ -85,7 +85,7 @@ test('actual MV3: original action menus, selection, transfer and late completion
       }
     });
     await t.test('single-message transfer uses source tab and committed remains distinct',async()=>{
-      await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();await page.getByText('請在 PCS 預覽並保存',{exact:true}).waitFor();
+      await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();await page.getByRole('button',{name:'儲存',exact:true}).click();await page.getByText('正在保存…',{exact:true}).waitFor();
       const calls=await worker.evaluate(()=>testNative.calls),body=Buffer.concat(calls.filter(c=>c.command==='chunk').map(c=>Buffer.from(c.data,'base64')));
       assert.deepEqual(JSON.parse(body.toString('utf8')).messages.map(m=>m.id),['assistant-one']);
       assert.equal(await page.getByRole('button',{name:'PCS：此則訊息',exact:true}).first().isDisabled(),true);
@@ -102,11 +102,11 @@ test('actual MV3: original action menus, selection, transfer and late completion
     });
     await t.test('selection-only checkboxes, multiple PCS and unknown result never resend implicitly',async()=>{
       await beginSelection();await page.getByRole('checkbox',{name:'選取第 1 則訊息',exact:true}).check();await header().click();
-      await worker.evaluate(()=>{testNative.instances.push({instance_id:'second-pcs',display_name:'PCS · 第二工作區'});testNative.state='unknown';});
+      await worker.evaluate(()=>{testNative.instances.push({instance_id:'second-pcs',display_name:'PCS · 第二工作區',capabilities:['save_destination_v1']});testNative.state='unknown';});
       await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();
-      const choice=page.getByRole('combobox',{name:'PCS 工作區'});await choice.waitFor();assert.equal(await choice.inputValue(),'');
+      const choice=page.getByRole('combobox',{name:'PCS 工作區'});await choice.waitFor();assert.equal(await choice.inputValue(),'fixture-pcs');
       await choice.focus();await page.keyboard.press('End');await page.keyboard.press('Enter');
-      await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();await page.getByText('尚未取得結果',{exact:true}).waitFor();
+      await page.getByRole('button',{name:'儲存',exact:true}).click();await page.getByText('尚未取得結果',{exact:true}).waitFor();
       const count=await worker.evaluate(()=>testNative.calls.filter(c=>c.command==='finish').length);
       await page.getByRole('button',{name:'重新選取',exact:true}).click();
       assert.equal(await worker.evaluate(()=>testNative.calls.filter(c=>c.command==='finish').length),count);
@@ -127,8 +127,8 @@ test('actual MV3: original action menus, selection, transfer and late completion
       if(await menu().isVisible())await page.keyboard.press('Escape');
       await page.getByRole('checkbox',{name:'選取第 1 則訊息',exact:true}).check();
       if(!(await menu().isVisible()))await header().click();
-      await worker.evaluate(()=>{testNative.holdFinish=true;testNative.state='previewing';});
-      await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();await page.getByText('傳送中…',{exact:true}).waitFor();
+      await worker.evaluate(()=>{testNative.holdFinish=true;testNative.state='committing';});
+      await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();await page.getByRole('button',{name:'儲存',exact:true}).click();await page.getByText('傳送中…',{exact:true}).waitFor();
       await page.waitForTimeout(150);await page.getByRole('button',{name:'取消',exact:true}).click();await page.getByText('已取消',{exact:true}).waitFor();
       await worker.evaluate(()=>{testNative.holdFinish=false;testNative.releaseFinish();});await page.waitForTimeout(150);
       assert.equal(await page.getByText('已取消',{exact:true}).isVisible(),true);

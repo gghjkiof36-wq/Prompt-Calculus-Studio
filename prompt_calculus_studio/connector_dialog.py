@@ -1,86 +1,142 @@
-"""External capture presented through the existing conversation import sheet."""
-from PySide6.QtCore import Qt, Slot
+"""Compact destination confirmation for older Chrome connector clients."""
+from PySide6.QtCore import Qt, Slot, QThreadPool
+from PySide6.QtWidgets import QFileDialog, QLineEdit
+from shiboken6 import isValid
 
-from .conversation_dialog import ConversationImportDialog
-from .conversation_import import ImportResult
-from .widgets import button
+from .conversation_archive import load_archive
+from .conversation_dialog import ImportJob
+from .conversation_import import Destination, ImportResult
+from .widgets import StudioDialog, ElidedLabel, label, button, row
 
 
-class ConnectorImportDialog(ConversationImportDialog):
+class ConnectorImportDialog(StudioDialog):
     def __init__(self, service, record):
+        super().__init__(service.workspace)
         self.service = service
+        self.workspace = service.workspace
         self.operation = record['operation_id']
-        self.capture_title = record['title']
-        super().__init__(service.workspace, service.settings['destination'])
-        self.setWindowTitle('從 Chrome 匯入對話')
-        self.arrange_button = button('開始整理', self.arrange, 'Primary')
-        self.footer.layout().insertWidget(self.footer.layout().count() - 1, self.arrange_button)
-        self.arrange_button.hide()
-        self.load_source(record['source'])
+        self.archive = None
+        self.destination = Destination.choose(service.settings['destination'])
+        self.job = None
+        self.job_kind = ''
+        self.close_when_done = False
+        self._owns_backdrop = True
+        self.setWindowModality(Qt.WindowModality.NonModal)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setWindowTitle('儲存到 PCS')
+        self.setMinimumWidth(400)
+        self.resize(560, 260)
 
-    def show_contents(self, loaded):
-        super().show_contents(loaded)
-        if loaded:
-            self.source_button.hide()
-            self.source_name.setText(self.capture_title)
-            self.source_name.setToolTip(self.capture_title)
-            self.search.hide()
-            self.split.widget(0).hide()
-            self.branches.hide()
-            self.count.hide()
+        self.source_name = ElidedLabel(record['title'])
+        self.source_name.setTextFormat(Qt.TextFormat.PlainText)
+        self.source_name.setToolTip(record['title'])
+        self.body.addWidget(self.source_name)
+        self.body.addWidget(label('儲存位置', 'Subtle'))
+        self.location = QLineEdit(str(self.destination.path))
+        self.location.setReadOnly(True)
+        self.location.setAccessibleName('儲存位置')
+        self.location.setToolTip(str(self.destination.path))
+        self.location.setCursorPosition(0)
+        self.location_button = button('選擇位置…', self.choose_destination)
+        self.body.addLayout(row(self.location, self.location_button))
+        self.status = label('正在讀取…', 'Subtle', True)
+        self.status.setTextFormat(Qt.TextFormat.PlainText)
+        self.body.addWidget(self.status)
+        self.cancel_button = button('取消', self.reject)
+        self.import_button = button('儲存', self.submit, 'Primary')
+        self.body.addLayout(row(None, self.cancel_button, self.import_button))
+        self.start_job(lambda cancel, progress: load_archive(record['source'], cancel, progress), 'read')
 
-    def update_selection(self, *_):
-        super().update_selection()
-        self.count.hide()
-        if not self.completed:
-            self.import_button.setText('匯入對話')
+    def choose_destination(self):
+        path = QFileDialog.getExistingDirectory(self, '選擇儲存位置', str(self.destination.path))
+        if not path:
+            return
+        try:
+            self.service.check_isolation(path)
+            self.destination = Destination.choose(path)
+        except (ValueError, OSError) as error:
+            self.show_status(str(error))
+            return
+        self.location.setText(str(self.destination.path))
+        self.location.setToolTip(str(self.destination.path))
+        self.location.setCursorPosition(0)
+
+    def start_job(self, function, kind):
+        if self.job is not None:
+            raise ValueError('正在處理這份對話。')
+        self.job = ImportJob(function)
+        self.job_kind = kind
+        self.job.signals.progress.connect(self.show_status)
+        self.job.signals.finished.connect(self.job_finished)
+        self.destroyed.connect(lambda _=None, flag=self.job.cancel: flag.set())
+        self.location_button.setEnabled(False)
+        self.import_button.setEnabled(False)
+        self.show_status('正在讀取…' if kind == 'read' else '儲存中…')
+        QThreadPool.globalInstance().start(self.job)
+
+    @Slot(str)
+    def show_status(self, text):
+        self.status.setText(text)
 
     @Slot(object, str)
     def job_finished(self, result, error):
         kind = self.job_kind
+        self.job = None
         if kind == 'write':
-            # This bound UI slot is connected before the worker starts.
             self.service.write_finished(self.operation)
-        super().job_finished(result, error)
-        if kind == 'read' and self.archive:
-            self.check_visible(True)
+        if kind == 'read' and not error and not self.close_when_done:
+            self.archive = result
+            self.status.clear()
+            self.location_button.setEnabled(True)
+            self.import_button.setEnabled(True)
             self.import_button.setFocus()
-        if isinstance(result, ImportResult) and (result.completed or result.skipped):
-            self.arrange_button.show()
-            self.arrange_button.setFocus()
-            self.import_button.setObjectName('Quiet')
-            self.import_button.style().unpolish(self.import_button)
-            self.import_button.style().polish(self.import_button)
-            self.import_button.setText('關閉')
-            self.source_button.hide()
-            self.split.hide()
-            self.location_row.hide()
-            self.show_status('已保存' if result.completed else '這份對話已保存')
-            self.setMinimumSize(480, 210)
-            self.resize(600, 210)
+        elif kind == 'write':
+            record = self.service.store.get(self.operation) or {}
+            if record.get('state') == 'committed':
+                if isValid(self.workspace) and not self.workspace.layout_store.stopped:
+                    target = self.service.store.saved_path(self.operation)
+                    if self.workspace.locations.root_for(target) is None:
+                        self.workspace.add_root(self.destination.path)
+                    self.workspace.refresh_tree()
+                self.accept()
+                return
+            if not error and isinstance(result, ImportResult):
+                error = result.failed[0][2] if result.failed else '儲存未完成。'
+            self.show_status(error or '無法確認儲存結果，請稍後從最近保存查看。')
+            self.cancel_button.setText('關閉')
+        elif error:
+            self.show_status(error)
+            self.cancel_button.setText('關閉')
+        if self.close_when_done:
+            super().reject()
 
     def submit(self):
-        if self.completed:
-            return self.accept()
-        if self.job or not self.archive:
+        if self.job is not None or self.archive is None:
             return
         try:
             self.service.commit(self)
         except (ValueError, OSError) as error:
             self.show_status(str(error))
 
-    def arrange(self):
-        try:
-            tab = self.service.open_saved(self.operation)
-            if tab is not None:
-                from .conversation_review_dialog import open_review
-                open_review(tab.widget.md_surface)
-                self.accept()
-        except (ValueError, OSError) as error:
-            self.show_status(str(error))
-
     def reject(self):
-        if not self.job or self.job_kind != 'write':
-            self.service.store.cancel(self.operation)
-            self.service.changed.emit()
+        if self.job is not None:
+            self.close_when_done = True
+            self.job.cancel.set()
+            if self.job_kind != 'write':
+                self.service.store.cancel(self.operation)
+                self.service.changed.emit()
+            self.hide()
+            return
+        self.service.store.cancel(self.operation)
+        self.service.changed.emit()
         super().reject()
+
+    def stop_for_workspace_close(self):
+        self.reject()
+
+    def closeEvent(self, event):
+        if self.job is not None:
+            event.ignore()
+            self.reject()
+            return
+        super().closeEvent(event)

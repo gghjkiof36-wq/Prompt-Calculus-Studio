@@ -45,7 +45,7 @@ test('background validates the current document and only forwards selected bodie
       onMessage: {addListener: f => { receive = f; }}, onDisconnect: {addListener() {}}, disconnect() {},
       postMessage: message => {
         nativeRequests.push(message);
-        const state = message.command === 'finish' ? 'previewing' : message.command === 'status' ? 'committed' : 'receiving';
+        const state = message.command === 'finish' ? 'committing' : message.command === 'status' ? 'committed' : 'receiving';
         queueMicrotask(() => receive({request_id: message.request_id, ok: true, result: {state, ...(state === 'committed' ? {path: 'D:/synthetic/output.md'} : {})}}));
       },
     })};
@@ -60,7 +60,7 @@ test('background validates the current document and only forwards selected bodie
     const sender = {id: runtime.id, url:capture.url,tab:{id:7},frameId:0};
     const call = message => new Promise(resolve => { assert.equal(handler(message, sender, resolve), true); });
     const identity = {operation_id: '12345678-1234-1234-1234-123456789abc', instance_id: 'pcs-fixture'};
-    const payload = {action: 'transfer', ...identity, context: {...current}, capture: selectCapture(capture, ['selected'])};
+    const payload = {action: 'transfer', ...identity, destination_id:'a'.repeat(32), context: {...current}, capture: selectCapture(capture, ['selected'])};
     // Chrome's API serialization may reorder dictionary keys between worlds.
     payload.capture.messages=payload.capture.messages.map(m=>({content:m.content,role:m.role,id:m.id}));
     current.fingerprint = 'switched-branch';
@@ -71,13 +71,21 @@ test('background validates the current document and only forwards selected bodie
     const tampered=structuredClone(payload);tampered.capture.messages[0].content='changed body';
     assert.equal((await call(tampered)).error.code,'page_changed');
     assert.equal(nativeRequests.length,0);
+    const missingDestination={...payload};delete missingDestination.destination_id;
+    assert.equal((await call(missingDestination)).error.code,'invalid_request');
+    assert.equal(nativeRequests.length,0);
+    await call({action:'destinations',instance_id:identity.instance_id,folder_id:'b'.repeat(32),path:'C:/ignored'});
+    assert.equal(nativeRequests.at(-1).folder_id,'b'.repeat(32));
+    assert.equal(nativeRequests.at(-1).path,undefined);
     const result = await call(payload);
-    assert.equal(result.result.state, 'previewing');
+    assert.equal(nativeRequests.find(item=>item.command==='begin').destination_id,'a'.repeat(32));
+    assert.ok(nativeRequests.filter(item=>item.command!=='begin').every(item=>!item.destination_id));
+    assert.equal(result.result.state, 'committing');
     const body = Buffer.concat(nativeRequests.filter(item => item.command === 'chunk').map(item => Buffer.from(item.data, 'base64'))).toString('utf8');
     assert.ok(body.includes('選取中文'));
     assert.ok(!body.includes('UNSELECTED_SECRET_FIXTURE'));
     assert.ok(!JSON.stringify(storage).includes('選取中文'));
-    assert.equal(storage.recent[0].state, 'previewing');
+    assert.equal(storage.recent[0].state, 'committing');
     await call({action: 'status', ...identity});
     assert.equal(storage.recent[0].state, 'committed');
     await call({action: 'open', ...identity, path: 'C:/arbitrary/untrusted.exe'});

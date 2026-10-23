@@ -18,18 +18,31 @@ export async function extensionFixture(body,{width=1100,height=900,waitForEntry=
   try{
     const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker',{timeout:10000});
     await worker.evaluate(()=>{
-      globalThis.testNative={calls:[],instances:[{instance_id:'fixture-pcs',display_name:'PCS · 測試工作區'}],state:'previewing'};
+      const root={id:'1'.repeat(32),name:'筆記',path:'D:/PCS/筆記',parent_id:null};
+      const folder={id:'2'.repeat(32),name:'旅行',path:'D:/PCS/筆記/旅行',parent_id:root.id};
+      const nested={id:'3'.repeat(32),name:'京都',path:'D:/PCS/筆記/旅行/京都',parent_id:folder.id};
+      const external={id:'4'.repeat(32),name:'專案',path:'E:/專案',parent_id:null};
+      globalThis.testNative={calls:[],instances:[{instance_id:'fixture-pcs',display_name:'PCS · 測試工作區',capabilities:['save_destination_v1']}],state:'committing',
+        roots:[root,external],folders:[root,folder,nested,external],default_id:root.id,errors:{}};
       chrome.runtime.connectNative=()=>{let receive;return {
         onMessage:{addListener:f=>{receive=f;}},onDisconnect:{addListener(){}},disconnect(){},postMessage(message){
           testNative.calls.push(message);let result;
+          let error=testNative.errors[message.command];
           if(message.command==='hello')result={instances:testNative.instances};
-          else if(message.command==='status')result={state:testNative.state};
-          else if(message.command==='finish')result={state:'previewing'};
+          else if(message.command==='destinations'){
+            const current=testNative.folders.find(item=>item.id===(message.folder_id||testNative.default_id));
+            if(current)result={roots:testNative.roots,current,folders:testNative.folders.filter(item=>item.parent_id===current.id),default_id:testNative.default_id};
+            else error={code:'destination_changed',message:'資料夾已變更，請重新選擇。'};
+          }
+          else if(message.command==='status')result={state:testNative.state,...(testNative.state==='committed'?{title:'京都四天旅行安排',path:'D:/PCS/筆記/旅行/京都.md'}:{})};
+          else if(message.command==='finish')result=testNative.finishResult||{state:testNative.finishState||'committing'};
           else if(message.command==='cancel')result={state:'cancelled'};
           else result={state:'receiving'};
-          const reply=()=>receive({request_id:message.request_id,ok:true,result});
+          const reply=()=>receive(error?{request_id:message.request_id,ok:false,error}:{request_id:message.request_id,ok:true,result});
           if(message.command==='hello'&&testNative.holdHello)testNative.releaseHello=reply;
+          else if(message.command==='begin'&&testNative.holdBegin)testNative.releaseBegin=reply;
           else if(message.command==='finish'&&testNative.holdFinish)testNative.releaseFinish=reply;
+          else if(message.command==='destinations'&&testNative.holdDestinations)testNative.releaseDestinations=reply;
           else queueMicrotask(reply);
         }};
       };

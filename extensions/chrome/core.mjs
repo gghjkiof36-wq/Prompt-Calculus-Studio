@@ -82,15 +82,16 @@ export function* chunks(bytes, chunkSize = CHUNK_BYTES) {
 }
 
 export function statusLabel(state) {
-  return ({receiving: '傳送中…', previewing: '請在 PCS 預覽並保存', committing: '正在保存…',
+  return ({receiving: '傳送中…', previewing: '正在保存…', committing: '正在保存…',
     committed: '已保存', cancelled: '已取消', failed: '保存失敗', unknown: '尚未取得結果'})[state] || '正在連線…';
 }
 
 // A response only acknowledges its own request. A finish response is not a save receipt.
-export async function transferCapture(request, capture, identity, onProgress = () => {}) {
+export async function transferCapture(request, capture, identity, onProgress = () => {}, destinationId) {
   const encoded = await encodeCapture(capture);
   const send = (command, fields = {}) => request(command, {...identity, ...fields});
-  const start = await send('begin', {sha256: encoded.sha256, size: encoded.size});
+  const start = await send('begin', {sha256: encoded.sha256, size: encoded.size,
+    ...(destinationId ? {destination_id: destinationId} : {})});
   if (start.state !== 'receiving') throw new Error('PCS 未能接收這份對話。');
   for (const part of chunks(encoded.bytes)) {
     await send('chunk', part);

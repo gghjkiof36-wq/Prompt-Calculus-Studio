@@ -6,13 +6,13 @@
 
 ## 操作入口與執行歸屬
 
-Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extensions/chrome/README.md)。目前 `0.2.3` 承接 `0.2.1` 的新 DOM 適配（來源 `b63b1ae3a1e02dfadac0c6c4983163b03a623b30`）與 `0.2.2` 的腳本載入修正，調整頁首入口及訊息選取。ChatGPT 原訊息的複製按鈕旁仍有 PCS 小入口；按下後以貼附該入口的選單儲存或下載這一則訊息。右上角、原生「更多／分享」操作組前的 PCS 入口提供「選取全部」及「選取訊息」，全部仍指目前 DOM 已載入範圍。
+Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extensions/chrome/README.md)。目前 `0.2.4` 承接新 DOM 適配、classic 腳本載入及 `0.2.3` 的右上入口／訊息選取，將儲存位置選擇移入原網頁選單。ChatGPT 原訊息的複製按鈕旁仍有 PCS 小入口；按下後以貼附該入口的選單儲存或下載這一則訊息。右上角、原生「更多／分享」操作組前的 PCS 入口提供「選取全部」及「選取訊息」，全部仍指目前 DOM 已載入範圍。
 
 選取模式中，每則訊息右側顯示勾選框，點擊訊息正文可切換整則的選取狀態；已選內容以淡底色標示。連結、按鈕與可編輯區保留原操作，拖曳或雙擊選字不改勾選。「完成選取」移除勾選框、樣式與整則點選處理，保留已選內容，接著可從右上選單「儲存到 PCS」或下載 Capture JSON／Markdown。介面沿用原對話，沒有聊天副本、Chrome 側欄或底部工具列。
 
 [`dom.mjs`](../../extensions/chrome/dom.mjs) 的 `conversationHeaderSlot()` 優先辨識可見的 app-shell 主頁首與右側原生操作組，再退回有明確分享／更多按鈕的既有頁首。它排除隱藏副本，並在頁首延遲出現或 SPA 替換時重新定位同一個 PCS 入口；未找到有效操作組時等待，不把入口掛到第一個 `main`。這項布局修正不變更網站權限或擷取來源。
 
-傳送狀態、查詢結果、取消及最近保存也在同一貼附選單。單則訊息失效後可重新讀取原訊息；若原節點已離開頁面，回到選取流程。尚未完成的操作保留原 `source_title`；換聊天時關閉舊訊息選單，之後從頁首查看原操作結果，避免把前一段對話的操作顯示成新頁的「此則訊息」。
+按「儲存到 PCS」後，同一貼附選單顯示儲存位置及子資料夾；只有多個 PCS 視窗時才先選工作區。按「儲存」才建立操作並傳送正文，正常進度由選單自動查回，完成後提供開啟文件與所在資料夾；不彈出 PCS 整篇預覽、完成視窗或「開始整理」。最近保存與下載仍由原選單進入。單則訊息失效後可重新讀取原訊息；若原節點已離開頁面，回到選取流程。尚未完成的操作保留原 `source_title`；換聊天時關閉舊訊息選單，之後從頁首查看原操作結果，避免把前一段對話的操作顯示成新頁的「此則訊息」。
 
 `0.2.2` 的 `manifest.json` 直接載入 [`content.js`](../../extensions/chrome/content.js) 作為 isolated content script。它由 [`entry.js`](../../extensions/chrome/entry.js)、[`inpage.mjs`](../../extensions/chrome/inpage.mjs)、[`core.mjs`](../../extensions/chrome/core.mjs) 及 [`dom.mjs`](../../extensions/chrome/dom.mjs) 在建置時打包；執行期間沒有動態模組匯入、page bridge 或 web-accessible resources。Chrome 工具列先傳一般 toggle 訊息，沒有接收端時以 `chrome.scripting.executeScript({files:['content.js']})` 補載，再傳同一訊息。入口保留單一 controller，重複補載不重複建立 UI 或監聽器。權限維持 `activeTab/scripting/storage/nativeMessaging` 及兩個 ChatGPT 網域，沒有 `sidePanel`／`side_panel`。
 
@@ -27,9 +27,13 @@ PCS 的「探索」採三張等尺寸入口卡片；「ChatGPT 對話」開啟 [
 1. **連接 PCS**：執行配套 native host 的帳戶安裝程式，成功後啟用本 workspace 的接收服務。
 2. **載入 Chrome 擴充**：提供「開啟擴充頁」及「開啟擴充資料夾」，由使用者在 Chrome 開發人員模式載入未封裝項目。
 
-[`ConnectorService`](../../prompt_calculus_studio/connector_service.py) 屬於原 PCS workspace；[`ConnectorImportDialog`](../../prompt_calculus_studio/connector_dialog.py) 沿用既有匯入預覽與 writer。接收資料不等於接受保存：`finish` 到 `previewing` 後，仍由 PCS 預覽的匯入動作接受目的地。完成回執由工作執行端保存，視窗的回呼只刷新結果。
+[`ConnectorService`](../../prompt_calculus_studio/connector_service.py) 屬於原 PCS workspace。新版在使用者於網頁選位置並按儲存時固定來源與目的地；接收完成後以既有 writer 背景保存，完成回執由工作執行端保存。這是保存接受時點由桌面預覽按鈕移到網頁儲存按鈕，不是收到任意資料便接受。`hello` 宣告 `save_destination_v1`，新版選單不把舊 PCS 當成已具備此能力。
 
-同一 service 同時只提交一份對話。workspace 關閉時，已在寫入的操作先收尾；關閉被既有保護拒絕時恢復連接就緒狀態。此接點獨立於 ComfyUI 連線與工作佇列。
+舊客戶端未帶目的地的請求仍由 [`ConnectorImportDialog`](../../prompt_calculus_studio/connector_dialog.py) 提供小型位置確認。它直接使用共用 `StudioDialog`、`ImportJob` 與同一 writer，不再繼承完整對話匯入頁；正文不渲染，讀完不改視窗大小，因此不再出現讀取後擴大卻未重新置中的偏移。成功即關閉且只刷新文件樹，不自動開啟文件或摘要整理。一般檔案匯入及使用者主動開啟的對話整理功能保持原入口。
+
+同一 service 的背景保存依序執行，已接受的排隊與執行中操作都納入關閉保護。workspace 關閉時先收尾；關閉被既有保護拒絕時恢復連接就緒狀態。此接點獨立於 ComfyUI 連線與工作佇列。
+
+compact 相容視窗在讀取或寫入期間收到關閉要求時先隱藏並要求取消，保留完成回呼的擁有者直到工作結束；不能因 `WA_DeleteOnClose` 提前銷毀視窗，讓已落盤的操作永遠留在 `service.writing`。關閉動作不覆蓋持久保存結果。
 
 ## 擷取範圍與富內容
 
@@ -111,15 +115,17 @@ PCS 的「探索」採三張等尺寸入口卡片；「ChatGPT 對話」開啟 [
 
 [`tools/connector_host.py`](../../tools/connector_host.py) 是不依賴 Qt 的獨立標準庫主機。Chrome 與主機使用小端 4-byte 長度及 UTF-8 JSON frame；主機檢查固定 origin，再將請求轉成 Windows named pipe 的單次換行 JSON。PCS 的 `QLocalServer` 採用目前使用者存取權，另驗證每次啟動產生的 token。
 
-PCS instance 依資料目錄識別，發現記錄預設位於 `%LOCALAPPDATA%/PromptCalculusStudio/Connector/instances`。`hello` 回傳可選 instance 與 readiness；workspace 尚未載入完成或正在關閉時不接受新操作。其餘命令為 `begin/chunk/finish/status/cancel/open/reveal`；`open/reveal` 只根據既有 operation 回執開啟文件，不接受任意外部檔案路徑。
+PCS instance 依資料目錄識別，發現記錄預設位於 `%LOCALAPPDATA%/PromptCalculusStudio/Connector/instances`。`hello` 回傳可選 instance、能力與 readiness；workspace 尚未載入完成或正在關閉時不接受新操作。其餘命令為 `destinations/begin/chunk/finish/status/cancel/open/reveal`；`open/reveal` 只根據既有 operation 回執開啟文件，不接受任意外部檔案路徑。
+
+[`connector_destinations.py`](../../prompt_calculus_studio/connector_destinations.py) 只列出 workspace 已接入根、既有保存位置及其下層目錄。`destinations` 接受服務端先前發出的 session opaque `folder_id`；回傳 roots、current、folders 及 default_id，每列有 id／name／path，目前目錄另有 parent_id。清單不讀檔案正文，排除連結與重解析點，限制枚舉項目與回覆大小。目錄 ID 綁路徑及身分；目錄被替換、脫離已接入範圍或與暫存重疊時須重新選擇。重新啟動後舊 session ID 失效，選單回到可用的預設位置。
 
 ## Spool、接受與恢復
 
 [`TransferStore`](../../prompt_calculus_studio/connector_store.py) 將輸入暫存於發現目錄同層的 `transfers/<instance>`。service 在啟用、使用及改目的地時核對全部已接入根與保存目的地，避免暫存混入工作區文件樹。測試可用 `PCS_CONNECTOR_DISCOVERY` 指向隔離位置。
 
-1. `begin` 持久建立 operation、傳輸大小與 SHA-256；`chunk` 按序累積 `.part`。同 operation 不得換 payload。
+1. `begin` 持久建立 operation、傳輸大小與 SHA-256；新版同時核對 `destination_id` 並固定目的地、所屬根及其身分。`chunk` 按序累積 `.part`。同 operation 不得換 payload 或目的地。
 2. `finish` 完整驗證後寫入正常化 `.source.json`，記下 source ID、語意 hash、預期 writer content hash，再進 `previewing`。來源已落盤後清除 `.part`。
-3. 使用者接受時綁定目的地與其目錄身分，進 `committing`。writer 的 keyword-only `operation_id` 貫穿開始與完成收據。
+3. 帶有網頁已選目的地的操作在 `finish` 完成來源驗證後，重新核對位置並排程背景保存；沒有目的地的舊操作才等 compact 視窗接受。接受後進 `committing`，writer 的 keyword-only `operation_id` 貫穿開始與完成收據。
 4. 新建目錄的 `on_started(operation, folder)` 在任何 payload 前記錄輸出身分；重用既有同內容文件的 `on_reused(operation, folder)` 在 pinned receipt 範圍內記錄舊回執關聯，才回報 skipped。
 5. `complete/recover` 核對原綁定目的地、輸出目錄身分、操作、source ID／hash、必要檔案與實際原始 JSON。新建驗新 operation；重用驗已綁定舊 operation，可兼容舊收據沒有 operation 的情況。Markdown 可由使用者編輯，不以 Markdown 內容 hash 阻止查回或覆寫其修改。
 
@@ -166,8 +172,16 @@ PCS instance 依資料目錄識別，發現記錄預設位於 `%LOCALAPPDATA%/Pr
 
 `0.2.3` 新增 [`connector_chrome_selection.test.mjs`](../../tests/connector_chrome_selection.test.mjs)，涵蓋頁首延遲出現、隱藏副本與 SPA 替換、右側勾選、正文／程式碼點選、拖曳及雙擊選字、原生操作、離開選取後清理及寬窄布局。首輪完整相關組 `chrome-right-selection-final.txt` 為 43 通過、3 失敗：舊測例在選單仍開啟時點被遮住的右側勾選框而超時，連帶影響下一子測例及父測。保留原紀錄，將操作改為先 Escape 關選單後，對 browser、selection、bundle 三檔完成 `chrome-right-selection-confirm.txt`：22 通過、0 失敗、0 略過，13.962 秒。最後外觀使用淡底色與圓角，已看過 1200／600 寬度的背景合成頁截圖；生成檔一致性及 Impeccable 靜態檢查通過。其他前輪已通且不受最後外觀／測例操作調整影響的項目沿用原紀錄，沒有把兩輪數目相加或稱為真實網站全流程通過。
 
+`0.2.4` 新增 [`connector_chrome_save.test.mjs`](../../tests/connector_chrome_save.test.mjs)，在同一隔離 MV3 環境測試單一／多個 PCS、根與子資料夾切換、最後位置及失效後回預設、返回不送正文、按儲存才綁定位置、舊版能力拒絕、儲存自動查回、錯誤恢復及 SPA 後晚到回覆。1100／390 寬度背景截圖已檢視；長清單獨立捲動，儲存動作保持可見。第一輪原生選單測試曾以不受信任的程式事件切換而失敗，改用真實鍵盤操作後複驗，產品沒有放寬事件信任限制。
+
+最後檢查另發現位置下拉在非同步讀取時重建會失去焦點，導致鍵盤 Enter 意外觸發返回；已保留讀取期間的選值及焦點，並補延遲回覆測例。修正後 `chrome-direct-save-keyboard.txt` 的 save、browser、bundle 三檔為 25 通過、0 失敗、0 略過；本輪前次有效 core 9、background 2、selection 7 項沿用未受影響結果，分開記錄。完整命令、環境及來源 hash 見本機 `chrome-direct-save-receipt.json`，先前原始失敗紀錄保留。
+
+同版 [`test_connector_destinations.py`](../../tests/test_connector_destinations.py) 檢查目錄識別、範圍、重解析點及清單容量；[`test_connector_direct_save.py`](../../tests/test_connector_direct_save.py) 以隔離離屏 PCS 驗證真實背景 writer、已選子資料夾、排隊／取消、關閉保護、舊新入口互斥、目錄失效、持久回執恢復與不開啟視窗。提供 `PCS_CONNECTOR_HOST` 時另以編譯 EXE 的 stdio frame 經實際 Qt pipe 跑 `destinations → begin/chunk/finish → status`，核對產出文件；未提供時明確略過該測例。這與 MV3 測試的合成 Native port 是分開的兩段證據。
+
+[`test_connector_runtime.py`](../../tests/test_connector_runtime.py) 同步檢查 compact 相容視窗不渲染正文、不在載入後變大、不自動開啟文件或整理，以及發布後立即關閉仍能處理完成回執。相關 host、recovery、capture 與來源包 Qt 分離檢查亦需隨此協定增量驗證。各次原始紀錄保存在本機 QA 的 `direct-save-*`、`direct-save-r6/` 及 `screenshots-r6/`，不得把合成／離屏測試當成真實帳號完整驗收。
+
 真實 Chrome 的只讀觀測確認，新頁面可能完全沒有 `data-message-author-role`，因此只靠舊 selector 無法讀取；本版已增加上述單元定位。但使用者先前的泛化讀取錯誤不只有這一種可能原因，不能將 selector 修正視為所有讀取失敗已解。另觀測到部分網站回答即使停用擴充，仍會轉成 `data-dil-render-failed`；這項對照將網站回覆載入失敗與 PCS 擷取錯誤分開，沒有據此宣稱站方失敗的根因。
 
 後續真實 Chrome 的 `0.2.1` 啟用測試中，原網頁正常、沒有上述站方失敗標記，但 PCS 入口未出現；console 記錄 `Failed to fetch dynamically imported module`，目標是擴充的 `inpage.mjs`。`0.2.2` 因而改為直接載入 classic bundle，移除這條執行期 module fetch 路徑。使用者重新載入後回報可用；同一真實 Chrome 分頁已觀測到原訊息列的 PCS 入口，單則選單可讀取訊息並啟用保存及下載動作。這只確認該頁的載入與擷取入口恢復，沒有據此認定桌面保存完成。
 
-本輪真實 ChatGPT 原頁選取 → Native Messaging → PCS 預覽／接受保存 → 查回文件的全鏈路仍待完成，不能以已更新擴充來源或上述背景測試代替通過。既有 registry 寫入測例採 mock；原生桌面視窗、IME、DPI、真實媒體與跨帳戶部署仍待相應驗證。
+使用者後續提供的 `0.2.3` 真實畫面已顯示從 Chrome 接收、PCS 完成保存及產出的文件，並指出整篇預覽與完成後整理動作多餘；這是此次 `0.2.4` 流程調整的直接依據。該畫面不等於新版原網頁選位置流程或保存 bytes 已完成驗證。新版真實 ChatGPT 原頁選位置 → Native Messaging → PCS 背景保存 → 查回文件仍須與本輪隔離測試分開記錄。原生桌面視窗、IME、DPI、真實媒體與跨帳戶部署仍待相應驗證。

@@ -6,7 +6,7 @@ Chrome 116 以上的 Manifest V3 頁內擴充，直接載入本目錄即可使�
 
 1. 在 Chrome 的「擴充功能」開啟開發人員模式，選「載入未封裝項目」，選擇這個 `chrome` 目錄。
 2. 開啟 ChatGPT 對話，在右上角「更多／分享」左側的「PCS」選擇「選取全部」或「選取訊息」。選取模式下，點訊息內容或右側勾選框即可選取；再點一次取消。選好後從右上 PCS 選單按「儲存到 PCS」或下載。
-3. 只處理一則訊息時，也可點該則原生複製／分享列旁的「PCS」，從貼附小選單儲存或下載。保存後可開啟文件、顯示資料夾，或在「最近保存」查找。
+3. 只處理一則訊息時，也可點該則原生複製／分享列旁的「PCS」。選「儲存到 PCS」後，在同一選單選擇位置並按「儲存」。完成後可開啟文件、顯示資料夾，或在「最近保存」查找。
 
 選單的「下載 JSON」及「下載 Markdown」可直接取得檔案；JSON 使用 PCS Capture v1，能交給同版 PCS 的檔案匯入功能。傳送到桌面需先安裝交付包的 PCS 連接器並開啟支援此功能的 PCS。
 
@@ -23,9 +23,9 @@ Chrome 116 以上的 Manifest V3 頁內擴充，直接載入本目錄即可使�
 
 固定擴充 ID：`migmpicacfjoipmfcgdjocgdbplgldan`。Native host：`com.promptcalculus.studio`。`manifest.json` 的 `key` 是公開 SPKI 資料，讓未封裝擴充 ID 固定；不是認證金鑰，也不能單獨證明套件來源。
 
-請求使用 `command` 和唯一 `request_id`；桌面操作帶 `instance_id` 與 `operation_id`。先 `hello` 取得 PCS 視窗，單一視窗直接使用，多視窗由使用者選擇。傳輸為 `begin` → 順序 `chunk` → `finish`，16 MiB UTF-8 上限、每塊 192 KiB 原始 bytes、整體 SHA-256。
+請求使用 `command` 和唯一 `request_id`；保存操作帶 `instance_id` 與 `operation_id`。先 `hello` 取得 PCS 視窗及 `save_destination_v1` 能力，單一視窗直接使用，多視窗由使用者選擇。`destinations` 取得已接入位置及其子資料夾；目錄以服務端發出的 opaque ID 識別。按「儲存」後才傳送正文，`begin` 同時帶選定的 `destination_id`。傳輸為 `begin` → 順序 `chunk` → `finish`，16 MiB UTF-8 上限、每塊 192 KiB 原始 bytes、整體 SHA-256。
 
-`finish` 回覆 `previewing` 只表示桌面準備預覽。PCS 選單查 `status`，只有 `committed` 顯示已保存。失聯不重送原操作；可查詢結果，unknown 時能由使用者重新選取以建立新操作。`cancel`、`open`、`reveal` 均由桌面依自身操作回執處理，擴充不能要求開啟任意路徑。
+`begin` 固定本次目錄身分，`finish` 驗證來源後排程既有 PCS writer，無須切到桌面再確認。選單自動查詢同一操作的 `status`，只有 `committed` 顯示已儲存；完成不自動開文件或整理畫面。失聯不重送原操作，可查詢既有結果。`cancel`、`open`、`reveal` 均由桌面依自身操作回執處理，擴充不能要求開啟任意路徑。舊版客戶端未帶目的地時，PCS 保留小型位置確認視窗，沒有整篇對話預覽或完成後整理入口。
 
 ## 參考來源與授權
 

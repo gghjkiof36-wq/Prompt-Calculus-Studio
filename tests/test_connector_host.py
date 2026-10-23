@@ -102,6 +102,38 @@ class HostTests(unittest.TestCase):
         self.assertEqual(response["error"]["code"], "timeout")
         self.assertEqual(exchange.call_count, 1)
 
+    def test_destination_capability_comes_from_live_service_and_is_allowlisted(self):
+        self.config(capabilities=['save_destination_v1'])
+        request = {'request_id': 'hello1', 'command': 'hello'}
+        legacy = host.ConnectorHost(self.directory, self.exchange).handle(request)
+        self.assertNotIn('capabilities', legacy['result']['instances'][0])
+        def exchange(pipe, value, timeout):
+            result = self.exchange(pipe, value, timeout)
+            result['result']['capabilities'] = ['save_destination_v1', 'untrusted-debug-capability']
+            return result
+        result = host.ConnectorHost(self.directory, exchange).handle(request)
+        self.assertEqual(result['result']['instances'][0]['capabilities'], ['save_destination_v1'])
+
+    def test_destinations_and_begin_only_allow_opaque_ids(self):
+        self.config()
+        query = dict(request_id='folders', command='destinations', instance_id='one')
+        identity = 'a' * 32
+        self.assertEqual(host.validate_request(query), query)
+        host.validate_request(dict(query, folder_id=identity))
+        begin = dict(request_id='begin', command='begin', operation_id='op',
+                     instance_id='one', size=1, sha256='b' * 64, destination_id=identity)
+        host.validate_request(begin)
+        for value in (dict(query, folder_id='C:/private'), dict(query, path='C:/private'),
+                      dict(query, folder_id=None), dict(query, operation_id='op'),
+                      dict(begin, destination_id='../../escape'), dict(begin, destination_id=None),
+                      {k: v for k, v in query.items() if k != 'instance_id'}):
+            with self.subTest(value=value), self.assertRaises(host.ConnectorError):
+                host.validate_request(value)
+        exchange = mock.Mock(side_effect=self.exchange)
+        self.assertTrue(host.ConnectorHost(self.directory, exchange).handle(dict(query, folder_id=identity))['ok'])
+        self.assertEqual(exchange.call_args.args[1]['folder_id'], identity)
+        self.assertNotIn('operation_id', exchange.call_args.args[1])
+
     def test_single_auto_route_and_explicit_multi_instance_route(self):
         config = self.config()
         exchange = mock.Mock(side_effect=self.exchange)

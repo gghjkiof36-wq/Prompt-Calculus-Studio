@@ -37,9 +37,11 @@ class PackagingTests(unittest.TestCase):
         packaged={path.relative_to(ROOT).as_posix() for path in source_paths(ROOT)}
         required={'tools/connector_host.py','tools/install_chrome_connector.py','tools/build_connector.py',
                   'prompt_calculus_studio/connector_capture.py','prompt_calculus_studio/connector_store.py',
+                  'prompt_calculus_studio/connector_destinations.py',
                   'prompt_calculus_studio/connector_service.py','prompt_calculus_studio/connector_dialog.py',
                   'prompt_calculus_studio/connector_page.py','docs/development/chrome-connector.md',
-                  'tests/test_connector_capture.py','tests/test_connector_recovery.py','tests/test_connector_host.py'}
+                  'tests/test_connector_capture.py','tests/test_connector_recovery.py','tests/test_connector_host.py',
+                  'tests/test_connector_destinations.py','tests/test_connector_direct_save.py'}
         extension=ROOT/'extensions'/'chrome'
         self.assertTrue((extension/'manifest.json').is_file())
         required.update(path.relative_to(ROOT).as_posix() for path in extension.rglob('*') if path.is_file())
@@ -53,6 +55,7 @@ sys.meta_path.insert(0,NoQt())
 for name in sys.argv[1:]:importlib.import_module(name)
 """
         modules=('prompt_calculus_studio.connector_capture','prompt_calculus_studio.connector_store',
+                 'prompt_calculus_studio.connector_destinations',
                  'tools.connector_host','tools.install_chrome_connector','tools.build_connector')
         run=subprocess.run([sys.executable,'-c',code,*modules],cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=30)
         self.assertEqual(run.returncode,0,run.stdout.decode('utf-8',errors='replace'))

@@ -11,6 +11,7 @@ import uuid
 
 from .conversation_archive import canonical, decode_json
 from .conversation_import import Destination, RECEIPT
+from .connector_destinations import DestinationError, FolderChoice
 from .local_documents import paths
 from .local_documents.directory_pin import pinned_parent
 from .retained_files import read_local
@@ -110,12 +111,15 @@ class TransferStore:
                 total += path.stat().st_size
         return total
 
-    def begin(self, operation, size, digest):
+    def begin(self, operation, size, digest, *, destination_id=None, destination=None, destination_root=None):
         key = operation_key(operation)
         if type(size) is not int or not 0 < size <= MAX_CAPTURE:
             raise ValueError('對話太大，請減少選取的訊息。')
         if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest):
             raise ValueError('傳送內容無效。')
+        if destination_id is not None and (not isinstance(destination_id, str)
+                                           or not re.fullmatch('[0-9a-f]{32}', destination_id)):
+            raise DestinationError()
         with self.lock:
             old = self.get(key)
             if old:
@@ -124,7 +128,23 @@ class TransferStore:
                     return old
                 if old['size'] != size or old['sha256'] != digest:
                     raise ValueError('傳送內容已改變，請重新選取。')
+                if old.get('destination_id') != destination_id:
+                    raise DestinationError('這次傳送的保存位置不能更換，請重新儲存。')
+                if destination_id is not None and old['state'] in ('receiving', 'previewing'):
+                    bound = self.bound_choice(old)
+                    if destination is not None and destination != bound.destination:
+                        raise DestinationError()
                 return old
+            if destination_id is not None:
+                if destination is None:
+                    raise DestinationError()
+                destination_root = destination_root or destination
+                destination.verify()
+                destination_root.verify()
+                if not destination.path.is_relative_to(destination_root.path):
+                    raise DestinationError()
+            elif destination is not None or destination_root is not None:
+                raise DestinationError()
             records = self.records()
             for record in records:
                 self._cleanup(record)
@@ -135,8 +155,35 @@ class TransferStore:
                 raise ValueError('連接暫存空間已滿，請先完成目前的傳送。')
             record = dict(version=1, operation_id=key, size=size, sha256=digest,
                           state='receiving', received=0, next_index=0)
+            if destination_id is not None:
+                record.update(destination_id=destination_id, destination=str(destination.path),
+                              destination_identity=list(destination.identity),
+                              destination_root=str(destination_root.path),
+                              destination_root_identity=list(destination_root.identity))
             # Create the operation before accepting bytes; no workspace writes.
             return self.put(record)
+
+    def bound_choice(self, record):
+        try:
+            destination = Destination(Path(record['destination']), tuple(record['destination_identity']))
+            root = Destination(Path(record.get('destination_root', record['destination'])),
+                               tuple(record.get('destination_root_identity', record['destination_identity'])))
+            destination.verify()
+            root.verify()
+            if not destination.path.is_relative_to(root.path):
+                raise ValueError('outside bound root')
+            return FolderChoice(destination, root)
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            raise DestinationError() from error
+
+    def fail_pending(self, operation, error):
+        with self.lock:
+            record = self.get(operation)
+            if record and record['state'] in ('receiving', 'previewing'):
+                record.update(state='failed', message=str(error),
+                              error_code=getattr(error, 'code', 'request_failed'))
+                self.put(record)
+            return record
 
     def chunk(self, operation, index, encoded):
         if type(index) is not int or index < 0 or not isinstance(encoded, str) or len(encoded) > 4 * MAX_CHUNK // 3 + 8:
@@ -205,6 +252,8 @@ class TransferStore:
             record = self.get(operation)
             if not record or record['state'] != 'previewing':
                 raise ValueError('這份預覽已結束。')
+            if record.get('destination_id') and self.bound_choice(record).destination != destination:
+                raise DestinationError('這次傳送的保存位置不能更換，請重新儲存。')
             raw = decode_json(read_local(self.path(operation, '.source.json')))
             if hashlib.sha256(canonical(raw)).hexdigest() != record['original_hash']:
                 raise ValueError('預覽來源已改變，請重新傳送。')
@@ -217,7 +266,7 @@ class TransferStore:
             record = self.get(operation)
             if not record or record['state'] != 'committing' or record.get('owned_path'):
                 raise ValueError('保存操作已失效。')
-            Destination(Path(record['destination']), tuple(record['destination_identity'])).verify()
+            self.bound_choice(record)
             folder = paths.root_path(folder)
             if folder.parent != Path(record['destination']):
                 raise ValueError('保存位置不一致。')
@@ -251,7 +300,7 @@ class TransferStore:
             record = self.get(operation)
             if not record or record['state'] != 'committing' or record.get('owned_path'):
                 raise ValueError('保存操作已失效。')
-            Destination(Path(record['destination']), tuple(record['destination_identity'])).verify()
+            self.bound_choice(record)
             folder = paths.root_path(folder)
             if folder.parent != Path(record['destination']):
                 raise ValueError('保存位置不一致。')
@@ -267,7 +316,7 @@ class TransferStore:
     def _completion(self, record):
         folder = Path(record['owned_path'])
         with pinned_parent(folder / RECEIPT):
-            Destination(Path(record['destination']), tuple(record['destination_identity'])).verify()
+            self.bound_choice(record)
             folder = paths.root_path(folder)
             info = folder.stat()
             if [info.st_dev, info.st_ino] != record['owned_identity'] or folder.parent != Path(record['destination']):
@@ -278,7 +327,7 @@ class TransferStore:
                 raise ValueError('保存回執不屬於這次操作。')
             return folder / '對話.md', receipt.get('operation')
 
-    def complete(self, operation, result=None, error=''):
+    def complete(self, operation, result=None, error='', *, error_code=''):
         with self.lock:
             record = self.get(operation)
             completed = (result.completed + result.skipped) if result else []
@@ -290,9 +339,12 @@ class TransferStore:
                 record.update(state='committed', path=str(target), title=result.titles.get(str(target), record.get('title', '對話')),
                               receipt_operation=receipt_operation)
                 record.pop('message', None)
+                record.pop('error_code', None)
             else:
                 detail = error or ('；'.join(str(row[2]) for row in result.failed) if result else '')
                 record.update(state='cancelled' if result and result.cancelled else 'failed', message=detail or '未完成保存。')
+                if error_code:
+                    record['error_code'] = error_code
             self.put(record)
             self._cleanup(record)
             return record
@@ -333,7 +385,7 @@ class TransferStore:
             record = self.get(operation)
             if not record or record['state'] != 'committed':
                 raise ValueError('這份對話尚未保存完成。')
-            Destination(Path(record['destination']), tuple(record['destination_identity'])).verify()
+            self.bound_choice(record)
             folder = paths.root_path(record['owned_path'])
             info = folder.stat()
             if [info.st_dev, info.st_ino] != record['owned_identity'] or folder.parent != Path(record['destination']):
@@ -347,4 +399,4 @@ class TransferStore:
 def public_record(record):
     if record is None:
         return dict(state='unknown')
-    return {key: record[key] for key in ('operation_id', 'state', 'title', 'path', 'message', 'received', 'next_index') if key in record}
+    return {key: record[key] for key in ('operation_id', 'state', 'title', 'path', 'message', 'error_code', 'received', 'next_index') if key in record}

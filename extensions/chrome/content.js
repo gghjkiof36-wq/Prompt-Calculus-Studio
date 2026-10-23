@@ -57,7 +57,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
   function statusLabel(state) {
     return {
       receiving: "傳送中…",
-      previewing: "請在 PCS 預覽並保存",
+      previewing: "正在保存…",
       committing: "正在保存…",
       committed: "已保存",
       cancelled: "已取消",
@@ -182,7 +182,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
 
   // extensions/chrome/inpage.mjs
   var controller;
-  var CSS = `:host{all:initial;font:14px/1.45 system-ui,'Segoe UI','Microsoft JhengHei',sans-serif;--bg:#2f2f2f;--text:#ececec;--muted:#aaa;--line:#ffffff24;--hover:#ffffff12;color:var(--text);color-scheme:dark}:host([data-theme=light]){--bg:#fff;--text:#292929;--muted:#666;--line:#0002;--hover:#0000000a;color-scheme:light}*{box-sizing:border-box}[hidden]{display:none!important}button,select{font:inherit;color:inherit;cursor:pointer}button{background:transparent;border:0;border-radius:6px;min-height:32px;padding:5px 8px;text-align:left}button:hover{background:var(--hover)}button:disabled{opacity:.4;cursor:default}button:focus-visible,select:focus-visible{outline:2px solid var(--muted);outline-offset:2px}.entry{color:var(--muted);font-size:13px;padding:4px 7px}.entry[aria-expanded=true]{background:var(--hover);color:var(--text)}.menu{width:248px;max-width:calc(100vw - 20px);padding:6px;background:var(--bg);border:1px solid var(--line);border-radius:12px;box-shadow:0 4px 16px #0003;max-height:calc(100vh - 24px);overflow:auto}.menu>button{display:block;width:100%;padding:8px 10px}.title{font-size:12px;color:var(--muted);padding:5px 10px}.section{height:1px;background:var(--line);margin:5px 4px}.tools{display:flex;justify-content:space-between;padding:0 3px}.tools button{font-size:12px;color:var(--muted)}.status{padding:8px 10px;font-size:13px}.receipt{padding:5px 7px}.receipt span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.receipt button{font-size:12px;color:var(--muted)}select{width:calc(100% - 20px);margin:4px 10px 8px;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}.check{display:flex;align-items:center;justify-content:center;width:32px;height:32px;cursor:pointer}.check input{appearance:none;width:20px;height:20px;margin:0;border:1px solid var(--muted);border-radius:4px;background:transparent;cursor:pointer;position:relative}.check input:checked{background:var(--text);border-color:var(--text)}.check input:checked:after{content:'';position:absolute;left:6px;top:2px;width:5px;height:10px;border:solid var(--bg);border-width:0 2px 2px 0;transform:rotate(45deg)}.check input:focus-visible{outline:2px solid var(--text);outline-offset:3px}.check input:disabled{opacity:.45;cursor:default}`;
+  var CSS = `:host{all:initial;font:14px/1.45 system-ui,'Segoe UI','Microsoft JhengHei',sans-serif;--bg:#2f2f2f;--text:#ececec;--muted:#aaa;--line:#ffffff24;--hover:#ffffff12;color:var(--text);color-scheme:dark}:host([data-theme=light]){--bg:#fff;--text:#292929;--muted:#666;--line:#0002;--hover:#0000000a;color-scheme:light}*{box-sizing:border-box}[hidden]{display:none!important}button,select{font:inherit;color:inherit;cursor:pointer}button{background:transparent;border:0;border-radius:6px;min-height:32px;padding:5px 8px;text-align:left}button:hover{background:var(--hover)}button:disabled{opacity:.4;cursor:default}button:focus-visible,select:focus-visible{outline:2px solid var(--muted);outline-offset:2px}.entry{color:var(--muted);font-size:13px;padding:4px 7px}.entry[aria-expanded=true]{background:var(--hover);color:var(--text)}.menu{width:248px;max-width:calc(100vw - 20px);padding:6px;background:var(--bg);border:1px solid var(--line);border-radius:12px;box-shadow:0 4px 16px #0003;max-height:calc(100vh - 24px);overflow:auto}.menu>button{display:block;width:100%;padding:8px 10px}.title{font-size:12px;color:var(--muted);padding:5px 10px}.section{height:1px;background:var(--line);margin:5px 4px}.tools{display:flex;justify-content:space-between;padding:0 3px}.tools button{font-size:12px;color:var(--muted)}.status{padding:8px 10px;font-size:13px}.receipt{padding:5px 7px}.receipt span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.receipt button{font-size:12px;color:var(--muted)}select{width:calc(100% - 20px);margin:4px 10px 8px;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}.destination-current{padding:8px 10px 4px;font-weight:600;overflow-wrap:anywhere}.folders{max-height:min(240px,38vh);overflow-y:auto;overscroll-behavior:contain}.folders button{display:flex;width:100%;gap:8px;align-items:center;padding:8px 10px;overflow-wrap:anywhere}.folder:before{content:"";display:block;flex:0 0 16px;width:16px;height:16px;background:currentColor;opacity:.65;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3Z' fill='none' stroke='black' stroke-width='1.7' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}.menu>button.save{font-weight:600;background:var(--hover)}.check{display:flex;align-items:center;justify-content:center;width:32px;height:32px;cursor:pointer}.check input{appearance:none;width:20px;height:20px;margin:0;border:1px solid var(--muted);border-radius:4px;background:transparent;cursor:pointer;position:relative}.check input:checked{background:var(--text);border-color:var(--text)}.check input:checked:after{content:'';position:absolute;left:6px;top:2px;width:5px;height:10px;border:solid var(--bg);border-width:0 2px 2px 0;transform:rotate(45deg)}.check input:focus-visible{outline:2px solid var(--text);outline-offset:3px}.check input:disabled{opacity:.45;cursor:default}`;
   function host(kind) {
     const element = document.createElement("span");
     element.dataset.pcsUi = kind;
@@ -220,7 +220,8 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
     if (controller) return controller;
     if (!chrome?.runtime?.id) throw new Error("PCS extension context unavailable");
     let active = false, snapshot = null, selected = /* @__PURE__ */ new Set(), checks = [], pending = null, busy = false, notice = "", poll = null;
-    let instance = "", explicitInstance = false, instances = [], recents = [], lastUrl = location.href, refreshTimer = null, reading = false, refreshAgain = false, generation = 0;
+    let instances = [], recents = [], lastUrl = location.href, refreshTimer = null, reading = false, refreshAgain = false, generation = 0;
+    let destination = null, destinationRequest = 0;
     let menuOpen = false, menuMode = "choices", menuAnchor = null, sourceAnchor = null;
     let selectionHandlers = null, selectionStyle = null, press = null, clickTimer = null, lastClick = null;
     const selectionToken = chrome.runtime.id;
@@ -304,9 +305,11 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       popup.element.hidden = !menuOpen || menuAnchor === entry.element && entry.element.hidden;
       menu.replaceChildren();
       syncChecks();
-      for (const item of checks) item.input.disabled = busy || !!pending;
-      for (const item of messageButtons.values()) item.root.querySelector("button").disabled = busy || !!(pending && !FINAL_STATES.has(pending.state));
-      if (menuMode === "recent") {
+      for (const item of checks) item.input.disabled = busy || !!pending || !!destination;
+      for (const item of messageButtons.values()) item.root.querySelector("button").disabled = busy || !!destination || !!(pending && !FINAL_STATES.has(pending.state));
+      if (menuMode === "destination" && destination) {
+        renderDestination();
+      } else if (menuMode === "recent") {
         menu.append(button("‹ 返回", () => {
           menuMode = active || snapshot ? "selection" : "choices";
           render();
@@ -348,45 +351,28 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
           tools.append(all, done);
           menu.append(tools);
         }
-        const send = button("儲存到 PCS", sendSelected);
-        send.disabled = !selected.size || busy || !!pending;
-        menu.append(send);
-        const json = button("下載 JSON", () => downloadSelected("json")), md = button("下載 Markdown", () => downloadSelected("md"));
-        json.disabled = md.disabled = !selected.size || busy;
-        menu.append(json, md);
-        if (instances.length > 1 && !pending) {
-          const choice = document.createElement("select");
-          choice.setAttribute("aria-label", "PCS 工作區");
-          const empty = document.createElement("option");
-          empty.value = "";
-          empty.textContent = "選擇 PCS 工作區";
-          choice.append(empty);
-          for (const item of instances) {
-            const o = document.createElement("option");
-            o.value = item.instance_id;
-            o.textContent = item.display_name;
-            choice.append(o);
-          }
-          choice.value = instance;
-          choice.onchange = (e) => {
-            if (e.isTrusted) {
-              instance = choice.value;
-              explicitInstance = true;
-            }
-          };
-          menu.append(choice);
+        if (!pending) {
+          const send = button("儲存到 PCS", chooseDestination);
+          send.disabled = !selected.size || busy;
+          menu.append(send);
+          const json = button("下載 JSON", () => downloadSelected("json")), md = button("下載 Markdown", () => downloadSelected("md"));
+          json.disabled = md.disabled = !selected.size || busy;
+          menu.append(json, md);
         }
         if (notice || pending) {
           separator();
           const text = document.createElement("div");
           text.className = "status";
           text.setAttribute("aria-live", "polite");
-          text.textContent = notice || (pending ? statusLabel(pending.state) : "");
+          text.textContent = notice || (pending ? pending.state === "failed" && pending.message || statusLabel(pending.state) : "");
           menu.append(text);
         }
         if (pending) {
           if (pending.state === "committed") menu.append(button("開啟文件", () => receiptAction("open", pending)), button("顯示資料夾", () => receiptAction("reveal", pending)));
-          else if (!FINAL_STATES.has(pending.state)) menu.append(button("查詢結果", checkStatus), button("取消", cancel));
+          else if (!FINAL_STATES.has(pending.state)) {
+            if (pending.state === "unknown") menu.append(button("查詢結果", checkStatus));
+            menu.append(button("取消", cancel));
+          }
           if (FINAL_STATES.has(pending.state) || pending.state === "unknown") menu.append(button("重新選取", newSelection));
         } else if (notice && !busy) menu.append(button("重新讀取", retrySelection));
         separator();
@@ -412,7 +398,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
         return;
       }
       menuAnchor = entry.element;
-      menuMode = pending || active || snapshot && !sourceAnchor ? "selection" : "choices";
+      menuMode = destination ? "destination" : pending || active || snapshot && !sourceAnchor ? "selection" : "choices";
       menuOpen = true;
       notice = "";
       await loadRecents();
@@ -420,7 +406,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       focusMenu();
     }
     async function openMessage(anchor, buttonHost) {
-      if (busy || pending && !FINAL_STATES.has(pending.state)) return;
+      if (busy || destination || pending && !FINAL_STATES.has(pending.state)) return;
       pending = null;
       clearTimeout(poll);
       generation++;
@@ -524,7 +510,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       }
     }
     function toggleItem(item) {
-      if (!active || busy || pending || !checks.includes(item)) return;
+      if (!active || busy || pending || destination || !checks.includes(item)) return;
       if (selected.has(item.id)) selected.delete(item.id);
       else selected.add(item.id);
       notice = "";
@@ -532,7 +518,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       render();
     }
     function selectionItem(event) {
-      if (!active || busy || pending || !event.isTrusted || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return null;
+      if (!active || busy || pending || destination || !event.isTrusted || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return null;
       const interactive = 'a,button,input,textarea,select,option,label,summary,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="link"],[role="menuitem"],[role="checkbox"],[role="radio"],[role="switch"],[role="slider"],[role="tab"],[role="textbox"],[tabindex]:not([tabindex="-1"]),[draggable="true"],canvas,svg,iframe,audio,video,[data-pcs-ui]';
       if (event.composedPath().some((node) => node instanceof Element && node.matches(interactive))) return null;
       return checks.find((item) => item.anchor === event.target || item.anchor.contains(event.target)) || null;
@@ -575,7 +561,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
         const expected = generation;
         clickTimer = setTimeout(() => {
           clickTimer = null;
-          if (generation !== expected || !getSelection()?.isCollapsed || !active || busy || pending) return;
+          if (generation !== expected || !getSelection()?.isCollapsed || !active || busy || pending || destination) return;
           lastClick = { item, generation, wasSelected: selected.has(item.id) };
           toggleItem(item);
         }, 250);
@@ -600,7 +586,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
           if (!e.isTrusted) return;
           cancelClick();
           lastClick = null;
-          if (pending || busy) {
+          if (pending || busy || destination) {
             input.checked = selected.has(item.id);
             return;
           }
@@ -619,7 +605,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       positionChecks();
     }
     async function refresh(explicit = false) {
-      if (!active || pending) return;
+      if (!active || pending || destination) return;
       if (reading) {
         refreshAgain = true;
         return;
@@ -628,7 +614,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       const expected = generation, url = location.href;
       try {
         const fresh = await request("capture");
-        if (!active || generation !== expected || location.href !== url || fresh.context.url !== url) return;
+        if (!active || destination || generation !== expected || location.href !== url || fresh.context.url !== url) return;
         const changed = snapshot && (fresh.fingerprint !== snapshot.fingerprint || fresh.context.url !== snapshot.context.url || fresh.context.tabId !== snapshot.context.tabId);
         if (changed) {
           selected.clear();
@@ -679,53 +665,231 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
         render();
       }
     }
-    async function sendSelected() {
-      if (pending || busy || !snapshot) return;
-      const intended = { generation, url: location.href, context: snapshot.context, capture: selectCapture(snapshot.capture, selected) };
-      busy = true;
+    function statusText(text) {
+      const node = document.createElement("div");
+      node.className = "status";
+      node.setAttribute("aria-live", "polite");
+      node.textContent = text;
+      menu.append(node);
+    }
+    function selectionValid(intent) {
+      return generation === intent.generation && location.href === intent.url && snapshot?.context.fingerprint === intent.context.fingerprint;
+    }
+    function destinationValid(view) {
+      return destination === view && selectionValid(view.intent);
+    }
+    function destinationSelect(label, items, value, change) {
+      const choice = document.createElement("select");
+      choice.setAttribute("aria-label", label);
+      choice.disabled = !destination.ready;
+      for (const item of items) {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = item.name;
+        choice.append(option);
+      }
+      choice.value = value;
+      choice.addEventListener("change", (event) => {
+        if (event.isTrusted) change(choice.value);
+      });
+      menu.append(choice);
+    }
+    function renderDestination() {
+      const view = destination;
+      menu.append(button("‹ 返回", leaveDestination));
+      if (instances.length > 1) destinationSelect("PCS 工作區", [{ id: "", name: "選擇 PCS 工作區" }, ...instances.map((item) => ({ id: item.instance_id, name: item.display_name }))], view.instance_id, (id) => {
+        view.instance_id = id;
+        view.listing = null;
+        view.root_id = null;
+        view.error = "";
+        destinationRequest++;
+        if (id) loadDestination(view);
+        else {
+          view.loading = false;
+          render();
+        }
+      });
+      const listing = view.listing;
+      if (listing) {
+        if (listing.roots.length > 1) {
+          const path = listing.current.path.replaceAll("\\", "/").toLowerCase();
+          const root = [...listing.roots].sort((a, b) => b.path.length - a.path.length).find((item) => {
+            const prefix = item.path.replaceAll("\\", "/").toLowerCase().replace(/\/$/, "");
+            return path === prefix || path.startsWith(prefix + "/");
+          });
+          destinationSelect("位置", listing.roots, view.loading && view.root_id || root?.id || "", (id) => {
+            view.root_id = id;
+            loadDestination(view, id);
+          });
+        }
+        const current = document.createElement("div");
+        current.className = "destination-current";
+        current.textContent = listing.current.name;
+        current.title = listing.current.path;
+        menu.append(current);
+        const folders = document.createElement("div");
+        folders.className = "folders";
+        folders.setAttribute("aria-label", "資料夾");
+        if (listing.current.parent_id) {
+          const up = button("上一層", () => loadDestination(view, listing.current.parent_id));
+          up.disabled = view.loading;
+          folders.append(up);
+        }
+        for (const folder of listing.folders) {
+          const row = button(folder.name, () => loadDestination(view, folder.id), "folder");
+          row.title = folder.path;
+          row.disabled = view.loading;
+          folders.append(row);
+        }
+        if (!listing.folders.length && !view.loading) {
+          const empty = document.createElement("div");
+          empty.className = "title";
+          empty.textContent = "沒有子資料夾";
+          folders.append(empty);
+        }
+        menu.append(folders);
+      }
+      if (view.loading) statusText("讀取位置…");
+      if (view.error) {
+        statusText(view.error);
+        if (view.instance_id && !view.unsupported) menu.append(button("重新讀取", () => loadDestination(view)));
+        else if (!view.instance_id && !instances.length) menu.append(button("重新連接", () => {
+          leaveDestination();
+          chooseDestination();
+        }));
+      }
+      separator();
+      const save = button("儲存", saveToDestination, "save");
+      save.disabled = view.loading || !listing || !!view.error;
+      menu.append(save);
+    }
+    function leaveDestination() {
+      const mode = destination?.returnMode || "selection";
+      destination = null;
+      destinationRequest++;
+      busy = false;
+      notice = "";
+      menuMode = mode;
+      render();
+      focusMenu();
+    }
+    async function chooseDestination() {
+      if (pending || busy || !snapshot || !selected.size) return;
+      const view = { intent: { generation, url: location.href, context: snapshot.context, capture: selectCapture(snapshot.capture, selected) }, returnMode: menuMode, instance_id: "", listing: null, loading: true, ready: false, error: "" };
+      destination = view;
+      menuMode = "destination";
       notice = "";
       render();
+      focusMenu();
       try {
         const hello = await request("hello");
+        if (!destinationValid(view)) return;
         instances = hello.instances || [];
-        if (generation !== intended.generation || location.href !== intended.url || !snapshot || snapshot.context.fingerprint !== intended.context.fingerprint) return;
+        view.ready = true;
         if (!instances.length) {
-          notice = "請開啟 PCS。";
+          view.error = "請開啟 PCS。";
+          view.loading = false;
           return;
         }
-        if (instances.length === 1) {
-          instance = instances[0].instance_id;
-          explicitInstance = false;
-        } else if (!explicitInstance || !instances.some((i) => i.instance_id === instance) || !instance) {
-          instance = "";
-          notice = "選擇要保存的工作區。";
-          return;
+        const preference = hello.preferred_destination;
+        view.instance_id = instances.length === 1 ? instances[0].instance_id : instances.find((item) => item.instance_id === preference?.instance_id)?.instance_id || "";
+        if (view.instance_id) await loadDestination(view, preference?.instance_id === view.instance_id ? preference.folder_id : void 0, true);
+        else view.loading = false;
+      } catch (error) {
+        if (destinationValid(view)) {
+          view.error = error.code === "host_unavailable" ? "請在 PCS 的「加入 Chrome」完成連接。" : error.message;
+          view.loading = false;
         }
-        const identity = { operation_id: crypto.randomUUID(), instance_id: instance };
-        pending = { ...identity, state: "receiving", source_title: intended.capture.title };
-        render();
+      } finally {
+        if (destinationValid(view)) render();
+      }
+    }
+    async function loadDestination(view, folderId, allowDefault = false) {
+      if (!destinationValid(view)) return;
+      const serial = ++destinationRequest;
+      view.loading = true;
+      view.error = "";
+      view.unsupported = false;
+      render();
+      try {
+        if (!instances.find((item) => item.instance_id === view.instance_id)?.capabilities?.includes("save_destination_v1")) {
+          view.unsupported = true;
+          throw new Error("請更新 PCS 後再儲存。");
+        }
+        let listing;
         try {
-          const result = await request("transfer", { ...identity, context: intended.context, capture: intended.capture });
-          if (accepts(identity)) pending = { ...pending, ...identity, ...result };
+          listing = await request("destinations", { instance_id: view.instance_id, ...folderId ? { folder_id: folderId } : {} });
         } catch (error) {
-          if (accepts(identity)) {
-            if (error.code === "page_changed") {
+          if (!allowDefault || !folderId || error.code !== "destination_changed" || !destinationValid(view) || serial !== destinationRequest) throw error;
+          listing = await request("destinations", { instance_id: view.instance_id });
+        }
+        if (!destinationValid(view) || serial !== destinationRequest) return;
+        view.listing = listing;
+      } catch (error) {
+        if (destinationValid(view) && serial === destinationRequest) {
+          view.listing = null;
+          view.error = error.message;
+        }
+      } finally {
+        if (destinationValid(view) && serial === destinationRequest) {
+          view.loading = false;
+          render();
+        }
+      }
+    }
+    async function saveToDestination() {
+      const view = destination;
+      if (!view || view.loading || !view.listing || view.error || pending) return;
+      if (!destinationValid(view)) {
+        leaveDestination();
+        notice = "對話已更新，請重新選取。";
+        render();
+        return;
+      }
+      const identity = { operation_id: crypto.randomUUID(), instance_id: view.instance_id }, intended = view.intent;
+      destination = null;
+      destinationRequest++;
+      menuMode = view.returnMode;
+      busy = true;
+      notice = "";
+      pending = { ...identity, state: "receiving", source_title: intended.capture.title };
+      render();
+      try {
+        const result = await request("transfer", { ...identity, destination_id: view.listing.current.id, context: intended.context, capture: intended.capture });
+        if (accepts(identity)) {
+          pending = { ...pending, ...identity, ...result };
+          notice = result.state === "failed" ? result.message || "保存失敗。" : "";
+        }
+      } catch (error) {
+        if (accepts(identity)) {
+          if (error.code === "page_changed") {
+            pending = null;
+            selected.clear();
+            snapshot = null;
+            removeChecks();
+            notice = "對話已更新，請重新選取。";
+          } else if (["destination_changed", "destination_limit", "invalid_request"].includes(error.code)) {
+            if (selectionValid(intended)) {
               pending = null;
-              selected.clear();
-              await refresh();
-              notice = "對話已更新，請重新選取。";
+              destination = view;
+              view.listing = null;
+              view.error = error.message;
+              menuMode = "destination";
             } else {
-              pending = { ...pending, ...identity, state: "unknown" };
+              pending = { ...pending, state: "failed", message: error.message };
               notice = error.message;
             }
+          } else {
+            pending = { ...pending, ...identity, state: "unknown" };
+            notice = error.message;
           }
         }
-        if (pending && !FINAL_STATES.has(pending.state)) schedulePoll();
-      } catch (error) {
-        notice = error.code === "host_unavailable" ? "請在 PCS 的「加入 Chrome」完成連接。" : error.message;
       } finally {
-        busy = false;
-        render();
+        if (!pending || pending.operation_id === identity.operation_id) {
+          busy = false;
+          if (pending && !FINAL_STATES.has(pending.state) && pending.state !== "unknown") schedulePoll();
+          render();
+        }
       }
     }
     function accepts(identity) {
@@ -742,7 +906,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
         const result = await request("status", identity);
         if (!accepts(identity)) return;
         pending = { ...pending, ...identity, ...result };
-        notice = "";
+        notice = result.state === "failed" ? result.message || "保存失敗。" : "";
         if (!FINAL_STATES.has(pending.state) && pending.state !== "unknown") schedulePoll();
         else loadRecents();
       } catch (error) {
@@ -851,6 +1015,8 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       if (location.href !== lastUrl) {
         generation++;
         lastUrl = location.href;
+        destination = null;
+        destinationRequest++;
         selected.clear();
         snapshot = null;
         removeChecks();

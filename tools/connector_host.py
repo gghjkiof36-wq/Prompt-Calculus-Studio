@@ -27,7 +27,7 @@ PIPE_TIMEOUT_SECONDS = 15.0
 _IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 _PIPE_NAME = re.compile(r"pcs-connector-[0-9a-f]{24}\Z")
 _SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
-_COMMANDS = frozenset({"hello", "begin", "chunk", "finish", "status", "open", "reveal", "cancel"})
+_COMMANDS = frozenset({"hello", "destinations", "begin", "chunk", "finish", "status", "open", "reveal", "cancel"})
 
 
 class ConnectorError(Exception):
@@ -270,12 +270,15 @@ def validate_request(request: dict) -> dict:
     allowed = {"request_id", "command", "instance_id"}
     if "instance_id" in request and not _identifier(request["instance_id"]):
         raise ConnectorError("invalid_instance", "PCS 識別碼不正確。")
-    if command != "hello":
+    if command not in ("hello", "destinations"):
         allowed.add("operation_id")
         if not _identifier(request.get("operation_id")):
             raise ConnectorError("invalid_request", "傳送識別碼不正確。")
     if command == "begin":
-        allowed.update({"sha256", "size"})
+        allowed.update({"sha256", "size", "destination_id"})
+        if "destination_id" in request and (not isinstance(request["destination_id"], str)
+                                            or not re.fullmatch('[0-9a-f]{32}', request["destination_id"])):
+            raise ConnectorError("invalid_request", "保存位置識別碼不正確。")
         digest, size = request.get("sha256"), request.get("size")
         if not isinstance(digest, str) or not _SHA256.fullmatch(digest):
             raise ConnectorError("invalid_request", "傳送內容識別碼不正確。")
@@ -283,6 +286,13 @@ def validate_request(request: dict) -> dict:
             raise ConnectorError("invalid_request", "傳送內容大小不正確。")
         if size > MAX_CAPTURE_BYTES:
             raise ConnectorError("capture_too_large", "對話大小超過 16 MiB。")
+    elif command == "destinations":
+        allowed.add("folder_id")
+        if not _identifier(request.get("instance_id")):
+            raise ConnectorError("invalid_instance", "請選擇 PCS 工作區。")
+        if "folder_id" in request and (not isinstance(request["folder_id"], str)
+                                       or not re.fullmatch('[0-9a-f]{32}', request["folder_id"])):
+            raise ConnectorError("invalid_request", "保存位置識別碼不正確。")
     elif command == "chunk":
         allowed.update({"index", "data"})
         if type(request.get("index")) is not int or not 0 <= request["index"] < 65536:
@@ -302,7 +312,7 @@ def validate_request(request: dict) -> dict:
 
 
 def _public_instance(item: dict) -> dict:
-    return {key: item[key] for key in ("instance_id", "display_name")}
+    return {key: item[key] for key in ("instance_id", "display_name", "capabilities") if key in item}
 
 
 class ConnectorHost:
@@ -319,7 +329,12 @@ class ConnectorHost:
                 if (probe.get("request_id") == request_id and probe.get("ok") is True
                         and isinstance(details, dict) and details.get("ready") is True
                         and details.get("instance_id") == item["instance_id"]):
-                    live.append(item)
+                    capabilities = details.get("capabilities")
+                    verified = dict(item)
+                    if isinstance(capabilities, list):
+                        verified["capabilities"] = (["save_destination_v1"]
+                                                    if "save_destination_v1" in capabilities else [])
+                    live.append(verified)
             except (ConnectorError, OSError):
                 continue
         return live

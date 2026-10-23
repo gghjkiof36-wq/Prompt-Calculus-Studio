@@ -5,15 +5,19 @@ import json
 import os
 from pathlib import Path
 import secrets
+import threading
 import time
 
-from PySide6.QtCore import QObject, QTimer, Signal, QUrl
+from PySide6.QtCore import QObject, QTimer, Signal, Slot, QUrl, QRunnable, QThreadPool, Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtNetwork import QLocalServer
 from shiboken6 import isValid
 
-from .connector_store import TransferStore, atomic_json, public_record
-from .conversation_import import Destination, import_selected
+from .connector_store import TransferStore, atomic_json, public_record, operation_key
+from .connector_destinations import DestinationCatalog, DestinationError
+from .conversation_archive import Cancelled, load_archive
+from .conversation_import import Destination, ImportResult, import_selected
+from .local_documents.directory_pin import pinned_parent
 from .local_documents import paths
 from .retained_files import read_local
 
@@ -26,8 +30,28 @@ def discovery_directory():
     return base / 'PromptCalculusStudio' / 'Connector' / 'instances'
 
 
+class DirectSaveJob(QRunnable):
+    def __init__(self, operation, function, completed):
+        super().__init__()
+        self.operation = operation
+        self.function = function
+        self.completed = completed
+        self.cancel = threading.Event()
+        self.submitted = False
+
+    def run(self):
+        error = ''
+        try:
+            self.function(self.cancel)
+        except Exception as failure:
+            error = str(failure)
+        finally:
+            self.completed.emit(self.operation, error)
+
+
 class ConnectorService(QObject):
     changed = Signal()
+    direct_done = Signal(str, str)
 
     def __init__(self, workspace):
         super().__init__(workspace)
@@ -39,10 +63,16 @@ class ConnectorService(QObject):
         self.store = None
         self.dialogs = {}
         self.writing = set()
+        self.direct_jobs = {}
+        self.direct_pool = QThreadPool(self)
+        self.direct_pool.setMaxThreadCount(1)
+        self.direct_done.connect(self.direct_finished, Qt.ConnectionType.QueuedConnection)
         self.closing = False
         self.error = ''
         self.settings_path = workspace.data / 'chrome-connector.json'
         self.settings = dict(enabled=False, destination=str(workspace.root))
+        self.destinations = DestinationCatalog(lambda: list(workspace.locations.roots),
+                                               lambda: self.settings['destination'], self.check_isolation)
         self.server = QLocalServer(self)
         self.server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
         self.server.setMaxPendingConnections(8)
@@ -176,7 +206,7 @@ class ConnectorService(QObject):
             response = dict(request_id=request.get('request_id'), ok=True, result=result)
         except (ValueError, OSError, KeyError, TypeError, RuntimeError, RecursionError) as error:
             response = dict(request_id=request.get('request_id') if isinstance(request, dict) else None,
-                            ok=False, error=dict(code='request_failed', message=str(error)))
+                            ok=False, error=dict(code=getattr(error, 'code', 'request_failed'), message=str(error)))
         socket.write(json.dumps(response, ensure_ascii=False, allow_nan=False).encode() + b'\n')
         socket.disconnectFromServer()
 
@@ -184,24 +214,39 @@ class ConnectorService(QObject):
         command = request.get('command')
         if command == 'hello':
             return dict(version=1, instance_id=self.instance_id, display_name=self.workspace.root.name,
-                        ready=self.ready, max_capture_bytes=16 * 1024 * 1024)
+                        ready=self.ready, capabilities=['save_destination_v1'], max_capture_bytes=16 * 1024 * 1024)
         if not self.ready:
             raise ValueError('PCS 尚未就緒，請稍後再試。')
         store = self.ensure_store()
+        if command == 'destinations':
+            return self.destinations.list(request.get('folder_id'))
         operation = request.get('operation_id')
         if command == 'begin':
-            result = store.begin(operation, request.get('size'), request.get('sha256'))
+            destination_id = request.get('destination_id')
+            choice = None
+            if destination_id is not None and store.get(operation) is None:
+                choice = self.destinations.resolve(destination_id)
+            result = store.begin(operation, request.get('size'), request.get('sha256'),
+                                 destination_id=destination_id,
+                                 destination=choice.destination if choice else None,
+                                 destination_root=choice.root if choice else None)
         elif command == 'chunk':
             result = store.chunk(operation, request.get('index'), request.get('data'))
         elif command == 'finish':
             result = store.finish(operation)
             if result['state'] == 'previewing':
-                QTimer.singleShot(0, self, lambda key=result['operation_id']: self.show_preview(key))
+                if result.get('destination_id'):
+                    result = self.start_direct(result['operation_id'])
+                else:
+                    QTimer.singleShot(0, self, lambda key=result['operation_id']: self.show_preview(key))
         elif command == 'status':
             if not self.writing:
                 store.recover()
             result = store.get(operation)
         elif command == 'cancel':
+            job = self.direct_jobs.get(operation_key(operation))
+            if job is not None:
+                job.cancel.set()
             result = store.get(operation)
             if result:
                 dialog = self.dialogs.get(result['operation_id'])
@@ -217,6 +262,72 @@ class ConnectorService(QObject):
             self.changed.emit()
         return public_record(result)
 
+    def start_direct(self, operation):
+        store = self.store
+        record = store.get(operation)
+        if not record or record['state'] != 'previewing':
+            return record
+        try:
+            choice = store.bound_choice(record)
+            destination = self.destinations.check_bound(choice)
+            store.accept(operation, destination)
+        except (ValueError, OSError) as error:
+            return store.fail_pending(operation, error)
+
+        def write(cancel):
+            entered_writer = False
+            try:
+                source = load_archive(record['source'], cancel)
+                self.destinations.check_bound(choice)
+                # Keep all selected ancestors stable through validation and the
+                # existing writer, including the originally enrolled root.
+                with pinned_parent(destination.path / '.connector-direct.guard'):
+                    self.destinations.check_bound(choice)
+                    entered_writer = True
+                    result = import_selected(source, (0,), destination, cancel,
+                                             operation_id=operation, on_started=store.started,
+                                             on_reused=store.reused)
+                    store.complete(operation, result)
+            except Cancelled:
+                store.complete(operation, ImportResult(cancelled=True))
+            except Exception as error:
+                # Publication or receipt failures require reconciliation. Only
+                # an error before entering the writer is a known failed save.
+                if not entered_writer:
+                    store.complete(operation, error=str(error), error_code=getattr(error, 'code', 'request_failed'))
+                raise
+
+        job = DirectSaveJob(operation, write, self.direct_done)
+        self.direct_jobs[operation] = job
+        self.writing.add(operation)
+        try:
+            self.submit_direct_jobs()
+        except Exception:
+            self.direct_jobs.pop(operation, None)
+            self.write_finished(operation)
+            raise
+        self.changed.emit()
+        return store.get(operation)
+
+    def submit_direct_jobs(self):
+        # Legacy compact-dialog jobs also own the writer until their finished
+        # callback. Keep direct requests queued rather than racing that owner.
+        if self.writing - self.direct_jobs.keys():
+            return
+        for job in self.direct_jobs.values():
+            if not job.submitted:
+                self.direct_pool.start(job)
+                job.submitted = True
+
+    @Slot(str, str)
+    def direct_finished(self, operation, error):
+        self.direct_jobs.pop(operation, None)
+        if error:
+            self.error = error
+        self.write_finished(operation)
+        if isValid(self.workspace):
+            self.workspace.refresh_tree()
+
     def show_preview(self, operation):
         if not self.ready:
             return
@@ -229,7 +340,7 @@ class ConnectorService(QObject):
         from .connector_dialog import ConnectorImportDialog
         try:
             record = self.store.get(operation)
-            if not record or record['state'] != 'previewing':
+            if not record or record['state'] != 'previewing' or record.get('destination_id'):
                 return
             dialog = ConnectorImportDialog(self, record)
             self.dialogs[operation] = dialog
@@ -270,8 +381,10 @@ class ConnectorService(QObject):
 
     def write_finished(self, operation):
         self.writing.discard(operation)
+        self.submit_direct_jobs()
         try:
-            self.store.recover()
+            if not self.writing:
+                self.store.recover()
         except (ValueError, OSError) as error:
             self.error = str(error)
         self.changed.emit()
@@ -294,6 +407,8 @@ class ConnectorService(QObject):
             return tab
 
     def stop(self):
+        if self.writing:
+            raise ValueError('正在保存對話，請完成後再關閉。')
         self.server.close()
         for socket in list(self.clients):
             socket.abort()
