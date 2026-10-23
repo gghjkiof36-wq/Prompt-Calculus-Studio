@@ -6,7 +6,18 @@
 
 ## 操作入口與執行歸屬
 
-Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extensions/chrome/README.md)。使用者開啟側欄、讀取目前頁面、選訊息，再傳到 PCS 或下載 Capture JSON／Markdown。PCS 的入口是「探索 → ChatGPT 對話 → 連接與對話」，提供連接設定、保存位置、檔案匯入與最近傳入記錄；完成後可開啟文件、整理對話或顯示資料夾。
+Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extensions/chrome/README.md)。目前介面版本為 `0.2.0`，在 ChatGPT 原訊息的複製按鈕旁加入 PCS 小入口；按下後以貼附該入口的選單傳送或下載這一則訊息。頁首的 PCS 入口提供「選取全部」及「選取訊息」，全部仍指目前 DOM 已載入範圍。勾選框只在選取模式顯示；「完成選取」收起勾選框並保留已選內容，接著可在選單傳到 PCS 或下載 Capture JSON／Markdown。介面沿用原對話，沒有聊天副本、Chrome 側欄或底部工具列。
+
+傳送狀態、查詢結果、取消及最近保存也在同一貼附選單。單則訊息失效後可重新讀取原訊息；若原節點已離開頁面，回到選取流程。尚未完成的操作保留原 `source_title`；換聊天時關閉舊訊息選單，之後從頁首查看原操作結果，避免把前一段對話的操作顯示成新頁的「此則訊息」。
+
+[`entry.js`](../../extensions/chrome/entry.js) 是在 ChatGPT 網域載入的 isolated content script，動態載入 [`inpage.mjs`](../../extensions/chrome/inpage.mjs) 與 [`core.mjs`](../../extensions/chrome/core.mjs)。`manifest.json` 以 web-accessible resources 提供這兩個模組，移除 `sidePanel` 權限與 `side_panel` 入口；保留 `activeTab/scripting/storage/nativeMessaging` 及兩個 ChatGPT 網域的 host permissions。Chrome 工具列動作也交由原分頁的頁內介面處理。
+
+PCS 的「探索」採三張等尺寸入口卡片；「ChatGPT 對話」開啟 [`ConnectorPage`](../../prompt_calculus_studio/connector_page.py)。主頁保留「加入 Chrome」及對話列表，提供搜尋、檔案匯入和保存位置；完成的項目以對話標題呈現，可開啟文件、整理對話或顯示資料夾。保存位置是目前 workspace 時顯示「目前工作區」，完整路徑放在 tooltip。搜尋無結果時清除不可見選取；清除搜尋後選取可見項目，相關動作隨選取狀態恢復。
+
+「加入 Chrome」使用既有 `StudioDialog`，把設定集中為兩步：
+
+1. **連接 PCS**：執行配套 native host 的帳戶安裝程式，成功後啟用本 workspace 的接收服務。
+2. **載入 Chrome 擴充**：提供「開啟擴充頁」及「開啟擴充資料夾」，由使用者在 Chrome 開發人員模式載入未封裝項目。
 
 [`ConnectorService`](../../prompt_calculus_studio/connector_service.py) 屬於原 PCS workspace；[`ConnectorImportDialog`](../../prompt_calculus_studio/connector_dialog.py) 沿用既有匯入預覽與 writer。接收資料不等於接受保存：`finish` 到 `previewing` 後，仍由 PCS 預覽的匯入動作接受目的地。完成回執由工作執行端保存，視窗的回呼只刷新結果。
 
@@ -15,6 +26,10 @@ Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extens
 ## 擷取範圍與富內容
 
 [`capture.mjs`](../../extensions/chrome/capture.mjs) 只觀測目前頁面已載入、可見的 user／assistant 訊息。傳送前再次核對分頁、網址與正文／資產指紋；串流中的回覆不建立快照。它不讀其他聊天、網站儲存空間或 cookies，也不呼叫 ChatGPT 的內部 API。
+
+[`background.mjs`](../../extensions/chrome/background.mjs) 只接受本擴充、ChatGPT 網域、頂層 frame 的 content-script sender；讀取與傳送都綁定 `sender.tab.id`，不再以全域 active/currentWindow 另選分頁。注入時呼叫 `captureLoadedConversation(true)`；函式本體將例外轉成可序列化的 `capture_error: {code,message}`，background 再回傳操作錯誤。擷取函式不依賴注入後會遺失的外層 closure，且排除標記為 `data-pcs-ui` 的頁內控制項。這些是來源綁定與錯誤傳遞契約，並非真實網站 DOM 已完整支援的證明。
+
+頁內選取同時核對 URL、tab、內容指紋與目前操作世代；送出前固定選取快照，等待 `hello` 後再次確認來源，才建立 operation。background 依最新擷取內容重建所選 payload，訊息比較按欄位值而不依賴跨 API 的物件鍵順序。狀態與取消回覆須符合目前 instance／operation；晚到回覆不能復活已換掉的操作，也不能把終態降回 unknown。unknown 保留查詢與取消入口，只有使用者重新選取後才開始另一個操作。
 
 目前 Chrome 實際產生的 `scope` 只有：
 
@@ -115,4 +130,12 @@ PCS instance 依資料目錄識別，發現記錄預設位於 `%LOCALAPPDATA%/Pr
 
 [`test_maintenance_package.py`](../../tests/test_maintenance_package.py) 核對本版 release 對應的必要 validation 文件、來源包 allowlist、connector 資料／transport 模組無 Qt 匯入，以及既有共享核心的 Qt-blocked 還原。這些是本地測試與臨時來源包，不構成發布。
 
-已有背景 native host frame／Win32 pipe、獨立 EXE 與實際 Qt pipe 的有界測試，以及離屏 PCS 預覽／保存／查回測試。Chrome 測試使用獨立 headless 瀏覽器與合成 DOM／bridge；新版富內容覆蓋卡片、表格、citation、CVSS／時間軸、iframe 與圖片單訊息。這些沒有操作真實 ChatGPT 帳號，沒有完成原生 Chrome side panel → 正式安裝 PCS 的人工驗收；registry 寫入採 mock，原生桌面視窗、IME、DPI、真實媒體與跨帳戶部署仍待相應驗證。
+已有背景 native host frame／Win32 pipe、獨立 EXE 與實際 Qt pipe 的有界測試，以及離屏 PCS 預覽／保存／查回測試。既有檔案與富內容測試覆蓋卡片、表格、citation、CVSS／時間軸、iframe 與圖片單訊息；舊側欄的介面結果不沿用為新版入口的驗收。
+
+新版 [`connector_chrome_browser.test.mjs`](../../tests/connector_chrome_browser.test.mjs) 使用隔離的 headless Edge 實際載入未封裝 MV3 擴充，經真正的 service worker、content script、`chrome.scripting` 與 runtime messaging。網站網路請求由合成對話接管，Native host port 使用合成回覆。已觀測到注入錯誤可回傳具體原因、頁內入口不污染正文／指紋，以及單則 JSON／Markdown 下載；這比直接呼叫擷取函式的 DOM 測試多覆蓋注入與訊息邊界，仍不是真實 ChatGPT 帳號或桌面全鏈路測試。
+
+同一測試組也檢查多 PCS 選擇、unknown 不隱含重送、`hello` 等待中導航、取消後晚到完成、原訊息歸屬、完成選取後保留內容、單則重新讀取、鍵盤操作及窄視窗選單。最終背景紀錄 `qa-private/03-chrome-transfer-20261023/chrome-integrated-final2-tests.txt` 為 28 通過、0 失敗、0 略過，耗時 13.08 秒；前輪失敗紀錄保留。這是上述隔離 MV3 與合成資料範圍的結果。
+
+使用者已回報真實 Chrome 在對話載入後仍顯示「無法讀取對話，請重新讀取」。原碼核對確認舊版沒有在注入函式內保留例外原因，本輪已增加 `capture_error` 並綁定呼叫分頁；但尚未重現並確認該次真實頁面觸發的具體例外。不能把合成 DOM 通過或錯誤傳遞修正寫成真實讀取問題已解決。
+
+尚未完成 ChatGPT 原頁選取 → 正式安裝 PCS 的人工驗收。registry 寫入採 mock；原生桌面視窗、IME、DPI、真實媒體與跨帳戶部署仍待相應驗證。

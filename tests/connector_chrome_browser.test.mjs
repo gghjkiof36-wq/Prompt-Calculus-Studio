@@ -3,10 +3,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile, mkdir} from 'node:fs/promises';
-import {createServer} from 'node:http';
-import {fileURLToPath, pathToFileURL} from 'node:url';
+import {pathToFileURL} from 'node:url';
 import path from 'node:path';
 import {captureLoadedConversation} from '../extensions/chrome/capture.mjs';
+import {extensionFixture} from './connector_chrome_helpers.mjs';
 
 const enabled = !!process.env.PCS_PLAYWRIGHT_MODULE;
 const fixture = `<!doctype html><html><head><meta charset="utf-8"><title>京都四天旅行安排 - ChatGPT</title></head><body>
@@ -27,21 +27,114 @@ const fixture = `<!doctype html><html><head><meta charset="utf-8"><title>京都�
 <article hidden><div data-message-author-role="assistant" data-message-id="hidden-branch"><div class="markdown"><p>HIDDEN_OTHER_BRANCH</p></div></div></article>
 </main></body></html>`;
 
-test('headless DOM capture and real side-panel UI with synthetic Chrome bridge', {skip: !enabled}, async t => {
+const operations='<div class="turn-actions" role="group" aria-label="訊息操作"><button data-testid="copy-turn-action-button" aria-label="複製">⧉</button><button aria-label="分享回覆">↗</button></div>';
+const styledFixture=fixture.replaceAll('</article>',operations+'</article>').replace('</head>',`<style>body{margin:0;background:#212121;color:#ececec;font:15px/1.6 'Segoe UI','Microsoft JhengHei',sans-serif}main{max-width:700px;margin:auto;padding:30px 44px 180px}article{margin:24px 0}.whitespace-pre-wrap{white-space:pre-wrap;background:#303030;border-radius:16px;padding:16px}h3{font-size:17px}.turn-actions{display:flex;align-items:center;gap:2px;margin-top:8px}.turn-actions button,header button{font:inherit;background:transparent;border:0;color:#aaa;padding:6px;cursor:pointer}table{width:100%;border-collapse:collapse}td,th{padding:7px;border-bottom:1px solid #555}header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid #383838;position:sticky;top:0;background:#212121;z-index:2}@media(max-width:540px){main{padding:18px 42px 180px}}</style></head>`).replace('<main>','<header><strong>ChatGPT</strong><div><button data-testid="share-chat-button" aria-label="分享">分享</button></div></header><main>');
+
+test('actual MV3: original action menus, selection, transfer and late completions',{skip:!enabled},async t=>{
+  const live=await extensionFixture(styledFixture),{page,worker}=live;
+  const header=()=>page.locator('[data-pcs-ui="entry"]').getByRole('button');
+  const menu=()=>page.locator('[data-pcs-ui="menu"]');
+  const beginSelection=async()=>{await page.getByRole('button',{name:'選取訊息',exact:true}).click();await page.getByRole('checkbox',{name:'選取第 1 則訊息',exact:true}).waitFor();};
+  try{
+    assert.match(worker.url(),/migmpicacfjoipmfcgdjocgdbplgldan\/background.mjs$/);
+    await t.test('real injection returns serializable exceptions and correct source',async()=>{
+      assert.equal((await live.capture()).result.capture.messages.length,4);
+      await page.evaluate(()=>document.querySelector('main').hidden=true);
+      assert.equal((await live.capture()).result.capture_error.code,'capture_failed');
+      await page.evaluate(()=>document.querySelector('main').hidden=false);
+    });
+    await t.test('PCS is appended to original controls; ordinary view has no checkboxes or toolbar',async()=>{
+      assert.equal(await page.locator('[data-pcs-ui="message-action"]').count(),4);
+      assert.equal(await page.locator('[data-pcs-ui="selection"]').count(),0);
+      assert.equal(await page.locator('[data-pcs-ui="actions"]').count(),0);
+      assert.equal(await menu().isVisible(),false);
+      const before=(await live.capture()).result;
+      await page.getByRole('button',{name:'PCS：此則訊息',exact:true}).nth(1).click();
+      await page.getByText('此則訊息',{exact:true}).waitFor();
+      const after=(await live.capture()).result;assert.equal(before.fingerprint,after.fingerprint);
+      assert.ok(!JSON.stringify(after.capture).includes('下載 JSON'));
+      assert.equal(await page.getByRole('button',{name:'送到 PCS',exact:true}).evaluate(e=>e===e.getRootNode().activeElement),true);
+      await page.keyboard.press('Tab');assert.equal(await page.getByRole('button',{name:'下載 JSON',exact:true}).evaluate(e=>e===e.getRootNode().activeElement),true);
+      await page.keyboard.press('Escape');assert.equal(await menu().isVisible(),false);
+      assert.equal(await page.getByRole('button',{name:'PCS：此則訊息',exact:true}).nth(1).evaluate(e=>e===e.getRootNode().activeElement),true);
+      await page.keyboard.press('Enter');await page.getByRole('button',{name:'送到 PCS',exact:true}).waitFor();
+      for(const [label,extension] of [['下載 JSON','json'],['下載 Markdown','md']]){
+        const event=page.waitForEvent('download');await page.getByRole('button',{name:label,exact:true}).click();
+        const file=await event,text=await readFile(await file.path(),'utf8');assert.ok(file.suggestedFilename().endsWith('.'+extension));
+        if(extension==='json')assert.deepEqual(JSON.parse(text).messages.map(m=>m.id),['assistant-one']);
+        else assert.match(text,/### 第二天/);
+        assert.ok(!text.includes('第二天想晚一點'));
+      }
+    });
+    await t.test('single-message transfer uses source tab and committed remains distinct',async()=>{
+      await page.getByRole('button',{name:'送到 PCS',exact:true}).click();await page.getByText('請在 PCS 預覽並保存',{exact:true}).waitFor();
+      const calls=await worker.evaluate(()=>testNative.calls),body=Buffer.concat(calls.filter(c=>c.command==='chunk').map(c=>Buffer.from(c.data,'base64')));
+      assert.deepEqual(JSON.parse(body.toString('utf8')).messages.map(m=>m.id),['assistant-one']);
+      assert.equal(await page.getByRole('button',{name:'PCS：此則訊息',exact:true}).first().isDisabled(),true);
+      await page.evaluate(()=>{history.pushState({},'','/c/new-page-while-pending');document.title='另一段對話 - ChatGPT';});
+      await page.waitForTimeout(850);assert.equal(await menu().isVisible(),false);await header().click();
+      await page.getByText('京都四天旅行安排',{exact:true}).waitFor();
+      assert.equal(await page.getByText('此則訊息',{exact:true}).count(),0);
+      await page.getByRole('button',{name:'取消',exact:true}).click();await page.getByText('已取消',{exact:true}).waitFor();
+      await page.getByRole('button',{name:'PCS：此則訊息',exact:true}).first().click();
+      await page.locator('[data-pcs-ui="menu"] button:enabled').filter({hasText:'送到 PCS'}).waitFor();
+      await page.evaluate(()=>document.querySelector('.whitespace-pre-wrap').textContent+=' 更新');
+      await page.getByRole('button',{name:'下載 JSON',exact:true}).click();await page.getByRole('button',{name:'重新讀取',exact:true}).click();
+      await page.locator('[data-pcs-ui="menu"] button:enabled').filter({hasText:'送到 PCS'}).waitFor();await header().click();
+    });
+    await t.test('selection-only checkboxes, multiple PCS and unknown result never resend implicitly',async()=>{
+      await beginSelection();await page.getByRole('checkbox',{name:'選取第 1 則訊息',exact:true}).check();await header().click();
+      await worker.evaluate(()=>{testNative.instances.push({instance_id:'second-pcs',display_name:'PCS · 第二工作區'});testNative.state='unknown';});
+      await page.getByRole('button',{name:'送到 PCS',exact:true}).click();
+      const choice=page.getByRole('combobox',{name:'PCS 工作區'});await choice.waitFor();assert.equal(await choice.inputValue(),'');
+      await choice.focus();await page.keyboard.press('End');await page.keyboard.press('Enter');
+      await page.getByRole('button',{name:'送到 PCS',exact:true}).click();await page.getByText('尚未取得結果',{exact:true}).waitFor();
+      const count=await worker.evaluate(()=>testNative.calls.filter(c=>c.command==='finish').length);
+      await page.getByRole('button',{name:'重新選取',exact:true}).click();
+      assert.equal(await worker.evaluate(()=>testNative.calls.filter(c=>c.command==='finish').length),count);
+    });
+    await t.test('navigation while hello waits does not create a phantom operation',async()=>{
+      await beginSelection();await page.getByRole('checkbox',{name:'選取第 1 則訊息',exact:true}).check();await header().click();
+      await worker.evaluate(()=>{testNative.instances=testNative.instances.slice(0,1);testNative.holdHello=true;});
+      const before=await worker.evaluate(()=>testNative.calls.filter(c=>c.command==='begin').length);
+      await page.getByRole('button',{name:'送到 PCS',exact:true}).click();
+      await page.waitForTimeout(100);
+      await page.evaluate(()=>history.pushState({},'','/c/same-body-different-chat'));
+      await worker.evaluate(()=>{testNative.holdHello=false;testNative.releaseHello();});await page.waitForTimeout(1100);
+      assert.equal(await worker.evaluate(()=>testNative.calls.filter(c=>c.command==='begin').length),before);
+      assert.equal(await page.getByRole('checkbox',{name:'選取第 1 則訊息',exact:true}).isChecked(),false);
+      assert.equal(await page.getByText('尚未取得結果',{exact:true}).count(),0);
+    });
+    await t.test('cancelled state is not replaced by a late finish response',async()=>{
+      await page.getByRole('checkbox',{name:'選取第 1 則訊息',exact:true}).check();
+      if(!(await menu().isVisible()))await header().click();
+      await worker.evaluate(()=>{testNative.holdFinish=true;testNative.state='previewing';});
+      await page.getByRole('button',{name:'送到 PCS',exact:true}).click();await page.getByText('傳送中…',{exact:true}).waitFor();
+      await page.waitForTimeout(150);await page.getByRole('button',{name:'取消',exact:true}).click();await page.getByText('已取消',{exact:true}).waitFor();
+      await worker.evaluate(()=>{testNative.holdFinish=false;testNative.releaseFinish();});await page.waitForTimeout(150);
+      assert.equal(await page.getByText('已取消',{exact:true}).isVisible(),true);
+      assert.equal(await worker.evaluate(async()=>(await chrome.storage.local.get('recent')).recent[0].state),'cancelled');
+      await page.getByRole('button',{name:'重新選取',exact:true}).click();
+    });
+    await t.test('page theme, keyboard and narrow menu bounds; selection does not refresh itself',async()=>{
+      await beginSelection();await page.getByRole('checkbox',{name:'選取第 2 則訊息',exact:true}).check();await page.waitForTimeout(900);
+      assert.equal(await page.getByRole('checkbox',{name:'選取第 2 則訊息',exact:true}).isChecked(),true);await header().click();
+      await page.getByRole('button',{name:'完成選取',exact:true}).click();
+      assert.equal(await page.locator('[data-pcs-ui="selection"]').count(),0);
+      assert.equal(await page.getByText('已選 1 則',{exact:true}).isVisible(),true);
+      assert.equal(await page.getByRole('button',{name:'送到 PCS',exact:true}).isEnabled(),true);
+      for(const width of [360,600]){await page.setViewportSize({width,height:900});await page.waitForTimeout(100);const box=await menu().boundingBox();assert.ok(box.x>=0&&box.x+box.width<=width);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}
+      await page.evaluate(()=>document.documentElement.className='light');await page.waitForTimeout(800);
+      assert.equal(await menu().getAttribute('data-theme'),'light');
+      await page.keyboard.press('Escape');assert.equal(await menu().isVisible(),false);assert.deepEqual(live.errors,[]);
+    });
+  }finally{await live.close();}
+});
+
+test('headless loaded DOM capture preserves data boundaries', {skip: !enabled}, async t => {
   const playwright = await import(pathToFileURL(process.env.PCS_PLAYWRIGHT_MODULE).href);
   const browser = await playwright.chromium.launch({headless: true,
     ...(process.env.PCS_CHROME_EXECUTABLE ? {executablePath: process.env.PCS_CHROME_EXECUTABLE} : {})});
-  const extensionRoot = fileURLToPath(new URL('../extensions/chrome/', import.meta.url));
-  const server = createServer(async (req, res) => {
-    try {
-      const name = new URL(req.url, 'http://localhost').pathname.slice(1) || 'panel.html';
-      if (!/^[a-z.-]+$/.test(name)) { res.writeHead(404).end(); return; }
-      const contents = await readFile(path.join(extensionRoot, name));
-      res.writeHead(200, {'content-type': name.endsWith('.css') ? 'text/css' : name.endsWith('.mjs') ? 'text/javascript' : 'text/html'}).end(contents);
-    } catch { res.writeHead(404).end(); }
-  });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const base = `http://127.0.0.1:${server.address().port}`;
   let captured;
   try {
     const capturePage = await browser.newPage();
@@ -97,135 +190,5 @@ test('headless DOM capture and real side-panel UI with synthetic Chrome bridge',
     });
     await capturePage.close();
 
-    const panelContext = await browser.newContext({viewport: {width: 360, height: 900}, colorScheme: 'dark'});
-    await panelContext.addInitScript(({captured}) => {
-      const hooks = {activated: [], updated: []};
-      const receipt = {operation_id: '12345678-1234-1234-1234-123456789abc', instance_id: 'pcs-fixture', state: 'committed',
-        title: '週末閱讀筆記', path: 'D:\\PCS\\對話\\週末閱讀筆記.md'};
-      const state = {calls: [], instances: [{instance_id: 'pcs-fixture', display_name: 'PCS · 我的工作區'}],
-        currentState: 'previewing', recent: [receipt], captured};
-      window.fixtureState = state; window.fixtureHooks = hooks;
-      window.chrome = {
-        runtime: {sendMessage: async message => {
-          state.calls.push(message);
-          if (state.error) return {ok: false, error: state.error};
-          let result;
-          if (message.action === 'capture') result = {...state.captured, context: {tabId: 7, url: state.captured.capture.url, fingerprint: state.captured.fingerprint}};
-          else if (message.action === 'hello') result = {instances: state.instances};
-          else if (message.action === 'recents') result = state.recent;
-          else if (message.action === 'transfer') result = {state: 'previewing'};
-          else if (message.action === 'status') result = {state: state.currentState};
-          else if (message.action === 'cancel') result = {state: 'cancelled'};
-          else result = {state: 'committed'};
-          return {ok: true, result};
-        }},
-        tabs: {create: async () => {}, onActivated: {addListener: f => hooks.activated.push(f)}, onUpdated: {addListener: f => hooks.updated.push(f)}},
-      };
-    }, {captured});
-    const panel = await panelContext.newPage();
-    const errors = [];
-    panel.on('pageerror', error => errors.push(error.message));
-    await panel.route('**/*', route => route.request().url().startsWith(base) ? route.continue() : route.abort());
-    await panel.goto(base + '/panel.html');
-    await panel.locator('.message').last().waitFor();
-    await t.test('readable tables and headings, with untrusted HTML remaining inert text', async () => {
-      await panel.locator('.message').nth(3).getByRole('button', {name: '展開'}).click();
-      assert.equal(await panel.locator('.message').nth(3).locator('table tr').count(), 3);
-      await panel.locator('.message').nth(3).getByRole('button', {name: '收合'}).click();
-      const projection = await panel.evaluate(async base => {
-        const {renderReading} = await import(base + '/preview.mjs');
-        const node = renderReading('<img src=x onerror="window.bad=1">\n\n[run](javascript:alert(1))\n\n```html\n<script>bad()</script>\n```');
-        return {images: node.querySelectorAll('img').length, scripts: node.querySelectorAll('script').length,
-          links: node.querySelectorAll('a').length, code: node.querySelector('code').textContent};
-      }, base);
-      assert.deepEqual(projection, {images: 0, scripts: 0, links: 0, code: '<script>bad()</script>'});
-    });
-    await t.test('select, preview and transfer only checked messages; finish remains previewing', async () => {
-      await panel.locator('.message input').nth(1).uncheck();
-      await panel.getByRole('button', {name: '預覽', exact: true}).click();
-      assert.ok((await panel.locator('#preview-content').innerText()).includes('第二天想晚一點'));
-      assert.ok(!(await panel.locator('#preview-content').innerText()).includes('竹林與天龍寺'));
-      await panel.getByRole('button', {name: '返回選取'}).click();
-      await panel.getByRole('button', {name: '送到 PCS', exact: true}).click();
-      await panel.getByText('請在 PCS 預覽並保存', {exact: true}).waitFor();
-      const sent = await panel.evaluate(() => fixtureState.calls.find(call => call.action === 'transfer'));
-      assert.deepEqual(sent.capture.messages.map(item => item.id), ['user-one', 'user-two', 'assistant-two']);
-      assert.equal(sent.capture.scope, 'selection');
-      assert.ok(!JSON.stringify(sent.capture).includes('竹林與天龍寺'));
-      await panel.getByRole('button', {name: '取消', exact: true}).click();
-      await panel.getByText('已取消', {exact: true}).waitFor();
-    });
-    await t.test('downloads use selected snapshot and retain Unicode', async () => {
-      const event = panel.waitForEvent('download');
-      await panel.getByRole('button', {name: '下載檔案'}).click();
-      const download = await event;
-      assert.equal(download.suggestedFilename(), '京都四天旅行安排.json');
-      const data = JSON.parse(await readFile(await download.path(), 'utf8'));
-      assert.equal(data.messages.length, 3);
-      assert.equal(data.title, '京都四天旅行安排');
-    });
-    await t.test('navigation disables sending stale data and refresh restores', async () => {
-      await panel.evaluate(() => fixtureHooks.activated.forEach(listener => listener({tabId: 9})));
-      assert.ok(await panel.locator('#send').isDisabled());
-      await panel.getByRole('button', {name: '重新讀取對話'}).click();
-      await panel.locator('#send:not(:disabled)').waitFor();
-    });
-    await t.test('multiple PCS instances require deliberate selection; paths go only through receipts', async () => {
-      await panel.evaluate(() => { fixtureState.instances.push({instance_id: 'pcs-two', display_name: 'PCS · 第二個工作區'}); });
-      await panel.getByRole('button', {name: '送到 PCS', exact: true}).click();
-      await panel.locator('#instances-row').waitFor();
-      // A newly discovered second instance must not inherit the earlier implicit choice.
-      const selected = await panel.locator('#instances').inputValue();
-      assert.equal(selected, '');
-      await panel.locator('#instances').selectOption('pcs-two');
-      await panel.getByRole('button', {name: '送到 PCS', exact: true}).click();
-      await panel.getByText('請在 PCS 預覽並保存', {exact: true}).waitFor();
-      const transfer = await panel.evaluate(() => fixtureState.calls.filter(call => call.action === 'transfer').at(-1));
-      assert.equal(transfer.instance_id, 'pcs-two');
-      await panel.getByRole('button', {name: '取消', exact: true}).click();
-      await panel.getByRole('button', {name: '顯示資料夾'}).click();
-      const call = await panel.evaluate(() => fixtureState.calls.find(call => call.action === 'reveal'));
-      assert.equal(call.operation_id, '12345678-1234-1234-1234-123456789abc');
-    });
-    await t.test('unknown outcome allows deliberate new selection without automatic resend', async () => {
-      await panel.evaluate(() => { fixtureState.currentState = 'unknown'; });
-      await panel.getByRole('button', {name: '送到 PCS', exact: true}).click();
-      await panel.getByText('尚未取得結果', {exact: true}).waitFor();
-      const before = await panel.evaluate(() => fixtureState.calls.filter(call => call.action === 'transfer'));
-      assert.ok(await panel.locator('#send').isDisabled());
-      await panel.getByRole('button', {name: '重新選取', exact: true}).click();
-      await panel.locator('#send:not(:disabled)').waitFor();
-      const after = await panel.evaluate(() => fixtureState.calls.filter(call => call.action === 'transfer'));
-      assert.equal(after.length, before.length);
-      await panel.getByRole('button', {name: '送到 PCS', exact: true}).click();
-      await panel.getByText('請在 PCS 預覽並保存', {exact: true}).waitFor();
-      const latest = await panel.evaluate(() => fixtureState.calls.filter(call => call.action === 'transfer').at(-1));
-      assert.notEqual(latest.operation_id, before.at(-1).operation_id);
-      await panel.getByRole('button', {name: '取消', exact: true}).click();
-    });
-    await t.test('360/600 layout, keyboard focus, no horizontal overflow; actual UI captures', async () => {
-      await panel.reload();
-      await panel.locator('.message').last().waitFor();
-      for (const width of [360, 600]) {
-        await panel.setViewportSize({width, height: 900});
-        const metrics = await panel.evaluate(() => ({scroll: document.documentElement.scrollWidth, width: innerWidth,
-          button: document.getElementById('send').getBoundingClientRect().width,
-          font: getComputedStyle(document.body).fontFamily}));
-        assert.ok(metrics.scroll <= metrics.width);
-        assert.ok(metrics.button > width - 50);
-        assert.match(metrics.font, /Segoe UI/);
-        if (process.env.PCS_SCREENSHOT_DIR) {
-          await mkdir(process.env.PCS_SCREENSHOT_DIR, {recursive: true});
-          await panel.screenshot({path: path.join(process.env.PCS_SCREENSHOT_DIR, `chrome-panel-${width}.png`), fullPage: true});
-        }
-      }
-      await panel.locator('#refresh').focus();
-      assert.equal(await panel.evaluate(() => document.activeElement.id), 'refresh');
-      assert.deepEqual(errors, []);
-    });
-    await panelContext.close();
-  } finally {
-    await browser.close();
-    await new Promise(resolve => server.close(resolve));
-  }
+  } finally { await browser.close(); }
 });

@@ -5,7 +5,6 @@ import {createHash} from 'node:crypto';
 import {selectCapture, markdownDocument, downloadName, encodeCapture, chunks, transferCapture,
   CHUNK_BYTES, MAX_CAPTURE_BYTES, statusLabel, isChatGPTUrl} from '../extensions/chrome/core.mjs';
 import {NativeClient} from '../extensions/chrome/native.mjs';
-import {excerpt} from '../extensions/chrome/preview.mjs';
 
 const sample = {
   version: 1, provider: 'chatgpt', conversation_id: 'synthetic-chat', title: '四天旅行',
@@ -100,16 +99,6 @@ test('URL boundary and Windows filenames', () => {
   assert.ok(!isChatGPTUrl('http://chatgpt.com/c/id'));
   assert.equal(downloadName('CON', 'json'), '對話-CON.json');
   assert.equal(downloadName('京都 / 四天?', 'md'), '京都 _ 四天_.md');
-});
-
-test('reading excerpts remove presentation markers without modifying captured content', () => {
-  const source = '### 行程\n\n**京都**\n\n| 時間 | 地點 |\n| --- | --- |\n| 10:00 | [清水寺](https://example.com/) |';
-  const value = excerpt(source);
-  assert.ok(value.includes('京都'));
-  assert.ok(value.includes('清水寺'));
-  assert.ok(!value.includes('###'));
-  assert.ok(!value.includes('---'));
-  assert.match(source, /\*\*京都\*\*/);
 });
 
 function fakeRuntime() {

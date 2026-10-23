@@ -110,11 +110,13 @@ def build(output: Path, builder_path: Path | None = None, *, include_extension: 
         source_hashes[relative.as_posix()] = hashlib.sha256(source.read_bytes()).hexdigest()
     (staging / "開始使用.md").write_text(
         "# PCS Chrome 連線\n\n"
-        "1. 在 PCS 的「ChatGPT 對話」頁面，選「設定 Chrome」→「安裝連接程式」。\n"
-        "2. 在 Chrome 開啟 `chrome://extensions`，啟用「開發人員模式」。\n"
-        "3. 選「載入未封裝項目」，選擇這裡的「chrome」資料夾。\n"
-        "4. 回到 ChatGPT 對話，按擴充功能的「送到 PCS」。\n\n"
-        "連線工具安裝在目前帳戶的 AppData 資料夾。\n",
+        "1. 在 PCS 的「ChatGPT 對話」頁面按「加入 Chrome」。\n"
+        "2. 在設定視窗按「連接 PCS」。\n"
+        "3. 按「開啟擴充頁」，啟用「開發人員模式」，再選「載入未封裝項目」。使用「開啟擴充資料夾」找到要載入的 chrome 資料夾。\n"
+        "4. 重新整理 ChatGPT 對話頁面。點訊息複製／分享列旁的「PCS」，在小選單中傳送或下載該則訊息。\n"
+        "5. 要處理整段對話或多則訊息，使用頁首的「PCS」。\n\n"
+        "## 更新已安裝的擴充\n\n"
+        "在 Chrome 擴充功能頁重新載入 PCS 擴充，再重新整理 ChatGPT 頁面。\n",
         encoding="utf-8")
     files = {}
     for path in sorted(staging.rglob("*")):

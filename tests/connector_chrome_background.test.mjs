@@ -21,22 +21,27 @@ test('background validates the current document and only forwards selected bodie
       },
     })};
   globalThis.chrome = {
-    runtime, sidePanel: {setPanelBehavior: async () => {}},
-    tabs: {query: async () => [{id: current.tabId, url: current.url}], get: async () => ({url: current.url})},
+    runtime, action: {onClicked:{addListener(){}}},
+    tabs: {get: async id => ({id, url: current.url})},
     scripting: {executeScript: async () => [{result: {capture, fingerprint: current.fingerprint}}]},
     storage: {local: {get: async key => ({[key]: storage[key]}), set: async values => Object.assign(storage, values)}},
   };
   try {
     await import('../extensions/chrome/background.mjs');
-    const sender = {id: runtime.id, url: runtime.getURL() + 'panel.html'};
+    const sender = {id: runtime.id, url:capture.url,tab:{id:7},frameId:0};
     const call = message => new Promise(resolve => { assert.equal(handler(message, sender, resolve), true); });
     const identity = {operation_id: '12345678-1234-1234-1234-123456789abc', instance_id: 'pcs-fixture'};
     const payload = {action: 'transfer', ...identity, context: {...current}, capture: selectCapture(capture, ['selected'])};
+    // Chrome's API serialization may reorder dictionary keys between worlds.
+    payload.capture.messages=payload.capture.messages.map(m=>({content:m.content,role:m.role,id:m.id}));
     current.fingerprint = 'switched-branch';
     const stale = await call(payload);
     assert.equal(stale.error.code, 'page_changed');
     assert.equal(nativeRequests.length, 0);
     current.fingerprint = payload.context.fingerprint;
+    const tampered=structuredClone(payload);tampered.capture.messages[0].content='changed body';
+    assert.equal((await call(tampered)).error.code,'page_changed');
+    assert.equal(nativeRequests.length,0);
     const result = await call(payload);
     assert.equal(result.result.state, 'previewing');
     const body = Buffer.concat(nativeRequests.filter(item => item.command === 'chunk').map(item => Buffer.from(item.data, 'base64'))).toString('utf8');
@@ -49,7 +54,9 @@ test('background validates the current document and only forwards selected bodie
     await call({action: 'open', ...identity, path: 'C:/arbitrary/untrusted.exe'});
     assert.equal(nativeRequests.at(-1).path, undefined);
     assert.equal(nativeRequests.at(-1).operation_id, identity.operation_id);
-    assert.equal(handler({action: 'hello'}, {...sender, tab: {id: 7}}, () => {}), false);
+    assert.equal(handler({action: 'hello'}, {...sender, frameId:1}, () => {}), false);
+    assert.equal(handler({action: 'hello'}, {...sender, url:'https://example.com'}, () => {}), false);
+    assert.equal(handler({action: 'hello'}, {...sender, tab:undefined}, () => {}), false);
     const another = {...identity, operation_id: '11111111-1234-1234-1234-123456789abc'};
     await call({action: 'dismiss', ...another});
     assert.equal(storage.recent[0].dismissed, true);

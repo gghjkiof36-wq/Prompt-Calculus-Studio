@@ -1,12 +1,13 @@
 // This function is serialized by chrome.scripting; keep dependencies inside it.
 // It reads the displayed document only. It never calls ChatGPT's internal APIs.
-export async function captureLoadedConversation() {
+export async function captureLoadedConversation(returnErrors = false) {
+ try {
   const startUrl = location.href;
   const url = new URL(startUrl);
   if (url.protocol !== 'https:' || !['chatgpt.com', 'chat.openai.com'].includes(url.hostname)) {
     throw new Error('請開啟 ChatGPT 對話。');
   }
-  const main = document.querySelector('main');
+  const main = document.querySelector('main, [role="main"]');
   if (!main) throw new Error('尚未找到對話，請稍後重新讀取。');
   const visible = (element, media = false) => {
     for (let current = element; current && current !== document.body; current = current.parentElement) {
@@ -39,7 +40,7 @@ export async function captureLoadedConversation() {
   const isActivity = node => !!node.closest(activitySelector);
   function render(node, depth = 0) {
     if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
-    if (node.nodeType !== Node.ELEMENT_NODE || ignored.has(node.tagName) || !visible(node) || isActivity(node) || resourceNodes.has(node)) return '';
+    if (node.nodeType !== Node.ELEMENT_NODE || node.closest('[data-pcs-ui]') || ignored.has(node.tagName) || !visible(node) || isActivity(node) || resourceNodes.has(node)) return '';
     const children = () => [...node.childNodes].map(child => render(child, depth)).join('');
     const text = () => children().trim();
     const tag = node.tagName;
@@ -115,10 +116,11 @@ export async function captureLoadedConversation() {
   const hash = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))]
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
   const messages = [];
+  const anchors = [];
   const ids = new Set();
   let resourceCount = 0;
   const elements = [...main.querySelectorAll('[data-message-author-role]')].filter(element => visible(element));
-  for (const element of elements) {
+  for (const [elementIndex,element] of elements.entries()) {
     const role = element.getAttribute('data-message-author-role');
     if (!['user', 'assistant'].includes(role)) continue;
     const resources = [];
@@ -156,6 +158,7 @@ export async function captureLoadedConversation() {
     if (ids.has(id)) throw new Error('對話正在更新，請重新讀取。');
     ids.add(id);
     messages.push({id, role, content, ...(resources.length ? {resources} : {})});
+    anchors.push({id,index:elementIndex});
   }
   if (!messages.length) throw new Error('這個頁面還沒有可讀取的訊息。');
   const fingerprint = await hash(JSON.stringify(messages));
@@ -167,6 +170,10 @@ export async function captureLoadedConversation() {
   return {
     capture: {version: 1, provider: 'chatgpt', conversation_id: conversationId, title, url: sourceUrl,
       method: 'dom', scope: 'loaded', messages, adapter_version: '1', captured_at: new Date().toISOString()},
-    fingerprint,
+    fingerprint, anchors,
   };
+ } catch (error) {
+   if (!returnErrors) throw error;
+   return {capture_error:{code:'capture_failed',message:error?.message || '讀取對話失敗，請重新整理頁面。'}};
+ }
 }
