@@ -52,7 +52,7 @@ def open_source(surface,path,position=0,read=None):
     if tab is None:return
     target=getattr(tab.widget,'md_surface',None)
     if target is None:return
-    if existing is None or read is not None:
+    if read is not None or (existing is None and not hasattr(workspace,'markdown_mode')):
         target.set_mode('read' if (surface.mode=='read' if read is None else read) else 'write')
     target.navigate_when_ready(position)
     return tab

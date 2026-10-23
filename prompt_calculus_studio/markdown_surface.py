@@ -40,7 +40,7 @@ class MarkdownSurface(QWidget):
         self.search_button.setCheckable(True)
         self.outline_button=self.tool('大綱',self.toggle_outline,'list')
         self.outline_button.setCheckable(True)
-        self.mode_box = self.tool('編寫 · 切換文件視圖', self.mode_menu, 'pencil')
+        self.mode_box = self.tool('編寫 · 切換模式', self.mode_menu, 'pencil')
         self.mode_box.setObjectName('MarkdownMode')
         self.view_tools = self.tool('更多', self.view_menu, 'more-horizontal')
         self.view_tools.setObjectName('MarkdownViewTools')
@@ -130,6 +130,8 @@ class MarkdownSurface(QWidget):
         self.load_preferences(apply=False)
         self.apply_appearance();self.apply_preferences();self.refresh()
         self.editor.document().setLayoutEnabled(not self.page.buffer.opening)
+        workspace = self.page.file_title.workspace
+        if hasattr(workspace, 'markdown_mode'):self.apply_mode(workspace.markdown_mode, focus=False)
 
     def prepare_workspace_show(self):
         # Standalone adapters may bind their workspace after construction.
@@ -350,6 +352,13 @@ class MarkdownSurface(QWidget):
         menu.open_for(self.mode_box,align_right=True)
 
     def set_mode(self, mode):
+        workspace = self.page.file_title.workspace
+        if hasattr(workspace, 'set_markdown_mode'):
+            return workspace.set_markdown_mode(mode, self)
+        return self.apply_mode(mode)
+
+    def apply_mode(self, mode, *, focus=True):
+        """Apply presentation without publishing a new global preference."""
         self.page.buffer.flush_mutation()
         if self.page.buffer.opening:
             if mode in ('write','source','read'):self.pending_mode=mode
@@ -358,15 +367,17 @@ class MarkdownSurface(QWidget):
         if mode not in ('write', 'source', 'read'):return
         self.mode = mode
         label,symbol={'write':('編寫','pencil'),'source':('原文','source-code'),'read':('閱讀','book-open')}[mode]
-        self.mode_box.setIcon(icon(symbol));self.mode_box.setToolTip(label+' · 切換文件視圖');self.mode_box.setAccessibleName(label+' · 切換文件視圖')
+        self.mode_box.setIcon(icon(symbol));self.mode_box.setToolTip(label+' · 切換模式');self.mode_box.setAccessibleName(label+' · 切換模式')
         self.toolbar_host.setVisible(mode != 'read');self.replace_row.setVisible(False)
         self.title_host.setVisible(True)
         self.outline.setDragEnabled(mode != 'read')
         if mode == 'read':
             self.stack.setCurrentWidget(self.reader)
-            self.reader.refresh_cached();self.reader.setFocus()
+            if focus or self.isVisible():self.reader.refresh_cached()
+            if focus:self.reader.setFocus()
         else:
-            self.editor.mode = mode;self.editor.update_metadata();self.stack.setCurrentWidget(self.editor);self.editor.setFocus()
+            self.editor.mode = mode;self.editor.update_metadata();self.stack.setCurrentWidget(self.editor)
+            if focus:self.editor.setFocus()
         self.update_title_layout();self.search_changed();self.update_statistics();self.update_controls()
         self.outline_layout.schedule()
 
@@ -578,7 +589,7 @@ class MarkdownSurface(QWidget):
         if self.page.buffer.opening:
             self.update_statistics();self.update_controls();return
         if not self.editor.lazy_presentation or self.outline_layout.requested:self.outline.rebuild(self.page.buffer.snapshot().text)
-        if self.mode == 'read':self.reader.refresh_cached()
+        if self.mode == 'read' and self.isVisible():self.reader.refresh_cached()
         snapshot=self.page.buffer.snapshot()
         if getattr(self,'_relations_snapshot',None) is not snapshot:
             self._relations_snapshot=snapshot
@@ -605,25 +616,26 @@ class MarkdownSurface(QWidget):
 
     def toggle_outline(self):self.outline_layout.toggle()
 
-    def navigate(self, position):
+    def navigate(self, position, *, focus=True):
         if self.page.buffer.opening:
             self.pending_position=position
             return
         snapshot = self.page.buffer.snapshot();line = snapshot.text[:position].count('\n')
         if self.mode == 'read':self.reader.scrollToAnchor('line-'+str(line));return
-        self.editor.fold_all(False);cursor = self.editor.textCursor();cursor.setPosition(utf16_position(snapshot.text, position));self.editor.setTextCursor(cursor);self.editor.ensureCursorVisible();self.editor.setFocus()
+        self.editor.fold_all(False);cursor = self.editor.textCursor();cursor.setPosition(utf16_position(snapshot.text, position));self.editor.setTextCursor(cursor);self.editor.ensureCursorVisible()
+        if focus:self.editor.setFocus()
 
     @Slot()
     def source_ready(self):
-        mode=getattr(self,'pending_mode',self.mode)
-        self.pending_mode=mode
-        self.set_mode(mode)
+        workspace=self.page.file_title.workspace
+        mode=getattr(workspace,'markdown_mode',getattr(self,'pending_mode',self.mode))
+        self.apply_mode(mode,focus=False)
         position=getattr(self,'pending_position',None)
         if position is None:return
         self.pending_position=None
-        self.navigate_when_ready(position)
+        self.navigate_when_ready(position,focus=False)
 
-    def navigate_when_ready(self,position):
+    def navigate_when_ready(self,position,*,focus=True):
         if self.page.buffer.opening:
             self.pending_position=position;return
         web=self.reader.rich if self.mode=='read' else None
@@ -631,7 +643,7 @@ class MarkdownSurface(QWidget):
             self.read_position=position
             if not getattr(self,'waiting_for_read',False):
                 self.waiting_for_read=True;web.rendered.connect(self.read_navigation_ready)
-        else:self.navigate(position)
+        else:self.navigate(position,focus=focus)
 
     @Slot()
     def read_navigation_ready(self):

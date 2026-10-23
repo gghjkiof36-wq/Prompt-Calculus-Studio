@@ -18,7 +18,7 @@ def open_initial_documents(window, *, left_path=None, right_path=None):
         if welcome.is_file() and not is_link(welcome):
             left = window.open_path(welcome)
             surface = getattr(left.widget, 'md_surface', None) if left else None
-            if surface:
+            if surface and not window._markdown_mode_chosen:
                 surface.set_mode('read')
     if right_path:
         window.open_path(right_path, pane=window.ensure_split())

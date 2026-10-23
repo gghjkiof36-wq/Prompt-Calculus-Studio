@@ -119,6 +119,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.sidebar_width = 264
         self.show_empty_folders = True
         self.navigation_position = 'side'
+        self.markdown_mode = 'write'
+        self._markdown_mode_chosen = False
         self.locations = WorkspaceLocations(self.root, self.data, self.read_navigation_json('linked-folders.json'))
         self.commands = WorkspaceCommands(self)
         from .workspace_autosave import WorkspaceAutosave
@@ -479,6 +481,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 self.navigation_position=position
             if type(saved.get('show_empty_folders')) is bool:
                 self.show_empty_folders = saved['show_empty_folders']
+            if saved.get('markdown_mode') in ('write', 'source', 'read'):
+                self.markdown_mode = saved['markdown_mode']
+                self._markdown_mode_chosen = True
         except (ValueError,OSError):
             pass
 
@@ -492,11 +497,28 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                      sidebar_auto_hide=self.sidebar_auto_hide, sidebar_open_delay=self.sidebar_open_delay,
                      sidebar_close_delay=self.sidebar_close_delay,
                      navigation_position=self.navigation_position, show_empty_folders=self.show_empty_folders)
+        if self._markdown_mode_chosen:saved['markdown_mode'] = self.markdown_mode
         output=QSaveFile(str(self.data/'workspace-ui.json'))
         output.setDirectWriteFallback(False)
         if output.open(QIODevice.OpenModeFlag.WriteOnly):
             output.write(json.dumps(saved,ensure_ascii=False).encode('utf-8'))
             output.commit()
+
+    def set_markdown_mode(self, mode, origin=None):
+        """One workspace preference; source buffers and histories stay local."""
+        if mode not in ('write', 'source', 'read'):return False
+        surfaces = [tab.widget.md_surface for tab in self.all_pages() if isinstance(tab.widget, MarkdownPage)]
+        if origin is not None and origin not in surfaces:surfaces.append(origin)
+        if any(surface.page.buffer.composing for surface in surfaces):
+            if origin is not None:origin.report('請先完成目前的中文組字。')
+            return False
+        self.markdown_mode = mode
+        self._markdown_mode_chosen = True
+        self.save_ui_preferences()
+        for surface in surfaces:
+            if surface.mode != mode or surface is origin or surface.page.buffer.opening:
+                surface.apply_mode(mode, focus=surface is origin)
+        return True
 
     def sync_display_settings(self, settings, preview=None):
         previous = self.display_settings()

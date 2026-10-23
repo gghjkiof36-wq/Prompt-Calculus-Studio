@@ -397,7 +397,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
             self.w.tree.itemDelegate().initStyleOption(option, index)
             return self.w.tree.style().subElementRect(QStyle.SubElement.SE_ItemViewItemText, option, self.w.tree).x()
         self.assertEqual(text_x(self.folder/'Nested.md'), text_x(self.folder))
-        self.assertEqual(text_x(self.note), text_x(self.folder))
+        self.assertEqual(text_x(self.note), text_x(self.root))
 
     def test_file_menu_operations_target_clicked_file_and_root_only_unlinks(self):
         context = self.w.commands.context('tree', self.item(self.folder/'Nested.md'))

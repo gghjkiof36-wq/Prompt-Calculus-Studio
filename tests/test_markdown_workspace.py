@@ -44,10 +44,11 @@ class MarkdownWorkspaceTests(unittest.TestCase):
         layout_fixture.WorkspaceLayoutTests.restart(self)
         pages=[tab.widget for tab in self.w.tabs_by_key.values() if tab.path and tab.path.name=='Empty.md']
         self.assertEqual(len(pages),2)
-        self.assertEqual([p.md_surface.mode for p in pages],['source','read'])
+        self.assertEqual([p.md_surface.mode for p in pages],['source','source'])
         self.assertEqual((pages[0].textCursor().position(),pages[0].textCursor().anchor()),expected)
         self.assertEqual(pages[0].md_surface.preferences['reading_size'],14)
         self.assertEqual(pages[0].encoded(),saved);self.assertIs(pages[0].buffer,pages[1].buffer)
+        pages[1].md_surface.set_mode('read');self.events()
         self.assertIn('中文筆記',pages[1].md_surface.reader.toPlainText())
 
     def test_style_transaction_uses_one_autosave_and_shared_undo(self):

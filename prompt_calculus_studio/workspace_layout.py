@@ -45,7 +45,6 @@ def view_state(tab):
         cursor = page.textCursor()
         return dict(cursor=[cursor.position(), cursor.anchor()],
                     scroll=[page.horizontalScrollBar().value(), page.verticalScrollBar().value()],
-                    markdown_mode=page.md_surface.mode,
                     reading_scroll=page.md_surface.reader.verticalScrollBar().value())
     if tab.host:
         tab.host.remember_canvas_view()
@@ -84,7 +83,9 @@ class RestoreView(QObject):
         tab, state = self.tab, self.state
         if isinstance(tab.widget, MarkdownPage):
             page = tab.widget
-            page.md_surface.set_mode(state.get('markdown_mode', 'write'))
+            workspace = page.file_title.workspace
+            mode = getattr(workspace, 'markdown_mode', state.get('markdown_mode', 'write'))
+            page.md_surface.apply_mode(mode, focus=False)
             saved = state.get('cursor')
             if finite_values(saved, 2):
                 maximum = max(0, page.document().characterCount()-1)

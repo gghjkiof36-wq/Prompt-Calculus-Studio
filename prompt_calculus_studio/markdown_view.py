@@ -132,7 +132,22 @@ class Syntax:
             # Resolve nested foreground/background styles together. An explicit
             # author-selected foreground always wins over automatic ink.
             self.resolve_contrast()
-        for match in re.finditer(r'\]\([^)]*\)', text):syntax(match.start(), match.end())
+        if '[' in text and '](' in text:
+            from .markdown_links import links
+            for link in links(text):
+                if link.wiki:continue
+                first=link.start+(2 if link.embed else 1)
+                last=first+len(link.label)
+                # Collapse a complete inline link as a pair. Keep reference
+                # definitions, escaped syntax and code as their original text.
+                if text[last:last+2]!='](':continue
+                suffix=text[link.target_end:link.end]
+                if text[link.target_start-1:link.target_start]=='<':suffix=suffix[1:]
+                if not re.fullmatch(r'''(?:\s+(["'])(?:\\.|(?!\1)[^\n])*\1)?\s*\)''',suffix):continue
+                opening=link.start
+                if link.embed and (opening-len(text[:opening].rstrip('\\')))%2:
+                    opening+=1  # An escaped ! is prose, not an image marker.
+                syntax(opening,first);syntax(last,link.end)
         if '\\' in text:
             for offset in escaped_markers(text,text_spans):syntax(offset,offset+1)
 
