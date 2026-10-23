@@ -1,6 +1,6 @@
 # 開始使用
 
-[回首頁](../../README.md) · 適用：0.8.9 Beta
+[回首頁](../../README.md) · 適用：0.8.9 Beta2
 
 本版預設開啟分頁工作區。完整的下載、Python 環境、文件與資料位置，以及更新注意事項見[0.8.9 開始使用](workspace-089.md)。
 
@@ -29,4 +29,4 @@
 
 完整備份包含私人素材，生成 PNG 也保留必要 Prompt 與還原參照，分享前[檢查附加資訊](data-backup-privacy.md)。`SHA256SUMS.txt` 用於下載完整性核對，並非數位簽章。
 
-本版的保存恢復、大型操作及實機驗證界線見[Beta 紀錄](../releases/0.8.9/validation/beta.md)。0.8.8 的操作與驗證保留於[版本頁](../releases/0.8.8/README.md)。
+本版的保存恢復、大型操作及實機驗證界線見[Beta 紀錄](../releases/0.8.9/validation/beta.2.md)。0.8.8 的操作與驗證保留於[版本頁](../releases/0.8.8/README.md)。

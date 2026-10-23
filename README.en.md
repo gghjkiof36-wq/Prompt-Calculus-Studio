@@ -16,15 +16,15 @@ Notes, prompt editing and copying work without ComfyUI. Generation requires your
 
 ## This release
 
-This release adds formatted paste and selective conversation import, and updates reading, source-column sizing, sidebar tab dragging and model details. Closing documents saves edits or retains a recovery copy where writable storage is available. Viewing a material no longer marks it as changed. Tabbed Canvas binding and task recovery are also updated. See the [release notes](docs/releases/0.8.9/beta.md) (Chinese).
+Beta2 fixes recovery drafts, close protection, partial conversation imports and backup cancellation. It also reduces repeated Markdown rendering and search work, repairs navigation near the end of large documents, refreshes reading after note-folder changes, and reuses verified image data within an operation. See the [release notes](docs/releases/0.8.9/beta.2.md) (Chinese).
 
 ## Download and start
 
-Use **[0.8.9 Beta](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta)**, a prerelease.
+Use **[0.8.9 Beta2](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta.2)**, a prerelease.
 
-- `PCS-v0.8.9-Beta-source.zip`: source application, welcome page, tutorials, extension and installer.
-- `PCS-v0.8.9-Beta-ComfyUI.zip`: universal extension.
-- `PCS-v0.8.9-Beta-ComfyUI-legacy-0.39.2.zip` or `PCS-v0.8.9-Beta-ComfyUI-modern-0.40.0.zip`: alternative compatibility profiles; install one copy only.
+- `PCS-v0.8.9-Beta2-source.zip`: source application, welcome page, tutorials, extension and installer.
+- `PCS-v0.8.9-Beta2-ComfyUI.zip`: universal extension.
+- `PCS-v0.8.9-Beta2-ComfyUI-legacy-0.39.2.zip` or `PCS-v0.8.9-Beta2-ComfyUI-modern-0.40.0.zip`: alternative compatibility profiles; install one copy only.
 - `SHA256SUMS.txt`: download checksums.
 
 No Windows executable is publicly distributed in this release. Install 64-bit Python 3.12 on Windows, extract the source archive and open PowerShell beside `run.py`:
@@ -32,7 +32,7 @@ No Windows executable is publicly distributed in this release. Install 64-bit Py
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py --v0.8.9-beta
+.\.venv\Scripts\python.exe run.py --v0.8.9-beta.2
 ```
 
 The first installation downloads dependencies. Afterwards, double-click `Start.cmd`. For generation, install the matching extension, restart the backend and refresh the workflow browser page yourself. The old preparation.7 extension supports formats 1–6; format 7 needs an updated extension. Check the loaded version after installation. See [setup](docs/guide/workspace-089.md) and [compatibility](docs/guide/comfyui-compatibility.md) (Chinese).
@@ -45,10 +45,10 @@ New documents live in `files`; settings, recovery data and task records live in 
 
 ## Known limitations
 
-- Older imports that copied the entire conversation source are not cleaned automatically. Re-import into a new copy, retain your edited notes and inspect attachments before sharing.
-- After closing another view of the same file, a second large HTML paste may remain at the preparation stage. Existing text and disk content remain unchanged; typing, saving and closing still work. Close and reopen the affected page before pasting again.
-- Large documents can still pause. The cause of occasional CivitAI exits remains unresolved. Real archives, complete native UI/media/IME/DPI coverage, old-database acceptance and live ComfyUI/GPU use have validation limits; see the [current summary](docs/releases/0.8.9/validation/beta.md).
-- PNG metadata, imported raw records, attachments, recovery data and backups can contain private content. [Inspect before sharing](docs/guide/data-backup-privacy.md) (Chinese).
+- Large documents, HTML paste and large JSON imports can still pause. Improvements in a particular sample are not a general speed guarantee.
+- Older imports that copied the entire conversation source are not cleaned automatically. Re-import into a separate copy, retain edited notes and inspect attachments before sharing.
+- Native input, DPI, real archives, old databases and live ComfyUI/GPU coverage remain incomplete. Some abnormal exits still need clarification; see the [current limits](docs/releases/0.8.9/validation/beta.2.md).
+- PNG metadata, imported records, attachments, recovery data and backups can contain private content. [Inspect before sharing](docs/guide/data-backup-privacy.md) (Chinese).
 
 [Release history](docs/releases/0.8.9/README.md) · [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 

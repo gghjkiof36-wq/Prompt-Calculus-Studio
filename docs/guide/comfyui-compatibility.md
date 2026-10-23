@@ -1,18 +1,18 @@
 # ComfyUI 配套與資料格式相容
 
-適用：PCS 0.8.9 Beta · [安裝步驟](comfyui.md) · [疑難排解](troubleshooting.md)
+適用：PCS 0.8.9 Beta2 · [安裝步驟](comfyui.md) · [疑難排解](troubleshooting.md)
 
 ## 選擇同版配套
 
-主程式與配套擴充都須更新。0.8.9 Beta 的通用、legacy 與 modern 配套使用同源核心，支援 PCS 文件／快照格式 **1–7**；每次只在 `custom_nodes` 安裝一份 PCS 擴充。
+主程式與配套擴充都須更新。0.8.9 Beta2 的通用、legacy 與 modern 配套使用同源核心，支援 PCS 文件／快照格式 **1–7**；每次只在 `custom_nodes` 安裝一份 PCS 擴充。
 
 | 配套 | ComfyUI 後端對照 | 前端對照 |
 |---|---|---|
-| 通用 `PCS-v0.8.9-Beta-ComfyUI.zip` | 一般安裝入口使用 | 依實際工作流能力核對 |
-| `PCS-v0.8.9-Beta-ComfyUI-legacy-0.39.2.zip` | 0.39.2 | 1.53.10 |
-| `PCS-v0.8.9-Beta-ComfyUI-modern-0.40.0.zip` | 0.40.0 | 1.55.17 |
+| 通用 `PCS-v0.8.9-Beta2-ComfyUI.zip` | 一般安裝入口使用 | 依實際工作流能力核對 |
+| `PCS-v0.8.9-Beta2-ComfyUI-legacy-0.39.2.zip` | 0.39.2 | 1.53.10 |
+| `PCS-v0.8.9-Beta2-ComfyUI-modern-0.40.0.zip` | 0.40.0 | 1.55.17 |
 
-legacy／modern 是包內 `COMFYUI_COMPATIBILITY.json` 的相容設定檔，共用同一套核心；不代表本輪已完成兩版真實 GPU 驗收。其他 ComfyUI 版本、官方 Desktop、新機與第三方節點需按實際環境核對。[本版 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta)列出下載附件。
+legacy／modern 是包內 `COMFYUI_COMPATIBILITY.json` 的相容設定檔，共用同一套核心；不代表本輪已完成兩版真實 GPU 驗收。其他 ComfyUI 版本、官方 Desktop、新機與第三方節點需按實際環境核對。[本版 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta.2)列出下載附件。
 
 ## 遇到「不支援的備份版本」
 
@@ -41,6 +41,6 @@ CLIP、圖片輸入與 Stage 使用目前 Canvas 的連線與工作流清單。�
 
 ## 證據適用範圍
 
-來源、合成回覆、套件與真實安裝的證據分開記錄。本版固定功能與未驗範圍見[Beta 驗證紀錄](../releases/0.8.9/validation/beta.md)。套件格式及離線檢查不能代替你目前服務的實際載入、工作流或 GPU 生成。
+來源、合成回覆、套件與真實安裝的證據分開記錄。本版固定功能與未驗範圍見[Beta 驗證紀錄](../releases/0.8.9/validation/beta.2.md)。套件格式及離線檢查不能代替你目前服務的實際載入、工作流或 GPU 生成。
 
 較早版本的真服務結果只適用當時來源；格式 5 的歷史安裝結果不能當作目前格式 7、全部新配套或 GPU 工作流的通過紀錄。

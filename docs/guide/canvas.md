@@ -1,6 +1,6 @@
 # Canvas 與工作區
 
-適用：0.8.9 Beta · [使用指南](README.md)
+適用：0.8.9 Beta2 · [使用指南](README.md)
 
 ## 打開一份 Canvas
 

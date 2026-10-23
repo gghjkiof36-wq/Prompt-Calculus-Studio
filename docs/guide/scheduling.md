@@ -1,6 +1,6 @@
 # 預排程與任務管理
 
-適用：0.8.9 Beta · [使用指南](README.md)
+適用：0.8.9 Beta2 · [使用指南](README.md)
 
 預排程保存文字、圖片、綁定輸入或連續 Stage 的待辦。排入等待不等於凍結整張原生工作流；先確認[Stage 接線](stage.md)與[素材取值](prompt-materials-088.md)。
 
@@ -52,4 +52,4 @@ ComfyUI 已完成但未顯示結果時，從活動任務紀錄重取；狀態未
 
 「已加入佇列」或取消要求的回執都不表示生成已完成或後端已停止。狀態未知時先查原任務；不要靠重複按執行來判斷是否送出。生成期間仍需保持 PCS、ComfyUI 後端與工作流網頁開啟。
 
-執行紀錄在 `data` 中，備份與搬移應同時保留文件及資料目錄。詳見[資料、備份與隱私](data-backup-privacy.md)，本版驗證界線見[Beta 紀錄](../releases/0.8.9/validation/beta.md)。
+執行紀錄在 `data` 中，備份與搬移應同時保留文件及資料目錄。詳見[資料、備份與隱私](data-backup-privacy.md)，本版驗證界線見[Beta 紀錄](../releases/0.8.9/validation/beta.2.md)。

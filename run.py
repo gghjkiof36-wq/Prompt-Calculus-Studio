@@ -9,7 +9,7 @@ sys.path.insert(0,str(ROOT/"vendor"))
 def main():
     # The current release starts the document workspace. Explicit historical
     # flags retain the old entry point for its diagnostics and saved packages.
-    if not any(arg.startswith('--v0') or arg.endswith('smoke-test') for arg in sys.argv[1:]) or any(flag in sys.argv[1:] for flag in ('--v0.8.9-alpha','--v0.8.9-beta')):
+    if not any(arg.startswith('--v0') or arg.endswith('smoke-test') for arg in sys.argv[1:]) or any(flag in sys.argv[1:] for flag in ('--v0.8.9-alpha','--v0.8.9-beta','--v0.8.9-beta.2')):
         from run_workspace import main as workspace_main
         return workspace_main()
     os.environ.setdefault('PROMPT_STUDIO_V08','1')

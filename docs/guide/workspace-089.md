@@ -1,20 +1,20 @@
-# 開始使用 0.8.9 Beta
+# 開始使用 0.8.9 Beta2
 
-[更新內容](../releases/0.8.9/beta.md) · [驗證與限制](../releases/0.8.9/validation/beta.md)
+[更新內容](../releases/0.8.9/beta.2.md) · [驗證與限制](../releases/0.8.9/validation/beta.2.md)
 
 ## 來源版
 
-將 `PCS-v0.8.9-Beta-source.zip` 完整解壓到新的資料夾。使用 Windows 64 位元 Python 3.12，在含 `run.py` 的資料夾開啟 PowerShell：
+將 `PCS-v0.8.9-Beta2-source.zip` 完整解壓到新的資料夾。使用 Windows 64 位元 Python 3.12，在含 `run.py` 的資料夾開啟 PowerShell：
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py --v0.8.9-beta
+.\.venv\Scripts\python.exe run.py --v0.8.9-beta.2
 ```
 
 首次安裝依賴需網路，之後雙擊 `Start.cmd`。首次會開啟「歡迎使用.md」，從裡面的連結進入「入口」資料夾的教材。之後會接續已保存的分頁；關閉歡迎頁後，不會每次強制插回。教材可直接編輯，想保留初始內容可先複製文件。
 
-本版公開來源與三種配套，沒有 Windows EXE 下載。下載入口見[本次 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta)。
+本版公開來源與三種配套，沒有 Windows EXE 下載。下載入口見[本次 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta.2)。
 
 ## 內容與資料
 
@@ -39,7 +39,7 @@ py -3.12 -m venv .venv
 
 ## 關閉、草稿與恢復
 
-關頁或退出先保存；寫入失敗保留本機恢復資料後可離開。原檔已被外部修改時保留恢復內容，不直接覆寫原件。恢復編輯內容不等於恢復上次完整 Undo 歷史；主恢復位置及暫存備援都不可寫時，不能保證退出後找回，請另存到可寫位置。
+關頁或退出先完成輸入法組字，再保存。若提交後仍在組字，視窗會保持開啟。原檔或內容刷新失敗，且恢復副本也未成功寫入時，保留視窗、稿件與目前 Undo，請先保存或另存到可寫位置。恢復副本已落盤、正常保存或明確捨棄時，沿原流程關閉。原檔已被外部修改時不直接覆寫；重開恢復內容也不等於恢復先前完整 Undo 歷史。
 
 素材編輯視窗可點外側、按 Esc 或關閉圖示離開；未確認表單保留為該素材草稿，下次開啟再恢復。「保存」提交內容，「捨棄修改」清除草稿，只查看不製造修改。模型詳情的自動保存與圖片操作見[媒體庫與模型](media-models.md)。
 
@@ -61,4 +61,8 @@ PCS、ComfyUI 後端與工作流網頁仍須保持開啟。這個順序只協調
 
 保留舊程式、舊擴充及原資料。先以新的資料目錄和內容副本使用 0.8.9，不讓新舊程式同時寫入同一份資料。完整舊資料庫導入仍有驗證限制；這個啟動器不會自行轉換或刪除原安裝。
 
-同檔另一視圖關閉後，第二次大型 HTML 貼上可能一直整理；保存後關閉該頁再重開可恢復。舊匯入輸出不自動清理，需重匯另存並保留手改內容。大型文件、CivitAI 偶發退出與其他限制見[本版摘要](../releases/0.8.9/validation/beta.md)。
+舊匯入輸出不自動清理，需重匯另存並保留手改內容。大型文件及異常退出的剩餘限制見[本版摘要](../releases/0.8.9/validation/beta.2.md)。
+
+## 筆記範圍與閱讀更新
+
+新增或移除筆記資料夾後，閱讀中的嵌入筆記會依目前有效範圍重新解析。較深的資料夾可以改變同名筆記的可見範圍；舊範圍的背景結果不會蓋回目前內容。可見閱讀頁延遲刷新，隱藏頁在返回時更新，原稿、未保存修改與瀏覽位置保持原有歸屬。

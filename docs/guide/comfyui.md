@@ -1,6 +1,6 @@
 # ComfyUI 整合
 
-適用：0.8.9 Beta · [使用指南](README.md)
+適用：0.8.9 Beta2 · [使用指南](README.md)
 
 先確認本機 ComfyUI 與工作流能正常生成；本版需要保持該工作流網頁開啟。
 
@@ -14,7 +14,7 @@
 
 ## 手動安裝方式
 
-從 [同版 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta) 取得 `PCS-v0.8.9-Beta-ComfyUI.zip`，解壓到 ComfyUI 安裝目錄以外。完整資料夾名稱為 `comfyui_prompt_calculus_studio`；開發原始碼中的同名資料夾缺少打包時加入的共用核心，請使用完整擴充 ZIP。
+從 [同版 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta.2) 取得 `PCS-v0.8.9-Beta2-ComfyUI.zip`，解壓到 ComfyUI 安裝目錄以外。完整資料夾名稱為 `comfyui_prompt_calculus_studio`；開發原始碼中的同名資料夾缺少打包時加入的共用核心，請使用完整擴充 ZIP。
 
 先啟動一次 PCS 建立資料庫，再關閉 ComfyUI。使用完整擴充包內的安裝腳本，將範例路徑改成實際位置：
 
@@ -33,7 +33,7 @@
 
 ## 配套及格式版本
 
-0.8.9 Beta 的通用、legacy 0.39.2、modern 0.40.0 配套使用同源核心，支援文件格式 1–7；每次只安裝一份。主程式與配套都要更新。這些是相容設定檔，真實服務／GPU驗證範圍另列，見[相容指南](comfyui-compatibility.md)。
+0.8.9 Beta2 的通用、legacy 0.39.2、modern 0.40.0 配套使用同源核心，支援文件格式 1–7；每次只安裝一份。主程式與配套都要更新。這些是相容設定檔，真實服務／GPU驗證範圍另列，見[相容指南](comfyui-compatibility.md)。
 
 ## 第一次連接與綁定
 
@@ -74,4 +74,4 @@ Legacy Manager 以讀取清單及開啟 ComfyUI 操作為主。若共用更新�
 
 桌面及擴充使用同一版本；PNG 的 `prompt_studio` 欄位、`PROMPT_STUDIO_DATA` 環境變數與既有資料識別保留相容用途。擴充設定與歷史位於 ComfyUI 的 `user/prompt_studio`，另有指向桌面資料庫的 `local_library.json`。更新時備份擴充及資料；回退使用舊程式、舊擴充與舊資料副本，勿覆蓋新資料。詳見 [資料與隱私](data-backup-privacy.md)。
 
-格式支援與真實服務驗證見[相容指南](comfyui-compatibility.md)及[本版紀錄](../releases/0.8.9/validation/beta.md)。連線正常但模式不提供工作流能力時，依具體提示處理，不一定需要重裝擴充。
+格式支援與真實服務驗證見[相容指南](comfyui-compatibility.md)及[本版紀錄](../releases/0.8.9/validation/beta.2.md)。連線正常但模式不提供工作流能力時，依具體提示處理，不一定需要重裝擴充。

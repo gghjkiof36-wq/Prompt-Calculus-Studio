@@ -1,6 +1,6 @@
 # 使用指南
 
-適用：0.8.9 Beta · [專案首頁](../../README.md) · [完整文件目錄](../README.md)
+適用：0.8.9 Beta2 · [專案首頁](../../README.md) · [完整文件目錄](../README.md)
 
 第一次使用，先讀[分頁工作區與 Markdown](workspace-089.md)，再依需要整理 Prompt 或接上 ComfyUI。部分主題圖仍保留當時版本標示；現行入口以 0.8.9 指南為準。
 
@@ -23,6 +23,6 @@
 | 處理安裝、連線與生成問題 | [疑難排解](troubleshooting.md) |
 | 了解專案及第三方授權 | [授權說明](licensing.md) |
 
-版本變更見[0.8.9 版本主頁](../releases/0.8.9/README.md)，目前的已知限制與驗證範圍見[Beta 紀錄](../releases/0.8.9/validation/beta.md)。
+版本變更見[0.8.9 版本主頁](../releases/0.8.9/README.md)，目前的已知限制與驗證範圍見[Beta 紀錄](../releases/0.8.9/validation/beta.2.md)。
 
 [Prompt Editor：素材、資料夾與畫布副本](prompt-editor.md)
