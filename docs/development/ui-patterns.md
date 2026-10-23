@@ -1,0 +1,61 @@
+# UI 元件與互動原則
+
+[開發指南](README.md) · 基準：0.8.9 Beta2，來源 `5aa00c146281d96dd9d12f45ae020cfbe6e9575e`。
+
+新功能先沿用同版的共用元件與已確認操作，再補用途需要的變體。統一的不只有配色，也包括外框層級、選單行為、焦點、取消與資料保護。本頁整理現有實作及後續驗證要求，沒有宣稱所有既有畫面都已完成一致性驗收。
+
+## 依用途選元件
+
+| 用途 | 選用 | 原因與接入注意 |
+| --- | --- | --- |
+| 桌面主視窗外框 | [window_chrome.install_expanded_chrome](../../prompt_calculus_studio/window_chrome.py)，參照 [WorkspaceShell](../../prompt_calculus_studio/workspace_shell.py) | 保留 Windows 原生 frame、resize／最大化等能力。顯示前安裝，預留 caption inset 並跟隨螢幕變更；支援路徑有平台／Qt 版本檢查，不支援時回傳 `None`。不要為統一圓角把主視窗改成 Frameless。 |
+| 視窗內部殼面 | [WindowShell](../../prompt_calculus_studio/widgets.py) | 承接底色／材質、邊緣 resize 與游標清理；它與原生外框分工，不是整套視窗控制的替代品。 |
+| 一般應用內表單 | [StudioDialog](../../prompt_calculus_studio/widgets.py)＋[module_chrome.dialog_context](../../prompt_calculus_studio/module_chrome.py) | 共用標題、關閉、主題和字級。小型表單用 `body`，多欄編輯用 `editor_area()`／`DialogEditor`，footer 動作留在外殼。 |
+| Canvas 浮出編輯／只讀小面板 | [CanvasSheetDialog](../../prompt_calculus_studio/dialog_presentation.py)／[DismissibleSheet](../../prompt_calculus_studio/widgets.py) | 沿用對應遮罩、借用內容還原與關閉生命週期。只讀 popup 與可修改表單的接受／取消義務不同，依用途選用。 |
+| 操作與右鍵選單 | [RoundMenu](../../prompt_calculus_studio/widgets.py) | 先連接 action，再用非阻塞 `open_for()` 或 `open_at()`。按鈕入口優先 `open_for()`，共用 Canvas 座標轉換與螢幕邊界定位；子選單由 `addMenu()` 建立並持有至根選單關閉。 |
+| 固定選項／字體選擇 | 共用 [ComboBox／FontComboBox](../../prompt_calculus_studio/widgets.py) | 保留 Qt 選取語意、文字量測、長名稱提示與長清單捲動；Escape 的暫選不能成為下次 Enter 的意外提交。 |
+| 選單與下拉的表面 | [PopupSurface](../../prompt_calculus_studio/popup_surface.py) | 共用圓角、邊線、列高與寬度量測。背景只取所屬 PCS 視窗，避免擷取桌面內容；功能頁不另畫一圈外框。 |
+
+`RoundMenu` 的非阻塞要求針對這個自訂原生選單路徑：原碼註明支援 Qt 組合下 `QMenu.exec()` 曾發生崩潰，因此此元件採非阻塞路徑。**不要擴大成所有 Qt 選單都改非阻塞**；Qt 自建的文字編輯選單保留自己的 action 回傳與剪貼簿行為，`NativePopupFinish` 只整理外觀／事件。`StudioDialog.exec()` 也有其獨立生命週期。
+
+## 外觀共用來源
+
+色彩與明暗層級以[應用程式配色基準](application-color-baseline.md)為準：`theme.visual_tokens` 是樣式表、原生 palette 及自繪元件的共同來源，`color_roles` 派生互動與語意色。新增畫面引用角色，不再維護另一套灰階／色碼表。主要動作、焦點、選取與錯誤各有含義，不能只靠換顏色表示狀態。
+
+字體和字級沿目前工作環境設定及 `font_pixels`；彈窗、巢狀彈窗、選單應保留同一條外觀來源。間距、圓角與列高目前由共用元件／樣式提供，尚無完整獨立的 spacing-token 系統：先使用 `StudioDialog`、`DialogEditor`、`popup_row_height` 等既有布局，真正需要共享新尺寸時再抽到相應共用來源。不要把某頁的固定像素複製成全產品規則。
+
+比較新舊頁面時，以同一版本、主題、字級及用途的基準頁對照，核對內容邊界、分組、主次、留白與操作位置。選單、表單和文件編輯器不必有相同密度；差異應能用任務需要解釋。避免以增加常駐說明補救布局或操作對象不清。
+
+## 互動與狀態一起檢查
+
+| 情境 | 應保留的結果 |
+| --- | --- |
+| 正常、hover、focus、pressed、selected、disabled | 文字與圖示可讀，焦點可辨識；停用項不觸發。使用既有角色和控制項語意，不把 selected 當 hover。 |
+| 空白、載入、成功、部分完成、失敗、取消 | 清楚指出目前對象與真實狀態；長錯誤／恢復資訊可到達末尾，必要時可複製。完成寫入的回執不能因關頁改成「取消」。 |
+| 打開表單、巢狀表單及返回 | 明確指定初始焦點、Tab 順序、預設動作和關閉後可繼續的位置。`StudioDialog` 不自動替每份表單保證這些結果。 |
+| Escape、×、取消、點外側 | `StudioDialog` 的 × 走 `reject`，外側關閉預設未啟用；啟用前確認是否允許捨棄暫選。業務層決定取消不寫入、接受只提交一次及未保存稿保護，不能只依賴外觀殼。 |
+| 選單外側點擊、重新開啟、子選單往返 | 共用 no-replay 行為避免同一次關閉點擊又觸發下方入口；下一次點擊與鍵盤仍正常。子選單隱藏不應提早刪除其 action。 |
+| 窄視窗、大字級、長名稱、畫面邊緣 | 主要操作可到達，長內容可捲動或有完整標籤提示。保留共用量測與翻轉定位，不以裁切隱藏問題。 |
+| 主視窗還原／最大化、切到其他程式後返回、多螢幕 DPI | 操作區、系統按鈕、安全區、resize、焦點與關閉保護正常。原碼有 DPI／screen-change 處理，但實機結果仍需對受影響流程確認。 |
+
+關閉視窗涉及保存與恢復，須遵守[架構參考](architecture-reference.md)和[關閉恢復](workspace-close-recovery.md)。不得讓動畫、遮罩或新的視窗殼繞過原先的拒關條件。
+
+## 合理變體與真正例外
+
+下列是既有標準變體：小型表單使用較亮的欄位，多欄編輯器使用 `DialogEditor` 分層；執行／停止、警告、連線與節點接線保留語意色；使用者圖片、文件內容及原生檔案選擇器不重繪成應用色盤。原有材質、透明度和文件布局設定也有其用途。
+
+[Canvas 基準](canvas-visual-baseline.md)保留專屬操作與歷史背景；其中舊「非 Canvas 保留原色」及逐頁遷移狀態不是現行例外。現行應用內彈窗沿共同配色，不因從另一頁開啟而切換整套樣式。
+
+如果新用途確實需要偏離共用行為，在功能說明中記三件事即可：使用者需要什麼、哪個行為／元件因此不同、如何驗證既有用途沒有被破壞。一般變體由實作判斷；改變範圍外已確認功能、資料或 UI 契約時，再交代具體取捨。無須新增全域 UI 簽核機制。
+
+## 驗證入口與交付方式
+
+| 改動 | 可沿用的檢查入口 | 仍需實際走過的流程 |
+| --- | --- | --- |
+| 外框／系統按鈕 | [test_window_chrome.py](../../tests/test_window_chrome.py)、[test_window_menu.py](../../tests/test_window_menu.py) | 還原、最大化、縮放、切回、原生系統選單與拒關；依影響檢查實機 DPI。 |
+| 選單／下拉 | [test_popup_visual_contract.py](../../tests/test_popup_visual_contract.py)、[test_popup_surface_final.py](../../tests/test_popup_surface_final.py)、[test_popup_menu_ownership.py](../../tests/test_popup_menu_ownership.py) | 點擊、鍵盤暫選與取消、重新開啟、子選單、畫面邊緣和長文字。 |
+| 主題／表單／浮層 | [test_color_roles.py](../../tests/test_color_roles.py)、[test_visual_theme.py](../../tests/test_visual_theme.py)、[test_canvas_popup_layers.py](../../tests/test_canvas_popup_layers.py) | 三種既有主題、大字級、巢狀彈窗、焦點、取消／保存、受影響頁面的完整操作。 |
+
+這些檔案是驗證入口，不是本次新跑結果。離屏可檢查布局、狀態與 Qt 契約；例如 no-replay 屬性的檢查不等於 Windows 真實點擊重播已驗收。原生材質、跨螢幕 DPI、輸入法、焦點與使用者視覺接受需各自證據，不能由截圖張數或靜態清單代替。
+
+新 UI 交付記錄固定版本、基準頁／共用來源、完整操作及關鍵狀態，截圖註明版本和環境；有行為例外則連回理由。元件本身或原則改變時同次更新本頁，色彩數值繼續只在既有基準與共用來源維護。分工見[開發指南](README.md#隨功能維護)。
