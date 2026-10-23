@@ -176,7 +176,7 @@ window.refreshDocument = function () {
     root.replaceChildren(DOMPurify.sanitize(data.html || '', {
       RETURN_DOM_FRAGMENT:true,
       ADD_TAGS:['audio','video','source'], ADD_ATTR:['controls','preload','data-math','data-diagram','min','max','value','colspan','rowspan','scope','start'],
-      ADD_URI_SAFE_ATTR:['width','height','type','min','max','value','colspan','rowspan','scope','start'],
+      ADD_URI_SAFE_ATTR:['width','height','type','min','max','value','colspan','rowspan','scope','start','disabled','checked'],
       FORBID_TAGS:['script','iframe','object','embed','form','style','link'],
       ALLOWED_URI_REGEXP:/^(?:(?:file|data|pcs-action):|#)/i
     }));

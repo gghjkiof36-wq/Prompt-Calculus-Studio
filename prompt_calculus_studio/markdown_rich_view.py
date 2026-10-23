@@ -390,6 +390,8 @@ class RichView(QWebEngineView):
             self.hydration_timer.start(1);return
         projection.body=re.sub(r'<!--pcs-resource:'+marker+r':(\d+)-->',
             lambda match:resources[int(match.group(1))],projection.body)
+        from .markdown_render import separate_resource_actions
+        projection.body=separate_resource_actions(projection.body)
         # No event-loop yield between this final identity check and publication.
         if not self.request_current(version):
             self.discard_request(retry=True);return

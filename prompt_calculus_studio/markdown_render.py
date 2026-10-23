@@ -6,13 +6,13 @@ from pathlib import Path
 from urllib.parse import unquote,urlsplit
 from markdown_it import MarkdownIt
 from mdit_py_plugins.footnote import footnote_plugin
-from mdit_py_plugins.dollarmath import dollarmath_plugin
 from mdit_py_plugins.tasklists import tasklists_plugin
 from pygments import highlight
 from pygments.lexers import get_lexer_by_name
 from pygments.lexers.special import TextLexer
 from pygments.formatters import HtmlFormatter
 from .markdown_syntax import TAG_STYLES,css_style,style_css,display_style
+from .markdown_math import math_plugin
 
 
 def advanced(text):
@@ -20,10 +20,39 @@ def advanced(text):
     # Fast literal scans avoid running multiline expressions over an entire
     # large plain manuscript while switching its view on the UI thread.
     if '<' in text and re.search(r'(?im)^\s*<table(?:\s|>)',text):return True
+    if r'\(' in text or r'\[' in text or '==' in text:return True
     if not text.startswith('---\n') and not any(marker in text for marker in ('[','](','`','~','|','$','%%')):
         return False
     return bool(text.startswith('---\n') or re.search(r'\[\[|\]\(|(?m:^\[[^]]+\]:)',text) or re.search(r'(?m)^\s*(`{3,}|~{3,}|\|.*\||\$\$)|!\[|\[\^[^]]+\]|%%|(?<!\\)\$[^$\n]+\$|^\s*>\s*\[!',text)
                 or re.search(r'(?m)^\s*:?-{3,}:?\s*\|',text))
+
+
+def separate_resource_actions(body):
+    """Keep generated image-load actions outside a surrounding article link.
+
+    Resources hydrate after Markdown parsing. A remote placeholder's action
+    must not create nested anchors, which browsers split and drop later text.
+    Only generated remote actions move; the source and article URL stay intact.
+    """
+    if 'pcs-action:remote/' not in body:return body
+    stack=[];edits=[]
+    for match in re.finditer(r'<a\b[^>]*>|</a>',body):
+        tag=match.group()
+        if tag!='</a>':
+            stack.append((match.start(),tag,[]))
+        elif stack:
+            start,opening,pending=stack.pop()
+            if stack and re.search(r'\bhref="pcs-action:remote/\d+"',opening):
+                edits.append((start,match.end(),''))
+                stack[0][2].append(body[start:match.end()])
+            elif not stack and pending:
+                edits.append((match.end(),match.end(),' '+ ' '.join(pending)))
+    if not edits:return body
+    parts=[];at=0
+    for start,end,value in sorted(edits):
+        parts.extend((body[at:start],value));at=end
+    parts.append(body[at:])
+    return ''.join(parts)
 
 
 def safe_tag(raw):
@@ -94,7 +123,29 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
             token=state.push('pcs_wiki','',0);token.content=state.src[state.pos+2:end]
         state.pos=end+2;return True
     md=MarkdownIt('commonmark',{'html':True,'breaks':hard_breaks}).enable(['table','strikethrough'])
-    md.use(footnote_plugin).use(dollarmath_plugin,allow_labels=False).use(tasklists_plugin,enabled=False)
+    md.use(footnote_plugin).use(math_plugin).use(tasklists_plugin,enabled=False)
+    # Only the checkbox token inserted by the task-list plugin is trusted.
+    # User-authored <input> still passes through safe_tag and stays literal.
+    def task_candidates(state):
+        candidates={}
+        for index,token in enumerate(state.tokens):
+            if (index>=2 and token.type=='inline' and state.tokens[index-1].type=='paragraph_open'
+                    and state.tokens[index-2].type=='list_item_open' and re.match(r'^\[[ xX]\]\s+',token.content)):
+                candidates[id(token)]=({id(child) for child in token.children or []},token.content[1].lower()=='x')
+        state.env['_pcs_task_candidates']=candidates
+    def task_checkboxes(state):
+        candidates=state.env.pop('_pcs_task_candidates',{})
+        for token in state.tokens:
+            candidate=candidates.get(id(token))
+            if candidate is None or not token.children:continue
+            previous,checked=candidate;checkbox=token.children[0]
+            if id(checkbox) not in previous and checkbox.type=='html_inline':
+                checkbox.type='pcs_task_checkbox';checkbox.meta['checked']=checked
+    md.core.ruler.before('github-tasklists','pcs_task_candidates',task_candidates)
+    md.core.ruler.after('github-tasklists','pcs_task_checkboxes',task_checkboxes)
+    md.add_render_rule('pcs_task_checkbox',lambda self,tokens,i,options,env:
+        '<input class="task-list-item-checkbox" type="checkbox" disabled="disabled"'+
+        (' checked="checked"' if tokens[i].meta['checked'] else '')+'>')
     md.inline.ruler.before('link','pcs_wiki',wiki_link)
     def wiki_html(self,tokens,i,options,env):
         target,_,label=tokens[i].content.partition('|')
@@ -230,10 +281,13 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
     def math_render(block):
         def inner(self,tokens,i,options,env):
             index=len(result.math);result.math.append(dict(source=tokens[i].content,block=block))
-            tag='div' if block else 'span'
+            # Display-style math may occur inside a paragraph/list item. A span
+            # keeps valid HTML there; KaTeX supplies the display layout itself.
+            tag='div' if tokens[i].block else 'span'
             return f'<{tag} class="formula" data-math="{index}"></{tag}>'
         return inner
     md.add_render_rule('math_inline',math_render(False));md.add_render_rule('math_block',math_render(True))
+    md.add_render_rule('math_inline_double',math_render(True))
     def table_open(self,tokens,i,options,env):
         line=tokens[i].map[0]
         return f'<div class="pcs-table-scroll"><table id="{prefix}line-{line}">'
@@ -290,5 +344,5 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
     if properties and not _trail:
         rows=''.join('<dt>'+html.escape(p.name)+'</dt><dd>'+html.escape(', '.join(p.value) if isinstance(p.value,list) else str(p.value if p.editable else '複合值 · 原文保留'))+'</dd>' for p in properties)
         props='<details class="note-properties"><summary>屬性</summary><dl>'+rows+'</dl></details>'
-    result.body=props+md.renderer.render(tokens,md.options,env)
+    result.body=separate_resource_actions(props+md.renderer.render(tokens,md.options,env))
     return result

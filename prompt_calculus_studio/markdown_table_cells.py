@@ -1,12 +1,14 @@
 """Qt-free GFM cell escaping shared by paste conversion and the table editor."""
 import re
+from .markdown_math import math_ranges
 
 
 def transform_pipes(value, encode):
-    # Inline code keeps slashes literally after the table layer; ordinary
+    # Inline code and TeX keep slashes literally after the table layer; ordinary
     # Markdown consumes another escape layer.
     code = [m.span(2) for m in re.finditer(r'(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)', value, re.S)
             if (len(value[:m.start()])-len(value[:m.start()].rstrip('\\')))%2 == 0]
+    code.extend(math_ranges(value))
     def replace(match):
         count = len(match.group(1))
         literal = any(a <= match.start() < b for a, b in code)

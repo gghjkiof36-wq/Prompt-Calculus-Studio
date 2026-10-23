@@ -1,6 +1,6 @@
 # 貼上格式與匯入對話
 
-適用：0.8.9 Beta2 · [工作區入門](workspace-089.md)
+適用：0.8.9 Beta3 本機試用版 · [工作區入門](workspace-089.md) · [公式與圖片相容性](markdown-compatibility.md)
 
 ## 貼上回覆或網頁文字
 

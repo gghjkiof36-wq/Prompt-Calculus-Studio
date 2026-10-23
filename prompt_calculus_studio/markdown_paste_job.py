@@ -2,6 +2,7 @@
 from PySide6.QtCore import QObject, QThreadPool, Slot
 from .jobs import Job
 from .markdown_html import from_html
+from .markdown_paste import html_text_fallback
 from .markdown_source import SourceEdit, utf16_position
 from .markdown_syntax import line_info
 
@@ -15,7 +16,7 @@ class PreparedPaste(QObject):
         self.job = None
         self.insertion = None
 
-    def start(self, html):
+    def start(self, html, fallback=None):
         surface = self.editor.surface
         if self.job:
             surface.report('上一段貼上內容還在整理，請稍候。')
@@ -28,7 +29,7 @@ class PreparedPaste(QObject):
             if tab is not None:workspace.retain(tab)
         snapshot, start, end = self.snapshot, self.start_at, self.end_at
         def prepare(cancel):
-            text = from_html(html)
+            text = html_text_fallback(from_html(html), fallback)
             if cancel.is_set():return None
             merged = snapshot.text[:start]+text+snapshot.text[end:]
             return text, merged, line_info(merged)

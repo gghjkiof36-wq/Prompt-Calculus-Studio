@@ -83,7 +83,7 @@ def css_style(raw):
 
 def spans(text):
     """Paired inline syntax, excluding code. Unknown HTML remains visible source."""
-    if not re.search(r'[<$%`*_~=]',text):return []
+    if not re.search(r'[<$%`*_~=\\]',text):return []
     result = []
     code = [match.span() for match in re.finditer(r'\]\([^\n]*?\)|https?://[^\s<>]+', text)]
     for match in re.finditer(r'(?<!\\)\$(?:\\.|[^$\n])+\$|<!--.*?(?:-->|$)|%%.*?(?:%%|$)', text):
@@ -93,6 +93,11 @@ def spans(text):
         a, b = match.span(2)
         item = Span(match.start(), match.end(), a, b, {'code': True}, True)
         code.append((item.start, item.end));result.append(item)
+    from .markdown_math import bracket_ranges
+    for start,end in bracket_ranges(text):
+        if any(a <= start < b for a,b in code):continue
+        item=Span(start,end,start,end,{'code':True},True)
+        code.append((start,end));result.append(item)
     code_starts,code_ends=interval_bounds(code)
     def protected(a, b):
         index=bisect_right(code_ends,a)
@@ -172,8 +177,14 @@ def line_info(text):
             if fence is None:fence = (token[0], len(token))
             elif token[0] == fence[0] and len(token) >= fence[1] and not rest.strip():fence = None
         elif fence:protected = True
-        elif line.strip() == '$$':math = not math;protected = True
-        elif math:protected = True
+        elif math:
+            protected = True
+            if line.rstrip().endswith(math):math = False
+        elif line.strip() == '$$':math = '$$';protected = True
+        elif line.lstrip().startswith(r'\['):
+            protected = True
+            from .markdown_math import closing
+            if closing(line,r'\]',line.index(r'\[')+2)<0:math = r'\]'
         elif re.match(r'^(?: {4}|\t)', line) and not re.match(r'^\s*(?:[-+*]|\d+[.)])\s+', line):protected = True
         container,first,last,heading,listing=_line_shape(line,protected)
         display_marker = None

@@ -80,6 +80,7 @@ export async function captureLoadedConversation(returnErrors = false) {
   const activitySelector = '[data-message-author-role="tool"], [data-role="tool"], [data-testid*="tool-activity"], [data-testid*="reasoning"], [data-testid*="thought"]';
   const resourceNodes = new Set();
   const visualImages = new Map();
+  const inlineVisuals = new Set();
   const citationNotes = new Map(), citationPopovers = new Set(), usedNotes = new Set();
   let baselineRender = false, citationCount = 0, citationWait = 0, citationImageBytes = 0;
   const isActivity = node => !!node.closest(activitySelector);
@@ -176,6 +177,17 @@ export async function captureLoadedConversation(returnErrors = false) {
     return value ? `${label}${label ? '：' : ''}${value}${maximum ? ' / ' + maximum : ''}` : plain(node);
   };
   const listNumber = value => /^-?[0-9]{1,9}$/.test(value || '') ? value : '';
+  // Read the source once, rather than concatenating an equation's accessible
+  // MathML and its visual glyphs. Keep TeX characters and precision untouched.
+  function mathSource(node) {
+    if (!node.classList.contains('katex') && !['math', 'mjx-container'].includes(node.localName)) return null;
+    const source = node.querySelector('annotation[encoding="application/x-tex"], annotation[encoding="application/x-latex"]');
+    if (!source || !plain(source).trim()) return null;
+    const math = node.localName === 'math' ? node : node.querySelector('math');
+    const display = !!node.closest('.katex-display') || math?.getAttribute('display') === 'block' ||
+      node.localName === 'mjx-container' && node.getAttribute('display') === 'true';
+    return {text: plain(source), display};
+  }
 
   // Preserve already displayed graphics as inert PNGs. No network requests,
   // page scripts or external SVG resources are copied into the saved file.
@@ -317,10 +329,8 @@ export async function captureLoadedConversation(returnErrors = false) {
       const label = htmlText(plain(node).trim() || node.getAttribute('aria-label') || '來源');
       return href ? `<a href="${htmlText(href).replace(/"/g, '&quot;')}">${label}</a>` : label;
     }
-    if (node.classList.contains('katex')) {
-      const formula = node.querySelector('annotation[encoding="application/x-tex"]');
-      if (formula) return htmlText(`$${plain(formula)}$`);
-    }
+    const formula = mathSource(node);
+    if (formula) return htmlText(`$${formula.text}$`);
     if (tag === 'A') {
       const href = safeLink(node.getAttribute('href'));
       const label = children() || htmlText(node.getAttribute('aria-label') || '連結');
@@ -397,12 +407,29 @@ export async function captureLoadedConversation(returnErrors = false) {
   }
   function render(node, depth = 0) {
     if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
-    if (visualImages.has(node)) return '\n\n' + visualImages.get(node) + '\n\n';
+    if (visualImages.has(node)) return inlineVisuals.has(node) ? visualImages.get(node) : '\n\n' + visualImages.get(node) + '\n\n';
     if (node.nodeType !== Node.ELEMENT_NODE || citationPopovers.has(node) || node.closest('[data-pcs-ui], .turn-action-controls') || node.matches('h4[data-conversation-role], h4.sr-only') || ignored.has(node.tagName) || !visible(node) || isActivity(node) || resourceNodes.has(node)) return '';
     if(!baselineRender && citationNotes.has(node)){const note=citationNotes.get(node);usedNotes.add(note);return `[^${note.id}]`;}
     const children = () => [...node.childNodes].map(child => render(child, depth)).join('');
     const text = () => children().trim();
     const tag = node.tagName;
+    // An icon and its associated text form one content row. Leave paragraphs,
+    // headings and exact text intact while attaching the small local image to
+    // the first line; do not turn the entire row into a screenshot.
+    if (component(node, 'row') && node.getAttribute('data-d-direction') === 'row' &&
+        ![...node.childNodes].some(child => child.nodeType === Node.TEXT_NODE && child.textContent.trim())) {
+      const items = [...node.children].filter(item => visible(item));
+      if (items.length === 2) {
+        const icons = [...items[0].querySelectorAll('svg')];
+        const outsideText = document.createTreeWalker(items[0], NodeFilter.SHOW_TEXT);
+        let hasText = false;
+        while (outsideText.nextNode()) if (outsideText.currentNode.textContent.trim() && !outsideText.currentNode.parentElement.closest('svg')) { hasText = true; break; }
+        if (!hasText && !items[0].querySelector('img,canvas,iframe,video,audio,a,button') && icons.length === 1 && inlineVisuals.has(icons[0])) {
+          const icon = visualImages.get(icons[0]), value = render(items[1], depth).trim();
+          if (value) return '\n\n' + (value.match(/^#{1,6} /) ? value.replace(/^(#{1,6} )/, '$1' + icon + ' ') : icon + ' ' + value) + '\n\n';
+        }
+      }
+    }
     if (citationPill(node)) {
       const label = citationLabel(node) || plain(node).trim();
       const href = citationHref(node);
@@ -419,7 +446,7 @@ export async function captureLoadedConversation(returnErrors = false) {
     }
     if (tag === 'SVG' || tag === 'CANVAS' || tag === 'IFRAME') return '';
     if (tag === 'BR') return '\n';
-    if (tag === 'HR') return '\n\n---\n\n';
+    if (tag === 'HR' || component(node, 'divider') && !plain(node).trim() && !node.children.length) return '\n\n---\n\n';
     if (tag === 'PRE') {
       const code = node.querySelector('code') || node;
       const value = plain(code).replace(/\n$/, '');
@@ -428,13 +455,8 @@ export async function captureLoadedConversation(returnErrors = false) {
       const language = (code.className || '').match(/(?:^|\s)language-([\w+-]+)/)?.[1] || '';
       return `\n\n${fence}${language}\n${value}\n${fence}\n\n`;
     }
-    if (node.classList.contains('katex')) {
-      const formula = node.querySelector('annotation[encoding="application/x-tex"]');
-      if (formula) {
-        const display = node.parentElement?.classList.contains('katex-display');
-        return display ? `\n\n$$\n${plain(formula)}\n$$\n\n` : `$${plain(formula)}$`;
-      }
-    }
+    const formula = mathSource(node);
+    if (formula) return formula.display ? `\n\n$$\n${formula.text}\n$$\n\n` : `$${formula.text}$`;
     if (tag === 'CODE') {
       const value = plain(node);
       const fence = '`'.repeat(Math.max(1, ...(value.match(/`+/g) || []).map(run => run.length + 1)));
@@ -442,7 +464,11 @@ export async function captureLoadedConversation(returnErrors = false) {
       return `${fence}${pad}${value}${pad}${fence}`;
     }
     if (/^H[1-6]$/.test(tag)) return `\n\n${'#'.repeat(Number(tag[1]))} ${text()}\n\n`;
-    if (tag === 'STRONG' || tag === 'B' || node.hasAttribute('data-d-default-strong')) return `**${text()}**`;
+    if (tag === 'STRONG' || tag === 'B' || node.hasAttribute('data-d-default-strong')) {
+      // The web renderer may put its strong marker inside a native <strong>.
+      // One semantic emphasis must not become ambiguous ****Markdown****.
+      return node.parentElement?.closest('strong,b,[data-d-default-strong]') ? text() : `**${text()}**`;
+    }
     if (tag === 'EM' || tag === 'I') return `*${text()}*`;
     if (tag === 'DEL' || tag === 'S') return `~~${text()}~~`;
     // Keep the operator/chemical index, rather than joining it to the base.
@@ -506,24 +532,28 @@ export async function captureLoadedConversation(returnErrors = false) {
     const seenResources = new Set();
     const candidates = element.querySelectorAll('img, audio, video, canvas, iframe, svg, a[download], [data-testid*="attachment"][title], [data-testid*="file"][title]');
     for (const media of candidates) {
-      if (media.closest('[data-pcs-ui], .turn-action-controls') || inSourcePopover(media) || !visible(media, true) || isActivity(media) || media.closest('.katex, button, nav, [data-d-component="favicon"]')) continue;
+      if (media.closest('[data-pcs-ui], .turn-action-controls') || inSourcePopover(media) || !visible(media, true) || isActivity(media) || media.closest('.katex, math, mjx-container, button, [role="button"], nav, [role="toolbar"], [data-d-component="favicon"]')) continue;
+      const contentIcon = media.tagName.toUpperCase() === 'SVG' && component(media, 'icon') &&
+        !media.closest('a') && Math.max(media.getBoundingClientRect().width, media.getBoundingClientRect().height) <= 40;
       if (media.tagName.toUpperCase() === 'SVG' && !media.matches('[role="img"], .recharts-surface, .highcharts-root') &&
-          Math.max(media.getBoundingClientRect().width, media.getBoundingClientRect().height) <= 40) continue;
-      const kind = media.tagName === 'IMG' ? 'image' : ['CANVAS', 'svg'].includes(media.tagName) || media.tagName.toUpperCase() === 'SVG' ? 'chart' :
+          Math.max(media.getBoundingClientRect().width, media.getBoundingClientRect().height) <= 40 && !contentIcon) continue;
+      const kind = media.tagName === 'IMG' || contentIcon ? 'image' : ['CANVAS', 'svg'].includes(media.tagName) || media.tagName.toUpperCase() === 'SVG' ? 'chart' :
         media.matches('a[download], [data-testid*="attachment"], [data-testid*="file"]') ? 'attachment' : 'embed';
       const figure = media.closest('figure, [data-chart], [data-testid*="chart"]');
       const caption = figure?.querySelector('figcaption, h2, h3, h4')?.textContent?.trim();
       const descriptionId = media.getAttribute('aria-describedby');
       const description = descriptionId ? document.getElementById(descriptionId)?.textContent?.trim() : '';
       const fallback = {image: '圖片', chart: '圖表', attachment: '附件', embed: media.tagName === 'AUDIO' ? '音訊' : media.tagName === 'VIDEO' ? '影片' : '嵌入內容'}[kind];
-      const name = media.getAttribute('download') || media.getAttribute('alt') || media.getAttribute('aria-label') || media.getAttribute('title') || caption || fallback;
+      const name = media.getAttribute('download') || media.getAttribute('alt') || media.getAttribute('aria-label') || media.getAttribute('title') || caption || (contentIcon ? '圖示' : fallback);
       const label = [...[name, description && description !== name ? description : ''].filter(Boolean).join(' — ').replace(/\s+/g, ' ').trim()].slice(0, 300).join('');
       const reference = safeLink(media.getAttribute('href') || media.getAttribute('src')) || null;
       if (kind === 'chart' || kind === 'image') {
         const png = await visualPng(media);
         if (png) {
           const escapedLabel = label.replace(/[\\`*_[\]<>]/g, '\\$&');
-          visualImages.set(media, `![${escapedLabel}](${png})`);
+          const dimensions = contentIcon ? `|${Math.ceil(media.getBoundingClientRect().width)}x${Math.ceil(media.getBoundingClientRect().height)}` : '';
+          visualImages.set(media, `![${escapedLabel}${dimensions}](${png})`);
+          if (contentIcon) inlineVisuals.add(media);
           continue;
         }
       }
@@ -559,8 +589,8 @@ export async function captureLoadedConversation(returnErrors = false) {
     let content = role === 'user' && body !== element ? plain(body).trim() : render(element).trim();
     const definitions=notes.filter(note=>usedNotes.has(note)).map(note=>note.definition);
     if(definitions.length)content+='\n\n'+definitions.join('\n\n');
-    // Preserve blank lines within fenced code; trim only the outer representation.
-    content = content.replace(/\u00a0/g, ' ');
+    // Preserve source spacing in TeX, code, exact quantities and unit labels;
+    // only the outer representation is trimmed, not NBSP within the content.
     if (!content && !resources.length) continue;
     const id = siteId || `capture-local-${messages.length}-${(await hash(role + '\n' + content + '\n' + JSON.stringify(resources))).slice(0, 20)}`;
     if (ids.has(id)) throw new Error('對話正在更新，請重新讀取。');

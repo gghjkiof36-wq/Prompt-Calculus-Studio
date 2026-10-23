@@ -1,0 +1,347 @@
+[
+  {
+    "id": "M001",
+    "label": "加減乘除與正負",
+    "tex": "a+b-c\\times d\\div e\\pm f\\mp g"
+  },
+  {
+    "id": "M002",
+    "label": "分數與連分數",
+    "tex": "\\frac{a+b}{c-d}+\\dfrac{1}{1+\\cfrac{1}{2+\\cfrac{1}{3}}}"
+  },
+  {
+    "id": "M003",
+    "label": "平方根與 n 次根",
+    "tex": "\\sqrt{x^2+y^2},\\qquad\\sqrt[3]{8}=2,\\qquad\\sqrt[n]{a}"
+  },
+  {
+    "id": "M004",
+    "label": "上下標與多層索引",
+    "tex": "x_i^2,\\quad a_{ij},\\quad e^{-x^2},\\quad T^{\\mu}_{\\ \\nu}"
+  },
+  {
+    "id": "M005",
+    "label": "希臘字母",
+    "tex": "\\alpha\\beta\\gamma\\delta\\epsilon\\varepsilon\\theta\\vartheta\\lambda\\mu\\nu\\xi\\pi\\rho\\sigma\\tau\\phi\\varphi\\chi\\psi\\omega"
+  },
+  {
+    "id": "M006",
+    "label": "大寫希臘字母",
+    "tex": "\\Gamma\\Delta\\Theta\\Lambda\\Xi\\Pi\\Sigma\\Upsilon\\Phi\\Psi\\Omega"
+  },
+  {
+    "id": "M007",
+    "label": "集合與邏輯",
+    "tex": "\\forall x\\in\\mathbb{R},\\quad \\exists y\\in\\mathbb{C}:\\quad A\\subseteq B,\\ A\\cup B,\\ A\\cap B,\\ \\varnothing"
+  },
+  {
+    "id": "M008",
+    "label": "不等式與極限關係",
+    "tex": "a\\ne b,\\quad a\\le b,\\quad a\\ge b,\\quad a\\approx b,\\quad a\\equiv b\\pmod n,\\quad a\\propto b"
+  },
+  {
+    "id": "M009",
+    "label": "自動伸縮括號",
+    "tex": "\\left(\\frac{a}{b}\\right),\\quad\\left[\\sum_{i=1}^n i\\right],\\quad\\left\\langle\\psi\\middle|\\phi\\right\\rangle"
+  },
+  {
+    "id": "M010",
+    "label": "絕對值與範數",
+    "tex": "|x|,\\quad\\lvert x\\rvert,\\quad\\lVert\\mathbf{v}\\rVert_2,\\quad\\lfloor x\\rfloor,\\quad\\lceil x\\rceil"
+  },
+  {
+    "id": "M011",
+    "label": "三角、指數與對數",
+    "tex": "\\sin^2\\theta+\\cos^2\\theta=1,\\quad e^{i\\pi}+1=0,\\quad\\ln x,\\quad\\log_{10}x,\\quad\\exp(x)"
+  },
+  {
+    "id": "M012",
+    "label": "複數與共軛",
+    "tex": "z=a+bi,\\quad\\overline{z}=a-bi,\\quad\\operatorname{Re}z=a,\\quad\\operatorname{Im}z=b"
+  },
+  {
+    "id": "M013",
+    "label": "普通微分",
+    "tex": "\\frac{\\mathrm{d}y}{\\mathrm{d}x}=\\lim_{h\\to0}\\frac{f(x+h)-f(x)}{h}"
+  },
+  {
+    "id": "M014",
+    "label": "高階導數與撇號",
+    "tex": "f^{\\prime}(x),\\quad f^{\\prime\\prime}(x),\\quad\\frac{\\mathrm{d}^n f}{\\mathrm{d}x^n}"
+  },
+  {
+    "id": "M015",
+    "label": "時間微分",
+    "tex": "\\dot{x}=\\frac{\\mathrm{d}x}{\\mathrm{d}t},\\quad\\ddot{x}=\\frac{\\mathrm{d}^2x}{\\mathrm{d}t^2}"
+  },
+  {
+    "id": "M016",
+    "label": "偏微分與混合偏導",
+    "tex": "\\frac{\\partial f}{\\partial x},\\quad\\frac{\\partial^2 f}{\\partial x\\partial y},\\quad\\partial_\\mu\\phi"
+  },
+  {
+    "id": "M017",
+    "label": "全微分",
+    "tex": "\\mathrm{d}f=\\frac{\\partial f}{\\partial x}\\,\\mathrm{d}x+\\frac{\\partial f}{\\partial y}\\,\\mathrm{d}y"
+  },
+  {
+    "id": "M018",
+    "label": "不定積分",
+    "tex": "\\int x^n\\,\\mathrm{d}x=\\frac{x^{n+1}}{n+1}+C\\quad(n\\ne-1)"
+  },
+  {
+    "id": "M019",
+    "label": "定積分",
+    "tex": "\\int_0^1 x^2\\,\\mathrm{d}x=\\frac{1}{3}"
+  },
+  {
+    "id": "M020",
+    "label": "反常積分",
+    "tex": "\\int_{-\\infty}^{\\infty}e^{-x^2}\\,\\mathrm{d}x=\\sqrt{\\pi}"
+  },
+  {
+    "id": "M021",
+    "label": "二重與三重積分",
+    "tex": "\\iint_D f(x,y)\\,\\mathrm{d}A,\\qquad\\iiint_V\\rho\\,\\mathrm{d}V"
+  },
+  {
+    "id": "M022",
+    "label": "線積分與閉合積分",
+    "tex": "\\int_C\\mathbf{F}\\cdot\\mathrm{d}\\mathbf{r},\\qquad\\oint_C\\mathbf{F}\\cdot\\mathrm{d}\\mathbf{r}"
+  },
+  {
+    "id": "M023",
+    "label": "求和 Sigma",
+    "tex": "\\sum_{i=1}^{n}i=\\frac{n(n+1)}{2}"
+  },
+  {
+    "id": "M024",
+    "label": "連乘 Pi",
+    "tex": "\\prod_{k=1}^{n}k=n!"
+  },
+  {
+    "id": "M025",
+    "label": "泰勒級數",
+    "tex": "e^x=\\sum_{n=0}^{\\infty}\\frac{x^n}{n!}"
+  },
+  {
+    "id": "M026",
+    "label": "極限",
+    "tex": "\\lim_{x\\to0}\\frac{\\sin x}{x}=1,\\qquad\\lim_{n\\to\\infty}\\left(1+\\frac1n\\right)^n=e"
+  },
+  {
+    "id": "M027",
+    "label": "鏈鎖法則",
+    "tex": "\\frac{\\mathrm{d}}{\\mathrm{d}x}f(g(x))=f^{\\prime}(g(x))\\,g^{\\prime}(x)"
+  },
+  {
+    "id": "M028",
+    "label": "向量與單位向量",
+    "tex": "\\vec{v}=v_x\\hat{\\mathbf{x}}+v_y\\hat{\\mathbf{y}}+v_z\\hat{\\mathbf{z}}"
+  },
+  {
+    "id": "M029",
+    "label": "點積與叉積",
+    "tex": "\\mathbf{a}\\cdot\\mathbf{b}=ab\\cos\\theta,\\quad\\mathbf{a}\\times\\mathbf{b}=ab\\sin\\theta\\,\\hat{\\mathbf{n}}"
+  },
+  {
+    "id": "M030",
+    "label": "基底旋轉",
+    "tex": "\\mathbf{e}_x\\longrightarrow(\\cos\\theta,\\sin\\theta),\\quad\\mathbf{e}_y\\longrightarrow(-\\sin\\theta,\\cos\\theta)"
+  },
+  {
+    "id": "M031",
+    "label": "二維旋轉矩陣",
+    "tex": "R(\\theta)=\\begin{pmatrix}\\cos\\theta&-\\sin\\theta\\\\\\sin\\theta&\\cos\\theta\\end{pmatrix}"
+  },
+  {
+    "id": "M032",
+    "label": "三維矩陣",
+    "tex": "A=\\begin{bmatrix}a_{11}&a_{12}&a_{13}\\\\a_{21}&a_{22}&a_{23}\\\\a_{31}&a_{32}&a_{33}\\end{bmatrix}"
+  },
+  {
+    "id": "M033",
+    "label": "行列式",
+    "tex": "\\begin{vmatrix}a&b\\\\c&d\\end{vmatrix}=ad-bc"
+  },
+  {
+    "id": "M034",
+    "label": "轉置、逆矩陣與厄米共軛",
+    "tex": "A^{\\mathsf{T}},\\quad A^{-1},\\quad A^{\\dagger}=(\\overline{A})^{\\mathsf{T}}"
+  },
+  {
+    "id": "M035",
+    "label": "特徵值",
+    "tex": "A\\mathbf{v}=\\lambda\\mathbf{v},\\qquad\\det(A-\\lambda I)=0"
+  },
+  {
+    "id": "M036",
+    "label": "分段函數",
+    "tex": "f(x)=\\begin{cases}x^2,&x\\ge0,\\\\-x,&x<0.\\end{cases}"
+  },
+  {
+    "id": "M037",
+    "label": "對齊多行公式",
+    "tex": "\\begin{aligned}a&=b+c\\\\&=d+e\\\\f(x)&=x^2+1\\end{aligned}"
+  },
+  {
+    "id": "M038",
+    "label": "聯立方程",
+    "tex": "\\left\\{\\begin{aligned}2x+y&=5\\\\x-y&=1\\end{aligned}\\right."
+  },
+  {
+    "id": "M039",
+    "label": "Jacobian",
+    "tex": "J=\\frac{\\partial(u,v)}{\\partial(x,y)}=\\begin{pmatrix}\\frac{\\partial u}{\\partial x}&\\frac{\\partial u}{\\partial y}\\\\\\frac{\\partial v}{\\partial x}&\\frac{\\partial v}{\\partial y}\\end{pmatrix}"
+  },
+  {
+    "id": "M040",
+    "label": "梯度",
+    "tex": "\\nabla f=\\left(\\frac{\\partial f}{\\partial x},\\frac{\\partial f}{\\partial y},\\frac{\\partial f}{\\partial z}\\right)"
+  },
+  {
+    "id": "M041",
+    "label": "散度",
+    "tex": "\\nabla\\cdot\\mathbf{F}=\\frac{\\partial F_x}{\\partial x}+\\frac{\\partial F_y}{\\partial y}+\\frac{\\partial F_z}{\\partial z}"
+  },
+  {
+    "id": "M042",
+    "label": "旋度",
+    "tex": "\\nabla\\times\\mathbf{F}=\\begin{vmatrix}\\hat{\\mathbf{x}}&\\hat{\\mathbf{y}}&\\hat{\\mathbf{z}}\\\\\\partial_x&\\partial_y&\\partial_z\\\\F_x&F_y&F_z\\end{vmatrix}"
+  },
+  {
+    "id": "M043",
+    "label": "Laplacian",
+    "tex": "\\nabla^2\\phi=\\frac{\\partial^2\\phi}{\\partial x^2}+\\frac{\\partial^2\\phi}{\\partial y^2}+\\frac{\\partial^2\\phi}{\\partial z^2}"
+  },
+  {
+    "id": "M044",
+    "label": "散度定理",
+    "tex": "\\iiint_V\\nabla\\cdot\\mathbf{F}\\,\\mathrm{d}V=\\iint_{\\partial V}\\mathbf{F}\\cdot\\hat{\\mathbf{n}}\\,\\mathrm{d}S"
+  },
+  {
+    "id": "M045",
+    "label": "Stokes 定理",
+    "tex": "\\iint_S(\\nabla\\times\\mathbf{F})\\cdot\\hat{\\mathbf{n}}\\,\\mathrm{d}S=\\oint_{\\partial S}\\mathbf{F}\\cdot\\mathrm{d}\\mathbf{r}"
+  },
+  {
+    "id": "M046",
+    "label": "牛頓運動與動能",
+    "tex": "\\mathbf{F}=m\\mathbf{a},\\quad\\mathbf{p}=m\\mathbf{v},\\quad K=\\frac12mv^2"
+  },
+  {
+    "id": "M047",
+    "label": "振動與阻尼",
+    "tex": "m\\ddot{x}+b\\dot{x}+kx=F_0\\cos(\\omega t)"
+  },
+  {
+    "id": "M048",
+    "label": "Euler–Lagrange 方程",
+    "tex": "\\frac{\\mathrm{d}}{\\mathrm{d}t}\\frac{\\partial L}{\\partial\\dot{q}_i}-\\frac{\\partial L}{\\partial q_i}=0"
+  },
+  {
+    "id": "M049",
+    "label": "Hamilton 方程",
+    "tex": "\\dot{q}_i=\\frac{\\partial H}{\\partial p_i},\\qquad\\dot{p}_i=-\\frac{\\partial H}{\\partial q_i}"
+  },
+  {
+    "id": "M050",
+    "label": "Maxwell 方程",
+    "tex": "\\begin{aligned}\\nabla\\cdot\\mathbf{E}&=\\rho/\\varepsilon_0\\\\\\nabla\\cdot\\mathbf{B}&=0\\\\\\nabla\\times\\mathbf{E}&=-\\partial_t\\mathbf{B}\\\\\\nabla\\times\\mathbf{B}&=\\mu_0\\mathbf{J}+\\mu_0\\varepsilon_0\\partial_t\\mathbf{E}\\end{aligned}"
+  },
+  {
+    "id": "M051",
+    "label": "波動方程",
+    "tex": "\\frac{\\partial^2u}{\\partial t^2}=c^2\\nabla^2u"
+  },
+  {
+    "id": "M052",
+    "label": "Schrödinger 方程",
+    "tex": "i\\hbar\\frac{\\partial\\psi}{\\partial t}=\\left(-\\frac{\\hbar^2}{2m}\\nabla^2+V\\right)\\psi"
+  },
+  {
+    "id": "M053",
+    "label": "量子態與對易子",
+    "tex": "\\langle\\psi|\\hat{A}|\\psi\\rangle,\\quad[\\hat{x},\\hat{p}]=i\\hbar,\\quad\\Delta x\\,\\Delta p\\ge\\frac{\\hbar}{2}"
+  },
+  {
+    "id": "M054",
+    "label": "相對論",
+    "tex": "E^2=p^2c^2+m^2c^4,\\qquad\\gamma=\\frac{1}{\\sqrt{1-v^2/c^2}}"
+  },
+  {
+    "id": "M055",
+    "label": "熱力學",
+    "tex": "\\mathrm{d}U=T\\,\\mathrm{d}S-p\\,\\mathrm{d}V+\\mu\\,\\mathrm{d}N"
+  },
+  {
+    "id": "M056",
+    "label": "Gibbs 熵",
+    "tex": "S=-k_{\\mathrm{B}}\\sum_i p_i\\ln p_i"
+  },
+  {
+    "id": "M057",
+    "label": "Poisson 括號",
+    "tex": "\\{f,g\\}=\\sum_i\\left(\\frac{\\partial f}{\\partial q_i}\\frac{\\partial g}{\\partial p_i}-\\frac{\\partial f}{\\partial p_i}\\frac{\\partial g}{\\partial q_i}\\right)"
+  },
+  {
+    "id": "M058",
+    "label": "機率與條件機率",
+    "tex": "P(A\\mid B)=\\frac{P(A\\cap B)}{P(B)}"
+  },
+  {
+    "id": "M059",
+    "label": "平均、變異與標準差",
+    "tex": "\\bar{x}=\\frac1n\\sum_{i=1}^n x_i,\\quad\\sigma^2=\\mathbb{E}[(X-\\mu)^2],\\quad\\sigma=\\sqrt{\\sigma^2}"
+  },
+  {
+    "id": "M060",
+    "label": "常態分布",
+    "tex": "f(x)=\\frac{1}{\\sigma\\sqrt{2\\pi}}\\exp\\left(-\\frac{(x-\\mu)^2}{2\\sigma^2}\\right)"
+  },
+  {
+    "id": "M061",
+    "label": "二項係數",
+    "tex": "\\binom{n}{k}=\\frac{n!}{k!(n-k)!}"
+  },
+  {
+    "id": "M062",
+    "label": "Fourier 轉換",
+    "tex": "\\hat{f}(\\omega)=\\int_{-\\infty}^{\\infty}f(t)e^{-i\\omega t}\\,\\mathrm{d}t"
+  },
+  {
+    "id": "M063",
+    "label": "Laplace 轉換",
+    "tex": "F(s)=\\int_0^\\infty f(t)e^{-st}\\,\\mathrm{d}t"
+  },
+  {
+    "id": "M064",
+    "label": "電路阻抗",
+    "tex": "Z_R=R,\\quad Z_L=i\\omega L,\\quad Z_C=\\frac{1}{i\\omega C}"
+  },
+  {
+    "id": "M065",
+    "label": "微小量與有效位數",
+    "tex": "1.2300\\times10^{-9}\\,\\mathrm{m},\\qquad 6.02214076\\times10^{23}\\,\\mathrm{mol}^{-1}"
+  },
+  {
+    "id": "M066",
+    "label": "工程單位",
+    "tex": "9.80665\\,\\mathrm{m\\,s^{-2}},\\quad 1.00\\,\\mathrm{k\\Omega},\\quad 2.20\\,\\mu\\mathrm{F},\\quad 25.0\\,{}^{\\circ}\\mathrm{C}"
+  },
+  {
+    "id": "M067",
+    "label": "不確定度",
+    "tex": "L=(12.340\\pm0.005)\\,\\mathrm{mm},\\qquad \\frac{\\Delta L}{L}=4.05\\times10^{-4}"
+  },
+  {
+    "id": "M068",
+    "label": "量綱",
+    "tex": "[F]=\\mathsf{M}\\mathsf{L}\\mathsf{T}^{-2},\\qquad [E]=\\mathsf{M}\\mathsf{L}^{2}\\mathsf{T}^{-2}"
+  },
+  {
+    "id": "M069",
+    "label": "百分比、符號與中文",
+    "tex": "\\eta=98.50\\%,\\qquad\\text{誤差}\\le0.01\\,\\mathrm{mm}"
+  }
+]

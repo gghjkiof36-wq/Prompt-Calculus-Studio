@@ -211,7 +211,8 @@
     if (!chrome?.runtime?.id) throw new Error("PCS extension context unavailable");
     let active = false, snapshot = null, selected = /* @__PURE__ */ new Set(), checks = [], pending = null, busy = false, notice = "", poll = null;
     let instances = [], recents = [], lastUrl = location.href, refreshTimer = null, reading = false, refreshAgain = false, generation = 0, historyTimer = null;
-    let destination = null, destinationRequest = 0, hoverTimer = null, closeTimer = null;
+    let destination = null, destinationRequest = 0, hoverTimer = null, closeTimer = null, saveDeadline = 0, saveTimer = null, actionSequence = 0;
+    const statusRequests = /* @__PURE__ */ new Set();
     const submenuOpeners = /* @__PURE__ */ new WeakMap();
     let menuOpen = false, menuMode = "choices", menuAnchor = null, sourceAnchor = null;
     let selectionHandlers = null, selectionStyle = null, press = null, clickTimer = null, lastClick = null;
@@ -228,11 +229,16 @@
     menu.setAttribute("aria-label", "PCS");
     popup.root.append(menu);
     async function request(action, fields = {}) {
-      let response;
+      let response, timer;
       try {
-        response = await chrome.runtime.sendMessage({ action, ...fields });
+        response = await Promise.race([chrome.runtime.sendMessage({ action, ...fields }), new Promise((_, reject) => {
+          timer = setTimeout(() => reject(Object.assign(new Error("暫時沒有回應，請再試一次。"), { code: "timeout" })), action === "transfer" ? 12e4 : 25e3);
+        })]);
       } catch (error) {
+        if (error.code === "timeout") throw error;
         throw Object.assign(new Error("擴充已更新，請重新整理頁面。"), { code: "extension_unavailable", cause: error });
+      } finally {
+        clearTimeout(timer);
       }
       if (!response?.ok) throw Object.assign(new Error(response?.error?.message || "操作失敗，請再試一次。"), { code: response?.error?.code || "failed" });
       return response.result;
@@ -302,6 +308,7 @@
     function clearOutcome() {
       if (pending && FINAL_STATES.has(pending.state)) {
         clearTimeout(poll);
+        clearTimeout(saveTimer);
         pending = null;
         notice = "";
       }
@@ -322,7 +329,7 @@
           render();
         }));
         caption("下載紀錄");
-        const saved = recents.filter((r) => r.state === "committed" || r.kind === "download");
+        const saved = recents.filter((r) => r.state === "committed" || r.kind === "download" || !FINAL_STATES.has(r.state));
         if (!saved.length) caption("尚無紀錄");
         for (const receipt of saved) {
           const row = document.createElement("div");
@@ -336,9 +343,16 @@
             detail.textContent = receipt.exists === false ? "檔案已移除" : receipt.state === "in_progress" ? "下載中…" : receipt.error === "USER_CANCELED" ? "已取消" : "下載失敗";
             name.append(detail);
           }
+          if (receipt.kind !== "download" && !FINAL_STATES.has(receipt.state)) {
+            const detail = document.createElement("small");
+            detail.style.cssText = "display:block;color:var(--muted)";
+            detail.textContent = "尚未確認保存結果";
+            name.append(detail);
+          }
           const folder = recordButton("開啟資料夾", () => receiptAction("reveal", receipt), "folder"), open = recordButton("開啟文件", () => receiptAction("open", receipt), "file");
-          folder.disabled = open.disabled = receipt.kind === "download" && (receipt.state !== "complete" || receipt.exists === false);
+          folder.disabled = open.disabled = receipt.kind === "download" ? receipt.state !== "complete" || receipt.exists === false : receipt.state !== "committed";
           row.append(name, folder, open);
+          if (receipt.kind !== "download" && !FINAL_STATES.has(receipt.state)) row.append(button("查詢結果", () => receiptAction("status", receipt)));
           menu.append(row);
         }
         if (notice) {
@@ -374,7 +388,6 @@
           });
           all.disabled = busy || !!destination;
           const cancelChoice = button("取消", cancelSelection);
-          cancelChoice.disabled = busy || !!destination;
           tools.append(all, cancelChoice);
           menu.append(tools);
         }
@@ -396,7 +409,7 @@
           closeDestination();
           downloadSelected("md");
         });
-        json.disabled = md.disabled = !selected.size || busy || operationLocked();
+        json.disabled = md.disabled = !selected.size || !snapshot || snapshot.context.url !== location.href || busy;
         menu.append(json, md);
         if (notice || pending && pending.state !== "committed") {
           separator();
@@ -408,11 +421,12 @@
         }
         if (pending) {
           if (!FINAL_STATES.has(pending.state)) {
-            if (pending.state === "unknown") menu.append(button("查詢結果", checkStatus));
-            menu.append(button("取消", cancel));
+            if (pending.state === "unknown") menu.append(button("查詢結果", () => checkStatus(true)));
+            menu.append(button("取消", cancelSelection));
           }
-          if (FINAL_STATES.has(pending.state) && !usableSelection || pending.state === "unknown") menu.append(button("重新選取", newSelection));
-        } else if (notice && !busy) menu.append(button("重新讀取", retrySelection));
+          if (FINAL_STATES.has(pending.state) && !usableSelection) menu.append(button("重新選取", newSelection));
+        } else if (busy && !active) menu.append(button("取消", cancelSelection));
+        else if (notice && !busy) menu.append(button("重新讀取", retrySelection));
         if (menuAnchor === entry.element) {
           separator();
           menu.append(button("下載紀錄", showRecents));
@@ -451,7 +465,7 @@
       pending = null;
       clearTimeout(poll);
       generation++;
-      const expected = generation, url = location.href;
+      const expected = generation, url = location.href, action = ++actionSequence;
       active = false;
       selected.clear();
       snapshot = null;
@@ -473,9 +487,11 @@
       } catch (error) {
         if (generation === expected) notice = error.message;
       } finally {
-        busy = false;
-        render();
-        focusMenu();
+        if (action === actionSequence) {
+          busy = false;
+          render();
+          focusMenu();
+        }
       }
     }
     async function startSelection(all) {
@@ -497,10 +513,15 @@
       }
     }
     function cancelSelection() {
-      if (busy || operationLocked() || destination) return;
+      const operation = operationLocked() ? { operation_id: pending.operation_id, instance_id: pending.instance_id } : null;
+      closeDestination();
+      clearTimeout(poll);
+      clearTimeout(saveTimer);
       generation++;
+      actionSequence++;
+      busy = false;
       active = false;
-      clearOutcome();
+      pending = null;
       selected.clear();
       snapshot = null;
       sourceAnchor = null;
@@ -509,6 +530,11 @@
       notice = "";
       render();
       focusMenu();
+      if (operation) {
+        request("dismiss", operation).catch(() => {
+        });
+        request("cancel", operation).then(() => loadRecents(), () => loadRecents());
+      }
     }
     async function retrySelection() {
       if (menuMode === "message" && sourceAnchor?.isConnected) return openMessage(sourceAnchor, menuAnchor);
@@ -691,8 +717,8 @@
       }
     }
     async function downloadSelected(ext) {
-      if (busy || operationLocked() || !snapshot) return;
-      const expected = generation, url = location.href, context = snapshot.context, capture = selectCapture(snapshot.capture, selected);
+      if (busy || !snapshot) return;
+      const expected = generation, url = location.href, context = snapshot.context, capture = selectCapture(snapshot.capture, selected), action = ++actionSequence;
       busy = true;
       notice = "";
       render();
@@ -708,8 +734,10 @@
           notice = error.message;
         }
       } finally {
-        busy = false;
-        render();
+        if (action === actionSequence) {
+          busy = false;
+          render();
+        }
       }
     }
     function selectionValid(intent) {
@@ -744,7 +772,7 @@
         destinationRequest++;
       }
       for (const check of checks) check.input.disabled = busy || operationLocked();
-      for (const tool of menu.querySelectorAll(".tools button")) tool.disabled = busy || operationLocked();
+      for (const tool of menu.querySelectorAll(".tools button")) tool.disabled = tool.textContent !== "取消" && (busy || operationLocked());
       for (const item of messageButtons.values()) item.root.querySelector("button").disabled = busy || !!(pending && !FINAL_STATES.has(pending.state));
     }
     function positionSubmenus() {
@@ -978,14 +1006,16 @@
       const identity = { operation_id: crypto.randomUUID(), instance_id: instanceId }, intended = view.intent;
       closeDestination();
       clearTimeout(poll);
-      busy = true;
+      clearTimeout(saveTimer);
       notice = "";
       pending = { ...identity, state: "receiving", source_title: intended.capture.title };
+      saveDeadline = Date.now() + 3e4;
+      saveTimer = setTimeout(() => unconfirmed(identity), 3e4);
       render();
       try {
         const result = await request("transfer", { ...identity, destination_id: folderId, context: intended.context, capture: intended.capture });
         if (accepts(identity)) {
-          pending = { ...pending, ...identity, ...result };
+          pending = { ...pending, ...result, ...identity };
           notice = result.state === "failed" ? result.message || "保存失敗。" : "";
         }
       } catch (error) {
@@ -1005,71 +1035,71 @@
           }
         }
       } finally {
-        if (!pending || pending.operation_id === identity.operation_id) {
-          busy = false;
-          if (pending && !FINAL_STATES.has(pending.state) && pending.state !== "unknown") schedulePoll();
-          render();
+        if (pending?.operation_id === identity.operation_id) {
+          if (!FINAL_STATES.has(pending.state) && pending.state !== "unknown") schedulePoll();
+          else clearTimeout(saveTimer);
         }
+        render();
       }
     }
     function accepts(identity) {
       return pending?.operation_id === identity.operation_id && pending?.instance_id === identity.instance_id && !FINAL_STATES.has(pending.state);
     }
+    function unconfirmed(identity) {
+      if (!accepts(identity)) return;
+      clearTimeout(poll);
+      clearTimeout(saveTimer);
+      pending = { ...pending, state: "unknown" };
+      notice = "";
+      render();
+    }
     function schedulePoll() {
       clearTimeout(poll);
+      if (Date.now() >= saveDeadline) {
+        unconfirmed(pending);
+        return;
+      }
       poll = setTimeout(checkStatus, 2e3);
     }
-    async function checkStatus() {
+    async function checkStatus(explicit = false) {
       if (!pending) return;
-      const identity = { operation_id: pending.operation_id, instance_id: pending.instance_id };
+      const identity = { operation_id: pending.operation_id, instance_id: pending.instance_id }, key = identity.instance_id + ":" + identity.operation_id;
+      if (statusRequests.has(key)) return;
+      statusRequests.add(key);
       try {
         const result = await request("status", identity);
         if (!accepts(identity)) return;
-        pending = { ...pending, ...identity, ...result };
+        pending = { ...pending, ...result, ...identity };
         notice = result.state === "failed" ? result.message || "保存失敗。" : "";
-        if (!FINAL_STATES.has(pending.state) && pending.state !== "unknown") schedulePoll();
-        else loadRecents();
+        if (!FINAL_STATES.has(pending.state) && pending.state !== "unknown") {
+          if (explicit && Date.now() >= saveDeadline) unconfirmed(identity);
+          else schedulePoll();
+        } else {
+          clearTimeout(saveTimer);
+          loadRecents();
+        }
       } catch (error) {
         if (accepts(identity)) {
+          clearTimeout(saveTimer);
           pending = { ...pending, ...identity, state: "unknown" };
           notice = error.message;
         }
+      } finally {
+        statusRequests.delete(key);
       }
       render();
     }
-    async function cancel() {
-      if (!pending) return;
-      const identity = { operation_id: pending.operation_id, instance_id: pending.instance_id };
-      clearTimeout(poll);
-      try {
-        const result = await request("cancel", identity);
-        if (!accepts(identity)) return;
-        pending = { ...pending, ...identity, ...result };
-        notice = "";
-        if (!FINAL_STATES.has(pending.state) && pending.state !== "unknown") schedulePoll();
-      } catch (error) {
-        if (accepts(identity)) notice = error.message;
-      }
-      render();
-    }
-    async function newSelection() {
-      if (pending) await request("dismiss", pending).catch(() => {
-      });
-      clearTimeout(poll);
-      pending = null;
-      selected.clear();
-      snapshot = null;
-      notice = "";
-      generation++;
-      active = false;
-      removeChecks();
-      menuMode = "choices";
-      render();
+    function newSelection() {
+      cancelSelection();
     }
     async function receiptAction(action, receipt) {
       notice = "";
       try {
         await request(receipt.kind === "download" ? `download_${action}` : action, receipt.kind === "download" ? { download_id: receipt.download_id } : { operation_id: receipt.operation_id, instance_id: receipt.instance_id });
+        if (action === "status") {
+          await loadRecents();
+          render();
+        }
       } catch (error) {
         notice = error.message;
         render();
@@ -1098,14 +1128,6 @@
         recents = await request("recents");
       } catch {
         recents = [];
-      }
-      if (!pending) {
-        const unfinished = recents.find((r) => r.kind !== "download" && !r.dismissed && !FINAL_STATES.has(r.state));
-        if (unfinished) {
-          pending = unfinished;
-          menuMode = "selection";
-          checkStatus();
-        }
       }
     }
     function scheduleRefresh() {
@@ -1209,10 +1231,10 @@
         submenuOpeners.get(target)();
         return;
       }
-      if (inside && destination && (event.key === "ArrowLeft" || event.key === "Escape")) {
+      if (destination && (event.key === "Escape" || inside && event.key === "ArrowLeft")) {
         event.preventDefault();
-        const anchor = level?.anchor || destination.anchor;
-        if (level) trimLevels(destination, destination.levels.indexOf(level));
+        const current = level || (event.key === "Escape" ? destination.levels.at(-1) : null), anchor = current?.anchor || destination.anchor;
+        if (current) trimLevels(destination, destination.levels.indexOf(current));
         else closeDestination();
         if (destination && !destination.levels.length) closeDestination();
         anchor?.focus({ preventScroll: true });

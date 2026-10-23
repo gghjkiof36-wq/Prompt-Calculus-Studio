@@ -15,7 +15,8 @@ export function installInPage(){
   if(!chrome?.runtime?.id)throw new Error('PCS extension context unavailable');
   let active=false,snapshot=null,selected=new Set(),checks=[],pending=null,busy=false,notice='',poll=null;
   let instances=[],recents=[],lastUrl=location.href,refreshTimer=null,reading=false,refreshAgain=false,generation=0,historyTimer=null;
-  let destination=null,destinationRequest=0,hoverTimer=null,closeTimer=null;
+  let destination=null,destinationRequest=0,hoverTimer=null,closeTimer=null,saveDeadline=0,saveTimer=null,actionSequence=0;
+  const statusRequests=new Set();
   const submenuOpeners=new WeakMap();
   let menuOpen=false,menuMode='choices',menuAnchor=null,sourceAnchor=null;
   let selectionHandlers=null,selectionStyle=null,press=null,clickTimer=null,lastClick=null;
@@ -26,7 +27,7 @@ export function installInPage(){
   const headerButton=button('PCS',openHeader,'entry');headerButton.setAttribute('aria-haspopup','dialog');entry.root.append(headerButton);
   const menu=document.createElement('div');menu.className='menu';menu.setAttribute('role','dialog');menu.setAttribute('aria-label','PCS');popup.root.append(menu);
 
-  async function request(action,fields={}){let response;try{response=await chrome.runtime.sendMessage({action,...fields});}catch(error){throw Object.assign(new Error('擴充已更新，請重新整理頁面。'),{code:'extension_unavailable',cause:error});}if(!response?.ok)throw Object.assign(new Error(response?.error?.message||'操作失敗，請再試一次。'),{code:response?.error?.code||'failed'});return response.result;}
+  async function request(action,fields={}){let response,timer;try{response=await Promise.race([chrome.runtime.sendMessage({action,...fields}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(new Error('暫時沒有回應，請再試一次。'),{code:'timeout'})),action==='transfer'?120000:25000);})]);}catch(error){if(error.code==='timeout')throw error;throw Object.assign(new Error('擴充已更新，請重新整理頁面。'),{code:'extension_unavailable',cause:error});}finally{clearTimeout(timer);}if(!response?.ok)throw Object.assign(new Error(response?.error?.message||'操作失敗，請再試一次。'),{code:response?.error?.code||'failed'});return response.result;}
   function theme(){const h=document.documentElement,scheme=getComputedStyle(h).colorScheme;return h.classList.contains('dark')?'dark':h.classList.contains('light')?'light':h.dataset.theme==='dark'?'dark':h.dataset.theme==='light'?'light':scheme==='dark'?'dark':scheme==='light'?'light':matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';}
   function mount(){
     const slot=conversationHeaderSlot();
@@ -50,17 +51,18 @@ export function installInPage(){
   function caption(text){const node=document.createElement('div');node.className='title';node.textContent=text;menu.append(node);}
   function allButton(action){const item=button('全選',action);item.title='選取頁面已載入的訊息';item.setAttribute('aria-description',item.title);return item;}
   function operationLocked(){return !!pending&&!FINAL_STATES.has(pending.state);}
-  function clearOutcome(){if(pending&&FINAL_STATES.has(pending.state)){clearTimeout(poll);pending=null;notice='';}}
+  function clearOutcome(){if(pending&&FINAL_STATES.has(pending.state)){clearTimeout(poll);clearTimeout(saveTimer);pending=null;notice='';}}
   function render(){
     const focused=popup.root.activeElement,focusLabel=focused?.getAttribute('aria-label')||focused?.textContent;
     const usableSelection=!pending||(!operationLocked()&&snapshot?.context.url===location.href&&selected.size>0);
     headerButton.textContent=active&&selected.size?`PCS ${selected.size}`:'PCS';headerButton.setAttribute('aria-expanded',String(menuOpen&&menuAnchor===entry.element));
     popup.element.hidden=!menuOpen||(menuAnchor===entry.element&&entry.element.hidden);menu.replaceChildren();syncChecks();for(const item of checks)item.input.disabled=busy||operationLocked()||!!destination;for(const item of messageButtons.values())item.root.querySelector('button').disabled=busy||!!destination||operationLocked();
     if(menuMode==='recent'){
-      menu.append(button('‹ 返回',()=>{menuMode=active||snapshot?'selection':'choices';render();}));caption('下載紀錄');const saved=recents.filter(r=>r.state==='committed'||r.kind==='download');if(!saved.length)caption('尚無紀錄');
+      menu.append(button('‹ 返回',()=>{menuMode=active||snapshot?'selection':'choices';render();}));caption('下載紀錄');const saved=recents.filter(r=>r.state==='committed'||r.kind==='download'||!FINAL_STATES.has(r.state));if(!saved.length)caption('尚無紀錄');
       for(const receipt of saved){const row=document.createElement('div');row.className='receipt';const name=document.createElement('span');name.textContent=receipt.title;name.title=receipt.path||receipt.title;
         if(receipt.kind==='download'&&(receipt.state!=='complete'||receipt.exists===false)){const detail=document.createElement('small');detail.style.cssText='display:block;color:var(--muted)';detail.textContent=receipt.exists===false?'檔案已移除':receipt.state==='in_progress'?'下載中…':receipt.error==='USER_CANCELED'?'已取消':'下載失敗';name.append(detail);}
-        const folder=recordButton('開啟資料夾',()=>receiptAction('reveal',receipt),'folder'),open=recordButton('開啟文件',()=>receiptAction('open',receipt),'file');folder.disabled=open.disabled=receipt.kind==='download'&&(receipt.state!=='complete'||receipt.exists===false);row.append(name,folder,open);menu.append(row);}
+        if(receipt.kind!=='download'&&!FINAL_STATES.has(receipt.state)){const detail=document.createElement('small');detail.style.cssText='display:block;color:var(--muted)';detail.textContent='尚未確認保存結果';name.append(detail);}
+        const folder=recordButton('開啟資料夾',()=>receiptAction('reveal',receipt),'folder'),open=recordButton('開啟文件',()=>receiptAction('open',receipt),'file');folder.disabled=open.disabled=receipt.kind==='download'?(receipt.state!=='complete'||receipt.exists===false):receipt.state!=='committed';row.append(name,folder,open);if(receipt.kind!=='download'&&!FINAL_STATES.has(receipt.state))row.append(button('查詢結果',()=>receiptAction('status',receipt)));menu.append(row);}
       if(notice){const text=document.createElement('div');text.className='status';text.textContent=notice;menu.append(text);}
     }else if(menuMode==='choices'&&!pending){
       menu.append(allButton(()=>startSelection(true)),button('選取訊息',()=>startSelection(false)));
@@ -69,19 +71,20 @@ export function installInPage(){
       const loaded=selected.size>0&&selected.size===snapshot?.capture.messages.length&&snapshot.capture.scope==='loaded';
       caption(pending&&(operationLocked()||!usableSelection)?(pending.source_title||pending.title||'傳送結果'):menuMode==='message'?'此則訊息':`已選 ${selected.size} 則${loaded?'（已載入）':''}`);
       if(snapshot?.capture.messages.some(message=>selected.has(message.id)&&message.resources?.some(resource=>['chart','image','embed','attachment'].includes(resource.kind))))caption('部分圖表或附件僅保留來源連結');
-      if(active&&usableSelection){const tools=document.createElement('div');tools.className='tools';const all=allButton(()=>{clearOutcome();selected=new Set(snapshot?.capture.messages.map(m=>m.id)||[]);syncChecks();render();});all.disabled=busy||!!destination;const cancelChoice=button('取消',cancelSelection);cancelChoice.disabled=busy||!!destination;tools.append(all,cancelChoice);menu.append(tools);}
+      if(active&&usableSelection){const tools=document.createElement('div');tools.className='tools';const all=allButton(()=>{clearOutcome();selected=new Set(snapshot?.capture.messages.map(m=>m.id)||[]);syncChecks();render();});all.disabled=busy||!!destination;const cancelChoice=button('取消',cancelSelection);tools.append(all,cancelChoice);menu.append(tools);}
       const send=button('儲存到 PCS',()=>chooseDestination(true),'submenu-trigger');send.disabled=!selected.size||busy||operationLocked();send.setAttribute('aria-haspopup','menu');send.setAttribute('aria-expanded',String(!!destination));hoverOpen(send,()=>chooseDestination(false));submenuOpeners.set(send,()=>chooseDestination(false,true));menu.append(send);if(destination){destination.anchor=send;if(destination.levels[0])destination.levels[0].anchor=send;}
-      const json=button('下載 JSON',()=>{closeDestination();downloadSelected('json');}),md=button('下載 Markdown',()=>{closeDestination();downloadSelected('md');});json.disabled=md.disabled=!selected.size||busy||operationLocked();menu.append(json,md);
+      const json=button('下載 JSON',()=>{closeDestination();downloadSelected('json');}),md=button('下載 Markdown',()=>{closeDestination();downloadSelected('md');});json.disabled=md.disabled=!selected.size||!snapshot||snapshot.context.url!==location.href||busy;menu.append(json,md);
       if(notice||pending&&pending.state!=='committed'){separator();const text=document.createElement('div');text.className='status';text.setAttribute('aria-live','polite');text.textContent=notice||(pending?(pending.state==='failed'&&pending.message||statusLabel(pending.state)):'');menu.append(text);}
-      if(pending){if(!FINAL_STATES.has(pending.state)){if(pending.state==='unknown')menu.append(button('查詢結果',checkStatus));menu.append(button('取消',cancel));}if(FINAL_STATES.has(pending.state)&&!usableSelection||pending.state==='unknown')menu.append(button('重新選取',newSelection));}
+      if(pending){if(!FINAL_STATES.has(pending.state)){if(pending.state==='unknown')menu.append(button('查詢結果',()=>checkStatus(true)));menu.append(button('取消',cancelSelection));}if(FINAL_STATES.has(pending.state)&&!usableSelection)menu.append(button('重新選取',newSelection));}
+      else if(busy&&!active)menu.append(button('取消',cancelSelection));
       else if(notice&&!busy)menu.append(button('重新讀取',retrySelection));if(menuAnchor===entry.element){separator();menu.append(button('下載紀錄',showRecents));}
     }requestAnimationFrame(()=>{positionMenu();if(menuOpen&&focusLabel){const replacement=[...menu.querySelectorAll('button,select')].find(item=>(item.getAttribute('aria-label')||item.textContent)===focusLabel&&!item.disabled);(replacement||menu.querySelector('button:not(:disabled),select'))?.focus({preventScroll:true});}});
   }
   function focusMenu(){requestAnimationFrame(()=>{if(menuOpen)menu.querySelector('button:not(:disabled),select')?.focus({preventScroll:true});});}
   async function openHeader(){closeDestination();if(menuOpen&&menuAnchor===entry.element){menuOpen=false;render();return;}menuAnchor=entry.element;menuMode=pending||active||(snapshot&&!sourceAnchor)?'selection':'choices';menuOpen=true;notice='';await loadRecents();render();focusMenu();}
-  async function openMessage(anchor,buttonHost){if(busy||destination||(pending&&!FINAL_STATES.has(pending.state)))return;pending=null;clearTimeout(poll);generation++;const expected=generation,url=location.href;active=false;selected.clear();snapshot=null;removeChecks();sourceAnchor=anchor;menuAnchor=buttonHost;menuMode='message';menuOpen=true;busy=true;notice='';render();try{const fresh=await request('capture');if(generation!==expected||location.href!==url||fresh.context.url!==url)return;const index=messageElements().indexOf(anchor),id=fresh.anchors.find(a=>a.index===index)?.id;if(!id)throw new Error('訊息已更新，請再選一次。');snapshot=fresh;selected=new Set([id]);}catch(error){if(generation===expected)notice=error.message;}finally{busy=false;render();focusMenu();}}
+  async function openMessage(anchor,buttonHost){if(busy||destination||(pending&&!FINAL_STATES.has(pending.state)))return;pending=null;clearTimeout(poll);generation++;const expected=generation,url=location.href,action=++actionSequence;active=false;selected.clear();snapshot=null;removeChecks();sourceAnchor=anchor;menuAnchor=buttonHost;menuMode='message';menuOpen=true;busy=true;notice='';render();try{const fresh=await request('capture');if(generation!==expected||location.href!==url||fresh.context.url!==url)return;const index=messageElements().indexOf(anchor),id=fresh.anchors.find(a=>a.index===index)?.id;if(!id)throw new Error('訊息已更新，請再選一次。');snapshot=fresh;selected=new Set([id]);}catch(error){if(generation===expected)notice=error.message;}finally{if(action===actionSequence){busy=false;render();focusMenu();}}}
   async function startSelection(all){generation++;active=true;sourceAnchor=null;menuAnchor=entry.element;selected.clear();snapshot=null;menuMode='selection';notice='';await refresh(true);if(all&&snapshot)selected=new Set(snapshot.capture.messages.map(m=>m.id));syncChecks();render();if(!all&&snapshot){menuOpen=false;render();}}
-  function cancelSelection(){if(busy||operationLocked()||destination)return;generation++;active=false;clearOutcome();selected.clear();snapshot=null;sourceAnchor=null;removeChecks();menuMode='choices';notice='';render();focusMenu();}
+  function cancelSelection(){const operation=operationLocked()?{operation_id:pending.operation_id,instance_id:pending.instance_id}:null;closeDestination();clearTimeout(poll);clearTimeout(saveTimer);generation++;actionSequence++;busy=false;active=false;pending=null;selected.clear();snapshot=null;sourceAnchor=null;removeChecks();menuMode='choices';notice='';render();focusMenu();if(operation){request('dismiss',operation).catch(()=>{});request('cancel',operation).then(()=>loadRecents(),()=>loadRecents());}}
   async function retrySelection(){if(menuMode==='message'&&sourceAnchor?.isConnected)return openMessage(sourceAnchor,menuAnchor);if(active)return refresh(true);return startSelection(false);}
   function restoreAttribute(element,name,value){if(value===null)element.removeAttribute(name);else element.setAttribute(name,value);}
   function syncChecks(){for(const item of checks){const checked=selected.has(item.id);item.input.checked=checked;if(checked)item.anchor.setAttribute('data-pcs-selected',selectionToken);else restoreAttribute(item.anchor,'data-pcs-selected',item.originalSelected);}}
@@ -132,7 +135,7 @@ export function installInPage(){
     bindSelection();syncChecks();mount();positionChecks();
   }
   async function refresh(explicit=false){if(!active||operationLocked()||destination)return;if(reading){refreshAgain=true;return;}reading=true;const expected=generation,url=location.href;try{const fresh=await request('capture');if(!active||operationLocked()||destination||generation!==expected||location.href!==url||fresh.context.url!==url)return;const changed=snapshot&&(fresh.fingerprint!==snapshot.fingerprint||fresh.context.url!==snapshot.context.url||fresh.context.tabId!==snapshot.context.tabId);if(changed){clearOutcome();selected.clear();notice='對話已更新，請重新選取。';}else if(explicit){clearOutcome();notice='';}snapshot=fresh;buildChecks();}catch(error){if(generation===expected&&active){snapshot=null;selected.clear();removeChecks();notice=error.message;menuOpen=true;}}finally{reading=false;render();if(refreshAgain){refreshAgain=false;scheduleRefresh();}}}
-  async function downloadSelected(ext){if(busy||operationLocked()||!snapshot)return;const expected=generation,url=location.href,context=snapshot.context,capture=selectCapture(snapshot.capture,selected);busy=true;notice='';render();try{await request('download',{format:ext,context,capture});}catch(error){if(generation===expected&&location.href===url){if(error.code==='page_changed'){selected.clear();snapshot=null;removeChecks();}notice=error.message;}}finally{busy=false;render();}}
+  async function downloadSelected(ext){if(busy||!snapshot)return;const expected=generation,url=location.href,context=snapshot.context,capture=selectCapture(snapshot.capture,selected),action=++actionSequence;busy=true;notice='';render();try{await request('download',{format:ext,context,capture});}catch(error){if(generation===expected&&location.href===url){if(error.code==='page_changed'){selected.clear();snapshot=null;removeChecks();}notice=error.message;}}finally{if(action===actionSequence){busy=false;render();}}}
   function selectionValid(intent){return generation===intent.generation&&location.href===intent.url&&snapshot?.context.fingerprint===intent.context.fingerprint;}
   function destinationValid(view){return !!view?.intent&&destination===view&&selectionValid(view.intent);}
   function hoverOpen(element,action){
@@ -146,7 +149,7 @@ export function installInPage(){
     clearTimeout(hoverTimer);clearTimeout(closeTimer);hoverTimer=closeTimer=null;
     if(destination){trimLevels(destination,0);destination.anchor?.setAttribute('aria-expanded','false');destination=null;destinationRequest++;}
     for(const check of checks)check.input.disabled=busy||operationLocked();
-    for(const tool of menu.querySelectorAll('.tools button'))tool.disabled=busy||operationLocked();
+    for(const tool of menu.querySelectorAll('.tools button'))tool.disabled=tool.textContent!=='取消'&&(busy||operationLocked());
     for(const item of messageButtons.values())item.root.querySelector('button').disabled=busy||!!(pending&&!FINAL_STATES.has(pending.state));
   }
   function positionSubmenus(){
@@ -232,23 +235,25 @@ export function installInPage(){
   async function saveToDestination(view,instanceId,folderId){
     if(operationLocked()||busy||!destinationValid(view))return;
     const identity={operation_id:crypto.randomUUID(),instance_id:instanceId},intended=view.intent;
-    closeDestination();clearTimeout(poll);busy=true;notice='';pending={...identity,state:'receiving',source_title:intended.capture.title};render();
-    try{const result=await request('transfer',{...identity,destination_id:folderId,context:intended.context,capture:intended.capture});if(accepts(identity)){pending={...pending,...identity,...result};notice=result.state==='failed'?result.message||'保存失敗。':'';}}
+    closeDestination();clearTimeout(poll);clearTimeout(saveTimer);notice='';pending={...identity,state:'receiving',source_title:intended.capture.title};saveDeadline=Date.now()+30000;saveTimer=setTimeout(()=>unconfirmed(identity),30000);render();
+    // PCS canonicalizes UUIDs to 32 characters. Keep the UI request identity:
+    // allowing the reply to replace it prevented finally/poll from ever running.
+    try{const result=await request('transfer',{...identity,destination_id:folderId,context:intended.context,capture:intended.capture});if(accepts(identity)){pending={...pending,...result,...identity};notice=result.state==='failed'?result.message||'保存失敗。':'';}}
     catch(error){if(accepts(identity)){
       if(error.code==='page_changed'){pending=null;selected.clear();snapshot=null;removeChecks();notice='對話已更新，請重新選取。';}
       else if(['destination_changed','destination_limit','invalid_request'].includes(error.code)){pending={...pending,state:'failed',message:error.message};notice=error.message;}
       else{pending={...pending,...identity,state:'unknown'};notice=error.message;}
-    }}finally{if(!pending||pending.operation_id===identity.operation_id){busy=false;if(pending&&!FINAL_STATES.has(pending.state)&&pending.state!=='unknown')schedulePoll();render();}}
+    }}finally{if(pending?.operation_id===identity.operation_id){if(!FINAL_STATES.has(pending.state)&&pending.state!=='unknown')schedulePoll();else clearTimeout(saveTimer);}render();}
   }
   function accepts(identity){return pending?.operation_id===identity.operation_id&&pending?.instance_id===identity.instance_id&&!FINAL_STATES.has(pending.state);}
-  function schedulePoll(){clearTimeout(poll);poll=setTimeout(checkStatus,2000);}
-  async function checkStatus(){if(!pending)return;const identity={operation_id:pending.operation_id,instance_id:pending.instance_id};try{const result=await request('status',identity);if(!accepts(identity))return;pending={...pending,...identity,...result};notice=result.state==='failed'?result.message||'保存失敗。':'';if(!FINAL_STATES.has(pending.state)&&pending.state!=='unknown')schedulePoll();else loadRecents();}catch(error){if(accepts(identity)){pending={...pending,...identity,state:'unknown'};notice=error.message;}}render();}
-  async function cancel(){if(!pending)return;const identity={operation_id:pending.operation_id,instance_id:pending.instance_id};clearTimeout(poll);try{const result=await request('cancel',identity);if(!accepts(identity))return;pending={...pending,...identity,...result};notice='';if(!FINAL_STATES.has(pending.state)&&pending.state!=='unknown')schedulePoll();}catch(error){if(accepts(identity))notice=error.message;}render();}
-  async function newSelection(){if(pending)await request('dismiss',pending).catch(()=>{});clearTimeout(poll);pending=null;selected.clear();snapshot=null;notice='';generation++;active=false;removeChecks();menuMode='choices';render();}
-  async function receiptAction(action,receipt){notice='';try{await request(receipt.kind==='download'?`download_${action}`:action,receipt.kind==='download'?{download_id:receipt.download_id}:{operation_id:receipt.operation_id,instance_id:receipt.instance_id});}catch(error){notice=error.message;render();}}
+  function unconfirmed(identity){if(!accepts(identity))return;clearTimeout(poll);clearTimeout(saveTimer);pending={...pending,state:'unknown'};notice='';render();}
+  function schedulePoll(){clearTimeout(poll);if(Date.now()>=saveDeadline){unconfirmed(pending);return;}poll=setTimeout(checkStatus,2000);}
+  async function checkStatus(explicit=false){if(!pending)return;const identity={operation_id:pending.operation_id,instance_id:pending.instance_id},key=identity.instance_id+':'+identity.operation_id;if(statusRequests.has(key))return;statusRequests.add(key);try{const result=await request('status',identity);if(!accepts(identity))return;pending={...pending,...result,...identity};notice=result.state==='failed'?result.message||'保存失敗。':'';if(!FINAL_STATES.has(pending.state)&&pending.state!=='unknown'){if(explicit&&Date.now()>=saveDeadline)unconfirmed(identity);else schedulePoll();}else{clearTimeout(saveTimer);loadRecents();}}catch(error){if(accepts(identity)){clearTimeout(saveTimer);pending={...pending,...identity,state:'unknown'};notice=error.message;}}finally{statusRequests.delete(key);}render();}
+  function newSelection(){cancelSelection();}
+  async function receiptAction(action,receipt){notice='';try{await request(receipt.kind==='download'?`download_${action}`:action,receipt.kind==='download'?{download_id:receipt.download_id}:{operation_id:receipt.operation_id,instance_id:receipt.instance_id});if(action==='status'){await loadRecents();render();}}catch(error){notice=error.message;render();}}
   async function showRecents(){closeDestination();notice='';await loadRecents();menuMode='recent';render();pollHistory();}
   function pollHistory(){clearTimeout(historyTimer);if(menuOpen&&menuMode==='recent'&&recents.some(r=>r.kind==='download'&&r.state==='in_progress'))historyTimer=setTimeout(async()=>{await loadRecents();if(menuOpen&&menuMode==='recent'){render();pollHistory();}},1500);}
-  async function loadRecents(){try{recents=await request('recents');}catch{recents=[];}if(!pending){const unfinished=recents.find(r=>r.kind!=='download'&&!r.dismissed&&!FINAL_STATES.has(r.state));if(unfinished){pending=unfinished;menuMode='selection';checkStatus();}}}
+  async function loadRecents(){try{recents=await request('recents');}catch{recents=[];}}
   function scheduleRefresh(){clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>refresh(),500);}
   let observedConversationRoot=locateConversation().main;
   function sourcePopovers(root){
@@ -294,7 +299,9 @@ export function installInPage(){
     const target=event.composedPath().find(node=>node instanceof HTMLButtonElement),level=destination?.levels.find(item=>event.composedPath().includes(item.host.element));
     const inside=level||event.composedPath().includes(popup.element);
     if(inside&&event.key==='ArrowRight'&&submenuOpeners.has(target)){event.preventDefault();submenuOpeners.get(target)();return;}
-    if(inside&&destination&&(event.key==='ArrowLeft'||event.key==='Escape')){event.preventDefault();const anchor=level?.anchor||destination.anchor;if(level)trimLevels(destination,destination.levels.indexOf(level));else closeDestination();if(destination&&!destination.levels.length)closeDestination();anchor?.focus({preventScroll:true});return;}
+    // Rendering replaces focused buttons before the next animation frame.
+    // Escape still belongs to the open submenu while focus briefly rests on body.
+    if(destination&&(event.key==='Escape'||inside&&event.key==='ArrowLeft')){event.preventDefault();const current=level||(event.key==='Escape'?destination.levels.at(-1):null),anchor=current?.anchor||destination.anchor;if(current)trimLevels(destination,destination.levels.indexOf(current));else closeDestination();if(destination&&!destination.levels.length)closeDestination();anchor?.focus({preventScroll:true});return;}
     if(inside&&['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const items=[...(level?.menu||menu).querySelectorAll('button:not(:disabled):not([hidden])')],index=items.indexOf(target);const next=event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length;items[next]?.focus({preventScroll:true});return;}
     if(event.key==='Escape'){closeDestination();if(active&&!busy&&!operationLocked())cancelSelection();menuOpen=false;render();menuAnchor?.shadowRoot?.querySelector('button')?.focus({preventScroll:true});}
   },true);

@@ -44,10 +44,13 @@ export async function extensionFixture(body,{width=1100,height=900,waitForEntry=
           else if(message.command==='finish')result=testNative.finishResult||{state:testNative.finishState||'committing'};
           else if(message.command==='cancel')result={state:'cancelled'};
           else result={state:'receiving'};
+          if(message.operation_id)result={...result,operation_id:message.operation_id.replaceAll('-','')};
           const reply=()=>receive(error?{request_id:message.request_id,ok:false,error}:{request_id:message.request_id,ok:true,result});
           if(message.command==='hello'&&testNative.holdHello)testNative.releaseHello=reply;
           else if(message.command==='begin'&&testNative.holdBegin)testNative.releaseBegin=reply;
           else if(message.command==='finish'&&testNative.holdFinish)testNative.releaseFinish=reply;
+          else if(message.command==='cancel'&&testNative.holdCancel)testNative.releaseCancel=reply;
+          else if(message.command==='status'&&testNative.holdStatus)testNative.releaseStatus=reply;
           else if(message.command==='destinations'&&testNative.holdDestinations)testNative.releaseDestinations=reply;
           else queueMicrotask(reply);
         }};

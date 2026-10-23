@@ -2,7 +2,7 @@
 
 [Chrome 連接契約](chrome-connector.md) · [Markdown 保存契約](markdown-retention.md)
 
-本文供擷取、保存及閱讀端開發使用，記錄 2026-10-24、`0.2.5` 工作樹的富格式增量。前一固定基準為 `d68e14076e220d108e080728dbd3526d048ce856`；以下新增能力尚未代表已發布或網站所有變體皆已驗收。PNG 已通過合成瀏覽器擷取、檔案保存、可攜重開及實際離屏 Qt 圖像閱讀檢查；此證據不延伸成所有真實網站圖表皆相容。
+本文供擷取、保存及閱讀端開發使用。2026-10-24 的 `0.2.6` 增量以 `1798054c63ea4e085b7b2988dbe68d3b86648c0c`（R8／0.2.5）為基準，補足正文小圖示、公式來源與保存狀態恢復，另見 [R9 驗證紀錄](markdown-compatibility-r9.md)。以下能力尚未代表已發布或網站所有變體皆已驗收。PNG 已通過合成瀏覽器擷取、檔案保存、可攜重開及實際離屏 Qt 圖像閱讀檢查；此證據不延伸成所有真實網站圖表皆相容。
 
 ## 內容類型與保存目標
 
@@ -16,9 +16,10 @@ Data Analysis 的表格可下載 CSV，圖表預設下載 PNG；官方也區分�
 | --- | --- | --- | --- |
 | 一般 HTML 表格、GFM 表格 | 單層規則表轉 pipe Markdown，保留標題、欄序、文字值及 inline 格式；閱讀端使用可橫捲的滿寬表格 | 已有合成擷取與實際閱讀測試；數字不先轉浮點數，避免精度／前導零改變 | 無標頭表、多列標頭、表內 block 內容應走 HTML 路徑，不能一律把第一列升成欄名 |
 | 合併儲存格、巢狀表 | 白名單 HTML：`table/caption/thead/tbody/tfoot/tr/th/td`，保留 `rowspan/colspan/scope`、巢狀歸屬及標準 inline | 已驗合併表、`rowspan="0"`、巢狀表與兩層 sanitizer；不複製來源 CSS、事件或 script | 表內有序清單已加入 `start/value` 白名單；`reversed` 及實際編號仍需端到端回歸，不能因外表正確而漏掉語意 |
-| KaTeX 公式 | 讀已有的 `annotation[encoding="application/x-tex"]`，轉 `$…$`／`$$…$$`，由 PCS 本機 KaTeX 顯示 | 一般 Markdown 公式使用既有 renderer；安全 HTML 表內的 TeX 目前保持 literal，未重新解析成公式 | 若要支援表內公式，新增明確且受控的公式節點／回呼；不可把整格 HTML 文字重新當 Markdown 解讀 |
+| KaTeX／MathJax／MathML 公式 | 讀已有的 TeX annotation 或明確 TeX 欄位，轉 `$…$`／`$$…$$`；PCS 另讀取 LLM 常用 `\(…\)`／`\[…\]` | 69 組數學／物理公式由內附 KaTeX 實際閱讀並逐式核對原文；安全 HTML 表內的 TeX 仍保持 literal | 不從公式外觀反推 LaTeX；HTML 表內公式需受控節點，不可把整格 HTML 文字重新當 Markdown 解讀 |
 | 科學記號、化學式的上下標 | 保留惰性的 `<sup>/<sub>`，不將 `10⁻³` 或 `H₂O` 攤成相鄰普通數字 | 已有符號、精度與實際閱讀測試；不需要猜測並重寫成 TeX | 複合底數、Unicode 負號、標籤及單位連接關係；若無原公式來源，只保留可見語意 |
-| 程式碼、MediaWiki 等原始文字 | 保留 code／pre 邊界、換行及足夠長的 fence；不將其內的管線字元轉成表格 | 已測巢狀表內 pre 換行與 literal 文字；目前擷取仍有整體 NBSP 正常化，不能承諾逐 byte 原文相同 | 增加 NBSP、反引號、`{| … |}`、HTML 字面值回歸；原始下載檔可作逐字對照 |
+| 程式碼、MediaWiki 等原始文字 | 保留 code／pre 邊界、換行及足夠長的 fence；不將其內的管線字元轉成表格 | 已測巢狀表內 pre 換行與 literal 文字；R9 移除整體 NBSP 正常化並測公式／程式碼中的 NBSP，數值不轉浮點數 | 來源 DOM 可能已失去原 byte 格式，原始下載檔仍是逐字對照依據 |
+| 正文 SVG 小圖示 | 有明確正文元件語意的圖示轉受限 PNG，保留 `18x18` 等顯示尺寸及旁邊文字順序 | 新增 18px fill／stroke 圖示、階段箭頭；工具列、favicon、連結裝飾、公式內 SVG 不重複擷取 | CSS 或結構不同的新圖示仍需案例；不因尺寸小就全部丟棄，也不把操作按鈕搬進文件 |
 | `data-d-*` 摘要卡、四格數值、CVSS | 只對已確認結構產生本機固定布局的安全 HTML：二欄配對、2×2 grid、數值／分母與 meter | 已測摘要配對、四格順序、9.2/10 與 reader 保留比例；選擇器來自觀測，不是 OpenAI 公開契約 | 只保留原有分隔／外框；陌生結構退回完整文字順序。新增卡片變體必須有 fixture，不能按數字外觀猜分組 |
 | 聊天內 SVG 圖表 | 受限淨化後輸出 PNG；簡單 HTML 軸標籤轉成文字；可讀 table／資料標籤另留結構 | 合成擷取、writer／portable 及實際 Qt 解碼已驗；未保留 hover、篩選或縮放互動 | 新變體核對色彩、字型、clipPath、相對引用、尺寸及 hash；轉圖失敗保留參照，不能偽造空白成功圖 |
 | Canvas／已載入圖片 | origin-clean Canvas、同源或合法 CORS 圖片可輸出 PNG；另留真實資料或描述 | PNG 檔案鏈路及實際 Qt 寬窄閱讀已驗；污染 Canvas、表內圖、跨來源 iframe 與動畫互動仍不支援 | 零尺寸、WebGL 畫面、超大圖與新 CORS 變體；不能從像素反推精確數據 |

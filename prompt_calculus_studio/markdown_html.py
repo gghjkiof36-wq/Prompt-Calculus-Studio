@@ -85,6 +85,60 @@ def safe_target(value):
     return value.replace(' ', '%20').replace('(', '%28').replace(')', '%29').replace('<', '%3C').replace('>', '%3E')
 
 
+def image_target(value):
+    value = value or ''
+    if value.casefold().startswith('data:'):
+        from .capture_images import png_bytes
+        png_bytes(value)
+        return value
+    return safe_target(value)
+
+
+def has_linked_thumbnail(source):
+    """Narrow multi-MIME gate: retain an actual image's surrounding safe link.
+
+    Pure Copy Image still uses its bitmap. Parse the complete bounded HTML so
+    malformed markup, discarded controls and unusable image sources cannot
+    displace that bitmap. No conversion, filesystem write or fetch occurs here.
+    """
+    if not re.search(r'<a\b', source, re.I):return False
+    root = parse_html(source)
+    def visit(node, linked=False):
+        if isinstance(node, str):return False
+        if node.tag in SKIP or node.attrs.get('role') in ('toolbar', 'button', 'navigation'):return False
+        linked = linked or (node.tag == 'a' and bool(safe_target(node.attrs.get('href'))))
+        if node.tag == 'img' and linked:
+            try:target = image_target(node.attrs.get('src'))
+            except ValueError:return False
+            return bool(target) and urlsplit(target).scheme in ('', 'http', 'https', 'data')
+        return any(visit(child, linked) for child in node.children)
+    return visit(root)
+
+
+def visual_fallback(node):
+    """Keep a truthful description/source when HTML alone cannot carry a visual."""
+    attrs = node.attrs
+    title = attrs.get('aria-label') or attrs.get('title') or attrs.get('alt')
+    if not title:
+        title = next((literal(item) for item in descendants(node, 'title')), '')
+    description = next((literal(item) for item in descendants(node, 'desc')), '')
+    if node.tag == 'canvas' and not description:
+        description = ''.join(literal(child) for child in node.children)
+    kind = {'svg': '圖形', 'canvas': '圖表'}.get(node.tag, '嵌入內容')
+    title = re.sub(r'\s+', ' ', title or kind).strip()[:300]
+    description = re.sub(r'\s+', ' ', description).strip()[:1000]
+    target = safe_target(attrs.get('src') or attrs.get('data') or attrs.get('href'))
+    if not target:
+        target = next((safe_target(item.attrs.get('href')) for item in descendants(node, 'a')
+                       if safe_target(item.attrs.get('href'))), '')
+    label = escape(title)
+    parts = [f'[{label}]({target})' if target else label]
+    if description and description != title:
+        parts.append(escape(description))
+    parts.append('（' + kind + '未保留' + ('，可開啟來源查看' if target else '') + '）')
+    return '\n\n' + ' · '.join(parts) + '\n\n'
+
+
 def complex_table(node):
     """Retain cell spans as inert source, never guess a rectangular grid."""
     allowed = {'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'br'}
@@ -142,13 +196,25 @@ def render_children(children, *, table=False):
 
 def render(node, *, table=False):
     if isinstance(node, str):
-        value = escape(re.sub(r'\s+', ' ', node))
-        return re.sub(r'(\\+)\|', lambda m: '\\'*(len(m[1])//2)+'|', value) if table else value
+        # Some LLM copy buttons put literal TeX in text/html as well as plain
+        # text. Escaping those backslashes again makes valid \(...\) unreadable.
+        from .markdown_math import math_ranges
+        def prose(value):
+            value = escape(re.sub(r'\s+', ' ', value))
+            return re.sub(r'(\\+)\|', lambda m: '\\'*(len(m[1])//2)+'|', value) if table else value
+        pieces=[];at=0
+        for start,end in math_ranges(node):
+            pieces.extend((prose(node[at:start]),node[start:end]))
+            at=end
+        pieces.append(prose(node[at:]))
+        return ''.join(pieces)
     tag, attrs = node.tag, node.attrs
     if tag == 'script' and (attrs.get('type') or '').startswith('math/tex'):
         formula = ''.join(c for c in node.children if isinstance(c, str))
         return '\n\n$$\n'+formula+'\n$$\n\n' if 'mode=display' in attrs['type'] else '$'+formula+'$'
-    if tag in SKIP or attrs.get('role') in ('toolbar', 'button', 'navigation'):return ''
+    if attrs.get('role') in ('toolbar', 'button', 'navigation'):return ''
+    if tag in ('svg', 'canvas', 'iframe', 'object', 'embed'):return visual_fallback(node)
+    if tag in SKIP:return ''
     classes = (attrs.get('class') or '').split()
     if tag == 'math' or attrs.get('data-latex') or attrs.get('data-tex') or any(c in classes for c in ('katex', 'katex-display', 'math', 'math-inline', 'math-display')):
         formula = attrs.get('data-latex') or attrs.get('data-tex')
@@ -189,7 +255,9 @@ def render(node, *, table=False):
     if tag == 'hr':return '\n\n---\n\n'
     if tag == 'img':
         label = escape(attrs.get('alt') or '圖片')
-        target = safe_target(attrs.get('src'))
+        try:target = image_target(attrs.get('src'))
+        except ValueError:
+            return '[' + escape((attrs.get('alt') or '圖片')[:300]) + '：內嵌圖片格式無法讀取或超過大小限制]'
         return '!['+label+']('+target+')' if target else '['+label+'：來源未提供可用圖片連結]'
     value = render_children(node.children, table=table)
     if tag == 'blockquote':
@@ -199,7 +267,7 @@ def render(node, *, table=False):
         return '['+value+']('+target+')' if target else value
     marks = {'b': '**', 'strong': '**', 'i': '*', 'em': '*', 'del': '~~', 's': '~~'}
     if tag in marks:return marks[tag]+value+marks[tag]
-    if tag == 'u':return '<u>'+value+'</u>'
+    if tag in ('u', 'sup', 'sub', 'mark'):return '<'+tag+'>'+value+'</'+tag+'>'
     if re.fullmatch(r'h[1-6]', tag):return '\n\n'+'#'*int(tag[1])+' '+value.strip()+'\n\n'
     style = css_style(attrs.get('style') or '')
     if style:value = '<span style="'+html.escape(style_css(style), quote=True)+'">'+value+'</span>'
@@ -207,7 +275,7 @@ def render(node, *, table=False):
     return value
 
 
-def from_html(source):
+def parse_html(source):
     if len(source.encode('utf-8')) > MAX_INPUT:
         raise ValueError('貼上內容超過 8 MiB；請縮小範圍或貼上純文字。')
     parser = PasteParser()
@@ -215,7 +283,11 @@ def from_html(source):
     parser.close()
     if any(n.tag not in OPTIONAL for n in parser.stack[1:]):
         raise ValueError('HTML 標籤不完整；請重新複製或貼上純文字。')
-    result = render(parser.root).strip()
+    return parser.root
+
+
+def from_html(source):
+    result = render(parse_html(source)).strip()
     if len(result.encode('utf-8')) > MAX_INPUT:
         raise ValueError('轉換結果超過文件容量；請分段貼上。')
     return result

@@ -128,11 +128,42 @@ test('cascade errors remain recoverable and do not fall back to a desktop previe
   }finally{await live.close();}
 });
 
+test('Escape closes the open submenu before deferred focus restoration and leaves the closed page alone',{skip:!enabled},async()=>{
+  const live=await extensionFixture(html),{page,worker}=live;page.setDefaultTimeout(6000);
+  try{
+    await worker.evaluate(()=>testNative.instances[0].capabilities=[]);
+    await page.getByRole('button',{name:'PCS：此則訊息',exact:true}).nth(1).click();
+    await button(page,'儲存到 PCS').waitFor();
+    await page.evaluate(()=>new Promise(requestAnimationFrame));
+    await worker.evaluate(async()=>{
+      const [tab]=await chrome.tabs.query({url:'https://chatgpt.com/*'});
+      await chrome.scripting.executeScript({target:{tabId:tab.id},func:()=>{
+        globalThis.testDeferredFrames=[];globalThis.testOriginalFrame=requestAnimationFrame;
+        globalThis.requestAnimationFrame=callback=>{testDeferredFrames.push(callback);return testDeferredFrames.length;};
+      }});
+    });
+    await page.evaluate(()=>{globalThis.nativeEscapes=[];window.addEventListener('keydown',event=>{if(event.key==='Escape')nativeEscapes.push(event.defaultPrevented);});});
+    await button(page,'儲存到 PCS').click();
+    await page.getByText('請更新 PCS 後再儲存。',{exact:true}).waitFor();
+    assert.equal(await page.evaluate(()=>document.activeElement.tagName),'BODY','render replaced the focused button before the held frame');
+    assert.equal(await submenus(page).count(),1);
+    await page.keyboard.press('Escape');
+    assert.equal(await submenus(page).count(),0);
+    assert.equal(await button(page,'儲存到 PCS').isVisible(),true,'only the child menu closes');
+    assert.equal(await button(page,'儲存到 PCS').isEnabled(),true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('[data-pcs-ui="menu"]').isVisible(),false);
+    await page.keyboard.press('Escape');
+    assert.deepEqual(await page.evaluate(()=>[nativeEscapes[0],nativeEscapes.at(-1)]),[true,false],'closed PCS menus do not consume the page Escape');
+    assert.equal((await calls(worker,'begin')).length,0);assert.deepEqual(live.errors,[]);
+  }finally{await live.close();}
+});
+
 test('right-edge cascades flip left; narrow overlap retains Back and outside dismissal',{skip:!enabled},async()=>{
   const live=await extensionFixture(html),{page,worker}=live;page.setDefaultTimeout(6000);
   try{
     await page.locator('[data-pcs-ui="entry"]').getByRole('button').click();await button(page,'全選').click();await button(page,'儲存到 PCS').hover();await item(page,'目前工作區').waitFor();
-    assert.equal(await button(page,'全選').isDisabled(),true);assert.equal(await button(page,'取消').isDisabled(),true);
+    assert.equal(await button(page,'全選').isDisabled(),true);assert.equal(await button(page,'取消').isEnabled(),true);
     const parent=await page.locator('[data-pcs-ui="menu"]').boundingBox(),child=await submenus(page).boundingBox();assert.ok(child.x+child.width<=parent.x+8);
     await page.setViewportSize({width:390,height:850});await item(page,'返回').waitFor();
     const bounds=await submenus(page).boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=390);
@@ -248,7 +279,7 @@ test('inflight double clicks and unknown recovery never create a second save ope
     await choose(live);await item(page,'目前工作區').dblclick();await nativeReady(worker,'releaseBegin');
     if(!(await page.locator('[data-pcs-ui="menu"]').isVisible()))await page.locator('[data-pcs-ui="entry"]').getByRole('button').click();
     assert.equal((await calls(worker,'begin')).length,1);assert.equal((await calls(worker,'finish')).length,0);
-    assert.equal(await button(page,'儲存到 PCS').isDisabled(),true);assert.equal(await button(page,'下載 JSON').isDisabled(),true);
+    assert.equal(await button(page,'儲存到 PCS').isDisabled(),true);assert.equal(await button(page,'下載 JSON').isEnabled(),true);
     await page.keyboard.press('Escape');await page.locator('[data-pcs-ui="entry"]').getByRole('button').click();
     assert.equal((await calls(worker,'begin')).length,1);
     await worker.evaluate(()=>{testNative.holdBegin=false;testNative.releaseBegin();});await nativeReady(worker,'releaseFinish');
@@ -257,7 +288,7 @@ test('inflight double clicks and unknown recovery never create a second save ope
     await button(page,'查詢結果').click();await page.getByText('尚未取得結果',{exact:true}).waitFor();
     assert.equal((await calls(worker,'begin')).length,1);assert.equal((await calls(worker,'finish')).length,1);
     assert.ok((await calls(worker,'status')).every(call=>call.operation_id===identity));
-    assert.equal(await button(page,'儲存到 PCS').isDisabled(),true);assert.equal(await button(page,'下載 JSON').isDisabled(),true);
+    assert.equal(await button(page,'儲存到 PCS').isDisabled(),true);assert.equal(await button(page,'下載 JSON').isEnabled(),true);
     assert.deepEqual(live.errors,[]);
   }finally{await live.close();}
 });
@@ -278,5 +309,102 @@ test('a JSON download double-click creates one completed browser file without a 
     assert.equal(await page.locator('[data-pcs-ui="menu"] .receipt').count(),1);
     await button(page,'開啟資料夾').click();assert.deepEqual(await worker.evaluate(()=>testDownloadActions),[{action:'reveal',id:file.download_id}]);
     assert.deepEqual(live.errors,[]);
+  }finally{await live.close();}
+});
+
+test('canonical native operation IDs poll to completion, unlock controls and keep the wire identity',{skip:!enabled},async()=>{
+  const live=await extensionFixture(html),{page,worker}=live;page.setDefaultTimeout(6000);
+  try{
+    await choose(live);await item(page,'目前工作區').click();await page.getByText('正在保存…',{exact:true}).waitFor();
+    const begin=(await calls(worker,'begin'))[0];assert.equal(begin.operation_id.length,36);
+    // The fixture returns the real PCS public_record format: a 32-character key.
+    // Before this fix that replaced the UI's UUID and skipped finally + polling.
+    assert.equal(await button(page,'下載 JSON').isEnabled(),true);
+    assert.equal(await button(page,'取消').isEnabled(),true);
+    await worker.evaluate(()=>testNative.state='committed');await saved(live);
+    assert.ok((await calls(worker,'status')).length>0);
+    assert.ok((await calls(worker,'status')).every(call=>call.operation_id===begin.operation_id));
+    for(const name of ['儲存到 PCS','下載 JSON','下載 Markdown'])assert.equal(await button(page,name).isEnabled(),true);
+    assert.equal(await page.getByText('正在保存…',{exact:true}).count(),0);
+    await button(page,'儲存到 PCS').click();await item(page,'旅行').click();await saved(live,2);
+    assert.equal((await calls(worker,'begin')).length,2);
+  }finally{await live.close();}
+});
+
+test('saving can export independently; cancelling exits immediately and late receipts cannot revive the old menu',{skip:!enabled},async()=>{
+  const live=await extensionFixture(html),{page,worker}=live;page.setDefaultTimeout(6000);
+  try{
+    await worker.evaluate(()=>{testNative.holdFinish=true;testNative.holdCancel=true;testNative.state='committing';});
+    await choose(live);await item(page,'目前工作區').click();await nativeReady(worker,'releaseFinish');
+    const first=(await calls(worker,'begin'))[0];
+    const file=await live.download(()=>button(page,'下載 Markdown').click());assert.match(file.text,/四天慢慢遊京都/);
+    assert.equal((await calls(worker,'begin')).length,1);
+    await button(page,'取消').click();await button(page,'選取訊息').waitFor();await nativeReady(worker,'releaseCancel');
+    assert.equal(await page.getByText('正在保存…',{exact:true}).count(),0);
+    assert.equal(await page.locator('[data-pcs-ui="selection"]').count(),0);
+    await worker.evaluate(()=>{testNative.holdCancel=false;testNative.releaseCancel();testNative.holdFinish=false;testNative.releaseFinish();});
+    await page.waitForTimeout(100);
+    assert.equal(await button(page,'選取訊息').isEnabled(),true);
+    const receipt=await worker.evaluate(async key=>(await chrome.storage.local.get('recent')).recent.find(item=>item.operation_id===key),first.operation_id);
+    assert.equal(receipt.state,'cancelled');assert.equal(receipt.dismissed,true);
+    await button(page,'全選').click();await button(page,'儲存到 PCS').hover();await item(page,'目前工作區').click();
+    assert.equal((await calls(worker,'begin')).length,2,'only a fresh explicit save creates a new operation');
+  }finally{await live.close();}
+});
+
+test('old unfinished receipts stay in history and never lock a new conversation',{skip:!enabled},async()=>{
+  const live=await extensionFixture(html),{page,worker}=live;page.setDefaultTimeout(6000);
+  try{
+    const identity={operation_id:'12345678-1234-1234-1234-123456789abc',instance_id:'fixture-pcs'};
+    await worker.evaluate(async identity=>chrome.storage.local.set({recent:[{...identity,state:'committing',title:'舊對話',updated_at:new Date().toISOString()}]}),identity);
+    await page.locator('[data-pcs-ui="entry"]').getByRole('button').click();await button(page,'全選').click();
+    for(const name of ['儲存到 PCS','下載 JSON','下載 Markdown','取消'])assert.equal(await button(page,name).isEnabled(),true);
+    assert.equal((await calls(worker,'begin')).length,0);
+    await button(page,'下載紀錄').click();await page.locator('[data-pcs-ui="menu"] .receipt').filter({hasText:'舊對話'}).waitFor();
+    assert.equal(await page.getByText('尚未確認保存結果',{exact:true}).count(),1);
+    await worker.evaluate(()=>testNative.state='committed');await button(page,'查詢結果').click();
+    await page.locator('[data-pcs-ui="menu"] button[aria-label="開啟文件"]:enabled').waitFor();
+    assert.equal((await calls(worker,'begin')).length,0);
+  }finally{await live.close();}
+});
+
+test('a stalled save becomes queryable without resubmission and a late committed receipt still wins',{skip:!enabled},async()=>{
+  const live=await extensionFixture(html),{page,worker}=live;page.setDefaultTimeout(6000);
+  try{
+    await choose(live);await item(page,'目前工作區').click();await page.getByText('正在保存…',{exact:true}).waitFor();
+    await worker.evaluate(async()=>{const [tab]=await chrome.tabs.query({url:'https://chatgpt.com/*'});await chrome.scripting.executeScript({target:{tabId:tab.id},func:()=>{const now=Date.now;Date.now=()=>now()+31000;}});});
+    await page.getByText('尚未取得結果',{exact:true}).waitFor();
+    for(const name of ['下載 JSON','下載 Markdown','取消','查詢結果'])assert.equal(await button(page,name).isEnabled(),true);
+    assert.equal((await calls(worker,'begin')).length,1);assert.equal((await calls(worker,'finish')).length,1);
+    await worker.evaluate(()=>testNative.state='committed');await button(page,'查詢結果').click();await saved(live);
+    assert.equal((await calls(worker,'begin')).length,1);
+  }finally{await live.close();}
+});
+
+test('cancel during a held begin stops remaining chunks even when the begin reply arrives later',{skip:!enabled},async()=>{
+  const live=await extensionFixture(html),{page,worker}=live;page.setDefaultTimeout(6000);
+  try{
+    await worker.evaluate(()=>testNative.holdBegin=true);
+    await choose(live);await item(page,'目前工作區').click();await nativeReady(worker,'releaseBegin');
+    await button(page,'取消').click();await button(page,'選取訊息').waitFor();
+    await worker.evaluate(()=>{testNative.holdBegin=false;testNative.releaseBegin();});await page.waitForTimeout(100);
+    assert.equal((await calls(worker,'chunk')).length,0);assert.equal((await calls(worker,'finish')).length,0);
+    assert.equal((await calls(worker,'cancel')).length,1);
+    assert.equal(await button(page,'全選').isEnabled(),true);
+  }finally{await live.close();}
+});
+
+test('failed cancellation never keeps the selection locked or fabricates a cancelled receipt',{skip:!enabled},async()=>{
+  const live=await extensionFixture(html),{page,worker}=live;page.setDefaultTimeout(6000);
+  try{
+    await worker.evaluate(()=>testNative.errors.cancel={code:'disconnected',message:'與 PCS 的連線已中斷。'});
+    await choose(live);await item(page,'目前工作區').click();await page.getByText('正在保存…',{exact:true}).waitFor();
+    await button(page,'取消').click();await button(page,'選取訊息').waitFor();
+    await page.locator('[data-pcs-ui="entry"]').getByRole('button').click();
+    await button(page,'下載紀錄').click();await page.getByText('尚未確認保存結果',{exact:true}).waitFor();
+    const records=await worker.evaluate(async()=>(await chrome.storage.local.get('recent')).recent);
+    assert.equal(records[0].state,'committing');assert.equal(records[0].dismissed,true);
+    await button(page,'‹ 返回').click();assert.equal(await button(page,'全選').isEnabled(),true);
+    assert.equal((await calls(worker,'begin')).length,1);
   }finally{await live.close();}
 });

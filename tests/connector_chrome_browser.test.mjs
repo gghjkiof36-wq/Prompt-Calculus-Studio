@@ -93,7 +93,7 @@ test('actual MV3: original action menus, selection, transfer and late completion
       await page.waitForTimeout(850);assert.equal(await menu().isVisible(),false);await header().click();
       await page.getByText('京都四天旅行安排',{exact:true}).waitFor();
       assert.equal(await page.getByText('此則訊息',{exact:true}).count(),0);
-      await page.getByRole('button',{name:'取消',exact:true}).click();await page.getByText('已取消',{exact:true}).waitFor();
+      await page.getByRole('button',{name:'取消',exact:true}).click();await page.getByRole('button',{name:'選取訊息',exact:true}).waitFor();
       await page.getByRole('button',{name:'PCS：此則訊息',exact:true}).first().click();
       await page.locator('[data-pcs-ui="menu"] button:enabled').filter({hasText:'儲存到 PCS'}).waitFor();
       await page.evaluate(()=>document.querySelector('.whitespace-pre-wrap').textContent+=' 更新');
@@ -105,11 +105,11 @@ test('actual MV3: original action menus, selection, transfer and late completion
       await worker.evaluate(()=>{testNative.instances.push({instance_id:'second-pcs',display_name:'PCS · 第二工作區',capabilities:['save_destination_v1']});testNative.state='unknown';});
       await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();
       assert.equal(await page.getByRole('button',{name:'全選',exact:true}).isDisabled(),true);
-      assert.equal(await page.getByRole('button',{name:'取消',exact:true}).isDisabled(),true);
+      assert.equal(await page.getByRole('button',{name:'取消',exact:true}).isEnabled(),true);
       await page.getByRole('menuitem',{name:'PCS · 第二工作區',exact:true}).click();
       await page.getByRole('menuitem',{name:'目前工作區',exact:true}).click();await page.getByText('尚未取得結果',{exact:true}).waitFor();
       const count=await worker.evaluate(()=>testNative.calls.filter(c=>c.command==='finish').length);
-      await page.getByRole('button',{name:'重新選取',exact:true}).click();
+      await page.getByRole('button',{name:'取消',exact:true}).click();
       assert.equal(await worker.evaluate(()=>testNative.calls.filter(c=>c.command==='finish').length),count);
     });
     await t.test('navigation while hello waits does not create a phantom operation',async()=>{
@@ -130,11 +130,10 @@ test('actual MV3: original action menus, selection, transfer and late completion
       if(!(await menu().isVisible()))await header().click();
       await worker.evaluate(()=>{testNative.holdFinish=true;testNative.state='committing';});
       await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();await page.getByRole('menuitem',{name:'目前工作區',exact:true}).click();await page.getByText('傳送中…',{exact:true}).waitFor();
-      await page.waitForTimeout(150);await page.getByRole('button',{name:'取消',exact:true}).click();await page.getByText('已取消',{exact:true}).waitFor();
+      await page.waitForTimeout(150);await page.getByRole('button',{name:'取消',exact:true}).click();await page.getByRole('button',{name:'選取訊息',exact:true}).waitFor();
       await worker.evaluate(()=>{testNative.holdFinish=false;testNative.releaseFinish();});await page.waitForTimeout(150);
-      assert.equal(await page.getByText('已取消',{exact:true}).isVisible(),true);
+      assert.equal(await page.getByRole('button',{name:'選取訊息',exact:true}).isVisible(),true);
       assert.equal(await worker.evaluate(async()=>(await chrome.storage.local.get('recent')).recent[0].state),'cancelled');
-      await page.getByRole('button',{name:'取消',exact:true}).click();
     });
     await t.test('page theme, keyboard and narrow menu bounds; selection does not refresh itself',async()=>{
       await beginSelection();await page.getByRole('checkbox',{name:'選取第 2 則訊息',exact:true}).check();await page.waitForTimeout(900);

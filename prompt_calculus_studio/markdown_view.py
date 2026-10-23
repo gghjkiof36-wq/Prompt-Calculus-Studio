@@ -745,13 +745,17 @@ class SourceView(QPlainTextEdit):
         # Copy Image may contain an HTML <img> wrapper as well as the actual
         # bitmap. Preserve that local bitmap instead of a remote/blob URL.
         bitmap_first=mime.hasImage() and not mime.text().strip() and not has_markdown
+        if bitmap_first and mime.hasHtml():
+            from .markdown_html import has_linked_thumbnail
+            try:bitmap_first=not has_linked_thumbnail(mime.html())
+            except (ValueError,UnicodeError):pass  # Keep the usable bitmap.
         if (has_markdown or mime.hasHtml()) and not bitmap_first:
             if mime.hasHtml() and not has_markdown:
                 from .markdown_paste_job import PreparedPaste, LARGE_HTML
                 html=mime.html()
                 if len(html)>LARGE_HTML:
                     if not hasattr(self,'prepared_paste'):self.prepared_paste=PreparedPaste(self)
-                    self.prepared_paste.start(html)
+                    self.prepared_paste.start(html, fallback=mime.text() if mime.hasText() else None)
                     return
             try:
                 text=clipboard_text(mime)

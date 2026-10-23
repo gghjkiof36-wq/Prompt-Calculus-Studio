@@ -3,7 +3,7 @@ import {isChatGPTUrl, transferCapture, encodeCapture, selectCapture, markdownDoc
 import {NativeClient, BridgeError} from './native.mjs';
 
 const client = new NativeClient(chrome.runtime);
-const inFlight = new Set();
+const inFlight = new Map();
 let storageQueue = Promise.resolve();
 let downloadQueue = Promise.resolve();
 const downloadFiles = new Map();
@@ -144,12 +144,16 @@ async function handle(message,sender) {
     }
     const key = identity.instance_id + ':' + identity.operation_id;
     if (inFlight.has(key)) throw new BridgeError('busy', '這份對話正在傳送。');
-    inFlight.add(key);
+    const transfer={cancelled:false,started:false};inFlight.set(key,transfer);
     try {
       // A new navigation or switched branch invalidates the captured selection.
       const selected=await selectedPage(message,sender);
+      if(transfer.cancelled)return {state:'cancelled'};
       await record(identity, {state: 'receiving'}, selected.title);
-      const result = await transferCapture((command, fields) => client.request(command, fields), selected, identity,
+      const result = await transferCapture((command, fields) => {
+        if(transfer.cancelled)throw new BridgeError('cancel_requested','已停止傳送，保存結果請查看下載紀錄。');
+        transfer.started=true;return client.request(command,fields);
+      }, selected, identity,
         undefined, message.destination_id);
       await record(identity, result, selected.title);
       await chrome.storage.local.set({preferred_destination: {
@@ -160,12 +164,18 @@ async function handle(message,sender) {
       // Unknown outcomes remain queryable. Never retry begin/chunk/finish here.
       if (['destination_changed', 'destination_limit'].includes(error.code)) {
         await record(identity, {state: 'failed', message: error.message});
+      }else if(error.code==='cancel_requested'){
+        await record(identity,{state:'unknown'});
       }
       throw error;
     } finally { inFlight.delete(key); }
   }
   if (['status', 'open', 'reveal', 'cancel'].includes(message.action)) {
     const identity = identityOf(message);
+    if(message.action==='cancel'){
+      const transfer=inFlight.get(identity.instance_id+':'+identity.operation_id);
+      if(transfer){transfer.cancelled=true;if(!transfer.started){const result={state:'cancelled'};await record(identity,result);return result;}}
+    }
     const result = await client.request(message.action, identity);
     if (['status', 'cancel'].includes(message.action)) await record(identity, result);
     return result;
