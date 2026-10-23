@@ -68,6 +68,7 @@ class PageStack(QStackedWidget):
 class ReviewSheet(RetainedSheet):
     def __init__(self, surface):
         super().__init__(surface, '對話整理')
+        self._owns_backdrop = True  # Match the nonmodal conversation import sheet.
         self.resize(1040, 760)
         self.setMinimumSize(480, 460)
         self.source_data = None
