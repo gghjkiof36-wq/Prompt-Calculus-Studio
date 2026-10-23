@@ -96,7 +96,7 @@ test('rich DOM preservation and actual in-page extension', {skip: !enabled}, asy
     const live=await extensionFixture(fullPage(richBody),{width:1480,height:1120});
     try {
       await live.page.getByRole('button',{name:'PCS：此則訊息',exact:true}).first().click();
-      await live.page.getByRole('button',{name:'送到 PCS',exact:true}).waitFor();
+      await live.page.getByRole('button',{name:'儲存到 PCS',exact:true}).waitFor();
       await live.page.evaluate(() => {
         const canvas=document.querySelector('canvas'),draw=canvas.getContext('2d');
         [9.8,7.5,4.3].forEach((value,i)=>{draw.fillStyle=['#efb18a','#d3ba88','#b4c9a7'][i];draw.fillRect(90,20+i*55,value*47,28);draw.fillStyle='#eee';draw.font='14px Segoe UI';draw.fillText(String(value),102+value*47,40+i*55);});
@@ -106,7 +106,7 @@ test('rich DOM preservation and actual in-page extension', {skip: !enabled}, asy
         assert.equal(await live.page.locator('[data-pcs-ui="message-action"]').count(),3);
         assert.equal(await live.page.locator('[data-message-author-role="assistant"]').count(),1);
         assert.equal(await live.page.locator('iframe#pcs-panel').count(),0);
-        assert.equal(await live.page.getByRole('button',{name:'送到 PCS',exact:true}).isEnabled(),true);
+        assert.equal(await live.page.getByRole('button',{name:'儲存到 PCS',exact:true}).isEnabled(),true);
         if(process.env.PCS_SCREENSHOT_DIR){
           await mkdir(process.env.PCS_SCREENSHOT_DIR,{recursive:true});
           await live.page.screenshot({path:path.join(process.env.PCS_SCREENSHOT_DIR,'chrome-integrated-wide.png')});

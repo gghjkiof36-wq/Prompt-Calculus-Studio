@@ -115,8 +115,8 @@ def build(output: Path, builder_path: Path | None = None, *, include_extension: 
         "1. 在 PCS 的「ChatGPT 對話」頁面按「加入 Chrome」。\n"
         "2. 在設定視窗按「連接 PCS」。\n"
         "3. 按「開啟擴充頁」，啟用「開發人員模式」，再選「載入未封裝項目」。使用「開啟擴充資料夾」找到要載入的 chrome 資料夾。\n"
-        "4. 重新整理 ChatGPT 對話頁面。點訊息複製／分享列旁的「PCS」，在小選單中傳送或下載該則訊息。\n"
-        "5. 要處理整段對話或多則訊息，使用頁首的「PCS」。\n\n"
+        "4. 重新整理 ChatGPT 對話頁面。右上角「PCS」可選取全部或多則訊息；點訊息內容或右側勾選框選取，再從右上選單「儲存到 PCS」或下載。\n"
+        "5. 只處理單則時，點該則複製／分享列旁的「PCS」，在貼附小選單儲存或下載。\n\n"
         "## 更新已安裝的擴充\n\n"
         "在 Chrome 擴充功能頁重新載入 PCS 擴充，再重新整理 ChatGPT 頁面。\n",
         encoding="utf-8")

@@ -5,8 +5,8 @@ Chrome 116 以上的 Manifest V3 頁內擴充，直接載入本目錄即可使�
 ## 載入與使用
 
 1. 在 Chrome 的「擴充功能」開啟開發人員模式，選「載入未封裝項目」，選擇這個 `chrome` 目錄。
-2. 開啟 ChatGPT 對話，在原訊息的複製／分享按鈕列旁點「PCS」，從小選單送出這一則或下載。
-3. 整段或多則訊息由頁首分享旁的「PCS」選擇「選取全部」或「選取訊息」。只有選取模式顯示訊息勾選框；操作與保存結果都在同一 PCS 小選單。保存後可開啟文件、顯示資料夾，或在「最近保存」查找。
+2. 開啟 ChatGPT 對話，在右上角「更多／分享」左側的「PCS」選擇「選取全部」或「選取訊息」。選取模式下，點訊息內容或右側勾選框即可選取；再點一次取消。選好後從右上 PCS 選單按「儲存到 PCS」或下載。
+3. 只處理一則訊息時，也可點該則原生複製／分享列旁的「PCS」，從貼附小選單儲存或下載。保存後可開啟文件、顯示資料夾，或在「最近保存」查找。
 
 選單的「下載 JSON」及「下載 Markdown」可直接取得檔案；JSON 使用 PCS Capture v1，能交給同版 PCS 的檔案匯入功能。傳送到桌面需先安裝交付包的 PCS 連接器並開啟支援此功能的 PCS。
 
@@ -45,9 +45,9 @@ node --test tests/connector_chrome_core.test.mjs tests/connector_chrome_backgrou
 
 可選的 `connector_chrome_browser.test.mjs` 與 `connector_chrome_rich.test.mjs` 使用既有 Playwright；以 `PCS_PLAYWRIGHT_MODULE` 指向其 `index.mjs`，`PCS_CHROME_EXECUTABLE` 指向已安裝瀏覽器，`PCS_EXTENSION_EXECUTABLE` 可另外指定支援未封裝擴充載入的 Chromium 瀏覽器。品牌 Chrome 若不接受載入旗標，測試不冒充成功；本次實際擴充驗證使用隔離的 headless Edge。`PCS_SCREENSHOT_DIR` 指定頁內畫面輸出位置。
 
-`0.2.2` 的靜態 content script 是已生成的 `content.js`，由 `entry.js`、`inpage.mjs`、`dom.mjs`、`core.mjs` 打包而成。Chrome 直接在 isolated world 執行，不在頁面執行期間下載模組，也不公開 web-accessible resources。工具列補載同一檔案，再透過一般 runtime messaging 開啟 PCS 選單；重複補載不另建介面或監聽器。
+自 `0.2.2` 起，靜態 content script 是已生成的 `content.js`，由 `entry.js`、`inpage.mjs`、`dom.mjs`、`core.mjs` 打包而成。Chrome 直接在 isolated world 執行，不在頁面執行期間下載模組，也不公開 web-accessible resources。工具列補載同一檔案，再透過一般 runtime messaging 開啟 PCS 選單；重複補載不另建介面或監聽器。
 
-所有 UI 使用 `data-pcs-ui` host 與 Shadow DOM。PCS 加在原訊息操作列與頁首分享附近，使用貼附按鈕的小選單；只在多選模式添加單層細框勾選。沒有聊天副本、側欄或底部工具列。`background.mjs` 僅接受本擴充的 top-frame ChatGPT content sender，使用 `sender.tab.id` 讀取及傳送；不查詢目前作用中分頁。擷取函式本體將例外轉成 `capture_error`，避免 Chrome 丟失 exception 而只回空結果。跨 API 字典比較按欄位值，不依賴物件鍵順序。
+PCS 控制項使用 `data-pcs-ui` host 與 Shadow DOM。全局入口定位在可見 ChatGPT titlebar 的右側原生操作組，SPA 或頁首晚到時重新定位；單則入口保留原訊息操作列的貼附選單。選取模式在訊息右側顯示勾選框，正文非互動區可切換整則選取；拖曳文字、雙擊選字、連結與原生控制項沿用頁面行為。選取狀態的限定樣式與處理器在完成選取時移除，正文及擷取指紋保持不變。沒有聊天副本、側欄或底部工具列。`background.mjs` 僅接受本擴充的 top-frame ChatGPT content sender，使用 `sender.tab.id` 讀取及傳送；不查詢目前作用中分頁。擷取函式本體將例外轉成 `capture_error`，避免 Chrome 丟失 exception 而只回空結果。跨 API 字典比較按欄位值，不依賴物件鍵順序。
 
 測試以合成對話接管所有網站網路請求，真實載入擴充 service worker/content script，使用真正的 `chrome.scripting` 與 runtime messaging；Native host port 由合成回覆替代。涵蓋首次載入與補載、勾選、導航失效、UTF-8 分塊、下載、多 PCS、取消、狀態區別、富內容及頁內排版。新 DOM 測例另覆蓋隱藏舊聊天排除、角色單元與共用 turn 操作列。這不等同真實 ChatGPT 到桌面連接器的全流程驗收。
 

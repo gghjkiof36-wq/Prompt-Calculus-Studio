@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 
-export async function extensionFixture(body,{width=1100,height=900}={}) {
+export async function extensionFixture(body,{width=1100,height=900,waitForEntry=true}={}) {
   const {chromium}=await import(pathToFileURL(process.env.PCS_PLAYWRIGHT_MODULE).href);
   const profile=await mkdtemp(path.join(tmpdir(),'pcs-extension-synthetic-'));
   const cleanup=async()=>{
@@ -42,7 +42,7 @@ export async function extensionFixture(body,{width=1100,height=900}={}) {
     });
     const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
     await page.goto('https://chatgpt.com/c/synthetic-kyoto');
-    await page.locator('[data-pcs-ui="entry"]').waitFor();
+    if(waitForEntry)await page.locator('[data-pcs-ui="entry"]').waitFor();
     const capture=()=>worker.evaluate(async()=>{
       const [tab]=await chrome.tabs.query({url:'https://chatgpt.com/*'});
       const [{result}]=await chrome.scripting.executeScript({target:{tabId:tab.id},func:()=>chrome.runtime.sendMessage({action:'capture'})});

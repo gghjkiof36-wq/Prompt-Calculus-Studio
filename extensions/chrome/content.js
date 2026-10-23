@@ -68,7 +68,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
 
   // extensions/chrome/dom.mjs
   function locateConversation() {
-    const visible = (element) => {
+    const visible2 = (element) => {
       for (let node = element; node; node = node.parentElement) {
         const style = getComputedStyle(node);
         if (node.hidden || node.getAttribute("aria-hidden") === "true" || style.display === "none" || style.visibility === "hidden") return false;
@@ -78,7 +78,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
     function messagesIn(root) {
       const modern = [];
       for (const element of root.querySelectorAll("[data-chatgpt-search-unit-key],[data-content-search-unit-key]")) {
-        if (!visible(element) || element.closest("[data-pcs-ui]")) continue;
+        if (!visible2(element) || element.closest("[data-pcs-ui]")) continue;
         const key = element.getAttribute("data-chatgpt-search-unit-key") || element.getAttribute("data-content-search-unit-key");
         const role = key?.match(/:(user|assistant)$/)?.[1];
         if (!role || role === "assistant" && !element.querySelector('h4[data-conversation-role="assistant"]')) continue;
@@ -93,11 +93,11 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
         }
         modern.push({ element, role, key });
       }
-      const legacy = [...root.querySelectorAll("[data-message-author-role]")].filter((element) => visible(element) && !element.closest("[data-pcs-ui]")).filter((element) => ["user", "assistant"].includes(element.getAttribute("data-message-author-role"))).filter((element) => !modern.some((item) => item.element.contains(element) || element.contains(item.element))).map((element) => ({ element, role: element.getAttribute("data-message-author-role"), key: null }));
+      const legacy = [...root.querySelectorAll("[data-message-author-role]")].filter((element) => visible2(element) && !element.closest("[data-pcs-ui]")).filter((element) => ["user", "assistant"].includes(element.getAttribute("data-message-author-role"))).filter((element) => !modern.some((item) => item.element.contains(element) || element.contains(item.element))).map((element) => ({ element, role: element.getAttribute("data-message-author-role"), key: null }));
       return [...modern, ...legacy].sort((a, b) => a.element.compareDocumentPosition(b.element) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
     }
-    const regions = [...document.querySelectorAll('[role="region"][aria-label="對話"],[role="region"][aria-label="Conversation"]')].filter(visible);
-    const mains = [...document.querySelectorAll('main,[role="main"]')].filter(visible);
+    const regions = [...document.querySelectorAll('[role="region"][aria-label="對話"],[role="region"][aria-label="Conversation"]')].filter(visible2);
+    const mains = [...document.querySelectorAll('main,[role="main"]')].filter(visible2);
     for (const roots of [regions, mains]) {
       const candidates = roots.map((main) => ({ main, messages: messagesIn(main) })).filter((item) => item.messages.length);
       candidates.sort((a, b) => b.messages.length - a.messages.length);
@@ -146,6 +146,39 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
     if (candidates.length === 1) return candidates[0];
     return null;
   }
+  function conversationHeaderSlot() {
+    const visible2 = (element) => {
+      for (let node = element; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (node.hidden || node.getAttribute("aria-hidden") === "true" || style.display === "none" || style.visibility === "hidden") return false;
+      }
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.left < innerWidth && rect.bottom > 0 && rect.top < innerHeight;
+    };
+    const nativeSelector = 'button[data-testid="share-chat-button"],button[data-testid="conversation-options-button"],button[aria-label="分享"],button[aria-label="Share"],button[aria-label="更多"][aria-haspopup="menu"],button[aria-label="More"][aria-haspopup="menu"],button[aria-label="More options"],button[aria-label="更多選項"]';
+    const controlsIn = (root) => [...root.querySelectorAll(nativeSelector)].filter((button2) => visible2(button2) && !button2.closest("[data-pcs-ui]"));
+    const slotIn = (parent, controls) => ({ parent, before: [...parent.children].find((child) => controls.some((control) => child === control || child.contains(control))) });
+    const shells = [...document.querySelectorAll('[data-app-shell-main-titlebar="true"]')].filter(visible2);
+    for (const shell of shells) {
+      const groups = [...shell.querySelectorAll('[data-app-shell-header-obstacle="true"][data-app-shell-thread-content-overlap="true"]')].filter((group) => visible2(group) && group.closest('[data-app-shell-main-titlebar="true"]') === shell).sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right);
+      for (const group of groups) {
+        const controls = controlsIn(group);
+        if (controls.length) return slotIn(group, controls);
+      }
+    }
+    const headers = [...document.querySelectorAll('#conversation-header,header,[role="banner"]')].filter((header) => visible2(header) && !header.closest('aside,nav,[role="dialog"],[aria-modal="true"]'));
+    const candidates = [];
+    for (const header of headers) {
+      const controls = controlsIn(header);
+      if (!controls.length) continue;
+      if (Math.max(...controls.map((control) => control.getBoundingClientRect().right)) < innerWidth / 2) continue;
+      let group = controls[0].parentElement;
+      while (group !== header && !controls.every((control) => group.contains(control))) group = group.parentElement;
+      candidates.push({ ...slotIn(group, controls), right: Math.max(...controls.map((control) => control.getBoundingClientRect().right)) });
+    }
+    candidates.sort((a, b) => b.right - a.right);
+    return candidates[0] || null;
+  }
 
   // extensions/chrome/inpage.mjs
   var controller;
@@ -169,6 +202,13 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
     });
     return result;
   }
+  function visible(element) {
+    for (let node = element; node; node = node.parentElement) {
+      const s = getComputedStyle(node);
+      if (node.hidden || node.getAttribute("aria-hidden") === "true" || s.display === "none" || s.visibility === "hidden") return false;
+    }
+    return true;
+  }
   function messageElements() {
     try {
       return locateConversation().messages.map((item) => item.element);
@@ -182,8 +222,10 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
     let active = false, snapshot = null, selected = /* @__PURE__ */ new Set(), checks = [], pending = null, busy = false, notice = "", poll = null;
     let instance = "", explicitInstance = false, instances = [], recents = [], lastUrl = location.href, refreshTimer = null, reading = false, refreshAgain = false, generation = 0;
     let menuOpen = false, menuMode = "choices", menuAnchor = null, sourceAnchor = null;
+    let selectionHandlers = null, selectionStyle = null, press = null, clickTimer = null, lastClick = null;
+    const selectionToken = chrome.runtime.id;
     const messageButtons = /* @__PURE__ */ new Map(), entry = host("entry"), popup = host("menu");
-    entry.element.style.cssText = "display:inline-flex;vertical-align:middle;margin-inline:2px;";
+    entry.element.style.cssText = "display:inline-flex;vertical-align:middle;align-self:center;flex-shrink:0;margin-inline:2px;pointer-events:auto;";
     popup.element.style.cssText = "position:fixed;z-index:2147483000;";
     const headerButton = button("PCS", openHeader, "entry");
     headerButton.setAttribute("aria-haspopup", "dialog");
@@ -208,12 +250,9 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       return h.classList.contains("dark") ? "dark" : h.classList.contains("light") ? "light" : h.dataset.theme === "dark" ? "dark" : h.dataset.theme === "light" ? "light" : scheme === "dark" ? "dark" : scheme === "light" ? "light" : matchMedia("(prefers-color-scheme:dark)").matches ? "dark" : "light";
     }
     function mount() {
-      if (!entry.element.isConnected) {
-        const target = document.querySelector('#conversation-header, header, [role="banner"]') || document.querySelector('main, [role="main"]');
-        const share = target?.querySelector('button[data-testid="share-chat-button"],button[aria-label="分享"],button[aria-label="Share"]');
-        if (share) share.after(entry.element);
-        else if (target) target.append(entry.element);
-      }
+      const slot = conversationHeaderSlot();
+      entry.element.hidden = !slot;
+      if (slot && (entry.element.parentElement !== slot.parent || entry.element.nextElementSibling !== slot.before)) slot.parent.insertBefore(entry.element, slot.before);
       if (!popup.element.isConnected) document.body.append(popup.element);
       for (const [anchor, item] of messageButtons) {
         if (!anchor.isConnected || !item.element.isConnected) {
@@ -237,9 +276,12 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       }
       const value = theme();
       for (const item of [entry.element, popup.element, ...checks.map((c) => c.host), ...[...messageButtons.values()].map((c) => c.element)]) item.dataset.theme = value;
+      positionMenu();
     }
     function positionMenu() {
       if (!menuOpen || !menuAnchor?.isConnected) return;
+      popup.element.hidden = menuAnchor === entry.element && entry.element.hidden;
+      if (popup.element.hidden) return;
       const rect = menuAnchor.getBoundingClientRect(), height = menu.getBoundingClientRect().height, width = menu.getBoundingClientRect().width;
       popup.element.style.left = `${Math.max(10, Math.min(innerWidth - width - 10, rect.right - width))}px`;
       popup.element.style.top = `${Math.max(10, rect.bottom + 6 + height > innerHeight ? rect.top - height - 6 : rect.bottom + 6)}px`;
@@ -259,8 +301,9 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       const focused = popup.root.activeElement, focusLabel = focused?.getAttribute("aria-label") || focused?.textContent;
       headerButton.textContent = active && selected.size ? `PCS ${selected.size}` : "PCS";
       headerButton.setAttribute("aria-expanded", String(menuOpen && menuAnchor === entry.element));
-      popup.element.hidden = !menuOpen;
+      popup.element.hidden = !menuOpen || menuAnchor === entry.element && entry.element.hidden;
       menu.replaceChildren();
+      syncChecks();
       for (const item of checks) item.input.disabled = busy || !!pending;
       for (const item of messageButtons.values()) item.root.querySelector("button").disabled = busy || !!(pending && !FINAL_STATES.has(pending.state));
       if (menuMode === "recent") {
@@ -305,7 +348,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
           tools.append(all, done);
           menu.append(tools);
         }
-        const send = button("送到 PCS", sendSelected);
+        const send = button("儲存到 PCS", sendSelected);
         send.disabled = !selected.size || busy || !!pending;
         menu.append(send);
         const json = button("下載 JSON", () => downloadSelected("json")), md = button("下載 Markdown", () => downloadSelected("md"));
@@ -412,6 +455,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       generation++;
       active = true;
       sourceAnchor = null;
+      menuAnchor = entry.element;
       selected.clear();
       snapshot = null;
       menuMode = "selection";
@@ -439,21 +483,103 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       if (active) return refresh(true);
       return startSelection(false);
     }
+    function restoreAttribute(element, name, value) {
+      if (value === null) element.removeAttribute(name);
+      else element.setAttribute(name, value);
+    }
     function syncChecks() {
-      for (const item of checks) item.input.checked = selected.has(item.id);
+      for (const item of checks) {
+        const checked = selected.has(item.id);
+        item.input.checked = checked;
+        if (checked) item.anchor.setAttribute("data-pcs-selected", selectionToken);
+        else restoreAttribute(item.anchor, "data-pcs-selected", item.originalSelected);
+      }
+    }
+    function cancelClick() {
+      clearTimeout(clickTimer);
+      clickTimer = null;
+      press = null;
     }
     function removeChecks() {
-      for (const item of checks) item.host.remove();
+      cancelClick();
+      lastClick = null;
+      selectionHandlers?.abort();
+      selectionHandlers = null;
+      selectionStyle?.remove();
+      selectionStyle = null;
+      for (const item of checks) {
+        item.host.remove();
+        restoreAttribute(item.anchor, "data-pcs-selectable", item.originalSelectable);
+        restoreAttribute(item.anchor, "data-pcs-selected", item.originalSelected);
+      }
       checks = [];
     }
     function positionChecks() {
+      const headerBottom = entry.element.isConnected && !entry.element.hidden ? entry.element.getBoundingClientRect().bottom + 8 : 6;
       for (const item of checks) {
-        const rect = item.anchor.getBoundingClientRect();
-        item.host.hidden = !active || rect.bottom < 0 || rect.top > innerHeight || !item.anchor.isConnected;
-        const gutter = rect.left >= 36;
-        item.host.style.left = `${gutter ? rect.left - 36 : Math.max(2, rect.left)}px`;
-        item.host.style.top = `${gutter ? Math.min(Math.max(6, rect.top), Math.max(6, rect.bottom - 32)) : Math.max(2, rect.top - 34)}px`;
+        const rect = item.anchor.getBoundingClientRect(), gutter = rect.right + 36 <= innerWidth;
+        item.host.hidden = !active || rect.bottom < headerBottom || rect.top > innerHeight || !item.anchor.isConnected || !visible(item.anchor);
+        item.host.style.left = `${gutter ? rect.right + 4 : Math.max(2, Math.min(rect.right - 32, innerWidth - 36))}px`;
+        item.host.style.top = `${gutter ? Math.min(Math.max(headerBottom, rect.top), Math.max(headerBottom, rect.bottom - 32)) : Math.max(headerBottom, rect.top - 34)}px`;
       }
+    }
+    function toggleItem(item) {
+      if (!active || busy || pending || !checks.includes(item)) return;
+      if (selected.has(item.id)) selected.delete(item.id);
+      else selected.add(item.id);
+      notice = "";
+      syncChecks();
+      render();
+    }
+    function selectionItem(event) {
+      if (!active || busy || pending || !event.isTrusted || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return null;
+      const interactive = 'a,button,input,textarea,select,option,label,summary,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="link"],[role="menuitem"],[role="checkbox"],[role="radio"],[role="switch"],[role="slider"],[role="tab"],[role="textbox"],[tabindex]:not([tabindex="-1"]),[draggable="true"],canvas,svg,iframe,audio,video,[data-pcs-ui]';
+      if (event.composedPath().some((node) => node instanceof Element && node.matches(interactive))) return null;
+      return checks.find((item) => item.anchor === event.target || item.anchor.contains(event.target)) || null;
+    }
+    function bindSelection() {
+      selectionStyle = document.createElement("style");
+      selectionStyle.dataset.pcsUi = "selection-style";
+      selectionStyle.textContent = `[data-pcs-selectable="${selectionToken}"]{cursor:pointer}[data-pcs-selected="${selectionToken}"]{background-color:color-mix(in srgb,currentColor 8%,transparent);border-radius:8px}`;
+      document.head.append(selectionStyle);
+      selectionHandlers = new AbortController();
+      const options = { signal: selectionHandlers.signal };
+      document.addEventListener("pointerdown", (event) => {
+        cancelClick();
+        const item = event.button === 0 && event.isPrimary ? selectionItem(event) : null;
+        if (item) press = { item, x: event.clientX, y: event.clientY, pointerId: event.pointerId, moved: false };
+      }, options);
+      document.addEventListener("pointermove", (event) => {
+        if (press && event.pointerId === press.pointerId && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 5) press.moved = true;
+      }, options);
+      document.addEventListener("pointercancel", cancelClick, options);
+      document.addEventListener("selectionchange", () => {
+        if (!getSelection()?.isCollapsed) cancelClick();
+      }, options);
+      document.addEventListener("click", (event) => {
+        const item = selectionItem(event), candidate = press;
+        press = null;
+        if (event.detail === 1) lastClick = null;
+        if (event.detail > 1) {
+          cancelClick();
+          if (lastClick?.item === item && lastClick.generation === generation) {
+            if (lastClick.wasSelected) selected.add(item.id);
+            else selected.delete(item.id);
+            lastClick = null;
+            syncChecks();
+            render();
+          }
+          return;
+        }
+        if (!item || candidate?.item !== item || candidate.moved || !getSelection()?.isCollapsed) return;
+        const expected = generation;
+        clickTimer = setTimeout(() => {
+          clickTimer = null;
+          if (generation !== expected || !getSelection()?.isCollapsed || !active || busy || pending) return;
+          lastClick = { item, generation, wasSelected: selected.has(item.id) };
+          toggleItem(item);
+        }, 250);
+      }, options);
     }
     function buildChecks() {
       removeChecks();
@@ -472,20 +598,23 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
         input.checked = selected.has(item.id);
         input.addEventListener("change", (e) => {
           if (!e.isTrusted) return;
+          cancelClick();
+          lastClick = null;
           if (pending || busy) {
             input.checked = selected.has(item.id);
             return;
           }
-          if (input.checked) selected.add(item.id);
-          else selected.delete(item.id);
-          notice = "";
-          render();
+          toggleItem(checks.find((check) => check.input === input));
         });
         label.append(input);
         marker.root.append(label);
         document.body.append(marker.element);
-        checks.push({ id: item.id, anchor, input, host: marker.element });
+        const originalSelectable = anchor.getAttribute("data-pcs-selectable"), originalSelected = anchor.getAttribute("data-pcs-selected");
+        anchor.setAttribute("data-pcs-selectable", selectionToken);
+        checks.push({ id: item.id, anchor, input, host: marker.element, originalSelectable, originalSelected });
       }
+      bindSelection();
+      syncChecks();
       mount();
       positionChecks();
     }

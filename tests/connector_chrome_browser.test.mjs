@@ -71,11 +71,11 @@ test('actual MV3: original action menus, selection, transfer and late completion
       await page.getByText('此則訊息',{exact:true}).waitFor();
       const after=(await live.capture()).result;assert.equal(before.fingerprint,after.fingerprint);
       assert.ok(!JSON.stringify(after.capture).includes('下載 JSON'));
-      assert.equal(await page.getByRole('button',{name:'送到 PCS',exact:true}).evaluate(e=>e===e.getRootNode().activeElement),true);
+      assert.equal(await page.getByRole('button',{name:'儲存到 PCS',exact:true}).evaluate(e=>e===e.getRootNode().activeElement),true);
       await page.keyboard.press('Tab');assert.equal(await page.getByRole('button',{name:'下載 JSON',exact:true}).evaluate(e=>e===e.getRootNode().activeElement),true);
       await page.keyboard.press('Escape');assert.equal(await menu().isVisible(),false);
       assert.equal(await page.getByRole('button',{name:'PCS：此則訊息',exact:true}).nth(1).evaluate(e=>e===e.getRootNode().activeElement),true);
-      await page.keyboard.press('Enter');await page.getByRole('button',{name:'送到 PCS',exact:true}).waitFor();
+      await page.keyboard.press('Enter');await page.getByRole('button',{name:'儲存到 PCS',exact:true}).waitFor();
       for(const [label,extension] of [['下載 JSON','json'],['下載 Markdown','md']]){
         const event=page.waitForEvent('download');await page.getByRole('button',{name:label,exact:true}).click();
         const file=await event,text=await readFile(await file.path(),'utf8');assert.ok(file.suggestedFilename().endsWith('.'+extension));
@@ -85,7 +85,7 @@ test('actual MV3: original action menus, selection, transfer and late completion
       }
     });
     await t.test('single-message transfer uses source tab and committed remains distinct',async()=>{
-      await page.getByRole('button',{name:'送到 PCS',exact:true}).click();await page.getByText('請在 PCS 預覽並保存',{exact:true}).waitFor();
+      await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();await page.getByText('請在 PCS 預覽並保存',{exact:true}).waitFor();
       const calls=await worker.evaluate(()=>testNative.calls),body=Buffer.concat(calls.filter(c=>c.command==='chunk').map(c=>Buffer.from(c.data,'base64')));
       assert.deepEqual(JSON.parse(body.toString('utf8')).messages.map(m=>m.id),['assistant-one']);
       assert.equal(await page.getByRole('button',{name:'PCS：此則訊息',exact:true}).first().isDisabled(),true);
@@ -95,18 +95,18 @@ test('actual MV3: original action menus, selection, transfer and late completion
       assert.equal(await page.getByText('此則訊息',{exact:true}).count(),0);
       await page.getByRole('button',{name:'取消',exact:true}).click();await page.getByText('已取消',{exact:true}).waitFor();
       await page.getByRole('button',{name:'PCS：此則訊息',exact:true}).first().click();
-      await page.locator('[data-pcs-ui="menu"] button:enabled').filter({hasText:'送到 PCS'}).waitFor();
+      await page.locator('[data-pcs-ui="menu"] button:enabled').filter({hasText:'儲存到 PCS'}).waitFor();
       await page.evaluate(()=>document.querySelector('.whitespace-pre-wrap').textContent+=' 更新');
       await page.getByRole('button',{name:'下載 JSON',exact:true}).click();await page.getByRole('button',{name:'重新讀取',exact:true}).click();
-      await page.locator('[data-pcs-ui="menu"] button:enabled').filter({hasText:'送到 PCS'}).waitFor();await header().click();
+      await page.locator('[data-pcs-ui="menu"] button:enabled').filter({hasText:'儲存到 PCS'}).waitFor();await header().click();
     });
     await t.test('selection-only checkboxes, multiple PCS and unknown result never resend implicitly',async()=>{
       await beginSelection();await page.getByRole('checkbox',{name:'選取第 1 則訊息',exact:true}).check();await header().click();
       await worker.evaluate(()=>{testNative.instances.push({instance_id:'second-pcs',display_name:'PCS · 第二工作區'});testNative.state='unknown';});
-      await page.getByRole('button',{name:'送到 PCS',exact:true}).click();
+      await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();
       const choice=page.getByRole('combobox',{name:'PCS 工作區'});await choice.waitFor();assert.equal(await choice.inputValue(),'');
       await choice.focus();await page.keyboard.press('End');await page.keyboard.press('Enter');
-      await page.getByRole('button',{name:'送到 PCS',exact:true}).click();await page.getByText('尚未取得結果',{exact:true}).waitFor();
+      await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();await page.getByText('尚未取得結果',{exact:true}).waitFor();
       const count=await worker.evaluate(()=>testNative.calls.filter(c=>c.command==='finish').length);
       await page.getByRole('button',{name:'重新選取',exact:true}).click();
       assert.equal(await worker.evaluate(()=>testNative.calls.filter(c=>c.command==='finish').length),count);
@@ -115,7 +115,7 @@ test('actual MV3: original action menus, selection, transfer and late completion
       await beginSelection();await page.getByRole('checkbox',{name:'選取第 1 則訊息',exact:true}).check();await header().click();
       await worker.evaluate(()=>{testNative.instances=testNative.instances.slice(0,1);testNative.holdHello=true;});
       const before=await worker.evaluate(()=>testNative.calls.filter(c=>c.command==='begin').length);
-      await page.getByRole('button',{name:'送到 PCS',exact:true}).click();
+      await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();
       await page.waitForTimeout(100);
       await page.evaluate(()=>history.pushState({},'','/c/same-body-different-chat'));
       await worker.evaluate(()=>{testNative.holdHello=false;testNative.releaseHello();});await page.waitForTimeout(1100);
@@ -124,10 +124,11 @@ test('actual MV3: original action menus, selection, transfer and late completion
       assert.equal(await page.getByText('尚未取得結果',{exact:true}).count(),0);
     });
     await t.test('cancelled state is not replaced by a late finish response',async()=>{
+      if(await menu().isVisible())await page.keyboard.press('Escape');
       await page.getByRole('checkbox',{name:'選取第 1 則訊息',exact:true}).check();
       if(!(await menu().isVisible()))await header().click();
       await worker.evaluate(()=>{testNative.holdFinish=true;testNative.state='previewing';});
-      await page.getByRole('button',{name:'送到 PCS',exact:true}).click();await page.getByText('傳送中…',{exact:true}).waitFor();
+      await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();await page.getByText('傳送中…',{exact:true}).waitFor();
       await page.waitForTimeout(150);await page.getByRole('button',{name:'取消',exact:true}).click();await page.getByText('已取消',{exact:true}).waitFor();
       await worker.evaluate(()=>{testNative.holdFinish=false;testNative.releaseFinish();});await page.waitForTimeout(150);
       assert.equal(await page.getByText('已取消',{exact:true}).isVisible(),true);
@@ -140,7 +141,7 @@ test('actual MV3: original action menus, selection, transfer and late completion
       await page.getByRole('button',{name:'完成選取',exact:true}).click();
       assert.equal(await page.locator('[data-pcs-ui="selection"]').count(),0);
       assert.equal(await page.getByText('已選 1 則',{exact:true}).isVisible(),true);
-      assert.equal(await page.getByRole('button',{name:'送到 PCS',exact:true}).isEnabled(),true);
+      assert.equal(await page.getByRole('button',{name:'儲存到 PCS',exact:true}).isEnabled(),true);
       for(const width of [360,600]){await page.setViewportSize({width,height:900});await page.waitForTimeout(100);const box=await menu().boundingBox();assert.ok(box.x>=0&&box.x+box.width<=width);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}
       await page.evaluate(()=>document.documentElement.className='light');await page.waitForTimeout(800);
       assert.equal(await menu().getAttribute('data-theme'),'light');

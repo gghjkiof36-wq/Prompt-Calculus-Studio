@@ -1,5 +1,5 @@
 import {selectCapture,markdownDocument,downloadName,statusLabel,FINAL_STATES} from './core.mjs';
-import {locateConversation,messageCopyControl} from './dom.mjs';
+import {locateConversation,messageCopyControl,conversationHeaderSlot} from './dom.mjs';
 
 let controller;
 const CSS=`:host{all:initial;font:14px/1.45 system-ui,'Segoe UI','Microsoft JhengHei',sans-serif;--bg:#2f2f2f;--text:#ececec;--muted:#aaa;--line:#ffffff24;--hover:#ffffff12;color:var(--text);color-scheme:dark}:host([data-theme=light]){--bg:#fff;--text:#292929;--muted:#666;--line:#0002;--hover:#0000000a;color-scheme:light}*{box-sizing:border-box}[hidden]{display:none!important}button,select{font:inherit;color:inherit;cursor:pointer}button{background:transparent;border:0;border-radius:6px;min-height:32px;padding:5px 8px;text-align:left}button:hover{background:var(--hover)}button:disabled{opacity:.4;cursor:default}button:focus-visible,select:focus-visible{outline:2px solid var(--muted);outline-offset:2px}.entry{color:var(--muted);font-size:13px;padding:4px 7px}.entry[aria-expanded=true]{background:var(--hover);color:var(--text)}.menu{width:248px;max-width:calc(100vw - 20px);padding:6px;background:var(--bg);border:1px solid var(--line);border-radius:12px;box-shadow:0 4px 16px #0003;max-height:calc(100vh - 24px);overflow:auto}.menu>button{display:block;width:100%;padding:8px 10px}.title{font-size:12px;color:var(--muted);padding:5px 10px}.section{height:1px;background:var(--line);margin:5px 4px}.tools{display:flex;justify-content:space-between;padding:0 3px}.tools button{font-size:12px;color:var(--muted)}.status{padding:8px 10px;font-size:13px}.receipt{padding:5px 7px}.receipt span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.receipt button{font-size:12px;color:var(--muted)}select{width:calc(100% - 20px);margin:4px 10px 8px;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}.check{display:flex;align-items:center;justify-content:center;width:32px;height:32px;cursor:pointer}.check input{appearance:none;width:20px;height:20px;margin:0;border:1px solid var(--muted);border-radius:4px;background:transparent;cursor:pointer;position:relative}.check input:checked{background:var(--text);border-color:var(--text)}.check input:checked:after{content:'';position:absolute;left:6px;top:2px;width:5px;height:10px;border:solid var(--bg);border-width:0 2px 2px 0;transform:rotate(45deg)}.check input:focus-visible{outline:2px solid var(--text);outline-offset:3px}.check input:disabled{opacity:.45;cursor:default}`;
@@ -15,8 +15,10 @@ export function installInPage(){
   let active=false,snapshot=null,selected=new Set(),checks=[],pending=null,busy=false,notice='',poll=null;
   let instance='',explicitInstance=false,instances=[],recents=[],lastUrl=location.href,refreshTimer=null,reading=false,refreshAgain=false,generation=0;
   let menuOpen=false,menuMode='choices',menuAnchor=null,sourceAnchor=null;
+  let selectionHandlers=null,selectionStyle=null,press=null,clickTimer=null,lastClick=null;
+  const selectionToken=chrome.runtime.id;
   const messageButtons=new Map(),entry=host('entry'),popup=host('menu');
-  entry.element.style.cssText='display:inline-flex;vertical-align:middle;margin-inline:2px;';
+  entry.element.style.cssText='display:inline-flex;vertical-align:middle;align-self:center;flex-shrink:0;margin-inline:2px;pointer-events:auto;';
   popup.element.style.cssText='position:fixed;z-index:2147483000;';
   const headerButton=button('PCS',openHeader,'entry');headerButton.setAttribute('aria-haspopup','dialog');entry.root.append(headerButton);
   const menu=document.createElement('div');menu.className='menu';menu.setAttribute('role','dialog');menu.setAttribute('aria-label','PCS');popup.root.append(menu);
@@ -24,7 +26,9 @@ export function installInPage(){
   async function request(action,fields={}){let response;try{response=await chrome.runtime.sendMessage({action,...fields});}catch(error){throw Object.assign(new Error('擴充已更新，請重新整理頁面。'),{code:'extension_unavailable',cause:error});}if(!response?.ok)throw Object.assign(new Error(response?.error?.message||'操作失敗，請再試一次。'),{code:response?.error?.code||'failed'});return response.result;}
   function theme(){const h=document.documentElement,scheme=getComputedStyle(h).colorScheme;return h.classList.contains('dark')?'dark':h.classList.contains('light')?'light':h.dataset.theme==='dark'?'dark':h.dataset.theme==='light'?'light':scheme==='dark'?'dark':scheme==='light'?'light':matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';}
   function mount(){
-    if(!entry.element.isConnected){const target=document.querySelector('#conversation-header, header, [role="banner"]')||document.querySelector('main, [role="main"]');const share=target?.querySelector('button[data-testid="share-chat-button"],button[aria-label="分享"],button[aria-label="Share"]');if(share)share.after(entry.element);else if(target)target.append(entry.element);}
+    const slot=conversationHeaderSlot();
+    entry.element.hidden=!slot;
+    if(slot&&(entry.element.parentElement!==slot.parent||entry.element.nextElementSibling!==slot.before))slot.parent.insertBefore(entry.element,slot.before);
     if(!popup.element.isConnected)document.body.append(popup.element);
     for(const [anchor,item] of messageButtons){if(!anchor.isConnected||!item.element.isConnected){item.element.remove();messageButtons.delete(anchor);}}
     const elements=messageElements();
@@ -36,14 +40,15 @@ export function installInPage(){
       const action=button('PCS',()=>openMessage(anchor,item.element),'entry');action.setAttribute('aria-label','PCS：此則訊息');action.setAttribute('aria-haspopup','dialog');item.root.append(action);copy.after(item.element);messageButtons.set(anchor,item);
     }
     const value=theme();for(const item of [entry.element,popup.element,...checks.map(c=>c.host),...[...messageButtons.values()].map(c=>c.element)])item.dataset.theme=value;
+    positionMenu();
   }
-  function positionMenu(){if(!menuOpen||!menuAnchor?.isConnected)return;const rect=menuAnchor.getBoundingClientRect(),height=menu.getBoundingClientRect().height,width=menu.getBoundingClientRect().width;popup.element.style.left=`${Math.max(10,Math.min(innerWidth-width-10,rect.right-width))}px`;popup.element.style.top=`${Math.max(10,rect.bottom+6+height>innerHeight?rect.top-height-6:rect.bottom+6)}px`;}
+  function positionMenu(){if(!menuOpen||!menuAnchor?.isConnected)return;popup.element.hidden=menuAnchor===entry.element&&entry.element.hidden;if(popup.element.hidden)return;const rect=menuAnchor.getBoundingClientRect(),height=menu.getBoundingClientRect().height,width=menu.getBoundingClientRect().width;popup.element.style.left=`${Math.max(10,Math.min(innerWidth-width-10,rect.right-width))}px`;popup.element.style.top=`${Math.max(10,rect.bottom+6+height>innerHeight?rect.top-height-6:rect.bottom+6)}px`;}
   function separator(){const line=document.createElement('div');line.className='section';menu.append(line);}
   function caption(text){const node=document.createElement('div');node.className='title';node.textContent=text;menu.append(node);}
   function render(){
     const focused=popup.root.activeElement,focusLabel=focused?.getAttribute('aria-label')||focused?.textContent;
     headerButton.textContent=active&&selected.size?`PCS ${selected.size}`:'PCS';headerButton.setAttribute('aria-expanded',String(menuOpen&&menuAnchor===entry.element));
-    popup.element.hidden=!menuOpen;menu.replaceChildren();for(const item of checks)item.input.disabled=busy||!!pending;for(const item of messageButtons.values())item.root.querySelector('button').disabled=busy||!!(pending&&!FINAL_STATES.has(pending.state));
+    popup.element.hidden=!menuOpen||(menuAnchor===entry.element&&entry.element.hidden);menu.replaceChildren();syncChecks();for(const item of checks)item.input.disabled=busy||!!pending;for(const item of messageButtons.values())item.root.querySelector('button').disabled=busy||!!(pending&&!FINAL_STATES.has(pending.state));
     if(menuMode==='recent'){
       menu.append(button('‹ 返回',()=>{menuMode=active||snapshot?'selection':'choices';render();}));caption('最近保存');const saved=recents.filter(r=>r.state==='committed').slice(0,3);if(!saved.length)caption('尚無紀錄');
       for(const receipt of saved){const row=document.createElement('div');row.className='receipt';const name=document.createElement('span');name.textContent=receipt.title;row.append(name,button('開啟文件',()=>receiptAction('open',receipt)),button('顯示資料夾',()=>receiptAction('reveal',receipt)));menu.append(row);}
@@ -53,7 +58,7 @@ export function installInPage(){
     }else{
       caption(pending?(pending.source_title||pending.title||'傳送結果'):menuMode==='message'?'此則訊息':`已選 ${selected.size} 則`);
       if(active&&!pending){const tools=document.createElement('div');tools.className='tools';const all=button('全選',()=>{selected=new Set(snapshot?.capture.messages.map(m=>m.id)||[]);syncChecks();render();});all.disabled=busy;const done=button('完成選取',finishSelection);done.disabled=busy;tools.append(all,done);menu.append(tools);}
-      const send=button('送到 PCS',sendSelected);send.disabled=!selected.size||busy||!!pending;menu.append(send);
+      const send=button('儲存到 PCS',sendSelected);send.disabled=!selected.size||busy||!!pending;menu.append(send);
       const json=button('下載 JSON',()=>downloadSelected('json')),md=button('下載 Markdown',()=>downloadSelected('md'));json.disabled=md.disabled=!selected.size||busy;menu.append(json,md);
       if(instances.length>1&&!pending){const choice=document.createElement('select');choice.setAttribute('aria-label','PCS 工作區');const empty=document.createElement('option');empty.value='';empty.textContent='選擇 PCS 工作區';choice.append(empty);for(const item of instances){const o=document.createElement('option');o.value=item.instance_id;o.textContent=item.display_name;choice.append(o);}choice.value=instance;choice.onchange=e=>{if(e.isTrusted){instance=choice.value;explicitInstance=true;}};menu.append(choice);}
       if(notice||pending){separator();const text=document.createElement('div');text.className='status';text.setAttribute('aria-live','polite');text.textContent=notice||(pending?statusLabel(pending.state):'');menu.append(text);}
@@ -64,13 +69,57 @@ export function installInPage(){
   function focusMenu(){requestAnimationFrame(()=>{if(menuOpen)menu.querySelector('button:not(:disabled),select')?.focus({preventScroll:true});});}
   async function openHeader(){if(menuOpen&&menuAnchor===entry.element){menuOpen=false;render();return;}menuAnchor=entry.element;menuMode=pending||active||(snapshot&&!sourceAnchor)?'selection':'choices';menuOpen=true;notice='';await loadRecents();render();focusMenu();}
   async function openMessage(anchor,buttonHost){if(busy||(pending&&!FINAL_STATES.has(pending.state)))return;pending=null;clearTimeout(poll);generation++;const expected=generation,url=location.href;active=false;selected.clear();snapshot=null;removeChecks();sourceAnchor=anchor;menuAnchor=buttonHost;menuMode='message';menuOpen=true;busy=true;notice='';render();try{const fresh=await request('capture');if(generation!==expected||location.href!==url||fresh.context.url!==url)return;const index=messageElements().indexOf(anchor),id=fresh.anchors.find(a=>a.index===index)?.id;if(!id)throw new Error('訊息已更新，請再選一次。');snapshot=fresh;selected=new Set([id]);}catch(error){if(generation===expected)notice=error.message;}finally{busy=false;render();focusMenu();}}
-  async function startSelection(all){generation++;active=true;sourceAnchor=null;selected.clear();snapshot=null;menuMode='selection';notice='';await refresh(true);if(all&&snapshot)selected=new Set(snapshot.capture.messages.map(m=>m.id));syncChecks();render();if(!all&&snapshot){menuOpen=false;render();}}
+  async function startSelection(all){generation++;active=true;sourceAnchor=null;menuAnchor=entry.element;selected.clear();snapshot=null;menuMode='selection';notice='';await refresh(true);if(all&&snapshot)selected=new Set(snapshot.capture.messages.map(m=>m.id));syncChecks();render();if(!all&&snapshot){menuOpen=false;render();}}
   function finishSelection(){generation++;active=false;removeChecks();menuMode='selection';notice='';render();focusMenu();}
   async function retrySelection(){if(menuMode==='message'&&sourceAnchor?.isConnected)return openMessage(sourceAnchor,menuAnchor);if(active)return refresh(true);return startSelection(false);}
-  function syncChecks(){for(const item of checks)item.input.checked=selected.has(item.id);}
-  function removeChecks(){for(const item of checks)item.host.remove();checks=[];}
-  function positionChecks(){for(const item of checks){const rect=item.anchor.getBoundingClientRect();item.host.hidden=!active||rect.bottom<0||rect.top>innerHeight||!item.anchor.isConnected;const gutter=rect.left>=36;item.host.style.left=`${gutter?rect.left-36:Math.max(2,rect.left)}px`;item.host.style.top=`${gutter?Math.min(Math.max(6,rect.top),Math.max(6,rect.bottom-32)):Math.max(2,rect.top-34)}px`;}}
-  function buildChecks(){removeChecks();if(!active||!snapshot)return;const elements=messageElements();for(const item of snapshot.anchors||[]){const anchor=elements[item.index];if(!anchor)continue;const marker=host('selection');marker.element.style.cssText='position:fixed;z-index:2147482999;';const label=document.createElement('label');label.className='check';const input=document.createElement('input');input.type='checkbox';input.setAttribute('aria-label',`選取第 ${item.index+1} 則訊息`);input.checked=selected.has(item.id);input.addEventListener('change',e=>{if(!e.isTrusted)return;if(pending||busy){input.checked=selected.has(item.id);return;}if(input.checked)selected.add(item.id);else selected.delete(item.id);notice='';render();});label.append(input);marker.root.append(label);document.body.append(marker.element);checks.push({id:item.id,anchor,input,host:marker.element});}mount();positionChecks();}
+  function restoreAttribute(element,name,value){if(value===null)element.removeAttribute(name);else element.setAttribute(name,value);}
+  function syncChecks(){for(const item of checks){const checked=selected.has(item.id);item.input.checked=checked;if(checked)item.anchor.setAttribute('data-pcs-selected',selectionToken);else restoreAttribute(item.anchor,'data-pcs-selected',item.originalSelected);}}
+  function cancelClick(){clearTimeout(clickTimer);clickTimer=null;press=null;}
+  function removeChecks(){cancelClick();lastClick=null;selectionHandlers?.abort();selectionHandlers=null;selectionStyle?.remove();selectionStyle=null;for(const item of checks){item.host.remove();restoreAttribute(item.anchor,'data-pcs-selectable',item.originalSelectable);restoreAttribute(item.anchor,'data-pcs-selected',item.originalSelected);}checks=[];}
+  function positionChecks(){
+    const headerBottom=entry.element.isConnected&&!entry.element.hidden?entry.element.getBoundingClientRect().bottom+8:6;
+    for(const item of checks){
+      const rect=item.anchor.getBoundingClientRect(),gutter=rect.right+36<=innerWidth;
+      item.host.hidden=!active||rect.bottom<headerBottom||rect.top>innerHeight||!item.anchor.isConnected||!visible(item.anchor);
+      item.host.style.left=`${gutter?rect.right+4:Math.max(2,Math.min(rect.right-32,innerWidth-36))}px`;
+      item.host.style.top=`${gutter?Math.min(Math.max(headerBottom,rect.top),Math.max(headerBottom,rect.bottom-32)):Math.max(headerBottom,rect.top-34)}px`;
+    }
+  }
+  function toggleItem(item){if(!active||busy||pending||!checks.includes(item))return;if(selected.has(item.id))selected.delete(item.id);else selected.add(item.id);notice='';syncChecks();render();}
+  function selectionItem(event){
+    if(!active||busy||pending||!event.isTrusted||event.defaultPrevented||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey)return null;
+    const interactive='a,button,input,textarea,select,option,label,summary,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="link"],[role="menuitem"],[role="checkbox"],[role="radio"],[role="switch"],[role="slider"],[role="tab"],[role="textbox"],[tabindex]:not([tabindex="-1"]),[draggable="true"],canvas,svg,iframe,audio,video,[data-pcs-ui]';
+    if(event.composedPath().some(node=>node instanceof Element&&node.matches(interactive)))return null;
+    return checks.find(item=>item.anchor===event.target||item.anchor.contains(event.target))||null;
+  }
+  function bindSelection(){
+    selectionStyle=document.createElement('style');selectionStyle.dataset.pcsUi='selection-style';
+    selectionStyle.textContent=`[data-pcs-selectable="${selectionToken}"]{cursor:pointer}[data-pcs-selected="${selectionToken}"]{background-color:color-mix(in srgb,currentColor 8%,transparent);border-radius:8px}`;
+    document.head.append(selectionStyle);selectionHandlers=new AbortController();const options={signal:selectionHandlers.signal};
+    document.addEventListener('pointerdown',event=>{cancelClick();const item=event.button===0&&event.isPrimary?selectionItem(event):null;if(item)press={item,x:event.clientX,y:event.clientY,pointerId:event.pointerId,moved:false};},options);
+    document.addEventListener('pointermove',event=>{if(press&&event.pointerId===press.pointerId&&Math.hypot(event.clientX-press.x,event.clientY-press.y)>5)press.moved=true;},options);
+    document.addEventListener('pointercancel',cancelClick,options);
+    document.addEventListener('selectionchange',()=>{if(!getSelection()?.isCollapsed)cancelClick();},options);
+    document.addEventListener('click',event=>{
+      const item=selectionItem(event),candidate=press;press=null;
+      if(event.detail===1)lastClick=null;
+      if(event.detail>1){cancelClick();if(lastClick?.item===item&&lastClick.generation===generation){if(lastClick.wasSelected)selected.add(item.id);else selected.delete(item.id);lastClick=null;syncChecks();render();}return;}
+      if(!item||candidate?.item!==item||candidate.moved||!getSelection()?.isCollapsed)return;
+      const expected=generation;clickTimer=setTimeout(()=>{clickTimer=null;if(generation!==expected||!getSelection()?.isCollapsed||!active||busy||pending)return;lastClick={item,generation,wasSelected:selected.has(item.id)};toggleItem(item);},250);
+    },options);
+  }
+  function buildChecks(){
+    removeChecks();if(!active||!snapshot)return;const elements=messageElements();
+    for(const item of snapshot.anchors||[]){
+      const anchor=elements[item.index];if(!anchor)continue;const marker=host('selection');marker.element.style.cssText='position:fixed;z-index:2147482999;';
+      const label=document.createElement('label');label.className='check';const input=document.createElement('input');input.type='checkbox';input.setAttribute('aria-label',`選取第 ${item.index+1} 則訊息`);input.checked=selected.has(item.id);
+      input.addEventListener('change',e=>{if(!e.isTrusted)return;cancelClick();lastClick=null;if(pending||busy){input.checked=selected.has(item.id);return;}toggleItem(checks.find(check=>check.input===input));});
+      label.append(input);marker.root.append(label);document.body.append(marker.element);
+      const originalSelectable=anchor.getAttribute('data-pcs-selectable'),originalSelected=anchor.getAttribute('data-pcs-selected');anchor.setAttribute('data-pcs-selectable',selectionToken);
+      checks.push({id:item.id,anchor,input,host:marker.element,originalSelectable,originalSelected});
+    }
+    bindSelection();syncChecks();mount();positionChecks();
+  }
   async function refresh(explicit=false){if(!active||pending)return;if(reading){refreshAgain=true;return;}reading=true;const expected=generation,url=location.href;try{const fresh=await request('capture');if(!active||generation!==expected||location.href!==url||fresh.context.url!==url)return;const changed=snapshot&&(fresh.fingerprint!==snapshot.fingerprint||fresh.context.url!==snapshot.context.url||fresh.context.tabId!==snapshot.context.tabId);if(changed){selected.clear();notice='對話已更新，請重新選取。';}else if(explicit)notice='';snapshot=fresh;buildChecks();}catch(error){if(generation===expected&&active){snapshot=null;selected.clear();removeChecks();notice=error.message;menuOpen=true;}}finally{reading=false;render();if(refreshAgain){refreshAgain=false;scheduleRefresh();}}}
   async function downloadSelected(ext){if(busy||!snapshot)return;busy=true;render();try{const fresh=await request('capture');if(!snapshot||fresh.fingerprint!==snapshot.fingerprint||fresh.context.url!==snapshot.context.url){selected.clear();notice='對話已更新，請重新選取。';await refresh();return;}const capture=selectCapture(snapshot.capture,selected);const blob=new Blob([ext==='json'?JSON.stringify(capture,null,2):markdownDocument(capture)],{type:ext==='json'?'application/json;charset=utf-8':'text/markdown;charset=utf-8'});const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=downloadName(capture.title,ext);link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){notice=error.message;}finally{busy=false;render();}}
   async function sendSelected(){if(pending||busy||!snapshot)return;const intended={generation,url:location.href,context:snapshot.context,capture:selectCapture(snapshot.capture,selected)};busy=true;notice='';render();try{const hello=await request('hello');instances=hello.instances||[];if(generation!==intended.generation||location.href!==intended.url||!snapshot||snapshot.context.fingerprint!==intended.context.fingerprint)return;if(!instances.length){notice='請開啟 PCS。';return;}if(instances.length===1){instance=instances[0].instance_id;explicitInstance=false;}else if(!explicitInstance||!instances.some(i=>i.instance_id===instance)||!instance){instance='';notice='選擇要保存的工作區。';return;}const identity={operation_id:crypto.randomUUID(),instance_id:instance};pending={...identity,state:'receiving',source_title:intended.capture.title};render();try{const result=await request('transfer',{...identity,context:intended.context,capture:intended.capture});if(accepts(identity))pending={...pending,...identity,...result};}catch(error){if(accepts(identity)){if(error.code==='page_changed'){pending=null;selected.clear();await refresh();notice='對話已更新，請重新選取。';}else{pending={...pending,...identity,state:'unknown'};notice=error.message;}}}if(pending&&!FINAL_STATES.has(pending.state))schedulePoll();}catch(error){notice=error.code==='host_unavailable'?'請在 PCS 的「加入 Chrome」完成連接。':error.message;}finally{busy=false;render();}}

@@ -9,7 +9,7 @@ ${role==='assistant'?'<h4 class="sr-only" data-conversation-role="assistant">Cha
 ${role==='user'?`<div data-content-search-unit-key="fallback-turn-4:${index}:${role}"><div class="whitespace-pre-wrap">${content}</div></div>`:`<div data-markdown-text-style="assistant-message"><div data-markdown-copy="contents">${content}</div></div>`}
 </div><div class="turn-action-controls"><button aria-label="${role==='user'?'複製訊息':'複製'}">複製</button><button aria-label="分享">分享</button></div></div>`;
 const fixture=`<!doctype html><html class="dark"><head><title>新結構合成對話 - ChatGPT</title><style>body{font:16px sans-serif;margin:20px;background:#212121;color:#eee}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}[role=region]{max-width:650px;margin:auto}.block-fixture{margin:30px 0}.turn-action-controls{display:flex}button{padding:8px;background:transparent;color:inherit;border:0}</style></head><body>
-<header>ChatGPT<button data-testid="share-chat-button" aria-label="分享">分享</button></header><main><p>空殼，沒有對話</p></main>
+<header style="display:flex;align-items:center;justify-content:space-between">ChatGPT<button data-testid="share-chat-button" aria-label="分享">分享</button></header><main><p>空殼，沒有對話</p></main>
 <div role="main" aria-hidden="true"><div role="region" aria-label="對話">${unit(0,'user','HIDDEN_OLD_CHAT','old-user')}${unit(2,'assistant','<p>HIDDEN_OLD_REPLY</p>','old-assistant')}</div></div>
 <main><div role="region" aria-label="對話"><div data-content-search-turn-key="fallback-turn-4"><div data-talvt-turn-state="complete"><div class="turn-blocks">
 ${unit(0,'user','請整理明天的行程。','11111111-1111-1111-1111-111111111111')}

@@ -78,3 +78,39 @@ export function messageCopyControl(element,messages) {
   if(candidates.length===1)return candidates[0];
   return null;
 }
+
+// The app shell keeps hidden titlebar copies during SPA navigation. Resolve the
+// live right-hand controls each time instead of pinning the first header found.
+export function conversationHeaderSlot() {
+  const visible = element => {
+    for(let node=element;node;node=node.parentElement){
+      const style=getComputedStyle(node);
+      if(node.hidden||node.getAttribute('aria-hidden')==='true'||style.display==='none'||style.visibility==='hidden')return false;
+    }
+    const rect=element.getBoundingClientRect();
+    return rect.width>0&&rect.height>0&&rect.right>0&&rect.left<innerWidth&&rect.bottom>0&&rect.top<innerHeight;
+  };
+  const nativeSelector='button[data-testid="share-chat-button"],button[data-testid="conversation-options-button"],button[aria-label="分享"],button[aria-label="Share"],button[aria-label="更多"][aria-haspopup="menu"],button[aria-label="More"][aria-haspopup="menu"],button[aria-label="More options"],button[aria-label="更多選項"]';
+  const controlsIn=root=>[...root.querySelectorAll(nativeSelector)].filter(button=>visible(button)&&!button.closest('[data-pcs-ui]'));
+  const slotIn=(parent,controls)=>({parent,before:[...parent.children].find(child=>controls.some(control=>child===control||child.contains(control)))});
+  const shells=[...document.querySelectorAll('[data-app-shell-main-titlebar="true"]')].filter(visible);
+  for(const shell of shells){
+    const groups=[...shell.querySelectorAll('[data-app-shell-header-obstacle="true"][data-app-shell-thread-content-overlap="true"]')]
+      .filter(group=>visible(group)&&group.closest('[data-app-shell-main-titlebar="true"]')===shell)
+      .sort((a,b)=>b.getBoundingClientRect().right-a.getBoundingClientRect().right);
+    for(const group of groups){const controls=controlsIn(group);if(controls.length)return slotIn(group,controls);}
+  }
+  const headers=[...document.querySelectorAll('#conversation-header,header,[role="banner"]')]
+    .filter(header=>visible(header)&&!header.closest('aside,nav,[role="dialog"],[aria-modal="true"]'));
+  const candidates=[];
+  for(const header of headers){
+    const controls=controlsIn(header);if(!controls.length)continue;
+    // A sidebar header is not a conversation toolbar.
+    if(Math.max(...controls.map(control=>control.getBoundingClientRect().right))<innerWidth/2)continue;
+    let group=controls[0].parentElement;
+    while(group!==header&&!controls.every(control=>group.contains(control)))group=group.parentElement;
+    candidates.push({...slotIn(group,controls),right:Math.max(...controls.map(control=>control.getBoundingClientRect().right))});
+  }
+  candidates.sort((a,b)=>b.right-a.right);
+  return candidates[0]||null;
+}

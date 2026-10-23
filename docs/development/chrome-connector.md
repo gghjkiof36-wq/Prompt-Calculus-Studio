@@ -6,11 +6,17 @@
 
 ## 操作入口與執行歸屬
 
-Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extensions/chrome/README.md)。本文涵蓋 `0.2.1` 的新 DOM 適配（來源 `b63b1ae3a1e02dfadac0c6c4983163b03a623b30`）及其後 `0.2.2` 的腳本載入修正。它在 ChatGPT 原訊息的複製按鈕旁加入 PCS 小入口；按下後以貼附該入口的選單傳送或下載這一則訊息。頁首的 PCS 入口提供「選取全部」及「選取訊息」，全部仍指目前 DOM 已載入範圍。勾選框只在選取模式顯示；「完成選取」收起勾選框並保留已選內容，接著可在選單傳到 PCS 或下載 Capture JSON／Markdown。介面沿用原對話，沒有聊天副本、Chrome 側欄或底部工具列。
+Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extensions/chrome/README.md)。目前 `0.2.3` 承接 `0.2.1` 的新 DOM 適配（來源 `b63b1ae3a1e02dfadac0c6c4983163b03a623b30`）與 `0.2.2` 的腳本載入修正，調整頁首入口及訊息選取。ChatGPT 原訊息的複製按鈕旁仍有 PCS 小入口；按下後以貼附該入口的選單儲存或下載這一則訊息。右上角、原生「更多／分享」操作組前的 PCS 入口提供「選取全部」及「選取訊息」，全部仍指目前 DOM 已載入範圍。
+
+選取模式中，每則訊息右側顯示勾選框，點擊訊息正文可切換整則的選取狀態；已選內容以淡底色標示。連結、按鈕與可編輯區保留原操作，拖曳或雙擊選字不改勾選。「完成選取」移除勾選框、樣式與整則點選處理，保留已選內容，接著可從右上選單「儲存到 PCS」或下載 Capture JSON／Markdown。介面沿用原對話，沒有聊天副本、Chrome 側欄或底部工具列。
+
+[`dom.mjs`](../../extensions/chrome/dom.mjs) 的 `conversationHeaderSlot()` 優先辨識可見的 app-shell 主頁首與右側原生操作組，再退回有明確分享／更多按鈕的既有頁首。它排除隱藏副本，並在頁首延遲出現或 SPA 替換時重新定位同一個 PCS 入口；未找到有效操作組時等待，不把入口掛到第一個 `main`。這項布局修正不變更網站權限或擷取來源。
 
 傳送狀態、查詢結果、取消及最近保存也在同一貼附選單。單則訊息失效後可重新讀取原訊息；若原節點已離開頁面，回到選取流程。尚未完成的操作保留原 `source_title`；換聊天時關閉舊訊息選單，之後從頁首查看原操作結果，避免把前一段對話的操作顯示成新頁的「此則訊息」。
 
 `0.2.2` 的 `manifest.json` 直接載入 [`content.js`](../../extensions/chrome/content.js) 作為 isolated content script。它由 [`entry.js`](../../extensions/chrome/entry.js)、[`inpage.mjs`](../../extensions/chrome/inpage.mjs)、[`core.mjs`](../../extensions/chrome/core.mjs) 及 [`dom.mjs`](../../extensions/chrome/dom.mjs) 在建置時打包；執行期間沒有動態模組匯入、page bridge 或 web-accessible resources。Chrome 工具列先傳一般 toggle 訊息，沒有接收端時以 `chrome.scripting.executeScript({files:['content.js']})` 補載，再傳同一訊息。入口保留單一 controller，重複補載不重複建立 UI 或監聽器。權限維持 `activeTab/scripting/storage/nativeMessaging` 及兩個 ChatGPT 網域，沒有 `sidePanel`／`side_panel`。
+
+頁面自動載入仍受 Chrome 的網站存取設定控制。本輪「必須先點工具列擴充」的回報，已由瀏覽器選單截圖確認當時選取的是 `When you click the extension`；使用者可改為 `On chatgpt.com` 後刷新。這個設定原因與頁首掛載位置、先前的動態模組載入失敗分開記錄，不以新增注入權限或背景掃描繞過。
 
 [`tools/build_chrome_content.mjs`](../../tools/build_chrome_content.mjs) 使用固定 esbuild `0.25.12`，依 [`tools/chrome-content/package.json`](../../tools/chrome-content/package.json) 與 lockfile 重建 Chrome 116 的單一 IIFE；`--check` 逐 byte 核對生成檔與來源。完整重建步驟在擴充 README。套件保留生成檔及對應來源／建置工具，使用者載入擴充不需要 Node 或 pnpm。
 
@@ -158,8 +164,10 @@ PCS instance 依資料目錄識別，發現記錄預設位於 `%LOCALAPPDATA%/Pr
 
 `0.2.2` 移除動態匯入後，相關六份 JavaScript 測試的 `chrome-classic-content-tests.txt` 為 39 通過、0 失敗、0 略過，11.803 秒。除上述範圍外，新增 [`connector_chrome_bundle.test.mjs`](../../tests/connector_chrome_bundle.test.mjs) 的固定 esbuild 重建一致性、classic script 語法及 manifest 無公開資源檢查；background 測例核對工具列 fallback 先補載檔案再傳 toggle。實際隔離 Edge MV3 測例另將 `content.js` 連續補載兩次，確認入口、選單與每則訊息按鈕各維持一份，toggle 仍只處理一次，正文指紋不變。這輪仍使用合成網站與 Native host 回覆。
 
+`0.2.3` 新增 [`connector_chrome_selection.test.mjs`](../../tests/connector_chrome_selection.test.mjs)，涵蓋頁首延遲出現、隱藏副本與 SPA 替換、右側勾選、正文／程式碼點選、拖曳及雙擊選字、原生操作、離開選取後清理及寬窄布局。首輪完整相關組 `chrome-right-selection-final.txt` 為 43 通過、3 失敗：舊測例在選單仍開啟時點被遮住的右側勾選框而超時，連帶影響下一子測例及父測。保留原紀錄，將操作改為先 Escape 關選單後，對 browser、selection、bundle 三檔完成 `chrome-right-selection-confirm.txt`：22 通過、0 失敗、0 略過，13.962 秒。最後外觀使用淡底色與圓角，已看過 1200／600 寬度的背景合成頁截圖；生成檔一致性及 Impeccable 靜態檢查通過。其他前輪已通且不受最後外觀／測例操作調整影響的項目沿用原紀錄，沒有把兩輪數目相加或稱為真實網站全流程通過。
+
 真實 Chrome 的只讀觀測確認，新頁面可能完全沒有 `data-message-author-role`，因此只靠舊 selector 無法讀取；本版已增加上述單元定位。但使用者先前的泛化讀取錯誤不只有這一種可能原因，不能將 selector 修正視為所有讀取失敗已解。另觀測到部分網站回答即使停用擴充，仍會轉成 `data-dil-render-failed`；這項對照將網站回覆載入失敗與 PCS 擷取錯誤分開，沒有據此宣稱站方失敗的根因。
 
-後續真實 Chrome 的 `0.2.1` 啟用測試中，原網頁正常、沒有上述站方失敗標記，但 PCS 入口未出現；console 記錄 `Failed to fetch dynamically imported module`，目標是擴充的 `inpage.mjs`。`0.2.2` 因而改為直接載入 classic bundle，移除這條執行期 module fetch 路徑；背景 MV3 證據不能替代更新後的同一真實 Chrome 驗證。
+後續真實 Chrome 的 `0.2.1` 啟用測試中，原網頁正常、沒有上述站方失敗標記，但 PCS 入口未出現；console 記錄 `Failed to fetch dynamically imported module`，目標是擴充的 `inpage.mjs`。`0.2.2` 因而改為直接載入 classic bundle，移除這條執行期 module fetch 路徑。使用者重新載入後回報可用；同一真實 Chrome 分頁已觀測到原訊息列的 PCS 入口，單則選單可讀取訊息並啟用保存及下載動作。這只確認該頁的載入與擷取入口恢復，沒有據此認定桌面保存完成。
 
 本輪真實 ChatGPT 原頁選取 → Native Messaging → PCS 預覽／接受保存 → 查回文件的全鏈路仍待完成，不能以已更新擴充來源或上述背景測試代替通過。既有 registry 寫入測例採 mock；原生桌面視窗、IME、DPI、真實媒體與跨帳戶部署仍待相應驗證。
