@@ -2,7 +2,7 @@
 
 Keep Markdown notes, reusable prompts and Canvas workflows locally. Paste formatted text or turn conversation archives into editable notes, then arrange prompt materials and images for your own ComfyUI workflows.
 
-[繁體中文](README.md) · [Documentation](docs/README.md)
+[繁體中文](README.md) · [Getting started](docs/guide/workspace-089.md) · [Documentation](docs/README.md) · [Beta2 release notes](docs/releases/0.8.9/beta.2.md) (guides in Chinese)
 
 ## What it does
 
@@ -16,7 +16,7 @@ Notes, prompt editing and copying work without ComfyUI. Generation requires your
 
 ## This release
 
-Beta2 fixes recovery drafts, close protection, partial conversation imports and backup cancellation. It also reduces repeated Markdown rendering and search work, repairs navigation near the end of large documents, refreshes reading after note-folder changes, and reuses verified image data within an operation. See the [release notes](docs/releases/0.8.9/beta.2.md) (Chinese).
+Beta2 fixes recovery drafts, close protection, partial conversation imports and backup cancellation. It also improves Markdown reading, search and navigation near the end of large documents, and refreshes reading after note-folder changes. See the [full release notes](docs/releases/0.8.9/beta.2.md) (Chinese).
 
 ## Download and start
 
@@ -35,7 +35,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe run.py --v0.8.9-beta.2
 ```
 
-The first installation downloads dependencies. Afterwards, double-click `Start.cmd`. For generation, install the matching extension, restart the backend and refresh the workflow browser page yourself. The old preparation.7 extension supports formats 1–6; format 7 needs an updated extension. Check the loaded version after installation. See [setup](docs/guide/workspace-089.md) and [compatibility](docs/guide/comfyui-compatibility.md) (Chinese).
+The first installation downloads dependencies. Afterwards, double-click `Start.cmd`. For generation, install the matching extension, restart ComfyUI and refresh the workflow browser page. If you use an older extension, update it and check that the matching version is loaded. See [setup](docs/guide/workspace-089.md) and [compatibility](docs/guide/comfyui-compatibility.md) (Chinese).
 
 ## First use
 
@@ -45,9 +45,9 @@ New documents live in `files`; settings, recovery data and task records live in 
 
 ## Known limitations
 
-- Large documents, HTML paste and large JSON imports can still pause. Improvements in a particular sample are not a general speed guarantee.
+- Large documents, formatted paste and large JSON imports can still pause.
 - Older imports that copied the entire conversation source are not cleaned automatically. Re-import into a separate copy, retain edited notes and inspect attachments before sharing.
-- Native input, DPI, real archives, old databases and live ComfyUI/GPU coverage remain incomplete. Some abnormal exits still need clarification; see the [current limits](docs/releases/0.8.9/validation/beta.2.md).
+- Unexpected exits can still occur in this prerelease. See the [known issues and limits](docs/releases/0.8.9/validation/beta.2.md) for input methods, display scaling, older data and ComfyUI compatibility.
 - PNG metadata, imported records, attachments, recovery data and backups can contain private content. [Inspect before sharing](docs/guide/data-backup-privacy.md) (Chinese).
 
 [Release history](docs/releases/0.8.9/README.md) · [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)

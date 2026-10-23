@@ -2,8 +2,6 @@
 
 在本機整理 Markdown 筆記、Prompt 素材與 Canvas 工作流程。貼入帶格式的文字，或把對話封存變成可編輯筆記；再安排文字、圖片與參數，交給自己的 ComfyUI 生成。
 
-**化繁為簡，從混亂中找出秩序。**
-
 [English](README.en.md) · [開始使用](docs/guide/workspace-089.md) · [完整文件](docs/README.md) · [Beta2 更新說明](docs/releases/0.8.9/beta.2.md)
 
 ## 能做什麼
@@ -18,7 +16,7 @@
 
 ## 這版更新
 
-Beta2 修正恢復稿、關閉保護、匯入部分完成與備份取消，並改善大型 Markdown 閱讀、搜尋及末段捲動。變更筆記資料夾後，閱讀內容會依目前範圍更新；重複收圖與 Stage 來源處理減少同次操作的重複讀檔。[修復內容與內部整理](docs/releases/0.8.9/beta.2.md)。
+Beta2 修正恢復稿、關閉保護、匯入部分完成與備份取消，並改善大型 Markdown 閱讀、搜尋及末段捲動。變更筆記資料夾後，閱讀內容會依目前範圍更新。[完整更新說明](docs/releases/0.8.9/beta.2.md)。
 
 ## 下載與啟動
 
@@ -39,7 +37,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe run.py --v0.8.9-beta.2
 ```
 
-首次需網路下載依賴，之後雙擊 `Start.cmd`。要生成圖片，安裝同版 PCS 擴充，再由你啟動 ComfyUI 後端並刷新工作流網頁。舊 preparation.7 配套只支援格式 1–6，格式 7 需更新；安裝後仍須核對實際載入版。[完整步驟](docs/guide/workspace-089.md)。
+首次需網路下載依賴，之後雙擊 `Start.cmd`。要生成圖片，安裝同版 PCS 擴充，再重新啟動 ComfyUI 後端並刷新工作流網頁。使用舊版擴充時，請先更新並確認載入同版配套。[完整步驟](docs/guide/workspace-089.md)。
 
 ## 第一次使用
 
@@ -49,9 +47,9 @@ py -3.12 -m venv .venv
 
 ## 使用前留意
 
-- 大型文件、貼上及大量 JSON 仍可能停頓；局部改善不代表所有文件都有相同比例的加速。
+- 大型文件、貼上及大量 JSON 匯入仍可能停頓。
 - 舊版匯入結果若夾帶整份對話來源，不會自動清理。重新匯入另存，保留手改筆記，分享前檢查附件。
-- 原生輸入法、DPI、真實封存、舊資料庫及 ComfyUI／GPU 尚未完整驗證，另有異常退出情境待釐清；見[本版限制](docs/releases/0.8.9/validation/beta.2.md)。
+- 預覽版仍有異常退出情況；輸入法、螢幕縮放、舊資料與 ComfyUI 環境的相容限制，見[已知問題與限制](docs/releases/0.8.9/validation/beta.2.md)。
 - 生成 PNG、原始紀錄、附件、恢復副本及備份可能含私人內容，分享前[檢查資料](docs/guide/data-backup-privacy.md)。
 
 [歷史發布與畫面](docs/releases/0.8.9/README.md) · [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues) · [貢獻指南](CONTRIBUTING.md) · [安全回報](SECURITY.md)
