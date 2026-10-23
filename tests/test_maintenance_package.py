@@ -1,6 +1,6 @@
 import json,sys,subprocess,tempfile,unittest,zipfile,hashlib
 from pathlib import Path
-from prompt_calculus_studio.releases import RELEASES,select_release,write_launchers,SHARED_MODULES,APP_BASENAME,EXTENSION_FOLDER,SOURCE_ARCHIVE
+from prompt_calculus_studio.releases import CURRENT,RELEASES,select_release,write_launchers,SHARED_MODULES,APP_BASENAME,EXTENSION_FOLDER,SOURCE_ARCHIVE
 from package_documents import bundle_documents,source_paths,validation_reference
 from build_comfyui import build
 ROOT=Path(__file__).resolve().parents[1]
@@ -24,11 +24,38 @@ class PackagingTests(unittest.TestCase):
                 for name in z.namelist():
                     self.assertFalse(name.startswith(('data/','qa/','.git/','vendor/','.builder/'))); self.assertFalse(name.endswith(('.sqlite3','.token')))
             info=json.loads((folder/'BUILD_INFO.json').read_text(encoding='utf-8'))
-            self.assertEqual(info['validation'],'docs/releases/0.8.9/validation/beta.2.md')
+            required_validation={'--v0.8.9-beta.2':'docs/releases/0.8.9/validation/beta.2.md',
+                                 '--v0.8.9-beta.3':'docs/releases/0.8.9/validation/beta.3.md'}
+            self.assertIn(CURRENT.flag,required_validation,'A new current release needs its explicit validation contract')
+            self.assertEqual(info['release'],CURRENT.flag)
+            self.assertEqual(info['validation'],required_validation[CURRENT.flag])
             self.assertTrue((folder/info['validation']).is_file())
             notice=(folder/'BUILD_NOTICE.txt').read_text(encoding='utf-8')
             for name in ('docs/guide/getting-started.md','docs/releases/README.md','docs/guide/licensing.md'):
                 self.assertIn(name,notice);self.assertTrue((folder/name).is_file())
+    def test_connector_sources_and_extension_assets_are_in_source_allowlist(self):
+        packaged={path.relative_to(ROOT).as_posix() for path in source_paths(ROOT)}
+        required={'tools/connector_host.py','tools/install_chrome_connector.py','tools/build_connector.py',
+                  'prompt_calculus_studio/connector_capture.py','prompt_calculus_studio/connector_store.py',
+                  'prompt_calculus_studio/connector_service.py','prompt_calculus_studio/connector_dialog.py',
+                  'prompt_calculus_studio/connector_page.py','docs/development/chrome-connector.md',
+                  'tests/test_connector_capture.py','tests/test_connector_recovery.py','tests/test_connector_host.py'}
+        extension=ROOT/'extensions'/'chrome'
+        self.assertTrue((extension/'manifest.json').is_file())
+        required.update(path.relative_to(ROOT).as_posix() for path in extension.rglob('*') if path.is_file())
+        self.assertFalse(required-packaged,'Connector sources missing from tracked allowlist: '+str(sorted(required-packaged)))
+    def test_connector_transport_capture_and_store_import_without_qt(self):
+        code="""import sys,importlib
+class NoQt:
+ def find_spec(self,fullname,*args):
+  if fullname.startswith(('PySide6','PyQt','shiboken6')):raise RuntimeError('Connector data/transport imported Qt')
+sys.meta_path.insert(0,NoQt())
+for name in sys.argv[1:]:importlib.import_module(name)
+"""
+        modules=('prompt_calculus_studio.connector_capture','prompt_calculus_studio.connector_store',
+                 'tools.connector_host','tools.install_chrome_connector','tools.build_connector')
+        run=subprocess.run([sys.executable,'-c',code,*modules],cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=30)
+        self.assertEqual(run.returncode,0,run.stdout.decode('utf-8',errors='replace'))
     def test_validation_reference_does_not_assign_new_release_results_to_old_builds(self):
         paths=source_paths(ROOT)
         examples={

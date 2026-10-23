@@ -40,14 +40,15 @@ def source_paths(root=ROOT):
     if Path(git_output(root,'rev-parse','--show-toplevel').strip()).resolve()!=root:
         raise ValueError('建置來源必須是獨立 Git 根目錄。')
     blocked={'data','qa','build','dist','vendor','.builder','__pycache__','credentials','backups','local_library.json','settings.json','fault.log','error.log','agents.md','agent-guides'}
-    folders={'prompt_calculus_studio','comfyui_prompt_calculus_studio','tests','docs'}
+    folders={'prompt_calculus_studio','comfyui_prompt_calculus_studio','tests','docs','extensions'}
     suffixes={'.py','.js','.mjs','.css','.ps1','.cmd','.vbs','.md','.txt','.svg','.ico','.png','.json','.html','.woff2'}
     paths=[]
     for name in git_output(root,'ls-files','-z','--cached').split('\0'):
         if not name:continue
         rel=Path(name)
         if rel.is_absolute() or '..' in rel.parts or any(part.casefold() in blocked for part in rel.parts):continue
-        delivery_tool=rel.as_posix()=='tools/build_user_delivery_089.py'
+        delivery_tool=rel.as_posix() in {'tools/build_user_delivery_089.py','tools/connector_host.py',
+                                       'tools/install_chrome_connector.py','tools/build_connector.py'}
         delivery_template=rel.as_posix().startswith('tools/user_delivery/') and rel.suffix.lower()=='.md'
         if len(rel.parts)>1 and rel.parts[0] not in folders and not (delivery_tool or delivery_template):continue
         if rel.suffix.lower() not in suffixes and rel.name not in ('LICENSE','LICENSE-MPL','.gitignore','.gitattributes'):continue

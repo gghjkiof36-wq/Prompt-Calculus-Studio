@@ -1,0 +1,99 @@
+:root {
+  color-scheme: dark light;
+  --base: #141719;
+  --surface: #202527;
+  --field: #191c1e;
+  --hover: #282c2e;
+  --text: #f1f0ea;
+  --muted: #b9bbb5;
+  --border: #444a49;
+  --accent: #e3d5ba;
+  --on-accent: #292b29;
+  --error: #ffb0a7;
+  --success: #a6d5b4;
+  font: 14px/1.55 "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--base);
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --base: #f5f3ee; --surface: #ebe8e0; --field: #fcfbf8; --hover: #e6e2d8;
+    --text: #292b29; --muted: #5b5e58; --border: #b6b7af; --accent: #5a513f;
+    --on-accent: #fefefd; --error: #a4382c; --success: #24623d;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; min-width: 280px; min-height: 100vh; display: flex; flex-direction: column; }
+button, select, input { font: inherit; }
+button, select { color: inherit; }
+button { cursor: pointer; border: 1px solid transparent; border-radius: 7px; min-height: 38px; padding: 6px 12px; background: transparent; }
+button:hover:not(:disabled) { background: var(--hover); }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { cursor: default; opacity: .48; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+select { background: var(--field); border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; min-height: 38px; max-width: 100%; }
+input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--accent); margin: 0; flex-shrink: 0; }
+::selection { background: var(--accent); color: var(--on-accent); }
+.app-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 10px; }
+.app-name { font-weight: 600; }
+.icon-button { width: 36px; height: 36px; padding: 8px; min-height: 36px; }
+svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+main { padding: 4px 18px 24px; flex: 1; }
+h1 { font-size: 20px; line-height: 1.4; margin: 9px 0 21px; font-weight: 600; overflow-wrap: anywhere; }
+h2 { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
+.muted { color: var(--muted); }
+.selection-toolbar { display: flex; align-items: center; gap: 10px; padding: 3px 0 12px; border-bottom: 1px solid var(--border); }
+.check-label { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; min-height: 36px; }
+#selection-count { font-size: 12px; font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
+.text-button { min-height: 32px; padding: 4px 7px; color: var(--accent); }
+.message { padding: 16px 0; border-bottom: 1px solid var(--border); }
+.message-header { display: flex; align-items: center; gap: 9px; }
+.message-role { font-weight: 600; }
+.message-number { color: var(--muted); font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; }
+.message-content { margin: 7px 0 0 26px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.65; }
+.message-content.collapsed { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: normal; }
+.resource-summary { margin: 8px 0 0 26px; color: var(--muted); font-size: 12px; }
+.message-expand { margin: 5px 0 0 20px; color: var(--muted); font-size: 12px; }
+.message.unselected .message-content { color: var(--muted); }
+.preview-content { margin: 0; padding: 18px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.7; }
+.preview-message + .preview-message { border-top: 1px solid var(--border); padding-top: 20px; margin-top: 24px; }
+.reading { white-space: normal; }
+.reading p { margin: 0 0 12px; white-space: pre-wrap; }
+.reading h2, .reading h3, .reading h4, .reading h5, .reading h6 { font-size: 15px; margin: 18px 0 8px; }
+.reading :first-child { margin-top: 0; }
+.reading :last-child { margin-bottom: 0; }
+.reading pre { overflow: auto; background: var(--field); padding: 10px; white-space: pre; border-radius: 5px; }
+.reading code { font: 12px/1.6 Consolas, monospace; background: var(--field); }
+.reading a { color: var(--accent); text-underline-offset: 3px; }
+.reading ul, .reading ol { padding-left: 24px; }
+.reading blockquote { border-left: 1px solid var(--border); margin: 12px 0; padding-left: 14px; }
+.table-scroll { overflow: auto; }
+.reading table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.reading th, .reading td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--border); }
+.empty-state { min-height: 210px; padding: 56px 0 30px; text-align: center; }
+.empty-state h1 { font-size: 17px; }
+.recent-section { margin-top: 32px; }
+.recent-item { border-top: 1px solid var(--border); padding: 12px 0; }
+.recent-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-path { margin: 3px 0; overflow-wrap: anywhere; font-size: 12px; color: var(--muted); }
+.recent-actions { display: flex; gap: 4px; margin: 5px 0 0 -7px; }
+footer { position: sticky; bottom: 0; padding: 14px 18px 18px; background: var(--surface); border-top: 1px solid var(--border); }
+.primary { width: 100%; background: var(--accent); color: var(--on-accent); font-weight: 600; min-height: 42px; }
+.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(.94); }
+.secondary { border-color: var(--border); }
+.download-row { margin-top: 9px; display: flex; gap: 8px; }
+.download-row select { flex: 1; min-width: 0; }
+.download-row button { flex: 1; }
+.instances-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.instances-row select { flex: 1; min-width: 0; }
+.feedback { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; padding-bottom: 11px; font-size: 13px; }
+#feedback-text { flex: 1 1 170px; overflow-wrap: anywhere; }
+.feedback.error #feedback-text { color: var(--error); }
+.feedback.success #feedback-text { color: var(--success); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@media (max-width: 330px) {
+  .app-header { padding-inline: 12px; } main { padding-inline: 12px; } footer { padding-inline: 12px; }
+  .selection-toolbar { gap: 5px; }
+}
+@media (prefers-reduced-motion: no-preference) { button { transition: background-color 150ms ease-out; } }

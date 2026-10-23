@@ -591,7 +591,7 @@ class Window(QMainWindow):
     def record_navigation(self,kind,detail=None):
         self.sync_context_sidebar()
         if hasattr(self,'studio_navigation'):
-            active=('explore' if detail in ('explore','civitai','downloads','civitai_settings','comfy','workflows','workflow_manager','models','nodes') else 'settings') if kind=='settings' else ('media' if detail in ('gallery','recent') else 'export' if detail=='clean_export' else 'canvas')
+            active=('explore' if detail in ('explore','connector','civitai','downloads','civitai_settings','comfy','workflows','workflow_manager','models','nodes') else 'settings') if kind=='settings' else ('media' if detail in ('gallery','recent') else 'export' if detail=='clean_export' else 'canvas')
             self.studio_navigation.select(active)
         if not self.navigation_ready or self.navigation_locked: return
         route=(kind,detail)

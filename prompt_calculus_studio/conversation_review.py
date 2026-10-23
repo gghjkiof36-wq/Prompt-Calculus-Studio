@@ -136,6 +136,10 @@ def subset(source, branches):
                 saved['children'] = [child for child in saved['children'] if child in selected]
             raw['mapping'][key] = saved
     raw['current_node'] = branches[0]
+    if 'pcs_capture' in source.item.raw:
+        from .connector_capture import subset_capture
+        raw['pcs_capture'] = subset_capture(source.item.raw['pcs_capture'],
+                                             source.item.raw['mapping'], raw['mapping'])
     if not raw.get('conversation_id') and not raw.get('id'):
         raw['conversation_id'] = source.item.key
     previous = source.item.raw.get('pcs_extraction', {})

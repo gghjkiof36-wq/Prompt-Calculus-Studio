@@ -460,7 +460,7 @@ class ReviewSheet(RetainedSheet):
                     break
                 dirs[:] = [name for name in dirs if not name.startswith('.') and name not in ('assets', '整理稿')
                            and not (Path(folder) / name).is_symlink() and not (Path(folder) / name).is_junction()]
-                if '原始對話.json' in files:
+                if '原始對話.json' in files and not ('匯入開始.json' in files and '匯入完成.json' not in files):
                     paths.append(Path(folder) / '原始對話.json')
             return sorted(paths, key=lambda path: str(path).casefold())
         self.run(scan, self.library_loaded)

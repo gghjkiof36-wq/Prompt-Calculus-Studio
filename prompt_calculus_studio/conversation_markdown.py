@@ -122,12 +122,16 @@ def split_large(text, capacity):
         cursor = end
 
 
+def branch_heading(item, number, part):
+    return '# '+single_line(item.title)+f' · 分支 {number} · 第 {part} 卷\n\n[返回對話索引](對話.md)\n\n'
+
+
 def branch_files(item, links, limits, cancel=None):
     for number, leaf in enumerate(item.leaves, 1):
         part, size, pieces = 1, 0, []
         def output():
             name = f'分支-{number:03d}-{part:03d}.md'
-            heading = '# '+single_line(item.title)+f' · 分支 {number} · 第 {part} 卷\n\n[返回對話索引](對話.md)\n\n'
+            heading = branch_heading(item, number, part)
             return name, (heading+''.join(pieces)).encode('utf-8')
         for key in item.path(leaf):
             checkpoint(cancel)
@@ -152,7 +156,24 @@ def branch_files(item, links, limits, cancel=None):
         yield number, part, *output()
 
 
-def index_markdown(item, volumes, warnings, assets):
+def index_markdown(item, volumes, warnings, assets, *, single_volume=None):
+    capture = item.raw.get('pcs_capture')
+    if (isinstance(capture, dict) and capture.get('version') == 1
+            and capture.get('graph') == 'observed-order' and capture.get('complete') is False):
+        if len(item.leaves) == len(volumes) == 1 and single_volume is not None:
+            number, part, _ = volumes[0]
+            prefix = branch_heading(item, number, part).encode('utf-8')
+            if not single_volume.startswith(prefix):
+                raise ValueError('對話分卷標題與內容不符。')
+            # Reuse the bounded branch bytes, including hidden message traces.
+            return ('# '+single_line(item.title)+'\n\n').encode('utf-8') + single_volume[len(prefix):]
+        scope = {'loaded': '已載入的對話', 'current_branch': '目前分支', 'selection': '選取的訊息'}
+        lines = ['# '+single_line(item.title), '',
+                 '來源範圍：'+scope.get(capture.get('scope'), '擷取的訊息'), '', '## 對話內容', '']
+        for number, part, name in volumes:
+            label = f'第 {part} 卷' if len(item.leaves) == 1 else f'分支 {number} · 第 {part} 卷'
+            lines.append('- ['+label+']('+quote(name)+')')
+        return ('\n'.join(lines)+'\n').encode('utf-8')
     lines = ['# '+single_line(item.title), '',
              '這是本機匯入的對話副本，可直接編輯下方各分支。',
              '', '原始完整紀錄保存在同一資料夾的 `原始對話.json`。',

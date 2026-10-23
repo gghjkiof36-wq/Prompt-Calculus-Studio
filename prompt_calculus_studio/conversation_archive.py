@@ -143,6 +143,9 @@ def conversation(raw, limits):
 def records(value):
     if isinstance(value, list):return value
     if isinstance(value, dict):
+        if value.get('provider') == 'chatgpt' and 'version' in value and 'messages' in value:
+            from .connector_capture import validate_capture
+            return [validate_capture(value)]
         if 'mapping' in value:return [value]
         if isinstance(value.get('conversations'), list):return value['conversations']
     raise ValueError('不支援這份 JSON；請選擇 ChatGPT 的 conversations.json 或其 ZIP 封存。')
@@ -253,7 +256,12 @@ def load_archive(path, cancel=None, progress=lambda text: None, limits=Limits())
         digest = fingerprint(stream, cancel)
         def add(raw):
             nonlocal nodes
-            for record in records(decode_json(raw)):
+            value = decode_json(raw)
+            if isinstance(value, dict) and value.get('provider') == 'chatgpt' and 'version' in value and 'messages' in value:
+                from .connector_capture import MAX_CAPTURE_BYTES
+                if len(raw) > MAX_CAPTURE_BYTES:
+                    raise ValueError('擷取資料超過 16 MiB，請減少選取訊息。')
+            for record in records(value):
                 checkpoint(cancel)
                 item = conversation(record, limits)
                 pair = item.key, item.digest

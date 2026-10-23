@@ -148,6 +148,8 @@ def navigation_entries(section, *, workspace=False):
         return 'CivitAI', '返回探索', [('civitai','搜尋模型','search'),('downloads','下載記錄','download'),('civitai_settings','瀏覽設定','settings')]
     if section in ('comfy','workflows','workflow_manager','models','nodes'):
         return 'ComfyUI', '返回探索', [('workflows','連線與工作流','workflow'),('models','模型資產','media'),('nodes','管理與更新','package')]
+    if section=='connector':
+        return 'ChatGPT 對話', '返回探索', [('connector','連接與對話','explore')]
     if section=='explore':
         return '探索', '返回工作區', [('explore','全部入口','explore')]
     routes=[('interface','使用介面','canvas'),('appearance','介面個人化','settings'),('completion','候選與翻譯','search'),('dictionary','個人字典','info'),('data','資料與備份','package')]
@@ -207,6 +209,8 @@ class SettingsPage(QWidget):
         self.comfy_content=DeferredToolPage(self.make_comfy_page) if lazy else self.make_comfy_page()
         self.add('comfy','ComfyUI',self.comfy_content)
         self.add('data','資料與備份',self.make_data_page())
+        self.connector_content=DeferredToolPage(self.make_connector_page)
+        self.add('connector','ChatGPT 對話',self.connector_content)
         self.add('explore','探索',self.make_explore_page())
         self.navigation.currentRowChanged.connect(self.navigate)
         self.autosave=QTimer(self); self.autosave.setSingleShot(True); self.autosave.setInterval(350); self.autosave.timeout.connect(self.flush)
@@ -258,6 +262,10 @@ class SettingsPage(QWidget):
     def workflow_manager(self):
         return self.workflows.manager
 
+    def make_connector_page(self):
+        from .connector_page import ConnectorPage
+        return reading_page(ConnectorPage(self.window))
+
     def make_explore_page(self):
         from PySide6.QtWidgets import QBoxLayout
         from .explore_art import ExploreArtwork
@@ -279,6 +287,10 @@ class SettingsPage(QWidget):
             entry=button('開啟 '+name,lambda checked=False,k=key:self.window.settings(k))
             entry.setProperty('iconName',symbol); body.addWidget(entry,0,Qt.AlignmentFlag.AlignLeft)
         layout.addStretch()
+        if getattr(self.window,'workspace_owner',None) is not None:
+            layout.insertWidget(layout.count()-1,label('對話','Heading'))
+            layout.insertLayout(layout.count()-1,row(label('ChatGPT 對話','ExploreTitle'),None,
+                button('連接與對話',lambda:self.window.settings('connector'))))
         return reading_page(page)
 
     def configure_navigation(self,section):
@@ -325,7 +337,7 @@ class SettingsPage(QWidget):
         self.adapt_navigation(); super().resizeEvent(event)
 
     def return_parent(self):
-        if self.section in ('civitai','downloads','civitai_settings','comfy','workflows','workflow_manager','models','nodes'):self.window.settings('explore')
+        if self.section in ('connector','civitai','downloads','civitai_settings','comfy','workflows','workflow_manager','models','nodes'):self.window.settings('explore')
         else:self.cancel()
 
     def compact_navigate(self,index):
@@ -434,6 +446,7 @@ class SettingsPage(QWidget):
         self.syncing=False
 
     def open(self,section='interface'):
+        if section=='connector':self.connector_content.load()
         if section in ('appearance','completion','dictionary'):self.ensure_preferences()
         self.syncing=True
         for choice in self.interface.choices.buttons(): choice.setChecked(choice.property('mode')==self.window.state.get('selection_view','list'))

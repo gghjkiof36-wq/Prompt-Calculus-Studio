@@ -482,7 +482,7 @@ class EmbeddedHost(Window):
         if kind == 'page' and value in ('gallery', 'clean_export'):
             workspace.utility_navigated('gallery' if value == 'gallery' else 'export')
         elif kind == 'settings':
-            explore = ('explore', 'comfy', 'workflows', 'workflow_manager', 'models', 'nodes',
+            explore = ('explore', 'connector', 'comfy', 'workflows', 'workflow_manager', 'models', 'nodes',
                        'civitai', 'downloads', 'civitai_settings')
             workspace.utility_navigated('explore' if value in explore else 'settings', value)
 

@@ -194,6 +194,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.runtimes.recover()
         self.scheduler.ready = True
         self.workspace_ready = True
+        from .connector_service import connector_for
+        connector_for(self)
 
     def read_navigation_json(self, name):
         try:
@@ -1198,6 +1200,26 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         return self.runtimes.closed
 
     def closeEvent(self, event):
+        connector = getattr(self, 'chrome_connector', None)
+        if connector and connector.writing:
+            self.show_notice('正在保存對話，請完成後再關閉。')
+            event.ignore()
+            return
+        if connector:
+            connector.closing = True
+        try:
+            self._close_workspace_event(event)
+        except Exception:
+            if connector:
+                connector.closing = False
+            raise
+        if connector:
+            if event.isAccepted():
+                connector.stop()
+            else:
+                connector.closing = False
+
+    def _close_workspace_event(self, event):
         if not self.workspace_ready:
             # Cancelling startup must not replace the saved session with an
             # empty, partially restored layout.

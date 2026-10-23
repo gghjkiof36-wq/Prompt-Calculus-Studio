@@ -60,7 +60,7 @@ def safe_title(title):
     return title
 
 
-def existing(root, prefix, key, digest):
+def existing(root, prefix, key, digest, *, on_reused=None):
     for folder in root.iterdir():
         if not folder.name.startswith(prefix):continue
         if paths.is_link(folder):raise ValueError('匯入名稱已被連結占用：'+folder.name)
@@ -76,6 +76,8 @@ def existing(root, prefix, key, digest):
                 for name in record['files']:
                     if not paths.checked(folder, name).is_file():
                         raise ValueError('先前匯入的檔案不完整：'+folder.name+'；請選擇另一個目的位置。')
+                if on_reused is not None:
+                    on_reused(folder)
                 return folder/'對話.md'
     return None
 
@@ -95,7 +97,15 @@ def asset_hashes(archive, assets, cancel):
     return result
 
 
-def import_selected(source, selected, destination, cancel, progress=lambda text: None):
+def import_selected(source, selected, destination, cancel, progress=lambda text: None, *,
+                    operation_id=None, on_started=None, on_reused=None):
+    if any(callback is not None and not callable(callback) for callback in (on_started, on_reused)):
+        raise ValueError('匯入操作記錄接點無效。')
+    if operation_id is not None:
+        if not isinstance(operation_id, str) or not re.fullmatch(
+                r'(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})', operation_id):
+            raise ValueError('匯入操作識別格式無效。')
+        operation_id = uuid.UUID(operation_id).hex
     result = ImportResult()
     used = 0
     indices = tuple(dict.fromkeys(selected))
@@ -111,6 +121,7 @@ def import_selected(source, selected, destination, cancel, progress=lambda text:
             for position, index in enumerate(indices, 1):
                 folder = None
                 item = source.conversations[index]
+                operation = operation_id or uuid.uuid4().hex
                 try:
                     checkpoint(cancel)
                     progress(f'正在匯入 {position} / {len(indices)}：{item.title}')
@@ -118,7 +129,13 @@ def import_selected(source, selected, destination, cancel, progress=lambda text:
                     hashes = asset_hashes(archive, assets, cancel) if archive else {}
                     digest = hashlib.sha256(canonical([item.digest, hashes])).hexdigest()
                     prefix = safe_title(item.title)+'-'+hashlib.sha256(item.key.encode()).hexdigest()[:12]+'-'+digest[:12]
-                    previous = existing(root, prefix, item.key, digest)
+                    def reuse(folder):
+                        if on_reused is not None:
+                            try:
+                                on_reused(operation, folder)
+                            except Exception as error:
+                                raise RuntimeError('無法記錄既有文件，尚未建立副本。') from error
+                    previous = existing(root, prefix, item.key, digest, on_reused=reuse)
                     if previous:
                         result.skipped.append(previous)
                         result.titles[str(previous)] = item.title
@@ -129,6 +146,11 @@ def import_selected(source, selected, destination, cancel, progress=lambda text:
                     folder.mkdir()  # Exclusive directory creation; never merge.
                     files, volumes = [], []
                     with pinned_parent(folder/'receipt.guard'):
+                        if on_started is not None:
+                            try:
+                                on_started(operation, folder)
+                            except Exception as error:
+                                raise RuntimeError('無法記錄匯入操作，尚未寫入內容。') from error
                         def write(name, content):
                             nonlocal used
                             checkpoint(cancel)
@@ -146,7 +168,7 @@ def import_selected(source, selected, destination, cancel, progress=lambda text:
                             used += len(content)
                             files.append(name)
                         write('匯入開始.json', canonical(dict(version=1, state='started', source_id=item.key,
-                                                           content_hash=digest, operation=uuid.uuid4().hex)))
+                                                           content_hash=digest, operation=operation)))
                         write('原始對話.json', json.dumps(item.raw, ensure_ascii=False, indent=2, allow_nan=False).encode())
                         if assets:
                             (folder/'assets').mkdir()
@@ -167,17 +189,20 @@ def import_selected(source, selected, destination, cancel, progress=lambda text:
                                     os.fsync(output.fileno())
                                 if digest_check.hexdigest() != hashes[member]:raise ValueError('附件讀取時已改變：'+member)
                                 files.append(name)
+                        single_volume = None
                         for number, part, name, content in branch_files(item, links, source.limits, cancel):
                             write(name, content)
+                            single_volume = content if not volumes and 'pcs_capture' in item.raw else None
                             volumes.append((number, part, name))
-                        write('對話.md', index_markdown(item, volumes, warnings, assets))
+                        write('對話.md', index_markdown(item, volumes, warnings, assets,
+                                                       single_volume=single_volume))
                         # reader excludes in-place writes; check replacement
                         # identity here instead of hashing the whole ZIP per note.
                         source.verify(stream, cancel, full=False)
                         checkpoint(cancel)
                         # The final durable marker is written last; cancellation
                         # after this point preserves this complete conversation.
-                        receipt = canonical(dict(version=1, state='complete', source_id=item.key,
+                        receipt = canonical(dict(version=1, state='complete', source_id=item.key, operation=operation,
                                                  content_hash=digest, original_hash=item.digest,
                                                  files=list(files), attachments=hashes, warnings=warnings))
                         write(RECEIPT, receipt)
