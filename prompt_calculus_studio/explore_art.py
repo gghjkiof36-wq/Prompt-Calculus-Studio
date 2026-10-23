@@ -51,6 +51,18 @@ class ExploreArtwork(QWidget):
                 painter.setPen(QPen(quiet, 2.5))
                 painter.drawLine(QPointF(x+11, y+25), QPointF(x+width-23, y+25))
                 painter.setPen(QPen(line, 1.5))
+        elif self.kind == 'quote':
+            for x,y,width,height in ((48,19,150,49),(142,59,150,36)):
+                painter.setBrush(QColor(t['surface']))
+                painter.drawRoundedRect(QRectF(x,y,width,height),7,7)
+                painter.drawLine(QPointF(x+14,y+14),QPointF(x+width-14,y+14))
+                quiet=QColor(t['success']); quiet.setAlpha(145)
+                painter.setPen(QPen(quiet,2.5))
+                painter.drawLine(QPointF(x+14,y+25),QPointF(x+width-44,y+25))
+                painter.setPen(QPen(line,1.5))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            path=QPainterPath(QPointF(66,68)); path.lineTo(57,78); path.lineTo(83,68)
+            painter.drawPath(path)
         else:
             for x, y in ((69, 30), (130, 19), (191, 30)):
                 painter.setBrush(QColor(t['surface']))

@@ -2,12 +2,13 @@
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, Qt, QUrl
+from PySide6.QtCore import QProcess, QSize, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QFileDialog
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QFileDialog, QSizePolicy
 
 from .connector_service import connector_for
-from .widgets import label, button, row
+from .widgets import label, button, row, panel, ActionHeader, ElidedLabel, StudioDialog
+from .ui_icons import icon
 
 
 EXTENSION_ID = 'migmpicacfjoipmfcgdjocgdbplgldan'
@@ -21,56 +22,68 @@ class ConnectorPage(QWidget):
         self.window = window
         self.workspace = getattr(window, 'workspace_owner', None)
         self.process = None
+        self.setup_dialog = None
         self.records_by_id = {}
         self.service = connector_for(self.workspace) if self.workspace else None
         body = QVBoxLayout(self)
-        body.setSpacing(18)
-        body.addWidget(label('ChatGPT 對話', 'DialogTitle'))
+        body.setSpacing(24)
+        self.toggle = button('加入 Chrome', self.setup)
+        body.addWidget(ActionHeader(label('ChatGPT 對話', 'DialogTitle'), self.toggle))
         self.state = label('', 'Subtle')
-        self.toggle = button('設定 Chrome', self.setup, 'Primary')
-        body.addLayout(row(self.state, None, self.toggle))
-        self.setup_area = QWidget()
-        setup = QVBoxLayout(self.setup_area)
-        setup.setContentsMargins(0, 0, 0, 0)
-        setup.setSpacing(12)
-        self.install_button = button('安裝連接程式', self.install, 'Primary')
-        setup.addLayout(row(label('1. 連接 PCS', 'Heading'), None, self.install_button))
-        setup.addLayout(row(label('2. 載入 Chrome 擴充', 'Heading'), None,
-                            button('開啟擴充資料夾', self.open_extension)))
-        setup.addWidget(label('Chrome 擴充功能 → 開發人員模式 → 載入未封裝項目', 'Subtle', True))
-        self.connection_button = button('停用連接', self.change_connection, 'Quiet')
-        setup.addLayout(row(None, self.connection_button))
-        body.addWidget(self.setup_area)
-        self.setup_area.hide()
-        self.destination = QLineEdit()
-        self.destination.setReadOnly(True)
+        body.addWidget(self.state)
+        self.conversations, contents = panel('SettingsGroup')
+        self.conversations.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        body.addWidget(self.conversations)
+        contents.addWidget(ActionHeader(label('最近傳入', 'Heading'),
+                                       button('匯入檔案…', self.import_file)))
+        self.destination = ElidedLabel()
+        self.destination.setObjectName('Subtle')
+        self.destination.setMinimumWidth(0)
+        self.destination.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.destination.setAccessibleName('對話保存位置')
-        body.addLayout(row(label('儲存至'), self.destination, button('變更…', self.choose_destination)))
-        body.addLayout(row(label('最近傳入', 'Heading'), None, button('匯入檔案…', self.import_file, 'Quiet')))
         self.search = QLineEdit()
         self.search.setPlaceholderText('搜尋對話')
         self.search.setAccessibleName('搜尋已傳入對話')
         self.search.textChanged.connect(self.filter_list)
-        body.addWidget(self.search)
+        contents.addWidget(self.search)
         self.items = QListWidget()
         self.items.setAccessibleName('最近傳入對話')
-        self.items.setMinimumHeight(220)
+        self.items.setFixedHeight(112)
         self.items.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.items.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.items.currentItemChanged.connect(self.selection_changed)
         self.items.itemActivated.connect(lambda *_: self.open_selected())
-        body.addWidget(self.items, 1)
-        self.empty = label('從 Chrome 選取對話後，按「送到 PCS」。', 'Subtle', True)
-        body.addWidget(self.empty)
+        contents.addWidget(self.items)
+        self.empty_area = QWidget()
+        self.empty_area.setFixedHeight(180)
+        empty_layout = QVBoxLayout(self.empty_area)
+        empty_layout.setContentsMargins(0, 24, 0, 24)
+        empty_layout.setSpacing(12)
+        empty_layout.addStretch()
+        mark = label('')
+        mark.setPixmap(icon('quote').pixmap(QSize(32, 32)))
+        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(mark)
+        self.empty = label('尚無對話', 'Subtle')
+        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(self.empty)
+        empty_layout.addStretch()
+        contents.addWidget(self.empty_area)
         self.open_button = button('開啟對話', self.open_selected, 'Primary')
         self.arrange_button = button('整理對話', self.arrange)
         self.reveal_button = button('所在資料夾', self.reveal, 'Quiet')
         self.cancel_button = button('取消傳送', self.cancel, 'Quiet')
-        body.addLayout(row(self.open_button, self.arrange_button, None, self.cancel_button, self.reveal_button))
+        self.actions = ActionHeader(self.open_button, self.arrange_button, self.cancel_button, self.reveal_button)
+        contents.addWidget(self.actions)
+        location = row(label('保存位置', 'Subtle'), self.destination,
+                       button('變更…', self.choose_destination, 'Quiet'))
+        location.setStretch(1, 1)
+        contents.addLayout(location)
         self.status = label('', 'Subtle', True)
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.hide()
         body.addWidget(self.status)
+        body.addStretch(1)
         if self.service:
             self.service.changed.connect(self.refresh)
             try:
@@ -82,12 +95,56 @@ class ConnectorPage(QWidget):
     def report(self, text):
         self.status.setText(text)
         self.status.setVisible(bool(text))
+        if self.setup_dialog is not None:
+            self.setup_status.setText(text)
+            self.setup_status.setVisible(bool(text))
 
     def package(self):
         return Path(os.environ.get('PCS_CONNECTOR_PACKAGE', str(Path(__file__).resolve().parent.parent / 'connector-package')))
 
     def setup(self):
-        self.setup_area.setVisible(not self.setup_area.isVisible())
+        if self.setup_dialog is None:
+            self.setup_dialog = StudioDialog(self.workspace or self)
+            self.setup_dialog.setWindowTitle('加入 Chrome')
+            self.setup_dialog.resize(600, 360)
+            self.setup_dialog.body.setSpacing(24)
+            self.install_button = button('連接 PCS', self.install, 'Primary')
+            self.install_state = label('', 'Subtle')
+            self.setup_dialog.body.addWidget(ActionHeader(label('1. 連接 PCS', 'Heading'),
+                                                         self.install_state, self.install_button))
+            extension, extension_body = panel('SettingsGroup')
+            extension_body.addWidget(label('2. 載入 Chrome 擴充', 'Heading'))
+            extension_body.addWidget(label('開啟「開發人員模式」，再選「載入未封裝項目」。', 'Subtle', True))
+            extension_body.addLayout(row(button('開啟擴充頁', self.open_chrome),
+                                         button('開啟擴充資料夾', self.open_extension), None))
+            self.setup_dialog.body.addWidget(extension)
+            self.setup_status = label('', 'Subtle', True)
+            self.setup_status.hide()
+            self.setup_dialog.body.addWidget(self.setup_status)
+            self.connection_button = button('停用 Chrome 傳入', self.change_connection, 'Quiet')
+            self.setup_dialog.body.addLayout(row(self.connection_button, None,
+                                                  button('關閉', self.setup_dialog.reject)))
+        self.refresh_setup()
+        self.setup_dialog.show()
+
+    def refresh_setup(self):
+        if self.setup_dialog is None:
+            return
+        ready = bool(self.service and self.service.ready)
+        self.install_state.setText('已就緒' if ready else '')
+        self.install_state.setVisible(ready)
+        self.install_button.setVisible(not ready)
+        self.connection_button.setVisible(ready)
+
+    def open_chrome(self):
+        candidates = [Path(os.environ.get(name, '')) / 'Google/Chrome/Application/chrome.exe'
+                      for name in ('PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA')]
+        for executable in candidates:
+            if executable.is_file():
+                started, _ = QProcess.startDetached(str(executable), ['chrome://extensions'])
+                if started:
+                    return
+        self.report('請在 Chrome 開啟 chrome://extensions')
 
     def change_connection(self):
         if not self.service:
@@ -170,14 +227,15 @@ class ConnectorPage(QWidget):
 
     def refresh(self):
         key = self.selected()
-        self.state.setText('可接收 Chrome 對話' if self.service and self.service.ready else '尚未連接')
+        self.state.setText('Chrome 傳入已開啟' if self.service and self.service.ready else 'Chrome 傳入尚未開啟')
         if self.service:
-            self.destination.setText(self.service.settings['destination'])
-            self.destination.setCursorPosition(0)
-            self.toggle.setText('連接設定' if self.service.ready else '設定 Chrome')
-            self.connection_button.setText('停用連接' if self.service.ready else '啟用連接')
+            destination = self.service.settings['destination']
+            here = self.workspace is not None and Path(destination) == self.workspace.root
+            self.destination.setText('目前工作區' if here else Path(destination).name or destination)
+            self.destination.setToolTip(destination)
             if self.service.error:
                 self.report(self.service.error)
+        self.refresh_setup()
         self.items.clear()
         self.records_by_id.clear()
         records = self.service.store.records() if self.service and self.service.store else []
@@ -194,7 +252,6 @@ class ConnectorPage(QWidget):
         has = bool(self.items.count())
         self.search.setVisible(has)
         self.items.setVisible(has)
-        self.empty.setVisible(not has)
         self.filter_list()
         self.selection_changed()
 
@@ -207,10 +264,14 @@ class ConnectorPage(QWidget):
             if not item.isHidden() and first is None:
                 first = item
         current = self.items.currentItem()
-        if current is not None and current.isHidden():
+        if current is None or current.isHidden():
             self.items.setCurrentItem(first)
-        self.empty.setText('沒有符合的對話' if query else '從 Chrome 選取對話後，按「送到 PCS」。')
-        self.empty.setVisible(first is None)
+        self.empty.setText('沒有符合的對話' if query else '尚無對話')
+        self.empty_area.setVisible(first is None)
+        self.items.setVisible(first is not None)
+        visible_count = sum(not self.items.item(index).isHidden() for index in range(self.items.count()))
+        row_height = max(56, self.items.sizeHintForRow(self.items.row(first))) if first else 56
+        self.items.setFixedHeight(min(360, max(112, visible_count * row_height + 8)))
         self.selection_changed()
 
     def selected_record(self):
@@ -229,6 +290,7 @@ class ConnectorPage(QWidget):
         self.open_button.setVisible(state in ('committed', 'previewing'))
         self.open_button.setText('查看預覽' if state == 'previewing' else '開啟對話')
         self.cancel_button.setVisible(state in ('receiving', 'previewing'))
+        self.actions.setVisible(state in ('committed', 'previewing', 'receiving'))
 
     def open_selected(self):
         record = self.selected_record()

@@ -1,11 +1,11 @@
 """Full-window settings and a one-time interface choice."""
 import copy
 from pathlib import Path
-from PySide6.QtCore import Qt,QUrl,QTimer,QSize
+from PySide6.QtCore import Qt,QUrl,QTimer,QSize,QEvent
 from PySide6.QtGui import QDesktopServices,QIcon
 from PySide6.QtWidgets import (QWidget,QFrame,QVBoxLayout,QHBoxLayout,QListWidget,QListWidgetItem,
     QRadioButton,QButtonGroup,QLineEdit,QTabWidget,QScrollArea,QSizePolicy,QPushButton,
-    QComboBox,QSpinBox,QCheckBox,QSlider,QPlainTextEdit,QStyledItemDelegate,QStyleOptionViewItem,QFormLayout)
+    QComboBox,QSpinBox,QCheckBox,QSlider,QPlainTextEdit,QStyledItemDelegate,QStyleOptionViewItem,QFormLayout,QGridLayout)
 from .widgets import label,button,row,panel,scrolling,ComboBox,ActionHeader
 from .dialogs import SettingsDialog,AppearanceResetRow
 from .ui_icons import icon
@@ -51,6 +51,47 @@ def reading_page(widget):
     if isinstance(widget,QScrollArea):
         old=widget; widget=old.takeWidget(); old.deleteLater()
     return ReadingPage(widget)
+
+
+class ExploreCardGrid(QWidget):
+    """Keep entry cards equal-sized, with at most two reading-width columns."""
+    def __init__(self):
+        super().__init__()
+        self.cards=[]; self.columns=0
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed)
+        self.grid=QGridLayout(self); self.grid.setContentsMargins(0,0,0,0); self.grid.setSpacing(20)
+        self.reflow_timer=QTimer(self); self.reflow_timer.setSingleShot(True)
+        self.reflow_timer.timeout.connect(self.reflow)
+
+    def add_card(self,card):
+        self.cards.append(card); self.reflow()
+
+    def reflow(self):
+        minimum=max([320]+[card.minimumSizeHint().width() for card in self.cards])
+        columns=2 if self.width()>=minimum*2+20 else 1
+        if columns!=self.columns or self.grid.count()!=len(self.cards):
+            while self.grid.count():self.grid.takeAt(0)
+            for index,card in enumerate(self.cards):self.grid.addWidget(card,index//columns,index%columns)
+            self.grid.setColumnStretch(0,1); self.grid.setColumnStretch(1,1 if columns==2 else 0)
+            self.grid.setColumnMinimumWidth(1,0)
+            self.columns=columns
+        if self.cards:
+            width=max(1,(self.width()-self.grid.horizontalSpacing()*(columns-1))//columns)
+            heights=[card.layout().totalHeightForWidth(width) for card in self.cards]
+            height=max(value if value>=0 else card.layout().sizeHint().height() for card,value in zip(self.cards,heights))
+            for card in self.cards:card.setFixedHeight(height)
+            rows=(len(self.cards)+columns-1)//columns
+            self.setFixedHeight(rows*height+max(0,rows-1)*self.grid.verticalSpacing())
+        self.updateGeometry()
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event); self.reflow()
+
+    def changeEvent(self,event):
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.FontChange,QEvent.Type.StyleChange,QEvent.Type.ApplicationFontChange):
+            self.reflow_timer.start(0)
 
 
 class InterfaceChoice(QWidget):
@@ -149,7 +190,7 @@ def navigation_entries(section, *, workspace=False):
     if section in ('comfy','workflows','workflow_manager','models','nodes'):
         return 'ComfyUI', '返回探索', [('workflows','連線與工作流','workflow'),('models','模型資產','media'),('nodes','管理與更新','package')]
     if section=='connector':
-        return 'ChatGPT 對話', '返回探索', [('connector','連接與對話','explore')]
+        return 'ChatGPT 對話', '返回探索', [('connector','對話','quote')]
     if section=='explore':
         return '探索', '返回工作區', [('explore','全部入口','explore')]
     routes=[('interface','使用介面','canvas'),('appearance','介面個人化','settings'),('completion','候選與翻譯','search'),('dictionary','個人字典','info'),('data','資料與備份','package')]
@@ -267,17 +308,20 @@ class SettingsPage(QWidget):
         return reading_page(ConnectorPage(self.window))
 
     def make_explore_page(self):
-        from PySide6.QtWidgets import QBoxLayout
         from .explore_art import ExploreArtwork
         page=QWidget(); layout=QVBoxLayout(page); layout.setSpacing(18)
         layout.addWidget(label('探索','DialogTitle'))
-        layout.addWidget(label('連接生成工具，整理模型與工作流。','Subtle',True))
-        self.explore_cards=QBoxLayout(QBoxLayout.Direction.LeftToRight); self.explore_cards.setSpacing(20); layout.addLayout(self.explore_cards)
-        for name,description,key,symbol in (
+        layout.addWidget(label('連接工具，整理模型、工作流與對話。','Subtle',True))
+        self.explore_grid=ExploreCardGrid(); self.explore_cards=self.explore_grid.grid
+        layout.addWidget(self.explore_grid)
+        entries=[
             ('ComfyUI','連線與工作流、模型資產、節點更新','workflows','workflow'),
             ('CivitAI','搜尋模型、選擇版本與管理下載','civitai','explore'),
-        ):
-            card,body=panel('ExploreCard'); self.explore_cards.addWidget(card,1)
+        ]
+        if getattr(self.window,'workspace_owner',None) is not None:
+            entries.append(('ChatGPT','匯入對話、保存內容與查找文件','connector','quote'))
+        for name,description,key,symbol in entries:
+            card,body=panel('ExploreCard')
             card.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed)
             body.setContentsMargins(24,24,24,24); body.setSpacing(14)
             mark=label(''); mark.setProperty('largeIcon',symbol)
@@ -286,11 +330,8 @@ class SettingsPage(QWidget):
             body.addWidget(ExploreArtwork(self.window,symbol))
             entry=button('開啟 '+name,lambda checked=False,k=key:self.window.settings(k))
             entry.setProperty('iconName',symbol); body.addWidget(entry,0,Qt.AlignmentFlag.AlignLeft)
+            self.explore_grid.add_card(card)
         layout.addStretch()
-        if getattr(self.window,'workspace_owner',None) is not None:
-            layout.insertWidget(layout.count()-1,label('對話','Heading'))
-            layout.insertLayout(layout.count()-1,row(label('ChatGPT 對話','ExploreTitle'),None,
-                button('連接與對話',lambda:self.window.settings('connector'))))
         return reading_page(page)
 
     def configure_navigation(self,section):
@@ -331,9 +372,6 @@ class SettingsPage(QWidget):
         self.compact_navigation.hide()
 
     def resizeEvent(self,event):
-        if hasattr(self,'explore_cards'):
-            from PySide6.QtWidgets import QBoxLayout
-            self.explore_cards.setDirection(QBoxLayout.Direction.TopToBottom if self.width()<1050 else QBoxLayout.Direction.LeftToRight)
         self.adapt_navigation(); super().resizeEvent(event)
 
     def return_parent(self):
