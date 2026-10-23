@@ -7,7 +7,46 @@ export async function captureLoadedConversation(returnErrors = false) {
   if (url.protocol !== 'https:' || !['chatgpt.com', 'chat.openai.com'].includes(url.hostname)) {
     throw new Error('請開啟 ChatGPT 對話。');
   }
-  const main = document.querySelector('main, [role="main"]');
+  function locateConversation() {
+    const visible = element => {
+      for (let node=element;node;node=node.parentElement) {
+        const style=getComputedStyle(node);
+        if(node.hidden||node.getAttribute('aria-hidden')==='true'||style.display==='none'||style.visibility==='hidden')return false;
+      }
+      return true;
+    };
+    function messagesIn(root) {
+      const modern=[];
+      for(const element of root.querySelectorAll('[data-chatgpt-search-unit-key],[data-content-search-unit-key]')) {
+        if(!visible(element)||element.closest('[data-pcs-ui]'))continue;
+        const key=element.getAttribute('data-chatgpt-search-unit-key')||element.getAttribute('data-content-search-unit-key');
+        const role=key?.match(/:(user|assistant)$/)?.[1];
+        if(!role||role==='assistant'&&!element.querySelector('h4[data-conversation-role="assistant"]'))continue;
+        const duplicate=modern.find(item=>item.key===key);
+        if(duplicate) {
+          if(duplicate.element.contains(element))continue;
+          if(element.contains(duplicate.element)){duplicate.element=element;continue;}
+          throw new Error('對話正在更新，請重新讀取。');
+        }
+        modern.push({element,role,key});
+      }
+      const legacy=[...root.querySelectorAll('[data-message-author-role]')].filter(element=>visible(element)&&!element.closest('[data-pcs-ui]'))
+        .filter(element=>['user','assistant'].includes(element.getAttribute('data-message-author-role')))
+        .filter(element=>!modern.some(item=>item.element.contains(element)||element.contains(item.element)))
+        .map(element=>({element,role:element.getAttribute('data-message-author-role'),key:null}));
+      return [...modern,...legacy].sort((a,b)=>a.element.compareDocumentPosition(b.element)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1);
+    }
+    const regions=[...document.querySelectorAll('[role="region"][aria-label="對話"],[role="region"][aria-label="Conversation"]')].filter(visible);
+    const mains=[...document.querySelectorAll('main,[role="main"]')].filter(visible);
+    for(const roots of [regions,mains]) {
+      const candidates=roots.map(main=>({main,messages:messagesIn(main)})).filter(item=>item.messages.length);
+      candidates.sort((a,b)=>b.messages.length-a.messages.length);
+      if(candidates.length)return candidates[0];
+    }
+    return {main:mains[0]||regions[0]||null,messages:[]};
+  }
+
+  const {main,messages:elements}=locateConversation();
   if (!main) throw new Error('尚未找到對話，請稍後重新讀取。');
   const visible = (element, media = false) => {
     for (let current = element; current && current !== document.body; current = current.parentElement) {
@@ -40,7 +79,7 @@ export async function captureLoadedConversation(returnErrors = false) {
   const isActivity = node => !!node.closest(activitySelector);
   function render(node, depth = 0) {
     if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
-    if (node.nodeType !== Node.ELEMENT_NODE || node.closest('[data-pcs-ui]') || ignored.has(node.tagName) || !visible(node) || isActivity(node) || resourceNodes.has(node)) return '';
+    if (node.nodeType !== Node.ELEMENT_NODE || node.closest('[data-pcs-ui], .turn-action-controls') || node.matches('h4[data-conversation-role], h4.sr-only') || ignored.has(node.tagName) || !visible(node) || isActivity(node) || resourceNodes.has(node)) return '';
     const children = () => [...node.childNodes].map(child => render(child, depth)).join('');
     const text = () => children().trim();
     const tag = node.tagName;
@@ -119,15 +158,17 @@ export async function captureLoadedConversation(returnErrors = false) {
   const anchors = [];
   const ids = new Set();
   let resourceCount = 0;
-  const elements = [...main.querySelectorAll('[data-message-author-role]')].filter(element => visible(element));
-  for (const [elementIndex,element] of elements.entries()) {
-    const role = element.getAttribute('data-message-author-role');
+  for (const [elementIndex,descriptor] of elements.entries()) {
+    const {element,role}=descriptor;
     if (!['user', 'assistant'].includes(role)) continue;
+    if([...element.querySelectorAll('[data-dil-render-failed]')].some(node=>visible(node))) {
+      throw new Error('這則回覆尚未載入，請在 ChatGPT 重新整理後再試。');
+    }
     const resources = [];
     const seenResources = new Set();
     const candidates = element.querySelectorAll('img, audio, video, canvas, iframe, svg, a[download], [data-testid*="attachment"][title], [data-testid*="file"][title]');
     for (const media of candidates) {
-      if (!visible(media, true) || isActivity(media) || media.closest('.katex, button, nav')) continue;
+      if (media.closest('[data-pcs-ui], .turn-action-controls') || !visible(media, true) || isActivity(media) || media.closest('.katex, button, nav')) continue;
       if (media.tagName.toUpperCase() === 'SVG' && !media.matches('[role="img"], .recharts-surface, .highcharts-root') &&
           Math.max(media.getBoundingClientRect().width, media.getBoundingClientRect().height) <= 40) continue;
       const kind = media.tagName === 'IMG' ? 'image' : ['CANVAS', 'svg'].includes(media.tagName) || media.tagName.toUpperCase() === 'SVG' ? 'chart' :
@@ -153,7 +194,8 @@ export async function captureLoadedConversation(returnErrors = false) {
     // Preserve blank lines within fenced code; trim only the outer representation.
     content = content.replace(/\u00a0/g, ' ');
     if (!content && !resources.length) continue;
-    const siteId = element.getAttribute('data-message-id') || element.closest('[data-message-id]')?.getAttribute('data-message-id');
+    const sourceIds=(element.getAttribute('data-chatgpt-search-message-ids')||'').trim().split(/\s+/).filter(Boolean);
+    const siteId = element.getAttribute('data-message-id') || element.closest('[data-message-id]')?.getAttribute('data-message-id') || (sourceIds.length===1?sourceIds[0]:null);
     const id = siteId || `capture-local-${messages.length}-${(await hash(role + '\n' + content + '\n' + JSON.stringify(resources))).slice(0, 20)}`;
     if (ids.has(id)) throw new Error('對話正在更新，請重新讀取。');
     ids.add(id);

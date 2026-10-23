@@ -1,4 +1,5 @@
 import {selectCapture,markdownDocument,downloadName,statusLabel,FINAL_STATES} from './core.mjs';
+import {locateConversation,messageCopyControl} from './dom.mjs';
 
 let controller;
 const CSS=`:host{all:initial;font:14px/1.45 system-ui,'Segoe UI','Microsoft JhengHei',sans-serif;--bg:#2f2f2f;--text:#ececec;--muted:#aaa;--line:#ffffff24;--hover:#ffffff12;color:var(--text);color-scheme:dark}:host([data-theme=light]){--bg:#fff;--text:#292929;--muted:#666;--line:#0002;--hover:#0000000a;color-scheme:light}*{box-sizing:border-box}[hidden]{display:none!important}button,select{font:inherit;color:inherit;cursor:pointer}button{background:transparent;border:0;border-radius:6px;min-height:32px;padding:5px 8px;text-align:left}button:hover{background:var(--hover)}button:disabled{opacity:.4;cursor:default}button:focus-visible,select:focus-visible{outline:2px solid var(--muted);outline-offset:2px}.entry{color:var(--muted);font-size:13px;padding:4px 7px}.entry[aria-expanded=true]{background:var(--hover);color:var(--text)}.menu{width:248px;max-width:calc(100vw - 20px);padding:6px;background:var(--bg);border:1px solid var(--line);border-radius:12px;box-shadow:0 4px 16px #0003;max-height:calc(100vh - 24px);overflow:auto}.menu>button{display:block;width:100%;padding:8px 10px}.title{font-size:12px;color:var(--muted);padding:5px 10px}.section{height:1px;background:var(--line);margin:5px 4px}.tools{display:flex;justify-content:space-between;padding:0 3px}.tools button{font-size:12px;color:var(--muted)}.status{padding:8px 10px;font-size:13px}.receipt{padding:5px 7px}.receipt span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.receipt button{font-size:12px;color:var(--muted)}select{width:calc(100% - 20px);margin:4px 10px 8px;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}.check{display:flex;align-items:center;justify-content:center;width:32px;height:32px;cursor:pointer}.check input{appearance:none;width:20px;height:20px;margin:0;border:1px solid var(--muted);border-radius:4px;background:transparent;cursor:pointer;position:relative}.check input:checked{background:var(--text);border-color:var(--text)}.check input:checked:after{content:'';position:absolute;left:6px;top:2px;width:5px;height:10px;border:solid var(--bg);border-width:0 2px 2px 0;transform:rotate(45deg)}.check input:focus-visible{outline:2px solid var(--text);outline-offset:3px}.check input:disabled{opacity:.45;cursor:default}`;
@@ -6,7 +7,7 @@ const CSS=`:host{all:initial;font:14px/1.45 system-ui,'Segoe UI','Microsoft Jhen
 function host(kind){const element=document.createElement('span');element.dataset.pcsUi=kind;const root=element.attachShadow({mode:'open'});const style=document.createElement('style');style.textContent=CSS+':host([hidden]){display:none!important}';root.append(style);return {element,root};}
 function button(text,action,className=''){const result=document.createElement('button');result.type='button';result.textContent=text;result.className=className;result.addEventListener('click',e=>{if(e.isTrusted)action();});return result;}
 function visible(element){for(let node=element;node;node=node.parentElement){const s=getComputedStyle(node);if(node.hidden||node.getAttribute('aria-hidden')==='true'||s.display==='none'||s.visibility==='hidden')return false;}return true;}
-function messageElements(){return [...(document.querySelector('main, [role="main"]')?.querySelectorAll('[data-message-author-role]')||[])].filter(visible);}
+function messageElements(){try{return locateConversation().messages.map(item=>item.element);}catch{return [];}}
 
 export function installInPage(){
   if(controller)return controller;
@@ -26,10 +27,10 @@ export function installInPage(){
     if(!entry.element.isConnected){const target=document.querySelector('#conversation-header, header, [role="banner"]')||document.querySelector('main, [role="main"]');const share=target?.querySelector('button[data-testid="share-chat-button"],button[aria-label="分享"],button[aria-label="Share"]');if(share)share.after(entry.element);else if(target)target.append(entry.element);}
     if(!popup.element.isConnected)document.body.append(popup.element);
     for(const [anchor,item] of messageButtons){if(!anchor.isConnected||!item.element.isConnected){item.element.remove();messageButtons.delete(anchor);}}
-    for(const anchor of messageElements()){
-      if(!['user','assistant'].includes(anchor.dataset.messageAuthorRole)||messageButtons.has(anchor))continue;
-      const turn=anchor.closest('article, [data-testid^="conversation-turn"]')||anchor.parentElement;
-      const copy=turn?.querySelector('button[data-testid="copy-turn-action-button"],button[aria-label="Copy"],button[aria-label="Copy response"],button[aria-label="複製"],button[aria-label="複製回覆"],button[title="Copy"],button[title="複製"]');
+    const elements=messageElements();
+    for(const anchor of elements){
+      if(messageButtons.has(anchor))continue;
+      const copy=messageCopyControl(anchor,elements);
       if(!copy)continue;
       const item=host('message-action');item.element.style.cssText='display:inline-flex;vertical-align:middle;';
       const action=button('PCS',()=>openMessage(anchor,item.element),'entry');action.setAttribute('aria-label','PCS：此則訊息');action.setAttribute('aria-haspopup','dialog');item.root.append(action);copy.after(item.element);messageButtons.set(anchor,item);
