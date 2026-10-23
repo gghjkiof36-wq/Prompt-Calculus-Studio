@@ -260,6 +260,9 @@ class MarkdownSurface(QWidget):
         menu.addAction(icon('settings'), '編輯與閱讀…', self.preferences_menu)
         menu.addAction('筆記屬性…\tCtrl+;',self.edit_properties)
         menu.addAction('匯入對話…', self.import_conversations)
+        menu.addAction('查回與整理對話…', self.review_conversations)
+        menu.addAction('匯出文件與來源…', self.export_portable)
+        menu.addAction('開啟可攜 ZIP 副本…', self.import_portable)
         menu.addSeparator()
         menu.addAction('開啟連結\tCtrl+Enter',self.open_current_link)
         workspace=self.page.file_title.workspace
@@ -709,7 +712,25 @@ class MarkdownSurface(QWidget):
         for label,value in [('靠左','left'),('置中','center'),('靠右','right'),('左右對齊','justify')]:
             entries.append(('段落'+label,lambda direction=value:self.paragraph('align',direction)))
         entries.append(('匯入對話…', self.import_conversations))
+        entries.extend([('加入演示／原檔…',self.insert_demo),('查回與整理對話…',self.review_conversations),
+                        ('匯出文件與來源…',self.export_portable),('開啟可攜 ZIP 副本…',self.import_portable)])
         return entries
+
+    def insert_demo(self):
+        from .markdown_demo_dialog import open_demo
+        return open_demo(self)
+
+    def review_conversations(self):
+        from .conversation_review_dialog import open_review
+        return open_review(self)
+
+    def export_portable(self):
+        from .markdown_portable_dialog import open_export
+        return open_export(self)
+
+    def import_portable(self):
+        from .markdown_portable_dialog import open_import
+        return open_import(self)
 
     def import_conversations(self):
         from .conversation_dialog import open_import

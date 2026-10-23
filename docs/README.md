@@ -6,6 +6,8 @@
 
 現行入口適用 0.8.9 Beta2；先讀[分頁工作區與 Markdown](guide/workspace-089.md)。貼上與本機對話匯入見[Markdown 操作](guide/markdown-import.md)。Prompt、Canvas 與 ComfyUI 主題指南沿用已保留的操作，個別歷史畫面會註明版本。
 
+本分支的 [Beta3 本機開發增量](releases/0.8.9/beta.3.md)尚未公開發布；演示、ChatGPT 人工往返與匯出見[保存與可攜操作](guide/markdown-retention.md)。
+
 
 ## 版本與發布
 

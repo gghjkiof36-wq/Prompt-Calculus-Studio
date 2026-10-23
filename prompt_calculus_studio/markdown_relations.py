@@ -69,6 +69,8 @@ def open_link(surface,target,source=None,wiki=False):
         if not candidates:raise ValueError('找不到連結目標：'+target)
         def choose(path):
             if path.suffix.lower()!='.md':
+                from .markdown_demo_dialog import open_demo_target
+                if open_demo_target(surface,path):return
                 from .workspace_locations import KINDS
                 if path.suffix.lower() in KINDS:return open_document(surface,path)
                 # Never launch arbitrary executables/scripts from note links.

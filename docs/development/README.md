@@ -24,6 +24,7 @@ $env:PROMPT_STUDIO_DATA = Join-Path $PWD 'qa/dev-data'
 
 ## 架構與相容性
 
+- [Beta3 演示、對話整理與可攜包](markdown-retention.md)（本分支本機增量；人工 ChatGPT 往返，登入另排）
 - [架構與資料流](architecture.md)（保留 0.8.6 說明；目前接點先讀上述參考）
 - [本機文件與多視圖決策](local-workspace/ADR-001.md)（歷史決策；階段狀態按原日期解讀）
 - [任務保存與執行歸屬](local-workspace/execution-owners.md)

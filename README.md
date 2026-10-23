@@ -6,6 +6,8 @@
 
 [English](README.en.md) · [開始使用](docs/guide/workspace-089.md) · [完整文件](docs/README.md) · [Beta2 更新說明](docs/releases/0.8.9/beta.2.md)
 
+本分支為 [0.8.9 Beta3 本機開發版](docs/releases/0.8.9/beta.3.md)，新增演示保存、原問答查回、人工 ChatGPT 往返與可攜匯出；尚未公開發布。下列下載與既有功能介紹保留已發布 Beta2 的版本範圍。
+
 ## 能做什麼
 
 - **編寫與整理筆記**：Markdown 原文與閱讀可左右並排，用大綱、搜尋、標籤、連結與版本紀錄整理內容。

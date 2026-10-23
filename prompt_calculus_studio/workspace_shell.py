@@ -1234,6 +1234,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         importer = getattr(self, '_conversation_import', None)
         if importer is not None and isValid(importer):
             importer.stop_for_workspace_close()
+        for sheet in list(getattr(self, '_retained_sheets', [])):
+            if isValid(sheet):sheet.stop_for_workspace_close()
         if hasattr(self, 'notebook'):self.notebook.stop()
         for pane in self.panes:
             while pane.strip.bar.count():
