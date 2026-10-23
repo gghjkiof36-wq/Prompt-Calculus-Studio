@@ -12,7 +12,11 @@ Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extens
 
 [`dom.mjs`](../../extensions/chrome/dom.mjs) 的 `conversationHeaderSlot()` 優先辨識可見的 app-shell 主頁首與右側原生操作組，再退回有明確分享／更多按鈕的既有頁首。它排除隱藏副本，並在頁首延遲出現或 SPA 替換時重新定位同一個 PCS 入口；未找到有效操作組時等待，不把入口掛到第一個 `main`。這項布局修正不變更網站權限或擷取來源。
 
-按「儲存到 PCS」後，同一貼附選單顯示儲存位置及子資料夾；只有多個 PCS 視窗時才先選工作區。按「儲存」才建立操作並傳送正文，正常進度由選單自動查回，完成後提供開啟文件與所在資料夾；不彈出 PCS 整篇預覽、完成視窗或「開始整理」。最近保存與下載仍由原選單進入。單則訊息失效後可重新讀取原訊息；若原節點已離開頁面，回到選取流程。尚未完成的操作保留原 `source_title`；換聊天時關閉舊訊息選單，之後從頁首查看原操作結果，避免把前一段對話的操作顯示成新頁的「此則訊息」。
+滑鼠移至或點擊「儲存到 PCS」時，保留第一層選單並向側邊展開資料夾子選單。只有多個 PCS 時才列工作區；單一 PCS 直接列目前位置與現有資料夾，其他已接入根可從「其他位置」進入。點目的地名稱即儲存，資料夾旁獨立箭頭用於展開下一層；子層保留儲存於目前層的項目。單一 PCS 的預設位置沒有子資料夾時，點原「儲存到 PCS」直接保存至預設位置。每次從目前預設位置開始，不沿用上次的深層資料夾。滑鼠移入只讀清單，不建立保存操作、不傳正文；沒有位置下拉表單或選完位置再按儲存的額外一步。
+
+目的地選單開啟期間固定本次選取，暫停全選、完成選取及正文／勾選切換，避免畫面與將保存的訊息不一致。關閉子選單後恢復選取操作。子選單優先向右，空間不足時向左或限於視窗內；窄頁重疊時提供「返回」，Escape／左鍵回上一層並恢復焦點，右鍵展開資料夾。
+
+正常進度由選單自動查回，完成後提供開啟文件與所在資料夾；不彈出 PCS 整篇預覽、完成視窗或「開始整理」。最近保存與下載仍由原選單進入。單則訊息失效後可重新讀取原訊息；若原節點已離開頁面，回到選取流程。尚未完成的操作保留原 `source_title`；換聊天時關閉舊訊息選單，之後從頁首查看原操作結果，避免把前一段對話的操作顯示成新頁的「此則訊息」。
 
 `0.2.2` 的 `manifest.json` 直接載入 [`content.js`](../../extensions/chrome/content.js) 作為 isolated content script。它由 [`entry.js`](../../extensions/chrome/entry.js)、[`inpage.mjs`](../../extensions/chrome/inpage.mjs)、[`core.mjs`](../../extensions/chrome/core.mjs) 及 [`dom.mjs`](../../extensions/chrome/dom.mjs) 在建置時打包；執行期間沒有動態模組匯入、page bridge 或 web-accessible resources。Chrome 工具列先傳一般 toggle 訊息，沒有接收端時以 `chrome.scripting.executeScript({files:['content.js']})` 補載，再傳同一訊息。入口保留單一 controller，重複補載不重複建立 UI 或監聽器。權限維持 `activeTab/scripting/storage/nativeMessaging` 及兩個 ChatGPT 網域，沒有 `sidePanel`／`side_panel`。
 
@@ -27,7 +31,7 @@ PCS 的「探索」採三張等尺寸入口卡片；「ChatGPT 對話」開啟 [
 1. **連接 PCS**：執行配套 native host 的帳戶安裝程式，成功後啟用本 workspace 的接收服務。
 2. **載入 Chrome 擴充**：提供「開啟擴充頁」及「開啟擴充資料夾」，由使用者在 Chrome 開發人員模式載入未封裝項目。
 
-[`ConnectorService`](../../prompt_calculus_studio/connector_service.py) 屬於原 PCS workspace。新版在使用者於網頁選位置並按儲存時固定來源與目的地；接收完成後以既有 writer 背景保存，完成回執由工作執行端保存。這是保存接受時點由桌面預覽按鈕移到網頁儲存按鈕，不是收到任意資料便接受。`hello` 宣告 `save_destination_v1`，新版選單不把舊 PCS 當成已具備此能力。
+[`ConnectorService`](../../prompt_calculus_studio/connector_service.py) 屬於原 PCS workspace。新版在使用者於網頁點擊儲存目的地時固定來源與目的地；接收完成後以既有 writer 背景保存，完成回執由工作執行端保存。這是保存接受時點由桌面預覽按鈕移到網頁儲存動作，不是收到任意資料便接受。`hello` 宣告 `save_destination_v1`，新版選單不把舊 PCS 當成已具備此能力。
 
 舊客戶端未帶目的地的請求仍由 [`ConnectorImportDialog`](../../prompt_calculus_studio/connector_dialog.py) 提供小型位置確認。它直接使用共用 `StudioDialog`、`ImportJob` 與同一 writer，不再繼承完整對話匯入頁；正文不渲染，讀完不改視窗大小，因此不再出現讀取後擴大卻未重新置中的偏移。成功即關閉且只刷新文件樹，不自動開啟文件或摘要整理。一般檔案匯入及使用者主動開啟的對話整理功能保持原入口。
 
@@ -172,9 +176,11 @@ PCS instance 依資料目錄識別，發現記錄預設位於 `%LOCALAPPDATA%/Pr
 
 `0.2.3` 新增 [`connector_chrome_selection.test.mjs`](../../tests/connector_chrome_selection.test.mjs)，涵蓋頁首延遲出現、隱藏副本與 SPA 替換、右側勾選、正文／程式碼點選、拖曳及雙擊選字、原生操作、離開選取後清理及寬窄布局。首輪完整相關組 `chrome-right-selection-final.txt` 為 43 通過、3 失敗：舊測例在選單仍開啟時點被遮住的右側勾選框而超時，連帶影響下一子測例及父測。保留原紀錄，將操作改為先 Escape 關選單後，對 browser、selection、bundle 三檔完成 `chrome-right-selection-confirm.txt`：22 通過、0 失敗、0 略過，13.962 秒。最後外觀使用淡底色與圓角，已看過 1200／600 寬度的背景合成頁截圖；生成檔一致性及 Impeccable 靜態檢查通過。其他前輪已通且不受最後外觀／測例操作調整影響的項目沿用原紀錄，沒有把兩輪數目相加或稱為真實網站全流程通過。
 
-`0.2.4` 新增 [`connector_chrome_save.test.mjs`](../../tests/connector_chrome_save.test.mjs)，在同一隔離 MV3 環境測試單一／多個 PCS、根與子資料夾切換、最後位置及失效後回預設、返回不送正文、按儲存才綁定位置、舊版能力拒絕、儲存自動查回、錯誤恢復及 SPA 後晚到回覆。1100／390 寬度背景截圖已檢視；長清單獨立捲動，儲存動作保持可見。第一輪原生選單測試曾以不受信任的程式事件切換而失敗，改用真實鍵盤操作後複驗，產品沒有放寬事件信任限制。
+`0.2.4` 直存首版 `d039395` 新增 [`connector_chrome_save.test.mjs`](../../tests/connector_chrome_save.test.mjs)，在同一隔離 MV3 環境測試單一／多個 PCS、根與子資料夾切換、最後位置及失效後回預設、返回不送正文、按儲存才綁定位置、舊版能力拒絕、儲存自動查回、錯誤恢復及 SPA 後晚到回覆。當時 1100／390 寬度背景截圖已檢視；第一輪原生選單測試曾以不受信任的程式事件切換而失敗，改用真實鍵盤操作後複驗，產品沒有放寬事件信任限制。此版位置表單隨後被使用者明確改為右側資料夾子選單，原表單截圖及測例結果只保留作首版歷史證據。
 
-最後檢查另發現位置下拉在非同步讀取時重建會失去焦點，導致鍵盤 Enter 意外觸發返回；已保留讀取期間的選值及焦點，並補延遲回覆測例。修正後 `chrome-direct-save-keyboard.txt` 的 save、browser、bundle 三檔為 25 通過、0 失敗、0 略過；本輪前次有效 core 9、background 2、selection 7 項沿用未受影響結果，分開記錄。完整命令、環境及來源 hash 見本機 `chrome-direct-save-receipt.json`，先前原始失敗紀錄保留。
+該首版最後檢查另發現位置下拉在非同步讀取時重建會失去焦點，導致鍵盤 Enter 意外觸發返回；修正後 `chrome-direct-save-keyboard.txt` 的 save、browser、bundle 三檔為 25 通過、0 失敗、0 略過。完整命令、環境及來源 hash 見本機 `chrome-direct-save-receipt.json`，先前原始失敗紀錄保留，不將首版表單的 25 項當成後續級聯選單驗收。
+
+最終資料夾級聯選單的 save、browser、bundle 三檔為 21 通過、0 失敗、0 略過（`chrome-cascade-final.txt`，14.961 秒）。測試涵蓋 hover 不寫入、點資料夾直存、獨立展開箭頭、空位置直接保存、多 PCS／其他根、晚到回覆、失效位置、選取凍結與恢復、鍵盤焦點、窄頁返回及邊界翻轉；同時核對實際 MV3 載入與生成 bundle。1100／390 背景合成頁已檢視，Impeccable 最後檢查為空；命令、四個受影響檔案 hash 與限制記在本機 `chrome-cascade-receipt.json`。這組使用合成網站與 Native port，與下段真實 Qt pipe／writer 驗證分開。
 
 同版 [`test_connector_destinations.py`](../../tests/test_connector_destinations.py) 檢查目錄識別、範圍、重解析點及清單容量；[`test_connector_direct_save.py`](../../tests/test_connector_direct_save.py) 以隔離離屏 PCS 驗證真實背景 writer、已選子資料夾、排隊／取消、關閉保護、舊新入口互斥、目錄失效、持久回執恢復與不開啟視窗。提供 `PCS_CONNECTOR_HOST` 時另以編譯 EXE 的 stdio frame 經實際 Qt pipe 跑 `destinations → begin/chunk/finish → status`，核對產出文件；未提供時明確略過該測例。這與 MV3 測試的合成 Native port 是分開的兩段證據。
 
