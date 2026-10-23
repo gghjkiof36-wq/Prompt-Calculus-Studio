@@ -45,6 +45,20 @@ node --test tests/connector_chrome_core.test.mjs tests/connector_chrome_backgrou
 
 可選的 `connector_chrome_browser.test.mjs` 與 `connector_chrome_rich.test.mjs` 使用既有 Playwright；以 `PCS_PLAYWRIGHT_MODULE` 指向其 `index.mjs`，`PCS_CHROME_EXECUTABLE` 指向已安裝瀏覽器，`PCS_EXTENSION_EXECUTABLE` 可另外指定支援未封裝擴充載入的 Chromium 瀏覽器。品牌 Chrome 若不接受載入旗標，測試不冒充成功；本次實際擴充驗證使用隔離的 headless Edge。`PCS_SCREENSHOT_DIR` 指定頁內畫面輸出位置。
 
-`entry.js` 是靜態 content script，動態載入 `inpage.mjs`；所有 UI 使用 `data-pcs-ui` host 與 Shadow DOM。PCS 加在原訊息操作列與頁首分享附近，使用貼附按鈕的小選單；只在多選模式添加單層細框勾選。沒有聊天副本、側欄或底部工具列。`background.mjs` 僅接受本擴充的 top-frame ChatGPT content sender，使用 `sender.tab.id` 讀取及傳送；不查詢目前作用中分頁。注入函式本體將例外轉成 `capture_error`，避免 Chrome 丟失 exception 而只回空結果。跨 API 字典比較按欄位值，不依賴物件鍵順序。
+`0.2.2` 的靜態 content script 是已生成的 `content.js`，由 `entry.js`、`inpage.mjs`、`dom.mjs`、`core.mjs` 打包而成。Chrome 直接在 isolated world 執行，不在頁面執行期間下載模組，也不公開 web-accessible resources。工具列補載同一檔案，再透過一般 runtime messaging 開啟 PCS 選單；重複補載不另建介面或監聽器。
 
-測試以合成對話接管所有網站網路請求，真實載入擴充 service worker/content script，使用真正的 `chrome.scripting` 與 runtime messaging；Native host port 由合成回覆替代。涵蓋勾選、導航失效、UTF-8 分塊、下載、多 PCS、取消、狀態區別、富內容及頁內排版。這不等同真實 ChatGPT DOM 或桌面連接器全流程驗收，使用者先前讀取失敗的具體頁面根因仍未直接重現。
+所有 UI 使用 `data-pcs-ui` host 與 Shadow DOM。PCS 加在原訊息操作列與頁首分享附近，使用貼附按鈕的小選單；只在多選模式添加單層細框勾選。沒有聊天副本、側欄或底部工具列。`background.mjs` 僅接受本擴充的 top-frame ChatGPT content sender，使用 `sender.tab.id` 讀取及傳送；不查詢目前作用中分頁。擷取函式本體將例外轉成 `capture_error`，避免 Chrome 丟失 exception 而只回空結果。跨 API 字典比較按欄位值，不依賴物件鍵順序。
+
+測試以合成對話接管所有網站網路請求，真實載入擴充 service worker/content script，使用真正的 `chrome.scripting` 與 runtime messaging；Native host port 由合成回覆替代。涵蓋首次載入與補載、勾選、導航失效、UTF-8 分塊、下載、多 PCS、取消、狀態區別、富內容及頁內排版。新 DOM 測例另覆蓋隱藏舊聊天排除、角色單元與共用 turn 操作列。這不等同真實 ChatGPT 到桌面連接器的全流程驗收。
+
+## 重建頁內腳本
+
+交付目錄已帶有 `content.js`，使用擴充不需安裝建置依賴。修改來源模組後，開發者在 checkout 根目錄（或套件的 `source/`）使用 Node.js 18 以上與 pnpm 執行（本輪 pnpm 為 `11.25.0`）：
+
+```text
+pnpm --dir tools/chrome-content install --frozen-lockfile --ignore-scripts
+node tools/build_chrome_content.mjs
+node tools/build_chrome_content.mjs --check
+```
+
+套件的 `source/` 提供重建工具與鎖定依賴；在專案 checkout 可另執行 `node --test tests/connector_chrome_bundle.test.mjs`。開發依賴固定為 esbuild `0.25.12`，安裝在 `tools/chrome-content/node_modules`；`ESBUILD_MODULE` 可指定同版 esbuild 的 `lib/main.js` 使用既有隔離工具環境。產生器固定輸出 Chrome 116 可用的單一 IIFE，沒有外部 runtime import，`--check` 對照生成檔與目前來源。封裝沿用已生成檔案，不在建置套件時下載依賴。

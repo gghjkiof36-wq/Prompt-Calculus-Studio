@@ -2,6 +2,35 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {selectCapture} from '../extensions/chrome/core.mjs';
 
+test('toolbar fallback injects the classic file then toggles through ordinary messaging', async () => {
+  let clicked, absent = true;
+  const calls = [];
+  globalThis.chrome = {
+    runtime: {onMessage: {addListener() {}}},
+    action: {onClicked: {addListener: listener => {clicked = listener;}}},
+    tabs: {sendMessage: async (id, message) => {
+      calls.push({type: 'message', id, message});
+      if (absent) { absent = false; throw new Error('No content receiver yet'); }
+    }},
+    scripting: {executeScript: async options => {calls.push({type: 'inject', options});}},
+  };
+  try {
+    await import('../extensions/chrome/background.mjs?classic-fallback');
+    await clicked({id: 7, url: 'https://chatgpt.com/c/fixture'});
+    assert.deepEqual(calls, [
+      {type: 'message', id: 7, message: {action: 'pcs-toggle-selection'}},
+      {type: 'inject', options: {target: {tabId: 7}, files: ['content.js']}},
+      {type: 'message', id: 7, message: {action: 'pcs-toggle-selection'}},
+    ]);
+    calls.length = 0;
+    await clicked({id: 7, url: 'https://chatgpt.com/c/fixture'});
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].type, 'message');
+    await clicked({id: 8, url: 'https://example.com/'});
+    assert.equal(calls.length, 1);
+  } finally { delete globalThis.chrome; }
+});
+
 test('background validates the current document and only forwards selected bodies', async () => {
   const capture = {version: 1, provider: 'chatgpt', conversation_id: 'fixture', title: '測試對話',
     url: 'https://chatgpt.com/c/fixture', method: 'dom', scope: 'loaded', adapter_version: '1', captured_at: '2026-10-23T00:00:00Z',

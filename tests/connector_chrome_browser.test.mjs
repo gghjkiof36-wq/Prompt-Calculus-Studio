@@ -43,6 +43,24 @@ test('actual MV3: original action menus, selection, transfer and late completion
       assert.equal((await live.capture()).result.capture_error.code,'capture_failed');
       await page.evaluate(()=>document.querySelector('main').hidden=false);
     });
+    await t.test('classic file reinjection keeps one interface and one toggle listener',async()=>{
+      const before=(await live.capture()).result.fingerprint;
+      await worker.evaluate(async()=>{
+        const [tab]=await chrome.tabs.query({url:'https://chatgpt.com/*'});
+        await chrome.scripting.executeScript({target:{tabId:tab.id},files:['content.js']});
+        await chrome.scripting.executeScript({target:{tabId:tab.id},files:['content.js']});
+      });
+      assert.equal(await page.locator('[data-pcs-ui="entry"]').count(),1);
+      assert.equal(await page.locator('[data-pcs-ui="menu"]').count(),1);
+      assert.equal(await page.locator('[data-pcs-ui="message-action"]').count(),4);
+      const toggle=()=>worker.evaluate(async()=>{
+        const [tab]=await chrome.tabs.query({url:'https://chatgpt.com/*'});
+        await chrome.tabs.sendMessage(tab.id,{action:'pcs-toggle-selection'});
+      });
+      await toggle();await menu().waitFor({state:'visible'});
+      await toggle();await menu().waitFor({state:'hidden'});
+      assert.equal((await live.capture()).result.fingerprint,before);
+    });
     await t.test('PCS is appended to original controls; ordinary view has no checkboxes or toolbar',async()=>{
       assert.equal(await page.locator('[data-pcs-ui="message-action"]').count(),4);
       assert.equal(await page.locator('[data-pcs-ui="selection"]').count(),0);

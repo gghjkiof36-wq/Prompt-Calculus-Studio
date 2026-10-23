@@ -12,3 +12,6 @@ tests/fixtures/legacy_stage_snapshot_088.json -text
 prompt_calculus_studio/assets/markdown/dompurify/** -text
 prompt_calculus_studio/assets/markdown/katex/** -text
 prompt_calculus_studio/assets/markdown/mermaid/** -text
+
+# Generated extension bundle is compared byte-for-byte with its fixed builder.
+extensions/chrome/content.js -text

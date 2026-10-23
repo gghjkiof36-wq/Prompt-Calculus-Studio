@@ -101,6 +101,8 @@ def build(output: Path, builder_path: Path | None = None, *, include_extension: 
     source_files.extend((ROOT / "tests" / "test_connector_host.py", ROOT / "LICENSE", ROOT / "docs" / "third-party" / "OpenSSL-3.5.8-LICENSE.txt"))
     if include_extension:
         source_files.extend(path for path in (ROOT / "extensions" / "chrome").rglob("*") if path.is_file())
+        source_files.extend(ROOT / relative for relative in (
+            "tools/build_chrome_content.mjs", "tools/chrome-content/package.json", "tools/chrome-content/pnpm-lock.yaml"))
     source_hashes = {}
     for source in source_files:
         relative = source.relative_to(ROOT)

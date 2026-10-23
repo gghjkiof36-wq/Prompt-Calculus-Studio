@@ -9,9 +9,8 @@ chrome.action.onClicked.addListener(async tab => {
   if (!tab.id || !isChatGPTUrl(tab.url)) return;
   try { await chrome.tabs.sendMessage(tab.id, {action:'pcs-toggle-selection'}); }
   catch {
-    await chrome.scripting.executeScript({target:{tabId:tab.id},func:async moduleUrl=>{
-      const module=await import(moduleUrl);module.installInPage().toggle();
-    },args:[chrome.runtime.getURL('inpage.mjs')]});
+    await chrome.scripting.executeScript({target:{tabId:tab.id},files:['content.js']});
+    await chrome.tabs.sendMessage(tab.id, {action:'pcs-toggle-selection'});
   }
 });
 

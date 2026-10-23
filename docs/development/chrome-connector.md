@@ -6,11 +6,13 @@
 
 ## 操作入口與執行歸屬
 
-Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extensions/chrome/README.md)。目前介面版本為 `0.2.0`，在 ChatGPT 原訊息的複製按鈕旁加入 PCS 小入口；按下後以貼附該入口的選單傳送或下載這一則訊息。頁首的 PCS 入口提供「選取全部」及「選取訊息」，全部仍指目前 DOM 已載入範圍。勾選框只在選取模式顯示；「完成選取」收起勾選框並保留已選內容，接著可在選單傳到 PCS 或下載 Capture JSON／Markdown。介面沿用原對話，沒有聊天副本、Chrome 側欄或底部工具列。
+Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extensions/chrome/README.md)。本文涵蓋 `0.2.1` 的新 DOM 適配（來源 `b63b1ae3a1e02dfadac0c6c4983163b03a623b30`）及其後 `0.2.2` 的腳本載入修正。它在 ChatGPT 原訊息的複製按鈕旁加入 PCS 小入口；按下後以貼附該入口的選單傳送或下載這一則訊息。頁首的 PCS 入口提供「選取全部」及「選取訊息」，全部仍指目前 DOM 已載入範圍。勾選框只在選取模式顯示；「完成選取」收起勾選框並保留已選內容，接著可在選單傳到 PCS 或下載 Capture JSON／Markdown。介面沿用原對話，沒有聊天副本、Chrome 側欄或底部工具列。
 
 傳送狀態、查詢結果、取消及最近保存也在同一貼附選單。單則訊息失效後可重新讀取原訊息；若原節點已離開頁面，回到選取流程。尚未完成的操作保留原 `source_title`；換聊天時關閉舊訊息選單，之後從頁首查看原操作結果，避免把前一段對話的操作顯示成新頁的「此則訊息」。
 
-[`entry.js`](../../extensions/chrome/entry.js) 是在 ChatGPT 網域載入的 isolated content script，動態載入 [`inpage.mjs`](../../extensions/chrome/inpage.mjs) 與 [`core.mjs`](../../extensions/chrome/core.mjs)。`manifest.json` 以 web-accessible resources 提供這兩個模組，移除 `sidePanel` 權限與 `side_panel` 入口；保留 `activeTab/scripting/storage/nativeMessaging` 及兩個 ChatGPT 網域的 host permissions。Chrome 工具列動作也交由原分頁的頁內介面處理。
+`0.2.2` 的 `manifest.json` 直接載入 [`content.js`](../../extensions/chrome/content.js) 作為 isolated content script。它由 [`entry.js`](../../extensions/chrome/entry.js)、[`inpage.mjs`](../../extensions/chrome/inpage.mjs)、[`core.mjs`](../../extensions/chrome/core.mjs) 及 [`dom.mjs`](../../extensions/chrome/dom.mjs) 在建置時打包；執行期間沒有動態模組匯入、page bridge 或 web-accessible resources。Chrome 工具列先傳一般 toggle 訊息，沒有接收端時以 `chrome.scripting.executeScript({files:['content.js']})` 補載，再傳同一訊息。入口保留單一 controller，重複補載不重複建立 UI 或監聽器。權限維持 `activeTab/scripting/storage/nativeMessaging` 及兩個 ChatGPT 網域，沒有 `sidePanel`／`side_panel`。
+
+[`tools/build_chrome_content.mjs`](../../tools/build_chrome_content.mjs) 使用固定 esbuild `0.25.12`，依 [`tools/chrome-content/package.json`](../../tools/chrome-content/package.json) 與 lockfile 重建 Chrome 116 的單一 IIFE；`--check` 逐 byte 核對生成檔與來源。完整重建步驟在擴充 README。套件保留生成檔及對應來源／建置工具，使用者載入擴充不需要 Node 或 pnpm。
 
 PCS 的「探索」採三張等尺寸入口卡片；「ChatGPT 對話」開啟 [`ConnectorPage`](../../prompt_calculus_studio/connector_page.py)。主頁保留「加入 Chrome」及對話列表，提供搜尋、檔案匯入和保存位置；完成的項目以對話標題呈現，可開啟文件、整理對話或顯示資料夾。保存位置是目前 workspace 時顯示「目前工作區」，完整路徑放在 tooltip。搜尋無結果時清除不可見選取；清除搜尋後選取可見項目，相關動作隨選取狀態恢復。
 
@@ -27,7 +29,18 @@ PCS 的「探索」採三張等尺寸入口卡片；「ChatGPT 對話」開啟 [
 
 [`capture.mjs`](../../extensions/chrome/capture.mjs) 只觀測目前頁面已載入、可見的 user／assistant 訊息。傳送前再次核對分頁、網址與正文／資產指紋；串流中的回覆不建立快照。它不讀其他聊天、網站儲存空間或 cookies，也不呼叫 ChatGPT 的內部 API。
 
+`0.2.1` 同時支援舊的 `data-message-author-role` 與本輪觀測到的新 DOM 接點：
+
+- 優先在可見的 `role="region"`、`aria-label="對話"`／`"Conversation"` 區域定位訊息，再退回可見的 `main`／`role="main"`。祖先的 `hidden`、`aria-hidden="true"`、`display:none` 或 `visibility:hidden` 會排除整個子樹，避免 SPA 保留的舊聊天混入目前頁面。
+- 新訊息以 `data-chatgpt-search-unit-key`／`data-content-search-unit-key` 定位，只接受 key 結尾的 `:user`／`:assistant`；assistant 另須有 `h4[data-conversation-role="assistant"]`。中間的思考／時間區塊不視為回答。巢狀同 key 單元只保留外層；非巢狀的可見重複 key 會拒絕擷取，等待頁面穩定。
+- 新舊訊息去除重疊後依 DOM 順序排列。`dom.mjs` 的 `locateConversation()` 用於原訊息入口與勾選位置；`captureLoadedConversation()` 內保留相同定位器，因 `chrome.scripting` 序列化不保留模組 closure。兩處的篩選、去重與排序必須同步修改。`anchors.index` 保留定位器的原始索引，即使空正文訊息未進 payload，也不重新壓縮索引。
+- 原生複製入口以明確標籤和 `.turn-action-controls` 對應。新 DOM 的 assistant 操作列可能位於各訊息單元外側、同一 turn 的共用 group 內；此時只在同一 `data-content-search-turn-key` 與 `data-talvt-turn-state` group 內尋找唯一、未屬於其他訊息的操作列。使用者訊息的列、程式碼複製、隱藏列和相鄰 turn 不作替代；歸屬不唯一時不掛入口。
+
+單一站方訊息 ID 可沿用；單元的 `data-chatgpt-search-message-ids` 含多個 ID 時，不任選其中一個冒充整個單元，而使用本機內容識別。角色標題、原生操作列與 `data-pcs-ui` 不進正文或資產清單。
+
 [`background.mjs`](../../extensions/chrome/background.mjs) 只接受本擴充、ChatGPT 網域、頂層 frame 的 content-script sender；讀取與傳送都綁定 `sender.tab.id`，不再以全域 active/currentWindow 另選分頁。注入時呼叫 `captureLoadedConversation(true)`；函式本體將例外轉成可序列化的 `capture_error: {code,message}`，background 再回傳操作錯誤。擷取函式不依賴注入後會遺失的外層 closure，且排除標記為 `data-pcs-ui` 的頁內控制項。這些是來源綁定與錯誤傳遞契約，並非真實網站 DOM 已完整支援的證明。
+
+訊息內若有可見的 `data-dil-render-failed`，表示目前網站 DOM 呈現的是回覆載入失敗狀態；擷取會拒絕此次快照，不把錯誤提示保存成 assistant 回答。這項判斷依明示 DOM 標記，不以「無法載入這則回覆」字串比對一般正文。它與擴充執行例外是不同原因，兩者都經 `capture_error` 回傳；錯誤 envelope 只負責保留原因，不會修復站方內容載入。
 
 頁內選取同時核對 URL、tab、內容指紋與目前操作世代；送出前固定選取快照，等待 `hello` 後再次確認來源，才建立 operation。background 依最新擷取內容重建所選 payload，訊息比較按欄位值而不依賴跨 API 的物件鍵順序。狀態與取消回覆須符合目前 instance／operation；晚到回覆不能復活已換掉的操作，也不能把終態降回 unknown。unknown 保留查詢與取消入口，只有使用者重新選取後才開始另一個操作。
 
@@ -134,8 +147,19 @@ PCS instance 依資料目錄識別，發現記錄預設位於 `%LOCALAPPDATA%/Pr
 
 新版 [`connector_chrome_browser.test.mjs`](../../tests/connector_chrome_browser.test.mjs) 使用隔離的 headless Edge 實際載入未封裝 MV3 擴充，經真正的 service worker、content script、`chrome.scripting` 與 runtime messaging。網站網路請求由合成對話接管，Native host port 使用合成回覆。已觀測到注入錯誤可回傳具體原因、頁內入口不污染正文／指紋，以及單則 JSON／Markdown 下載；這比直接呼叫擷取函式的 DOM 測試多覆蓋注入與訊息邊界，仍不是真實 ChatGPT 帳號或桌面全鏈路測試。
 
-同一測試組也檢查多 PCS 選擇、unknown 不隱含重送、`hello` 等待中導航、取消後晚到完成、原訊息歸屬、完成選取後保留內容、單則重新讀取、鍵盤操作及窄視窗選單。最終背景紀錄 `qa-private/03-chrome-transfer-20261023/chrome-integrated-final2-tests.txt` 為 28 通過、0 失敗、0 略過，耗時 13.08 秒；前輪失敗紀錄保留。這是上述隔離 MV3 與合成資料範圍的結果。
+同一測試組也檢查多 PCS 選擇、unknown 不隱含重送、`hello` 等待中導航、取消後晚到完成、原訊息歸屬、完成選取後保留內容、單則重新讀取、鍵盤操作及窄視窗選單。先前原操作列介面的背景紀錄 `chrome-integrated-final2-tests.txt` 為 28 通過、0 失敗、0 略過，耗時 13.08 秒；前輪失敗紀錄保留。這是上述隔離 MV3 與合成資料範圍的結果。
 
-使用者已回報真實 Chrome 在對話載入後仍顯示「無法讀取對話，請重新讀取」。原碼核對確認舊版沒有在注入函式內保留例外原因，本輪已增加 `capture_error` 並綁定呼叫分頁；但尚未重現並確認該次真實頁面觸發的具體例外。不能把合成 DOM 通過或錯誤傳遞修正寫成真實讀取問題已解決。
+`0.2.1` 新增 [`connector_chrome_modern_dom.test.mjs`](../../tests/connector_chrome_modern_dom.test.mjs)，以本輪實際觀測的 DOM 結構建立合成頁面，驗證新角色單元、巢狀去重、隱藏舊頁排除、明示回覆載入失敗、訊息索引及原操作列歸屬。兩次測試的範圍分開記錄，不相加成一份驗收：
 
-尚未完成 ChatGPT 原頁選取 → 正式安裝 PCS 的人工驗收。registry 寫入採 mock；原生桌面視窗、IME、DPI、真實媒體與跨帳戶部署仍待相應驗證。
+| 紀錄 | 結果與涵蓋範圍 |
+| --- | --- |
+| `chrome-modern-dom-tests.txt` | 32 通過、0 失敗、0 略過，13.876 秒；新 DOM 測例連同 core、background、browser、rich 五份相關測試，包含隔離 Edge MV3 的真實注入／訊息邊界與合成 Native host |
+| `chrome-modern-controls-tests.txt` | 後續共享操作列修正後的局部 7 通過、0 失敗、0 略過，4.740 秒；新增 assistant 列位於共用 group 的結構、程式碼複製排除、相鄰 turn 不借用，以及單則下載歸屬；未再執行整套 32 項 |
+
+`0.2.2` 移除動態匯入後，相關六份 JavaScript 測試的 `chrome-classic-content-tests.txt` 為 39 通過、0 失敗、0 略過，11.803 秒。除上述範圍外，新增 [`connector_chrome_bundle.test.mjs`](../../tests/connector_chrome_bundle.test.mjs) 的固定 esbuild 重建一致性、classic script 語法及 manifest 無公開資源檢查；background 測例核對工具列 fallback 先補載檔案再傳 toggle。實際隔離 Edge MV3 測例另將 `content.js` 連續補載兩次，確認入口、選單與每則訊息按鈕各維持一份，toggle 仍只處理一次，正文指紋不變。這輪仍使用合成網站與 Native host 回覆。
+
+真實 Chrome 的只讀觀測確認，新頁面可能完全沒有 `data-message-author-role`，因此只靠舊 selector 無法讀取；本版已增加上述單元定位。但使用者先前的泛化讀取錯誤不只有這一種可能原因，不能將 selector 修正視為所有讀取失敗已解。另觀測到部分網站回答即使停用擴充，仍會轉成 `data-dil-render-failed`；這項對照將網站回覆載入失敗與 PCS 擷取錯誤分開，沒有據此宣稱站方失敗的根因。
+
+後續真實 Chrome 的 `0.2.1` 啟用測試中，原網頁正常、沒有上述站方失敗標記，但 PCS 入口未出現；console 記錄 `Failed to fetch dynamically imported module`，目標是擴充的 `inpage.mjs`。`0.2.2` 因而改為直接載入 classic bundle，移除這條執行期 module fetch 路徑；背景 MV3 證據不能替代更新後的同一真實 Chrome 驗證。
+
+本輪真實 ChatGPT 原頁選取 → Native Messaging → PCS 預覽／接受保存 → 查回文件的全鏈路仍待完成，不能以已更新擴充來源或上述背景測試代替通過。既有 registry 寫入測例採 mock；原生桌面視窗、IME、DPI、真實媒體與跨帳戶部署仍待相應驗證。

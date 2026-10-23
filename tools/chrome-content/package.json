@@ -1,0 +1,11 @@
+{
+  "name": "pcs-chrome-content-build",
+  "private": true,
+  "scripts": {
+    "build": "node ../build_chrome_content.mjs",
+    "check": "node ../build_chrome_content.mjs --check"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}
