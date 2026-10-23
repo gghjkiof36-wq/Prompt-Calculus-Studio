@@ -19,8 +19,7 @@ class PortableSheet(RetainedSheet):
         self.include_summary = QCheckBox('包含整理稿的來源與修訂資料'); self.include_summary.setChecked(True)
         self.format = ComboBox(); self.format.addItems(['資料夾', 'ZIP'])
         self.details = plain_editor(True)
-        self.details.setPlaceholderText('先預覽所選範圍。未選取的對話與筆記不會自動帶入。')
-        self.body.addWidget(label('匯出目前編輯內容的固定副本；原文件與附件繼續保留。', 'Muted', wrap=True))
+        self.details.setPlaceholderText('匯出檔案預覽')
         self.body.addLayout(row(self.source_button, self.format))
         self.body.addWidget(self.branch); self.body.addWidget(self.include_summary)
         self.body.addWidget(self.details, 1)
@@ -63,7 +62,7 @@ class PortableSheet(RetainedSheet):
         match = re.match(r'分支-(\d+)-', self.document.name)
         if match and 1 <= int(match[1]) <= len(source.item.leaves):selected = int(match[1])
         self.branch.setCurrentIndex(max(1, selected))
-        self.status.setText('只帶入選定分支及共同祖先，不帶其他分支的原始問答。')
+        self.status.clear()
 
     def prepare(self):
         branches = self.branch.currentData() or ()
@@ -76,8 +75,8 @@ class PortableSheet(RetainedSheet):
         self.package = package
         total = sum(len(data) for _, data in package.bundle.files)
         self.details.setPlainText('\n'.join(f'{name} · {len(data):,} bytes' for name, data in package.bundle.files)
-            + '\n\n需注意\n' + ('\n'.join(package.warnings) or '未發現缺失的已知引用。'))
-        self.status.setText(f'{len(package.bundle.files)} 個檔案 · {total:,} bytes。尚未寫出；匯出採用上方固定內容。')
+            + ('\n\n' + '\n'.join(package.warnings) if package.warnings else ''))
+        self.status.setText(f'{len(package.bundle.files)} 個檔案 · {total:,} bytes')
         self.export_button.setEnabled(True)
 
     def export(self):
@@ -115,7 +114,7 @@ class PortableImportSheet(RetainedSheet):
     def imported(self, result):
         folder, entry = result
         self.details.setPlainText('已驗證並建立獨立副本：\n' + str(entry))
-        self.status.setText('原 ZIP 與既有資料未覆寫。')
+        self.status.setText('已開啟副本')
         if self.workspace is not None and isValid(self.workspace) and not self.workspace.layout_store.stopped:
             self.workspace.add_root(folder); self.workspace.refresh_tree()
             self.workspace.open_path(entry, retained=True, new_tab=True)

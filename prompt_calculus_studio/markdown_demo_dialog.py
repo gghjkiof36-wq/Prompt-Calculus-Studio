@@ -28,10 +28,9 @@ class DemoSheet(RetainedSheet):
         layout.addWidget(label('來源網址')); layout.addWidget(self.source)
         if record_path:
             layout.addWidget(button('開啟附件資料夾', lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.record_path.parent)))))
-        layout.addWidget(label('僅保存你選取的檔案。閱讀時不執行 HTML／SVG，也不下載外部引用。', 'Muted', wrap=True))
         self.body.addWidget(scrolling(fields), 1)
         self.details = plain_editor(True)
-        self.details.setPlaceholderText('預覽會列出檔案、大小及已知缺項。')
+        self.details.setPlaceholderText('檔案預覽')
         self.body.addWidget(self.details, 1)
         self.prepare_button = button('預覽保存內容', self.prepare)
         self.save_button = button('保存並插入' if not record_path else '建立修訂並替換引用', self.save, 'Primary')
@@ -75,7 +74,7 @@ class DemoSheet(RetainedSheet):
             self.dependencies.setText(str(self.record_path.parent / 'original'))
         self.details.setPlainText('\n'.join(row['path'] + ' · ' + state for row, state in statuses)
                                   + '\n\n' + '\n'.join(record.get('warnings', [])))
-        self.status.setText('修訂會保留上版檔案；請確認要替換目前正文引用。')
+        self.status.clear()
 
     def set_busy(self, busy):
         for control in self.controls:
@@ -94,7 +93,7 @@ class DemoSheet(RetainedSheet):
         self.details.setPlainText('\n'.join(f'{name} · {len(data):,} bytes' for name, data in bundle.files)
             + '\n\n' + ('\n'.join(record['warnings']) or '未發現缺少的靜態引用。')
             + '\n' + record['dependency_check'])
-        self.status.setText('以上是本次固定內容。確認後保存到筆記的附件資料夾。')
+        self.status.setText(f'{len(bundle.files)} 個檔案')
         self.set_busy(False)
 
     def save(self):

@@ -11,6 +11,7 @@ from .conversation_archive import Limits, canonical, checkpoint, conversation, d
 from .retained_files import Bundle, digest, read_local, write_new, directory_identity, verify_directory
 
 CATEGORIES = ('目前目標', '要求／限制', '人類已明確決定', 'AI 建議', '已取代方案', '待辦', '未解問題', '待核對')
+CATEGORY_LABELS = dict(zip(CATEGORIES, ('目標', '需求', '已決定', 'AI 建議', '已取代', '待辦', '待釐清', '待查證')))
 RECORD = '整理.json'
 
 
@@ -269,18 +270,18 @@ def continuation(record, source, maximum=12000):
     if freshness(record, source, request['branch']).startswith(('不同', '來源已更新')):
         raise ValueError('來源已不同，請先核對此候選所屬的版本。')
     keys = source.scope(request['branch'])
-    result = [f'# {source.item.title}｜{request["purpose"]}',
-              '人工整理候選；' + freshness(record, source, request['branch']),
-              f'來源：{source.item.key}／分支 {request["branch"]}／修訂 {request["revision"]}']
+    result = [f'# {source.item.title}｜{request["purpose"]}']
+    if len(record.get('received', [])) < request['chunk_count']:
+        result.append(f'整理範圍：{len(record.get("received", []))} / {request["chunk_count"]} 段')
     for category in CATEGORIES:
         rows = [item for item in record['items'] if item['category'] == category]
         if rows:
-            result.append('## ' + category)
+            result.append('## ' + CATEGORY_LABELS[category])
             for item in rows:
                 refs = item['sources']
                 if any(key not in keys for key in refs):
                     raise ValueError('候選引用其他分支，請先修正。')
-                result.append(('- [已核對] ' if item.get('checked') else '- [待核對] ') + item['text']
+                result.append('- ' + item['text']
                               + ' 〔' + '、'.join(refs) + '〕')
     # Pinned text is literal, never truncated or regenerated.
     if request.get('pins'):
@@ -294,7 +295,8 @@ def continuation(record, source, maximum=12000):
         result.append('## 引用原文')
         for key in cited:
             result.extend([f'〔{key}〕', message_body(source.item.raw['mapping'][key])])
-    result.append('## 來源索引\n來源訊息 ID 保留於隨附原始對話；以上未核對項目不代表已定案。')
+    result.append(f'## 來源索引\n\n對話：{source.item.title}\n\n'
+                  f'來源：{source.item.key}／分支 {request["branch"]}／修訂 {request["revision"]}')
     text = '\n\n'.join(result) + '\n'
     if len(text) > maximum:
         raise ValueError(f'內容共 {len(text):,} 字元，超過上限 {maximum:,}。請增加上限或調整內容；未刪除釘選。')

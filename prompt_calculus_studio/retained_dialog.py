@@ -1,6 +1,6 @@
 """Nonmodal, cancellable file work scoped to an originating Markdown view."""
 from pathlib import Path
-from PySide6.QtCore import Qt, QThreadPool, Slot
+from PySide6.QtCore import Qt, QThreadPool, Slot, QEvent
 from PySide6.QtWidgets import QPlainTextEdit
 from shiboken6 import isValid
 from .conversation_dialog import ImportJob
@@ -48,6 +48,17 @@ class RetainedSheet(StudioDialog):
         if not self.current(editing):
             raise ValueError('原文件、位置或編輯狀態已改變。請回到文件重新開啟此操作；原文未修改。')
 
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        workspace = getattr(self, 'workspace', None)
+        if workspace is not None and event.type() == QEvent.Type.StyleChange:
+            from .theme import visual_tokens, font_pixels
+            from .module_chrome import apply_module_dialog
+            settings = workspace.display_settings()
+            context = (visual_tokens(settings), max(16, font_pixels(settings['ui_size'])))
+            if getattr(self, '_module_dialog_context', None) != context:
+                apply_module_dialog(self, *context)
+
     def finish_layout(self, *actions):
         self.body.addWidget(self.status)
         self.body.addWidget(ActionHeader(self.cancel_button, *actions))
@@ -77,7 +88,7 @@ class RetainedSheet(StudioDialog):
             super().reject()
             return
         if error:
-            self.status.setText(error + '\n尚未完成；原件不受影響，可重新預覽後重試。')
+            self.status.setText(error)
             return
         try:
             self.callback(result)
@@ -88,7 +99,7 @@ class RetainedSheet(StudioDialog):
         if self.job:
             self.stopping = True
             self.job.cancel.set()
-            self.status.setText('正在停止；本次未完成的保存資料會保留供核對。')
+            self.status.setText('正在取消…')
             self.hide()
             return
         super().reject()
