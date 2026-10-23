@@ -27,6 +27,121 @@ document.addEventListener('click', event => {
     event.preventDefault();bridge.activate(href.slice('pcs-action:'.length));
   }
 });
+// Source footnotes reuse the sanitized projection and native link actions.
+const citationPopover = document.createElement('section');
+citationPopover.id = 'pcs-citation-popover';
+citationPopover.className = 'pcs-citation-popover';
+citationPopover.setAttribute('role','dialog');
+citationPopover.tabIndex = -1;
+citationPopover.hidden = true;
+document.body.append(citationPopover);
+let citationTrigger, citationTimer, suppressCitationFocus = false;
+const citationButton = target => target instanceof Element ? target.closest('#document .pcs-citation') : null;
+const citationFocusables = () => [...citationPopover.querySelectorAll('a[href],button,input,summary,[tabindex="0"]')]
+  .filter(element => !element.disabled && element.getClientRects().length);
+function closeCitation(restoreFocus = false) {
+  clearTimeout(citationTimer);
+  const previous = citationTrigger;
+  citationTrigger = null;
+  previous?.setAttribute('aria-expanded','false');
+  previous?.removeAttribute('aria-controls');
+  citationPopover.hidden = true;
+  citationPopover.replaceChildren();
+  if (restoreFocus && previous?.isConnected) {
+    suppressCitationFocus = true;previous.focus({preventScroll:true});suppressCitationFocus = false;
+  }
+}
+function positionCitation() {
+  if (!citationTrigger) return;
+  const rect = citationTrigger.getBoundingClientRect(), margin = 12, gap = 8;
+  if (rect.bottom < 0 || rect.top > innerHeight) { closeCitation();return; }
+  citationPopover.style.maxHeight = Math.max(48,innerHeight - margin * 2)+'px';
+  const card = citationPopover.getBoundingClientRect();
+  const left = Math.max(margin,Math.min(rect.left,innerWidth-card.width-margin));
+  let top = rect.bottom + gap;
+  if (top + card.height > innerHeight-margin) top = rect.top-card.height-gap;
+  top = Math.max(margin,Math.min(top,innerHeight-card.height-margin));
+  citationPopover.style.left = left+'px';citationPopover.style.top = top+'px';
+}
+function openCitation(trigger) {
+  clearTimeout(citationTimer);
+  if (citationTrigger === trigger) return;
+  const note = document.getElementById(trigger.dataset.citationTarget);
+  if (!note?.classList.contains('pcs-citation-note')) return;
+  closeCitation();citationTrigger = trigger;
+  const content = note.cloneNode(true);
+  // Cloned anchors must not shadow document/source-line identities.
+  content.removeAttribute('id');content.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+  content.querySelectorAll('a[data-citation-url]').forEach(anchor => {
+    const url = document.createElement('span');url.className = 'pcs-citation-url';
+    url.textContent = anchor.dataset.citationUrl;anchor.append(url);
+  });
+  citationPopover.replaceChildren(...content.childNodes);
+  citationPopover.setAttribute('aria-label',trigger.textContent);
+  const font = getComputedStyle(document.getElementById('document'));
+  citationPopover.style.fontFamily = font.fontFamily;
+  citationPopover.style.fontSize = font.fontSize;
+  citationPopover.style.lineHeight = font.lineHeight;
+  citationPopover.hidden = false;
+  trigger.setAttribute('aria-expanded','true');trigger.setAttribute('aria-controls',citationPopover.id);
+  positionCitation();
+}
+function deferCitationClose() {
+  clearTimeout(citationTimer);
+  citationTimer = setTimeout(() => {
+    if (!citationPopover.matches(':hover') && !citationTrigger?.matches(':hover') &&
+        !citationPopover.contains(document.activeElement) && document.activeElement !== citationTrigger) closeCitation();
+  },180);
+}
+document.addEventListener('pointerover',event => {
+  const trigger = citationButton(event.target);
+  if (trigger) openCitation(trigger);
+  else if (citationPopover.contains(event.target)) clearTimeout(citationTimer);
+});
+document.addEventListener('pointerout',event => {
+  if (citationButton(event.target) || citationPopover.contains(event.target)) deferCitationClose();
+});
+document.addEventListener('focusin',event => {
+  const trigger = citationButton(event.target);
+  if (trigger && !suppressCitationFocus) openCitation(trigger);
+  else if (!citationPopover.contains(event.target)) closeCitation();
+});
+document.addEventListener('focusout',event => {
+  if (citationButton(event.target) || citationPopover.contains(event.target)) deferCitationClose();
+});
+document.addEventListener('pointerdown',event => {
+  if (!citationButton(event.target) && !citationPopover.contains(event.target)) closeCitation();
+});
+document.addEventListener('click',event => {
+  const trigger = citationButton(event.target);
+  if (trigger) { event.preventDefault();openCitation(trigger); }
+});
+document.addEventListener('keydown',event => {
+  const trigger = citationButton(event.target);
+  if (event.key === 'Escape' && citationTrigger) {
+    event.preventDefault();closeCitation(citationPopover.contains(document.activeElement));return;
+  }
+  if (trigger && (['Enter',' ','ArrowDown'].includes(event.key) || (event.key === 'Tab' && !event.shiftKey))) {
+    event.preventDefault();openCitation(trigger);(citationFocusables()[0] || citationPopover).focus();return;
+  }
+  if (event.key === 'Tab' && citationPopover.contains(event.target)) {
+    const links = citationFocusables(), first = links[0], last = links.at(-1);
+    if (event.shiftKey && (event.target === first || event.target === citationPopover)) {
+      event.preventDefault();closeCitation(true);
+    } else if (!event.shiftKey && (event.target === last || !last)) {
+      const all = [...document.querySelectorAll('#document a[href],#document button,#document input,#document summary')]
+        .filter(element => !element.disabled && element.getClientRects().length);
+      const next = all[all.indexOf(citationTrigger)+1];
+      if (next) { event.preventDefault();closeCitation();next.focus(); }
+      else closeCitation(true);
+    }
+  }
+});
+window.addEventListener('resize',positionCitation);
+new ResizeObserver(() => positionCitation()).observe(citationPopover);
+window.addEventListener('scroll',event => { if (!citationPopover.contains(event.target)) positionCitation(); },true);
+window.addEventListener('blur',() => closeCitation());
+document.documentElement.classList.add('citations-ready');
 function selectionOffsets(root) {
   const selection=window.getSelection();
   if (!selection || !selection.rangeCount || !root.contains(selection.anchorNode) || !root.contains(selection.focusNode)) return null;
@@ -47,6 +162,7 @@ window.refreshDocument = function () {
     // The channel and loadFinished can both request the first document. A
     // repeated request must neither rebuild it nor cancel an active diagram.
     if (data.version === projectedVersion) return;
+    closeCitation();
     projectedVersion = data.version;
     const ticket = ++revision;
     const selection=selectionOffsets(root);
@@ -59,8 +175,8 @@ window.refreshDocument = function () {
     // Adopt the sanitized nodes directly, avoiding a serialize/parse cycle.
     root.replaceChildren(DOMPurify.sanitize(data.html || '', {
       RETURN_DOM_FRAGMENT:true,
-      ADD_TAGS:['audio','video','source'], ADD_ATTR:['controls','preload','data-math','data-diagram'],
-      ADD_URI_SAFE_ATTR:['width','height','type'],
+      ADD_TAGS:['audio','video','source'], ADD_ATTR:['controls','preload','data-math','data-diagram','min','max','value','colspan','rowspan','scope','start'],
+      ADD_URI_SAFE_ATTR:['width','height','type','min','max','value','colspan','rowspan','scope','start'],
       FORBID_TAGS:['script','iframe','object','embed','form','style','link'],
       ALLOWED_URI_REGEXP:/^(?:(?:file|data|pcs-action):|#)/i
     }));

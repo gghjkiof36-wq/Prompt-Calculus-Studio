@@ -15,6 +15,44 @@ const body=message('one','user','<p id="request">我想每天花 20 分鐘練英
 const styles=`*{box-sizing:border-box}html{color-scheme:dark}body{margin:0;background:#212121;color:#ececec;font:15px/1.65 system-ui,"Microsoft JhengHei",sans-serif}header{position:sticky;top:0;height:52px;background:#212121;z-index:10;pointer-events:none}[data-app-shell-main-titlebar]{display:flex;align-items:center;height:52px;padding:0 20px}[data-app-shell-page-header]{font-size:20px}.right-actions{display:flex;align-items:center;gap:4px;margin-left:auto}.native-wrapper{display:flex;pointer-events:auto}button,input{font:inherit}button{padding:5px 9px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer}main{max-width:780px;padding:30px 44px 80px;margin:auto}section{margin:0 0 34px}section[data-chatgpt-search-unit-key$=user] .message-body{background:#303030;border-radius:18px;padding:12px 18px;margin-left:64px}p{margin:0 0 14px}p:last-child{margin-bottom:0}h2{font-size:19px;margin:0 0 14px}.turn-action-controls{display:flex;margin-top:8px;color:#aaa;font-size:13px}pre{position:relative;background:#171717;border-radius:8px;padding:40px 16px 14px;overflow:auto}pre button{position:absolute;top:4px;right:6px;font:12px system-ui}a{color:#abc7ef}input{max-width:180px;margin:8px 8px 8px 0;padding:6px;background:#303030;border:1px solid #555;color:inherit}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}@media(max-width:650px){main{padding:24px 42px 64px}section[data-chatgpt-search-unit-key$=user] .message-body{margin-left:16px}[data-app-shell-main-titlebar]{padding:0 12px}}`;
 const pageHTML=(withHeader=true)=>`<!doctype html><html class="dark"><head><title>每天 20 分鐘的英文練習 - ChatGPT</title><style>${styles}</style></head><body><aside hidden>${header}</aside>${withHeader?header:''}<main><div role="region" aria-label="對話">${body}</div></main><script>window.nativeClicks=0;document.querySelectorAll('#reference,#code-copy,#native-button').forEach(element=>element.onclick=event=>{event.preventDefault();window.nativeClicks++});</script></body></html>`;
 
+test('floating source panels do not cause recapture loops, but message edits still refresh',{skip:!enabled},async()=>{
+  const live=await extensionFixture(pageHTML());
+  try{
+    const {page,worker}=live;
+    await worker.evaluate(()=>{
+      globalThis.captureReads=0;
+      const original=chrome.scripting.executeScript.bind(chrome.scripting);
+      chrome.scripting.executeScript=async options=>{if(options.func)captureReads++;return original(options);};
+    });
+    await page.evaluate(()=>document.querySelector('#prose').insertAdjacentHTML('beforeend','<span data-citation aria-controls="source-detail">來源</span>'));
+    await page.locator('[data-pcs-ui="entry"]').getByRole('button').click();
+    await page.getByRole('button',{name:'全選',exact:true}).click();
+    await page.getByRole('checkbox',{name:'選取第 1 則訊息',exact:true}).waitFor();
+    await page.locator('[data-pcs-ui="entry"]').getByRole('button').click();
+    await page.waitForTimeout(650);
+    const reads=await worker.evaluate(()=>captureReads);
+    await page.evaluate(()=>{
+      const panel=document.createElement('div');panel.setAttribute('role','dialog');panel.textContent='Wiz Blog 來源浮卡';document.body.append(panel);
+      setTimeout(()=>panel.remove(),80);
+    });
+    await page.waitForTimeout(750);
+    assert.equal(await worker.evaluate(()=>captureReads),reads,'source portal outside the conversation must not recapture');
+    await page.evaluate(()=>{
+      const popup=document.createElement('div');popup.id='source-detail';popup.setAttribute('role','dialog');popup.textContent='來源明細';document.querySelector('#prose').after(popup);
+    });
+    await page.waitForTimeout(650);
+    await page.evaluate(()=>document.querySelector('#source-detail').firstChild.textContent='來源明細已載入');
+    await page.waitForTimeout(650);
+    assert.equal(await worker.evaluate(()=>captureReads),reads,'an explicitly owned source popup inside the message is not message content');
+    await page.evaluate(()=>{document.querySelector('[data-citation]').removeAttribute('aria-controls');document.querySelector('#source-detail').remove();});
+    await page.waitForTimeout(650);
+    assert.equal(await worker.evaluate(()=>captureReads),reads,'removing ownership before removing the popup must not recapture');
+    await page.evaluate(()=>document.querySelector('#prose').textContent+=' 已更新。');
+    await page.waitForFunction(()=>!document.querySelector('[data-pcs-selected]'));
+    assert.ok(await worker.evaluate(()=>captureReads)>reads,'actual message text changes must still invalidate selection');
+  }finally{await live.close();}
+});
+
 test('right header placement follows late app-shell and SPA replacement without toolbar activation',{skip:!enabled},async()=>{
   const live=await extensionFixture(pageHTML(false),{waitForEntry:false});
   try{
@@ -77,15 +115,17 @@ test('whole-message selection preserves native reading and interactions',{skip:!
       assert.equal(await page.getByRole('textbox',{name:'原頁輸入'}).inputValue(),'原生輸入仍可使用');
       assert.equal((await live.capture()).result.fingerprint,original);
     });
-    await t.test('completion removes styling and content handlers while keeping selected data for saving',async()=>{
-      await first.check();await entry.getByRole('button').click();await page.getByRole('button',{name:'完成選取',exact:true}).click();
+    await t.test('cancelling selection removes styling, handlers and selected data; Escape also exits',async()=>{
+      await first.check();await entry.getByRole('button').click();await page.getByRole('button',{name:'取消',exact:true}).click();
       assert.equal(await page.locator('[data-pcs-ui="selection"]').count(),0);
       assert.equal(await page.locator('[data-pcs-ui="selection-style"]').count(),0);
       assert.equal(await page.locator('[data-pcs-selectable],[data-pcs-selected]').count(),0);
-      assert.equal(await page.getByRole('button',{name:'儲存到 PCS',exact:true}).isEnabled(),true);
+      assert.equal(await page.getByRole('button',{name:'全選',exact:true}).isEnabled(),true);
       await page.locator('#request').click();await page.waitForTimeout(320);
-      await entry.getByRole('button').click();assert.equal(await page.getByText('已選 1 則',{exact:true}).count(),1);
+      await entry.getByRole('button').click();assert.equal(await page.getByText('已選 1 則',{exact:true}).count(),0);
       assert.equal((await live.capture()).result.fingerprint,original);
+      await page.getByRole('button',{name:'選取訊息',exact:true}).click();await first.check();await page.keyboard.press('Escape');
+      assert.equal(await page.locator('[data-pcs-ui="selection"],[data-pcs-ui="selection-style"],[data-pcs-selected]').count(),0);
     });
   }finally{await live.close();}
 });

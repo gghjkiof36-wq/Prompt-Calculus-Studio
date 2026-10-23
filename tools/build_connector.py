@@ -112,7 +112,7 @@ def build(output: Path, builder_path: Path | None = None, *, include_extension: 
         source_hashes[relative.as_posix()] = hashlib.sha256(source.read_bytes()).hexdigest()
     (staging / "開始使用.md").write_text(
         "# PCS Chrome 連線\n\n"
-        "1. 在 PCS 的「ChatGPT 對話」頁面按「加入 Chrome」。\n"
+        "1. 在 PCS 的「下載紀錄」頁面按「加入 Chrome」。\n"
         "2. 在設定視窗按「連接 PCS」。\n"
         "3. 按「開啟擴充頁」，啟用「開發人員模式」，再選「載入未封裝項目」。使用「開啟擴充資料夾」找到要載入的 chrome 資料夾。\n"
         "4. 重新整理 ChatGPT 對話頁面。右上角「PCS」可選取全部或多則訊息；點訊息內容或右側勾選框選取，再從右上選單「儲存到 PCS」或下載。\n"

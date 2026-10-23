@@ -77,8 +77,8 @@ test('actual MV3: original action menus, selection, transfer and late completion
       assert.equal(await page.getByRole('button',{name:'PCS：此則訊息',exact:true}).nth(1).evaluate(e=>e===e.getRootNode().activeElement),true);
       await page.keyboard.press('Enter');await page.getByRole('button',{name:'儲存到 PCS',exact:true}).waitFor();
       for(const [label,extension] of [['下載 JSON','json'],['下載 Markdown','md']]){
-        const event=page.waitForEvent('download');await page.getByRole('button',{name:label,exact:true}).click();
-        const file=await event,text=await readFile(await file.path(),'utf8');assert.ok(file.suggestedFilename().endsWith('.'+extension));
+        const file=await live.download(()=>page.getByRole('button',{name:label,exact:true}).click());
+        const text=file.text;assert.ok(file.title.endsWith('.'+extension));
         if(extension==='json')assert.deepEqual(JSON.parse(text).messages.map(m=>m.id),['assistant-one']);
         else assert.match(text,/### 第二天/);
         assert.ok(!text.includes('第二天想晚一點'));
@@ -105,7 +105,7 @@ test('actual MV3: original action menus, selection, transfer and late completion
       await worker.evaluate(()=>{testNative.instances.push({instance_id:'second-pcs',display_name:'PCS · 第二工作區',capabilities:['save_destination_v1']});testNative.state='unknown';});
       await page.getByRole('button',{name:'儲存到 PCS',exact:true}).click();
       assert.equal(await page.getByRole('button',{name:'全選',exact:true}).isDisabled(),true);
-      assert.equal(await page.getByRole('button',{name:'完成選取',exact:true}).isDisabled(),true);
+      assert.equal(await page.getByRole('button',{name:'取消',exact:true}).isDisabled(),true);
       await page.getByRole('menuitem',{name:'PCS · 第二工作區',exact:true}).click();
       await page.getByRole('menuitem',{name:'目前工作區',exact:true}).click();await page.getByText('尚未取得結果',{exact:true}).waitFor();
       const count=await worker.evaluate(()=>testNative.calls.filter(c=>c.command==='finish').length);
@@ -125,7 +125,7 @@ test('actual MV3: original action menus, selection, transfer and late completion
       assert.equal(await page.getByText('尚未取得結果',{exact:true}).count(),0);
     });
     await t.test('cancelled state is not replaced by a late finish response',async()=>{
-      if(await menu().isVisible())await page.keyboard.press('Escape');
+      if(await menu().isVisible())await header().click();
       await page.getByRole('checkbox',{name:'選取第 1 則訊息',exact:true}).check();
       if(!(await menu().isVisible()))await header().click();
       await worker.evaluate(()=>{testNative.holdFinish=true;testNative.state='committing';});
@@ -134,19 +134,18 @@ test('actual MV3: original action menus, selection, transfer and late completion
       await worker.evaluate(()=>{testNative.holdFinish=false;testNative.releaseFinish();});await page.waitForTimeout(150);
       assert.equal(await page.getByText('已取消',{exact:true}).isVisible(),true);
       assert.equal(await worker.evaluate(async()=>(await chrome.storage.local.get('recent')).recent[0].state),'cancelled');
-      await page.getByRole('button',{name:'重新選取',exact:true}).click();
+      await page.getByRole('button',{name:'取消',exact:true}).click();
     });
     await t.test('page theme, keyboard and narrow menu bounds; selection does not refresh itself',async()=>{
       await beginSelection();await page.getByRole('checkbox',{name:'選取第 2 則訊息',exact:true}).check();await page.waitForTimeout(900);
       assert.equal(await page.getByRole('checkbox',{name:'選取第 2 則訊息',exact:true}).isChecked(),true);await header().click();
-      await page.getByRole('button',{name:'完成選取',exact:true}).click();
-      assert.equal(await page.locator('[data-pcs-ui="selection"]').count(),0);
+      assert.equal(await page.getByRole('button',{name:'完成選取',exact:true}).count(),0);
       assert.equal(await page.getByText('已選 1 則',{exact:true}).isVisible(),true);
       assert.equal(await page.getByRole('button',{name:'儲存到 PCS',exact:true}).isEnabled(),true);
       for(const width of [360,600]){await page.setViewportSize({width,height:900});await page.waitForTimeout(100);const box=await menu().boundingBox();assert.ok(box.x>=0&&box.x+box.width<=width);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}
       await page.evaluate(()=>document.documentElement.className='light');await page.waitForTimeout(800);
       assert.equal(await menu().getAttribute('data-theme'),'light');
-      await page.keyboard.press('Escape');assert.equal(await menu().isVisible(),false);assert.deepEqual(live.errors,[]);
+      await page.keyboard.press('Escape');assert.equal(await menu().isVisible(),false);assert.equal(await page.locator('[data-pcs-ui="selection"]').count(),0);assert.deepEqual(live.errors,[]);
     });
   }finally{await live.close();}
 });

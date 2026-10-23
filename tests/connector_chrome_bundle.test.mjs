@@ -19,5 +19,5 @@ test('manifest loads only the classic isolated script without exposing page reso
   assert.deepEqual(manifest.content_scripts[0].js, ['content.js']);
   assert.equal(manifest.content_scripts[0].world || 'ISOLATED', 'ISOLATED');
   assert.equal(manifest.web_accessible_resources, undefined);
-  assert.deepEqual(manifest.permissions, ['activeTab', 'scripting', 'storage', 'nativeMessaging']);
+  assert.deepEqual(manifest.permissions, ['activeTab', 'scripting', 'storage', 'nativeMessaging', 'downloads', 'downloads.open']);
 });

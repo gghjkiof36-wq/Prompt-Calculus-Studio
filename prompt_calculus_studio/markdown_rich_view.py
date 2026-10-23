@@ -171,9 +171,17 @@ class RichView(QWebEngineView):
 
     def resource(self,entry,index):
         target=entry['target'];local=Path(entry['path']) if entry['path'] else None
-        label=entry['alt'] or (local.name if local else target)
+        inline=target.casefold().startswith('data:')
+        label=entry['alt'] or (local.name if local else '圖片' if inline else target)
         def failure(reason):return '<span class="resource missing">'+html.escape(label)+' · '+html.escape(reason)+'</span>'
         if local is None:
+            if inline:
+                from .capture_images import png_bytes
+                try:png_bytes(target)
+                except ValueError as error:return failure(str(error))
+                width=entry['width'];height=entry['height']
+                dims=(f' width="{max(16,min(1600,width))}"' if width else '')+(f' height="{max(16,min(1200,height))}"' if height else '')
+                return f'<img src="{html.escape(target,quote=True)}" alt="{html.escape(label,quote=True)}"{dims}>'
             if urlsplit(target).scheme in ('http','https'):
                 cached=getattr(self,'remote_images',{}).get(target)
                 if cached:return f'<img src="{cached}" alt="{html.escape(label,quote=True)}">'

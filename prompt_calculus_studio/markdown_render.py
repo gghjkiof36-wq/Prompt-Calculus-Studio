@@ -19,6 +19,7 @@ def advanced(text):
     # None of the rich constructs can occur without one of these markers.
     # Fast literal scans avoid running multiline expressions over an entire
     # large plain manuscript while switching its view on the UI thread.
+    if '<' in text and re.search(r'(?im)^\s*<table(?:\s|>)',text):return True
     if not text.startswith('---\n') and not any(marker in text for marker in ('[','](','`','~','|','$','%%')):
         return False
     return bool(text.startswith('---\n') or re.search(r'\[\[|\]\(|(?m:^\[[^]]+\]:)',text) or re.search(r'(?m)^\s*(`{3,}|~{3,}|\|.*\||\$\$)|!\[|\[\^[^]]+\]|%%|(?<!\\)\$[^$\n]+\$|^\s*>\s*\[!',text)
@@ -54,6 +55,7 @@ class Projection:
     dependencies:set=field(default_factory=set)
     embedded_count:int=0
     embedded_bytes:int=0
+    citation_count:int=0
 
 
 def local_target(target,path,root):
@@ -196,6 +198,9 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
     def html_block(self,tokens,i,options,env):
         raw=tokens[i].content
         if raw.lstrip().startswith('<!--'):return ''
+        from .markdown_table_html import render_table_html
+        table=render_table_html(raw,link_action)
+        if table is not None:return table
         # B paragraph wrappers keep Markdown inside editable and readable.
         match=re.fullmatch(r'(<(?:p|div)(?:\s[^<>]*?)?>)(.*?)(</(?:p|div)>)[\n ]*',raw,re.S|re.I)
         if match and not safe_tag(match.group(1)).startswith('&lt;'):
@@ -231,10 +236,12 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
     md.add_render_rule('math_inline',math_render(False));md.add_render_rule('math_block',math_render(True))
     def table_open(self,tokens,i,options,env):
         line=tokens[i].map[0]
-        return f'<table id="{prefix}line-{line}">'
+        return f'<div class="pcs-table-scroll"><table id="{prefix}line-{line}">'
     md.add_render_rule('table_open',table_open)
+    md.add_render_rule('table_close',lambda self,tokens,i,options,env:'</table></div>\n')
     footnote_anchor=md.renderer.rules['footnote_anchor']
     def note_back(self,tokens,i,options,env):
+        if tokens[i].meta['id'] in env.get('pcs_citations',{}):return ''
         anchor=footnote_anchor(tokens,i,options,env)
         label=env.get('footnotes',{}).get('list',{}).get(tokens[i].meta['id'],{}).get('label')
         if label:
@@ -253,6 +260,8 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
         if pieces:
             pieces.append(rendered_text[at:]);rendered_text=''.join(pieces)
     env={};tokens=md.parse(rendered_text,env);stack=[]
+    from .markdown_citations import install as citation_footnotes
+    citation_footnotes(md,tokens,env,result)
     for i,token in enumerate(tokens):
         if token.type=='blockquote_open':
             callout=None

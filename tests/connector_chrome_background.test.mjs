@@ -7,6 +7,8 @@ test('toolbar fallback injects the classic file then toggles through ordinary me
   const calls = [];
   globalThis.chrome = {
     runtime: {onMessage: {addListener() {}}},
+    downloads:{onChanged:{addListener(){}},onErased:{addListener(){}}},
+    storage:{local:{get:async()=>({})}},
     action: {onClicked: {addListener: listener => {clicked = listener;}}},
     tabs: {sendMessage: async (id, message) => {
       calls.push({type: 'message', id, message});
@@ -51,6 +53,7 @@ test('background validates the current document and only forwards selected bodie
     })};
   globalThis.chrome = {
     runtime, action: {onClicked:{addListener(){}}},
+    downloads:{onChanged:{addListener(){}},onErased:{addListener(){}},search:async()=>[]},
     tabs: {get: async id => ({id, url: current.url})},
     scripting: {executeScript: async () => [{result: {capture, fingerprint: current.fingerprint}}]},
     storage: {local: {get: async key => ({[key]: storage[key]}), set: async values => Object.assign(storage, values)}},
@@ -99,4 +102,39 @@ test('background validates the current document and only forwards selected bodie
     assert.equal(storage.recent[0].dismissed, true);
     assert.equal(storage.recent[0].state, 'unknown');
   } finally { delete globalThis.chrome; }
+});
+
+test('downloads record browser completion, persist IDs, reject foreign files and keep failures distinct',async()=>{
+  const capture={version:1,provider:'chatgpt',conversation_id:'download-fixture',title:'工程量測',url:'https://chatgpt.com/c/download-fixture',method:'dom',scope:'loaded',adapter_version:'1',captured_at:'2026-10-24T00:00:00Z',messages:[{id:'selected',role:'assistant',content:'1.2300 × 10<sup>−6</sup> PRIVATE_BODY'},{id:'omitted',role:'user',content:'DO_NOT_DOWNLOAD'}]};
+  const context={tabId:7,url:capture.url,fingerprint:'download-fingerprint'},storage={},items=new Map(),apiCalls=[];let handler,changed,erased,next=10;
+  const sender={id:'fixture-extension',url:capture.url,tab:{id:7},frameId:0};
+  globalThis.chrome={runtime:{id:sender.id,onMessage:{addListener:f=>{handler=f;}}},action:{onClicked:{addListener(){}}},tabs:{get:async id=>({id,url:context.url})},
+    scripting:{executeScript:async()=>[{result:{capture,fingerprint:context.fingerprint}}]},storage:{local:{get:async key=>({[key]:structuredClone(storage[key])}),set:async value=>Object.assign(storage,structuredClone(value))}},
+    downloads:{onChanged:{addListener:f=>{changed=f;}},onErased:{addListener:f=>{erased=f;}},download:async options=>{apiCalls.push({action:'download',options});const id=next++;items.set(id,{id,state:'in_progress',filename:`D:/synthetic/${options.filename}`,exists:true});return id;},search:async query=>{apiCalls.push({action:'search',query});return items.has(query.id)?[items.get(query.id)]:[];},open:(id,callback)=>{apiCalls.push({action:'open',id});callback();},show:id=>apiCalls.push({action:'reveal',id})}};
+  try{
+    await import('../extensions/chrome/background.mjs?downloads-contract');
+    const call=message=>new Promise(resolve=>{assert.equal(handler(message,sender,resolve),true);});
+    const payload={action:'download',format:'json',context,capture:selectCapture(capture,['selected'])};
+    assert.equal((await call({...payload,format:'exe'})).error.code,'invalid_request');
+    assert.equal((await call({...payload,context:{...context,fingerprint:'old'}})).error.code,'page_changed');
+    assert.equal(apiCalls.filter(call=>call.action==='download').length,0);
+    const started=await call(payload),id=started.result.download_id;
+    assert.equal(storage.downloads[0].state,'in_progress');assert.equal((await call({action:'download_open',download_id:id})).error.code,'missing_download');
+    const url=apiCalls.find(call=>call.action==='download').options.url;
+    const body=JSON.parse(Buffer.from(url.split(',')[1],'base64').toString());assert.deepEqual(body.messages.map(item=>item.id),['selected']);
+    assert.ok(!url.includes('DO_NOT_DOWNLOAD'));assert.ok(!JSON.stringify(storage).includes('PRIVATE_BODY'));
+    items.set(id,{...items.get(id),state:'complete'});changed({id,state:{current:'complete'}});
+    const receipts=(await call({action:'recents'})).result;assert.equal(receipts.find(item=>item.download_id===id).state,'complete');
+    await call({action:'download_open',download_id:id});await call({action:'download_reveal',download_id:id});
+    assert.deepEqual(apiCalls.filter(call=>['open','reveal'].includes(call.action)),[{action:'open',id},{action:'reveal',id}]);
+    assert.equal((await call({action:'download_open',download_id:999})).error.code,'missing_download');
+    changed({id:999,state:{current:'complete'}});await call({action:'recents'});assert.ok(apiCalls.filter(call=>call.action==='search').every(call=>call.query.id!==999));
+    const md=(await call({...payload,format:'md'})).result.download_id;items.set(md,{...items.get(md),state:'interrupted',error:'USER_CANCELED'});changed({id:md,state:{current:'interrupted'}});
+    const interrupted=(await call({action:'recents'})).result.find(item=>item.download_id===md);assert.equal(interrupted.state,'interrupted');assert.equal(interrupted.error,'USER_CANCELED');
+    await import('../extensions/chrome/background.mjs?downloads-restart');await call({action:'recents'});await call({action:'download_open',download_id:id});
+    assert.equal(apiCalls.at(-1).id,id);assert.equal(apiCalls.at(-1).action,'open');
+    items.set(id,{...items.get(id),exists:false});changed({id,exists:{current:false}});await call({action:'recents'});assert.equal((await call({action:'download_reveal',download_id:id})).error.code,'missing_download');
+    items.delete(id);erased(id);await call({action:'recents'});assert.equal(storage.downloads.find(item=>item.download_id===id).state,'missing');
+    assert.ok(!JSON.stringify(storage).includes('PRIVATE_BODY'));
+  }finally{delete globalThis.chrome;}
 });

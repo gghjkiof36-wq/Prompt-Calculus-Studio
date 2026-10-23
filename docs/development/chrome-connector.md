@@ -1,14 +1,14 @@
 # Chrome 對話連接與保存
 
-[開發指南](README.md) · [既有對話整理與可攜契約](markdown-retention.md)
+[開發指南](README.md) · [既有對話整理與可攜契約](markdown-retention.md) · [富格式相容性矩陣](chrome-content-compatibility.md)
 
 本功能是來源基準 `44676bd25bffd620ba82a9c8882ff4487fecdfc8` 之後的本機增量，讓使用者把 ChatGPT 頁面選定內容傳入 PCS、下載檔案及查回保存位置。本文說明目前實作，不代表正式發布或真實網站全流程已驗收。首批沒有 Prompt 輸出、帳號同步或 ChatGPT 登入整合。
 
 ## 操作入口與執行歸屬
 
-Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extensions/chrome/README.md)。目前 `0.2.4` 承接新 DOM 適配、classic 腳本載入及 `0.2.3` 的右上入口／訊息選取，將儲存位置選擇移入原網頁選單。ChatGPT 原訊息的複製按鈕旁仍有 PCS 小入口；按下後以貼附該入口的選單儲存或下載這一則訊息。右上角、原生「更多／分享」操作組前的 PCS 入口提供「選取全部」及「選取訊息」，全部仍指目前 DOM 已載入範圍。
+Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extensions/chrome/README.md)。目前 `0.2.5` 承接原網頁選位置直存、classic 腳本載入及右上入口，加入下載紀錄與 PNG 保存。ChatGPT 原訊息的複製按鈕旁仍有 PCS 小入口；單則選單只有儲存到 PCS、下載 JSON、下載 Markdown 三個動作。右上角、原生「更多／分享」操作組前的 PCS 入口提供選取與下載紀錄；「選取全部」仍指目前 DOM 已載入範圍。
 
-選取模式中，每則訊息右側顯示勾選框，點擊訊息正文可切換整則的選取狀態；已選內容以淡底色標示。連結、按鈕與可編輯區保留原操作，拖曳或雙擊選字不改勾選。「完成選取」移除勾選框、樣式與整則點選處理，保留已選內容，接著可從右上選單「儲存到 PCS」或下載 Capture JSON／Markdown。介面沿用原對話，沒有聊天副本、Chrome 側欄或底部工具列。
+選取模式中，每則訊息右側顯示勾選框，點擊訊息正文可切換整則的選取狀態；已選內容以淡底色標示。連結、按鈕與可編輯區保留原操作，拖曳或雙擊選字不改勾選。「取消」清空選取，並移除勾選框、樣式與整則點選處理。保存後可繼續原頁操作，不因上一筆成功鎖住新操作。介面沿用原對話，沒有聊天副本、Chrome 側欄或底部工具列。
 
 [`dom.mjs`](../../extensions/chrome/dom.mjs) 的 `conversationHeaderSlot()` 優先辨識可見的 app-shell 主頁首與右側原生操作組，再退回有明確分享／更多按鈕的既有頁首。它排除隱藏副本，並在頁首延遲出現或 SPA 替換時重新定位同一個 PCS 入口；未找到有效操作組時等待，不把入口掛到第一個 `main`。這項布局修正不變更網站權限或擷取來源。
 
@@ -16,7 +16,9 @@ Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extens
 
 目的地選單開啟期間固定本次選取，暫停全選、完成選取及正文／勾選切換，避免畫面與將保存的訊息不一致。關閉子選單後恢復選取操作。子選單優先向右，空間不足時向左或限於視窗內；窄頁重疊時提供「返回」，Escape／左鍵回上一層並恢復焦點，右鍵展開資料夾。
 
-正常進度由選單自動查回，完成後提供開啟文件與所在資料夾；不彈出 PCS 整篇預覽、完成視窗或「開始整理」。最近保存與下載仍由原選單進入。單則訊息失效後可重新讀取原訊息；若原節點已離開頁面，回到選取流程。尚未完成的操作保留原 `source_title`；換聊天時關閉舊訊息選單，之後從頁首查看原操作結果，避免把前一段對話的操作顯示成新頁的「此則訊息」。
+正常進度由選單查回，完成後不顯示成功 footer／通知，也不開啟 PCS 預覽或整理頁。從頁首的「下載紀錄」手動查找檔案，每筆依序提供資料夾與開啟文件圖示；單則選單不含 history。單則訊息失效後可重新讀取原訊息；若原節點已離開頁面，回到選取流程。尚未完成的操作保留原 `source_title`；換聊天時關閉舊訊息選單，避免把前一段對話的操作顯示成新頁的「此則訊息」。
+
+JSON／Markdown 下載經 `chrome.downloads.download()` 取得真實 download ID，追蹤 `onChanged/onErased` 並依 ID 查詢完成／存在狀態。只有本擴充保存的回執且狀態為 complete、未回報不存在時，才允許使用者點擊 `downloads.open/show`；不接受任意路徑。Chrome 的存在資訊可能延遲，錯誤仍由 API 回報處理。Manifest 新增 `downloads`、`downloads.open`，沒有 `notifications`；網站範圍與固定擴充 ID 保持不變。[Chrome Downloads API](https://developer.chrome.com/docs/extensions/reference/api/downloads)
 
 `0.2.2` 的 `manifest.json` 直接載入 [`content.js`](../../extensions/chrome/content.js) 作為 isolated content script。它由 [`entry.js`](../../extensions/chrome/entry.js)、[`inpage.mjs`](../../extensions/chrome/inpage.mjs)、[`core.mjs`](../../extensions/chrome/core.mjs) 及 [`dom.mjs`](../../extensions/chrome/dom.mjs) 在建置時打包；執行期間沒有動態模組匯入、page bridge 或 web-accessible resources。Chrome 工具列先傳一般 toggle 訊息，沒有接收端時以 `chrome.scripting.executeScript({files:['content.js']})` 補載，再傳同一訊息。入口保留單一 controller，重複補載不重複建立 UI 或監聽器。權限維持 `activeTab/scripting/storage/nativeMessaging` 及兩個 ChatGPT 網域，沒有 `sidePanel`／`side_panel`。
 
@@ -24,7 +26,7 @@ Chrome 116 以上的 Manifest V3 擴充位於 [`extensions/chrome`](../../extens
 
 [`tools/build_chrome_content.mjs`](../../tools/build_chrome_content.mjs) 使用固定 esbuild `0.25.12`，依 [`tools/chrome-content/package.json`](../../tools/chrome-content/package.json) 與 lockfile 重建 Chrome 116 的單一 IIFE；`--check` 逐 byte 核對生成檔與來源。完整重建步驟在擴充 README。套件保留生成檔及對應來源／建置工具，使用者載入擴充不需要 Node 或 pnpm。
 
-PCS 的「探索」採三張等尺寸入口卡片；「ChatGPT 對話」開啟 [`ConnectorPage`](../../prompt_calculus_studio/connector_page.py)。主頁保留「加入 Chrome」及對話列表，提供搜尋、檔案匯入和保存位置；完成的項目以對話標題呈現，可開啟文件、整理對話或顯示資料夾。保存位置是目前 workspace 時顯示「目前工作區」，完整路徑放在 tooltip。搜尋無結果時清除不可見選取；清除搜尋後選取可見項目，相關動作隨選取狀態恢復。
+PCS 的「探索」採三張等尺寸入口卡片；「下載紀錄」開啟 [`ConnectorPage`](../../prompt_calculus_studio/connector_page.py)。紀錄按今天／昨天／日期分組，可搜尋，每筆顯示標題、檔名、時間及路徑，直接提供資料夾、開啟文件與移除紀錄圖示。傳送中顯示進度，失敗或取消保留必要狀態；成功不額外標示「已保存」。移除只隱藏終態紀錄，不刪檔、不移除重試／恢復帳本。頁首保留「匯入檔案…」與「加入 Chrome」；沒有整理對話、含混保存位置或依選取而變動的全頁底部按鈕。後端既有預設目的地值保持不變。
 
 「加入 Chrome」使用既有 `StudioDialog`，把設定集中為兩步：
 
@@ -69,7 +71,11 @@ compact 相容視窗在讀取或寫入期間收到關閉要求時先隱藏並要
 
 可見標題、段落、列表、程式碼、表格、資料卡片、引用連結及可取得的 KaTeX 公式轉成 Markdown。CVSS／進度條只保存 DOM 提供的文字、`aria-valuetext`／`aria-valuenow` 等可存取數值；時間軸保留可見標籤與順序。有明示標記的工具活動／推理區和一般操作按鈕不列入正文。
 
-圖片、Canvas、SVG 圖表、iframe、音訊／影片與附件保留具名參照；不下載媒體、不讀跨來源 iframe、不擷取 hover 狀態，也不從像素推算數據。沒有可讀數據的圖表只是一個有名稱與來源的項目，並未重建互動元件。來源不存在或包含臨時憑證時，以原對話網址作參照。這些項目是普通 Markdown 連結，不是會自動載入的圖片或可執行 HTML。
+引用來源卡片已採標準 Markdown 腳註，PCS 閱讀端提供 hover card。擷取會保留可取得的標題、日期及像素；只有 DOM 明確提供 `href/data-href/data-url` 時才保存真實來源網址。現行僅有按鈕、沒有 URL 的 ChatGPT 卡片保留已有資訊及「回到原對話查看來源」連結，不宣稱已取得原始網頁網址。合成來源擷取與 reader 的窄測之外，`citation-dom-capture` 已通過實際擷取 → writer → 本機 PNG → portable 重開 → PCS Qt 引用標籤／hover card。此全鏈只驗證一張 80×40 PNG 與兩筆來源：第一筆無 URL 而回到原對話，第二筆保留 DOM 提供的 `https://example.com/fix?version=002.50`。腳註首行／續行、程式碼及來源範圍邊界測例 16／16 通過；不延伸為真實 ChatGPT 所有卡片或縮圖的相容保證。
+
+`0.2.5` 將可讀取的 SVG、Canvas，以及已載入的同源或合法 CORS 圖片 rasterize 成 PNG data URI，作為正文圖片。SVG 採繪圖元素與樣式白名單，只保留內部片段引用；Recharts 的單行、簡單 HTML 軸標籤轉成 SVG 文字，不嵌入任意 HTML。此路徑不下載來源媒體、不從像素推算數據，也不保留動畫或 hover 互動。
+
+污染 Canvas、跨來源 iframe、表內圖、複雜 SVG HTML、隱藏數據及無法取得的媒體仍保留具名來源參照；來源不存在或包含臨時憑證時，以原對話網址作參照。參照是普通連結，不冒充已下載圖片。普通／合併表格、資料卡及公式的接點和邊界見相容性矩陣。
 
 ## Capture v1 與正常化
 
@@ -99,7 +105,7 @@ compact 相容視窗在讀取或寫入期間收到關閉要求時先隱藏並要
 
 `conversation_id` 可為 JSON `null`；沒有站方識別時，以觀測內容產生本機識別。`resources` 可省略，項目固定為 `{kind,label,url}`，其中 `kind` 是 `citation/image/chart/attachment/embed`，`url` 是 http(s) 參照或 `null`。只有圖片的訊息可使用空 `content` 加上資產項目。普通 citation 優先直接留在 Markdown 正文，避免重複資產項。
 
-正常化後的 `message.content.parts` 保存正文與一次具名資產投影；資產白名單另存於該訊息的 `metadata.pcs_capture_resources`。沒有不透明 HTML、未選完整 payload 或二進位附件。頂層 `pcs_capture` 保存 provider、method、scope／source_scope、adapter version、訊息 IDs、`graph: observed-order`、`complete: false` 與訊息識別型別。
+正常化後的 `message.content.parts` 保存正文、白名單表格 HTML、PNG data URI 與一次具名資產投影；來源參照白名單另存於該訊息的 `metadata.pcs_capture_resources`。不攜帶任意可執行 HTML 或未選正文。頂層 `pcs_capture` 保存 provider、method、scope／source_scope、adapter version、訊息 IDs、`graph: observed-order`、`complete: false` 與訊息識別型別。
 
 來源範圍與資產內容參與語意 digest；`captured_at` 不參與，直連時另存於操作帳本。這可避免同內容只因再次擷取時間不同就變成新來源。正常化不修改傳入物件。
 
@@ -110,6 +116,8 @@ compact 相容視窗在讀取或寫入期間收到關閉要求時先隱藏並要
 [`conversation_import.import_selected`](../../prompt_calculus_studio/conversation_import.py) 保存正常化 `原始對話.json`、可編輯分支 Markdown、主文件及收據。Capture 只有一個分支且一卷時，入口 `對話.md` 直接呈現標題與訊息，沿用已受分卷上限約束的 bytes，保留隱藏訊息 trace；分支檔及原始 JSON 仍保存。多卷則使用簡短的來源範圍與分卷索引。一般 mapping／既有 ZIP 的分支索引不變。
 
 `resources` 使用 capture-local metadata 和普通網址，不冒充既有附件指標，因此不會被 `conversation_markdown.references()` 誤判成已下載附件或重新抓取網頁檔案。可攜匯出保存目前主文件的實際編輯內容；重新開啟會直接看到同一正文與來源關係，不改寫原檔。
+
+[`capture_images.py`](../../prompt_calculus_studio/capture_images.py) 只為帶有 `pcs_capture` 的來源處理自包含 PNG。保存前核對 Base64、PNG chunk／CRC／IHDR／IEND、尺寸及有界 scanline 解壓；每圖 2 MiB、1,600 萬像素，總 Capture 16 MiB。它以來源範圍只替換實際圖片連結 target，在閱讀副本改成 `assets/<sha256>.png`；code 範例與原始 JSON 不變。相同 bytes 共用資產，最終收據的 `capture_images` 與 files 清單記錄 hash。重用及恢復從原 JSON 重算預期資產，缺圖／改圖／回執不符不可標 complete；可攜輸出帶上同一圖片 bytes。
 
 [`conversation_review.subset`](../../prompt_calculus_studio/conversation_review.py) 保留選定路徑的訊息與該訊息資產；`pcs_capture.message_ids` 同時取交集，縮小後 scope 成為 `selection`，source_scope 保留最初觀測範圍。來源範圍改動會使原候選失效。整理稿保存、重複另存與 [`markdown_portable`](../../prompt_calculus_studio/markdown_portable.py) 匯出／重開沿用同一 raw 與 subset，沒有另一套 MD1-2 保存格式。
 
@@ -143,6 +151,7 @@ PCS instance 依資料目錄識別，發現記錄預設位於 `%LOCALAPPDATA%/Pr
 | --- | --- |
 | Capture | 16 MiB UTF-8 JSON、5,000 則訊息；每則投影後文字 2 MiB |
 | Resources | 每則 32、總共 128；label 300 碼點／1,200 bytes，URL 2,048 碼點／8,192 bytes |
+| Capture PNG | 每張 2 MiB、1,600 萬像素，最多 128 張；仍受 Capture／訊息容量限制 |
 | Native frame | 512 KiB；Chrome 原始資料塊 192 KiB，接收端允許至 256 KiB |
 | Spool | 256 MiB 生成暫存總量；最多 4 個 receiving／previewing／committing，最多 1,000 個 ledger |
 | 本機通道 | 最多 8 個 client；PCS 單請求 512 KiB、讀取計時 20 秒；host I/O deadline 15 秒 |
@@ -154,6 +163,10 @@ PCS instance 依資料目錄識別，發現記錄預設位於 `%LOCALAPPDATA%/Pr
 [`tools/build_connector.py`](../../tools/build_connector.py) 建立獨立 host／installer、Chrome 目錄、對應來源、授權與 hash manifest；`--reuse-native` 僅在 native source 和既有 binary hash 相符時沿用已驗產物。此包與 PCS 主程式需要配套交付；`PCS_CONNECTOR_PACKAGE` 可指定獨立套件位置。新增來源包 allowlist 包含 `extensions/` 與三個 connector 工具，但 `package_documents.source_paths()` 仍只採 Git 已登記檔案；未追蹤檔案不會因本機存在而自動進來源包。僅更新文件或來源 ZIP 不代表桌面 EXE 或整合安裝包已重建。
 
 ## 驗證與尚未確認的範圍
+
+`0.2.5` 當輪增量：下載紀錄已完成六項帳本保留、四項實際離屏頁面測試，以及受影響 compact-save 測例；包含日期／搜尋、原位進度更新、逐筆動作、隱藏紀錄不刪檔、成功不跳頁／通知。Chrome 的下載 API 回執、取消清空與保存後可繼續操作由新版 save/background/browser 測例驗證，不能沿用以下舊版成功 footer 的畫面作新版證據。
+
+PNG 已完成五項合成瀏覽器擷取 → writer → portable 重開的檔案鏈路檢查；[`test_capture_images.py`](../../tests/test_capture_images.py) 另核對 PNG 完整性、來源不變、取消、重用與恢復。實際離屏 Qt reader 對原保存文件及可攜副本、1000／360 寬度完成 29 項檢查，五張 PNG 均解碼且無溢出，來源 bytes、dirty／Undo 保持；同程序 HTML reader 回歸一項通過。這是合成圖表的實際閱讀證據，不是所有真實 SVG／Canvas 的相容保證。普通 Markdown 出口另經 [`test_markdown_inline_png.py`](../../tests/test_markdown_inline_png.py) 三項檢查：實際匯出器產出含五張 PNG data URI 的單檔 `.md`，直接由 PCS 在 1000／360 寬度解碼，原件／Undo 不變且不建立資產檔；無效、超限與其他 MIME 不當作成功圖片。此路徑透過 `markdown_rich_view.resource()` 使用既有 PNG 完整驗證，與 JSON 匯入、writer／portable 路徑分開驗證。長對話仍為 loaded 範圍，逐視窗掃描只列在相容性方案；下方各版本原始驗證紀錄保留，不累加成一次完整驗收。
 
 檔案層使用隔離合成資料驗證 Capture JSON／Markdown、富內容參照、範圍裁切、整理稿與可攜重開、取消、錯誤回執、目錄替換、skipped 後中斷、資產總量及暫存清理。相關測例是 [`test_connector_capture.py`](../../tests/test_connector_capture.py)、[`test_connector_recovery.py`](../../tests/test_connector_recovery.py)、[`test_conversation_import.py`](../../tests/test_conversation_import.py) 與 [`test_md12_retention.py`](../../tests/test_md12_retention.py)。
 

@@ -152,7 +152,7 @@ class CaptureTests(unittest.TestCase):
         rendered = message['content']['parts'][0]
         self.assertTrue(rendered.startswith(text + '\n\n'))
         self.assertEqual(rendered.count('風險趨勢'), 1)
-        self.assertIn('- 圖表：[風險趨勢](https://chatgpt.com/c/chat-1)', rendered)
+        self.assertIn('- 圖表（僅來源）：[風險趨勢](https://chatgpt.com/c/chat-1)', rendered)
         self.assertIn(r'圖像 \<img\> \[測試\]', rendered)
         self.assertIn('image%281%29.png', rendered)
         self.assertNotIn('![', rendered)
@@ -170,10 +170,10 @@ class CaptureTests(unittest.TestCase):
         self.assertFalse(result.failed)
         note = result.completed[0]
         text = note.read_text(encoding='utf-8')
-        self.assertTrue(text.startswith('# 京都行程\n\n## 使用者\n'))
+        self.assertTrue(text.startswith('# 京都行程\n\n來源範圍：已載入的對話\n\n## 使用者\n'))
         self.assertIn(table, text)
         self.assertIn('"node": "dom-2"', text)
-        self.assertIn('- 圖表：[風險趨勢](https://chatgpt.com/c/chat-1)', text)
+        self.assertIn('- 圖表（僅來源）：[風險趨勢](https://chatgpt.com/c/chat-1)', text)
         self.assertNotIn('返回對話索引', text)
         self.assertNotIn('原始完整紀錄', text)
         branch = note.parent / '分支-001-001.md'
@@ -223,8 +223,8 @@ class CaptureTests(unittest.TestCase):
             dict(kind='image', label='結果圖', url='https://example.com/result.png')])]
         note = self.imported(value)
         branch = next(note.parent.glob('分支-*.md')).read_text(encoding='utf-8')
-        self.assertIn('- 附件：[results', branch)
-        self.assertIn('- 圖片：[結果圖](https://example.com/result.png)', branch)
+        self.assertIn('- 附件（僅來源）：[results', branch)
+        self.assertIn('- 圖片（僅來源）：[結果圖](https://example.com/result.png)', branch)
         self.assertNotIn('來源未提供文字', branch)
         self.assertFalse((note.parent / 'assets').exists())
         receipt = json.loads((note.parent / RECEIPT).read_text(encoding='utf-8'))

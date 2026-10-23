@@ -160,16 +160,17 @@ def index_markdown(item, volumes, warnings, assets, *, single_volume=None):
     capture = item.raw.get('pcs_capture')
     if (isinstance(capture, dict) and capture.get('version') == 1
             and capture.get('graph') == 'observed-order' and capture.get('complete') is False):
+        scope = {'loaded': '已載入的對話', 'current_branch': '目前分支', 'selection': '選取的訊息'}
+        scope_line = '來源範圍：'+scope.get(capture.get('scope'), '擷取的訊息')
         if len(item.leaves) == len(volumes) == 1 and single_volume is not None:
             number, part, _ = volumes[0]
             prefix = branch_heading(item, number, part).encode('utf-8')
             if not single_volume.startswith(prefix):
                 raise ValueError('對話分卷標題與內容不符。')
             # Reuse the bounded branch bytes, including hidden message traces.
-            return ('# '+single_line(item.title)+'\n\n').encode('utf-8') + single_volume[len(prefix):]
-        scope = {'loaded': '已載入的對話', 'current_branch': '目前分支', 'selection': '選取的訊息'}
+            return ('# '+single_line(item.title)+'\n\n'+scope_line+'\n\n').encode('utf-8') + single_volume[len(prefix):]
         lines = ['# '+single_line(item.title), '',
-                 '來源範圍：'+scope.get(capture.get('scope'), '擷取的訊息'), '', '## 對話內容', '']
+                 scope_line, '', '## 對話內容', '']
         for number, part, name in volumes:
             label = f'第 {part} 卷' if len(item.leaves) == 1 else f'分支 {number} · 第 {part} 卷'
             lines.append('- ['+label+']('+quote(name)+')')

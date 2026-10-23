@@ -35,8 +35,8 @@ test('modern ChatGPT units: current visible conversation, source boundaries and 
     await t.test('each PCS control is adjacent to its own native copy control and captures only that message',async()=>{
       const controls=page.getByRole('button',{name:'PCS：此則訊息',exact:true});assert.equal(await controls.count(),2);
       assert.deepEqual(await page.locator('[data-pcs-ui="message-action"]').evaluateAll(hosts=>hosts.map(h=>h.previousElementSibling.getAttribute('aria-label'))),['複製訊息','複製']);
-      await controls.nth(1).click();const event=page.waitForEvent('download');await page.getByRole('button',{name:'下載 JSON',exact:true}).click();
-      const file=await event,capture=JSON.parse(await readFile(await file.path(),'utf8'));
+      await controls.nth(1).click();const file=await live.download(()=>page.getByRole('button',{name:'下載 JSON',exact:true}).click());
+      const capture=JSON.parse(file.text);
       assert.equal(capture.messages.length,1);assert.equal(capture.messages[0].role,'assistant');assert.ok(!JSON.stringify(capture).includes('請整理明天'));
       await page.keyboard.press('Escape');
     });
@@ -72,8 +72,8 @@ test('reply action row shared by a complete user/thought/assistant turn',{skip:!
       const external=page.locator('main [data-talvt-turn-state] > .turn-action-controls');
       assert.equal(await external.locator('[data-pcs-ui]').count(),1);
       await external.getByRole('button',{name:'PCS：此則訊息',exact:true}).click();
-      const event=page.waitForEvent('download');await page.getByRole('button',{name:'下載 JSON',exact:true}).click();
-      const file=await event,capture=JSON.parse(await readFile(await file.path(),'utf8'));
+      const file=await live.download(()=>page.getByRole('button',{name:'下載 JSON',exact:true}).click());
+      const capture=JSON.parse(file.text);
       assert.equal(capture.messages.length,1);assert.equal(capture.messages[0].role,'assistant');assert.match(capture.messages[0].content,/echo 1;/);
       await page.keyboard.press('Escape');
     });

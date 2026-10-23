@@ -37,7 +37,8 @@ export function messageMarkdown(message, sourceUrl) {
   const references = (message.resources || []).map(resource => {
     const label = resource.label.replace(/[\r\n]+/g, ' ').replace(/([\\`*_[\]<>])/g, '\\$1');
     const url = (resource.url || sourceUrl).replace(/[()<>\s]/g, char => encodeURIComponent(char));
-    return `- ${names[resource.kind] || '附件'}：[${label}](${url})`;
+    const kind = names[resource.kind] || '附件';
+    return `- ${kind}${resource.kind === 'citation' ? '' : '（僅來源）'}：[${label}](${url})`;
   });
   return [message.content, references.join('\n')].filter(Boolean).join('\n\n');
 }

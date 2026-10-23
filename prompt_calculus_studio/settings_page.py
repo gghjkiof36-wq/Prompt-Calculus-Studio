@@ -190,7 +190,7 @@ def navigation_entries(section, *, workspace=False):
     if section in ('comfy','workflows','workflow_manager','models','nodes'):
         return 'ComfyUI', '返回探索', [('workflows','連線與工作流','workflow'),('models','模型資產','media'),('nodes','管理與更新','package')]
     if section=='connector':
-        return 'ChatGPT 對話', '返回探索', [('connector','對話','quote')]
+        return '下載紀錄', '返回探索', [('connector','下載紀錄','quote')]
     if section=='explore':
         return '探索', '返回工作區', [('explore','全部入口','explore')]
     routes=[('interface','使用介面','canvas'),('appearance','介面個人化','settings'),('completion','候選與翻譯','search'),('dictionary','個人字典','info'),('data','資料與備份','package')]
@@ -251,7 +251,7 @@ class SettingsPage(QWidget):
         self.add('comfy','ComfyUI',self.comfy_content)
         self.add('data','資料與備份',self.make_data_page())
         self.connector_content=DeferredToolPage(self.make_connector_page)
-        self.add('connector','ChatGPT 對話',self.connector_content)
+        self.add('connector','下載紀錄',self.connector_content)
         self.add('explore','探索',self.make_explore_page())
         self.navigation.currentRowChanged.connect(self.navigate)
         self.autosave=QTimer(self); self.autosave.setSingleShot(True); self.autosave.setInterval(350); self.autosave.timeout.connect(self.flush)
@@ -319,7 +319,7 @@ class SettingsPage(QWidget):
             ('CivitAI','搜尋模型、選擇版本與管理下載','civitai','explore'),
         ]
         if getattr(self.window,'workspace_owner',None) is not None:
-            entries.append(('ChatGPT','匯入對話、保存內容與查找文件','connector','quote'))
+            entries.append(('下載紀錄','查找從 ChatGPT 傳入的檔案','connector','quote'))
         for name,description,key,symbol in entries:
             card,body=panel('ExploreCard')
             card.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed)

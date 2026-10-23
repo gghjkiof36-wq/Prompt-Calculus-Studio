@@ -26,34 +26,6 @@
       captured_at: capture.captured_at
     };
   }
-  function markdownDocument(capture) {
-    const role = { user: "你", assistant: "ChatGPT", system: "系統", tool: "工具" };
-    const title = capture.title.replace(/[\r\n]+/g, " ").trim() || "ChatGPT 對話";
-    const scope = capture.scope === "selection" ? "選取的訊息" : "頁面已載入的訊息";
-    return `# ${title}
-
-來源：${capture.url}
-
-範圍：${scope}
-
-` + capture.messages.map((message) => `## ${role[message.role] || message.role}
-
-${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
-  }
-  function messageMarkdown(message, sourceUrl) {
-    const names = { image: "圖片", chart: "圖表", attachment: "附件", embed: "嵌入內容", citation: "來源" };
-    const references = (message.resources || []).map((resource) => {
-      const label = resource.label.replace(/[\r\n]+/g, " ").replace(/([\\`*_[\]<>])/g, "\\$1");
-      const url = (resource.url || sourceUrl).replace(/[()<>\s]/g, (char) => encodeURIComponent(char));
-      return `- ${names[resource.kind] || "附件"}：[${label}](${url})`;
-    });
-    return [message.content, references.join("\n")].filter(Boolean).join("\n\n");
-  }
-  function downloadName(title, extension) {
-    let base = String(title || "ChatGPT 對話").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/g, "").slice(0, 100);
-    if (!base || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(base)) base = `對話-${base}`;
-    return `${base}.${extension}`;
-  }
   function statusLabel(state) {
     return {
       receiving: "傳送中…",
@@ -188,7 +160,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
     element.dataset.pcsUi = kind;
     const root = element.attachShadow({ mode: "open" });
     const style = document.createElement("style");
-    style.textContent = CSS + ":host([hidden]){display:none!important}";
+    style.textContent = CSS + ":host([hidden]){display:none!important}.receipt{display:flex;align-items:center;gap:4px}.receipt span{flex:1;min-width:0}.receipt button{display:flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;height:32px;padding:7px}.receipt svg{width:18px;height:18px;pointer-events:none}";
     root.append(style);
     return { element, root };
   }
@@ -200,6 +172,24 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
     result.addEventListener("click", (e) => {
       if (e.isTrusted) action();
     });
+    return result;
+  }
+  function recordButton(label, action, kind) {
+    const result = button("", action);
+    result.title = label;
+    result.setAttribute("aria-label", label);
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "1.6");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const path = document.createElementNS(svg.namespaceURI, "path");
+    path.setAttribute("d", kind === "file" ? "M14 3h7v7 M21 3l-10 10 M10 5H3v16h16v-7" : "M3 7V5h7l2 2h9v13H3z M3 10h18");
+    svg.append(path);
+    result.append(svg);
     return result;
   }
   function visible(element) {
@@ -220,7 +210,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
     if (controller) return controller;
     if (!chrome?.runtime?.id) throw new Error("PCS extension context unavailable");
     let active = false, snapshot = null, selected = /* @__PURE__ */ new Set(), checks = [], pending = null, busy = false, notice = "", poll = null;
-    let instances = [], recents = [], lastUrl = location.href, refreshTimer = null, reading = false, refreshAgain = false, generation = 0;
+    let instances = [], recents = [], lastUrl = location.href, refreshTimer = null, reading = false, refreshAgain = false, generation = 0, historyTimer = null;
     let destination = null, destinationRequest = 0, hoverTimer = null, closeTimer = null;
     const submenuOpeners = /* @__PURE__ */ new WeakMap();
     let menuOpen = false, menuMode = "choices", menuAnchor = null, sourceAnchor = null;
@@ -300,80 +290,115 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       node.textContent = text;
       menu.append(node);
     }
+    function allButton(action) {
+      const item = button("全選", action);
+      item.title = "選取頁面已載入的訊息";
+      item.setAttribute("aria-description", item.title);
+      return item;
+    }
+    function operationLocked() {
+      return !!pending && !FINAL_STATES.has(pending.state);
+    }
+    function clearOutcome() {
+      if (pending && FINAL_STATES.has(pending.state)) {
+        clearTimeout(poll);
+        pending = null;
+        notice = "";
+      }
+    }
     function render() {
       const focused = popup.root.activeElement, focusLabel = focused?.getAttribute("aria-label") || focused?.textContent;
+      const usableSelection = !pending || !operationLocked() && snapshot?.context.url === location.href && selected.size > 0;
       headerButton.textContent = active && selected.size ? `PCS ${selected.size}` : "PCS";
       headerButton.setAttribute("aria-expanded", String(menuOpen && menuAnchor === entry.element));
       popup.element.hidden = !menuOpen || menuAnchor === entry.element && entry.element.hidden;
       menu.replaceChildren();
       syncChecks();
-      for (const item of checks) item.input.disabled = busy || !!pending || !!destination;
-      for (const item of messageButtons.values()) item.root.querySelector("button").disabled = busy || !!destination || !!(pending && !FINAL_STATES.has(pending.state));
+      for (const item of checks) item.input.disabled = busy || operationLocked() || !!destination;
+      for (const item of messageButtons.values()) item.root.querySelector("button").disabled = busy || !!destination || operationLocked();
       if (menuMode === "recent") {
         menu.append(button("‹ 返回", () => {
           menuMode = active || snapshot ? "selection" : "choices";
           render();
         }));
-        caption("最近保存");
-        const saved = recents.filter((r) => r.state === "committed").slice(0, 3);
+        caption("下載紀錄");
+        const saved = recents.filter((r) => r.state === "committed" || r.kind === "download");
         if (!saved.length) caption("尚無紀錄");
         for (const receipt of saved) {
           const row = document.createElement("div");
           row.className = "receipt";
           const name = document.createElement("span");
           name.textContent = receipt.title;
-          row.append(name, button("開啟文件", () => receiptAction("open", receipt)), button("顯示資料夾", () => receiptAction("reveal", receipt)));
+          name.title = receipt.path || receipt.title;
+          if (receipt.kind === "download" && (receipt.state !== "complete" || receipt.exists === false)) {
+            const detail = document.createElement("small");
+            detail.style.cssText = "display:block;color:var(--muted)";
+            detail.textContent = receipt.exists === false ? "檔案已移除" : receipt.state === "in_progress" ? "下載中…" : receipt.error === "USER_CANCELED" ? "已取消" : "下載失敗";
+            name.append(detail);
+          }
+          const folder = recordButton("開啟資料夾", () => receiptAction("reveal", receipt), "folder"), open = recordButton("開啟文件", () => receiptAction("open", receipt), "file");
+          folder.disabled = open.disabled = receipt.kind === "download" && (receipt.state !== "complete" || receipt.exists === false);
+          row.append(name, folder, open);
           menu.append(row);
         }
-      } else if (menuMode === "choices" && !pending) {
-        menu.append(button("選取全部", () => startSelection(true)), button("選取訊息", () => startSelection(false)));
         if (notice) {
           const text = document.createElement("div");
           text.className = "status";
           text.textContent = notice;
           menu.append(text);
         }
-        separator();
-        menu.append(button("最近保存", showRecents));
+      } else if (menuMode === "choices" && !pending) {
+        menu.append(allButton(() => startSelection(true)), button("選取訊息", () => startSelection(false)));
+        if (notice) {
+          const text = document.createElement("div");
+          text.className = "status";
+          text.textContent = notice;
+          menu.append(text);
+        }
+        if (menuAnchor === entry.element) {
+          separator();
+          menu.append(button("下載紀錄", showRecents));
+        }
       } else {
-        caption(pending ? pending.source_title || pending.title || "傳送結果" : menuMode === "message" ? "此則訊息" : `已選 ${selected.size} 則`);
-        if (active && !pending) {
+        const loaded = selected.size > 0 && selected.size === snapshot?.capture.messages.length && snapshot.capture.scope === "loaded";
+        caption(pending && (operationLocked() || !usableSelection) ? pending.source_title || pending.title || "傳送結果" : menuMode === "message" ? "此則訊息" : `已選 ${selected.size} 則${loaded ? "（已載入）" : ""}`);
+        if (snapshot?.capture.messages.some((message) => selected.has(message.id) && message.resources?.some((resource) => ["chart", "image", "embed", "attachment"].includes(resource.kind)))) caption("部分圖表或附件僅保留來源連結");
+        if (active && usableSelection) {
           const tools = document.createElement("div");
           tools.className = "tools";
-          const all = button("全選", () => {
+          const all = allButton(() => {
+            clearOutcome();
             selected = new Set(snapshot?.capture.messages.map((m) => m.id) || []);
             syncChecks();
             render();
           });
           all.disabled = busy || !!destination;
-          const done = button("完成選取", finishSelection);
-          done.disabled = busy || !!destination;
-          tools.append(all, done);
+          const cancelChoice = button("取消", cancelSelection);
+          cancelChoice.disabled = busy || !!destination;
+          tools.append(all, cancelChoice);
           menu.append(tools);
         }
-        if (!pending) {
-          const send = button("儲存到 PCS", () => chooseDestination(true), "submenu-trigger");
-          send.disabled = !selected.size || busy;
-          send.setAttribute("aria-haspopup", "menu");
-          send.setAttribute("aria-expanded", String(!!destination));
-          hoverOpen(send, () => chooseDestination(false));
-          submenuOpeners.set(send, () => chooseDestination(false, true));
-          menu.append(send);
-          if (destination) {
-            destination.anchor = send;
-            if (destination.levels[0]) destination.levels[0].anchor = send;
-          }
-          const json = button("下載 JSON", () => {
-            closeDestination();
-            downloadSelected("json");
-          }), md = button("下載 Markdown", () => {
-            closeDestination();
-            downloadSelected("md");
-          });
-          json.disabled = md.disabled = !selected.size || busy;
-          menu.append(json, md);
+        const send = button("儲存到 PCS", () => chooseDestination(true), "submenu-trigger");
+        send.disabled = !selected.size || busy || operationLocked();
+        send.setAttribute("aria-haspopup", "menu");
+        send.setAttribute("aria-expanded", String(!!destination));
+        hoverOpen(send, () => chooseDestination(false));
+        submenuOpeners.set(send, () => chooseDestination(false, true));
+        menu.append(send);
+        if (destination) {
+          destination.anchor = send;
+          if (destination.levels[0]) destination.levels[0].anchor = send;
         }
-        if (notice || pending) {
+        const json = button("下載 JSON", () => {
+          closeDestination();
+          downloadSelected("json");
+        }), md = button("下載 Markdown", () => {
+          closeDestination();
+          downloadSelected("md");
+        });
+        json.disabled = md.disabled = !selected.size || busy || operationLocked();
+        menu.append(json, md);
+        if (notice || pending && pending.state !== "committed") {
           separator();
           const text = document.createElement("div");
           text.className = "status";
@@ -382,15 +407,16 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
           menu.append(text);
         }
         if (pending) {
-          if (pending.state === "committed") menu.append(button("開啟文件", () => receiptAction("open", pending)), button("顯示資料夾", () => receiptAction("reveal", pending)));
-          else if (!FINAL_STATES.has(pending.state)) {
+          if (!FINAL_STATES.has(pending.state)) {
             if (pending.state === "unknown") menu.append(button("查詢結果", checkStatus));
             menu.append(button("取消", cancel));
           }
-          if (FINAL_STATES.has(pending.state) || pending.state === "unknown") menu.append(button("重新選取", newSelection));
+          if (FINAL_STATES.has(pending.state) && !usableSelection || pending.state === "unknown") menu.append(button("重新選取", newSelection));
         } else if (notice && !busy) menu.append(button("重新讀取", retrySelection));
-        separator();
-        menu.append(button("最近保存", showRecents));
+        if (menuAnchor === entry.element) {
+          separator();
+          menu.append(button("下載紀錄", showRecents));
+        }
       }
       requestAnimationFrame(() => {
         positionMenu();
@@ -470,11 +496,16 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
         render();
       }
     }
-    function finishSelection() {
+    function cancelSelection() {
+      if (busy || operationLocked() || destination) return;
       generation++;
       active = false;
+      clearOutcome();
+      selected.clear();
+      snapshot = null;
+      sourceAnchor = null;
       removeChecks();
-      menuMode = "selection";
+      menuMode = "choices";
       notice = "";
       render();
       focusMenu();
@@ -525,7 +556,8 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       }
     }
     function toggleItem(item) {
-      if (!active || busy || pending || destination || !checks.includes(item)) return;
+      if (!active || busy || operationLocked() || destination || !checks.includes(item)) return;
+      clearOutcome();
       if (selected.has(item.id)) selected.delete(item.id);
       else selected.add(item.id);
       notice = "";
@@ -533,7 +565,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       render();
     }
     function selectionItem(event) {
-      if (!active || busy || pending || destination || !event.isTrusted || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return null;
+      if (!active || busy || operationLocked() || destination || !event.isTrusted || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return null;
       const interactive = 'a,button,input,textarea,select,option,label,summary,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="link"],[role="menuitem"],[role="checkbox"],[role="radio"],[role="switch"],[role="slider"],[role="tab"],[role="textbox"],[tabindex]:not([tabindex="-1"]),[draggable="true"],canvas,svg,iframe,audio,video,[data-pcs-ui]';
       if (event.composedPath().some((node) => node instanceof Element && node.matches(interactive))) return null;
       return checks.find((item) => item.anchor === event.target || item.anchor.contains(event.target)) || null;
@@ -576,7 +608,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
         const expected = generation;
         clickTimer = setTimeout(() => {
           clickTimer = null;
-          if (generation !== expected || !getSelection()?.isCollapsed || !active || busy || pending || destination) return;
+          if (generation !== expected || !getSelection()?.isCollapsed || !active || busy || operationLocked() || destination) return;
           lastClick = { item, generation, wasSelected: selected.has(item.id) };
           toggleItem(item);
         }, 250);
@@ -601,7 +633,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
           if (!e.isTrusted) return;
           cancelClick();
           lastClick = null;
-          if (pending || busy || destination) {
+          if (operationLocked() || busy || destination) {
             input.checked = selected.has(item.id);
             return;
           }
@@ -620,7 +652,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       positionChecks();
     }
     async function refresh(explicit = false) {
-      if (!active || pending || destination) return;
+      if (!active || operationLocked() || destination) return;
       if (reading) {
         refreshAgain = true;
         return;
@@ -629,12 +661,16 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       const expected = generation, url = location.href;
       try {
         const fresh = await request("capture");
-        if (!active || destination || generation !== expected || location.href !== url || fresh.context.url !== url) return;
+        if (!active || operationLocked() || destination || generation !== expected || location.href !== url || fresh.context.url !== url) return;
         const changed = snapshot && (fresh.fingerprint !== snapshot.fingerprint || fresh.context.url !== snapshot.context.url || fresh.context.tabId !== snapshot.context.tabId);
         if (changed) {
+          clearOutcome();
           selected.clear();
           notice = "對話已更新，請重新選取。";
-        } else if (explicit) notice = "";
+        } else if (explicit) {
+          clearOutcome();
+          notice = "";
+        }
         snapshot = fresh;
         buildChecks();
       } catch (error) {
@@ -655,26 +691,22 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       }
     }
     async function downloadSelected(ext) {
-      if (busy || !snapshot) return;
+      if (busy || operationLocked() || !snapshot) return;
+      const expected = generation, url = location.href, context = snapshot.context, capture = selectCapture(snapshot.capture, selected);
       busy = true;
+      notice = "";
       render();
       try {
-        const fresh = await request("capture");
-        if (!snapshot || fresh.fingerprint !== snapshot.fingerprint || fresh.context.url !== snapshot.context.url) {
-          selected.clear();
-          notice = "對話已更新，請重新選取。";
-          await refresh();
-          return;
-        }
-        const capture = selectCapture(snapshot.capture, selected);
-        const blob = new Blob([ext === "json" ? JSON.stringify(capture, null, 2) : markdownDocument(capture)], { type: ext === "json" ? "application/json;charset=utf-8" : "text/markdown;charset=utf-8" });
-        const url = URL.createObjectURL(blob), link = document.createElement("a");
-        link.href = url;
-        link.download = downloadName(capture.title, ext);
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1e3);
+        await request("download", { format: ext, context, capture });
       } catch (error) {
-        notice = error.message;
+        if (generation === expected && location.href === url) {
+          if (error.code === "page_changed") {
+            selected.clear();
+            snapshot = null;
+            removeChecks();
+          }
+          notice = error.message;
+        }
       } finally {
         busy = false;
         render();
@@ -711,8 +743,8 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
         destination = null;
         destinationRequest++;
       }
-      for (const check of checks) check.input.disabled = busy || !!pending;
-      for (const tool of menu.querySelectorAll(".tools button")) tool.disabled = busy || !!pending;
+      for (const check of checks) check.input.disabled = busy || operationLocked();
+      for (const tool of menu.querySelectorAll(".tools button")) tool.disabled = busy || operationLocked();
       for (const item of messageButtons.values()) item.root.querySelector("button").disabled = busy || !!(pending && !FINAL_STATES.has(pending.state));
     }
     function positionSubmenus() {
@@ -881,7 +913,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
     async function chooseDestination(clicked = false, keyboard = false) {
       clearTimeout(hoverTimer);
       clearTimeout(closeTimer);
-      if (pending || busy || !snapshot || !selected.size) return;
+      if (operationLocked() || busy || !snapshot || !selected.size) return;
       if (snapshot.context.url !== location.href) {
         closeDestination();
         notice = "對話已切換，請重新選取。";
@@ -942,9 +974,10 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       }
     }
     async function saveToDestination(view, instanceId, folderId) {
-      if (pending || busy || !destinationValid(view)) return;
+      if (operationLocked() || busy || !destinationValid(view)) return;
       const identity = { operation_id: crypto.randomUUID(), instance_id: instanceId }, intended = view.intent;
       closeDestination();
+      clearTimeout(poll);
       busy = true;
       notice = "";
       pending = { ...identity, state: "receiving", source_title: intended.capture.title };
@@ -1034,8 +1067,9 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       render();
     }
     async function receiptAction(action, receipt) {
+      notice = "";
       try {
-        await request(action, { operation_id: receipt.operation_id, instance_id: receipt.instance_id });
+        await request(receipt.kind === "download" ? `download_${action}` : action, receipt.kind === "download" ? { download_id: receipt.download_id } : { operation_id: receipt.operation_id, instance_id: receipt.instance_id });
       } catch (error) {
         notice = error.message;
         render();
@@ -1043,9 +1077,21 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
     }
     async function showRecents() {
       closeDestination();
+      notice = "";
       await loadRecents();
       menuMode = "recent";
       render();
+      pollHistory();
+    }
+    function pollHistory() {
+      clearTimeout(historyTimer);
+      if (menuOpen && menuMode === "recent" && recents.some((r) => r.kind === "download" && r.state === "in_progress")) historyTimer = setTimeout(async () => {
+        await loadRecents();
+        if (menuOpen && menuMode === "recent") {
+          render();
+          pollHistory();
+        }
+      }, 1500);
     }
     async function loadRecents() {
       try {
@@ -1054,7 +1100,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
         recents = [];
       }
       if (!pending) {
-        const unfinished = recents.find((r) => !r.dismissed && !FINAL_STATES.has(r.state));
+        const unfinished = recents.find((r) => r.kind !== "download" && !r.dismissed && !FINAL_STATES.has(r.state));
         if (unfinished) {
           pending = unfinished;
           menuMode = "selection";
@@ -1066,17 +1112,48 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => refresh(), 500);
     }
+    let observedConversationRoot = locateConversation().main;
+    function sourcePopovers(root) {
+      const nodes = /* @__PURE__ */ new Set();
+      if (!root) return nodes;
+      for (const trigger of root.querySelectorAll('[data-d-component="popover-trigger"][data-d-inline],[data-testid*="citation"],[data-citation],.citation')) {
+        if (!trigger.matches('[data-testid*="citation"],[data-citation],.citation') && !trigger.querySelector('[data-d-component="badge"]')) continue;
+        for (const id of `${trigger.getAttribute("aria-controls") || ""} ${trigger.getAttribute("aria-describedby") || ""}`.trim().split(/\s+/)) {
+          const node = document.getElementById(id);
+          if (node && node !== trigger && node.matches('[role="dialog"],[role="tooltip"],[data-radix-popper-content-wrapper]')) nodes.add(node);
+        }
+      }
+      return nodes;
+    }
+    let observedSourcePopovers = sourcePopovers(observedConversationRoot);
     const observer = new MutationObserver((records) => {
+      let currentRoot;
+      try {
+        currentRoot = locateConversation().main;
+      } catch {
+        currentRoot = observedConversationRoot;
+      }
+      const roots = [currentRoot, observedConversationRoot].filter(Boolean);
+      const currentPopovers = sourcePopovers(currentRoot), popovers = new Set(currentPopovers);
+      if (currentRoot === observedConversationRoot) for (const node of observedSourcePopovers) popovers.add(node);
+      const inPopover = (node) => [...popovers].some((popup2) => popup2 === node || popup2.contains(node));
+      const onlyPopover = (node, depth = 0) => inPopover(node) || depth > 0 && node.nodeType === 3 && !node.textContent.trim() || node.nodeType === 1 && depth < 8 && node.childNodes.length > 0 && node.childNodes.length <= 32 && [...popovers].some((popup2) => node.contains(popup2)) && [...node.childNodes].every((child) => onlyPopover(child, depth + 1));
       const relevant = records.some((r) => {
+        if (r.type === "attributes") return false;
         const target = r.target.nodeType === 1 ? r.target : r.target.parentElement;
         if (target?.closest("[data-pcs-ui]")) return false;
-        return r.type === "characterData" || [...r.addedNodes, ...r.removedNodes].some((n) => !(n.nodeType === 1 && n.matches("[data-pcs-ui]")));
+        const changed = [...r.addedNodes, ...r.removedNodes].filter((n) => !(n.nodeType === 1 && n.matches("[data-pcs-ui]")));
+        if (changed.some((n) => roots.some((root) => n === root || n.nodeType === 1 && n.contains(root)))) return true;
+        if (!roots.some((root) => root.contains(target)) || inPopover(target)) return false;
+        return r.type === "characterData" || changed.some((node) => !onlyPopover(node));
       });
+      observedConversationRoot = currentRoot;
+      observedSourcePopovers = currentPopovers;
       mount();
       positionChecks();
       if (active && relevant) scheduleRefresh();
     });
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["aria-controls", "aria-describedby"] });
     let frame = 0;
     const reposition = () => {
       if (!frame) frame = requestAnimationFrame(() => {
@@ -1117,7 +1194,14 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       }, 350);
     }, true);
     document.addEventListener("keydown", (event) => {
-      if (!event.isTrusted || !menuOpen) return;
+      if (!event.isTrusted) return;
+      if (!menuOpen) {
+        if (event.key === "Escape" && active && !busy && !operationLocked()) {
+          event.preventDefault();
+          cancelSelection();
+        }
+        return;
+      }
       const target = event.composedPath().find((node) => node instanceof HTMLButtonElement), level = destination?.levels.find((item) => event.composedPath().includes(item.host.element));
       const inside = level || event.composedPath().includes(popup.element);
       if (inside && event.key === "ArrowRight" && submenuOpeners.has(target)) {
@@ -1143,6 +1227,7 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
       }
       if (event.key === "Escape") {
         closeDestination();
+        if (active && !busy && !operationLocked()) cancelSelection();
         menuOpen = false;
         render();
         menuAnchor?.shadowRoot?.querySelector("button")?.focus({ preventScroll: true });
@@ -1153,12 +1238,13 @@ ${messageMarkdown(message, capture.url)}`).join("\n\n---\n\n") + "\n";
         generation++;
         lastUrl = location.href;
         closeDestination();
+        clearOutcome();
+        menuOpen = false;
         selected.clear();
         snapshot = null;
         removeChecks();
-        if (pending) {
+        if (operationLocked()) {
           active = false;
-          menuOpen = false;
           menuAnchor = entry.element;
           menuMode = "selection";
         } else if (active) {

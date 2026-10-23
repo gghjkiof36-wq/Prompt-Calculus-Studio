@@ -8,7 +8,7 @@ import secrets
 import threading
 import time
 
-from PySide6.QtCore import QObject, QTimer, Signal, Slot, QUrl, QRunnable, QThreadPool, Qt
+from PySide6.QtCore import QObject, QTimer, Signal, Slot, QUrl, QRunnable, QThreadPool, QProcess, Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtNetwork import QLocalServer
 from shiboken6 import isValid
@@ -392,7 +392,15 @@ class ConnectorService(QObject):
     def open_saved(self, operation, *, reveal=False):
         target = self.ensure_store().saved_path(operation)
         if reveal:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(target.parent)))
+            if QDesktopServices.openUrl(QUrl.fromLocalFile(str(target.parent))):
+                return True
+            if os.name == 'nt':
+                explorer = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'explorer.exe'
+                if explorer.is_absolute() and explorer.is_file():
+                    started, _ = QProcess.startDetached(str(explorer), [str(target.parent)])
+                    if started:
+                        return True
+            raise OSError('無法開啟所在資料夾。')
         else:
             if self.workspace.locations.root_for(target) is None:
                 self.workspace.add_root(Path(self.store.get(operation)['destination']))

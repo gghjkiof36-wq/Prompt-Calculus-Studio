@@ -310,15 +310,15 @@ class ConnectorInterfaceTests(unittest.TestCase):
         self.events()
         page = self.w.utility.settings_page.connector_content.load().content
         self.assertEqual(self.w.active_route, 'explore')
-        self.assertEqual(page.items.count(), 1)
+        self.assertEqual(list(page.rows), [operation])
         self.screenshot(self.w, 'pcs-conversations.png')
-        self.assertEqual(page.selected(), operation)
+        self.assertTrue(page.rows[operation].open_button.isVisible())
         page.search.setText('no matching conversation')
-        self.assertIsNone(page.selected())
-        self.assertFalse(page.open_button.isVisible())
+        self.assertEqual(page.rows, {})
+        self.assertTrue(page.empty.isVisible())
         page.search.clear()
-        self.assertEqual(page.selected(), operation)
-        self.assertTrue(page.open_button.isVisible())
+        self.assertEqual(list(page.rows), [operation])
+        self.assertTrue(page.rows[operation].open_button.isVisible())
 
     def test_close_during_published_write_keeps_completion_owner_alive(self):
         operation, dialog = self.transfer()

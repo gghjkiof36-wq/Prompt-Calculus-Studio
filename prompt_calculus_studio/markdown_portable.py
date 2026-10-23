@@ -13,7 +13,8 @@ from .conversation_markdown import attachment_plan, branch_files, index_markdown
 from .conversation_review import Source, subset, freshness
 from .local_documents import paths
 from .local_documents.directory_pin import pinned_target
-from .markdown_links import Notes, links
+from .markdown_links import Notes
+from .capture_images import source_links
 from .retained_files import (Bundle, COMPLETE, START, MAX_FILE, MAX_TOTAL, digest, inventory,
                              load_record, read_local, write_new)
 from .retained_files import directory_identity, verify_directory
@@ -95,8 +96,12 @@ def prepare(root, document, text, source=None, branches=(), include_summary=True
         raw['pcs_extraction']['attachments'] = copied
         raw['pcs_extraction']['asset_hashes'] = {name:digest(data) for name,data in resources.items()}
         files[source_name('原始對話.json')] = canonical(raw)
+        from .capture_images import prepare_capture_images
+        rendered_item, capture_images = prepare_capture_images(item, cancel)
+        for target, data in capture_images.items():
+            put(source_name(target), data)
         volumes = []
-        generated = list(branch_files(item, mapping, Limits(), cancel))
+        generated = list(branch_files(rendered_item, mapping, Limits(), cancel))
         for number, part, name, data in generated:
             volumes.append((number, part, name))
             path = source.path.parent / name
@@ -117,7 +122,7 @@ def prepare(root, document, text, source=None, branches=(), include_summary=True
         progress('核對引用：' + path.name)
         relative = path.relative_to(root).as_posix()
         put(relative, content.encode('utf-8'))
-        for link in links(content):
+        for link in source_links(content):
             address = urlsplit(link.target)
             if address.scheme or address.netloc:
                 warnings.append(path.name + '：只保留外部連結 ' + link.target[:200]); continue

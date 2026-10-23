@@ -20,6 +20,7 @@ MAX_CAPTURE = 16 * 1024 * 1024
 MAX_CHUNK = 256 * 1024
 MAX_SPOOL = 256 * 1024 * 1024
 ACTIVE = {'receiving', 'previewing', 'committing'}
+HIDEABLE = frozenset(('committed', 'cancelled', 'failed'))
 
 
 def operation_key(value):
@@ -86,6 +87,23 @@ class TransferStore:
             except (OSError, ValueError, KeyError):
                 continue
         return sorted(values, key=lambda r: r.get('updated_at', 0), reverse=True)
+
+    def history_records(self):
+        """Hide only finished history rows; keep retry and recovery ledgers."""
+        with self.lock:
+            return [record for record in self.records()
+                    if record.get('history_hidden') is not True or record['state'] not in HIDEABLE]
+
+    def hide_history(self, operation):
+        """Remove a visible row without changing files, outcome or ordering."""
+        with self.lock:
+            record = self.get(operation)
+            if not record or record['state'] not in HIDEABLE or record.get('history_hidden') is True:
+                return False
+            record['history_hidden'] = True
+            # A display-only change must not update the operation's timestamp.
+            atomic_json(self.path(operation), record)
+            return True
 
     def _cleanup(self, record, *, part_only=False):
         if not part_only and record['state'] not in ('committed', 'cancelled'):
@@ -292,6 +310,8 @@ class TransferStore:
         original = decode_json(read_local(paths.checked(folder, '原始對話.json')))
         if hashlib.sha256(canonical(original)).hexdigest() != record['original_hash']:
             raise ValueError('已保存來源與本次預覽不一致。')
+        from .capture_images import capture_image_hashes, verify_capture_images
+        verify_capture_images(folder, receipt, expected=capture_image_hashes(original))
         return receipt
 
     def reused(self, operation, folder):

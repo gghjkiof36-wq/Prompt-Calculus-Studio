@@ -104,7 +104,9 @@ def _resource_markdown(resources, source_url):
         label = re.sub(r'\s+', ' ', item['label']).strip()
         label = re.sub(r'([\\`*_{}\[\]()#+.!|<>])', r'\\\1', label)
         url = quote(item['url'] or source_url, safe=':/?#@!$&*+,;=%[]')
-        lines.append('- ' + RESOURCE_LABELS[item['kind']] + '：[' + label + '](' + url + ')')
+        kind = RESOURCE_LABELS[item['kind']]
+        lines.append('- ' + kind + ('' if item['kind'] == 'citation' else '（僅來源）')
+                     + '：[' + label + '](' + url + ')')
     return '\n'.join(lines)
 
 
