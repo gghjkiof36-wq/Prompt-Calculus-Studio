@@ -209,10 +209,14 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
         self.assertTrue(drag.begin())
         collision = self.root/'Folder'/source.name
         collision.write_text('do not overwrite', encoding='utf-8')
-        self.assertFalse(self.drag_to(self.root/'Folder').isAccepted())
+        self.assertTrue(self.drag_to(self.root/'Folder').isAccepted())
         drag.finish()
         self.assertEqual(collision.read_text(encoding='utf-8'), 'do not overwrite')
-        self.assertEqual(source.read_bytes(), raw)
+        self.assertEqual(tab.path, collision.with_name('Notes(1).md'))
+        self.assertFalse(source.exists())
+        # Move the same note back before testing a changed-source rejection.
+        self.w.commands.files.run('move', self.w.commands.context('tab', tab=tab), directory=self.root)
+        source = tab.path
         self.w.select_path(source)
         self.assertTrue(drag.begin())
         source.write_bytes(b'external changed')
@@ -222,7 +226,7 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
         self.assertEqual(tab.path, source)
         self.assertEqual(source.read_bytes(), b'external changed')
         self.assertIn('kept', tab.widget.toPlainText())
-        self.assertFalse(collision.exists())
+        self.assertFalse((self.root/'Folder'/source.name).exists())
 
     def test_drag_dwell_expands_and_edge_scrolls_without_opening_a_document(self):
         for n in range(65):

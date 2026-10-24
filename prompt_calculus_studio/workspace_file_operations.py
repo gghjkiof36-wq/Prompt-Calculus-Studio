@@ -12,7 +12,8 @@ from .local_documents import io, assets, identity, paths, schema
 from .workspace_locations import KINDS, path_key
 from .workspace_files import MarkdownPage
 from .workspace_file_io import (named_path, stamp, relocate, prepare_move,
-    rename_exclusive, create_markdown, validate_markdown_location, PublishedMarkdownError)
+    rename_exclusive, create_markdown, validate_markdown_location, PublishedMarkdownError,
+    available_targets, check_target_available, TargetNameCollision)
 
 
 @dataclass
@@ -194,10 +195,18 @@ class WorkspaceFileOperations(QObject):
 
     def save_as(self, op, name, directory):
         self.check_active(op)
+        parent = self.w.locations.directory(directory)
+        requested = named_path(parent, name, op.source.suffix)
+        for target in available_targets(requested):
+            try:
+                return self._save_as(op, target)
+            except TargetNameCollision:
+                continue
+
+    def _save_as(self, op, target):
+        self.check_active(op)
         w = self.w
-        parent = w.locations.directory(directory)
-        target = named_path(parent, name, op.source.suffix)
-        paths.checked(parent, target.name, new=True)
+        check_target_available(target)
         tab = self.source_tab(op)
         if tab is None:
             self.check_source(op)
@@ -243,6 +252,8 @@ class WorkspaceFileOperations(QObject):
                 self.check_source(op)
             result = io.create(target.parent, target.name, candidate)
             if result.status != 'saved':
+                if result.name_collision:
+                    raise TargetNameCollision(result.error)
                 details = '\n'.join(result.recovery_paths)
                 if target.exists():
                     try:
@@ -341,7 +352,11 @@ class WorkspaceFileOperations(QObject):
         if parent == op.source.parent:
             op.result = op.source
             return op.source
-        return self.relocate(op, parent/op.source.name)
+        for target in available_targets(parent/op.source.name, folder=op.source.is_dir()):
+            try:
+                return self.relocate(op, target)
+            except TargetNameCollision:
+                continue
 
     def relocate(self, op, target):
         w, source = self.w, op.source
@@ -349,7 +364,7 @@ class WorkspaceFileOperations(QObject):
             raise ValueError('這個項目包含已連結的根資料夾，請先處理側欄連結。')
         case_only = source.parent == target.parent and source.name.casefold() == target.name.casefold()
         if not case_only:
-            paths.checked(target.parent, target.name, new=True)
+            check_target_available(target)
         self.check_source(op)
         from .markdown_relocation import RelocationPlan
         plan=RelocationPlan(w,source,target)
@@ -357,13 +372,18 @@ class WorkspaceFileOperations(QObject):
         plan.validate()
         self.check_source(op)
         if not case_only:
-            paths.checked(target.parent, target.name, new=True)
+            check_target_available(target)
         previous = [(tab, tab.path, tab.title, tab.document.receipt if tab.document else None) for tab in op.pages]
         bindings = None
+        moved = False
         plan.pause()
         try:
             plan.preserve()
-            rename_exclusive(source, target)
+            try:
+                rename_exclusive(source, target)
+            except FileExistsError as error:
+                raise TargetNameCollision(str(error)) from error
+            moved = True
             if stamp(target) != op.expected:
                 raise ValueError('移動完成時來源內容已變更。')
             plan.publish()
@@ -392,6 +412,8 @@ class WorkspaceFileOperations(QObject):
                 message = '移動尚未完整回復，已停止自動儲存。\n原位置：' + str(source) + '\n目的位置：' + str(target) + '\n' + str(recovery)
                 self.block_pages(op, message, [source, target])
                 raise ValueError(message) from error
+            if not moved and isinstance(error, TargetNameCollision):
+                raise
             raise ValueError('操作未完成，原位置與編輯內容已保留：' + str(error)) from error
         finally:plan.resume()
         plan.complete()

@@ -15,7 +15,7 @@ from prompt_calculus_studio import materials, drafts
 from prompt_calculus_studio.local_documents import io, assets, schema, category, workflow
 from prompt_calculus_studio.workspace_home import WorkspaceHome
 from prompt_calculus_studio.workspace_file_dialogs import SaveAsDialog, RenameDialog
-from prompt_calculus_studio.workspace_file_io import rename_exclusive
+from prompt_calculus_studio.workspace_file_io import rename_exclusive, available_targets
 from prompt_calculus_studio.workspace_locations import path_key
 import test_workspace_shell as fixture
 
@@ -273,21 +273,106 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
         self.assertEqual(active.path.read_bytes(), before)
         self.assertTrue(active.dirty)
 
-    def test_collisions_alias_and_failed_write_keep_source_model(self):
+    def test_invalid_names_and_failed_write_keep_source_model(self):
         tab = self.open()
         QTest.keyClicks(tab.widget, 'draft')
         source, raw = tab.path, tab.path.read_bytes()
-        for name in ('Notes', 'Empty', 'bad/name', 'CON', 'tail.', 'tail '):
+        for name in ('bad/name', 'CON', 'tail.', 'tail '):
             self.assertIsNone(self.execute('save_as', tab, name=name))
             self.assertEqual(tab.path, source)
-        alias = self.root/'Alias.md'
-        os.link(source, alias)
-        self.assertIsNone(self.execute('save_as', tab, name='Alias'))
         with patch('prompt_calculus_studio.workspace_file_operations.create_markdown', side_effect=OSError('disk full')):
             self.assertIsNone(self.execute('save_as', tab, name='Failed'))
         self.assertFalse((self.root/'Failed.md').exists())
         self.assertTrue(tab.dirty)
         self.assertEqual(source.read_bytes(), raw)
+
+    def test_copy_collisions_number_before_extension_keep_original_and_undo(self):
+        tab = self.open()
+        source, original = tab.path, tab.path.read_bytes()
+        QTest.keyClicks(tab.widget, 'draft')
+        edited = tab.widget.toPlainText()
+        (self.root/'notes(1).MD').write_bytes(b'competitor one')
+        os.link(source, self.root/'Notes(2).md')
+        target = self.execute('save_as', tab, name='Notes')
+        self.assertEqual(target, self.root/'Notes(3).md')
+        self.assertEqual(source.read_bytes(), original)
+        self.assertEqual((self.root/'Notes(2).md').read_bytes(), original)
+        self.assertEqual((self.root/'notes(1).MD').read_bytes(), b'competitor one')
+        self.assertEqual(target.read_text(encoding='utf-8-sig'), edited)
+        tab.widget.undo()
+        self.assertNotEqual(tab.widget.toPlainText(), edited)
+        self.assertTrue(self.w.save_tab(tab))
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_copy_retries_only_exclusive_name_race_for_markdown_and_native(self):
+        tab = self.open()
+        source, original = tab.path, tab.path.read_bytes()
+        real_link = os.link
+        attempts = []
+        def race_link(a, b, *args, **kwargs):
+            if Path(b).name == 'Copy.md':
+                Path(b).write_bytes(b'external winner')
+            attempts.append(Path(b).name)
+            return real_link(a, b, *args, **kwargs)
+        with patch('prompt_calculus_studio.workspace_file_io.os.link', side_effect=race_link):
+            self.assertEqual(self.execute('save_as', tab, name='Copy'), self.root/'Copy(1).md')
+        self.assertEqual(attempts, ['Copy.md', 'Copy(1).md'])
+        self.assertEqual((self.root/'Copy.md').read_bytes(), b'external winner')
+        self.assertEqual(source.read_bytes(), original)
+        native = self.open('Action.pcs-category', True)
+        source, original = native.path, native.path.read_bytes()
+        before_id = native.document.document['document_id']
+        def race_native(phase):
+            if phase == 'before-create' and not (self.root/'Native.pcs-category').exists():
+                (self.root/'Native.pcs-category').write_bytes(b'external native winner')
+        with patch.object(io, '_checkpoint', side_effect=race_native):
+            target = self.execute('save_as', native, name='Native')
+        self.assertEqual(target, self.root/'Native(1).pcs-category')
+        self.assertEqual(source.read_bytes(), original)
+        self.assertEqual((self.root/'Native.pcs-category').read_bytes(), b'external native winner')
+        self.assertNotEqual(io.load(target.parent, target.name).document['document_id'], before_id)
+
+    def test_copy_post_publication_collision_error_is_not_retried(self):
+        tab = self.open('Action.pcs-category')
+        source, original = tab.path, tab.path.read_bytes()
+        phases = []
+        def after_create(phase):
+            if phase == 'after-create':
+                phases.append(phase)
+                raise FileExistsError('post publication failure')
+        with patch.object(io, '_checkpoint', side_effect=after_create):
+            self.assertIsNone(self.execute('save_as', tab, name='Published'))
+        self.assertEqual(phases, ['after-create'])
+        self.assertTrue((self.root/'Published.pcs-category').exists())
+        self.assertFalse((self.root/'Published(1).pcs-category').exists())
+        self.assertEqual(source.read_bytes(), original)
+        self.assertEqual(tab.path, source)
+        self.assertTrue(tab.document.operation_error)
+
+    def test_non_destination_exists_errors_do_not_retry_copy_or_move(self):
+        tab = self.open('Action.pcs-category')
+        source, original = tab.path, tab.path.read_bytes()
+        with patch('prompt_calculus_studio.workspace_file_operations.assets.prepare',
+                   side_effect=FileExistsError('asset conflict')) as prepare:
+            self.assertIsNone(self.execute('save_as', tab, name='Copy'))
+        self.assertEqual(prepare.call_count, 1)
+        self.assertEqual(source.read_bytes(), original)
+        with patch('prompt_calculus_studio.markdown_relocation.RelocationPlan.preserve',
+                   side_effect=FileExistsError('journal conflict')) as preserve:
+            self.assertIsNone(self.execute('move', tab, directory=self.root/'Folder'))
+        self.assertEqual(preserve.call_count, 1)
+        self.assertEqual(source.read_bytes(), original)
+        self.assertEqual(tab.path, source)
+        self.assertFalse((self.root/'Folder'/source.name).exists())
+
+    def test_available_names_preserve_folder_dots_and_have_a_retry_bound(self):
+        (self.root/'version.1').mkdir()
+        candidates = available_targets(self.root/'version.1', folder=True, limit=2)
+        self.assertEqual(next(candidates), self.root/'version.1(1)')
+        with self.assertRaisesRegex(ValueError, '同名檔案過多'):
+            next(candidates)
+        with self.assertRaisesRegex(ValueError, '同名檔案過多'):
+            next(available_targets(self.root/'Notes.md', limit=1))
 
     def test_f2_inline_ime_invalid_escape_focus_loss_and_case_only_rename(self):
         tab = self.open()
@@ -352,14 +437,12 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
         self.assertTrue(self.w.save_tab(a))
         self.assertEqual(a.path.read_text(), 'one')
 
-    def test_move_rejects_cross_root_self_child_collision_and_updates_markdown_reference(self):
+    def test_move_rejects_cross_root_self_child_and_updates_markdown_reference(self):
         tab = self.open()
         outside = self.root.parent/'Outside'
         outside.mkdir()
         self.assertIsNone(self.execute('move', tab, directory=outside))
         self.assertEqual(self.execute('move', tab, directory=self.root), tab.path)
-        (self.root/'Folder/Notes.md').write_text('other')
-        self.assertIsNone(self.execute('move', tab, directory=self.root/'Folder'))
         self.w.refresh_tree()
         self.assertIsNone(self.execute('move', path=self.root/'Folder', directory=self.root/'Folder'))
         (self.root/'picture.png').write_bytes(b'image')
@@ -373,6 +456,50 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
         self.assertEqual(self.execute('save_as', tab, name='Copy', directory=destination),destination/'Copy.md')
         self.assertEqual((destination/'Copy.md').read_text(encoding='utf-8-sig'),'![local](../picture.png)')
         self.assertEqual((self.root/'picture.png').read_bytes(),b'image')
+
+    def test_move_collision_retries_exclusively_and_preserves_dirty_references(self):
+        tab = self.open()
+        target_dir = self.root/'Folder'
+        (target_dir/'Notes.md').write_bytes(b'first competitor')
+        (target_dir/'notes(1).MD').write_bytes(b'second competitor')
+        (self.root/'Reference.md').write_text('[note](Notes.md)', encoding='utf-8')
+        QTest.keyClicks(tab.widget, 'dirty')
+        before = tab.widget.toPlainText()
+        attempts = []
+        def race(a, b):
+            attempts.append(b.name)
+            if b.name == 'Notes(2).md':
+                b.write_bytes(b'race competitor')
+            return rename_exclusive(a, b)
+        with patch('prompt_calculus_studio.workspace_file_operations.rename_exclusive', side_effect=race):
+            target = self.execute('move', tab, directory=target_dir)
+        self.assertEqual(target, target_dir/'Notes(3).md')
+        self.assertEqual(attempts, ['Notes(2).md', 'Notes(3).md'])
+        self.assertEqual((target_dir/'Notes(2).md').read_bytes(), b'race competitor')
+        self.assertEqual((target_dir/'Notes.md').read_bytes(), b'first competitor')
+        self.assertEqual((target_dir/'notes(1).MD').read_bytes(), b'second competitor')
+        self.assertEqual(tab.widget.toPlainText(), before)
+        self.assertTrue(tab.dirty)
+        self.assertEqual((self.root/'Reference.md').read_text(encoding='utf-8'), '[note](Folder/Notes%283%29.md)')
+        self.assertTrue(self.w.save_tab(tab))
+        tab.widget.undo()
+        self.assertTrue(self.w.save_tab(tab))
+        self.assertNotEqual(target.read_text(encoding='utf-8-sig'), before)
+        self.assertIsNone(self.execute('rename', tab, name='Notes'))
+        self.assertEqual(tab.path, target)
+
+    def test_folder_collision_moves_whole_folder_and_keeps_existing_children(self):
+        source = self.root/'version.1'
+        source.mkdir()
+        (source/'Child.md').write_text('incoming', encoding='utf-8')
+        destination = self.root/'Folder'
+        (destination/'version.1').mkdir()
+        (destination/'version.1/Child.md').write_text('existing', encoding='utf-8')
+        self.w.refresh_tree()
+        self.assertEqual(self.execute('move', path=source, directory=destination), destination/'version.1(1)')
+        self.assertEqual((destination/'version.1/Child.md').read_text(encoding='utf-8'), 'existing')
+        self.assertEqual((destination/'version.1(1)/Child.md').read_text(encoding='utf-8'), 'incoming')
+        self.assertFalse(source.exists())
 
     def test_move_submenu_new_folder_cancel_and_submit(self):
         tab = self.open()
@@ -439,10 +566,10 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
             dialog.name.setText('Competitor')
             (self.root/'Competitor.md').write_bytes(b'competing')
             dialog.submit()
-            self.assertTrue(dialog.error.isVisible())
-            dialog.reject()
+            self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
         self.dialog(lambda: self.execute('save_as', tab), collision, SaveAsDialog)
         self.assertEqual((self.root/'Competitor.md').read_bytes(), b'competing')
+        self.assertEqual(tab.path, self.root/'Competitor(1).md')
 
     def test_complete_chain_new_save_as_rename_move_save_reopen_keeps_original(self):
         for kind in ('markdown', 'category', 'workflow'):

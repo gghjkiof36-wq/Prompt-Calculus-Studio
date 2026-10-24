@@ -139,6 +139,9 @@ class InlineRename(QWidget):
         if not self.error.isHidden():
             width = max(40, self.width()-10)
             height += max(self.error.fontMetrics().lineSpacing(), self.error.heightForWidth(width))+2
+        # The tree can grow the row before updating its index widget. Keep the
+        # editor tall enough for both controls throughout that geometry change.
+        self.setMinimumHeight(height)
         hint = QSize(0, height+4)
         if self.item.sizeHint(0) != hint:
             self.item.setSizeHint(0, hint)

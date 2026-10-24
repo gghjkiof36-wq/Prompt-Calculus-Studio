@@ -43,6 +43,7 @@ class SaveResult:
     receipt: LoadReceipt | None = None
     recovery_paths: tuple[str, ...] = ()
     error: str = ''
+    name_collision: bool = False
 
     @property
     def dirty(self):
@@ -93,11 +94,15 @@ def _existing(paths):
 
 def create(root, relative, document):
     recovery = {}
+    published = False
+    checking_name = False
     protection = ExitStack()
     try:
         raw = encode(document)
         protection.enter_context(pinned_target(root, relative))
+        checking_name = True
         path = checked(root, relative, new=True)
+        checking_name = False
         _suffix(path, document)
         if not path.parent.is_dir():
             fail('path', '目的資料夾不存在。')
@@ -107,10 +112,15 @@ def create(root, relative, document):
         recovery = _paths(path)
         _write(recovery['candidate'], raw)
         _write(recovery['temporary'], raw)
+        checking_name = True
         checked(root, relative, new=True)
+        checking_name = False
         _checkpoint('before-create')
         # link is atomic and exclusive: never the overwrite behavior of replace.
+        checking_name = True
         os.link(recovery['temporary'], path)
+        published = True
+        checking_name = False
         recovery['temporary'].unlink()
         _checkpoint('after-create')
         loaded = load(root, relative)
@@ -121,7 +131,9 @@ def create(root, relative, document):
     except (DocumentError, OSError) as error:
         return SaveResult('conflict' if getattr(error, 'code', '') in ('exists', 'collision', 'conflict')
                           or isinstance(error, FileExistsError) else 'failed',
-                          recovery_paths=_existing(recovery), error=str(error))
+                          recovery_paths=_existing(recovery), error=str(error),
+                          name_collision=checking_name and not published and (getattr(error, 'code', '') == 'exists'
+                                                            or isinstance(error, FileExistsError)))
     finally:
         protection.close()
 

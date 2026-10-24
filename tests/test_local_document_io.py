@@ -176,12 +176,14 @@ class CreateTests(DocumentsCase):
         raw = path.read_bytes()
         result = io.create(self.destination, path.name, saved.document)
         self.assertEqual(result.status, 'conflict')
+        self.assertTrue(result.name_collision)
         self.assertEqual(path.read_bytes(), raw)
         document = self.category()
         document['file_schema_version'] = 99
         before = set(self.destination.iterdir())
         result = io.create(self.destination, 'invalid.pcs-category', document)
         self.assertEqual(result.status, 'failed')
+        self.assertFalse(result.name_collision)
         self.assertEqual(set(self.destination.iterdir()), before)
 
     def test_create_race_does_not_overwrite_competing_file(self):
@@ -193,8 +195,31 @@ class CreateTests(DocumentsCase):
         with patch.object(io, '_checkpoint', side_effect=race):
             result = io.create(self.destination, path.name, document)
         self.assertEqual(result.status, 'conflict')
+        self.assertTrue(result.name_collision)
         self.assertEqual(path.read_bytes(), b'external winner')
         self.assertTrue(result.dirty)
+
+    def test_post_create_collision_exception_is_not_a_name_retry(self):
+        document = self.portable(self.category())
+        def fail(phase):
+            if phase == 'after-create':
+                raise FileExistsError('after publication')
+        with patch.object(io, '_checkpoint', side_effect=fail):
+            result = io.create(self.destination, 'published.pcs-category', document)
+        self.assertEqual(result.status, 'conflict')
+        self.assertFalse(result.name_collision)
+        self.assertEqual(io.load(self.destination, 'published.pcs-category').document, document)
+
+    def test_pre_create_temporary_collision_is_not_a_destination_name_retry(self):
+        document = self.portable(self.category())
+        def fail(phase):
+            if phase == 'temporary-written':
+                raise FileExistsError('temporary conflict')
+        with patch.object(io, '_checkpoint', side_effect=fail):
+            result = io.create(self.destination, 'unpublished.pcs-category', document)
+        self.assertEqual(result.status, 'conflict')
+        self.assertFalse(result.name_collision)
+        self.assertFalse((self.destination/'unpublished.pcs-category').exists())
 
     def test_read_rejects_wrong_extension_and_create_missing_parent(self):
         result = io.create(self.destination, 'wrong.pcs-workflow', self.portable(self.category()))

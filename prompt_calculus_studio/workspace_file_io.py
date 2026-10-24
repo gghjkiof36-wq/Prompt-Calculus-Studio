@@ -9,6 +9,42 @@ from .local_documents import assets, io, paths, schema
 from .workspace_locations import KINDS, INTERNAL_NAMES
 
 
+def name_collision(error):
+    return isinstance(error, FileExistsError) or getattr(error, 'code', '') == 'exists'
+
+
+class TargetNameCollision(ValueError):
+    """An exclusive destination check/create failed before publication."""
+
+
+def check_target_available(target):
+    try:
+        return paths.checked(target.parent, target.name, new=True)
+    except (ValueError, OSError) as error:
+        if name_collision(error):
+            raise TargetNameCollision(str(error)) from error
+        raise
+
+
+def available_targets(target, *, folder=False, limit=10000):
+    """Try the requested name, then numbered siblings; publication stays exclusive."""
+    stem, suffix = (target.name, '') if folder else (target.stem, target.suffix)
+    for number in range(limit):
+        candidate = target
+        if number:
+            tail = f'({number}){suffix}'
+            # Keep Windows' filename limit when the original already fills it.
+            room = 510-len(tail.encode('utf-16-le'))
+            prefix = stem.encode('utf-16-le')[:room].decode('utf-16-le', errors='ignore')
+            candidate = target.with_name(prefix+tail)
+        try:
+            yield paths.checked(candidate.parent, candidate.name, new=True)
+        except (ValueError, OSError) as error:
+            if not name_collision(error):
+                raise
+    raise ValueError('同名檔案過多，尚未找到可用名稱；原件已保留。')
+
+
 def named_path(parent, name, suffix=''):
     if not name or '/' in name or '\\' in name:
         raise ValueError('請輸入名稱，不含路徑。')
@@ -88,7 +124,7 @@ class PublishedMarkdownError(OSError):
 
 
 def create_markdown(target, raw):
-    paths.checked(target.parent, target.name, new=True)
+    check_target_available(target)
     temporary = target.with_name('.pcs-new-' + uuid.uuid4().hex + '.tmp')
     published = False
     try:
@@ -96,8 +132,11 @@ def create_markdown(target, raw):
             stream.write(raw)
             stream.flush()
             os.fsync(stream.fileno())
-        paths.checked(target.parent, target.name, new=True)
-        os.link(temporary, target)
+        check_target_available(target)
+        try:
+            os.link(temporary, target)
+        except FileExistsError as error:
+            raise TargetNameCollision(str(error)) from error
         published = True
     finally:
         try:

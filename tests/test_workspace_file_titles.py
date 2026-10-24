@@ -87,6 +87,47 @@ class FileTitleTests(unittest.TestCase):
         editor.cancel()
         self.assertTrue(path.exists())
 
+    def test_sidebar_name_collision_stays_below_input_and_keeps_originals(self):
+        original = (self.root/'Notes.md').read_bytes()
+        for action, size, width in (('create', 12, 320), ('create', 18, 220), ('rename', 18, 320)):
+            with self.subTest(action=action, ui_size=size, sidebar_width=width):
+                self.w.appearance_preview['ui_size'] = size
+                self.w.style_shell()
+                self.w.sidebar_preference = True
+                self.w.sidebar_width = width
+                self.w.sync_sidebar()
+                self.w.select_path(self.root if action == 'create' else self.root/'Empty.md')
+                if action == 'create':
+                    self.w.commands.new('markdown', self.w.commands.context('toolbar'))
+                else:
+                    self.w.commands.files.run('rename', self.w.commands.context('tree', self.w.tree.currentItem()))
+                editor = self.w.commands.files.inline
+                editor.name.setText('Notes')
+                self.events()
+                QTest.keyClick(editor.name, Qt.Key.Key_Return)
+                self.events()
+                self.assertFalse(editor.done)
+                self.assertEqual(editor.name.text(), 'Notes')
+                self.assertTrue(editor.name.hasFocus())
+                self.assertEqual(editor.error.text(), '同名檔案已存在。')
+                self.assertGreater(editor.error.geometry().top(), editor.name.geometry().bottom())
+                self.assertGreaterEqual(editor.error.height(), editor.error.heightForWidth(editor.error.width()))
+                self.assertLessEqual(editor.error.geometry().bottom(), editor.height())
+                self.assertEqual((self.root/'Notes.md').read_bytes(), original)
+                self.assertEqual((self.root/'Empty.md').read_bytes(), b'')
+                if action == 'create' and size == 12:
+                    editor.name.setText('改名後的新文件')
+                    QTest.keyClick(editor.name, Qt.Key.Key_Return)
+                    self.events()
+                    self.assertIsNone(self.w.commands.files.inline)
+                    self.assertTrue((self.root/'改名後的新文件.md').exists())
+                    self.assertEqual((self.root/'Notes.md').read_bytes(), original)
+                else:
+                    QTest.keyClick(editor.name, Qt.Key.Key_Escape)
+                    self.events()
+                    self.assertIsNone(self.w.commands.files.inline)
+                    self.assertEqual((self.root/'Empty.md').read_bytes(), b'')
+
     def test_management_first_paint_matches_final_geometry_after_all_tabs_closed(self):
         from prompt_calculus_studio.document_host import DocumentBrowser
         watches = []
