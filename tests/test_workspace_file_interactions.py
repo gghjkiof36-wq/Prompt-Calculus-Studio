@@ -506,14 +506,36 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
         self.assertTrue(self.w.close())
 
     def test_missing_file_retains_live_edits_and_save_as_recovers_then_closes(self):
+        from prompt_calculus_studio.draft_cache import DraftCache
         from prompt_calculus_studio.local_documents import io
+        from prompt_calculus_studio import materials
+        from prompt_calculus_studio.workspace_recovery import key
         tab = self.open('Street.pcs-workflow')
+        host = tab.host
+        use = next(iter(host.state['uses']))
+        before_prompt = materials.canvas_node(host.state, use)['prompt']
+        expected = 'live draft survives an externally deleted file'
+        self.assertTrue(host.document_operations.commit(
+            lambda state: materials.edit_canvas(state, use, {'prompt': expected})))
         original = tab.path
         original.unlink()  # Simulated external deletion of this synthetic file.
         self.assertFalse(self.w.save_tab(tab))
         self.assertIn('Ctrl+Shift+S', tab.document.error)
         self.assertTrue(tab.dirty)
-        self.assertFalse(self.w.close())
+        notices = []
+        with patch.object(self.w, 'show_notice', notices.append):
+            self.assertFalse(self.w.close())
+        self.assertTrue(self.w.isVisible())
+        self.assertIn(tab.key, self.w.tabs_by_key)
+        self.assertIs(tab.host, host)
+        self.assertTrue(any('Ctrl+Shift+S' in notice for notice in notices))
+        # A new cache reader proves preservation is on disk, not just in memory.
+        cached = DraftCache(self.w.data).read(key(original))
+        self.assertEqual(materials.canvas_node(cached['state'], use)['prompt'], expected)
+        host.canvas.undo()
+        self.assertEqual(materials.canvas_node(host.state, use)['prompt'], before_prompt)
+        host.canvas.redo()
+        self.assertEqual(materials.canvas_node(host.state, use)['prompt'], expected)
         before = set(self.root.glob(original.name+'.recovery-*'))
         self.assertFalse(self.w.save_tab(tab))
         self.assertEqual(set(self.root.glob(original.name+'.recovery-*')), before)
@@ -521,9 +543,62 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
                                           name='Recovered', directory=self.root)
         self.assertEqual(target, self.root/'Recovered.pcs-workflow')
         self.assertFalse(original.exists())
-        self.assertEqual(io.load(self.root, target.name).document['document_id'], tab.document.key)
+        saved = io.load(self.root, target.name).document
+        self.assertEqual(saved['document_id'], tab.document.key)
+        copied_use = tab.document.identity_maps['scene'][use]
+        self.assertEqual(materials.canvas_node(saved['payload']['state'], copied_use)['prompt'], expected)
+        self.assertIsNone(DraftCache(self.w.data).read(key(original)))
         self.assertFalse(tab.dirty)
         self.assertTrue(self.w.close())
+
+    def test_missing_markdown_keeps_shared_editors_and_saves_as_without_recreating_source(self):
+        import base64
+        from prompt_calculus_studio.draft_cache import DraftCache
+        from prompt_calculus_studio.workspace_recovery import key
+        tab = self.open('Notes.md')
+        other = self.w.duplicate_view(tab, True)
+        original, before = tab.path, tab.widget.encoded()
+        tab.widget.insertPlainText('unsaved markdown draft ')
+        expected = tab.widget.encoded()
+        buffer = tab.widget.buffer
+        original.unlink()
+        self.assertFalse(self.w.close_tab(self.w.index_of(tab.key), pane=self.w.pane_for(tab)))
+        self.assertIs(tab.widget.buffer, buffer)
+        self.assertIs(other.widget.buffer, buffer)
+        self.assertIn(tab.key, self.w.tabs_by_key)
+        self.assertIn(other.key, self.w.tabs_by_key)
+        cached = DraftCache(self.w.data).read(key(original))
+        self.assertEqual(base64.b64decode(cached['raw']), expected)
+        # Even with an older backup present, a failed new write cannot authorize close.
+        tab.widget.insertPlainText('newer ')
+        latest = tab.widget.encoded()
+        with patch.object(self.w.close_recovery.cache, 'write', side_effect=OSError('recovery unavailable')):
+            self.assertFalse(self.w.close())
+        self.assertTrue(self.w.isVisible())
+        self.assertEqual(other.widget.encoded(), latest)
+        tab.widget.undo()
+        self.assertEqual(tab.widget.encoded(), before)
+        tab.widget.redo()
+        self.assertEqual(tab.widget.encoded(), latest)
+        target = self.w.commands.files.run('save_as', self.context(tab=tab),
+                                          name='Recovered', directory=self.root)
+        self.assertEqual(target, self.root/'Recovered.md')
+        self.assertEqual(target.read_bytes(), latest)
+        self.assertFalse(original.exists())
+        self.assertEqual(other.path, target)
+        self.assertIsNone(DraftCache(self.w.data).read(key(original)))
+        self.assertTrue(self.w.close())
+
+    def test_explicit_discard_can_close_missing_draft_without_recreating_source(self):
+        tab = self.open('Notes.md')
+        tab.widget.insertPlainText('explicitly discarded draft ')
+        original = tab.path
+        original.unlink()
+        with patch.object(self.w.close_recovery, 'preserve', wraps=self.w.close_recovery.preserve) as preserve:
+            self.assertTrue(self.w.close_tab(self.w.index_of(tab.key), decision='discard'))
+            preserve.assert_not_called()
+        self.assertNotIn(tab.key, self.w.tabs_by_key)
+        self.assertFalse(original.exists())
 
 
 if __name__ == '__main__':

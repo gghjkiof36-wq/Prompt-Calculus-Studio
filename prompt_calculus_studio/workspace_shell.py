@@ -1104,12 +1104,12 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                     if decision == 'save' and not dialog.save(False):return False
                     dialog.reject()  # Normal dismissal persists its isolated draft.
             if not document.flush_views():
-                return self.close_recovery.preserve(tab) is not None
+                return self.close_recovery.prepare_close(tab)
             document.update_dirty()
         if not tab.dirty:return True
         if not getattr(tab.document or tab.widget, 'operation_error', False) and self.save_tab(tab, quiet=True):return True
         # A memory-only copy does not survive closing the application.
-        return self.close_recovery.preserve(tab) is not None
+        return self.close_recovery.prepare_close(tab)
 
 
 

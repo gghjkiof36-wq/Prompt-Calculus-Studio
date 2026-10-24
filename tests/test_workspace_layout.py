@@ -84,16 +84,23 @@ class WorkspaceLayoutTests(unittest.TestCase):
         self.assertIs(note.widget.document(), duplicate.widget.document())
 
     def test_close_side_saves_each_file_once_and_keeps_conflicting_views(self):
+        import base64
+        from prompt_calculus_studio.draft_cache import DraftCache
+        from prompt_calculus_studio.workspace_recovery import key
         note = self.open('Notes.md')
         duplicate = self.w.duplicate_view(note, True)
         third = self.w.duplicate_view(duplicate)
         clean = self.open('Empty.md', new_tab=True)
         clean.widget.insertPlainText('save this file')
         note.widget.insertPlainText('unsaved local text')
+        expected = note.widget.encoded()
         note.path.write_text('external edit', encoding='utf-8')
         left, right = self.w.panes
         left_keys = [t.key for t in self.ordered(left)]
-        with patch.object(self.w, 'save_tab', wraps=self.w.save_tab) as save:
+        # Retain the conflicting views when neither the source nor a fresh
+        # durable recovery record can be written. Memory alone is insufficient.
+        with patch.object(self.w, 'save_tab', wraps=self.w.save_tab) as save, \
+             patch.object(self.w.close_recovery.cache, 'write', side_effect=OSError('recovery unavailable')):
             self.assertFalse(self.w.close_pane_tabs(right))
         self.assertEqual([c.args[0].path.name for c in save.call_args_list], ['Notes.md', 'Empty.md'])
         self.assertEqual(self.ordered(right), [duplicate, third])
@@ -102,6 +109,14 @@ class WorkspaceLayoutTests(unittest.TestCase):
         self.assertTrue(duplicate.dirty)
         self.assertEqual(note.path.read_text(encoding='utf-8'), 'external edit')
         self.assertEqual(clean.path.read_text(encoding='utf-8'), 'save this file')
+        self.assertIsNone(DraftCache(self.w.data).read(key(note.path)))
+        # An existing source with a durable recovery record can still close.
+        self.assertTrue(self.w.close_pane_tabs(right))
+        self.assertEqual(len(self.w.panes), 1)
+        self.assertEqual(note.widget.encoded(), expected)
+        cached = DraftCache(self.w.data).read(key(note.path))
+        self.assertEqual(base64.b64decode(cached['raw']), expected)
+        self.assertEqual(note.path.read_text(encoding='utf-8'), 'external edit')
 
     def test_last_view_close_removes_the_split_and_empty_home_can_be_closed(self):
         note = self.open('Notes.md')

@@ -64,6 +64,21 @@ class CloseRecovery:
     def get(self, path):
         return self.memory.get(key(path)) or self.cache.read(key(path))
 
+    def prepare_close(self, tab):
+        if self.preserve(tab) is None:
+            return False
+        # Reopening a missing source stops at MissingDocument, before recovery
+        # can attach to an editor. Keep the live draft reachable for Save As.
+        try:
+            available = tab.path.is_file()
+        except OSError:
+            available = False
+        if not available:
+            self.workspace.show_notice('「'+tab.title+'」的原檔已不在原位置。'
+                                       '編輯仍保留，請按 Ctrl+Shift+S 另存後再關閉。')
+            return False
+        return True
+
     def clear(self, path):
         self.memory.pop(key(path), None)
         self.cache.clear(key(path))
