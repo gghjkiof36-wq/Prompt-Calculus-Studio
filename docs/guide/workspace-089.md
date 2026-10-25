@@ -1,26 +1,36 @@
-# 開始使用 0.8.9 Beta2
+# 開始使用 0.8.9 Beta3
 
-[更新內容](../releases/0.8.9/beta.2.md) · [驗證與限制](../releases/0.8.9/validation/beta.2.md)
+[更新內容](../releases/0.8.9/beta.3.md) · [驗證與限制](../releases/0.8.9/validation/beta.3.md)
 
 ## 來源版
 
-將 `PCS-v0.8.9-Beta2-source.zip` 完整解壓到新的資料夾。使用 Windows 64 位元 Python 3.12，在含 `run.py` 的資料夾開啟 PowerShell：
+將 `PCS-v0.8.9-Beta3-source.zip` 完整解壓到新的資料夾。使用 Windows 64 位元 Python 3.12，在含 `run.py` 的資料夾開啟 PowerShell：
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py --v0.8.9-beta.2
+.\.venv\Scripts\python.exe run.py --v0.8.9-beta.3
 ```
 
 首次安裝依賴需網路，之後雙擊 `Start.cmd`。首次會開啟「歡迎使用.md」，從裡面的連結進入「入口」資料夾的教材。之後會接續已保存的分頁；關閉歡迎頁後，不會每次強制插回。教材可直接編輯，想保留初始內容可先複製文件。
 
-本版公開來源與三種配套，沒有 Windows EXE 下載。下載入口見[本次 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta.2)。
+本版公開來源、三種 ComfyUI 配套與 Chrome 連線工具，沒有 PCS 主程式 Windows EXE 下載。下載入口見[本次 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta.3)。
+
+Chrome 對話保存需另下載配套，依[Chrome 設定](chrome-connector.md)完成連接與載入。
 
 ## 內容與資料
 
 預設 `files` 保存新文件，`data` 保存設定、工作區記錄及內部資料；兩者都在程式旁。可從「內容 → 加入本機資料夾」接入既有內容副本。原件不會因加入資料夾而自動複製；在該文件上編輯會保存到它所在的位置。
 
 進階啟動可用 `--root <內容資料夾>` 與 `--data <資料資料夾>` 指定獨立位置。`PROMPT_STUDIO_DATA` 亦可指定資料位置；內容資料夾須放在資料目錄外。
+
+沿用舊資料時，先關閉舊版並保留備份，再以原 `files`／`data` 的絕對路徑啟動：
+
+```powershell
+.\.venv\Scripts\python.exe run.py --v0.8.9-beta.3 --root "D:/PCS-data/files" --data "D:/PCS-data/data"
+```
+
+請把範例路徑換成自己的位置；這會直接編輯原資料，不會自動複製。
 
 ## 先試一次完整操作
 
@@ -61,7 +71,7 @@ PCS、ComfyUI 後端與工作流網頁仍須保持開啟。這個順序只協調
 
 保留舊程式、舊擴充及原資料。先以新的資料目錄和內容副本使用 0.8.9，不讓新舊程式同時寫入同一份資料。完整舊資料庫導入仍有驗證限制；這個啟動器不會自行轉換或刪除原安裝。
 
-舊匯入輸出不自動清理，需重匯另存並保留手改內容。大型文件及異常退出的剩餘限制見[本版摘要](../releases/0.8.9/validation/beta.2.md)。
+舊匯入輸出不自動清理，需重匯另存並保留手改內容。大型文件及異常退出的剩餘限制見[本版摘要](../releases/0.8.9/validation/beta.3.md)。
 
 ## 筆記範圍與閱讀更新
 
