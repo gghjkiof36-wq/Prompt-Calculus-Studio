@@ -71,6 +71,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, help='Content folder; defaults to files beside the program.')
     parser.add_argument('--data', type=Path, help='Application data; defaults to PROMPT_STUDIO_DATA or data beside the program.')
+    parser.add_argument('--choose-workspace', action='store_true', help='Choose and remember an existing PCS folder.')
     parser.add_argument('--v0.8.9-alpha', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--v0.8.9-beta', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--v0.8.9-beta.2', action='store_true', help=argparse.SUPPRESS)
@@ -84,11 +85,30 @@ def main():
     if args.smoke_comfy_url and not args.smoke_test:
         parser.error('--smoke-comfy-url requires --smoke-test')
     base = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
-    args.data = (args.data or Path(os.environ.get('PROMPT_STUDIO_DATA', base/'data'))).absolute()
-    if args.root is None:
-        args.root = base/'files'
-        if not args.check:
-            args.root.mkdir(exist_ok=True)
+    from prompt_calculus_studio import workspace_profile
+    app = None
+    if args.choose_workspace:
+        if args.root or args.data or args.check or args.smoke_test:
+            parser.error('--choose-workspace cannot be combined with explicit folders or diagnostics')
+        from PySide6.QtWidgets import QApplication
+        app = QApplication(sys.argv)
+        selected = workspace_profile.choose(base)
+        if selected is None:
+            return 0
+        args.root, args.data = selected
+    else:
+        try:
+            args.root, args.data = workspace_profile.locations(base, root=args.root, data=args.data,
+                env_data=os.environ.get('PROMPT_STUDIO_DATA'))
+        except (OSError, ValueError) as error:
+            if args.check or args.smoke_test:
+                raise
+            from PySide6.QtWidgets import QApplication, QMessageBox
+            app = QApplication(sys.argv)
+            QMessageBox.warning(None, '無法開啟資料', str(error))
+            return 2
+    if not args.check and args.root == base/'files':
+        args.root.mkdir(exist_ok=True)
     if args.smoke_test and args.data.exists() and any(args.data.iterdir()):
         raise RuntimeError('Diagnostics require a new, empty data directory.')
     os.environ['PROMPT_STUDIO_DATA'] = str(args.data.absolute())
@@ -107,7 +127,7 @@ def main():
     from PySide6.QtWidgets import QApplication, QMessageBox
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QFont, QIcon
-    app = QApplication(sys.argv)
+    app = app or QApplication(sys.argv)
     app.setApplicationName('Prompt Calculus Studio')
     app.setOrganizationName('Local Tools')
     app.setFont(QFont('Microsoft JhengHei UI', 12))
@@ -119,6 +139,13 @@ def main():
     if not lock.tryLock(100):
         QMessageBox.information(None, 'Prompt Calculus Studio', '這個分頁檢視資料夾已在另一個視窗開啟。')
         return 0
+    if args.choose_workspace:
+        try:
+            workspace_profile.remember(base, args.root, args.data)
+        except (OSError, ValueError) as error:
+            lock.unlock()
+            QMessageBox.warning(None, '無法記住資料位置', str(error))
+            return 2
     from prompt_calculus_studio.workspace_startup import StartupProgress
 
     def error(kind, value, traceback_):

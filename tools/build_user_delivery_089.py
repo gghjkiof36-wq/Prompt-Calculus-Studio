@@ -105,6 +105,51 @@ def verify_desktop(desktop):
     return json.loads((desktop/'BUILD_INFO.json').read_text(encoding='utf-8'))
 
 
+def make_library(root):
+    """Author editable category documents, never merge over a user's library."""
+    from prompt_calculus_studio import core, composition, materials, prompt_materials, prompt_groups
+    from prompt_calculus_studio.local_documents import category, io
+    root.mkdir()
+    catalog = json.loads((TEMPLATES/'materials.json').read_text(encoding='utf-8'))
+    for spec in catalog['categories']:
+        state = core.initial_state()
+        state.update(items=[], modules=[], dictionary={})
+        state['workspaces'][0].update(fixed=[], picks={})
+        owner = materials.add_category(state, spec['name'])
+        ids = []
+        for name, prompt in spec['entries']:
+            node = prompt_materials.new('text', name)
+            node.update(prompt=prompt, content_kind=spec['kind'])
+            ids.append(materials.save(state, dict(name=name, prompt=prompt, module=owner,
+                content_kind=spec['kind'], composition=node, notes='可直接修改、複製或加入自己的組合。')))
+        for number, selected in enumerate((ids[:3], ids[3:]), 1):
+            name = f'{spec["name"]}組合 {number}'
+            node = prompt_materials.new('combination', name)
+            node['combination']['modules'] = [composition.clone_node(
+                composition.prototype(materials.item(state, ident))) for ident in selected]
+            materials.save(state, dict(name=name, module=owner, prompt='', content_kind=spec['kind'],
+                composition=node, material_type='combination', notes='三個素材的獨立副本，可自由替換。'))
+        name = spec['name']+'流程'
+        node = prompt_materials.new('flow', name)
+        groups = [prompt_groups.new_group(title, prompt, content_kind=spec['kind'])
+                  for title, prompt in spec['flow']]
+        node['sequence'].update(mode='increment', start=groups[0]['id'],
+                                selected=groups[0]['id'], groups=groups)
+        materials.save(state, dict(name=name, module=owner, prompt='', content_kind=spec['kind'],
+            composition=node, material_type='flow', notes='依序切換三個階段；不會自動呼叫模型。'))
+        filename = spec['name']+'.pcs-category'
+        result = io.create(root, filename, category.from_state(state, owner))
+        if result.status != 'saved':
+            raise RuntimeError(result)
+        loaded = category.to_state(io.load(root, filename).document)
+        assert len(loaded['items']) == 9
+        assert {item['material_type'] for item in loaded['items']} == {'text', 'combination', 'flow'}
+        for recovery in io.recovery_files(root, filename):
+            if recovery.suffix != '.candidate' or recovery.read_bytes() != (root/filename).read_bytes():
+                raise ValueError('Unexpected recovery content in new library.')
+            recovery.unlink()
+
+
 def verify_learning(root):
     from prompt_calculus_studio.local_documents import io, workflow, category
     from prompt_calculus_studio.canvas_starter import guide
@@ -149,12 +194,16 @@ def assemble_learning(content):
         shutil.copy2(ROOT/'docs/images'/name, lessons/'媒體'/name)
     make_materials(lessons)
     verify_learning(lessons)
+    make_library(content/'素材')
+    shutil.copytree(TEMPLATES/'Templates', content/'筆記模板')
+    shutil.copytree(TEMPLATES/'Reference', content/'參考')
+    shutil.copytree(ROOT/'tests/fixtures/markdown_compatibility', content/'Markdown 相容性測試')
     for target in re.findall(r'!?\[[^\]]*\]\(([^)]+)\)', (content/'歡迎使用.md').read_text(encoding='utf-8')):
         if '://' not in target and not (content/target).is_file():
             raise ValueError('Missing welcome reference: '+target)
 
 
-def build(desktop, output):
+def build(desktop, output, connector=None):
     from package_documents import package_manifest
     desktop, output = desktop.resolve(), output.absolute()
     if output.exists():
@@ -168,6 +217,23 @@ def build(desktop, output):
     output.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(desktop, output)
     assemble_learning(output/'files')
+    if connector:
+        connector = Path(connector).resolve()
+        manifest = json.loads((connector/'PACKAGE_MANIFEST.json').read_text(encoding='utf-8'))
+        expected = manifest['files']
+        actual = {p.relative_to(connector).as_posix() for p in connector.rglob('*') if p.is_file()}
+        if actual != set(expected) | {'PACKAGE_MANIFEST.json'}:
+            raise ValueError('Connector package has unexpected or missing files.')
+        for name, checksum in expected.items():
+            path = connector/name
+            if path.is_symlink() or path.is_junction() or sha(path) != checksum:
+                raise ValueError('Connector package differs from its manifest: '+name)
+        shutil.copytree(connector, output/'connector-package')
+    (output/'沿用既有資料.bat').write_bytes(
+        b'@echo off\r\nsetlocal\r\ncd /d "%~dp0"\r\nstart "" /wait "%~dp0PromptCalculusStudio.exe" --choose-workspace\r\nexit /b %errorlevel%\r\n')
+    (output/'啟動PCS.bat').write_bytes(
+        b'@echo off\r\nstart "" "%~dp0PromptCalculusStudio.exe"\r\n')
+    shutil.copy2(TEMPLATES/'Reference/素材使用.md', output/'使用說明.md')
     package_manifest(output, 'desktop')
     verify_desktop(output)
     full_zip = output.with_name(output.name+'.zip')
@@ -186,5 +252,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--desktop', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--connector', type=Path, help='Verified PCS-Chrome-Connector folder.')
     args = parser.parse_args()
-    build(args.desktop, args.output)
+    build(args.desktop, args.output, args.connector)

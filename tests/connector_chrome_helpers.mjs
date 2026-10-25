@@ -2,6 +2,7 @@ import {mkdtemp,rm,readFile,mkdir,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
+import {closedRootAutomation} from './connector_closed_root_helpers.mjs';
 
 export async function extensionFixture(body,{width=1100,height=900,waitForEntry=true}={}) {
   const {chromium}=await import(pathToFileURL(process.env.PCS_PLAYWRIGHT_MODULE).href);
@@ -18,6 +19,7 @@ export async function extensionFixture(body,{width=1100,height=900,waitForEntry=
     executablePath:process.env.PCS_EXTENSION_EXECUTABLE||process.env.PCS_CHROME_EXECUTABLE,
     viewport:{width,height},colorScheme:'dark',acceptDownloads:true,downloadsPath:downloadPath,
     args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
+  let stopAutomation=async()=>{};
   try{
     const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker',{timeout:10000});
     await worker.evaluate(()=>{
@@ -63,6 +65,7 @@ export async function extensionFixture(body,{width=1100,height=900,waitForEntry=
       return route.abort();
     });
     const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+    stopAutomation=await closedRootAutomation(context,page);
     await page.goto('https://chatgpt.com/c/synthetic-kyoto');
     if(waitForEntry)await page.locator('[data-pcs-ui="entry"]').waitFor();
     const capture=()=>worker.evaluate(async()=>{
@@ -78,6 +81,6 @@ export async function extensionFixture(body,{width=1100,height=900,waitForEntry=
       if(!path.resolve(item.path).startsWith(path.resolve(downloadPath)+path.sep))throw new Error(JSON.stringify({message:'Download escaped its isolated test directory',actual:item.path,expected:downloadPath}));
       return {...item,text:await readFile(item.path,'utf8')};
     };
-    return {context,page,worker,errors,capture,download,close:async()=>{await context.close();await cleanup();}};
-  }catch(error){await context.close();await cleanup();throw error;}
+    return {context,page,worker,errors,capture,download,close:async()=>{await stopAutomation();await context.close();await cleanup();}};
+  }catch(error){await stopAutomation();await context.close();await cleanup();throw error;}
 }

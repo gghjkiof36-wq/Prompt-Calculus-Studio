@@ -115,7 +115,7 @@ test('rich DOM preservation and actual in-page extension', {skip: !enabled}, asy
         assert.equal(await live.page.getByText('部分圖表或附件僅保留來源連結',{exact:true}).count(),0);
         await live.page.getByRole('button',{name:'PCS：此則訊息',exact:true}).nth(2).click();
         await live.page.getByText('部分圖表或附件僅保留來源連結',{exact:true}).waitFor();
-        assert.deepEqual(await live.page.locator('[data-pcs-ui="menu"]').getByRole('button').allTextContents(),['儲存到 PCS','下載 JSON','下載 Markdown']);
+        assert.deepEqual(await Promise.all((await live.page.locator('[data-pcs-ui="menu"]').getByRole('button').all()).map(button=>button.textContent())),['儲存到 PCS','下載 JSON','下載 Markdown']);
         assert.ok(!JSON.stringify((await live.capture()).result.capture).includes('部分圖表或附件僅保留來源連結'));
         await live.page.getByRole('button',{name:'PCS：此則訊息',exact:true}).first().click();
         if(process.env.PCS_SCREENSHOT_DIR){

@@ -9,6 +9,8 @@ __pycache__/
 build/
 dist/
 qa/
+.codegraph/
+/PCS-WORKSPACE.json
 
 # Local AI instructions
 **/AGENTS.md

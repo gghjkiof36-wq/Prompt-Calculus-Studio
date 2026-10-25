@@ -2,6 +2,10 @@
 
 使用 Windows 64 位元 Python 3.12；依[開始使用](../guide/getting-started.md)準備依賴。主分支的版本描述在 `prompt_calculus_studio/releases.py`。
 
+Beta3 本機完整包使用 `build_windows.py --v0.8.9-beta.3`，產生全新的 `build/v0.8.9-beta.3/PromptCalculusStudio`。再以 `tools/build_user_delivery_089.py --desktop <純程式包> --output <新交付目錄> --connector <已驗證的連接器目錄>` 組入教材、素材、BAT 與 Chrome 套件，重新產生 manifest。不要對已有個人資料的資料夾執行組包。
+
+`run_workspace.py` 的 `--choose-workspace` 透過原生資料夾選擇器沿用舊版 `files` 與 `data`，在新程式旁原子寫入 `PCS-WORKSPACE.json`；取得資料鎖後才記住選擇。設定只保存已驗證的絕對目錄，不搬移內容；原位置失效時回報錯誤，不悄悄建立空白替代品。明確 `--root`／`--data` 及 `PROMPT_STUDIO_DATA` 保持既有啟動優先序。可從下一版選中前一版程式目錄，沿用已記住的原始位置。
+
 ```powershell
 .\.venv\Scripts\python.exe -m pip install PyInstaller
 .\.venv\Scripts\python.exe build_windows.py --v0.8.9-alpha.1

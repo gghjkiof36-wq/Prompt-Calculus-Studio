@@ -158,7 +158,7 @@
   function host(kind) {
     const element = document.createElement("span");
     element.dataset.pcsUi = kind;
-    const root = element.attachShadow({ mode: "open" });
+    const root = element.attachShadow({ mode: kind === "menu" || kind === "submenu" ? "closed" : "open" });
     const style = document.createElement("style");
     style.textContent = CSS + ":host([hidden]){display:none!important}.receipt{display:flex;align-items:center;gap:4px}.receipt span{flex:1;min-width:0}.receipt button{display:flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;height:32px;padding:7px}.receipt svg{width:18px;height:18px;pointer-events:none}";
     root.append(style);
@@ -1224,7 +1224,8 @@
         }
         return;
       }
-      const target = event.composedPath().find((node) => node instanceof HTMLButtonElement), level = destination?.levels.find((item) => event.composedPath().includes(item.host.element));
+      const level = destination?.levels.find((item) => event.composedPath().includes(item.host.element));
+      const target = (level?.host.root || popup.root).activeElement || event.composedPath().find((node) => node instanceof HTMLButtonElement);
       const inside = level || event.composedPath().includes(popup.element);
       if (inside && event.key === "ArrowRight" && submenuOpeners.has(target)) {
         event.preventDefault();

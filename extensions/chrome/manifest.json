@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PCS 對話轉移",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "選取 ChatGPT 對話，儲存到 Prompt Calculus Studio 或下載檔案。",
   "minimum_chrome_version": "116",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxAfnyiEPaGMwHkJuRmYl8h4A8eZCXTALGzTV5ckI9R4SZGFuS09rQYMS14W/C4BnFUkpaPELBKfuWEZ+pRrpJLokeTCCUjjztrRimxETaGxvjtYU/AqJRG29mD/dzydgmOXrwnKpsGsirwPWh9yXkYa0H4WExRDgRtxv98f/EQVoUZQbrhljqK7F8HOdJIyH/xdRb0JX84VwOxS+VcpO2zAvTR0QwFK6E/GLH/3LpI3jFzQ5dygCyZJ4FUSH44qBAAB2nPxLfHVIjajGPaIfMwGH/gEOjk7E2Cf3GnfIEgHr4+X0LZMXWiIiIFS6tuW1/ksn/vV5wNLwrmHPWgEcRQIDAQAB",

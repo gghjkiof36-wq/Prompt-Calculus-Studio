@@ -15,7 +15,8 @@ const nativeReady=(worker,field)=>worker.evaluate(field=>new Promise((resolve,re
 const calls=(worker,command)=>worker.evaluate(command=>testNative.calls.filter(item=>item.command===command),command);
 async function saved(live,count=1){
   await live.worker.evaluate(count=>new Promise((resolve,reject)=>{const timeout=setTimeout(()=>{clearInterval(timer);reject(new Error('Saved receipt not recorded'));},5000);const timer=setInterval(async()=>{const records=(await chrome.storage.local.get('recent')).recent||[];if(records.filter(record=>record.state==='committed').length>=count){clearInterval(timer);clearTimeout(timeout);resolve();}},10);}),count);
-  await live.page.waitForFunction(()=>{const root=document.querySelector('[data-pcs-ui="menu"]')?.shadowRoot;const save=[...root.querySelectorAll('button')].find(button=>button.textContent==='儲存到 PCS');return save&&!save.disabled&&!root.querySelector('.status');});
+  await live.page.getByRole('button',{name:'儲存到 PCS',exact:true}).and(live.page.locator('button:enabled')).waitFor();
+  await live.page.locator('[data-pcs-ui="menu"] .status').waitFor({state:'hidden'});
 }
 async function choose(live){await live.page.getByRole('button',{name:'PCS：此則訊息',exact:true}).nth(1).click();await button(live.page,'儲存到 PCS').hover();await live.page.getByRole('menuitem',{name:'目前工作區',exact:true}).waitFor();}
 
@@ -26,7 +27,7 @@ test('actual MV3 cascades preserve the first menu; hover and arrows only browse'
   const live=await extensionFixture(html),{page,worker}=live;page.setDefaultTimeout(6000);
   try{
     await choose(live);
-    assert.deepEqual(await page.locator('[data-pcs-ui="menu"]').getByRole('button').allTextContents(),['儲存到 PCS','下載 JSON','下載 Markdown']);
+    assert.deepEqual(await Promise.all((await page.locator('[data-pcs-ui="menu"]').getByRole('button').all()).map(button=>button.textContent())),['儲存到 PCS','下載 JSON','下載 Markdown']);
     assert.equal(await button(page,'下載紀錄').count(),0);
     assert.equal(await button(page,'下載 JSON').isVisible(),true);
     assert.equal(await page.getByRole('combobox').count(),0);
@@ -53,7 +54,7 @@ test('actual MV3 cascades preserve the first menu; hover and arrows only browse'
     const body=Buffer.concat((await calls(worker,'chunk')).map(value=>Buffer.from(value.data,'base64')));assert.deepEqual(JSON.parse(body.toString()).messages.map(value=>value.id),['two']);
     assert.equal(await submenus(page).count(),0);assert.equal(await button(page,'查詢結果').count(),0);
     await worker.evaluate(()=>testNative.state='committed');await saved(live);
-    assert.deepEqual(await page.locator('[data-pcs-ui="menu"]').getByRole('button').allTextContents(),['儲存到 PCS','下載 JSON','下載 Markdown']);
+    assert.deepEqual(await Promise.all((await page.locator('[data-pcs-ui="menu"]').getByRole('button').all()).map(button=>button.textContent())),['儲存到 PCS','下載 JSON','下載 Markdown']);
     assert.equal(await page.getByText('已保存',{exact:true}).count(),0);assert.equal(await page.getByRole('status').count(),0);
     assert.equal((await calls(worker,'open')).length,0);assert.equal((await calls(worker,'reveal')).length,0);
     assert.equal(await button(page,'開啟文件').count(),0);await page.locator('[data-pcs-ui="entry"]').getByRole('button').click();await button(page,'下載紀錄').click();

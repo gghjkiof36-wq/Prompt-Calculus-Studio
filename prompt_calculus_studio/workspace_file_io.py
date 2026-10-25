@@ -124,6 +124,15 @@ class PublishedMarkdownError(OSError):
 
 
 def create_markdown(target, raw):
+    # Keep the complete parent chain fixed before any private bytes are staged,
+    # through exclusive publication and temporary cleanup. Share the same
+    # Windows boundary used by native documents and attachments.
+    from .local_documents.directory_pin import pinned_target
+    with pinned_target(target.parent, target.name) as pinned:
+        _create_markdown_pinned(pinned, raw)
+
+
+def _create_markdown_pinned(target, raw):
     check_target_available(target)
     temporary = target.with_name('.pcs-new-' + uuid.uuid4().hex + '.tmp')
     published = False

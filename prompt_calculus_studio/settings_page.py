@@ -255,7 +255,7 @@ class SettingsPage(QWidget):
         self.add('explore','探索',self.make_explore_page())
         self.navigation.currentRowChanged.connect(self.navigate)
         self.autosave=QTimer(self); self.autosave.setSingleShot(True); self.autosave.setInterval(350); self.autosave.timeout.connect(self.flush)
-        self.syncing=False; self.entry_appearance=None; self.entry_navigation_position=None
+        self.syncing=False; self.entry_appearance=None; self.entry_navigation_position=None; self.entry_ambient_effect=None
         self.navigation_position=None
         for choice in self.interface.choices.buttons():choice.toggled.connect(self.schedule_save)
         self.configure_navigation('interface')
@@ -426,6 +426,7 @@ class SettingsPage(QWidget):
         self.flush(); self.window.state['settings'].update({k:values[k] for k in keys if k in values})
         if workspace is not None:
             workspace.set_navigation_position(self.entry_navigation_position if restore else 'side')
+            workspace.set_ambient_effect(self.entry_ambient_effect if restore else 'off')
         self.clear_preferences(); self.open('appearance'); self.window.apply_theme(preserve_layout=True); self.window.changed('settings')
 
     def add(self,key,title,widget):
@@ -448,6 +449,8 @@ class SettingsPage(QWidget):
                     workspace=self.window.workspace_owner
                     if self.entry_navigation_position is None:
                         self.entry_navigation_position=workspace.navigation_position
+                    if self.entry_ambient_effect is None:
+                        self.entry_ambient_effect=workspace.ambient_effect
                     self.navigation_position=ComboBox()
                     self.navigation_position.setAccessibleName('入口位置')
                     self.navigation_position.addItem('左側','side')
@@ -518,7 +521,7 @@ class SettingsPage(QWidget):
     def reload_state(self):
         """Discard editors for the old document after an explicit data import."""
         section=self.section
-        self.autosave.stop(); self.clear_preferences(); self.entry_appearance=None; self.entry_navigation_position=None
+        self.autosave.stop(); self.clear_preferences(); self.entry_appearance=None; self.entry_navigation_position=None; self.entry_ambient_effect=None
         if page_ready(self.civitai):
             self.civitai.stop_images(); self.civitai.search_cache.clear(); self.civitai.list.clear(); self.civitai.results=[]; self.civitai.initial_requested=False
             for control,key,default in ((self.civitai.filter_minor,'civitai_filter_minor',True),(self.civitai.nsfw,'civitai_mature',True)):

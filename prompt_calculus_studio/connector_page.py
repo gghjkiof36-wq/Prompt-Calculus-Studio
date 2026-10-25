@@ -1,6 +1,7 @@
 """Download history and direct file actions in the existing Explore area."""
 from datetime import date, datetime, timedelta
 import os
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QProcess, QSize, Qt, QUrl, QTimer
@@ -207,7 +208,8 @@ class ConnectorPage(QWidget):
             self.setup_status.setVisible(bool(text))
 
     def package(self):
-        return Path(os.environ.get('PCS_CONNECTOR_PACKAGE', str(Path(__file__).resolve().parent.parent / 'connector-package')))
+        base = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent.parent
+        return Path(os.environ.get('PCS_CONNECTOR_PACKAGE', str(base / 'connector-package')))
 
     def setup(self):
         if self.setup_dialog is None:

@@ -13,12 +13,13 @@ class SourcePrivacyTests(unittest.TestCase):
             legitimate=['run.py','docs/README.md','comfyui_prompt_calculus_studio/service.py','comfyui_prompt_calculus_studio/web/style.css','tests/fixture.json','docs/images/canvas-public.png',
                         'docs/guide/getting-started.md','docs/releases/README.md','docs/releases/0.8.6/validation/alpha.1.md',
                         'docs/development/architecture.md','docs/archive/0.7.1/getting-started.txt',
-                        'tools/build_user_delivery_089.py','tools/user_delivery/Welcome.md','tools/user_delivery/Tutorial/lesson.md']
+                        'tools/build_user_delivery_089.py','tools/user_delivery/Welcome.md','tools/user_delivery/Tutorial/lesson.md',
+                        'tools/user_delivery/materials.json']
             private=['comfyui_prompt_calculus_studio/local_library.json','comfyui_prompt_calculus_studio/credentials/key.json',
                      'comfyui_prompt_calculus_studio/fault.log','docs/studio.sqlite3','docs/error.log',
                      'AGENTS.md','tests/AGENTS.md','comfyui_prompt_calculus_studio/AGENTS.md',
                      'docs/AGENTS.md','prompt_calculus_studio/AGENTS.md','docs/agent-guides/build-release.md',
-                     'tools/private.md','tools/user_delivery/private.py','files/personal.md']
+                     'tools/private.md','tools/user_delivery/private.py','tools/user_delivery/private.json','files/personal.md']
             for name in legitimate+private:
                 path=root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('synthetic',encoding='utf-8')
             git=['git','-c','safe.directory='+root.as_posix(),'-C',str(root)]

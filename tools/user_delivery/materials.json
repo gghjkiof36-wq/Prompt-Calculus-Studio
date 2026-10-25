@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "categories": [
+    {"name":"場景與環境","kind":"tags","entries":[
+      ["雨後街道","rain-washed city street, reflective pavement, quiet evening"],
+      ["山間木屋","small wooden cabin in a mountain valley, pine forest, distant ridgeline"],
+      ["海岸步道","coastal walking path, weathered rocks, calm sea, open horizon"],
+      ["溫室花園","sunlit greenhouse, leafy plants, glass panels, stone walkway"],
+      ["閱讀角落","cozy reading corner, wooden bookshelf, linen chair, small side table"],
+      ["沙漠遺跡","sandstone ruins in a desert, wind-shaped dunes, distant mountains"]],
+      "flow":[["白天街道","quiet city street, soft daylight, dry pavement"],["雨中街道","city street in light rain, reflections on pavement"],["夜晚街道","quiet city street at night, warm window lights"]]},
+    {"name":"光線與氣氛","kind":"tags","entries":[
+      ["柔和窗光","soft window light, gentle shadows, natural contrast"],
+      ["清晨薄霧","early morning light, thin mist, cool ambient tones"],
+      ["傍晚逆光","golden hour backlight, subtle rim light, long shadows"],
+      ["陰天漫射光","overcast daylight, diffuse lighting, soft tonal transitions"],
+      ["燭光室內","warm candlelight, low-key interior, soft falloff"],
+      ["棚拍柔光","large softbox lighting, clean highlights, controlled shadows"]],
+      "flow":[["清晨","cool dawn light, soft mist"],["正午","neutral daylight, clear shadows"],["傍晚","warm sunset light, long shadows"]]},
+    {"name":"構圖與鏡頭","kind":"tags","entries":[
+      ["寬幅環境","wide establishing shot, low horizon, layered depth"],
+      ["近距離細節","close-up detail, shallow depth of field, clear focal point"],
+      ["俯視排列","top-down view, orderly arrangement, even spacing"],
+      ["對稱構圖","centered subject, symmetrical composition, balanced negative space"],
+      ["引導線","leading lines toward the subject, foreground framing"],
+      ["留白版面","subject placed to one side, generous negative space, clean background"]],
+      "flow":[["全景","wide establishing shot, environment visible"],["中景","medium shot, subject and surroundings balanced"],["細節","close-up detail, isolated focal point"]]},
+    {"name":"材質與風格","kind":"tags","entries":[
+      ["水彩紙感","watercolor illustration, subtle paper texture, soft pigment edges"],
+      ["鉛筆速寫","graphite pencil sketch, fine hatching, off-white paper"],
+      ["自然攝影","natural photography, realistic textures, restrained color grading"],
+      ["平面圖形","flat graphic illustration, simple geometry, limited palette"],
+      ["黏土微縮","handmade clay miniature, tactile surface, soft studio light"],
+      ["建築模型","architectural scale model, matte materials, precise edges"]],
+      "flow":[["線稿","clean line drawing, minimal shading"],["色塊","flat color study, limited palette"],["完成稿","finished illustration, coherent lighting, refined edges"]]},
+    {"name":"研究與學習","kind":"text","entries":[
+      ["定義問題","先用一句話定義要回答的問題，再列出已知條件、未知量與成功判準。不要把假設當成事實。"],
+      ["來源比較","比較各來源的主張、證據、日期與適用範圍。對矛盾之處保留原說法，說明需要補查的資訊。"],
+      ["概念教學","按直觀、簡短公式、具體例子、理解檢查的順序解釋。先確認必要的前置概念，每次只推進一個主要觀念。"],
+      ["公式推導","列出符號與單位，逐步推導公式，說明每一步使用的條件。最後用量綱與極限情況檢查結果。"],
+      ["文獻筆記","整理研究問題、方法、主要結果、限制與可重現的線索。區分作者結論與我的解讀。"],
+      ["實驗紀錄","記錄目的、控制變因、操作步驟、原始觀測與異常。保留未成功的結果，不用事後推測替代觀測。"]],
+      "flow":[["釐清","釐清研究問題、已知條件與需要的證據。"],["分析","根據已取得的資料分析，逐項標出假設及不確定性。"],["檢查","檢查結論是否得到證據支持，列出仍未解答的問題。"]]},
+    {"name":"寫作與整理","kind":"text","entries":[
+      ["摘要整理","保留原文的主要主張、條件、數字與例外，以簡潔段落整理。不要加入原文沒有的因果關係。"],
+      ["改寫與校對","修正不順的語句與用詞，保留作者語氣、專有名詞和數字。重要改動另列理由。"],
+      ["專案簡報","依序說明問題、使用情境、方案、取捨、驗證結果與下一步。讓沒有參與討論的人也能判斷。"],
+      ["角色設定","描述角色的目標、恐懼、能力限制、與其他角色的關係，以及會改變立場的條件。用具體事件呈現。"],
+      ["場景描寫","先確定視角、場所、時間與人物當下目的。選擇能推進情節的感官細節，保持空間關係清楚。"],
+      ["每週回顧","整理本週完成、未完成與改變的假設。說明阻礙原因，選出下週最重要的三件事。"]],
+      "flow":[["大綱","先列主題、讀者與核心訊息，形成可調整的大綱。"],["草稿","依大綱寫出連貫草稿，以具體例子支持重要主張。"],["校對","核對事實、數字、前後一致性與閱讀節奏，刪除重複內容。"]]}
+  ]
+}

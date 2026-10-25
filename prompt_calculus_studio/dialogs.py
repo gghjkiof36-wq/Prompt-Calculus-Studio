@@ -272,6 +272,20 @@ class SettingsDialog(StudioDialog):
         self.confirm_clear_draft.setChecked(s.get("confirm_clear_draft",True)); confirmations_layout.addWidget(self.confirm_clear_draft)
         workspace = getattr(window, 'workspace_owner', None)
         if workspace is not None:
+            from .workspace_ambient import EFFECTS
+            self.ambient_effect = QComboBox()
+            self.ambient_effect.setAccessibleName('畫面動畫')
+            for title, value in EFFECTS:
+                self.ambient_effect.addItem(title, value)
+            self.ambient_effect.setCurrentIndex(self.ambient_effect.findData(workspace.ambient_effect))
+            self.ambient_effect.setToolTip('輕量的畫面點綴。切到背景或啟用減少動畫時暫停。')
+            ambient_form = QFormLayout()
+            ambient_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            ambient_form.addRow('畫面動畫', self.ambient_effect)
+            confirmations_layout.addLayout(ambient_form)
+            appearance.forms.append(ambient_form)
+            self.ambient_effect.currentIndexChanged.connect(
+                lambda: workspace.set_ambient_effect(self.ambient_effect.currentData()))
             self.sidebar_auto_hide=QCheckBox('側欄自動展開與收合')
             self.sidebar_auto_hide.setToolTip('側欄收合時，滑鼠靠近左側即可暫時展開，離開後自動收回。')
             self.sidebar_auto_hide.setChecked(workspace.sidebar_auto_hide)
@@ -291,6 +305,9 @@ class SettingsDialog(StudioDialog):
             self.sidebar_open_delay.valueChanged.connect(save_hover)
             self.sidebar_close_delay.valueChanged.connect(save_hover)
         self.reduce_motion=QCheckBox('減少畫布展開動畫'); self.reduce_motion.setChecked(s.get('reduce_motion',False)); confirmations_layout.addWidget(self.reduce_motion)
+        if workspace is not None:
+            self.reduce_motion.setText('減少動態效果')
+            self.reduce_motion.setToolTip('減少畫布展開動畫，並暫停櫻花、雨滴與雪花。')
         self.connection_style=QComboBox()
         for title,value in [('曲線','curve'),('直線','straight'),('直角 · 中段一次轉折','orthogonal')]: self.connection_style.addItem(title,value)
         self.connection_style.setCurrentIndex(self.connection_style.findData(s.get('connection_style','curve')))
