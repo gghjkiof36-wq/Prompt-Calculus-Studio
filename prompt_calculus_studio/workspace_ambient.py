@@ -104,7 +104,7 @@ class WorkspaceAmbient(QWidget):
         size = r.uniform(3.0, 5.5) if self.effect == 'sakura' else r.uniform(1.2, 2.4)
         speed = r.uniform(18, 30) if self.effect == 'sakura' else r.uniform(14, 25)
         if self.effect == 'rain':
-            size, speed = r.uniform(10, 20), r.uniform(130, 200)
+            size, speed = r.uniform(10, 20), r.uniform(150, 230)
         return Particle(r.uniform(0, max(1, self.width())),
                         r.uniform(0, max(1, self.height())) if scattered else -25,
                         size, speed, r.uniform(0, math.tau), r.uniform(0, 360))

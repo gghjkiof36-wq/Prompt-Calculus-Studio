@@ -8,6 +8,12 @@
 
 Beta3 的 `workspace_ambient.WorkspaceAmbient` 是工作區內的透明裝飾層，預設關閉，不取得焦點、不接收滑鼠事件，也不寫入文件或觸發生成。沿用現有介面個人化表單與 `workspace-ui.json`；還原設定可回到原先選擇。粒子數隨面積調整，上限 36，單一 33 ms 計時器只更新變動區域。背景、隱藏、最小化、應用及 Windows 減少動畫設定會暫停效果。驗證入口為 `test_workspace_ambient.py`。
 
+文件頁排在 surface edge 下方；`WorkspaceSurface.sync_surface` 調整側欄／分割布局並抬高 edge 後，須同步抬高 ambient 與通知，避免下一次 `sync_page` 把文件排到粒子上方。保留原 edge 對文件及 home stack 的順序，不能單把 edge 降到 ambient 下方：那會讓背景 stack 擋住文件輸入。布局同步不重建粒子、不新增計時器。測試涵蓋雙 Markdown 頁、Canvas、側欄收合、分隔調整、頁面切換、可見區域及輸入穿透。
+
+33 ms 僅控制裝飾粒子，不限制 Canvas 操作繪製。Canvas 仍按事件更新；效能驗證應分開記錄操作處理、繪製、提交及實際螢幕呈現。120 Hz 的單幀預算約 8.3 ms，240 Hz 約 4.2 ms；固定 16 ms 的測試輸入或 offscreen paint 次數不能證明高更新率達標。
+
+Workspace 文件各自擁有內容，設定不再顯示舊共用視圖的 `separate_selections` 開關。儲存外觀設定時須保留該歷史欄位及舊草稿，不把隱藏選項轉成資料遷移。管理頁來源清單同時檢查文件種類、副檔名與檔案存在性；保留缺檔頁的恢復模型，不等於把它當可匯入素材。
+
 ## 依用途選元件
 
 | 用途 | 選用 | 原因與接入注意 |

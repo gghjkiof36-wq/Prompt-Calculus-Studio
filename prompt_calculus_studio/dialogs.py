@@ -278,7 +278,7 @@ class SettingsDialog(StudioDialog):
             for title, value in EFFECTS:
                 self.ambient_effect.addItem(title, value)
             self.ambient_effect.setCurrentIndex(self.ambient_effect.findData(workspace.ambient_effect))
-            self.ambient_effect.setToolTip('輕量的畫面點綴。切到背景或啟用減少動畫時暫停。')
+            self.ambient_effect.setToolTip('輕量的畫面點綴，切到背景或啟用減少動態效果時暫停。')
             ambient_form = QFormLayout()
             ambient_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
             ambient_form.addRow('畫面動畫', self.ambient_effect)
@@ -318,9 +318,13 @@ class SettingsDialog(StudioDialog):
             connection_form=QFormLayout();connection_form.setHorizontalSpacing(16);connection_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
             self.connection_style.setMaximumWidth(280)
             connection_form.addRow('畫布連線樣式',self.connection_style);confirmations_layout.addLayout(connection_form);appearance.forms.append(connection_form)
-        self.separate_selections=QCheckBox('分開保存畫布與清單的選擇')
-        self.separate_selections.setChecked(s.get('separate_selections',True)); confirmations_layout.addWidget(self.separate_selections)
-        confirmations_layout.addWidget(label('各自保留選擇與手動稿，素材庫共用。','Subtle',True))
+        # Only the legacy shared list/Canvas window has two selection drafts.
+        # Workspace documents already own their content separately.
+        self.separate_selections = None
+        if workspace is None:
+            self.separate_selections=QCheckBox('分開保存畫布與清單的選擇')
+            self.separate_selections.setChecked(s.get('separate_selections',True)); confirmations_layout.addWidget(self.separate_selections)
+            confirmations_layout.addWidget(label('各自保留選擇與手動稿，素材庫共用。','Subtle',True))
         # Keep labels close to their controls, with one shared reading column.
         for form in appearance.forms:
             for index in range(form.rowCount()):
@@ -395,8 +399,10 @@ class SettingsDialog(StudioDialog):
             if "=" not in line or not all(v.strip() for v in line.split("=",1)):
                 valid=False; break
             key,value = line.split("=",1); dictionary[key.strip()] = value.strip()
-        changed_separation=self.separate_selections.isChecked()!=self.window.state['settings'].get('separate_selections',True)
-        set_selection_separation(self.window.state,self.separate_selections.isChecked())
+        changed_separation=False
+        if self.separate_selections is not None:
+            changed_separation=self.separate_selections.isChecked()!=self.window.state['settings'].get('separate_selections',True)
+            set_selection_separation(self.window.state,self.separate_selections.isChecked())
         if changed_separation:
             self.window.canvas.undo_stack.clear(); self.window.canvas.redo_stack.clear()
         self.window.state["settings"].update(ui_size=self.ui_size.value(),prompt_size=self.prompt_size.value(),

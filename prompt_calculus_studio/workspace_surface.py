@@ -75,7 +75,14 @@ class WorkspaceSurface(QStackedWidget):
         if getattr(self,'_surface_key',None)!=key:
             self._surface_key=key
             self.edge.setGeometry(self.rect())
+            # Stable document pages stack below this edge during sidebar and
+            # pane layout. Keep the edge below decoration as well; raising it
+            # above decoration would let the next page layout cover particles.
             self.edge.raise_()
+            ambient = getattr(w, 'ambient', None)
+            if ambient is not None:
+                ambient.raise_()
+                w.notification.raise_()
             self.edge.update()
             self.update()
 

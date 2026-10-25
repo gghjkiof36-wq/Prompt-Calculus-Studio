@@ -1,5 +1,6 @@
 """The optional decoration preserves editing, input, preferences and idle work."""
 import json
+import copy
 import os
 from pathlib import Path
 import unittest
@@ -8,6 +9,7 @@ from unittest.mock import patch
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtWidgets import QWidget, QCheckBox
 import test_workspace_panes as fixture
 from prompt_calculus_studio.workspace_shell import WorkspaceShell
 
@@ -138,3 +140,65 @@ class WorkspaceAmbientTests(unittest.TestCase):
         effect.system_motion = True
         effect.sync()
         self.assertTrue(effect.timer.isActive())
+
+    def test_sidebar_layout_keeps_documents_below_decoration_without_resetting_it(self):
+        left = self.open('Notes.md')
+        right = self.w.duplicate_view(left, True)
+        self.events()
+        self.w.set_ambient_effect('rain')
+        self.events()
+        effect = self.w.ambient
+        effect.advance()
+        particles = list(effect.particles)
+        # Keep motion fixed so this checks stacking/layout, not random positions.
+        effect.timer.stop()
+        for _ in range(3):
+            self.w.toggle_sidebar()
+            self.events()
+            self.w.pane_split.setSizes([450, 650])
+            self.events()
+            children = [c for c in self.w.workspace_stack.children() if isinstance(c, QWidget)]
+            for tab in (left, right):
+                self.assertLess(children.index(tab.widget), children.index(effect))
+                center = tab.widget.mapTo(effect, tab.widget.rect().center())
+                self.assertTrue(effect.visibleRegion().contains(center))
+            self.assertLess(children.index(effect), children.index(self.w.notification))
+            self.assertEqual(effect.geometry(), self.w.workspace_stack.rect())
+            self.assertEqual(effect.particles, particles)
+        self.assertEqual(len(effect.findChildren(QTimer)), 1)
+
+    def test_canvas_remains_visible_and_decorated_after_sidebar_and_page_changes(self):
+        tab = self.open('Street.pcs-workflow')
+        viewport = tab.host.canvas.view.viewport()
+        self.w.set_ambient_effect('snow')
+        for _ in range(3):
+            self.w.toggle_sidebar()
+            self.events()
+            center = viewport.mapTo(self.w.ambient, viewport.rect().center())
+            self.assertTrue(viewport.isVisible())
+            self.assertTrue(self.w.ambient.visibleRegion().contains(center))
+            hit = self.w.childAt(viewport.mapTo(self.w, viewport.rect().center()))
+            self.assertTrue(hit is viewport or viewport.isAncestorOf(hit))
+            self.w.open_route('settings')
+            self.events()
+            self.w.open_route('home')
+            self.events()
+        self.assertEqual(len(self.w.ambient.findChildren(QTimer)), 1)
+
+    def test_global_preferences_do_not_expose_or_rewrite_legacy_selection_drafts(self):
+        tab = self.open('Street.pcs-workflow')
+        state = tab.host.state
+        state['settings']['separate_selections'] = False
+        state['draft'] = ''
+        before = copy.deepcopy(state)
+        self.w.open_route('settings')
+        self.events()
+        preferences = self.w.utility.settings_page.preferences
+        self.assertFalse(any('分開保存' in box.text() for box in self.w.utility.settings_page.findChildren(QCheckBox)))
+        self.assertEqual(preferences.ambient_effect.toolTip(),
+                         '輕量的畫面點綴，切到背景或啟用減少動態效果時暫停。')
+        preferences.save(accept=False)
+        self.events()
+        for key in ('draft', 'draft_base', 'view_drafts', 'selection_view', 'selections'):
+            self.assertEqual(state.get(key), before.get(key), key)
+        self.assertFalse(state['settings']['separate_selections'])

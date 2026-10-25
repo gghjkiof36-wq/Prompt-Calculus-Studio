@@ -464,6 +464,23 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
         self.assertEqual(io.load(other.parent, other.name).document['payload']['state']['uses'].keys(),
                          (tab.host.state['uses'].keys()-{tab.host.state['output_order'][-1]}))
 
+    def test_candidates_exclude_markdown_and_deleted_open_managers(self):
+        # Same display name must not turn a Markdown note into a manager.
+        note = self.root/'Scene.md'
+        note.write_text('# Scene', encoding='utf-8')
+        self.w.open_path(note, True, new_tab=True)
+        self.events()
+        before = note.read_bytes()
+        path = self.source_tab.path
+        self.assertIn(path, self.transfer.candidates('category'))
+        self.assertNotIn(note, self.transfer.candidates('category'))
+        path.unlink()
+        # The document model can legitimately stay open for draft recovery.
+        self.assertIn(self.source_tab.document, self.w.documents)
+        self.assertNotIn(path, self.transfer.candidates('category'))
+        self.assertIn(self.root/'Action.pcs-category', self.transfer.candidates('category'))
+        self.assertEqual(note.read_bytes(), before)
+
     def test_deleted_canvas_and_commit_failure_are_atomic_and_notification_is_single_nonmodal(self):
         tab = self.target_tab()
         cid = next(iter(tab.host.canvas.data()['canvases']))

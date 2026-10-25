@@ -8,7 +8,7 @@ from PySide6.QtCore import QObject, QPointF, QRectF
 from . import composition, materials, prompt_materials, multi_output
 from .core import uid
 from .local_documents import assets, io, paths, schema
-from .workspace_locations import path_key
+from .workspace_locations import KINDS, path_key
 
 
 @dataclass
@@ -99,7 +99,11 @@ class WorkspaceMaterials(QObject):
             except (ValueError, OSError):
                 continue
         for document in self.w.documents:
-            if document.kind == kind: found[path_key(document.path)] = document.path
+            # Open models can outlive an externally deleted/renamed file for
+            # draft recovery. They are not saved import sources until restored.
+            path = document.path
+            if document.kind == kind and KINDS.get(path.suffix.casefold()) == kind and path.is_file():
+                found[path_key(path)] = path
         return sorted(found.values(), key=lambda p: (p.stem.casefold(), str(p).casefold()))
 
     def copy_root(self, source):
