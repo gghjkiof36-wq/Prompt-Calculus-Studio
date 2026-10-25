@@ -1,5 +1,6 @@
 """Real Qt document lifetimes, write targets and user-visible tab operations."""
 import copy
+import gc
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -8,7 +9,7 @@ import sys
 import tempfile
 import unittest
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox, QDialog, QListWidget, QPlainTextEdit
 
@@ -62,6 +63,14 @@ class WorkspaceShellTests(unittest.TestCase):
         self.w.close()
         self.w.deleteLater()
         self.events()
+        # These tests drive events without app.exec(). Destroy deferred Qt
+        # objects and collect their Python cycles while QApplication is alive,
+        # rather than leaving wrapper cleanup to interpreter shutdown.
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.app.processEvents()
+        gc.collect()
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.app.processEvents()
         sys.excepthook = self.old_hook
         self.area.cleanup()
         self.assertEqual(self.errors, [])

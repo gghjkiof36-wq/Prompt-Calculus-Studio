@@ -23,12 +23,14 @@ class CloseRecovery:
         self.workspace = workspace
         self.cache = DraftCache(workspace.data)
         self.memory = {}
+        self.published_receipts = {}
 
     def preserve(self, tab):
         document = tab.document
         if document:
             value = dict(kind=document.kind, sha=document.receipt.sha256,
                          state=copy.deepcopy(document.state), baseline=copy.deepcopy(document.baseline),
+                         document=copy.deepcopy(document.document),
                          runtime_document=copy.deepcopy(document.runtime_document),
                          identity_maps=copy.deepcopy(document.identity_maps),
                          opening_settings=copy.deepcopy(document.opening_settings))
@@ -63,6 +65,24 @@ class CloseRecovery:
 
     def get(self, path):
         return self.memory.get(key(path)) or self.cache.read(key(path))
+
+    def has_record(self, original):
+        # A malformed record still needs a visible recovery entry and error.
+        for root in self.cache.roots:
+            try:
+                if (root/self.cache.name(key(original))).is_file():
+                    return True
+            except OSError:
+                pass
+        return False
+
+    def recover_as(self, original, name, directory):
+        from .workspace_recovery_export import recover_as
+        return recover_as(self, original, name, directory)
+
+    def verify_recovered(self, original, target):
+        from .workspace_recovery_export import verify_recovered
+        return verify_recovered(self, original, target)
 
     def prepare_close(self, tab):
         if self.preserve(tab) is None:

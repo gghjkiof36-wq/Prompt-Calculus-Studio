@@ -184,28 +184,9 @@ class DesktopDocument(QObject):
             self.refreshing = False
 
     def project(self, *, remap=True):
-        state = self.host.state
-        if self.kind == 'category':
-            fresh = category.from_state(state, self.runtime_document['payload']['category']['id'])
-            settings = fresh['payload']['settings']
-            original = self.runtime_document['payload']['settings']
-        else:
-            fresh = workflow.from_state(state)
-            settings = fresh['payload']['state']['settings']
-            original = self.runtime_document['payload']['state']['settings']
-        for key in list(settings):
-            if key not in original and settings[key] == (self.opening_settings or state['settings']).get(key):
-                settings.pop(key)
-        result = copy.deepcopy(self.document)
-        result['payload'] = fresh['payload']
-        result['required_features'] = fresh['required_features']
-        referenced = {ref for ref, _, _ in assets.references(result)}
-        result['assets'] = [entry for entry in result['assets'] if entry['reference'] in referenced]
-        if remap and self.identity_maps is not None:
-            from .identity_projection import project_copy
-            result = project_copy(result, self.identity_maps)
-        schema.validate(result)
-        return result
+        from .document_projection import project_document
+        return project_document(self.document, self.runtime_document, self.host.state,
+                                self.opening_settings, identity_maps=self.identity_maps, remap=remap)
 
     def update_dirty(self):
         if self.host is None or self.baseline is None:

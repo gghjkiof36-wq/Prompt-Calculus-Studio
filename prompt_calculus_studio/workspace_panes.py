@@ -311,11 +311,14 @@ class WorkspacePanes:
 
     def new_tab(self, *, pane=None, activate=True):
         from .workspace_shell import Tab
+        from .workspace_recovery_inventory import missing_records
         pane = pane or self.active_pane
         page = WorkspaceHome(self.root, self.recent_files, self.settings,
                              lambda: self.choose_file_in(self.pane_for(tab)),
                              lambda path: self.open_path(path, True, pane=self.pane_for(tab)),
-                             lambda kind: self.create_in_home(kind, tab))
+                             lambda kind: self.create_in_home(kind, tab),
+                             recoveries=missing_records(self.close_recovery),
+                             recover_file=lambda path: self.layout_store.open_recovery(path, pane=self.pane_for(tab)))
         tab = Tab('new:'+uuid.uuid4().hex, '新分頁', page, True)
         return self.add_tab(tab, pane=pane, activate=activate)
 

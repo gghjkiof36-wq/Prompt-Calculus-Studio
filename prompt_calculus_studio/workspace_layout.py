@@ -1,36 +1,123 @@
 """Atomic view metadata only; document bytes and editing history stay elsewhere."""
 import json
+import hashlib
 import math
 from pathlib import Path
 import uuid
 
 from PySide6.QtCore import QObject, QTimer, QSaveFile, QIODevice, QEvent, Qt
 from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import QWidget, QVBoxLayout
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QScrollArea, QSizePolicy
 from .widgets import label, button
 from .workspace_files import MarkdownPage
 
 
 class MissingDocument(QWidget):
-    def __init__(self, path, reason, retry, view_state=None):
+    def __init__(self, path, reason, retry, view_state=None, *, recover=None, directories=()):
         super().__init__()
         self.error = reason
         self.view_state = view_state if isinstance(view_state, dict) else {}
+        self.recovered_path = None
+        self.recover = recover
+        self.busy = False
         self.setObjectName('WorkspaceSurface')
-        body = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        outer.addWidget(scroll)
+        content = QWidget()
+        scroll.setWidget(content)
+        body = QVBoxLayout(content)
         body.setContentsMargins(36, 32, 36, 32)
         body.addStretch()
-        body.addWidget(label('暫時無法開啟這份文件', 'Heading'))
+        form = QWidget()
+        form.setMaximumWidth(640)
+        fields = QVBoxLayout(form)
+        fields.setContentsMargins(0, 0, 0, 0)
+        fields.setSpacing(12)
+        body.addWidget(form)
+        fields.addWidget(label('暫時無法開啟這份文件', 'Heading', True))
         location = label(str(path), 'Subtle')
         location.setWordWrap(True)
+        location.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         location.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        body.addWidget(location)
+        fields.addWidget(location)
         self.reason = label(reason, 'Subtle')
         self.reason.setWordWrap(True)
-        body.addWidget(self.reason)
-        self.retry_button = button('重試開啟', retry)
-        body.addWidget(self.retry_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.reason.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        fields.addWidget(self.reason)
+        if recover:
+            from .workspace_file_dialogs import NameEdit
+            fields.addSpacing(12)
+            fields.addWidget(label('檔案名稱', 'Subtle'))
+            self.name = NameEdit(path.stem + ' 副本')
+            self.name.setAccessibleName('新檔名稱')
+            fields.addWidget(self.name)
+            fields.addWidget(label('儲存位置', 'Subtle'))
+            self.directory = QComboBox()
+            self.directory.setEditable(True)
+            self.directory.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+            self.directory.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            self.directory.setMinimumContentsLength(12)
+            self.directory.setLineEdit(NameEdit())
+            self.directory.setAccessibleName('新檔儲存位置')
+            self.directory.lineEdit().setPlaceholderText('選擇或貼上資料夾位置')
+            self.directory.addItems([str(folder) for folder in directories])
+            fields.addWidget(self.directory)
+            self.message = label('', 'Subtle', True)
+            self.message.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            self.message.hide()
+            fields.addWidget(self.message)
+            actions = QHBoxLayout()
+            self.recover_button = button('另存新檔', self.submit_recovery, 'Primary')
+            actions.addWidget(self.recover_button)
+            self.another_button = button('另存另一份', self.choose_another)
+            self.another_button.hide()
+            actions.addWidget(self.another_button)
+            self.name.returnPressed.connect(self.submit_recovery)
+            self.directory.lineEdit().returnPressed.connect(self.submit_recovery)
+        else:
+            actions = QHBoxLayout()
+        self.retry_button = button('重試', retry)
+        actions.addWidget(self.retry_button)
+        actions.addStretch()
+        fields.addLayout(actions)
         body.addStretch(2)
+
+    def submit_recovery(self):
+        if self.busy or self.name.composing or self.directory.lineEdit().composing:return
+        self.busy = True
+        self.recover_button.setEnabled(False)
+        self.another_button.setEnabled(False)
+        self.retry_button.setEnabled(False)
+        try:
+            self.recover(self.name.text(), self.directory.currentText())
+        finally:
+            self.busy = False
+            self.recover_button.setEnabled(True)
+            self.another_button.setEnabled(True)
+            self.retry_button.setEnabled(True)
+
+    def recovery_error(self, message, *, allow_new=False):
+        self.message.setText(message)
+        self.message.show()
+        if self.recovered_path:
+            self.recover_button.setText('開啟文件')
+            self.name.setEnabled(False)
+            self.directory.setEnabled(False)
+        self.another_button.setVisible(allow_new)
+
+    def choose_another(self):
+        self.recovered_path = None
+        self.name.setEnabled(True)
+        self.directory.setEnabled(True)
+        self.recover_button.setText('另存新檔')
+        self.another_button.hide()
+        self.message.setText('請另存為新文件，先前建立的檔案會保留。')
+        self.name.setFocus()
+        self.name.selectAll()
 
 
 def finite_values(values, count):
@@ -252,23 +339,125 @@ class WorkspaceLayout(QObject):
     def missing(self, record, pane, error):
         from .workspace_shell import Tab
         path = Path(record['path'])
-        page = MissingDocument(path, error, lambda: self.retry(tab), record.get('state'))
+        recover, directories = None, []
+        if self.w.close_recovery.has_record(path):
+            recover = lambda name, directory: self.recover(tab, name, directory)
+            for folder in (path.parent, self.w.locations.current, *self.w.locations.roots):
+                try:folder = self.w.locations.directory(folder)
+                except (ValueError, OSError, TypeError):continue
+                if folder not in directories:directories.append(folder)
+        if not path.exists():error = '原檔可能已被移動或刪除。'
+        page = MissingDocument(path, error, lambda: self.retry(tab), record.get('state'),
+                               recover=recover, directories=directories)
         tab = Tab('missing:'+uuid.uuid4().hex, str(record.get('title') or path.stem), page, True, path=path)
         return self.w.add_tab(tab, pane=pane)
+
+    def open_recovery(self, path, *, pane=None):
+        from .workspace_recovery import key
+        path = Path(path)
+        existing = next((view for view in self.w.all_pages() if view.path and key(view.path) == key(path)), None)
+        if existing:
+            if existing.key not in self.w.tabs_by_key:
+                return self.w.add_tab(existing, pane=pane or self.w.active_pane)
+            self.w.focus_tab(existing)
+            return existing
+        if not self.w.close_recovery.has_record(path):
+            self.refresh_recovery_homes()
+            return None
+        opened = self.w.open_path(path, True, new_tab=True, pane=pane, quiet=True)
+        if opened is not None:return opened
+        return self.missing(dict(path=str(path), title=path.stem), pane or self.w.active_pane,
+                            self.w.last_open_error)
+
+    def refresh_recovery_homes(self):
+        from .workspace_home import WorkspaceHome
+        from .workspace_recovery_inventory import missing_records
+        records = missing_records(self.w.close_recovery)
+        for view in self.w.all_pages():
+            if isinstance(view.widget, WorkspaceHome):view.widget.set_recoveries(records)
 
     def retry(self, tab):
         if tab.key not in self.w.tabs_by_key:return
         w, pane = self.w, self.w.pane_for(tab)
-        index = w.index_of(tab.key)
         opened = w.open_path(tab.path, True, new_tab=True, pane=pane, quiet=True)
         if opened is None:
             tab.widget.error = w.last_open_error
             tab.widget.reason.setText(w.last_open_error)
             return
+        self.replace_missing(tab, opened)
+
+    def recover(self, tab, name, directory):
+        if tab.key not in self.w.tabs_by_key:return
+        from .workspace_recovery_export import RecoveryPublishedError
+        from .workspace_recovery import key
+        page, w = tab.widget, self.w
+        related = [view for view in w.all_pages() if isinstance(view.widget, MissingDocument)
+                   and key(view.path) == key(tab.path)]
+        # Updating a visible view records a new visit and can prune forward
+        # history. Resolve hidden views before any such navigation occurs.
+        related.sort(key=lambda view: view.key not in w.saved_pages)
+        try:
+            if page.recovered_path is None:
+                page.recovered_path = w.close_recovery.recover_as(tab.path, name, directory)
+        except RecoveryPublishedError as error:
+            for view in related:
+                view.widget.recovered_path = error.published_path
+                view.widget.recovery_error(str(error))
+            return
+        except (ValueError, OSError) as error:
+            page.recovery_error(str(error))
+            return
+        target = page.recovered_path
+        for view in related:view.widget.recovered_path = target
+        try:expected = w.close_recovery.verify_recovered(tab.path, target)
+        except (ValueError, OSError) as error:
+            for view in related:view.widget.recovery_error(str(error), allow_new=True)
+            return
+        failed, activated = False, None
+        for view in related:
+            hidden = view.key in w.saved_pages
+            opened = w.open_path(target, True, new_tab=True, pane=w.pane_for(view), quiet=True, background=hidden)
+            if opened is None:
+                view.widget.recovery_error('已另存至 ' + str(target) + '\n暫時無法開啟：' + w.last_open_error)
+                failed = True
+                continue
+            try:
+                w.close_recovery.verify_recovered(tab.path, target)
+                actual = (opened.document.receipt.sha256 if opened.document
+                          else hashlib.sha256(opened.widget.encoded()).hexdigest())
+                if actual != expected:raise ValueError('開啟的內容與恢復稿不符，恢復稿仍保留。')
+            except (ValueError, OSError) as error:
+                w._detach_view(opened)
+                w.dispose_page(opened)
+                view.widget.recovery_error(str(error), allow_new=True)
+                failed = True
+                continue
+            self.replace_missing(view, opened)
+            if view is tab:activated = opened
+        if activated:w.focus_tab(activated)
+        elif tab.key in w.tabs_by_key:w.focus_tab(tab)
+        if not failed:
+            w.close_recovery.clear(tab.path)
+            self.refresh_recovery_homes()
+
+    def replace_missing(self, tab, opened):
+        w, pane = self.w, self.w.pane_for(tab)
         state = tab.widget.view_state
-        w.close_tab(index, decision='discard', make_home=False, pane=pane)
-        pane.strip.bar.moveTab(w.index_of(opened.key), index)
-        w.focus_tab(opened)
+        if tab.key in w.saved_pages:
+            # A history view stays hidden and keeps its navigation slot. Its
+            # content is now the same saved file as the visible recovered view.
+            w._detach_view(opened)
+            opened.slot = tab.slot
+            w.saved_pages.pop(tab.key)
+            w.saved_pages[opened.key] = opened
+            w.history = [(entry[0], opened.key, entry[2]) if entry[0] == 'document' and entry[1] == tab.key
+                         else entry for entry in w.history]
+            w.dispose_page(tab)
+        else:
+            index = w.index_of(tab.key)
+            w.close_tab(index, decision='discard', make_home=False, pane=pane)
+            pane.strip.bar.moveTab(w.index_of(opened.key), index)
+            w.focus_tab(opened)
         RestoreView(opened, state)
         w.refresh_tree()
         self.schedule()

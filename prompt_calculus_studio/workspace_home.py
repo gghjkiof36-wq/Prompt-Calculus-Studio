@@ -9,7 +9,8 @@ from .widgets import button, label
 
 
 class WorkspaceHome(QScrollArea):
-    def __init__(self, root, recent, settings, choose_file, open_file, create_file):
+    def __init__(self, root, recent, settings, choose_file, open_file, create_file,
+                 *, recoveries=(), recover_file=None):
         super().__init__()
         self.root = root
         self.setWidgetResizable(True)
@@ -29,6 +30,18 @@ class WorkspaceHome(QScrollArea):
         body = QVBoxLayout(self.content)
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(12)
+        self.recover_file = recover_file
+        self.recovery_heading = label('未儲存的內容', 'WorkspaceSectionTitle')
+        body.addWidget(self.recovery_heading)
+        self.recovery_listing = QListWidget()
+        self.recovery_listing.setObjectName('WorkspaceRecent')
+        self.recovery_listing.setFrameShape(QFrame.Shape.NoFrame)
+        self.recovery_listing.setIconSize(QSize(18, 18))
+        self.recovery_listing.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.recovery_listing.setAccessibleName('未儲存的內容')
+        self.recovery_listing.itemClicked.connect(self.open_recovery)
+        self.recovery_listing.itemActivated.connect(self.open_recovery)
+        body.addWidget(self.recovery_listing)
         self.recent_heading = label('最近開啟', 'WorkspaceSectionTitle')
         body.addWidget(self.recent_heading)
         self.listing = QListWidget()
@@ -66,7 +79,31 @@ class WorkspaceHome(QScrollArea):
         outer.addLayout(center)
         outer.addStretch(3)
         self.apply_appearance(settings)
+        self.set_recoveries(recoveries)
         self.set_recent(recent)
+
+    def open_recovery(self, item):
+        if self.recover_file is not None:
+            self.recover_file(item.data(Qt.ItemDataRole.UserRole))
+
+    def set_recoveries(self, recoveries):
+        self.recovery_listing.clear()
+        seen = set()
+        for location in recoveries:
+            path = Path(location)
+            identity = str(path).casefold()
+            if identity in seen:
+                continue
+            seen.add(identity)
+            item = QListWidgetItem(path.stem)
+            item.setIcon(icon({'.pcs-category': 'list', '.pcs-workflow': 'workflow'}.get(path.suffix, 'file-text'), 'navigation'))
+            item.setData(Qt.ItemDataRole.UserRole, str(path))
+            item.setToolTip('原位置：' + str(path))
+            self.recovery_listing.addItem(item)
+        count = self.recovery_listing.count()
+        self.recovery_listing.setFixedHeight(min(count, 4)*40+4)
+        self.recovery_listing.setVisible(bool(count))
+        self.recovery_heading.setVisible(bool(count))
 
     def apply_appearance(self, settings):
         t = visual_tokens(settings)

@@ -44,6 +44,8 @@ class SaveResult:
     recovery_paths: tuple[str, ...] = ()
     error: str = ''
     name_collision: bool = False
+    # Exclusive create published this name, even if a later readback failed.
+    published: bool = False
 
     @property
     def dirty(self):
@@ -126,14 +128,16 @@ def create(root, relative, document):
         loaded = load(root, relative)
         if loaded.receipt.sha256 != digest(raw):
             # External edit after publication: keep the in-memory candidate too.
-            return SaveResult('conflict', recovery_paths=_existing(recovery), error='新建後文件已被外部修改。')
-        return SaveResult('saved', loaded.document, loaded.receipt, _existing(recovery))
+            return SaveResult('conflict', recovery_paths=_existing(recovery), error='新建後文件已被外部修改。',
+                              published=True)
+        return SaveResult('saved', loaded.document, loaded.receipt, _existing(recovery), published=True)
     except (DocumentError, OSError) as error:
         return SaveResult('conflict' if getattr(error, 'code', '') in ('exists', 'collision', 'conflict')
                           or isinstance(error, FileExistsError) else 'failed',
                           recovery_paths=_existing(recovery), error=str(error),
                           name_collision=checking_name and not published and (getattr(error, 'code', '') == 'exists'
-                                                            or isinstance(error, FileExistsError)))
+                                                            or isinstance(error, FileExistsError)),
+                          published=published)
     finally:
         protection.close()
 
