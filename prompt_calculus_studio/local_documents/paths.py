@@ -69,10 +69,13 @@ def read_bytes(path, limit=MAX_BYTES):
         before = os.fstat(stream.fileno())
         if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
             fail('limit', '不是一般檔案或檔案過大。')
-        data = stream.read(limit + 1)
+        # Allocate for this file, not the format's maximum (32 MiB even for
+        # a tiny Manager). One extra byte detects growth during the read.
+        data = stream.read(before.st_size + 1)
         after = os.fstat(stream.fileno())
         if len(data) > limit:
             fail('limit', '檔案過大。')
-        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+        if (len(data) != before.st_size or
+                (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns)):
             fail('conflict', '讀取時檔案已改動。')
         return data, after

@@ -195,6 +195,7 @@ def assemble_learning(content):
     make_materials(lessons)
     verify_learning(lessons)
     make_library(content/'素材')
+    shutil.copytree(TEMPLATES/'Notes', content/'筆記')
     shutil.copytree(TEMPLATES/'Templates', content/'筆記模板')
     shutil.copytree(TEMPLATES/'Reference', content/'參考')
     shutil.copytree(ROOT/'tests/fixtures/markdown_compatibility', content/'Markdown 相容性測試')

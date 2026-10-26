@@ -28,7 +28,14 @@ class UserDeliveryMaterialsTests(unittest.TestCase):
                 state['items'][0]['prompt'] = 'user edit'
                 state['items'][0]['composition']['prompt'] = 'user edit'
                 self.assertEqual(combination, before)
-            self.assertEqual(count, 59)
+            self.assertEqual(count, 41)
+            self.assertEqual({p.stem for p in (root/'素材').glob('*.pcs-category')},
+                             {'場景與環境', '光線與氣氛', '構圖與鏡頭', '材質與風格'})
+            for name in ('研究與學習', '寫作與整理'):
+                self.assertFalse(list(root.rglob(name+'.pcs-category')))
+                note = root/'筆記'/(name+'.md')
+                self.assertEqual(note.read_bytes(), (TEMPLATES/'Notes'/note.name).read_bytes())
+                self.assertTrue(note.read_text(encoding='utf-8').startswith('# '+name))
             self.assertEqual(len(list((root/'筆記模板').glob('*.md'))), 8)
             self.assertTrue((root/'Markdown 相容性測試/Markdown-相容性測試.md').is_file())
             before = {p.relative_to(root): p.read_bytes() for p in root.rglob('*') if p.is_file()}

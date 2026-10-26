@@ -311,7 +311,9 @@ class WorkspaceShellTests(unittest.TestCase):
             self.assertFalse(tab.widget.isReadOnly())
         self.assertEqual([p.read_bytes() for p in paths], before)
         self.assertEqual(len(self.w.entries), 6)
-        self.assertEqual(self.w.tree.topLevelItem(0).childCount(), 7)
+        # files is the implicit root: its six files and one folder appear
+        # directly in the sidebar, rather than under a visible files row.
+        self.assertEqual(self.w.tree.topLevelItemCount(), 7)
         for _ in range(7):
             self.w.new_tab()
         self.w.resize(720, 600)
