@@ -13,12 +13,19 @@
 | `local_documents/chat.py` | `.pcs-chat` v1、草稿、system prompt、多輪與多次回覆、固定參數／歷史關聯、複製新身分、Markdown 匯出 | writer 與原生 UI 回歸尚未執行；格式尚未發布 |
 | `local_ai/chat_document.py` | 單一文件 owner；保存後才送出；原 request／owner epoch 驗收；停止保留文字；失敗與中斷；1500 ms 保存排程 | 計時為設定值，未量測落盤延遲；IME 或檔案操作暫停保存時延後，失敗保留記憶體稿及既有恢復機制 |
 | `local_ai/chat_page.py`、`chat_settings.py` | 同風格對話頁、Markdown／程式碼文字、選取／複製、草稿、多輪、重試、模型操作、上下文及生成設定 | 尚無原生截圖、DPI／IME／窄窗／長回覆驗收 |
+| `local_ai/model_page.py`、探索入口 | 探索 → 對話模型；加入既有 GGUF、檢視模型位置／大小、明確選用／載入／卸載、開新對話；與對話頁共用應用服務 | 開頁與選取清單不啟動引擎；模型搜尋下載及移除管理留待後續 |
 | `local_ai/service.py`、`engine.py` | 應用共用模型服務、獨立工作執行緒、窄引擎 Protocol 與可注入 factory、原請求事件、單一生成與忙碌回覆 | 首版不提供使用者排隊、多模型並行、工具或多模態；假引擎及真引擎測試均未執行 |
 | `local_ai/runtime.py` | 自有 llama-server、Windows Job Object、loopback／臨時認證、健康與身分檢查、串流、token 預檢、停止確認、卸載 | 尚未選定並驗證引擎二進位；官方目前介面的靜態對照不能保證任意版本相容 |
 | `local_ai/registry.py` | 引用單一既有 GGUF；讀取檔頭、大小、修改時間；模型 UUID 與設定檔原子保存 | 未完成完整 GGUF metadata、檔案雜湊、分片、搜尋下載、引擎自動安裝／更新 |
 | Workspace 整合 | 新增／開啟／分頁／拖曳／搜尋／改名／另存／複製／恢復／關閉的 chat 分支，與 Canvas host 分開 | 這些跨頁與失敗路徑仍需原生回歸 |
 
 啟動入口仍是 PCS 既有開發入口。本批沒有啟動 PCS、Qt、引擎、服務或模型；沒有下載，也沒有執行測試或建置 EXE。引擎預留 `runtimes/llama.cpp/llama-server.exe`，也可由設定明確選擇既有檔案。這是首版開發接點；最終產品仍需經驗證的隨附引擎，不要求使用者另開 LM Studio。
+
+### 探索入口與本機介面檢視
+
+依使用者補充，模型匯入與管理集中於既有「探索」頁的「對話模型」入口，與 ComfyUI 模型資產分開。對話頁「管理模型」導向此頁，保留日常模型選擇及載入／卸載。頁面延後至使用者開啟時建立；`local_ai.service.for_workspace` 確保先開模型頁或先開對話都使用同一個 workspace service、registry 與引擎狀態。檢視頁面、選取清單及開新對話都不自動載入模型。
+
+`tools/launch_local_chat_preview.py` 提供本機 BAT 的預覽啟動接點：使用交付目錄下獨立的 files／data／logs，首次建立空白對話，沿既有工作區入口開啟這份來源。BAT 供使用者自行雙擊；本批僅靜態檢查，未執行。它依賴目前電腦的 Python 與工作樹，不是 EXE 或可攜安裝包；實際路徑與啟動方式以預覽目錄的使用說明為準。
 
 目前逐段輸出使用同一個 worker 的 Qt queued signals 保序，接受端核對完整不可變 ServiceRequest 與本地 owner。尚未實作跨服務重送或序號去重協定，不能把這個同程序事件通道直接作日後公開 API。`profile_epoch` 是模型 UUID 與可攜參數的 UUIDv5 指紋；不是引擎執行階段身分或模型權重 hash。路徑、臨時憑證不寫入對話文件。
 

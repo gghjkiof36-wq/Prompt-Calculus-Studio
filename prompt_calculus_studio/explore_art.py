@@ -51,7 +51,7 @@ class ExploreArtwork(QWidget):
                 painter.setPen(QPen(quiet, 2.5))
                 painter.drawLine(QPointF(x+11, y+25), QPointF(x+width-23, y+25))
                 painter.setPen(QPen(line, 1.5))
-        elif self.kind == 'quote':
+        elif self.kind in ('quote', 'message-square'):
             for x,y,width,height in ((48,19,150,49),(142,59,150,36)):
                 painter.setBrush(QColor(t['surface']))
                 painter.drawRoundedRect(QRectF(x,y,width,height),7,7)

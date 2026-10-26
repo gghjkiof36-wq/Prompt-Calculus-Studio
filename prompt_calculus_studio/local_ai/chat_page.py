@@ -316,7 +316,8 @@ class ChatPage(QWidget):
         self.model_combo.setMinimumContentsLength(14)
         self.model_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.model_combo.currentIndexChanged.connect(self._select_model)
-        self.add_model_button = button('加入模型…', self._add_model, 'Quiet')
+        self.add_model_button = button('管理模型', self._add_model, 'Quiet')
+        self.add_model_button.setToolTip('前往探索的對話模型，匯入或管理本機模型')
         self.load_button = button('載入', self._load, 'Quiet')
         self.unload_button = button('卸載', self._unload, 'Quiet')
         composer_layout.addWidget(ActionHeader(self.model_combo, self.add_model_button, self.load_button, self.unload_button))
@@ -443,7 +444,7 @@ class ChatPage(QWidget):
         locked = state in {'loading', 'generating', 'stopping', 'unloading', 'closed'}
         ready = state == 'ready'
         self.model_combo.setEnabled(not locked)
-        self.add_model_button.setEnabled(not locked)
+        self.add_model_button.setEnabled(state != 'closed')
         self.load_button.setVisible(state not in {'generating', 'stopping', 'unloading'})
         self.load_button.setText('重新載入' if ready else '載入')
         self.load_button.setEnabled(not locked and bool(self.service.selected_model))
@@ -513,9 +514,7 @@ class ChatPage(QWidget):
             self.refresh()
 
     def _add_model(self):
-        filename, _ = QFileDialog.getOpenFileName(self, '加入已下載的模型', '', 'GGUF 模型 (*.gguf)')
-        if filename:
-            self._action(lambda: self.service.register_model(filename))
+        self.workspace.open_route('explore', 'local_models')
 
     def _load(self):
         self._action(self.service.load)

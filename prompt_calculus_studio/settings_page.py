@@ -191,6 +191,8 @@ def navigation_entries(section, *, workspace=False):
         return 'ComfyUI', '返回探索', [('workflows','連線與工作流','workflow'),('models','模型資產','media'),('nodes','管理與更新','package')]
     if section=='connector':
         return '下載紀錄', '返回探索', [('connector','下載紀錄','quote')]
+    if section=='local_models':
+        return '對話模型', '返回探索', [('local_models','本機模型','message-square')]
     if section=='explore':
         return '探索', '返回工作區', [('explore','全部入口','explore')]
     routes=[('interface','使用介面','canvas'),('appearance','介面個人化','settings'),('completion','候選與翻譯','search'),('dictionary','個人字典','info'),('data','資料與備份','package')]
@@ -252,6 +254,9 @@ class SettingsPage(QWidget):
         self.add('data','資料與備份',self.make_data_page())
         self.connector_content=DeferredToolPage(self.make_connector_page)
         self.add('connector','下載紀錄',self.connector_content)
+        if getattr(window,'workspace_owner',None) is not None:
+            self.local_models_content=DeferredToolPage(self.make_local_models_page)
+            self.add('local_models','對話模型',self.local_models_content)
         self.add('explore','探索',self.make_explore_page())
         self.navigation.currentRowChanged.connect(self.navigate)
         self.autosave=QTimer(self); self.autosave.setSingleShot(True); self.autosave.setInterval(350); self.autosave.timeout.connect(self.flush)
@@ -307,6 +312,15 @@ class SettingsPage(QWidget):
         from .connector_page import ConnectorPage
         return reading_page(ConnectorPage(self.window))
 
+    def make_local_models_page(self):
+        from .local_ai.model_page import LocalModelPage
+        from .local_ai.service import for_workspace
+        workspace=self.window.workspace_owner
+        page=LocalModelPage(for_workspace(workspace),workspace.display_settings())
+        page.createChatRequested.connect(
+            lambda:workspace.commands.new('chat',workspace.commands.context('page')))
+        return page
+
     def make_explore_page(self):
         from .explore_art import ExploreArtwork
         page=QWidget(); layout=QVBoxLayout(page); layout.setSpacing(18)
@@ -319,6 +333,7 @@ class SettingsPage(QWidget):
             ('CivitAI','搜尋模型、選擇版本與管理下載','civitai','explore'),
         ]
         if getattr(self.window,'workspace_owner',None) is not None:
+            entries.append(('對話模型','匯入本機模型，管理載入狀態並開啟對話','local_models','message-square'))
             entries.append(('下載紀錄','查找從 ChatGPT 傳入的檔案','connector','quote'))
         for name,description,key,symbol in entries:
             card,body=panel('ExploreCard')
@@ -375,7 +390,7 @@ class SettingsPage(QWidget):
         self.adapt_navigation(); super().resizeEvent(event)
 
     def return_parent(self):
-        if self.section in ('connector','civitai','downloads','civitai_settings','comfy','workflows','workflow_manager','models','nodes'):self.window.settings('explore')
+        if self.section in ('connector','local_models','civitai','downloads','civitai_settings','comfy','workflows','workflow_manager','models','nodes'):self.window.settings('explore')
         else:self.cancel()
 
     def compact_navigate(self,index):
@@ -488,6 +503,8 @@ class SettingsPage(QWidget):
 
     def open(self,section='interface'):
         if section=='connector':self.connector_content.load()
+        if section=='local_models' and hasattr(self,'local_models_content'):
+            self.local_models_content.load().prepare_workspace_show()
         if section in ('appearance','completion','dictionary'):self.ensure_preferences()
         self.syncing=True
         for choice in self.interface.choices.buttons(): choice.setChecked(choice.property('mode')==self.window.state.get('selection_view','list'))

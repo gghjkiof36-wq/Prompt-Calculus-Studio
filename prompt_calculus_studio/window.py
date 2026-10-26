@@ -594,7 +594,7 @@ class Window(QMainWindow):
     def record_navigation(self,kind,detail=None):
         self.sync_context_sidebar()
         if hasattr(self,'studio_navigation'):
-            active=('explore' if detail in ('explore','connector','civitai','downloads','civitai_settings','comfy','workflows','workflow_manager','models','nodes') else 'settings') if kind=='settings' else ('media' if detail in ('gallery','recent') else 'export' if detail=='clean_export' else 'canvas')
+            active=('explore' if detail in ('explore','connector','local_models','civitai','downloads','civitai_settings','comfy','workflows','workflow_manager','models','nodes') else 'settings') if kind=='settings' else ('media' if detail in ('gallery','recent') else 'export' if detail=='clean_export' else 'canvas')
             self.studio_navigation.select(active)
         if not self.navigation_ready or self.navigation_locked: return
         route=(kind,detail)
@@ -804,6 +804,8 @@ class Window(QMainWindow):
         if hasattr(self,'settings_page') and page_ready(self.settings_page):
             if page_ready(self.settings_page.civitai):self.settings_page.civitai.configure_fonts()
             if page_ready(self.settings_page.comfy_content):self.settings_page.workflow_manager.update_list_height()
+            local_models=getattr(self.settings_page,'local_models_content',None)
+            if local_models is not None and page_ready(local_models):local_models.apply_appearance(appearance)
             self.settings_page.refresh_icons()
         if not self.embedded_document: update_window_shape(self)
         if self.compact_editor:return

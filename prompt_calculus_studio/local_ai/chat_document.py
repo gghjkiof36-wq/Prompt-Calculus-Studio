@@ -59,10 +59,8 @@ class ChatDocument(QObject):
         self.checkpoint_timer.setSingleShot(True)
         self.checkpoint_timer.setInterval(1500)
         self.checkpoint_timer.timeout.connect(self._checkpoint)
-        if not hasattr(workspace, 'local_ai'):
-            from .service import LocalAIService
-            workspace.local_ai = LocalAIService(workspace.data, workspace)
-        self.service = workspace.local_ai
+        from .service import for_workspace
+        self.service = for_workspace(workspace)
         self.service.delta.connect(self._delta)
         self.service.finished.connect(self._finished)
 

@@ -19,6 +19,19 @@ from .settings import LOAD_KEYS, normalize_settings, resolve_runtime, validate_m
 BUSY = frozenset(('loading', 'generating', 'stopping', 'unloading'))
 
 
+def for_workspace(workspace):
+    """Share the registry and engine between Explore and every conversation.
+
+    Constructing the service reads local configuration only. Starting an engine
+    remains a separate explicit load action.
+    """
+    service = getattr(workspace, 'local_ai', None)
+    if service is None:
+        service = LocalAIService(workspace.data, workspace)
+        workspace.local_ai = service
+    return service
+
+
 class _InferenceThread(QThread):
     status = Signal(object)
     text = Signal(object, str)
