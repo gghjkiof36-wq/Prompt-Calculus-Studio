@@ -130,6 +130,22 @@ class AutoPrepareContracts(unittest.TestCase):
         self.wait_for(lambda: any(event[0] == request for event in self.results)
                       and self.service.state == 'ready', 'completed request')
 
+    def test_read_only_submission_preflight_rejects_invalid_parameters_and_changed_model(self):
+        request = self.request()
+        self.assertEqual(self.service.validate_submission(request)[0]['id'], self.first['id'])
+        params = dict(self.service.settings, max_tokens=self.service.settings['context_size'])
+        with self.assertRaises(ValueError):
+            self.service.validate_submission(self.request(params=params))
+        params = dict(self.service.settings, runtime_path=str(self.root / 'missing.exe'))
+        with self.assertRaises((ValueError, OSError)):
+            self.service.validate_submission(self.request(params=params))
+        Path(self.first['path']).write_bytes(b'GGUF' + (3).to_bytes(4, 'little') + b'changed')
+        with self.assertRaises(ValueError):
+            self.service.validate_submission(request)
+        self.assertIsNone(self.service._worker)
+        self.assertIsNone(self.service._active)
+        self.assertEqual(self.factories, [])
+
     def test_selection_and_configuration_do_not_start_until_send(self):
         second = self.add_model('second')
         self.assertTrue(self.service.select_model(second['id']))

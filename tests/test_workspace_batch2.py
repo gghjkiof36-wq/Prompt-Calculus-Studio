@@ -96,7 +96,7 @@ class WorkspaceBatch2Tests(unittest.TestCase):
         state = copy.deepcopy(tab.host.state)
         history = len(tab.host.canvas.undo_stack)
         self.assertEqual(palette.new_button.text(), '')
-        self.assertEqual(palette.new_button.toolTip(), '從儲存庫匯入prompt管理頁')
+        self.assertEqual(palette.new_button.toolTip(), '新增文字模塊或匯入管理頁')
         self.assertNotIn('未分類', [row['name'] for row in palette.scope.rows])
         QTest.mouseClick(palette.new_button, Qt.MouseButton.LeftButton)
         menu = palette.import_menu

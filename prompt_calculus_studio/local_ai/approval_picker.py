@@ -2,7 +2,7 @@
 from PySide6.QtCore import Qt, QSize, QRect, QPoint, Signal
 from PySide6.QtWidgets import QApplication, QFrame, QGridLayout, QPushButton, QWidgetAction
 
-from ..theme import visual_tokens
+from ..theme import font_pixels, visual_tokens
 from ..ui_icons import icon
 from ..widgets import RoundMenu, label, widget_global_position
 
@@ -22,7 +22,7 @@ class ApprovalMenu(RoundMenu):
         self.setObjectName('ChatApprovalMenu')
         self.entries = []
         tokens = control.tokens
-        width = min(370, max(280, control.window().width() - 32))
+        width = min(max(330, control.text_pixels * 23), max(260, control.window().width() - 32))
         self._caption('如何核准工具操作？', width)
         for mode, title, description, glyph in CHOICES:
             action = QWidgetAction(self)
@@ -36,39 +36,41 @@ class ApprovalMenu(RoundMenu):
             entry.setFixedWidth(width)
             entry.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             layout = QGridLayout(entry)
-            layout.setContentsMargins(10, 8, 10, 8)
-            layout.setHorizontalSpacing(10)
+            layout.setContentsMargins(10, 6, 10, 6)
+            layout.setHorizontalSpacing(8)
             layout.setVerticalSpacing(3)
             layout.setColumnStretch(1, 1)
             mark = label('')
-            mark.setFixedSize(20, 20)
+            mark.setFixedSize(18, 18)
             color = tokens['permission_full'] if mode == 'all' else tokens['secondary']
-            mark.setPixmap(icon(glyph, color, 20).pixmap(20, 20))
+            mark.setPixmap(icon(glyph, color, 16).pixmap(16, 16))
             layout.addWidget(mark, 0, 0, Qt.AlignmentFlag.AlignCenter)
             title_widget = label(title)
+            title_widget.setStyleSheet(f'font-size:{control.text_pixels}px;')
             if mode == 'all':
-                title_widget.setStyleSheet('color:' + color + ';')
+                title_widget.setStyleSheet(f'font-size:{control.text_pixels}px;color:{color};')
             description_widget = label(description, 'Subtle', True)
+            description_widget.setStyleSheet(f'font-size:{max(12, control.text_pixels - 1)}px;')
             title_widget.setTextFormat(Qt.TextFormat.PlainText)
             description_widget.setTextFormat(Qt.TextFormat.PlainText)
             layout.addWidget(title_widget, 0, 1, Qt.AlignmentFlag.AlignVCenter)
             layout.addWidget(description_widget, 1, 1)
             check = label('')
-            check.setFixedSize(18, 18)
+            check.setFixedSize(16, 18)
             if action.isChecked():
-                check.setPixmap(icon('check', tokens['text'], 18).pixmap(18, 18))
+                check.setPixmap(icon('check', tokens['text'], 16).pixmap(16, 16))
             layout.addWidget(check, 0, 2, Qt.AlignmentFlag.AlignCenter)
             entry.setStyleSheet(
                 'QFrame#ApprovalChoice {border:0;border-radius:7px;background:transparent;}'
                 'QFrame#ApprovalChoice[active="true"] {background:' + tokens['popup_active'] + ';}'
                 'QFrame#ApprovalChoice QLabel {background:transparent;padding:0;border:0;}')
             entry.ensurePolished()
-            title_height = max(20, title_widget.fontMetrics().height())
+            title_height = max(18, title_widget.fontMetrics().height())
             description_height = description_widget.fontMetrics().boundingRect(
                 QRect(0, 0, width - 78, 1000), Qt.TextFlag.TextWordWrap, description).height()
             title_widget.setFixedHeight(title_height)
             description_widget.setFixedHeight(description_height)
-            entry.setFixedHeight(16 + title_height + 3 + description_height)
+            entry.setFixedHeight(12 + title_height + 3 + description_height)
             action.setDefaultWidget(entry)
             action.triggered.connect(lambda _checked=False, value=mode: self._choose(value))
             self.addAction(action)
@@ -79,6 +81,7 @@ class ApprovalMenu(RoundMenu):
         caption = label(text, 'Subtle', True)
         caption.setFixedWidth(width)
         caption.setContentsMargins(10, 6, 10, 6)
+        caption.setStyleSheet(f'font-size:{max(12, self.control.text_pixels - 1)}px;')
         caption.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         action = QWidgetAction(self)
         action.setEnabled(False)
@@ -127,11 +130,12 @@ class ApprovalButton(QPushButton):
         self.service = service
         self.mode = 'ask'
         self.tokens = visual_tokens()
+        self.text_pixels = font_pixels(11)
         self.setObjectName('ChatApprovalButton')
-        self.setFixedHeight(36)
-        self.setMinimumWidth(36)
+        self.setFixedHeight(32)
+        self.setMinimumWidth(32)
         self.setMaximumWidth(132)
-        self.setIconSize(QSize(20, 20))
+        self.setIconSize(QSize(16, 16))
         self.clicked.connect(self.open_menu)
         self.service.changed.connect(self.sync)
         self.sync()
@@ -141,7 +145,7 @@ class ApprovalButton(QPushButton):
         choice = next((entry for entry in CHOICES if entry[0] == self.mode), CHOICES[1])
         _, self.caption, description, glyph = choice
         color = self.tokens['permission_full'] if self.mode == 'all' else self.tokens['secondary']
-        self.setIcon(icon(glyph, color, 20))
+        self.setIcon(icon(glyph, color, 16))
         self.setToolTip(self.caption + '：' + description)
         self.setAccessibleName('操作審查：' + self.caption)
         self.setEnabled(self.service.state != 'closed')
@@ -157,7 +161,7 @@ class ApprovalButton(QPushButton):
         ApprovalMenu(self).open_for(self)
 
     def sizeHint(self):
-        return QSize(min(132, self.fontMetrics().horizontalAdvance(getattr(self, 'caption', '每次詢問')) + 42), 36)
+        return QSize(min(132, self.fontMetrics().horizontalAdvance(getattr(self, 'caption', '每次詢問')) + 36), self.height())
 
     def _fit_caption(self):
         caption = getattr(self, 'caption', '')
@@ -167,14 +171,16 @@ class ApprovalButton(QPushButton):
         super().resizeEvent(event)
         self._fit_caption()
 
-    def apply_appearance(self, tokens):
+    def apply_appearance(self, tokens, ui_size=12):
         self.tokens = tokens
+        self.text_pixels = font_pixels(max(10, ui_size - 1))
+        self.setFixedHeight(max(32, self.text_pixels + 14))
         self.sync()
 
     def _apply_style(self, color):
         tokens = self.tokens
         self.setStyleSheet(
             f'QPushButton#ChatApprovalButton {{background:{tokens["raised"]};border:1px solid {tokens["divider"]};'
-            f'border-radius:16px;padding:4px 8px;color:{color};}}'
+            f'border-radius:{self.height() // 2}px;padding:2px 8px;color:{color};font-size:{self.text_pixels}px;}}'
             f'QPushButton#ChatApprovalButton:hover {{background:{tokens["hover"]};}}'
             f'QPushButton#ChatApprovalButton:focus {{border-color:{tokens["accent_outline"]};}}')

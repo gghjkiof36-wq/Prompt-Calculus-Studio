@@ -84,7 +84,7 @@ def validate(document):
             revision.get('parent') == revision.get('id')):
         fail('invalid', '文件修訂無效。')
     features = document.get('required_features', [])
-    if (not isinstance(features, list) or any(feature not in (LIBRARY_FEATURE, 'pcs.chat.v1', 'pcs.chat-attachments.v1') for feature in features)
+    if (not isinstance(features, list) or any(feature not in (LIBRARY_FEATURE, 'pcs.chat.v1', 'pcs.chat-attachments.v1', 'pcs.chat-revisions.v1') for feature in features)
             or len(features) != len(set(features))):
         fail('unsupported', '文件需要尚未支援的必要語義。')
     if (document['kind'] == 'chat') != ('pcs.chat.v1' in features):
@@ -94,6 +94,8 @@ def validate(document):
         fail('invalid', '擴充資料須使用命名空間。')
     if not isinstance(document.get('payload'), dict):
         fail('invalid', '文件缺少內容。')
+    if ((document['kind'] == 'chat' and 'revisions' in document['payload']) != ('pcs.chat-revisions.v1' in features)):
+        fail('invalid', '對話編輯紀錄必要語義標記不一致。')
     from .chat_attachments import FEATURE as ATTACHMENT_FEATURE, has_fields
     if ((document['kind'] == 'chat' and has_fields(document['payload']))
             != (ATTACHMENT_FEATURE in features)):
@@ -125,8 +127,8 @@ def new_document(kind, payload):
                  payload=copy.deepcopy(payload), assets=[], extensions={},
                  required_features=['pcs.chat.v1'] if kind == 'chat' else [LIBRARY_FEATURE] if kind == 'workflow' and LIBRARY_FIELD in payload.get('state', {}) else [])
     if kind == 'chat':
-        from .chat_attachments import sync_feature
-        sync_feature(value)
+        from .chat import sync_features
+        sync_features(value)
     # Asset manifests are prepared separately; missing attachments are explicit issues.
     return validate(value)
 

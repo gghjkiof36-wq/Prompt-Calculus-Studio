@@ -33,6 +33,7 @@ class PageObserver(QObject):
             tab.document.editing.connect(self.editing)
             if tab.document.kind == 'chat':
                 tab.widget.branchRequested.connect(self.branch_chat)
+                tab.widget.versionBranchRequested.connect(self.branch_chat_version)
                 tab.widget.pcsAttachmentsRequested.connect(self.pcs_attachments)
                 tab.widget.exportMarkdownRequested.connect(self.export_markdown)
         else:
@@ -55,6 +56,10 @@ class PageObserver(QObject):
     @Slot(str, str)
     def branch_chat(self, turn_id, attempt_id):
         self.workspace.branch_chat(self.tab, turn_id, attempt_id)
+
+    @Slot(str, str)
+    def branch_chat_version(self, turn_id, version_id):
+        self.workspace.branch_chat_version(self.tab, turn_id, version_id)
 
     @Slot()
     def pcs_attachments(self):
@@ -103,6 +108,10 @@ class WorkspacePanes:
     def branch_chat(self, source_tab, turn_id, attempt_id=''):
         from .workspace_chat import create_branch
         return create_branch(self, source_tab, turn_id, attempt_id)
+
+    def branch_chat_version(self, source_tab, turn_id, version_id):
+        from .workspace_chat import create_branch
+        return create_branch(self, source_tab, turn_id, version_id=version_id)
 
     def init_panes(self):
         from .workspace_pane_chrome import PaneSplitter, PaneTabRow, PaneResizeGrip
@@ -426,6 +435,9 @@ class WorkspacePanes:
         pane.strip.fit()
 
     def dispose_page(self, tab, *, prepared=False):
+        if not prepared and getattr(tab.widget, 'has_uncommitted_edit', False):
+            self.show_notice('請先送出或取消正在編輯的訊息。')
+            return False
         last_chat = (tab.document and tab.document.kind == 'chat'
                      and not any(t is not tab and t.document is tab.document for t in self.all_pages()))
         if last_chat and not tab.document.finish_checkpoint():
@@ -435,6 +447,12 @@ class WorkspacePanes:
                 and not any(t is not tab and t.document is tab.document for t in self.all_pages())
                 and not self.prepare_close(tab)):
             return False
+        if getattr(tab.widget, 'has_uncommitted_edit', False):
+            self.show_notice('請先送出或取消正在編輯的訊息。')
+            return False
+        cancel_edit = getattr(tab.widget, 'discard_inline_edit', None)
+        if cancel_edit is not None:
+            cancel_edit()
         self.autosave.forget(tab)
         if tab.host:
             # Keep the document's execution owner alive after its last view.

@@ -1112,6 +1112,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             self.show_notice('請先完成或取消目前的文件操作。')
             return False
         if tab.document and tab.document.kind == 'chat':
+            if getattr(tab.widget, 'has_uncommitted_edit', False) and decision != 'discard':
+                self.show_notice('請先送出或取消正在編輯的訊息。')
+                return False
             if not tab.document.finish_checkpoint():
                 self.show_notice('對話正在保存，請稍後再關閉或切換。')
                 return False
@@ -1123,9 +1126,20 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             if not tab.document.flush_views():
                 self.show_notice('輸入框還有未能保存的內容，請先縮短草稿或複製保留後再關閉。')
                 return False
+            if getattr(tab.widget, 'has_uncommitted_edit', False) and decision != 'discard':
+                self.show_notice('請先送出或取消正在編輯的訊息。')
+                return False
+            # Opening an editor without changing it must not leave its owner
+            # lease behind when this view is closed or repurposed.
+            if decision != 'cancel' and not getattr(tab.widget, 'has_uncommitted_edit', False):
+                cancel_edit = getattr(tab.widget, 'discard_inline_edit', None)
+                if cancel_edit is not None:
+                    cancel_edit()
             if stop_chat and decision != 'cancel' and not any(t is not tab and t.document is tab.document for t in self.all_pages()):
                 tab.document.stop()
         if decision == 'discard':
+            if getattr(tab.widget, 'has_uncommitted_edit', False):
+                tab.widget.discard_inline_edit()
             return True
         if decision == 'cancel':
             return not tab.dirty

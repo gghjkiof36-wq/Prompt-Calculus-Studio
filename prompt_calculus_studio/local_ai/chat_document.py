@@ -54,6 +54,9 @@ class ChatDocument(QObject):
         self._disposed = False
         self._attachment_job = None
         self._checkpoint_job = None
+        self._revision_saving = False
+        self._edit_lease = None
+        self._edit_turn_id = None
         self.refresh_timer = QTimer(self)
         self.refresh_timer.setSingleShot(True)
         self.refresh_timer.setInterval(60)
@@ -77,7 +80,7 @@ class ChatDocument(QObject):
 
     @property
     def busy(self):
-        return self._request is not None
+        return self._request is not None or self._revision_saving
 
     @property
     def composing(self):
@@ -86,6 +89,26 @@ class ChatDocument(QObject):
     @property
     def attachments_busy(self):
         return self._attachment_job is not None
+
+    @property
+    def edit_locked(self):
+        return self._edit_lease is not None and self._edit_lease() is not None
+
+    def acquire_edit(self, view, turn_id):
+        if (self._disposed or self.busy or self.attachments_busy or self.edit_locked or view not in self.views
+                or not any(t['id'] == turn_id for t in self.payload['turns'])):
+            return False
+        self._edit_lease, self._edit_turn_id = weakref.ref(view), turn_id
+        self.changed.emit()
+        return True
+
+    def release_edit(self, view):
+        if self._edit_lease is not None and self._edit_lease() is view:
+            self._edit_lease = self._edit_turn_id = None
+            self.changed.emit()
+
+    def _edit_allowed(self, view, turn_id):
+        return not self.edit_locked or (self._edit_lease() is view and self._edit_turn_id == turn_id)
 
     @property
     def draft_attachments(self):
@@ -129,7 +152,7 @@ class ChatDocument(QObject):
             # total size without replacing its current text or other settings.
             candidate = copy.deepcopy(dict(self.document, payload=self.payload))
             candidate['payload']['draft_attachments'] = self.payload.get('draft_attachments', []) + additions
-            attachments.sync_feature(candidate)
+            chat.sync_features(candidate)
             schema.encode(candidate)
             self.payload = candidate['payload']
             self.notice = ''
@@ -191,7 +214,7 @@ class ChatDocument(QObject):
         # The receipt's older payload is replaced, not projected. Copy the
         # current owner once so a long history is never copied only to discard it.
         candidate = copy.deepcopy(dict(self.document, payload=self.payload))
-        attachments.sync_feature(candidate)
+        chat.sync_features(candidate)
         return schema.validate(candidate)
 
     def update_dirty(self):
@@ -235,7 +258,7 @@ class ChatDocument(QObject):
 
     def request_checkpoint(self):
         """Coalesced automatic save; explicit Save/Send still use save()."""
-        if self._disposed or self.error or not self.flush_views():
+        if self._disposed or self._revision_saving or self.error or not self.flush_views():
             return False
         if any(t.document is self and id(t) in self.workspace.autosave.paused for t in self.workspace.all_pages()):
             return False
@@ -248,7 +271,7 @@ class ChatDocument(QObject):
             # One isolated copy, with full validation/encoding in the worker.
             # Later deltas can safely change the live active attempt.
             candidate = copy.deepcopy(dict(self.document, payload=self.payload))
-            attachments.sync_feature(candidate)
+            chat.sync_features(candidate)
             token = (self.key, self.owner_epoch, str(self.path), str(uuid.uuid4()))
             job = Checkpoint(token, self.path, candidate, self.receipt)
             job.signals.done.connect(self._checkpoint_done, Qt.ConnectionType.QueuedConnection)
@@ -309,12 +332,128 @@ class ChatDocument(QObject):
         return self._accept_checkpoint(job)
 
     def send(self, text):
+        if self.edit_locked:
+            return False
         return self._submit(text, retry=False)
 
-    def retry(self):
-        if not self.payload['turns']:
+    def retry(self, turn_id=None):
+        if self.edit_locked or not self.payload['turns'] or turn_id is not None and self.payload['turns'][-1]['id'] != turn_id:
             return False
         return self._submit(self.payload['turns'][-1]['text'], retry=True)
+
+    @property
+    def edit_revisions(self):
+        result = []
+        for number, revision in reversed(list(enumerate(self.payload.get('revisions', []), 1))):
+            turn = next((t for t in revision['turns'] if t['id'] == revision['turn_id']), None)
+            label = ('編輯前：' + turn['text'].replace('\n', ' ')[:60]) if turn else '還原前的對話'
+            result.append(dict(id=revision['id'], label=f'{number} · {label}', turn_count=len(revision['turns'])))
+        return result
+
+    def edit_revision_payload(self, revision_id):
+        revision = next((r for r in self.payload.get('revisions', []) if r['id'] == revision_id), None)
+        if revision is None:
+            raise ValueError('找不到這份編輯紀錄。')
+        # The marker also allows frozen references to stopped/partial answers.
+        return dict(version=1, draft='', system_prompt=revision['system_prompt'],
+                    turns=copy.deepcopy(revision['turns']), revisions=[])
+
+    def _message_versions(self):
+        from ..local_documents.chat_versions import MessageVersionIndex
+        index = getattr(self, '_message_version_index', None)
+        if index is None or not index.matches(self.payload):
+            index = self._message_version_index = MessageVersionIndex(self.payload)
+        return index
+
+    def message_version_count(self, turn_id):
+        return self._message_versions().count(turn_id) if not self._disposed else 0
+
+    def message_versions(self, turn_id):
+        if self._disposed:
+            raise ValueError('原對話已關閉。')
+        return self._message_versions().versions(turn_id)
+
+    def branch_message_version_document(self, turn_id, version_id):
+        """Copy the selected full path without restoring or saving this owner."""
+        if self._disposed:
+            raise ValueError('原對話已關閉，無法建立新對話。')
+        if self.edit_locked:
+            raise ValueError('請先完成或取消目前的訊息編輯。')
+        if self.composing:
+            raise ValueError('請先完成目前文字輸入，再建立新對話。')
+        from ..local_documents.identity import duplicate
+        payload, revision_id = self._message_versions().branch_payload(turn_id, version_id)
+        candidate = dict(self.document, payload=payload,
+                         required_features=list(self.document['required_features']))
+        chat.sync_features(candidate)
+        branched = duplicate(candidate).document
+        branched['extensions']['pcs.chat_message_version'] = dict(
+            source_document_id=self.key, source_saved_revision=self.document['revision']['id'],
+            turn_id=turn_id, version_id=version_id, edit_revision_id=revision_id)
+        return schema.validate(branched)
+
+    def _save_revision_candidate(self, candidate):
+        """Publish an edit/restore before changing the live path or its history."""
+        if any(t.document is self and id(t) in self.workspace.autosave.paused for t in self.workspace.all_pages()):
+            raise ValueError('請先完成或取消目前的文件操作。')
+        envelope = copy.deepcopy(dict(self.document, payload=candidate))
+        chat.sync_features(envelope)
+        schema.encode(envelope)  # Reject the whole candidate before replacing anything.
+        self._revision_saving = True
+        try:
+            result = io.save(self.path.parent, self.path.name, envelope, self.receipt)
+        finally:
+            self._revision_saving = False
+        self.last_result = result
+        self.recovery_paths = list(result.recovery_paths)
+        if result.status != 'saved':
+            self.error = result.error or '修改尚未保存；原對話已保留。'
+            raise ValueError(self.error)
+        self.document, self.receipt = result.document, result.receipt
+        self.payload = candidate
+        self.baseline = copy.deepcopy(candidate)
+        self.dirty, self.error = False, ''
+
+    def edit_and_resend(self, turn_id, text, *, view=None):
+        if self.busy or self._disposed or self.attachments_busy or not self.flush_views() or not self._edit_allowed(view, turn_id):
+            return False
+        try:
+            if not self.finish_checkpoint():
+                return False
+            position = next((i for i, t in enumerate(self.payload['turns']) if t['id'] == turn_id), None)
+            if position is None:
+                raise ValueError('找不到這則訊息，原對話已保留。')
+            candidate = copy.deepcopy(self.payload)
+            chat.archive_revision(candidate, reason='edit', turn_id=turn_id)
+            edited = dict(candidate['turns'][position], id=str(uuid.uuid4()), text=text, attempts=[])
+            for item in edited.get('attachments', []):
+                item['id'] = str(uuid.uuid4())
+            candidate['turns'] = candidate['turns'][:position] + [edited]
+            return self._submit(text, retry=True, edited_payload=candidate, edit_view=view, edited_turn_id=turn_id)
+        except (ValueError, KeyError, TypeError) as error:
+            self.notice = str(error)
+            self.changed.emit()
+            return False
+
+    def restore_edit_revision(self, revision_id):
+        if self.busy or self._disposed or self.attachments_busy or self.edit_locked or not self.flush_views():
+            return False
+        try:
+            if not self.finish_checkpoint():
+                return False
+            restored = self.edit_revision_payload(revision_id)
+            candidate = copy.deepcopy(self.payload)
+            chat.archive_revision(candidate, reason='restore')
+            candidate.update(turns=restored['turns'], system_prompt=restored['system_prompt'])
+            self._save_revision_candidate(candidate)
+            self.notice = ''
+            self.editing.emit()
+            self.changed.emit()
+            return True
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            self.notice = str(error)
+            self.changed.emit()
+            return False
 
     def branch_document(self, turn_id, attempt_id=None):
         """Return an independent saved-file candidate without touching source.
@@ -325,6 +464,8 @@ class ChatDocument(QObject):
         """
         if self._disposed:
             raise ValueError('原對話已關閉，無法建立分支。')
+        if self.edit_locked:
+            raise ValueError('請先完成或取消目前的訊息編輯。')
         if not self.flush_views():
             raise ValueError('請先完成目前文字輸入，再建立對話分支。')
         from ..local_documents.identity import duplicate
@@ -333,7 +474,7 @@ class ChatDocument(QObject):
         snapshot = dict(self.document, payload=self.payload)
         candidate = dict(snapshot, payload=chat.branch_payload(self.payload, turn_id, attempt_id))
         candidate['required_features'] = list(snapshot['required_features'])
-        attachments.sync_feature(candidate)
+        chat.sync_features(candidate)
         branched = duplicate(candidate).document
         branched['extensions']['pcs.chat_branch'] = dict(
             source_document_id=snapshot['document_id'],
@@ -341,12 +482,14 @@ class ChatDocument(QObject):
             turn_id=turn_id, attempt_id=attempt_id)
         return schema.validate(branched)
 
-    def _submit(self, text, *, retry):
-        if self.busy or self._disposed or self.attachments_busy or not self.flush_views():
+    def _submit(self, text, *, retry, edited_payload=None, edit_view=None, edited_turn_id=None):
+        if (self.busy or self._disposed or self.attachments_busy or not self.flush_views()
+                or self.edit_locked and (edited_payload is None or not self._edit_allowed(edit_view, edited_turn_id))):
             return False
         try:
-            source_attachments = (self.payload['turns'][-1].get('attachments', []) if retry
-                                  else self.payload.get('draft_attachments', []))
+            source_payload = self.payload if edited_payload is None else edited_payload
+            source_attachments = (source_payload['turns'][-1].get('attachments', []) if retry
+                                  else source_payload.get('draft_attachments', []))
             if not isinstance(text, str) or (not text.strip() and not source_attachments) or len(text) > chat.MAX_TEXT:
                 raise ValueError('請先輸入訊息。')
             if any(item['kind'] == 'image' for item in source_attachments):
@@ -358,15 +501,15 @@ class ChatDocument(QObject):
             model = self.service.selected_model
             settings = copy.deepcopy(self.service.settings_for_model(model))
             default_prompt = self.service.model_preset(model)['system_prompt']
-            own_prompt = self.payload['system_prompt']
+            own_prompt = source_payload['system_prompt']
             effective_prompt = own_prompt if own_prompt.strip() else default_prompt
-            context_payload = dict(self.payload, system_prompt=effective_prompt)
+            context_payload = dict(source_payload, system_prompt=effective_prompt)
             messages = chat.context_messages(context_payload, text, retry=retry)
-            refs = chat.context_references(self.payload, retry=retry)
+            refs = chat.context_references(source_payload, retry=retry)
             params = {key: settings[key] for key in PARAMETERS}
             model_name = next((m['name'] for m in getattr(self.service, 'models', []) if m['id'] == model), model)
             profile = str(uuid.uuid5(uuid.NAMESPACE_URL, json.dumps([model, params, effective_prompt], sort_keys=True)))
-            turn = self.payload['turns'][-1] if retry else dict(id=str(uuid.uuid4()), text=text, attempts=[])
+            turn = source_payload['turns'][-1] if retry else dict(id=str(uuid.uuid4()), text=text, attempts=[])
             if not retry and source_attachments:
                 turn['attachments'] = copy.deepcopy(source_attachments)
                 for item in turn['attachments']:
@@ -383,7 +526,9 @@ class ChatDocument(QObject):
                                      input=dict(messages=messages, model=model, params=settings))
             # Validate a candidate before mutating a live document or clearing
             # its draft, including turn/attempt limits and reference integrity.
-            candidate = copy.deepcopy(self.payload)
+            candidate = copy.deepcopy(source_payload)
+            if chat.needs_terminal_context(source_payload, retry=retry):
+                candidate.setdefault('revisions', [])
             if retry:
                 candidate['turns'][-1]['attempts'].append(attempt)
             else:
@@ -393,6 +538,29 @@ class ChatDocument(QObject):
                 if 'draft_attachments' in candidate:
                     candidate['draft_attachments'] = []
             chat.validate_payload(candidate)
+            if edited_payload is not None:
+                preflight = getattr(self.service, 'validate_submission', None)
+                if preflight is not None:
+                    preflight(request)
+                # Keep the entire original live path until CAS publication.
+                # Reserving the request prevents reentrant generation/edits.
+                self._request = request
+                self._attempt = candidate['turns'][-1]['attempts'][-1]
+                try:
+                    self._save_revision_candidate(candidate)
+                except (ValueError, OSError, KeyError, TypeError):
+                    self._request = self._attempt = None
+                    raise
+                self._edit_lease = self._edit_turn_id = None
+                self.editing.emit()
+                if not self._owns(request):
+                    return False
+                self.notice = ''
+                if not self.service.submit(request):
+                    self._finish_local('failed', self.service.error or '引擎未接受訊息，請確認模型狀態後重試。')
+                    return False
+                self.changed.emit()
+                return True
             self.payload = candidate
             self._attempt = self.payload['turns'][-1]['attempts'][-1]
             # Reserve this owner before save/changed signals can reenter Send,
@@ -425,7 +593,7 @@ class ChatDocument(QObject):
                 return False
             self.changed.emit()
             return True
-        except (ValueError, KeyError, TypeError) as error:
+        except (ValueError, OSError, KeyError, TypeError) as error:
             self.notice = str(error)
             self.changed.emit()
             return False
@@ -476,7 +644,7 @@ class ChatDocument(QObject):
         self._edited()
         self.save()
 
-    def stop(self, *, reason='已停止，保留目前回覆。', status='stopped'):
+    def stop(self, *, reason='生成已停止', status='stopped'):
         request = self._request
         if request is None:
             return False
@@ -486,7 +654,7 @@ class ChatDocument(QObject):
         return True
 
     def retarget(self, result, target):
-        if not self.finish_checkpoint():
+        if self.edit_locked or not self.finish_checkpoint():
             return False
         self._cancel_attachment_import()
         self.stop()
@@ -506,7 +674,7 @@ class ChatDocument(QObject):
 
     def restore_recovery(self, value):
         try:
-            if not self.finish_checkpoint():
+            if self.edit_locked or not self.finish_checkpoint():
                 return False
             candidate = schema.validate(value['document'])
             if candidate['kind'] != 'chat' or candidate['document_id'] != self.key:
@@ -542,7 +710,7 @@ class ChatDocument(QObject):
     def dispose(self):
         if self._disposed:
             return True
-        if not self.finish_checkpoint():
+        if self.edit_locked or not self.finish_checkpoint():
             return False
         self._cancel_attachment_import()
         self.stop()

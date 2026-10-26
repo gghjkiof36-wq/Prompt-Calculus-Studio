@@ -24,7 +24,7 @@ ALIASES = {
 }
 ICON_NAMES = frozenset({
     'home','canvas','media','explore','export','settings','gear','back','forward','search','update',
-    'package','download','check','clock','info','close','play','pause','stop','lock','pin','pin-filled','menu','pencil',
+    'package','download','check','clock','info','close','play','pause','stop','stop-filled','lock','pin','pin-filled','menu','pencil',
     'workflow','history','external-link','alert','server','check-circle','message-square',
     'shield','shield-check','shield-alert','shield-off','ban','hand','git-branch',
     'folder','plus','minus','copy','trash','caret-down','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal','fold-all','unfold-all',
@@ -273,6 +273,10 @@ def _draw(painter, name, filled=False):
         rect(5,4,4,16,.7);rect(15,4,4,16,.7)
     elif name == 'stop':
         rect(4,4,16,16,2)
+    elif name == 'stop-filled':
+        painter.save();painter.setBrush(painter.pen().color());painter.setPen(Qt.PenStyle.NoPen)
+        rect(5,5,14,14,1.5)
+        painter.restore()
     elif name == 'lock':
         rect(5,11,14,10,2);painter.drawArc(QRectF(8,2,8,14),0,180*16);line(12,15,12,17)
     elif name in ('chevron-left','chevron-right'):

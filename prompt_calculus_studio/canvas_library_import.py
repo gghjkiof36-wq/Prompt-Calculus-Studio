@@ -1,4 +1,4 @@
-"""Import a saved Prompt management page into the current Canvas library."""
+"""Create local Canvas text or import a saved Prompt management page."""
 from collections import Counter
 from pathlib import Path
 
@@ -16,6 +16,8 @@ def choose(palette):
     menu = RoundMenu(palette)
     menu.setToolTipsVisible(True)
     menu.setStyleSheet('QMenu { menu-scrollable: 1; }')
+    menu.addAction('新增臨時文字模塊', palette.new_module)
+    menu.addSeparator()
     choices = workspace.material_transfer.candidates('category') if workspace else []
     counts = Counter(path.stem.casefold() for path in choices)
     for path in choices:

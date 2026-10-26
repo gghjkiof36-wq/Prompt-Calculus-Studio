@@ -1,12 +1,11 @@
 """Compact attachment snapshots; files are accepted only by the document owner."""
-import base64
-
-from PySide6.QtCore import Qt, Signal, QBuffer, QByteArray, QIODevice, QSize
-from PySide6.QtGui import QImage, QImageReader, QPixmap
+from PySide6.QtCore import Qt, Signal, QSize, QRectF
+from PySide6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QColor, QPen
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QScrollArea, QWidget
 
 from ..ui_icons import icon
 from ..widgets import StudioDialog, button
+from .attachment_preview import AttachmentLightbox, snapshot_image
 
 
 def mime_attachments(mime):
@@ -26,24 +25,37 @@ def mime_attachments(mime):
     return None
 
 
-def snapshot_image(item, size):
-    uri = item.get('data_uri', '')
-    if not uri.startswith('data:image/png;base64,') or len(uri) > 3_000_000:
-        return QPixmap()
-    try:
-        data = base64.b64decode(uri.partition(',')[2], validate=True)
-    except ValueError:
-        return QPixmap()
-    source = QBuffer()
-    source.setData(QByteArray(data))
-    source.open(QIODevice.OpenModeFlag.ReadOnly)
-    reader = QImageReader(source)
-    bounds = reader.size()
-    if not bounds.isValid() or bounds.width() * bounds.height() > 4_000_000:
-        return QPixmap()
-    bounds.scale(size, Qt.AspectRatioMode.KeepAspectRatio)
-    reader.setScaledSize(bounds)
-    return QPixmap.fromImage(reader.read())
+class ImageThumbnail(QPushButton):
+    def __init__(self, item, parent=None):
+        super().__init__(parent)
+        self.setObjectName('ChatImageThumbnail')
+        self.setFixedSize(64, 64)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(item.get('name', '圖片'))
+        self.setAccessibleName('預覽圖片：' + item.get('name', '圖片'))
+        self.image = snapshot_image(item, QSize(128, 128))
+        self.tokens = None
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        area = QRectF(self.rect()).adjusted(.5, .5, -.5, -.5)
+        shape = QPainterPath()
+        shape.addRoundedRect(area, 10, 10)
+        painter.setClipPath(shape)
+        tokens = self.tokens
+        painter.fillRect(self.rect(), QColor(tokens['raised']) if tokens else self.palette().button())
+        if self.image.isNull():
+            painter.drawPixmap(21, 21, icon('image', size=22).pixmap(22, 22))
+        else:
+            # Fill the compact square. The lightbox shows the complete image.
+            image = self.image.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                                      Qt.TransformationMode.SmoothTransformation)
+            painter.drawPixmap((self.width() - image.width()) // 2, (self.height() - image.height()) // 2, image)
+        painter.setClipping(False)
+        color = tokens['accent' if self.hasFocus() else 'divider'] if tokens else self.palette().mid().color()
+        painter.setPen(QPen(QColor(color), 2 if self.hasFocus() else 1))
+        painter.drawPath(shape)
 
 
 class AttachmentStrip(QScrollArea):
@@ -55,12 +67,14 @@ class AttachmentStrip(QScrollArea):
         self._signature = None
         self._remove_buttons = []
         self._items = []
+        self._preview = None
+        self._tokens = None
         self.setObjectName('ChatAttachments')
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setWidgetResizable(True)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.setFixedHeight(70)
+        self.setFixedHeight(80)
         self.container = QWidget()
         self.items_layout = QHBoxLayout(self.container)
         self.items_layout.setContentsMargins(0, 0, 0, 0)
@@ -75,10 +89,24 @@ class AttachmentStrip(QScrollArea):
         if signature != self._signature:
             self._signature, self._items = signature, list(items)
             while self.items_layout.count() > 1:
-                child = self.items_layout.takeAt(0).widget()
+                child = self.items_layout.takeAt(1 if self.read_only else 0).widget()
                 child.deleteLater()
             self._remove_buttons = []
             for item in items:
+                if item.get('kind') == 'image':
+                    frame = QFrame()
+                    frame.setFixedSize(64, 64)
+                    picture = ImageThumbnail(item, frame)
+                    picture.tokens = self._tokens
+                    picture.clicked.connect(lambda checked=False, value=item: self.preview(value))
+                    if not self.read_only:
+                        remove = self._remove_button(item)
+                        remove.setParent(frame)
+                        remove.move(40, 0)
+                        remove.setObjectName('ChatImageRemove')
+                        remove.raise_()
+                    self._append_frame(frame)
+                    continue
                 frame = QFrame()
                 frame.setObjectName('ChatAttachment')
                 frame.setFixedSize(208 if not self.read_only else 180, 52)
@@ -87,8 +115,7 @@ class AttachmentStrip(QScrollArea):
                 layout.setSpacing(6)
                 picture = QLabel()
                 picture.setFixedSize(32, 32)
-                image = snapshot_image(item, QSize(32, 32)) if item.get('kind') == 'image' else QPixmap()
-                picture.setPixmap(image if not image.isNull() else icon('file-text', size=22).pixmap(22, 22))
+                picture.setPixmap(icon('file-text', size=22).pixmap(22, 22))
                 picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 layout.addWidget(picture)
                 name = QPushButton()
@@ -101,41 +128,62 @@ class AttachmentStrip(QScrollArea):
                 name.clicked.connect(lambda checked=False, value=item: self.preview(value))
                 layout.addWidget(name, 1)
                 if not self.read_only:
-                    remove = button('', lambda checked=False, identity=item['id']: self.removeRequested.emit(identity), 'IconButton')
-                    remove.setIcon(icon('x', size=14))
-                    remove.setFixedSize(24, 24)
-                    remove.setAccessibleName('移除附件：' + item.get('name', '附件'))
-                    remove.setToolTip('移除附件')
+                    remove = self._remove_button(item)
                     layout.addWidget(remove)
-                    self._remove_buttons.append(remove)
-                self.items_layout.insertWidget(self.items_layout.count() - 1, frame)
+                self._append_frame(frame)
         for remove in self._remove_buttons:
             remove.setEnabled(not busy)
         self.setVisible(bool(items))
 
+    def _append_frame(self, frame):
+        # Sent attachments share the right edge of the user's message bubble.
+        index = self.items_layout.count() if self.read_only else self.items_layout.count() - 1
+        self.items_layout.insertWidget(index, frame)
+
+    def _remove_button(self, item):
+        remove = button('', lambda checked=False, identity=item['id']: self.removeRequested.emit(identity), 'IconButton')
+        remove.setIcon(icon('x', size=14))
+        remove.setFixedSize(24, 24)
+        remove.setAccessibleName('移除附件：' + item.get('name', '附件'))
+        remove.setToolTip('移除附件')
+        self._remove_buttons.append(remove)
+        return remove
+
     def apply_appearance(self, tokens):
+        self._tokens = tokens
         self.setStyleSheet('QScrollArea#ChatAttachments, QScrollArea#ChatAttachments>QWidget>QWidget {background:transparent;border:0;}'
-            f'QFrame#ChatAttachment {{background:{tokens["raised"]};border:1px solid {tokens["divider"]};border-radius:10px;}}')
+            f'QFrame#ChatAttachment {{background:{tokens["raised"]};border:1px solid {tokens["divider"]};border-radius:10px;}}'
+            f'QPushButton#ChatImageRemove {{background:{tokens["raised"]};border:1px solid {tokens["divider"]};border-radius:12px;padding:0;}}')
+        for thumbnail in self.findChildren(ImageThumbnail):
+            thumbnail.tokens = tokens
+            thumbnail.update()
 
     def preview(self, item):
+        if self._preview is not None:
+            if isinstance(self._preview, AttachmentLightbox):
+                self._preview.dismiss()
+            else:
+                self._preview.close()
+        if item.get('kind') == 'image':
+            lightbox = AttachmentLightbox(self, item)
+            self._preview = lightbox
+            lightbox.closed.connect(lambda: self._preview_closed(lightbox))
+            lightbox.present()
+            return
         dialog = StudioDialog(self)
         dialog.setWindowTitle(item.get('name', '附件'))
         dialog.resize(680, 480)
-        if item.get('kind') == 'image':
-            image = snapshot_image(item, QSize(600, 360))
-            content = QLabel()
-            content.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            if image.isNull():
-                content.setText('圖片無法顯示。')
-            else:
-                content.setPixmap(image)
-        else:
-            content = QPlainTextEdit()
-            content.setReadOnly(True)
-            content.setPlainText(item.get('text', ''))
+        content = QPlainTextEdit()
+        content.setReadOnly(True)
+        content.setPlainText(item.get('text', ''))
         dialog.body.addWidget(content)
         dialog.setWindowModality(Qt.WindowModality.NonModal)
         dialog.set_outside_dismiss(True)
         dialog.finished.connect(dialog.deleteLater)
+        dialog.finished.connect(lambda: self._preview_closed(dialog))
         self._preview = dialog
         dialog.show()
+
+    def _preview_closed(self, preview):
+        if self._preview is preview:
+            self._preview = None

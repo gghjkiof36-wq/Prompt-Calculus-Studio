@@ -103,6 +103,26 @@ class WorkspaceChatBranches(unittest.TestCase):
         self.assertEqual(self.document.error, 'source save failed')
         self.assertIn('原對話仍有保存錯誤', self.workspace.show_notice.call_args.args[0])
 
+    def test_message_version_uses_same_exclusive_publication_and_keeps_source(self):
+        self.document.branch_message_version_document = Mock(return_value=deepcopy(self.candidate))
+        existing = self.root / '原對話 - 分支.pcs-chat'
+        existing.write_bytes(b'keep older branch')
+        with patch('prompt_calculus_studio.workspace_chat.io.create', side_effect=self.write):
+            fresh = create_branch(self.workspace, self.tab, 'turn-1', version_id='version-1')
+        self.assertIs(fresh, self.fresh)
+        self.document.branch_message_version_document.assert_called_once_with('turn-1', 'version-1')
+        self.document.branch_document.assert_not_called()
+        self.assertEqual(existing.read_bytes(), b'keep older branch')
+        self.assertEqual(self.published[0].name, '原對話 - 分支(1).pcs-chat')
+
+    def test_stale_message_version_cannot_publish_or_open(self):
+        self.document.branch_message_version_document = Mock(side_effect=ValueError('version no longer exists'))
+        with patch('prompt_calculus_studio.workspace_chat.io.create') as create:
+            self.assertIsNone(create_branch(self.workspace, self.tab, 'turn-1', version_id='stale'))
+        create.assert_not_called()
+        self.workspace.open_path.assert_not_called()
+        self.assertIn('version no longer exists', self.workspace.report_error.call_args.args[0])
+
     def test_long_unicode_name_stays_within_windows_component_limit(self):
         name = _branch_name('長名字😀' * 100)
         self.assertLessEqual(len(name.encode('utf-16-le')), 510)

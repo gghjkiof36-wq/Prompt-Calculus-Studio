@@ -5,6 +5,7 @@ import uuid
 from .schema import fail, identifier, new_document
 
 FEATURE = 'pcs.chat.v1'
+REVISION_FEATURE = 'pcs.chat-revisions.v1'
 STATES = {'receiving', 'complete', 'stopped', 'interrupted', 'failed', 'limited'}
 MAX_TEXT = 1_000_000
 
@@ -14,18 +15,39 @@ def empty():
 
 
 def validate_payload(payload):
-    if not isinstance(payload, dict) or set(payload) - {'draft_attachments'} != {'version', 'draft', 'system_prompt', 'turns'} or type(payload['version']) is not int or payload['version'] != 1:
+    if not isinstance(payload, dict) or set(payload) - {'draft_attachments', 'revisions'} != {'version', 'draft', 'system_prompt', 'turns'} or type(payload['version']) is not int or payload['version'] != 1:
         fail('unsupported', '不支援此對話版本。')
     if not isinstance(payload['draft'], str) or len(payload['draft']) > MAX_TEXT:
         fail('limit', '對話草稿過長。')
     if not isinstance(payload['system_prompt'], str) or len(payload['system_prompt']) > MAX_TEXT:
         fail('limit', '對話指示過長。')
-    turns = payload['turns']
-    if not isinstance(turns, list) or len(turns) > 10000:
-        fail('limit', '對話訊息過多。')
+    revisions = payload.get('revisions', [])
+    if not isinstance(revisions, list) or len(revisions) > 100:
+        fail('limit', '此對話的編輯紀錄已達上限。')
+    revision_ids = set()
+    for revision in revisions:
+        if (not isinstance(revision, dict) or set(revision) != {'id', 'reason', 'turn_id', 'system_prompt', 'turns'}
+                or not identifier(revision['id']) or revision['id'] in revision_ids
+                or revision['reason'] not in ('edit', 'restore')
+                or not isinstance(revision['system_prompt'], str) or len(revision['system_prompt']) > MAX_TEXT):
+            fail('invalid', '對話編輯紀錄格式無效。')
+        revision_ids.add(revision['id'])
+        _validate_turns(revision['turns'], terminal_context=True)
+        if (revision['turn_id'] is not None and revision['turn_id'] not in {t['id'] for t in revision['turns']}
+                or revision['reason'] == 'edit' and revision['turn_id'] is None
+                or any(a['status'] == 'receiving' for t in revision['turns'] for a in t['attempts'])):
+            fail('invalid', '對話編輯紀錄的訊息或狀態無效。')
     seen = set()
     from .chat_attachments import validate_list
     validate_list(payload.get('draft_attachments', []), seen)
+    _validate_turns(payload['turns'], seen=seen, terminal_context='revisions' in payload)
+
+
+def _validate_turns(turns, *, seen=None, terminal_context=False):
+    if not isinstance(turns, list) or len(turns) > 10000:
+        fail('limit', '對話訊息過多。')
+    seen = set() if seen is None else seen
+    from .chat_attachments import validate_list
     def ident(value):
         if not identifier(value) or value in seen:
             fail('invalid', '對話訊息身分無效或重複。')
@@ -71,7 +93,22 @@ def validate_payload(payload):
                         or ref['user_id'] != user_id or not isinstance(ref['attempt_id'], str)
                         or ref['attempt_id'] not in usable):
                     fail('invalid', '對話上下文關聯無效。')
-        prior[turn['id']] = {a['id'] for a in turn['attempts'] if a['status'] == 'complete'}
+        prior[turn['id']] = {a['id'] for a in turn['attempts']
+                             if a['status'] != 'receiving' and (terminal_context or a['status'] == 'complete')}
+        if terminal_context and not turn['attempts']:
+            prior[turn['id']].add('')
+
+
+def sync_features(document):
+    from .chat_attachments import sync_feature
+    sync_feature(document)
+    features = document['required_features']
+    if 'revisions' in document['payload']:
+        if REVISION_FEATURE not in features:
+            features.append(REVISION_FEATURE)
+    elif REVISION_FEATURE in features:
+        features.remove(REVISION_FEATURE)
+    return document
 
 
 def interrupt(payload):
@@ -89,20 +126,32 @@ def clone_payload(payload):
     result = copy.deepcopy(payload)
     interrupt(result)
     remap = {}
+    def fresh(value):
+        if value not in remap:
+            remap[value] = str(uuid.uuid4())
+        return remap[value]
+
+    def remap_turns(turns):
+        for turn in turns:
+            turn['id'] = fresh(turn['id'])
+            for item in turn.get('attachments', []):
+                item['id'] = fresh(item['id'])
+            for attempt in turn['attempts']:
+                attempt['id'] = fresh(attempt['id'])
+                attempt['request'] = fresh(attempt['request'])
+                for ref in attempt['context']:
+                    ref['user_id'] = fresh(ref['user_id'])
+                    if ref['attempt_id']:
+                        ref['attempt_id'] = fresh(ref['attempt_id'])
+
     for item in result.get('draft_attachments', []):
-        item['id'] = str(uuid.uuid4())
-    for turn in result['turns']:
-        old = turn['id']
-        turn['id'] = remap[old] = str(uuid.uuid4())
-        for item in turn.get('attachments', []):
-            item['id'] = str(uuid.uuid4())
-        for attempt in turn['attempts']:
-            old = attempt['id']
-            attempt['id'] = remap[old] = str(uuid.uuid4())
-            attempt['request'] = str(uuid.uuid4())
-            for ref in attempt['context']:
-                ref['user_id'] = remap[ref['user_id']]
-                ref['attempt_id'] = remap[ref['attempt_id']]
+        item['id'] = fresh(item['id'])
+    remap_turns(result['turns'])
+    for revision in result.get('revisions', []):
+        revision['id'] = str(uuid.uuid4())
+        remap_turns(revision['turns'])
+        if revision['turn_id'] is not None:
+            revision['turn_id'] = fresh(revision['turn_id'])
     return result
 
 
@@ -130,23 +179,24 @@ def branch_payload(payload, turn_id, attempt_id=None):
     prefix = payload['turns'][:position] + [dict(selected, attempts=attempts)]
     result = dict(version=payload['version'], draft='', system_prompt=payload['system_prompt'],
                   turns=copy.deepcopy(prefix))
+    if 'revisions' in payload:
+        result['revisions'] = copy.deepcopy(payload['revisions'])
     validate_payload(result)
     return result
 
 
 def context_messages(payload, text, *, retry=False):
-    """All prior usable turns; an incomplete turn must be retried explicitly."""
+    """Freeze the latest terminal answer, including an explicitly stopped partial."""
     history = payload['turns'][:-1] if retry else payload['turns']
     messages = []
     from .chat_attachments import message
     if payload['system_prompt']:
         messages.append(dict(role='system', content=payload['system_prompt']))
     for turn in history:
-        answer = next((a for a in reversed(turn['attempts']) if a['status'] == 'complete'), None)
-        if answer is None:
-            raise ValueError('上一則回覆尚未完成，請先重試，或另開一份對話。')
-        messages.extend([dict(role='user', content=message(turn['text'], turn.get('attachments', []))),
-                         dict(role='assistant', content=answer['text'])])
+        answer = context_answer(turn)
+        messages.append(dict(role='user', content=message(turn['text'], turn.get('attachments', []))))
+        if answer is not None and answer['text']:
+            messages.append(dict(role='assistant', content=answer['text']))
     attachments = payload['turns'][-1].get('attachments', []) if retry else payload.get('draft_attachments', [])
     messages.append(dict(role='user', content=message(text, attachments)))
     return messages
@@ -154,8 +204,27 @@ def context_messages(payload, text, *, retry=False):
 
 def context_references(payload, *, retry=False):
     history = payload['turns'][:-1] if retry else payload['turns']
-    return [dict(user_id=t['id'], attempt_id=next(a['id'] for a in reversed(t['attempts'])
-                                                if a['status'] == 'complete')) for t in history]
+    return [dict(user_id=t['id'], attempt_id=answer['id'] if (answer := context_answer(t)) else '') for t in history]
+
+
+def context_answer(turn):
+    if turn['attempts'] and turn['attempts'][-1]['status'] == 'receiving':
+        raise ValueError('請等待目前回覆完成，或先停止生成。')
+    return turn['attempts'][-1] if turn['attempts'] else None
+
+
+def needs_terminal_context(payload, *, retry=False):
+    history = payload['turns'][:-1] if retry else payload['turns']
+    return any((answer := context_answer(turn)) is None or answer['status'] != 'complete' for turn in history)
+
+
+def archive_revision(payload, *, reason, turn_id=None):
+    """Retain one immutable path inside this file, independent of its draft."""
+    revisions = payload.setdefault('revisions', [])
+    if len(revisions) >= 100:
+        raise ValueError('此對話的編輯紀錄已達上限；請先匯出保留。')
+    revisions.append(dict(id=str(uuid.uuid4()), reason=reason, turn_id=turn_id,
+                          system_prompt=payload['system_prompt'], turns=copy.deepcopy(payload['turns'])))
 
 
 def markdown(payload, title):
@@ -171,4 +240,7 @@ def markdown(payload, title):
     if payload['draft'] or payload.get('draft_attachments'):
         lines.extend(['## 未送出草稿', '', payload['draft'], ''])
         lines.extend(attachment_markdown(payload.get('draft_attachments', [])))
+    for index, revision in enumerate(payload.get('revisions', []), 1):
+        archived = dict(version=1, draft='', system_prompt=revision['system_prompt'], turns=revision['turns'])
+        lines.extend(['---', '', markdown(archived, f'編輯紀錄 {index}'), ''])
     return '\n'.join(lines)

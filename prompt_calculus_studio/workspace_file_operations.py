@@ -67,6 +67,8 @@ class WorkspaceFileOperations(QObject):
             raise ValueError('文件正在保存，請稍後再試。')
         if not allow_editing and any(self.w.autosave.editing_dialog(tab) for tab in pages):
             raise ValueError('請先完成素材表單的確認或取消。')
+        if any(getattr(getattr(tab, 'widget', None), 'has_uncommitted_edit', False) for tab in pages):
+            raise ValueError('請先送出或取消正在編輯的訊息，再進行檔案操作。')
         for tab in pages:
             self.w.autosave.paused.add(id(tab))
             self.w.autosave.stop(tab)
@@ -78,6 +80,12 @@ class WorkspaceFileOperations(QObject):
             for owner in owners.values():
                 if not owner.finish_checkpoint():
                     raise ValueError('對話正在保存，請稍後再進行檔案操作。')
+            if any(getattr(getattr(tab, 'widget', None), 'has_uncommitted_edit', False) for tab in pages):
+                raise ValueError('請先送出或取消正在編輯的訊息，再進行檔案操作。')
+            for tab in pages:
+                cancel_edit = getattr(getattr(tab, 'widget', None), 'discard_inline_edit', None)
+                if cancel_edit is not None:
+                    cancel_edit()
             expected = stamp(source) if source.exists() else None
             if expected is None and not (rescue and pages):
                 raise ValueError('來源已不存在：' + str(source))

@@ -182,13 +182,12 @@ class BranchOwnerContracts(unittest.TestCase):
         self.assertEqual(self.source.payload['turns'][-1]['attempts'][-1]['status'], 'complete')
         self.assertFalse(branch.busy)
 
-    def test_user_branch_requires_explicit_retry_and_has_its_own_request_owner(self):
+    def test_user_branch_explicit_retry_has_its_own_request_owner(self):
         selected = self.source.payload['turns'][1]
         branch = self.open_candidate_fixture(self.source.branch_document(selected['id']))
         source_before = self.source_path.read_bytes()
         self.assertEqual(branch.payload['turns'][-1]['attempts'], [])
         self.assertEqual(self.service.submitted, [])
-        self.assertFalse(branch.send('不能悄悄跳過未回答的題目'))
         self.assertTrue(branch.retry())
         request = self.service.submitted[-1]
         self.assertEqual(request.scope['document_id'], branch.key)

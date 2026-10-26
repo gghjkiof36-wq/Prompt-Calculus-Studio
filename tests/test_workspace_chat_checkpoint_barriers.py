@@ -55,3 +55,63 @@ class ChatCheckpointBarriers(unittest.TestCase):
         self.doc.finish_checkpoint.return_value = False
         self.assertFalse(WorkspacePanes.dispose_page(self.workspace, self.tab, prepared=True))
         self.workspace.show_notice.assert_called_once()
+
+    def test_inline_edit_prevents_file_operation_before_pause_or_writer(self):
+        self.tab.widget = SimpleNamespace(has_uncommitted_edit=True)
+        with self.assertRaisesRegex(ValueError, '正在編輯'):
+            WorkspaceFileOperations.begin(self.files, self.context, allow_editing=True)
+        self.auto.stop.assert_not_called()
+        self.doc.finish_checkpoint.assert_not_called()
+        self.assertFalse(self.auto.paused)
+        self.assertEqual(self.path.read_bytes(), b'before')
+
+    def test_inline_edit_prevents_close_navigation_and_saved_page_disposal(self):
+        self.tab.widget = SimpleNamespace(has_uncommitted_edit=True, discard_inline_edit=Mock())
+        self.assertFalse(WorkspaceShell.prepare_close(self.workspace, self.tab))
+        self.assertFalse(WorkspaceShell.prepare_close(self.workspace, self.tab, stop_chat=False))
+        self.assertFalse(WorkspacePanes.dispose_page(self.workspace, self.tab))
+        self.tab.widget.discard_inline_edit.assert_not_called()
+        self.doc.finish_checkpoint.assert_not_called()
+
+    def test_explicit_discard_waits_for_writer_before_discarding_inline_edit(self):
+        self.tab.widget = SimpleNamespace(has_uncommitted_edit=True, discard_inline_edit=Mock())
+        self.doc.finish_checkpoint.return_value = False
+        self.assertFalse(WorkspaceShell.prepare_close(self.workspace, self.tab, decision='discard'))
+        self.tab.widget.discard_inline_edit.assert_not_called()
+        self.doc.finish_checkpoint.return_value = True
+        self.doc.composing = False
+        self.doc.flush_views = Mock(return_value=True)
+        self.doc.stop = Mock()
+        self.assertTrue(WorkspaceShell.prepare_close(self.workspace, self.tab, decision='discard'))
+        self.tab.widget.discard_inline_edit.assert_called_once()
+
+    def test_unchanged_editor_releases_lease_before_close_and_file_stamp(self):
+        self.tab.widget = SimpleNamespace(has_uncommitted_edit=False, discard_inline_edit=Mock())
+        self.doc.composing = False
+        self.doc.flush_views = Mock(return_value=True)
+        self.doc.stop = Mock()
+        self.assertTrue(WorkspaceShell.prepare_close(self.workspace, self.tab, decision='discard'))
+        self.tab.widget.discard_inline_edit.assert_called_once()
+        self.tab.widget.discard_inline_edit.reset_mock()
+        def stamp_after_release(path):
+            self.tab.widget.discard_inline_edit.assert_called_once()
+            return path.read_bytes()
+        with patch('prompt_calculus_studio.workspace_file_operations.stamp', side_effect=stamp_after_release):
+            WorkspaceFileOperations.begin(self.files, self.context, allow_editing=True)
+
+    def test_edit_changed_while_draining_writer_is_not_discarded(self):
+        self.tab.widget = SimpleNamespace(has_uncommitted_edit=False, discard_inline_edit=Mock())
+        self.doc.composing = False
+        self.doc.flush_views = Mock(return_value=True)
+        def finish():
+            self.tab.widget.has_uncommitted_edit = True
+            return True
+        self.doc.finish_checkpoint.side_effect = finish
+        self.assertFalse(WorkspaceShell.prepare_close(self.workspace, self.tab))
+        self.tab.widget.has_uncommitted_edit = False
+        with patch('prompt_calculus_studio.workspace_file_operations.stamp') as stamp:
+            with self.assertRaisesRegex(ValueError, '正在編輯'):
+                WorkspaceFileOperations.begin(self.files, self.context, allow_editing=True)
+            stamp.assert_not_called()
+        self.tab.widget.discard_inline_edit.assert_not_called()
+        self.assertFalse(self.auto.paused)

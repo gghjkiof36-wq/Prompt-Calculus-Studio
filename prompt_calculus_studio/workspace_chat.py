@@ -98,7 +98,7 @@ def _branch_name(stem):
     return stem.encode('utf-16-le')[:room].decode('utf-16-le', errors='ignore') + tail
 
 
-def create_branch(workspace, source_tab, turn_id, attempt_id=''):
+def create_branch(workspace, source_tab, turn_id, attempt_id='', *, version_id=None):
     """Only a saved/read-back branch is opened; failed publication keeps evidence."""
     document = source_tab.document
     if (workspace.tabs_by_key.get(source_tab.key) is not source_tab
@@ -108,7 +108,9 @@ def create_branch(workspace, source_tab, turn_id, attempt_id=''):
     target = None
     try:
         directory = workspace.locations.directory(document.path.parent)
-        candidate = document.branch_document(turn_id, attempt_id or None)
+        candidate = (document.branch_message_version_document(turn_id, version_id)
+                     if version_id is not None
+                     else document.branch_document(turn_id, attempt_id or None))
         # Each candidate is checked again by exclusive create. A collision from
         # another process advances the name; no existing sibling is replaced.
         for target in available_targets(directory / _branch_name(document.path.stem)):

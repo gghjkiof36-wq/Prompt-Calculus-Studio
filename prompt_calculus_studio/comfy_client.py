@@ -116,6 +116,14 @@ class ComfyClient(QObject):
         version=self.extension_info.get('version','未知版本')
         return f'PCS 擴充（{version}）不支援這份資料格式，請更新配套擴充並重啟 ComfyUI。'
 
+    @property
+    def compatibility_details(self):
+        if self.snapshot_version_compatible:
+            return self.compatibility_message
+        versions='、'.join(str(value) for value in self.snapshot_versions)
+        return (self.compatibility_message+f'\n目前文件格式：{self.window.state["version"]}'
+                +f'\n擴充支援格式：{versions or "未提供"}')
+
     def request(self,route,data=None,done=None,failed=None,raw=None,content_type='application/json'):
         if self.stopped: return
         epoch=self.epoch

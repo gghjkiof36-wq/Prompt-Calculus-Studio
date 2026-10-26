@@ -15,7 +15,7 @@ from ..service_adapters import ServiceRequest
 from .engine import Cancellation, Cancelled, InferenceRuntime, RuntimeFactory
 from .approval import normalize_mode
 from .library import ModelLibrary
-from .registry import MAX_MODEL_PROMPT, MODEL_PARAMETERS, ModelRegistry
+from .registry import MAX_MODEL_PROMPT, MODEL_PARAMETERS, ModelRegistry, validate_model
 from .runtime import LlamaRuntime
 from .settings import LOAD_KEYS, normalize_settings, resolve_runtime, validate_messages
 
@@ -510,23 +510,29 @@ class LocalAIService(QObject):
         self.changed.emit()
         return True
 
-    def submit(self, request):
+    def validate_submission(self, request):
+        """Read-only preflight. No reservation, signals, worker or model load."""
         if not self.can_submit:
-            return self._fail('請先選擇模型，並等待目前操作完成。')
+            raise ValueError('請先選擇模型，並等待目前操作完成。')
+        if not isinstance(request, ServiceRequest) or request.service != 'local_ai' or request.operation != 'chat':
+            raise ValueError('本地對話請求格式無效。')
+        payload = request.input
+        if not isinstance(payload, dict) or set(payload) != {'messages', 'model', 'params'}:
+            raise ValueError('本地對話請求缺少訊息、模型或參數。')
+        model = next((m for m in self.models if m['id'] == payload['model']), None)
+        if model is None or payload['model'] != self.selected_model:
+            raise ValueError('選用的模型已變更，請重新傳送。')
+        if not isinstance(payload['params'], dict) or set(payload['params']) != set(self.settings):
+            raise ValueError('請求缺少完整的參數快照。')
+        params = normalize_settings(payload['params'])
+        messages = validate_messages(payload['messages'])
+        resolve_runtime(params['runtime_path'])
+        validate_model(model)
+        return model, messages, params
+
+    def submit(self, request):
         try:
-            if not isinstance(request, ServiceRequest) or request.service != 'local_ai' or request.operation != 'chat':
-                raise ValueError('本地對話請求格式無效。')
-            payload = request.input
-            if not isinstance(payload, dict) or set(payload) != {'messages', 'model', 'params'}:
-                raise ValueError('本地對話請求缺少訊息、模型或參數。')
-            model = next((m for m in self.models if m['id'] == payload['model']), None)
-            if model is None or payload['model'] != self.selected_model:
-                raise ValueError('選用的模型已變更，請重新傳送。')
-            if not isinstance(payload['params'], dict) or set(payload['params']) != set(self.settings):
-                raise ValueError('請求缺少完整的參數快照。')
-            params = normalize_settings(payload['params'])
-            messages = validate_messages(payload['messages'])
-            resolve_runtime(params['runtime_path'])
+            model, messages, params = self.validate_submission(request)
         except (OSError, ValueError, TypeError, KeyError) as exc:
             return self._fail(exc)
         self._epoch += 1

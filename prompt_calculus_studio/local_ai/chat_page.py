@@ -3,7 +3,7 @@ import math
 from pathlib import Path
 import weakref
 
-from PySide6.QtCore import Qt, QTimer, Signal, QSignalBlocker, QSize, QEvent, QRectF, QRect, QPoint
+from PySide6.QtCore import Qt, QTimer, Signal, QSignalBlocker, QSize, QEvent, QRectF, QRect, QPoint, QEasingCurve
 from PySide6.QtGui import (
     QAction, QColor, QInputMethodEvent, QTextBlockFormat, QTextCharFormat, QTextCursor,
     QTextDocument, QTextOption, QBrush, QLinearGradient, QPainter, QPen,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from ..theme import font_pixels, visual_tokens
 from ..ui_icons import icon
 from ..widgets import ElidedLabel, RoundMenu, button, label, row, scrolling
+from ..management_reading import READING_CONTENT_WIDTH, READING_MARGIN, READING_NARROW_MARGIN
 from ..popup_surface import popup_row_height
 from ..workspace_style import workspace_colors
 from ..dialog_presentation import reduced_motion
@@ -28,9 +29,16 @@ from .attachment_strip import AttachmentStrip, mime_attachments
 
 
 ATTEMPT_LABELS = {
-    'receiving': '接收中', 'complete': '完成', 'stopped': '已停止',
-    'interrupted': '已中斷', 'failed': '未完成', 'limited': '達到回覆上限',
+    'receiving': '', 'complete': '', 'stopped': '生成已停止',
+    'interrupted': '生成已中斷', 'failed': '', 'limited': '已達回覆上限',
 }
+
+
+def _fit_error_frame(frame, text_label, available, extra=0):
+    """Keep short errors close to their text, wrapping only at the reading edge."""
+    metrics = text_label.fontMetrics()
+    natural = max((metrics.horizontalAdvance(line) for line in text_label.text().splitlines()), default=0)
+    frame.setFixedWidth(max(1, min(available, natural + 26 + extra)))
 
 
 class ChatComposer(QPlainTextEdit):
@@ -39,8 +47,9 @@ class ChatComposer(QPlainTextEdit):
     attachmentsRequested = Signal(object)
     attachmentError = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, minimum_height=80):
         super().__init__(parent)
+        self._minimum_height = minimum_height
         self.composing = False
         self.tokens = visual_tokens()
         self._placeholder = '輸入訊息…'
@@ -52,7 +61,7 @@ class ChatComposer(QPlainTextEdit):
         self.setAccessibleName('對話訊息')
         self.setPlaceholderText(self._placeholder)
         self.setTabChangesFocus(True)
-        self.setMinimumHeight(80)
+        self.setMinimumHeight(minimum_height)
         self.setMaximumHeight(200)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -63,8 +72,9 @@ class ChatComposer(QPlainTextEdit):
         self._fit_height()
 
     def _fit_height(self, *_args):
-        lines = max(2, self.document().blockCount(), math.ceil(self.document().size().height()))
-        height = max(80, min(200, lines * self.fontMetrics().lineSpacing() + 20))
+        compact = self._minimum_height < 80
+        lines = max(1 if compact else 2, self.document().blockCount(), math.ceil(self.document().size().height()))
+        height = max(self._minimum_height, min(200, lines * self.fontMetrics().lineSpacing() + (18 if compact else 20)))
         if self.height() != height:
             self.setFixedHeight(height)
 
@@ -457,10 +467,10 @@ class ThinkingToggle(QPushButton):
         icon_width = option.iconSize.width() + 4 if not option.icon.isNull() else 0
         left = rect.left() + (rect.width() - text_width - icon_width) / 2
         if icon_width:
-            icon_rect = QRectF(left, rect.center().y() - option.iconSize.height() / 2,
+            icon_rect = QRectF(left + text_width + 4, rect.center().y() - option.iconSize.height() / 2,
                                option.iconSize.width(), option.iconSize.height())
             option.icon.paint(painter, icon_rect.toRect())
-        text_rect = QRectF(left + icon_width, rect.top(), text_width + 1, rect.height())
+        text_rect = QRectF(left, rect.top(), text_width + 1, rect.height())
         if self.motion.state() == self.motion.State.Running:
             band = max(28., text_width * .7)
             center = text_rect.left() - band + self._phase * (text_width + 2 * band)
@@ -479,9 +489,55 @@ class ThinkingToggle(QPushButton):
             self.style().drawPrimitive(QStyle.PrimitiveElement.PE_FrameFocusRect, focus, painter, self)
 
 
+class ThinkingBody(QFrame):
+    """A bounded reveal; streaming content is never re-animated per token."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._expanded = False
+        self.reveal = ElapsedAnimation(self)
+        self.reveal.setDuration(180)
+        self.reveal.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.reveal.valueChanged.connect(self._advance_reveal)
+        self.reveal.finished.connect(self._finish_reveal)
+        self.hide()
+
+    def set_expanded(self, expanded):
+        if self._expanded == expanded:
+            return
+        self._expanded = expanded
+        start = self.height() if self.isVisible() else 0
+        self.reveal.stop()
+        if reduced_motion(self) or not system_motion_enabled() or not self.parentWidget().isVisible():
+            self._finish_reveal()
+            return
+        self.setVisible(True)
+        end = self.layout().sizeHint().height() if expanded else 0
+        self.setMaximumHeight(start)
+        self.reveal.setStartValue(start)
+        self.reveal.setEndValue(max(0, end))
+        self.reveal.start()
+
+    def _advance_reveal(self, value):
+        if reduced_motion(self):
+            self.reveal.stop()
+            self._finish_reveal()
+        else:
+            self.setMaximumHeight(max(0, round(value)))
+
+    def _finish_reveal(self):
+        self.setMaximumHeight(16777215 if self._expanded else 0)
+        self.setVisible(self._expanded)
+
+    def hideEvent(self, event):
+        self.reveal.stop()
+        self.setMaximumHeight(16777215 if self._expanded else 0)
+        super().hideEvent(event)
+
+
 class ChatAttempt(QFrame):
     branchRequested = Signal(str)
     exportMarkdownRequested = Signal(str)
+    retryRequested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -502,7 +558,7 @@ class ChatAttempt(QFrame):
         self.thinking_copy.setToolTip('複製思考')
         self.thinking_copy.setAccessibleName('複製思考')
         thinking_layout.addLayout(row(self.thinking_toggle, self.thinking_copy, None))
-        self.thinking_body = QFrame()
+        self.thinking_body = ThinkingBody()
         self.thinking_body.setObjectName('ChatThinkingBody')
         thinking_body_layout = QVBoxLayout(self.thinking_body)
         thinking_body_layout.setContentsMargins(12, 0, 0, 0)
@@ -528,14 +584,30 @@ class ChatAttempt(QFrame):
         self.more_button.setFixedSize(30, 30)
         self.more_button.setAccessibleName('回覆操作')
         self.more_button.setToolTip('回覆操作')
+        self.retry_icon_button = button('', lambda: self.retryRequested.emit(), 'IconButton')
+        self.retry_icon_button.setIcon(icon('refresh-cw', size=16))
+        self.retry_icon_button.setFixedSize(30, 30)
+        self.retry_icon_button.setToolTip('重試')
+        self.retry_icon_button.setAccessibleName('重新生成這則回覆')
         self.content = ChatText()
         self.content.setAccessibleName('模型回覆')
         layout.addWidget(self.content)
-        self.reason = label('', 'Subtle', True)
-        layout.addWidget(self.reason)
-        layout.addLayout(row(self.copy_button, self.branch_button, self.more_button, self.heading, None))
+        self.error_frame = QFrame()
+        self.error_frame.setObjectName('ChatErrorFrame')
+        error_layout = QHBoxLayout(self.error_frame)
+        error_layout.setContentsMargins(12, 9, 12, 9)
+        self.reason = label('', 'ChatError', True)
+        self.reason.setTextFormat(Qt.TextFormat.PlainText)
+        self.reason.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        error_layout.addWidget(self.reason, 1)
+        layout.addWidget(self.error_frame, 0, Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self.heading)
+        self.actions = QWidget()
+        self.actions.setLayout(row(self.copy_button, self.retry_icon_button, self.branch_button, self.more_button, None))
+        layout.addWidget(self.actions)
         self._attempt_id = ''
         self._raw = ''
+        self._status = ''
         self._answer = self._thinking_text = ''
         self._last_receiving = None
         self._has_thinking = False
@@ -548,9 +620,11 @@ class ChatAttempt(QFrame):
 
     def update_attempt(self, attempt, index, total, model_names):
         self._attempt_id = attempt.get('id', '')
-        self.branch_button.setVisible(bool(self._attempt_id))
+        self._status = attempt.get('status', '')
         self._raw = attempt.get('text', '')
+        self.branch_button.setVisible(bool(self._attempt_id and self._raw))
         receiving = attempt.get('status') == 'receiving'
+        self.actions.setVisible(not receiving)
         parts = split_thinking(self._raw, receiving=receiving)
         self._answer, self._thinking_text = parts.answer, parts.thinking
         if parts.has_thinking and not self._has_thinking:
@@ -565,21 +639,29 @@ class ChatAttempt(QFrame):
         self.thinking_content.set_content(parts.thinking)
         self.thinking_copy.setEnabled(bool(parts.thinking))
         self._sync_thinking()
-        status = ATTEMPT_LABELS.get(attempt.get('status'), '未完成')
+        status = ATTEMPT_LABELS.get(attempt.get('status'), '')
+        if receiving and self._raw:
+            status = ''
         model = attempt.get('model_name') or model_names.get(attempt.get('model'), '先前使用的模型')
         self.heading.setText(status)
-        self.heading.setVisible(attempt.get('status') != 'complete')
-        self.copy_button.setToolTip(f'複製回覆 · {model}' + (f' · 第 {index + 1} 次' if total > 1 else ''))
-        self.copy_button.setEnabled(bool(parts.answer.strip()))
-        self.copy_button.setVisible(bool(parts.answer.strip()))
+        self.heading.setVisible(bool(status))
+        self.copy_button.setToolTip(('複製回覆' if parts.answer.strip() else '複製完整內容') + f' · {model}')
+        self.copy_button.setEnabled(bool(self._raw.strip()))
+        self.copy_button.setVisible(True)
         self.more_button.setVisible(bool(parts.answer.strip()) and bool(self._attempt_id))
-        self.content.setVisible(bool(parts.answer.strip()) or not (parts.has_thinking or parts.pending_open))
-        self.content.set_content(parts.answer or ('正在等待回覆…' if receiving else '尚未收到文字。'))
-        self.reason.setText(attempt.get('reason', ''))
-        self.reason.setVisible(bool(attempt.get('reason')))
+        self.content.setVisible(bool(parts.answer.strip()))
+        self.content.set_content(parts.answer)
+        failed = attempt.get('status') == 'failed'
+        self.reason.setText(attempt.get('reason') or '生成失敗，請重試。')
+        _fit_error_frame(self.error_frame, self.reason, self.width())
+        self.error_frame.setVisible(failed)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        _fit_error_frame(self.error_frame, self.reason, self.width())
 
     def _copy(self):
-        QApplication.clipboard().setText(self._answer)
+        QApplication.clipboard().setText(self._answer if self._answer.strip() else self._raw)
         self.copy_button.setIcon(icon('check', size=16))
         self.copy_button.setAccessibleName('回覆已複製')
         self._copy_reset.start(1600)
@@ -596,7 +678,7 @@ class ChatAttempt(QFrame):
 
     def _sync_thinking(self):
         expanded = self.thinking_toggle.isChecked()
-        self.thinking_body.setVisible(expanded)
+        self.thinking_body.set_expanded(expanded)
         self.thinking_copy.setVisible(expanded and bool(self._thinking_text))
         self.thinking_toggle.setIcon(icon('chevron-down' if expanded else 'chevron-right', size=14))
         self.thinking_toggle.setAccessibleName('收合思考' if expanded else '展開思考')
@@ -616,11 +698,18 @@ class ChatAttempt(QFrame):
         self.content.apply_appearance(tokens)
         self.thinking_content.apply_appearance(tokens)
         self.thinking_toggle.apply_appearance(tokens)
+        _fit_error_frame(self.error_frame, self.reason, self.width())
 
 
 class ChatTurn(QFrame):
     branchRequested = Signal(str, str)
     exportMarkdownRequested = Signal(str, str)
+    editRequested = Signal(str)
+    versionsRequested = Signal(str)
+    editSubmitted = Signal(str, str)
+    editCancelled = Signal()
+    editChanged = Signal()
+    retryRequested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -644,16 +733,43 @@ class ChatTurn(QFrame):
         self._user_copy_reset = QTimer(self)
         self._user_copy_reset.setSingleShot(True)
         self._user_copy_reset.timeout.connect(self._reset_user_copy)
-        self.user_more_button = button('', self._open_user_actions, 'IconButton')
-        self.user_more_button.setIcon(icon('more-horizontal', size=16))
-        self.user_more_button.setFixedSize(30, 30)
-        self.user_more_button.setToolTip('更多操作')
-        self.user_more_button.setAccessibleName('訊息的更多操作')
+        self.user_edit_button = button('', lambda: self.editRequested.emit(self._turn_id), 'IconButton')
+        self.user_edit_button.setIcon(icon('pencil', size=16))
+        self.user_edit_button.setFixedSize(30, 30)
+        self.user_edit_button.setToolTip('編輯訊息')
+        self.user_edit_button.setAccessibleName('編輯這則訊息')
+        self.user_versions_button = button('', lambda: self.versionsRequested.emit(self._turn_id), 'IconButton')
+        self.user_versions_button.setIcon(icon('history', size=16))
+        self.user_versions_button.setFixedSize(30, 30)
+        self.user_versions_button.setToolTip('檢視版本')
+        self.user_versions_button.setAccessibleName('檢視版本')
+        self._version_count = 0
+        self.user_versions_button.hide()
         self.user_group = QWidget()
         user_group_layout = QVBoxLayout(self.user_group)
         user_group_layout.setContentsMargins(0, 0, 0, 0)
         user_group_layout.setSpacing(4)
         user_group_layout.addWidget(self.user, 0, Qt.AlignmentFlag.AlignRight)
+        self.edit_frame = QFrame()
+        self.edit_frame.setObjectName('ChatEditFrame')
+        self.edit_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        edit_layout = QVBoxLayout(self.edit_frame)
+        edit_layout.setContentsMargins(12, 8, 12, 8)
+        edit_layout.setSpacing(6)
+        self.editor = ChatComposer(minimum_height=32)
+        self.editor.setObjectName('ChatMessageEditor')
+        self.editor.setAccessibleName('編輯訊息內容')
+        self.editor.textChanged.connect(self.editChanged)
+        self.editor.compositionChanged.connect(self.editChanged)
+        self.editor.submitted.connect(self._submit_edit)
+        edit_layout.addWidget(self.editor)
+        self.edit_cancel = button('取消', lambda: self.editCancelled.emit(), 'Quiet')
+        self.edit_send = button('送出', self._submit_edit, 'Accent')
+        self.edit_cancel.setMinimumHeight(30)
+        self.edit_send.setMinimumHeight(30)
+        edit_layout.addLayout(row(None, self.edit_cancel, self.edit_send))
+        self.edit_frame.hide()
+        user_group_layout.addWidget(self.edit_frame)
         self.user_attachments = AttachmentStrip(read_only=True)
         user_group_layout.addWidget(self.user_attachments, 0, Qt.AlignmentFlag.AlignRight)
         user_actions = QHBoxLayout()
@@ -661,7 +777,8 @@ class ChatTurn(QFrame):
         user_actions.setSpacing(4)
         user_actions.addStretch()
         user_actions.addWidget(self.user_copy_button)
-        user_actions.addWidget(self.user_more_button)
+        user_actions.addWidget(self.user_versions_button)
+        user_actions.addWidget(self.user_edit_button)
         user_group_layout.addLayout(user_actions)
         self.stack.addWidget(self.user_group)
         self.history_button = button('', self._toggle_history, 'Quiet')
@@ -671,6 +788,7 @@ class ChatTurn(QFrame):
         self._attempt_order = []
         self._user_source = ''
         self._display_signature = None
+        self.editing = False
 
     def update_turn(self, turn, model_names, tokens):
         signature = (turn['id'], turn.get('text', ''), tuple(
@@ -684,7 +802,7 @@ class ChatTurn(QFrame):
         self._user_source = turn.get('text', '')
         self.user_copy_button.setVisible(bool(self._user_source))
         self.user_text.set_content(self._user_source, markdown=False)
-        self.user.setVisible(bool(self._user_source.strip()))
+        self.user.setVisible(bool(self._user_source.strip()) and not self.editing)
         self.user_attachments.sync(turn.get('attachments', []))
         self.user_attachments.apply_appearance(tokens)
         self._fit_user()
@@ -698,6 +816,7 @@ class ChatTurn(QFrame):
                 widget = ChatAttempt()
                 widget.branchRequested.connect(lambda attempt_id: self.branchRequested.emit(self._turn_id, attempt_id))
                 widget.exportMarkdownRequested.connect(lambda attempt_id: self.exportMarkdownRequested.emit(self._turn_id, attempt_id))
+                widget.retryRequested.connect(lambda: self.retryRequested.emit(self._turn_id))
                 widget.apply_appearance(tokens)
                 self.attempts[identity] = widget
                 self.stack.addWidget(widget)
@@ -718,11 +837,33 @@ class ChatTurn(QFrame):
         self.user_copy_button.setIcon(icon('copy', size=16))
         self.user_copy_button.setAccessibleName('複製這則訊息')
 
-    def _open_user_actions(self):
-        menu = RoundMenu(self)
-        menu.addAction('從這裡建立分支', lambda: self.branchRequested.emit(self._turn_id, ''))
-        menu.open_for(self.user_more_button)
-        self._user_menu = menu
+    def begin_edit(self, _has_later):
+        self.editing = True
+        self.editor.setPlainText(self._user_source)
+        self.edit_frame.show()
+        self.user.hide()
+        self.user_copy_button.hide()
+        self.user_versions_button.hide()
+        self.user_edit_button.hide()
+        self.editor.setFocus()
+        self.editor.moveCursor(QTextCursor.MoveOperation.End)
+
+    def cancel_edit(self):
+        self.editing = False
+        self.edit_frame.hide()
+        self.editor.clear()
+        self.user.setVisible(bool(self._user_source.strip()))
+        self.user_copy_button.setVisible(bool(self._user_source))
+        self.user_versions_button.setVisible(self._version_count > 1)
+        self.user_edit_button.show()
+
+    def set_version_count(self, count):
+        self._version_count = count
+        self.user_versions_button.setVisible(count > 1 and not self.editing)
+
+    def _submit_edit(self):
+        if self.edit_send.isEnabled() and not self.editor.composing:
+            self.editSubmitted.emit(self._turn_id, self.editor.toPlainText())
 
     def _fit_user(self):
         measure = self.user_text.fontMetrics()
@@ -900,6 +1041,7 @@ class ChatModelMenu(RoundMenu):
 class ChatPage(QWidget):
     """A view of a shared ChatDocument; background ownership stays in the doc."""
     branchRequested = Signal(str, str)
+    versionBranchRequested = Signal(str, str)
     pcsAttachmentsRequested = Signal()
     exportMarkdownRequested = Signal(str, str)
 
@@ -937,35 +1079,30 @@ class ChatPage(QWidget):
         self._anchor_finish.timeout.connect(self._finish_history_anchor)
         self._follow_output = True
         self.has_uncommitted_draft = False
+        self._editing_turn_id = None
+        self._versions_dialog = None
         self._rendering = False
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(24, 12, 24, 16)
+        outer.setContentsMargins(0, 12, 0, 16)
         outer.setSpacing(8)
         self.more_button = button('', self._open_actions, 'IconButton')
         self.more_button.setIcon(icon('more-horizontal'))
         self.more_button.setFixedSize(32, 32)
         self.more_button.setToolTip('對話操作')
         self.more_button.setAccessibleName('對話操作')
-        outer.addLayout(row(None, self.more_button))
+        top = row(None, self.more_button)
+        top.setContentsMargins(READING_MARGIN, 0, READING_MARGIN, 0)
+        outer.addLayout(top)
         self.export_action = QAction('匯出 Markdown…', self)
         self.export_action.triggered.connect(self._export)
         self.retry_action = QAction('重試上一則', self)
         self.retry_action.triggered.connect(self._retry)
         self.settings_action = QAction('模型設定…', self)
         self.settings_action.triggered.connect(self.open_settings)
-        centered = QHBoxLayout()
-        centered.setContentsMargins(0, 0, 0, 0)
-        centered.addStretch()
-        column = QWidget()
-        column.setObjectName('ChatColumn')
-        column.setMaximumWidth(820)
-        column.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        centered.addWidget(column, 1)
-        centered.addStretch()
-        outer.addLayout(centered, 1)
-        self.column = QVBoxLayout(column)
+        self.column = QVBoxLayout()
         self.column.setContentsMargins(0, 0, 0, 0)
         self.column.setSpacing(12)
+        outer.addLayout(self.column, 1)
         self.column.addStretch(1)
         self.empty_heading = label('開始一段對話', 'ChatEmptyTitle')
         self.empty_heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -974,19 +1111,44 @@ class ChatPage(QWidget):
 
         self.transcript = QWidget()
         self.transcript.setObjectName('ChatTranscript')
+        self.transcript.setMaximumWidth(READING_CONTENT_WIDTH)
         self.messages = QVBoxLayout(self.transcript)
-        self.messages.setContentsMargins(0, 20, 12, 20)
+        self.messages.setContentsMargins(0, 20, 0, 20)
         self.messages.setSpacing(32)
         self.history_button = button('載入較早的訊息', self._load_earlier, 'Quiet')
         self.messages.addWidget(self.history_button, 0, Qt.AlignmentFlag.AlignHCenter)
         self.messages.addStretch()
-        self.scroll = scrolling(self.transcript)
+        self.transcript_host = QWidget()
+        self.transcript_host.setObjectName('ChatReadingHost')
+        self.transcript_row = QHBoxLayout(self.transcript_host)
+        self.transcript_row.setContentsMargins(READING_MARGIN, 0, READING_MARGIN, 0)
+        self.transcript_row.addStretch()
+        self.transcript_row.addWidget(self.transcript, 1)
+        self.transcript_row.addStretch()
+        self.scroll = scrolling(self.transcript_host)
         self.scroll.setObjectName('ChatScroll')
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll.verticalScrollBar().valueChanged.connect(self._scroll_position_changed)
         self.scroll.verticalScrollBar().rangeChanged.connect(self._scroll_range_changed)
         self.scroll.verticalScrollBar().sliderPressed.connect(self._cancel_history_anchor)
         self.scroll.verticalScrollBar().actionTriggered.connect(self._cancel_history_anchor)
         self.column.addWidget(self.scroll, 1)
+
+        self.composer_host = QWidget()
+        self.composer_host.setObjectName('ChatReadingHost')
+        self.composer_row = QHBoxLayout(self.composer_host)
+        self.composer_row.setContentsMargins(READING_MARGIN, 0, READING_MARGIN, 0)
+        self.composer_column = QWidget()
+        self.composer_column.setObjectName('ChatColumn')
+        self.composer_column.setMaximumWidth(READING_CONTENT_WIDTH)
+        footer_column = QVBoxLayout(self.composer_column)
+        self.footer_column = footer_column
+        self._error_in_transcript = False
+        footer_column.setContentsMargins(0, 0, 0, 0)
+        footer_column.setSpacing(8)
+        self.composer_row.addStretch()
+        self.composer_row.addWidget(self.composer_column, 1)
+        self.composer_row.addStretch()
 
         self.composer_frame = QFrame()
         self.composer_frame.setObjectName('ChatComposerFrame')
@@ -1010,57 +1172,97 @@ class ChatPage(QWidget):
         self.approval_button = ApprovalButton(self.service)
         self.approval_button.errorOccurred.connect(self._approval_error)
         self.add_button = button('', self._open_attachments, 'IconButton')
-        self.add_button.setIcon(icon('plus', size=20))
-        self.add_button.setFixedSize(36, 36)
+        self.add_button.setIcon(icon('plus', size=16))
+        self.add_button.setFixedSize(32, 32)
         self.add_button.setToolTip('加入附件')
         self.add_button.setAccessibleName('加入附件')
         self.model_button = ChatModelButton(self._open_models)
         self.stop_button = button('', self._stop, 'ChatSend')
-        self.stop_button.setIcon(icon('stop', 'on-accent', 18))
+        self.stop_button.setIcon(icon('stop-filled', 'on-accent', 14))
         self.stop_button.setAccessibleName('停止回覆')
         self.stop_button.setToolTip('停止回覆')
         self.send_button = button('', self._send, 'ChatSend')
-        self.send_button.setIcon(icon('arrow-up', 'on-accent', 20))
+        self.send_button.setIcon(icon('arrow-up', 'on-accent', 16))
         self.send_button.setAccessibleName('送出訊息')
         self.send_button.setToolTip('送出訊息')
         for control in (self.send_button, self.stop_button):
-            control.setFixedSize(40, 40)
-            control.setIconSize(QSize(20, 20))
+            control.setFixedSize(32, 32)
+            control.setIconSize(QSize(16, 16))
         controls = row(self.add_button, self.approval_button, self.status, self.model_button,
                        self.stop_button, self.send_button)
         controls.setStretch(2, 1)
         controls.setSpacing(8)
         composer_layout.addLayout(controls)
-        self.column.addWidget(self.composer_frame)
+        footer_column.addWidget(self.composer_frame)
         self.error_frame = QFrame()
         self.error_frame.setObjectName('ChatErrorFrame')
         error_layout = QHBoxLayout(self.error_frame)
         error_layout.setContentsMargins(12, 9, 10, 9)
-        self.error_icon = label('')
-        self.error_icon.setFixedSize(20, 20)
-        error_layout.addWidget(self.error_icon, 0, Qt.AlignmentFlag.AlignTop)
         self.error_label = label('', 'ChatError', True)
         self.error_label.setTextFormat(Qt.TextFormat.PlainText)
         self.error_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.error_label.setAccessibleName('對話錯誤')
         error_layout.addWidget(self.error_label, 1)
-        self.error_retry = button('重試', self._retry, 'Quiet')
-        error_layout.addWidget(self.error_retry)
         self.dismiss_error = button('', self._dismiss_error, 'IconButton')
         self.dismiss_error.setIcon(icon('x', size=14))
         self.dismiss_error.setFixedSize(26, 26)
         self.dismiss_error.setAccessibleName('關閉錯誤提示')
         error_layout.addWidget(self.dismiss_error)
-        self.column.addWidget(self.error_frame)
+        footer_column.insertWidget(0, self.error_frame, 0, Qt.AlignmentFlag.AlignLeft)
+        self.column.addWidget(self.composer_host)
         self.column.addStretch(1)
         document.changed.connect(self._schedule_refresh)
         self.service.changed.connect(self._schedule_refresh)
+        owner_ref, view_ref = weakref.ref(document), weakref.ref(self)
+        self.destroyed.connect(lambda: owner_ref().release_edit(view_ref()) if owner_ref() is not None else None)
         self.apply_appearance(workspace.display_settings())
         self.refresh()
 
     @property
     def composing(self):
-        return self.composer.composing
+        return self.composer.composing or any(turn.editing and turn.editor.composing for turn in self._turns.values())
+
+    @property
+    def has_uncommitted_edit(self):
+        return any(turn.editing and turn.editor.toPlainText() != turn._user_source for turn in self._turns.values())
+
+    def discard_inline_edit(self):
+        self._editing_turn_id = None
+        for turn in self._turns.values():
+            if turn.editing:
+                turn.cancel_edit()
+        self.chat_document.release_edit(self)
+        self._update_actions()
+
+    def _begin_edit(self, turn_id):
+        if self.chat_document.busy or self._editing_turn_id is not None or self.composing:
+            return
+        widget = self._turns.get(turn_id)
+        if widget is None:
+            return
+        if not self.chat_document.acquire_edit(self, turn_id):
+            self.refresh()
+            return
+        self._editing_turn_id = turn_id
+        self._follow_output = False
+        turns = self.chat_document.payload.get('turns', [])
+        widget.begin_edit(bool(turns and turns[-1]['id'] != turn_id))
+        self.scroll.ensureWidgetVisible(widget.edit_frame)
+        self._update_actions()
+
+    def _inline_edit_changed(self):
+        self._update_actions()
+        self.chat_document.changed.emit()
+
+    def _submit_edit(self, turn_id, text):
+        widget = self._turns.get(turn_id)
+        if widget is None or not widget.edit_send.isEnabled() or self.composing:
+            return
+        accepted = self._action(lambda: self.chat_document.edit_and_resend(turn_id, text, view=self))
+        if accepted or turn_id not in {t['id'] for t in self.chat_document.payload['turns']}:
+            self.discard_inline_edit()
+            self._follow_output = True
+            self.refresh()
 
     def undo(self):
         self.composer.undo()
@@ -1113,6 +1315,9 @@ class ChatPage(QWidget):
             bar.setValue(bar.maximum())
 
     def _sync_rich_visibility(self):
+        # Scrollbar visibility settles after range/layout updates. Keep the
+        # fixed composer on the same reading axis as the scroll viewport.
+        self._fit_reading_columns()
         for turn in self._turns.values():
             for attempt in turn.attempts.values():
                 attempt.content.sync_rich_visibility()
@@ -1121,6 +1326,15 @@ class ChatPage(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._visibility_timer.start(0)
+        self._fit_reading_columns()
+
+    def _fit_reading_columns(self):
+        margin = READING_NARROW_MARGIN if self.width() < 900 else READING_MARGIN
+        self.transcript_row.setContentsMargins(margin, 0, margin, 0)
+        gutter = self.scroll.verticalScrollBar().width() if self.scroll.verticalScrollBar().isVisible() else 0
+        self.composer_row.setContentsMargins(margin, 0, margin + gutter, 0)
+        if hasattr(self, 'error_frame'):
+            _fit_error_frame(self.error_frame, self.error_label, self.composer_column.width(), 32)
 
     def hideEvent(self, event):
         self._cancel_history_anchor()
@@ -1150,12 +1364,17 @@ class ChatPage(QWidget):
             return True
         anchor, position = self._history_anchor
         self.messages.activate()
+        self.transcript_row.activate()
         bar = self.scroll.verticalScrollBar()
         bar.setValue(bar.value() + anchor.mapTo(self.scroll.viewport(), QPoint(0, 0)).y() - position)
         # QScrollArea can publish its new range after the layout above has
         # already placed children. Do not release an anchor clamped by that
         # still-old range; the next rangeChanged restores it correctly.
-        return abs(anchor.mapTo(self.scroll.viewport(), QPoint(0, 0)).y() - position) < 2
+        # The centered host adds one layout level: its old height can briefly
+        # compress the new rows before QScrollArea publishes the larger range.
+        # A matching position in that temporary geometry is not settled yet.
+        settled = self.transcript_host.height() >= self.transcript_host.minimumSizeHint().height()
+        return settled and abs(anchor.mapTo(self.scroll.viewport(), QPoint(0, 0)).y() - position) < 2
 
     def _finish_history_anchor(self):
         if self._restore_history_anchor():
@@ -1197,6 +1416,12 @@ class ChatPage(QWidget):
                 widget = ChatTurn()
                 widget.branchRequested.connect(self._request_branch)
                 widget.exportMarkdownRequested.connect(self._request_export_reply)
+                widget.editRequested.connect(self._begin_edit)
+                widget.versionsRequested.connect(self._open_versions)
+                widget.editSubmitted.connect(self._submit_edit)
+                widget.editCancelled.connect(self.discard_inline_edit)
+                widget.editChanged.connect(self._inline_edit_changed)
+                widget.retryRequested.connect(self._retry_turn)
                 self._turns[identity] = widget
                 self.messages.insertWidget(position + 1, widget)
             widget = self._turns[identity]
@@ -1207,11 +1432,19 @@ class ChatPage(QWidget):
             widget = self._turns.pop(identity)
             self.messages.removeWidget(widget)
             widget.deleteLater()
+        if bool(turns) != self._error_in_transcript:
+            (self.messages if self._error_in_transcript else self.footer_column).removeWidget(self.error_frame)
+            if turns:
+                self.messages.insertWidget(self.messages.count() - 1, self.error_frame, 0, Qt.AlignmentFlag.AlignLeft)
+            else:
+                self.footer_column.insertWidget(0, self.error_frame, 0, Qt.AlignmentFlag.AlignLeft)
+            self._error_in_transcript = bool(turns)
         self._follow_output = follow
         self._rendering = False
         if follow:
             self._scroll_timer.start(0)
         self._visibility_timer.start(0)
+        self._fit_reading_columns()
         self._update_actions()
 
     def _update_actions(self):
@@ -1221,20 +1454,35 @@ class ChatPage(QWidget):
         self.attachments.sync(attachments, busy=importing or busy)
         self.add_button.setEnabled(not busy and not importing and state != 'closed')
         ready = self.service.can_submit
+        editing = self._editing_turn_id is not None
+        edit_locked = self.chat_document.edit_locked
+        self.add_button.setEnabled(not busy and not importing and not edit_locked and state != 'closed')
         self.model_button.setEnabled(state != 'closed')
         self.stop_button.setVisible(bool(busy))
         self.stop_button.setEnabled(bool(busy) and state not in {'stopping', 'unloading'})
         self.send_button.setVisible(not busy)
-        self.send_button.setEnabled(ready and not busy and not importing and not self.composing and not self.has_uncommitted_draft
+        self.send_button.setEnabled(ready and not busy and not importing and not edit_locked and not self.composing and not self.has_uncommitted_draft
                                     and bool(self.composer.toPlainText().strip() or attachments))
         self.retry_action.setEnabled(bool(self.chat_document.payload.get('turns')) and ready and not busy
-                                     and not importing and not self.composing and not self.has_uncommitted_draft)
-        self.export_action.setEnabled(not self.composing and not self.has_uncommitted_draft)
+                                     and not importing and not edit_locked and not self.composing and not self.has_uncommitted_draft)
+        self.export_action.setEnabled(not edit_locked and not self.composing and not self.has_uncommitted_draft)
+        payload_turns = self.chat_document.payload.get('turns', [])
+        latest_turn = payload_turns[-1]['id'] if payload_turns else ''
         for turn in self._turns.values():
-            turn.user_more_button.setEnabled(not self.composing and not self.has_uncommitted_draft)
+            try:
+                turn.set_version_count(self.chat_document.message_version_count(turn._turn_id))
+            except ValueError:
+                turn.set_version_count(0)
+            turn.user_versions_button.setEnabled(not edit_locked and not self.composing)
+            turn.user_edit_button.setEnabled(not busy and not importing and not edit_locked and not self.composing and not self.has_uncommitted_draft)
+            turn.edit_send.setEnabled(ready and not busy and not importing and not self.composing
+                                      and bool(turn.editor.toPlainText().strip()))
             for attempt in turn.attempts.values():
-                attempt.branch_button.setEnabled(not self.composing and not self.has_uncommitted_draft)
-                attempt.more_button.setEnabled(not self.composing and not self.has_uncommitted_draft)
+                attempt.branch_button.setEnabled(not edit_locked and not self.composing and not self.has_uncommitted_draft)
+                attempt.more_button.setEnabled(not edit_locked and not self.composing and not self.has_uncommitted_draft)
+                current = turn._turn_id == latest_turn and turn._attempt_order and attempt._attempt_id == turn._attempt_order[-1]
+                attempt.retry_icon_button.setVisible(bool(current) and attempt._status != 'receiving')
+                attempt.retry_icon_button.setEnabled(bool(current) and self.retry_action.isEnabled())
         descriptions = {
             'loading': '準備模型中…' if busy else '另一對話準備中…',
             'ready': '',
@@ -1249,14 +1497,16 @@ class ChatPage(QWidget):
         turns = self.chat_document.payload.get('turns', [])
         attempts = turns[-1].get('attempts', []) if turns else []
         notice = self.chat_document.notice
-        if (attempts and attempts[-1].get('status') in {'stopped', 'limited'}
+        if (attempts and attempts[-1].get('status') in {'stopped', 'limited', 'failed'}
                 and notice == attempts[-1].get('reason')):
             notice = ''
-        error = self._ui_error or notice or self.chat_document.error or self.service.error
+        service_error = self.service.error
+        if attempts and service_error == attempts[-1].get('reason'):
+            service_error = ''
+        error = self._ui_error or notice or self.chat_document.error or service_error
         self.error_label.setText(str(error or ''))
+        _fit_error_frame(self.error_frame, self.error_label, self.composer_column.width(), 32)
         self.error_frame.setVisible(bool(error) and str(error) != self._dismissed_error)
-        self.error_retry.setVisible(bool(attempts) and attempts[-1].get('status') == 'failed')
-        self.error_retry.setEnabled(self.retry_action.isEnabled())
 
     def _action(self, callback):
         self._ui_error = ''
@@ -1308,6 +1558,11 @@ class ChatPage(QWidget):
             self._follow_output = True
             self._action(self.chat_document.retry)
 
+    def _retry_turn(self, turn_id):
+        if self.retry_action.isEnabled():
+            self._follow_output = True
+            self._action(lambda: self.chat_document.retry(turn_id))
+
     def _stop(self):
         if self.chat_document.busy:
             self._action(self.chat_document.stop)
@@ -1319,12 +1574,33 @@ class ChatPage(QWidget):
     def _open_actions(self):
         self._update_actions()
         menu = RoundMenu(self)
-        menu.addAction(self.retry_action)
         menu.addAction(self.export_action)
         menu.addSeparator()
         menu.addAction(self.settings_action)
         menu.open_for(self.more_button, align_right=True)
         self._actions_menu = menu
+
+    def _open_versions(self, turn_id):
+        if self.chat_document.edit_locked or self.composing or self.has_uncommitted_draft:
+            return
+        if self._versions_dialog is not None:
+            self._versions_dialog.reject()
+        from .revision_dialog import MessageVersionsDialog
+        try:
+            if self.chat_document.message_version_count(turn_id) < 2:
+                return
+            dialog = MessageVersionsDialog(self.chat_document, turn_id, self)
+        except ValueError as error:
+            self._approval_error(str(error))
+            return
+        dialog.branchRequested.connect(self.versionBranchRequested.emit)
+        self._versions_dialog = dialog
+        dialog.finished.connect(lambda: self._clear_versions_dialog(dialog))
+        dialog.show()
+
+    def _clear_versions_dialog(self, dialog):
+        if self._versions_dialog is dialog:
+            self._versions_dialog = None
 
     def _request_branch(self, turn_id, attempt_id):
         if not self.composing and not self.has_uncommitted_draft:
@@ -1359,37 +1635,50 @@ class ChatPage(QWidget):
 
     def apply_appearance(self, settings):
         tokens = self._tokens = visual_tokens(settings)
-        self.approval_button.apply_appearance(tokens)
+        ui_size = settings.get('ui_size', 12)
+        self.approval_button.apply_appearance(tokens, ui_size)
         self.attachments.apply_appearance(tokens)
-        self.error_icon.setPixmap(icon('alert-circle', tokens['error'], 18).pixmap(18, 18))
         self.composer.tokens = tokens
-        self.send_button.setIcon(icon('arrow-up', tokens['on_accent'], 20))
-        self.stop_button.setIcon(icon('stop', tokens['on_accent'], 18))
+        self.send_button.setIcon(icon('arrow-up', tokens['on_accent'], 16))
+        self.stop_button.setIcon(icon('stop-filled', tokens['on_accent'], 14))
         surface = workspace_colors(settings)['content']
-        title_size = font_pixels(settings.get('ui_size', 12) + 9)
+        error_color, error_base = QColor(tokens['error']), QColor(tokens['surface'])
+        error_tint = QColor(*[round(error_base.getRgb()[i] * .92 + error_color.getRgb()[i] * .08)
+                              for i in range(3)]).name()
+        title_size = font_pixels(ui_size + 9)
+        control_font = font_pixels(max(10, ui_size - 1))
+        control_height = max(32, round(control_font + 12))
+        for control in (self.send_button, self.stop_button, self.add_button):
+            control.setFixedSize(control_height, control_height)
+        self.model_button.setFixedHeight(control_height)
+        self.model_button.setMaximumWidth(220)
         self.setStyleSheet(f'''
             QWidget#LocalChatPage {{ background:{surface}; }}
-            QWidget#ChatColumn, QWidget#ChatTranscript, QScrollArea#ChatScroll,
+            QWidget#ChatColumn, QWidget#ChatTranscript, QWidget#ChatReadingHost, QScrollArea#ChatScroll,
             QTextBrowser#ChatText, QFrame#ChatTurn, QFrame#ChatAssistant,
             QFrame#ChatThinking {{ background:transparent; border:0; }}
             QFrame#ChatThinkingBody {{ background:transparent; border:0; border-left:1px solid {tokens['divider']}; }}
             QTextBrowser#ChatText[thinking="true"] {{ color:{tokens['secondary']}; }}
             QFrame#ChatUser {{ background:{tokens['surface']}; border:0; border-radius:16px; }}
+            QFrame#ChatEditFrame {{ background:{tokens['surface']}; border:1px solid {tokens['divider']}; border-radius:16px; }}
+            QFrame#ChatEditFrame QPushButton {{ padding:3px 12px; font-size:{control_font}px; }}
+            QPlainTextEdit#ChatMessageEditor {{background:transparent; border:0; padding:4px;}}
             QFrame#ChatComposerFrame {{ background:{tokens['surface']}; border:1px solid {tokens['divider']}; border-radius:24px; }}
             QPlainTextEdit#ChatComposer {{ background:transparent; border:0; padding:4px; }}
             QTextBrowser#ChatText {{ padding:0; color:{tokens['text']}; }}
             QLabel#ChatEmptyTitle {{ font-size:{title_size}px; font-weight:500; color:{tokens['text']}; }}
-            QPushButton#ChatModelButton {{ background:{tokens['raised']}; color:{tokens['text']}; border:0; border-radius:18px; padding:0 12px; }}
+            QPushButton#ChatModelButton {{ background:{tokens['raised']}; color:{tokens['text']}; border:0; border-radius:{control_height//2}px; padding:0 10px; font-size:{control_font}px; }}
             QPushButton#ChatModelButton:hover {{ background:{tokens['hover']}; }}
             QPushButton#ChatModelButton:focus {{ border:1px solid {tokens['accent_outline']}; }}
-            QPushButton#ChatSend {{ background:{tokens['accent']}; border:0; border-radius:20px; padding:0; }}
+            QPushButton#ChatSend {{ background:{tokens['accent']}; border:0; border-radius:{control_height//2}px; padding:0; }}
             QPushButton#ChatSend:hover {{ background:{tokens['accent_outline']}; }}
             QPushButton#ChatSend:focus {{ border:2px solid {tokens['text']}; }}
             QPushButton#ChatSend:disabled {{ background:{tokens['raised']}; }}
-            QFrame#ChatErrorFrame {{background:{tokens['surface']};border:1px solid {tokens['error']};border-radius:12px;}}
+            QFrame#ChatErrorFrame {{background:{error_tint};border:1px solid {tokens['error']};border-radius:10px;}}
             QLabel#ChatError {{ color:{tokens['text']};background:transparent;border:0; }}
         ''')
         for turn in self._turns.values():
+            turn.editor.tokens = tokens
             turn.user_attachments.apply_appearance(tokens)
             for attempt in turn.attempts.values():
                 attempt.apply_appearance(tokens)

@@ -144,16 +144,16 @@ class ChatSchemaContracts(unittest.TestCase):
             chat.context_messages(payload, '下一題')
         self.assertEqual(payload, before)
 
-    def test_context_references_select_complete_answer_and_are_independent(self):
+    def test_context_references_select_latest_terminal_answer_and_are_independent(self):
         payload = fixture()['payload']
         first = payload['turns'][0]
         first['attempts'].append(attempt('較新的完整回答。'))
         first['attempts'].append(attempt('失敗重試的片段', 'failed'))
         before = copy.deepcopy(payload)
         references = chat.context_references(payload, retry=True)
-        self.assertEqual(references, [dict(user_id=first['id'], attempt_id=first['attempts'][1]['id'])])
+        self.assertEqual(references, [dict(user_id=first['id'], attempt_id=first['attempts'][2]['id'])])
         messages = chat.context_messages(payload, payload['turns'][-1]['text'], retry=True)
-        self.assertEqual(messages[-2], dict(role='assistant', content='較新的完整回答。'))
+        self.assertEqual(messages[-2], dict(role='assistant', content='失敗重試的片段'))
         references[0]['attempt_id'] = uid()
         self.assertEqual(payload, before)
 

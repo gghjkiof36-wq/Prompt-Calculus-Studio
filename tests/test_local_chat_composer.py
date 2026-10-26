@@ -41,6 +41,21 @@ class ComposerInputContracts(unittest.TestCase):
         self.composer.insertFromMimeData(mime)
         self.assertEqual(self.composer.toPlainText(), text)
 
+    def test_inline_editor_has_independent_compact_height_and_scroll_limit(self):
+        editor = ChatComposer(minimum_height=32)
+        editor.resize(400, 32)
+        editor.show()
+        editor.setPlainText('修改這一句')
+        self.app.processEvents()
+        self.assertLessEqual(editor.height(), 40)
+        editor.setPlainText('單段長文字 ' * 300)
+        self.app.processEvents()
+        self.assertEqual(editor.height(), 200)
+        self.assertGreater(editor.verticalScrollBar().maximum(), 0)
+        self.assertEqual(self.composer.height(), 80)
+        editor.close()
+        editor.deleteLater()
+
     def test_files_and_images_emit_snapshots_without_inserting_paths(self):
         values=[]; self.composer.attachmentsRequested.connect(values.append)
         mime=QMimeData(); mime.setUrls([QUrl.fromLocalFile('C:/not-read/example.txt')])
@@ -72,24 +87,28 @@ class ComposerInputContracts(unittest.TestCase):
         QTest.keyClick(self.composer, Qt.Key.Key_Return)
         self.assertEqual(sent, [True])
 
-    def test_user_copy_preserves_original_and_branch_is_in_more_menu(self):
+    def test_user_copy_preserves_original_and_edit_is_separate(self):
         original = '  原文 🙂👍🏽👨‍👩‍👧‍👦🇹🇼❤️\n第二行  '
         turn = ChatTurn()
         turn.resize(640, 200)
         turn.update_turn(dict(id='stable-turn', text=original, attempts=[]), {}, visual_tokens())
         branches = []
+        edits = []
         turn.branchRequested.connect(lambda *args: branches.append(args))
+        turn.editRequested.connect(edits.append)
         turn.show()
         self.app.processEvents()
         turn.user_copy_button.click()
         self.assertEqual(self.app.clipboard().text(), original)
         self.assertFalse(branches)
-        turn.user_more_button.click()
-        actions = turn._user_menu.actions()
-        self.assertEqual([a.text() for a in actions], ['從這裡建立分支'])
-        actions[0].trigger()
-        self.assertEqual(branches, [('stable-turn', '')])
-        turn._user_menu.close()
+        turn.user_edit_button.click()
+        self.assertEqual(edits, ['stable-turn'])
+        self.assertFalse(branches)
+        turn.begin_edit(True)
+        self.assertEqual(turn.editor.toPlainText(), original)
+        turn.editor.setPlainText('修改內容')
+        turn.cancel_edit()
+        self.assertEqual(turn._user_source, original)
         turn.close()
         turn.deleteLater()
         self.app.processEvents()

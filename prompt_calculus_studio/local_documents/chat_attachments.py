@@ -66,8 +66,11 @@ def validate_list(values, seen=None):
 
 def has_fields(payload):
     turns = payload.get('turns', [])
-    return 'draft_attachments' in payload or (isinstance(turns, list) and any(
-        isinstance(turn, dict) and 'attachments' in turn for turn in turns))
+    revisions = payload.get('revisions', [])
+    archived = [turn for revision in revisions if isinstance(revision, dict)
+                and isinstance(revision.get('turns'), list) for turn in revision['turns']] if isinstance(revisions, list) else []
+    return 'draft_attachments' in payload or any(isinstance(turn, dict) and 'attachments' in turn
+                                               for turn in [*(turns if isinstance(turns, list) else []), *archived])
 
 
 def sync_feature(document):

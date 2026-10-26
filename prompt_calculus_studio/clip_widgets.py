@@ -120,7 +120,7 @@ class DragHandle(QWidget):
 class ExecutionBar(QFrame):
     def __init__(self,canvas):
         super().__init__(canvas.view.viewport()); self.canvas=canvas; self.drag=None
-        self.compact=False;self._status_text=''
+        self.compact=False;self._status_text='';self._status_detail=''
         self.setObjectName('ExecutionBar'); outer=QVBoxLayout(self); outer.setContentsMargins(8,6,8,6)
         body=QHBoxLayout();body.setSpacing(6); self.control_layout=body; outer.addLayout(body)
         self.handle=DragHandle(); self.handle.setToolTip('拖曳執行列'); self.handle.setCursor(Qt.CursorShape.SizeAllCursor)
@@ -175,8 +175,8 @@ class ExecutionBar(QFrame):
         menu=self.tools_menu();menu.ensurePolished()
         menu.open_at(self.more.mapToGlobal(QPoint(0,-menu.sizeHint().height())))
     def present_status(self):
-        self.status.setText(self._status_text);self.status.setToolTip(self._status_text)
-        self.status.setAccessibleName(self._status_text)
+        self.status.setText(self._status_text);self.status.setToolTip(self._status_detail or self._status_text)
+        self.status.setAccessibleName(self._status_detail or self._status_text)
         self.canvas.view.position_status()
     def update_progress(self):
         client=getattr(self.canvas.window,'comfy',None); pipeline=client.generation.pipeline if client else None
@@ -184,6 +184,7 @@ class ExecutionBar(QFrame):
         running=bool(client and client.running)
         node=client.input_flow.last_status.get('executing_node') if client else None
         status=(('正在生成 · 節點 #'+str(node)) if node is not None else '正在生成') if modern and running else ''
+        detail=''
         if not running:
             # This is guidance only: execution eligibility stays with the
             # existing runner, including workflows that only sync inputs.
@@ -191,14 +192,16 @@ class ExecutionBar(QFrame):
             pending=pending_setup(self.canvas.window.state)
             notes=[]
             if client and client.connected:
-                if not client.snapshot_compatible:notes.append(client.compatibility_message)
+                if not client.snapshot_compatible:
+                    notes.append('PCS 擴充需要更新' if not client.snapshot_version_compatible else client.compatibility_message)
+                    detail=client.compatibility_details
                 elif not client.can_run:notes.append('請在連線設定確認 ComfyUI 擴充')
             if pending:
                 notes.append({'clip_inputs':'CLIP 待綁定','image_inputs':'圖片輸入待綁定','stages':'Stage 待選擇工作流'}[pending[0][0]])
             elif not self.controls.run_button.isEnabled() and client and client.can_run:notes.append('請先加入提示詞')
             status=' · '.join(notes)
         chain=client.input_flow.chain.progress() if modern and self.canvas.window.state['multi_output']['version']<7 else ''
-        self._status_text=chain or status;self.present_status()
+        self._status_text=chain or status;self._status_detail=detail if not chain else '';self.present_status()
         active=pipeline is not None and pipeline.active()
         self.progress.setVisible(active)
         if active:

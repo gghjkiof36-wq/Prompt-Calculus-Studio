@@ -109,8 +109,8 @@ class CanvasPalette(QDialog):
         self.status=label('',None,True); self.status.hide(); self.body.addWidget(self.status)
         self.footer=QHBoxLayout(); self.footer.setSpacing(10)
         self.new_button=button('',self.choose_import); self.new_button.setIcon(icon('plus'))
-        self.new_button.setToolTip('從儲存庫匯入prompt管理頁')
-        self.new_button.setAccessibleName('從儲存庫匯入prompt管理頁')
+        self.new_button.setToolTip('新增文字模塊或匯入管理頁')
+        self.new_button.setAccessibleName('新增文字模塊或匯入管理頁')
         self.footer.addWidget(self.new_button); self.footer.addStretch()
         self.body.addLayout(self.footer)
         for listing in (self.modules,self.assets):
@@ -308,7 +308,7 @@ class CanvasPalette(QDialog):
                 and isinstance(watched,QWidget) and (watched is self or self.isAncestorOf(watched))):
             event.accept()
             return True
-        if self.isVisible() and event.type()==QEvent.Type.MouseButtonPress and isinstance(watched,QWidget):
+        if self.isVisible() and not self.busy and event.type()==QEvent.Type.MouseButtonPress and isinstance(watched,QWidget):
             # Navigation keeps the original event: one click dismisses the
             # picker and activates the requested sidebar item or tab.
             owner=QWidget.window(self.canvas.window)
@@ -359,6 +359,10 @@ class CanvasPalette(QDialog):
     def choose_import(self):
         from .canvas_library_import import choose
         choose(self)
+
+    def new_module(self):
+        if self.ready():
+            self.perform(lambda:self.canvas.add_new_with_destination(self.position,self.destination_id),False)
 
     def import_category(self, path):
         from .canvas_library_import import import_category

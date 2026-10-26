@@ -185,7 +185,8 @@ class RunControls(QWidget):
         if self.execution_only:
             self.stop.setText('')
             self.run_button.setToolTip(client.message if client else '請先連線至 ComfyUI')
-            if not ready:self.run_button.setToolTip(client.message if client and client.connected and not client.native_supported else '請連線至 ComfyUI，並將 Prompt 輸出連到已綁定的 CLIP 輸入。')
+            if incompatible:self.run_button.setToolTip(client.compatibility_details)
+            elif not ready:self.run_button.setToolTip(client.message if client and client.connected and not client.native_supported else '請連線至 ComfyUI，並將 Prompt 輸出連到已綁定的 CLIP 輸入。')
             if busy and not modern:self.run_button.setToolTip('目前工作尚未結束。')
             self.stop.setAccessibleName('取消執行'); self.count.show(); self.stop.show()
         else: self.stop.setText('取消')
