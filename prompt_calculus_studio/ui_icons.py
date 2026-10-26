@@ -239,7 +239,7 @@ def _draw(painter, name, filled=False):
     elif name in ('chevron-left','chevron-right'):
         poly((15,5),(8,12),(15,19)) if name=='chevron-left' else poly((9,5),(16,12),(9,19))
     elif name in ('pin','pin-filled'):
-        painter.save();painter.translate(12,12);painter.rotate(30);painter.translate(-12,-12)
+        painter.save();painter.translate(12,12);painter.rotate(45);painter.translate(-12,-12)
         if name == 'pin-filled': painter.setBrush(painter.pen().color())
         poly((8,3),(16,3),(15,10),(18,14),(6,14),(9,10),closed=True)
         line(12,14,12,21)
