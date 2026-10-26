@@ -333,7 +333,7 @@ class PromptDialogTests(unittest.TestCase):
         EditorReorderTests.drag(self,ed.listing,before[1],before[0])
         self.assertEqual(ed.listing.order_ids(),before[::-1]);self.assertEqual(ed.stack.currentIndex(),0)
         self.assertTrue(dialog.pages.group_details.isVisible())
-        self.assertLess(dialog.pages.group_details.mapTo(dialog,QPoint()).y(),ed.mapTo(dialog,QPoint()).y())
+        self.assertGreater(dialog.pages.group_details.mapTo(dialog,QPoint()).y(),ed.mapTo(dialog,ed.rect().bottomLeft()).y())
         point=ed.listing.regions(ed.listing.visualItemRect(ed.listing.item(1)))['name'].center()
         QTest.mouseClick(ed.listing.viewport(),Qt.MouseButton.LeftButton,pos=point)
         self.assertEqual(ed.stack.currentIndex(),0)
@@ -372,7 +372,7 @@ class PromptDialogTests(unittest.TestCase):
         self.assertTrue(panels.bounds().contains(dialog.geometry()))
         self.assertTrue(panels.rect().contains(panels.main.geometry()))
         self.assertTrue(panels.rect().contains(panels.side.geometry()))
-        self.assertGreater(dialog.pages.details_toggle.y(),dialog.prompt.geometry().bottom())
+        self.assertGreater(dialog.pages.details_toggle.mapTo(dialog,QPoint()).y(),dialog.prompt.mapTo(dialog,dialog.prompt.rect().bottomLeft()).y())
         self.assertTrue(dialog.rect().contains(dialog.save_button.mapTo(dialog,dialog.save_button.rect().bottomRight())))
         dialog.reject()
 

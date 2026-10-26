@@ -127,7 +127,9 @@ class EntryDelegate(QStyledItemDelegate):
             painter.drawText(regions['value'], Qt.AlignmentFlag.AlignCenter, f"{data['repeat']} 次")
         elif owner.kind == 'modules':
             painter.drawText(regions['value'], Qt.AlignmentFlag.AlignCenter, f"{data['weight']/10:.1f}")
-        target=regions['open']; icon('chevron-right', colors['secondary']).paint(painter, QRect(target.center().x()-9,target.center().y()-9,18,18))
+        target=regions['open']
+        action=('pin-filled' if data.get('is_start') else 'pin') if owner.kind=='groups' and not owner.readonly else 'chevron-right'
+        icon(action, colors['secondary']).paint(painter, QRect(target.center().x()-9,target.center().y()-9,18,18))
         if owner.kind != 'picker' and not owner.readonly:
             target=regions['more']; icon('more-horizontal', colors['secondary']).paint(painter, QRect(target.center().x()-9,target.center().y()-9,18,18))
         painter.restore()
@@ -137,10 +139,11 @@ class EntryList(ReorderableList):
     activatedRow = Signal(str)
     menuRow = Signal(str, object)
     valueRow = Signal(str, object)
+    pinRequested = Signal(str)
 
     def __init__(self, kind, *, readonly=False, reorderable=None):
         super().__init__(); self.kind = kind; self.readonly=readonly; self._handle = False;self._skip_release=False;self.setObjectName('PromptEntryList')
-        self.setMouseTracking(True);self.keyboard_focus=False;self.hovered_id=None
+        self.setMouseTracking(True);self.keyboard_focus=False;self.hovered_id=None;self._pin_press=None
         self.setItemDelegate(EntryDelegate(self)); self.setMinimumHeight(90); self.setSpacing(0)
         self.setVerticalScrollMode(self.ScrollMode.ScrollPerPixel)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -166,10 +169,17 @@ class EntryList(ReorderableList):
         item = self.itemAt(event.position().toPoint())
         self.hovered_id=item.data(Qt.ItemDataRole.UserRole) if item else None
         regions=self.regions(self.visualItemRect(item)) if item else {}
+        self._pin_press=None
+        if self.kind=='groups' and not self.readonly and item and event.button()==Qt.MouseButton.LeftButton and regions['open'].contains(event.position().toPoint()):
+            self._pin_press=item.data(Qt.ItemDataRole.UserRole);event.accept();return
         self._handle=bool(self.reorder_enabled and item and not any(regions[name].contains(event.position().toPoint()) for name in ('open','more')))
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if self._pin_press is not None:
+            ident=self._pin_press;self._pin_press=None;item=self.itemAt(event.position().toPoint())
+            if item and item.data(Qt.ItemDataRole.UserRole)==ident and self.regions(self.visualItemRect(item))['open'].contains(event.position().toPoint()):self.pinRequested.emit(ident)
+            event.accept();return
         if self._skip_release:
             self._skip_release=False;event.accept();return
         suppressed = self._suppress_release
@@ -188,6 +198,7 @@ class EntryList(ReorderableList):
         item=self.itemAt(event.position().toPoint())
         if self.kind in ('groups','modules') and item and event.button()==Qt.MouseButton.LeftButton:
             regions=self.regions(self.visualItemRect(item))
+            if self.kind=='groups' and not self.readonly and regions['open'].contains(event.position().toPoint()):event.accept();return
             if not any(regions[name].contains(event.position().toPoint()) for name in ('value','more')):
                 self._skip_release=True;event.accept()
                 self.activatedRow.emit(item.data(Qt.ItemDataRole.UserRole));return
@@ -196,6 +207,8 @@ class EntryList(ReorderableList):
     def keyPressEvent(self, event):
         self.keyboard_focus=True;self.viewport().update()
         item = self.currentItem()
+        if item and self.kind=='groups' and not self.readonly and event.key()==Qt.Key.Key_P:
+            self.pinRequested.emit(item.data(Qt.ItemDataRole.UserRole));event.accept();return
         if item and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
             self.activatedRow.emit(item.data(Qt.ItemDataRole.UserRole)); event.accept(); return
         if item and event.key() == Qt.Key.Key_Menu:
@@ -208,6 +221,7 @@ class EntryList(ReorderableList):
         super().focusInEvent(event);self.viewport().update()
 
     def mouseMoveEvent(self,event):
+        if self._pin_press is not None:event.accept();return
         item=self.itemAt(event.position().toPoint())
         self.hovered_id=item.data(Qt.ItemDataRole.UserRole) if item else None
         self.keyboard_focus=False;self.viewport().update()
@@ -223,6 +237,7 @@ class EntryList(ReorderableList):
         scroll = self.verticalScrollBar().value(); self.clear()
         for data in rows:
             item = QListWidgetItem(data['name']); item.setData(Qt.ItemDataRole.UserRole, data['id']); item.setData(DATA, data)
+            if self.kind=='groups' and not self.readonly:item.setData(Qt.ItemDataRole.AccessibleDescriptionRole,('起始組合' if data.get('is_start') else '釘選為起始組合')+'；雙擊編輯；P 鍵釘選')
             self.addItem(item)
             if data['id'] == current: self.setCurrentItem(item)
         self.verticalScrollBar().setValue(scroll)
@@ -267,29 +282,29 @@ class GroupEditor(MaterialPickerMixin,QWidget):
         widget, layout = page(); self.stack.addWidget(widget)
         self.mode = ComboBox()
         mode_options(self.mode)
-        self.start = ComboBox(); self.start.setMinimumWidth(100)
+        self.mode.setAccessibleName('流程變量')
         self.random_repeats=QCheckBox('允許重複');self.random_repeats.toggled.connect(self.mode_changed)
-        layout.addLayout(row(field('變量',self.mode),self.random_repeats,None,field('起始組合',self.start)))
-        self.mode.currentIndexChanged.connect(self.mode_changed); self.start.currentIndexChanged.connect(self.start_changed)
+        layout.addLayout(row(self.mode,self.random_repeats,None))
+        self.mode.currentIndexChanged.connect(self.mode_changed)
         layout.addLayout(row(label('組合', 'SectionTitle'), None, button('加入組合',self.open_combination_picker,'Quiet'),button('新增組合', self.add_group, 'Quiet')))
         self.listing = EntryList('groups'); layout.addWidget(self.listing, 1)
         self.listing.activatedRow.connect(self.edit_group); self.listing.menuRow.connect(self.group_menu)
         self.listing.valueRow.connect(self.repeat_inline)
+        self.listing.pinRequested.connect(self.set_start)
         self.listing.reorderRequested.connect(lambda before, after: self.reorder(self.sequence['groups'], before, after))
         layout.addSpacing(24)
 
     def refresh_overview(self):
         self.loading = True
-        self.mode.setCurrentIndex(self.mode.findData(self.sequence['mode'])); self.start.clear()
+        self.mode.setCurrentIndex(self.mode.findData(self.sequence['mode']))
         self.random_repeats.setChecked(self.sequence.get('random_repeats',True))
         self.random_repeats.setVisible(self.sequence['mode']=='random')
         rows = []
         for group in self.sequence['groups']:
-            self.start.addItem(group['name'], group['id'])
             subtitle = groups.module_summary(group['modules']) if group['input'] == 'modules' else ''
             if group['id'] == self.sequence['start']: subtitle = ' · '.join(filter(None,(subtitle,'起始')))
-            rows.append(dict(group, subtitle=subtitle))
-        self.start.setCurrentIndex(self.start.findData(self.sequence['start'])); self.listing.fill(rows)
+            rows.append(dict(group, subtitle=subtitle,is_start=group['id']==self.sequence['start']))
+        self.listing.fill(rows)
         self.loading = False
 
     def toggle_preview(self,panel,opened):
@@ -305,10 +320,6 @@ class GroupEditor(MaterialPickerMixin,QWidget):
         if not self.loading:
             self.sequence.update(mode=self.mode.currentData(),random_repeats=self.random_repeats.isChecked())
             self.random_repeats.setVisible(self.sequence['mode']=='random');self.changed.emit()
-
-    def start_changed(self):
-        if not self.loading and self.start.currentData():
-            self.sequence['start'] = self.start.currentData(); self.refresh_overview(); self.changed.emit()
 
     def reorder(self, rows, before, after):
         if [g['id'] for g in rows] != before or set(before) != set(after): return
@@ -346,6 +357,7 @@ class GroupEditor(MaterialPickerMixin,QWidget):
         groups.duplicate(self.sequence, ident); self.refresh_overview(); self.changed.emit()
 
     def set_start(self, ident):
+        if ident==self.sequence['start'] or not any(g['id']==ident for g in self.sequence['groups']):return
         self.sequence['start'] = ident; self.refresh_overview(); self.changed.emit()
 
     def delete_group(self, ident):
@@ -655,7 +667,7 @@ class MaterialPages(QWidget):
         self.prompt_label=label('Prompt','Subtle')
         self.prompt_toolbar=row(self.prompt_label,None,self.add_variants);sl.addLayout(self.prompt_toolbar)
         f.prompt.setMinimumHeight(280); sl.addWidget(f.prompt, 1)
-        self.details_toggle = Disclosure('管理'); sl.addWidget(self.details_toggle)
+        self.details_toggle = Disclosure('管理')
         self.details = QTabWidget(self); self.details.setDocumentMode(True); self.details.tabBar().setDrawBase(False)
         self.details_toggle.toggled.connect(self.expand_advanced)
         sl.setContentsMargins(0,0,0,0)
@@ -690,7 +702,7 @@ class MaterialPages(QWidget):
         f.show_preview()
         relation, rl = page();rl.setSpacing(8);rl.addWidget(label('排除 Tag','Subtle'))
         f.excludes.setPlaceholderText('');f.excludes.setMinimumHeight(120);f.excludes.setMaximumHeight(120)
-        rl.addWidget(f.excludes);rl.addStretch()
+        rl.addWidget(f.excludes);self.excludes_actions=row(None);rl.addLayout(self.excludes_actions);rl.addStretch()
         dialog.history_button=button('內容與操作歷史',f.history,'Quiet');details_body.addWidget(dialog.history_button,0,Qt.AlignmentFlag.AlignLeft)
         for name, widget in [('資訊', info), ('排除 Tag', relation), ('預覽圖',self.image_controls)]:
             widget.layout().setContentsMargins(0,24,0,0);self.details.addTab(widget, name)
@@ -699,7 +711,8 @@ class MaterialPages(QWidget):
         dialog.info_toggle = dialog.lookup_toggle = dialog.relation_toggle = dialog.history_toggle = self.details_toggle
         dialog.intro = label(''); dialog.intro.hide()
         self.group_container, self.gl = page(); self.stack.addWidget(self.group_container)
-        self.group_details=button('管理',self.show_group_details,'Quiet');self.group_details.setCheckable(True);self.name_row.addWidget(self.group_details)
+        self.group_details=button('管理',self.show_group_details,'Quiet');self.group_details.setCheckable(True)
+        self.bottom_actions=row(self.details_toggle,self.group_details,None);layout.addLayout(self.bottom_actions)
         self.details_toggle.toggled.connect(self.layout_limits)
         self.switch_type()
         if root.get('variants') or self.restored.get('variants'):self.enable_variants(existing=True)
@@ -768,7 +781,14 @@ class MaterialPages(QWidget):
             self.group_editor.group_navigation.hide()
             self.group_editor.changed.connect(self.dialog.form.edited)
         if self.group_editor:self.group_editor.show()
+        combination=self.group_editors.get('combination')
+        if combination:
+            if self.excludes_actions.indexOf(combination.deduplicate)<0:
+                combination.preview_row.removeWidget(combination.deduplicate)
+                self.excludes_actions.addWidget(combination.deduplicate)
+            combination.deduplicate.setVisible(self.material_type=='combination')
         self.place_group_actions()
+        self.details_toggle.setVisible(not self.is_group)
         self.stack.setCurrentIndex(1 if self.is_group else 0)
         if self.variant_editor:
             self.variant_editor.choose.setVisible(not self.is_group)
@@ -782,16 +802,10 @@ class MaterialPages(QWidget):
     def place_group_actions(self):
         combination=self.group_editors.get('combination')
         if combination is None:return
-        if self.material_type=='combination':
-            self.name_row.removeWidget(self.group_details)
+        if self.bottom_actions.indexOf(combination.preview_toggle)<0:
             combination.preview_row.removeWidget(combination.preview_toggle)
-            self.name_row.addWidget(combination.preview_toggle)
-            combination.preview_row.insertWidget(0,self.group_details)
-        elif combination.preview_row.indexOf(self.group_details)>=0:
-            combination.preview_row.removeWidget(self.group_details)
-            self.name_row.removeWidget(combination.preview_toggle)
-            combination.preview_row.insertWidget(0,combination.preview_toggle)
-            self.name_row.addWidget(self.group_details)
+            self.bottom_actions.insertWidget(2,combination.preview_toggle)
+        combination.preview_toggle.setVisible(self.material_type=='combination')
 
     def page_changed(self,index):
         home=index==0 or self.material_type=='combination' and index==1

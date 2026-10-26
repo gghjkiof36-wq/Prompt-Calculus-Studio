@@ -45,7 +45,7 @@ class MaterialManagementUITests(unittest.TestCase):
 
     def test_variant_header_and_single_management_entry_expose_double_click_details(self):
         dialog,editor=self.variants();pages=dialog.pages
-        self.assertEqual(pages.variant_label.text(),'變體')
+        self.assertTrue(editor.choose.accessibleName());self.assertTrue(pages.prompt_label.isHidden())
         self.assertGreater(pages.name_row.indexOf(editor.choose),pages.name_row.indexOf(dialog.name_label))
         self.assertTrue(editor.choose.isVisible());self.assertFalse(pages.add_variants.icon().isNull())
         self.assertEqual(pages.add_variants.text(),'新增變體');self.assertTrue(pages.add_variants.isVisible())
@@ -103,8 +103,9 @@ class MaterialManagementUITests(unittest.TestCase):
 
     def assert_combination_placement(self,dialog,editor):
         pages=dialog.pages
-        self.assertGreaterEqual(pages.name_row.indexOf(editor.preview_toggle),0)
-        self.assertEqual(editor.preview_row.indexOf(pages.group_details),0)
+        self.assertEqual(pages.name_row.indexOf(editor.preview_toggle),-1)
+        self.assertGreater(pages.bottom_actions.indexOf(editor.preview_toggle),pages.bottom_actions.indexOf(pages.group_details))
+        self.assertGreaterEqual(pages.bottom_actions.indexOf(pages.group_details),0)
         self.assertEqual(editor.preview_row.indexOf(editor.preview_toggle),-1)
         self.assertTrue(editor.preview_toggle.isVisible());self.assertTrue(pages.group_details.isVisible())
 
@@ -183,19 +184,19 @@ class MaterialManagementUITests(unittest.TestCase):
         self.click(pages.details_toggle)
         picker.setCurrentIndex(picker.findData('combination'));self.settle();combination=pages.group_editor
         self.assert_combination_placement(dialog,combination)
-        self.assertFalse(variant.choose.isVisible());self.assertFalse(pages.variant_label.isVisible())
+        self.assertFalse(variant.choose.isVisible());self.assertTrue(pages.prompt_label.isHidden())
         self.assertEqual(pages.details.indexOf(variant.management),-1)
         self.click(combination.preview_toggle)
         picker.setCurrentIndex(picker.findData('flow'));self.settle();flow=pages.group_editor
         self.assertFalse(combination.preview_toggle.isVisible())
         self.assertFalse(combination.preview_toggle.isChecked())
         self.assertFalse(dialog.panels.opened)
-        self.assertGreaterEqual(pages.name_row.indexOf(pages.group_details),0)
+        self.assertGreaterEqual(pages.bottom_actions.indexOf(pages.group_details),0)
         self.assertEqual(pages.group_details.text(),'管理')
         self.click(pages.group_details)
         self.assertEqual(dialog.panels.heading.text(),'管理')
         picker.setCurrentIndex(picker.findData('text'));self.settle()
-        self.assertTrue(variant.choose.isVisible());self.assertTrue(pages.variant_label.isVisible())
+        self.assertTrue(variant.choose.isVisible());self.assertTrue(pages.prompt_label.isHidden())
         self.assertGreaterEqual(pages.details.indexOf(variant.management),0)
         self.assertFalse(pages.group_details.isVisible());self.assertFalse(flow.preview_toggle.isVisible())
         self.assertFalse(dialog.panels.opened)
