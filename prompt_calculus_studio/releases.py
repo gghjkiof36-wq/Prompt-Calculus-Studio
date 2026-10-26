@@ -108,6 +108,7 @@ RELEASES={r.flag:r for r in (
     Release('--v0.8.9-beta','v0.8.9-beta','v0.8.9 Beta','Start-PCS-v0.8.9-Beta','--v0.8.9-beta'),
     Release('--v0.8.9-beta.2','v0.8.9-beta.2','v0.8.9 Beta2','Start-PCS-v0.8.9-Beta2','--v0.8.9-beta.2'),
     Release('--v0.8.9-beta.3','v0.8.9-beta.3','v0.8.9 Beta3','Start-PCS-v0.8.9-Beta3','--v0.8.9-beta.3'),
+    Release('--v0.8.9-beta.3.repair.1','v0.8.9-beta.3.repair.1','v0.8.9 Beta3 repair1','Start-PCS-v0.8.9-Beta3-repair1','--v0.8.9-beta.3'),
 )}
 
 COMFYUI_COMPATIBILITY_PROFILES={

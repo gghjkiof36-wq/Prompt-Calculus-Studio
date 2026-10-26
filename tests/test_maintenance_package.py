@@ -10,6 +10,10 @@ class PackagingTests(unittest.TestCase):
         expected={'--v08':'v08-alpha','--v08-repair':'v08-alpha-2','--v08-alpha3':'v08-alpha-3','--v08-alpha3-hotfix1':'v08-alpha-3-hotfix-1','--v08-alpha3-hotfix2':'v08-alpha-3-hotfix-2','--v081-alpha1':'v081-alpha-1','--v081-alpha2':'v081-alpha-2'}
         for flag,folder in expected.items():self.assertEqual(select_release([flag]).folder,folder)
         self.assertEqual(select_release(['--v081-alpha2','--v08']).folder,'v081-alpha-2')
+        repair=select_release(['--v0.8.9-beta.3.repair.1'])
+        self.assertEqual(repair.version,'v0.8.9 Beta3 repair1')
+        self.assertEqual(repair.argument,'--v0.8.9-beta.3')
+        self.assertNotEqual(repair.folder,RELEASES['--v0.8.9-beta.3'].folder)
         with tempfile.TemporaryDirectory() as folder:
             release=RELEASES['--v081-maintenance']; write_launchers(folder,release)
             for ext in ('vbs','cmd'):
