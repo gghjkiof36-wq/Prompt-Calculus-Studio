@@ -6,6 +6,7 @@ from .accent_colors import ACCENT_PRESETS, DEFAULT_CUSTOM_ACCENT, valid_hex
 from .widgets import ComboBox, ComboItemDelegate, button
 from .popup_surface import PopupSurface
 from .theme import visual_tokens
+from .ui_icons import icon
 
 
 def swatch(value):
@@ -96,6 +97,7 @@ class ColorPlane(QWidget):
 
 class ColorPopover(QWidget):
     chosen=Signal(str)
+    finished=Signal()
 
     def __init__(self,owner,value):
         super().__init__(owner,Qt.WindowType.Popup)
@@ -106,15 +108,15 @@ class ColorPopover(QWidget):
         layout=QVBoxLayout(self);layout.setContentsMargins(10,10,10,10);layout.setSpacing(8)
         self.plane=ColorPlane(self);self.strip=ColorPlane(self,True)
         layout.addWidget(self.plane);layout.addWidget(self.strip)
-        actions=QHBoxLayout();actions.addWidget(button('取消',self.close));actions.addWidget(button('套用',self.accept,'Primary'))
-        layout.addLayout(actions)
         for plane in (self.plane,self.strip):plane.changed.connect(self.update_planes)
 
     def update_planes(self):
         self.plane.update();self.strip.update()
+        self.chosen.emit(QColor.fromHsvF(self.hue,self.saturation,self.value).name())
 
-    def accept(self):
-        self.chosen.emit(QColor.fromHsvF(self.hue,self.saturation,self.value).name());self.close()
+    def hideEvent(self,event):
+        self.finished.emit()
+        super().hideEvent(event)
 
     def keyPressEvent(self,event):
         if event.key()==Qt.Key.Key_Escape:self.close()
@@ -122,6 +124,9 @@ class ColorPopover(QWidget):
 
 
 class AccentEditor(QWidget):
+    changed=Signal()
+    editingFinished=Signal()
+
     def __init__(self,settings,parent=None):
         super().__init__(parent)
         self.combo=AccentCombo();self.combo.setAccessibleName('重點色')
@@ -131,21 +136,29 @@ class AccentEditor(QWidget):
         self.combo.setCurrentIndex(max(0,self.combo.findData(settings.get('accent','neutral'))))
         self.custom=QWidget();custom=QHBoxLayout(self.custom);custom.setContentsMargins(0,0,0,0);custom.setSpacing(4)
         value=settings.get('accent_custom',DEFAULT_CUSTOM_ACCENT)
-        self.hex=QLineEdit(value);self.hex.setMaxLength(7);self.hex.setFixedWidth(104)
+        self.hex=QLineEdit(value);self.hex.setMaxLength(7);self.hex.setFixedWidth(138)
         self.hex.installEventFilter(self)
         self.hex.setAccessibleName('自訂重點色 HEX 色碼');self.hex.setPlaceholderText('#RRGGBB')
-        self.pick=button('',self.open_picker);self.pick.setFixedWidth(34);self.pick.setAccessibleName('開啟自訂選色器')
-        custom.addWidget(self.pick);custom.addWidget(self.hex)
+        self.pick=self.hex.addAction(swatch(value),QLineEdit.ActionPosition.LeadingPosition)
+        self.pick.setText('開啟自訂選色器');self.pick.setToolTip('選擇顏色')
+        self.pick.triggered.connect(self.open_picker)
+        custom.addWidget(self.hex)
+        self.reset_button=button('',self.reset_accent,'Quiet')
+        self.reset_button.setIcon(icon('update'));self.reset_button.setFixedWidth(34)
+        self.reset_button.setAccessibleName('重置重點色');self.reset_button.setToolTip('重置重點色')
         layout=QHBoxLayout(self);layout.setContentsMargins(0,0,0,0);layout.setSpacing(8)
-        layout.addWidget(self.combo,1);layout.addWidget(self.custom)
+        layout.addWidget(self.combo,1);layout.addWidget(self.custom);layout.addWidget(self.reset_button)
         self.combo.currentIndexChanged.connect(self.sync_custom)
         self.hex.textChanged.connect(self.sync_hex)
         self.refresh_swatches(settings.get('visual_palette','graphite'))
         self.sync_hex();self.sync_custom()
+        self.combo.currentIndexChanged.connect(self.changed)
+        self.hex.textChanged.connect(self.color_edited)
+        self.hex.editingFinished.connect(self.editingFinished)
 
     def eventFilter(self,watched,event):
         if watched is self.hex and event.type() in (QEvent.Type.FontChange,QEvent.Type.Polish):
-            self.hex.setFixedWidth(max(104,self.hex.fontMetrics().horizontalAdvance('#FFFFFF')+24))
+            self.hex.setFixedWidth(max(138,self.hex.fontMetrics().horizontalAdvance('#FFFFFF')+50))
         return super().eventFilter(watched,event)
 
     def refresh_swatches(self,palette):
@@ -154,6 +167,14 @@ class AccentEditor(QWidget):
 
     def sync_custom(self,*_):
         self.custom.setVisible(self.combo.currentData()=='custom')
+        self.reset_button.setEnabled(self.combo.currentData()!='neutral')
+
+    def reset_accent(self):
+        self.combo.setCurrentIndex(self.combo.findData('neutral'))
+        self.editingFinished.emit()
+
+    def color_edited(self):
+        if valid_hex(self.hex.text()):self.changed.emit()
 
     def sync_hex(self,*_):
         valid=valid_hex(self.hex.text())
@@ -164,8 +185,8 @@ class AccentEditor(QWidget):
     def open_picker(self):
         value=self.hex.text() if valid_hex(self.hex.text()) else DEFAULT_CUSTOM_ACCENT
         popup=ColorPopover(self,value);self.popover=popup
-        popup.chosen.connect(self.hex.setText);popup.adjustSize()
-        point=self.pick.mapToGlobal(QPoint(0,self.pick.height()+4));bounds=self.screen().availableGeometry()
+        popup.chosen.connect(self.hex.setText);popup.finished.connect(self.editingFinished);popup.adjustSize()
+        point=self.hex.mapToGlobal(QPoint(0,self.hex.height()+4));bounds=self.screen().availableGeometry()
         point.setX(max(bounds.left(),min(point.x(),bounds.right()-popup.width())))
-        if point.y()+popup.height()>bounds.bottom():point.setY(self.pick.mapToGlobal(QPoint(0,0)).y()-popup.height()-4)
+        if point.y()+popup.height()>bounds.bottom():point.setY(self.hex.mapToGlobal(QPoint(0,0)).y()-popup.height()-4)
         popup.move(point);popup.show();popup.plane.setFocus()

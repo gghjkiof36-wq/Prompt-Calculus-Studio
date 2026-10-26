@@ -1,10 +1,13 @@
 """Small, font-independent line icons for PCS navigation and actions.
 
 Use ``icon(name, color=tokens['text'], size=20)`` when constructing a themed
-control. No installed font, network asset, resource file or cache is required.
+control. Line icons need no installed font, network asset or cache. External
+tool marks use the attributed SVGs bundled in ``assets/brands``.
 """
 from struct import pack
+from pathlib import Path
 from collections import OrderedDict
+from math import cos, sin, pi
 
 from PySide6.QtCore import QPointF, QRectF, QResource, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QIconEngine, QPainter, QPainterPath, QPalette, QPen, QPixmap
@@ -20,9 +23,10 @@ ALIASES = {
     'loader':'update', 'upload':'export', 'undo':'back', 'link':'external-link',
 }
 ICON_NAMES = frozenset({
-    'home','canvas','media','explore','export','settings','back','forward','search','update',
+    'home','canvas','media','explore','export','settings','gear','back','forward','search','update',
     'package','download','check','clock','info','close','play','pause','stop','lock','pin','pin-filled','menu','pencil',
     'workflow','history','external-link','alert','server','check-circle','message-square',
+    'shield','shield-check','shield-alert','shield-off','ban','hand','git-branch',
     'folder','plus','minus','copy','trash','caret-down','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal','fold-all','unfold-all',
     'panel-left','type','file-text','list-ordered','arrow-down-up','arrow-up','arrow-down','shuffle','image-single','scan-eye','link-2','maximize','grip-vertical',
     'text-bold','text-italic','text-underline','text-strike','text-color','highlight',
@@ -91,6 +95,29 @@ def _draw(painter, name, filled=False):
     def circle(x,y,radius):
         painter.drawEllipse(QPointF(x,y),radius,radius)
 
+    if name == 'git-branch':
+        circle(6,5,2.5);circle(6,19,2.5);circle(18,5,2.5)
+        line(6,7.5,6,16.5)
+        path=QPainterPath(QPointF(18,7.5));path.cubicTo(18,14,6,11,6,16.5)
+        painter.drawPath(path);return
+    if name == 'ban':
+        circle(12,12,9);line(5.6,5.6,18.4,18.4)
+        return
+    if name in ('shield', 'shield-check', 'shield-alert', 'shield-off'):
+        path=QPainterPath(QPointF(12,3));path.cubicTo(14.3,4.5,17,5.4,20,6)
+        path.lineTo(20,11.5);path.cubicTo(20,16,16.3,19.5,12,21)
+        path.cubicTo(7.7,19.5,4,16,4,11.5);path.lineTo(4,6)
+        path.cubicTo(7,5.4,9.7,4.5,12,3);path.closeSubpath();painter.drawPath(path)
+        if name == 'shield-check':poly((8,11.5),(11,14.5),(16,9.5))
+        elif name == 'shield-off':line(8,8,16,16)
+        elif name == 'shield-alert':line(12,8,12,12.5);line(12,16,12,16.2)
+        return
+    if name == 'hand':
+        poly((7,12),(7,5),(10,5),(10,12),(10,3),(13,3),(13,12),
+             (13,4),(16,4),(16,13),(16,7),(19,7),(19,15))
+        path=QPainterPath(QPointF(19,15));path.cubicTo(19,22,9,24,6,18)
+        path.lineTo(3,13);path.cubicTo(2,11,4,10,5,12);path.lineTo(7,15)
+        painter.drawPath(path);return
     if name == 'message-square':
         poly((4,4),(20,4),(20,17),(9,17),(4,21),(4,4),closed=True)
         line(8,9,16,9);line(8,13,13,13)
@@ -206,6 +233,13 @@ def _draw(painter, name, filled=False):
     elif name == 'settings':
         for y,left,right in ((5,8,11),(12,15,18),(19,6,9)):
             line(3,y,left,y); line(right,y,21,y); rect(left,y-2,3,4,.7)
+    elif name == 'gear':
+        points = []
+        for step in range(32):
+            angle = (step - .5) * pi / 16
+            radius = 9.5 if step % 4 in (1, 2) else 7.5
+            points.append((12 + radius * cos(angle), 12 + radius * sin(angle)))
+        poly(*points, closed=True); circle(12,12,3)
     elif name == 'back':
         line(4,12,21,12); poly((10,5),(3,12),(10,19))
     elif name == 'search':
@@ -366,6 +400,10 @@ def icon(name, color=None, size=20, *, filled=False):
     if QApplication.instance() is None:
         raise RuntimeError('Create QApplication before constructing UI icons.')
     name=ALIASES.get(name,name)
+    if name in ('brand-comfyui', 'brand-civitai'):
+        # Official marks retain their source colors in both expanded/compact
+        # navigation; all product action icons still use the shared palette.
+        return QIcon(str(Path(__file__).parent / 'assets' / 'brands' / (name[6:]+'.svg')))
     if name not in ICON_NAMES: name='info'
     size=max(8,min(128,round(size)))
     return QIcon(_LineIconEngine(name,color,size,filled))

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from http.client import HTTPException
 from queue import Empty, Queue
 from threading import Event, Lock
@@ -11,7 +13,9 @@ from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 
 from ..service_adapters import ServiceRequest
 from .engine import Cancellation, Cancelled, InferenceRuntime, RuntimeFactory
-from .registry import ModelRegistry
+from .approval import normalize_mode
+from .library import ModelLibrary
+from .registry import MAX_MODEL_PROMPT, MODEL_PARAMETERS, ModelRegistry
 from .runtime import LlamaRuntime
 from .settings import LOAD_KEYS, normalize_settings, resolve_runtime, validate_messages
 
@@ -22,8 +26,8 @@ BUSY = frozenset(('loading', 'generating', 'stopping', 'unloading'))
 def for_workspace(workspace):
     """Share the registry and engine between Explore and every conversation.
 
-    Constructing the service reads local configuration only. Starting an engine
-    remains a separate explicit load action.
+    Constructing the service reads local configuration only. A submitted chat
+    prepares its chosen model; browsing or selecting a model never loads it.
     """
     service = getattr(workspace, 'local_ai', None)
     if service is None:
@@ -76,6 +80,7 @@ class _InferenceThread(QThread):
     def run(self):
         runtime: InferenceRuntime | None = None
         last_use = time.monotonic()
+        failure = ''
         try:
             runtime = self._runtime_factory()
             while not self.closing.is_set():
@@ -84,7 +89,7 @@ class _InferenceThread(QThread):
                 except Empty:
                     if runtime.model is not None and not runtime.alive:
                         runtime.stop()
-                        self._publish(runtime, 'error', '本地引擎意外停止，請重新載入模型。')
+                        self._publish(runtime, 'error', '本地引擎意外停止，請重新傳送訊息。')
                     with self._lock:
                         idle = self._idle_minutes
                     if runtime.alive and idle and time.monotonic() - last_use >= idle * 60:
@@ -110,17 +115,29 @@ class _InferenceThread(QThread):
                     runtime.stop()
                     self._publish(runtime, 'unloaded')
                 elif kind == 'chat':
-                    request, messages, params = args
+                    request, model, messages, params = args
                     pieces = []
+                    preparing = False
 
                     def delta(text):
                         cancel.check()
                         pieces.append(text)
                         self.text.emit(request, text)
 
-                    self._publish(runtime, 'generating')
                     try:
+                        cancel.check()
+                        # One command owns both preparation and generation, so
+                        # another document cannot take the slot between them.
+                        if not _runtime_matches(runtime, model['id'], params):
+                            preparing = True
+                            self._publish(runtime, 'loading')
+                            runtime.start(model, params, cancel)
+                            cancel.check()
+                            preparing = False
+                        self._publish(runtime, 'generating')
+                        cancel.check()
                         outcome, detail = runtime.generate(messages, params, cancel, delta)
+                        cancel.check()
                     except Exception as exc:
                         if cancel.event.is_set() or isinstance(exc, Cancelled):
                             outcome, detail = 'cancelled', ''.join(pieces)
@@ -128,10 +145,14 @@ class _InferenceThread(QThread):
                             outcome, detail = 'error', _display_error(exc)
                     # Even an error may leave server-side inference running.
                     # An idle slot or confirmed child exit is the release point.
-                    idle = runtime.ensure_idle()
+                    if preparing:
+                        runtime.stop()
+                        state = 'unloaded' if outcome == 'cancelled' else 'error'
+                    else:
+                        idle = runtime.ensure_idle()
+                        state = 'ready' if idle else 'unloaded'
                     self.result.emit(request, outcome, detail)
-                    self._publish(runtime, 'ready' if idle else 'unloaded',
-                                  detail if outcome == 'error' else '')
+                    self._publish(runtime, state, detail if outcome == 'error' else '')
                 last_use = time.monotonic()
                 with self._lock:
                     if self._current_cancel is cancel:
@@ -141,7 +162,8 @@ class _InferenceThread(QThread):
             # take longer than the queued status delivery when the OS is busy.
             with self._lock:
                 self.exiting.set()
-            self._publish(runtime, 'error', _display_error(exc))
+            failure = _display_error(exc)
+            self._publish(runtime, 'error', failure)
         finally:
             with self._lock:
                 self.exiting.set()
@@ -162,22 +184,31 @@ class _InferenceThread(QThread):
                 except Empty:
                     break
                 if kind == 'chat':
-                    self.result.emit(args[0], 'cancelled', '')
+                    cancelled = self.closing.is_set() or _cancel.event.is_set()
+                    self.result.emit(args[0], 'cancelled' if cancelled else 'error',
+                                     '' if cancelled else failure or '本地引擎未能準備完成，請重試。')
+
+
+def _runtime_matches(runtime, model_id, settings):
+    return bool(runtime.alive and runtime.model and runtime.model['id'] == model_id
+                and runtime.settings is not None
+                and all(runtime.settings[key] == settings[key] for key in LOAD_KEYS))
 
 
 def _display_error(exc):
     if isinstance(exc, (RuntimeError, ValueError)):
         return str(exc)[:1000]
     if isinstance(exc, (OSError, HTTPException)):
-        return '無法與本地引擎通訊，或引擎已停止。請確認引擎與模型後重新載入。'
-    return '本地推論未完成，請重新載入模型後再試。'
+        return '無法與本地引擎通訊，或引擎已停止。請確認引擎與模型後重新傳送。'
+    return '本地推論未完成，請重新傳送訊息。'
 
 
 class LocalAIService(QObject):
     """One instance per app, independent of chat pages and document owners.
 
-    Public methods run on the owning GUI thread. Only explicit load() starts the
-    private inference thread/process. submit() never starts or changes a model.
+    Public methods run on the owning GUI thread. submit() reserves one slot and
+    prepares its frozen model/settings before generating on the private thread.
+    Selecting a model or configuring settings never starts a thread/process.
     finished(request, status, detail): detail is the entire accepted text for
     completed/limited/cancelled, and a user-facing message for error. The caller
     must still check its document scope and retain already emitted deltas.
@@ -199,10 +230,134 @@ class LocalAIService(QObject):
         self._closing = False
         self.error = self._registry.error
         self.state = 'error' if self.error else self._available_state()
+        self._model_library = ModelLibrary(
+            self._registry, self,
+            can_apply=lambda: not self._closing and self._active is None and self.state not in BUSY)
+        self._model_library.changed.connect(self.changed.emit)
+        self.changed.connect(self._model_library.accept_pending)
+
+    @property
+    def model_folder(self):
+        return self._model_library.folder
+
+    @property
+    def default_model_folder(self):
+        return self._model_library.default_folder
+
+    @property
+    def model_folder_busy(self):
+        return self._model_library.busy
+
+    @property
+    def model_folder_state(self):
+        return self._model_library.state
+
+    @property
+    def model_folder_message(self):
+        return self._model_library.message
+
+    def set_model_folder(self, path):
+        return self._model_library.set_folder(path)
+
+    def reset_model_folder(self):
+        return self._model_library.reset_folder()
+
+    def refresh_model_folder(self):
+        return self._model_library.refresh()
+
+    def cancel_model_folder_scan(self):
+        return self._model_library.cancel()
 
     @property
     def settings(self):
         return dict(self._registry.settings)
+
+    @property
+    def approval_mode(self):
+        return self._registry.approval_mode
+
+    def configure_approval_mode(self, value):
+        """User preference only; never a generation parameter or model output.
+
+        Text generation has no action executor and is unaffected by all modes.
+        Mode changes therefore need not stop an in-flight plain-text response.
+        """
+        if self._closing:
+            return self._fail('本地 AI 正在關閉。')
+        try:
+            mode = normalize_mode(value)
+            if mode == self.approval_mode:
+                return True
+            self._registry.update(approval_mode=mode)
+        except (OSError, ValueError, TypeError) as exc:
+            return self._fail(f'審查方式未保存：{exc}')
+        self.error = ''
+        self.changed.emit()
+        return True
+
+    def settings_for_model(self, model_id):
+        if not any(model['id'] == model_id for model in self._registry.models):
+            raise ValueError('這個模型已不在清單中，請重新選擇模型。')
+        preset = self._registry.model_presets.get(model_id)
+        return normalize_settings(preset['parameters'] if preset else {}, base=self.settings)
+
+    @property
+    def generation_settings(self):
+        return self.settings_for_model(self.selected_model) if self.selected_model else self.settings
+
+    def model_preset(self, model_id):
+        settings = self.settings_for_model(model_id)
+        preset = self._registry.model_presets.get(model_id)
+        overrides = copy.deepcopy(preset['parameters']) if preset else {}
+        prompt = preset['system_prompt'] if preset else ''
+        # The token includes inherited/common values, so a staged form cannot
+        # save over a newer preset or a common configuration changed elsewhere.
+        revision = hashlib.sha256(json.dumps([model_id, settings, overrides, prompt],
+                                             sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
+        return dict(model_id=model_id, parameters={key: settings[key] for key in MODEL_PARAMETERS},
+                    overrides=overrides, system_prompt=prompt, revision=revision)
+
+    def configure_model(self, model_id, values, *, system_prompt=None, expected_revision=None):
+        if not self._can_edit():
+            return False
+        try:
+            current = self.model_preset(model_id)
+            if expected_revision != current['revision']:
+                raise ValueError('模型設定已變更，請重新讀取後再儲存。')
+            if not isinstance(values, dict) or set(values) - set(MODEL_PARAMETERS):
+                raise ValueError('模型設定包含不支援的項目。')
+            settings = normalize_settings(values, base=self.settings_for_model(model_id))
+            prompt = current['system_prompt'] if system_prompt is None else system_prompt
+            if not isinstance(prompt, str) or len(prompt) > MAX_MODEL_PROMPT:
+                raise ValueError('模型預設指示格式無效或過長。')
+            presets = copy.deepcopy(self._registry.model_presets)
+            # Freeze all six values together: subsequent default edits cannot
+            # combine a sparse context/max-token pair into an invalid profile.
+            presets[model_id] = dict(parameters={key: settings[key] for key in MODEL_PARAMETERS},
+                                     system_prompt=prompt)
+            if presets != self._registry.model_presets:
+                self._registry.update(model_presets=presets)
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            return self._fail(f'模型設定未保存：{exc}')
+        self.error = ''
+        self.changed.emit()
+        return True
+
+    def reset_model_preset(self, model_id, *, expected_revision=None):
+        if not self._can_edit():
+            return False
+        try:
+            if expected_revision != self.model_preset(model_id)['revision']:
+                raise ValueError('模型設定已變更，請重新讀取後再重置。')
+            presets = copy.deepcopy(self._registry.model_presets)
+            if model_id in presets:
+                del presets[model_id]
+                self._registry.update(model_presets=presets)
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            return self._fail(f'模型設定未重置：{exc}')
+        self.error = ''
+        self.changed.emit()
+        return True
 
     @property
     def models(self):
@@ -224,7 +379,14 @@ class LocalAIService(QObject):
     def needs_reload(self):
         return bool(self._loaded_model and (
             self.selected_model != self._loaded_model or self._loaded_settings is None or
-            any(self.settings[key] != self._loaded_settings[key] for key in LOAD_KEYS)))
+            any(self.generation_settings[key] != self._loaded_settings[key] for key in LOAD_KEYS)))
+
+    @property
+    def can_submit(self):
+        """Whether Send may reserve the slot; validation failures remain explicit."""
+        return bool(self.selected_model and not self._closing and self._active is None
+                    and self.state not in BUSY
+                    and (self._worker is None or not self._worker.exiting.is_set()))
 
     def _available_state(self):
         try:
@@ -270,8 +432,8 @@ class LocalAIService(QObject):
             return self._fail(f'設定未保存：{exc}')
         if self._worker is not None:
             self._worker.set_idle_minutes(settings['idle_minutes'])
-        # The current model is not silently reloaded. submit checks its frozen
-        # load settings and asks the user to explicitly load the new settings.
+        # Keep the current model until the next submitted request needs these
+        # settings. Merely editing configuration does not consume model resources.
         if not self._loaded_model:
             self.state = self._available_state()
         self.error = ''
@@ -309,14 +471,15 @@ class LocalAIService(QObject):
         model = next((m for m in self.models if m['id'] == self.selected_model), None)
         if model is None:
             return self._fail('請先加入並選擇一個 GGUF 模型。')
+        settings = self.settings_for_model(model['id'])
         try:
-            resolve_runtime(self.settings['runtime_path'])
+            resolve_runtime(settings['runtime_path'])
         except (OSError, ValueError) as exc:
             self.state = 'unavailable'
             return self._fail(exc)
         self._epoch += 1
         self.state, self.error = 'loading', ''
-        self._cancel = self._ensure_worker().enqueue('load', self._epoch, model, self.settings)
+        self._cancel = self._ensure_worker().enqueue('load', self._epoch, model, settings)
         if self._cancel is None:
             self.state = 'error'
             return self._fail('本地引擎正在清理程序，無法開始載入。請等待停止完成後重試。')
@@ -348,28 +511,30 @@ class LocalAIService(QObject):
         return True
 
     def submit(self, request):
-        if self._closing or self.state != 'ready' or self._active is not None:
-            return self._fail('請先載入模型，並等待目前操作完成。')
+        if not self.can_submit:
+            return self._fail('請先選擇模型，並等待目前操作完成。')
         try:
             if not isinstance(request, ServiceRequest) or request.service != 'local_ai' or request.operation != 'chat':
                 raise ValueError('本地對話請求格式無效。')
             payload = request.input
             if not isinstance(payload, dict) or set(payload) != {'messages', 'model', 'params'}:
                 raise ValueError('本地對話請求缺少訊息、模型或參數。')
-            if payload['model'] != self.selected_model or payload['model'] != self._loaded_model:
-                raise ValueError('選用的模型尚未載入，請按「載入」。')
+            model = next((m for m in self.models if m['id'] == payload['model']), None)
+            if model is None or payload['model'] != self.selected_model:
+                raise ValueError('選用的模型已變更，請重新傳送。')
             if not isinstance(payload['params'], dict) or set(payload['params']) != set(self.settings):
                 raise ValueError('請求缺少完整的參數快照。')
             params = normalize_settings(payload['params'])
-            if any(params[key] != self._loaded_settings[key] for key in LOAD_KEYS):
-                raise ValueError('載入設定已變更，請重新載入模型後再傳送。')
             messages = validate_messages(payload['messages'])
-        except (ValueError, TypeError, KeyError) as exc:
+            resolve_runtime(params['runtime_path'])
+        except (OSError, ValueError, TypeError, KeyError) as exc:
             return self._fail(exc)
         self._epoch += 1
         self._active = request
-        self.state, self.error = 'generating', ''
-        self._cancel = self._worker.enqueue('chat', self._epoch, request, messages, params)
+        prepared = (self._loaded_model == model['id'] and self._loaded_settings is not None
+                    and all(params[key] == self._loaded_settings[key] for key in LOAD_KEYS))
+        self.state, self.error = ('generating' if prepared else 'loading'), ''
+        self._cancel = self._ensure_worker().enqueue('chat', self._epoch, request, model, messages, params)
         if self._cancel is None:
             self._active = None
             self.state = 'error'
@@ -387,15 +552,16 @@ class LocalAIService(QObject):
         return True
 
     def shutdown(self):
-        """Nonblocking. Return True only after the dedicated thread has exited.
+        """Nonblocking. Wait for inference and discovery workers to exit.
 
         The shell must retain this service and retry close while False. Never
         terminate a QThread that may still own a subprocess or pending receipt.
         """
         self._closing = True
+        library_closed = self._model_library.shutdown()
         if self._worker is None:
-            self.state = 'closed'
-            return True
+            self.state = 'closed' if library_closed else 'stopping'
+            return library_closed
         self._worker.request_shutdown()
         if self._worker.isRunning():
             self.state = 'stopping'
@@ -404,8 +570,8 @@ class LocalAIService(QObject):
         # The owner gets a final cancellation with its already received text.
         if self._active is not None:
             return False
-        self.state = 'closed'
-        return True
+        self.state = 'closed' if library_closed else 'stopping'
+        return library_closed
 
     def resume_after_close_abort(self):
         """Restore manual controls after another workspace owner vetoes close.
@@ -416,6 +582,8 @@ class LocalAIService(QObject):
         if not self._closing:
             return True
         if self._active is not None or (self._worker is not None and self._worker.isRunning()):
+            return False
+        if not self._model_library.resume_after_close_abort():
             return False
         worker, self._worker = self._worker, None
         # A finished QThread's signals may still be queued. Invalidate status
@@ -469,9 +637,10 @@ class LocalAIService(QObject):
             self._active = None
             self.finished.emit(request, 'error', '推論工作意外停止，已保留收到的內容。')
         self._loaded_model, self._loaded_settings = '', None
-        self.state = 'closed' if self._closing else 'error'
+        self.state = ('stopping' if self._model_library.busy else 'closed') if self._closing else 'error'
         if not self._closing and not self.error:
-            self.error = '本地推論工作已停止，請重新載入模型。'
+            self.error = '本地推論工作已停止，請重新傳送訊息。'
         self._worker = None
+        self._cancel = None
         worker.deleteLater()
         self.changed.emit()

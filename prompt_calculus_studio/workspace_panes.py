@@ -31,6 +31,10 @@ class PageObserver(QObject):
         if tab.document:
             tab.document.changed.connect(self.changed)
             tab.document.editing.connect(self.editing)
+            if tab.document.kind == 'chat':
+                tab.widget.branchRequested.connect(self.branch_chat)
+                tab.widget.pcsAttachmentsRequested.connect(self.pcs_attachments)
+                tab.widget.exportMarkdownRequested.connect(self.export_markdown)
         else:
             tab.widget.textChanged.connect(self.changed)
             tab.widget.compositionChanged.connect(self.changed)
@@ -47,6 +51,20 @@ class PageObserver(QObject):
     @Slot()
     def editing(self):
         self.workspace.retain(self.tab)
+
+    @Slot(str, str)
+    def branch_chat(self, turn_id, attempt_id):
+        self.workspace.branch_chat(self.tab, turn_id, attempt_id)
+
+    @Slot()
+    def pcs_attachments(self):
+        from .workspace_chat import choose_pcs_attachments
+        choose_pcs_attachments(self.workspace, self.tab)
+
+    @Slot(str, str)
+    def export_markdown(self, turn_id, attempt_id):
+        from .workspace_chat import export_markdown
+        export_markdown(self.workspace, self.tab, turn_id, attempt_id)
 
 
 class PaneFocus(QObject):
@@ -82,6 +100,10 @@ class PaneFocus(QObject):
 
 class WorkspacePanes:
     """Methods mixed into the shell; legacy public single-pane entry names remain."""
+    def branch_chat(self, source_tab, turn_id, attempt_id=''):
+        from .workspace_chat import create_branch
+        return create_branch(self, source_tab, turn_id, attempt_id)
+
     def init_panes(self):
         from .workspace_pane_chrome import PaneSplitter, PaneTabRow, PaneResizeGrip
         self.documents = []
@@ -404,6 +426,11 @@ class WorkspacePanes:
         pane.strip.fit()
 
     def dispose_page(self, tab, *, prepared=False):
+        last_chat = (tab.document and tab.document.kind == 'chat'
+                     and not any(t is not tab and t.document is tab.document for t in self.all_pages()))
+        if last_chat and not tab.document.finish_checkpoint():
+            self.show_notice('對話正在保存，請稍後再關閉。')
+            return False
         if (not prepared and tab.document and tab.document.kind == 'chat'
                 and not any(t is not tab and t.document is tab.document for t in self.all_pages())
                 and not self.prepare_close(tab)):
@@ -416,7 +443,8 @@ class WorkspacePanes:
             tab.host.setParent(self)
         elif tab.document and tab.document.kind == 'chat':
             if not any(t is not tab and t.document is tab.document for t in self.all_pages()):
-                tab.document.dispose()
+                if tab.document.dispose() is False:
+                    return False
                 if tab.document in self.documents:
                     self.documents.remove(tab.document)
                 tab.document.deleteLater()

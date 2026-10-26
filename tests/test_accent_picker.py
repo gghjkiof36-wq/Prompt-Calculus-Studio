@@ -67,7 +67,7 @@ class AccentPickerTests(unittest.TestCase):
         self.assertEqual(controls.accent_hex.text(),'#f077af')
         self.assertEqual(visual_tokens(self.w.settings)['accent'],'#f077af')
 
-    def test_partial_hex_never_replaces_valid_color_and_popup_cancel_preserves_it(self):
+    def test_partial_hex_preserves_color_and_picker_applies_live_on_escape(self):
         controls=self.controls();controls.accent.setCurrentIndex(controls.accent.findData('custom'))
         controls.accent_hex.setText('#124567');self.flush()
         for value in ('','#12','#GGGGGG'):
@@ -78,13 +78,31 @@ class AccentPickerTests(unittest.TestCase):
         controls.accent_row.open_picker();self.events();popup=controls.accent_row.popover
         QTest.mouseClick(popup.plane,Qt.MouseButton.LeftButton,pos=QPoint(100,80))
         QTest.keyClick(popup.strip,Qt.Key.Key_Right)
+        QTest.qWait(80);self.events()
+        changed=controls.accent_hex.text()
+        self.assertNotEqual(changed,'#124567')
+        self.assertTrue(popup.isVisible())
+        self.assertEqual(self.w.settings['accent_custom'],changed)
+        self.assertEqual(visual_tokens(self.w.settings)['accent'],changed)
         QTest.keyClick(popup.plane,Qt.Key.Key_Escape);self.events()
-        self.assertEqual(controls.accent_hex.text(),'#124567')
+        self.assertEqual(self.w.settings['accent_custom'],changed)
         controls.accent_row.open_picker();self.events();popup=controls.accent_row.popover
         QTest.mouseClick(popup.plane,Qt.MouseButton.LeftButton,pos=QPoint(180,40))
-        popup.accept();self.flush()
-        self.assertNotEqual(controls.accent_hex.text(),'#124567')
+        popup.close();self.events()
+        self.assertNotEqual(controls.accent_hex.text(),changed)
         self.assertEqual(controls.accent_hex.text(),self.w.settings['accent_custom'])
+
+    def test_reset_only_accent_retains_custom_color_and_persists(self):
+        controls=self.controls();controls.accent.setCurrentIndex(controls.accent.findData('custom'))
+        controls.accent_hex.setText('#e17a29');self.flush()
+        before=copy.deepcopy(self.w.settings)
+        QTest.mouseClick(controls.accent_row.reset_button,Qt.MouseButton.LeftButton);self.events()
+        self.assertEqual(self.w.settings,{**before,'accent':'neutral'})
+        self.assertFalse(controls.accent_row.reset_button.isEnabled())
+        data=self.w.data;self.w.close();self.w.deleteLater();self.events()
+        self.w=WorkspaceShell(self.root,data);self.w.report_error=self.errors.append;self.w.show();self.events()
+        self.assertEqual(self.w.settings['accent'],'neutral')
+        self.assertEqual(self.w.settings['accent_custom'],'#e17a29')
 
     def test_color_menu_keyboard_selects_and_escape_preserves_choice(self):
         controls=self.controls();combo=controls.accent

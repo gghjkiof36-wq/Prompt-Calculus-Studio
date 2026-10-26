@@ -42,12 +42,13 @@ class ExploreModelLayoutTests(unittest.TestCase):
 
     def test_explore_entries_stay_compact_and_keep_their_destinations(self):
         self.w.settings('explore'); self.settle()
+        self.assertFalse(hasattr(self.w.settings_page, 'explore_cards'))
         for i,route in enumerate(('workflows','civitai')):
-            card=self.w.settings_page.explore_cards.itemAt(i).widget()
-            self.assertLess(card.height(),390)
-            entry=next(b for b in card.findChildren(QPushButton) if b.text().startswith('開啟 '))
+            self.assertEqual(self.w.settings_page.nav_routes[i][0],route)
+            entry=self.w.settings_page.navigation.item(i)
+            self.assertFalse(entry.icon().isNull())
             with patch.object(self.w,'settings') as navigate:
-                QTest.mouseClick(entry,Qt.MouseButton.LeftButton); navigate.assert_called_once_with(route)
+                self.w.settings_page.navigate(i); navigate.assert_called_once_with(route)
         self.w.resize(1920,1080); self.w.settings('workflows'); self.settle()
         self.assertLessEqual(self.w.settings_page.workflows.width(),980)
 

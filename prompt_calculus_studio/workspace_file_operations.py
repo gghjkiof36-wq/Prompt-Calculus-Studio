@@ -71,6 +71,13 @@ class WorkspaceFileOperations(QObject):
             self.w.autosave.paused.add(id(tab))
             self.w.autosave.stop(tab)
         try:
+            # A chat checkpoint can still be writing after its timer stopped.
+            # Drain it before taking the source stamp or moving any directory.
+            owners = {id(tab.document): tab.document for tab in pages
+                      if tab.document and tab.document.kind == 'chat'}
+            for owner in owners.values():
+                if not owner.finish_checkpoint():
+                    raise ValueError('對話正在保存，請稍後再進行檔案操作。')
             expected = stamp(source) if source.exists() else None
             if expected is None and not (rescue and pages):
                 raise ValueError('來源已不存在：' + str(source))
@@ -279,7 +286,8 @@ class WorkspaceFileOperations(QObject):
                 new_key = result.document['document_id'] if result else 'md:' + uuid.uuid4().hex
                 if result:
                     if document.kind == 'chat':
-                        document.retarget(result, target)
+                        if document.retarget(result, target) is False:
+                            raise ValueError('原對話仍在保存；新檔已保留，尚未切換頁面。')
                     else:
                         if retire_content and document.runtimes is not None:
                             document.runtimes.retire_content(document)

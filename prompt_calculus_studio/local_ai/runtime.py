@@ -95,7 +95,7 @@ class LlamaRuntime:
     def _connect(self, cancel, timeout=180):
         cancel.check()
         if not self.alive:
-            raise RuntimeError('本地引擎已停止，請重新載入模型。')
+            raise RuntimeError('本地引擎已停止，請重新傳送訊息。')
         connection = HTTPConnection('127.0.0.1', self.port, timeout=timeout)
         try:
             connection.connect()
@@ -182,7 +182,7 @@ class LlamaRuntime:
                 raise RuntimeError('引擎不支援此版本需要的單一生成槽，請選擇相容的 llama-server。')
             self.context_size = min(settings['context_size'], slots[0]['n_ctx'])
             if self.context_size <= settings['max_tokens']:
-                raise RuntimeError('實際上下文不足，請調低回覆長度後重新載入。')
+                raise RuntimeError('實際上下文不足，請調低回覆上限後重新傳送。')
             # Capability probe uses tokenizer/template only, never generation.
             self._prompt_tokens([{'role': 'user', 'content': 'Hello'}], cancel)
             self.model, self.settings = dict(model), dict(settings)
@@ -227,7 +227,7 @@ class LlamaRuntime:
         count = self._prompt_tokens(messages, cancel)
         if count + params['max_tokens'] > self.context_size:
             raise RuntimeError(f'上下文不足：輸入約 {count} tokens，回覆預留 {params["max_tokens"]}，'
-                               f'目前上限 {self.context_size}。請縮短對話或重新載入較大的上下文。')
+                               f'目前上限 {self.context_size}。請縮短對話，或調高上下文容量後重新傳送。')
         payload = {'model': self.model['id'], 'messages': messages, 'stream': True,
                    **{key: params[key] for key in SAMPLING_KEYS}}
         connection = self._connect(cancel)

@@ -185,16 +185,17 @@ class SidebarNavigationDelegate(QStyledItemDelegate):
 
 def navigation_entries(section, *, workspace=False):
     """One route map for the page and its inactive sidebar preview."""
-    if section in ('civitai','downloads','civitai_settings'):
-        return 'CivitAI', '返回探索', [('civitai','搜尋模型','search'),('downloads','下載記錄','download'),('civitai_settings','瀏覽設定','settings')]
-    if section in ('comfy','workflows','workflow_manager','models','nodes'):
-        return 'ComfyUI', '返回探索', [('workflows','連線與工作流','workflow'),('models','模型資產','media'),('nodes','管理與更新','package')]
-    if section=='connector':
-        return '下載紀錄', '返回探索', [('connector','下載紀錄','quote')]
-    if section=='local_models':
-        return '對話模型', '返回探索', [('local_models','本機模型','message-square')]
-    if section=='explore':
-        return '探索', '返回工作區', [('explore','全部入口','explore')]
+    explore = ('explore','connector','local_models','civitai','downloads','civitai_settings',
+               'comfy','workflows','workflow_manager','models','nodes')
+    if section in explore:
+        routes = [('workflows','ComfyUI','brand-comfyui'), ('civitai','CivitAI','brand-civitai')]
+        if workspace:
+            routes += [('local_models','本地模型','server'), ('connector','下載紀錄','download')]
+        if section in ('comfy','workflows','workflow_manager','models','nodes'):
+            routes += [('models','模型資產','media'), ('nodes','管理與更新','package')]
+        elif section in ('civitai','downloads','civitai_settings'):
+            routes += [('downloads','模型下載','download'), ('civitai_settings','瀏覽設定','settings')]
+        return '探索', '返回工作區', routes
     routes=[('interface','使用介面','canvas'),('appearance','介面個人化','settings'),('completion','候選與翻譯','search'),('dictionary','個人字典','info'),('data','資料與備份','package')]
     return '設定', '返回工作區', [r for r in routes if not workspace or r[0]!='interface']
 
@@ -260,6 +261,8 @@ class SettingsPage(QWidget):
         self.add('explore','探索',self.make_explore_page())
         self.navigation.currentRowChanged.connect(self.navigate)
         self.autosave=QTimer(self); self.autosave.setSingleShot(True); self.autosave.setInterval(350); self.autosave.timeout.connect(self.flush)
+        self.accent_save=QTimer(self); self.accent_save.setSingleShot(True); self.accent_save.setInterval(32)
+        self.accent_save.timeout.connect(self.flush)
         self.syncing=False; self.entry_appearance=None; self.entry_navigation_position=None; self.entry_ambient_effect=None
         self.navigation_position=None
         for choice in self.interface.choices.buttons():choice.toggled.connect(self.schedule_save)
@@ -316,38 +319,15 @@ class SettingsPage(QWidget):
         from .local_ai.model_page import LocalModelPage
         from .local_ai.service import for_workspace
         workspace=self.window.workspace_owner
-        page=LocalModelPage(for_workspace(workspace),workspace.display_settings())
+        page=LocalModelPage(for_workspace(workspace),workspace.display_settings(),workspace=workspace)
         page.createChatRequested.connect(
             lambda:workspace.commands.new('chat',workspace.commands.context('page')))
         return page
 
     def make_explore_page(self):
-        from .explore_art import ExploreArtwork
-        page=QWidget(); layout=QVBoxLayout(page); layout.setSpacing(18)
-        layout.addWidget(label('探索','DialogTitle'))
-        layout.addWidget(label('連接工具，整理模型、工作流與對話。','Subtle',True))
-        self.explore_grid=ExploreCardGrid(); self.explore_cards=self.explore_grid.grid
-        layout.addWidget(self.explore_grid)
-        entries=[
-            ('ComfyUI','連線與工作流、模型資產、節點更新','workflows','workflow'),
-            ('CivitAI','搜尋模型、選擇版本與管理下載','civitai','explore'),
-        ]
-        if getattr(self.window,'workspace_owner',None) is not None:
-            entries.append(('對話模型','匯入本機模型，管理載入狀態並開啟對話','local_models','message-square'))
-            entries.append(('下載紀錄','查找從 ChatGPT 傳入的檔案','connector','quote'))
-        for name,description,key,symbol in entries:
-            card,body=panel('ExploreCard')
-            card.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed)
-            body.setContentsMargins(24,24,24,24); body.setSpacing(14)
-            mark=label(''); mark.setProperty('largeIcon',symbol)
-            body.addLayout(row(mark,label(name,'ExploreTitle'),None))
-            body.addWidget(label(description,'Subtle',True))
-            body.addWidget(ExploreArtwork(self.window,symbol))
-            entry=button('開啟 '+name,lambda checked=False,k=key:self.window.settings(k))
-            entry.setProperty('iconName',symbol); body.addWidget(entry,0,Qt.AlignmentFlag.AlignLeft)
-            self.explore_grid.add_card(card)
-        layout.addStretch()
-        return reading_page(page)
+        # The navigation opens its content directly; this keeps the historical
+        # route index stable without building a second set of entry cards.
+        return QWidget()
 
     def configure_navigation(self,section):
         area,parent,routes=navigation_entries(section,workspace=getattr(self.window,'workspace_owner',None) is not None)
@@ -362,8 +342,11 @@ class SettingsPage(QWidget):
         for i,(key,title,symbol) in enumerate(routes):
             item=QListWidgetItem(title)
             if area=='設定' and i in (1,3) and not self.window.embedded_document:item.setData(Qt.ItemDataRole.UserRole,8)
+            if area=='探索' and i==(3 if getattr(self.window,'workspace_owner',None) is not None else 1) and len(routes)>i+1:
+                item.setData(Qt.ItemDataRole.UserRole,18)
             self.navigation.addItem(item); self.compact_navigation.addItem(title,key)
-        current=next((i for i,r in enumerate(routes) if r[0]==section),0)
+        selected={'comfy':'workflows','workflow_manager':'workflows','explore':'local_models'}.get(section,section)
+        current=next((i for i,r in enumerate(routes) if r[0]==selected),0)
         self.navigation.setCurrentRow(current); self.compact_navigation.setCurrentIndex(current)
         self.navigation.blockSignals(False); self.compact_navigation.blockSignals(False)
         self.refresh_icons(); self.adapt_navigation()
@@ -390,8 +373,7 @@ class SettingsPage(QWidget):
         self.adapt_navigation(); super().resizeEvent(event)
 
     def return_parent(self):
-        if self.section in ('connector','local_models','civitai','downloads','civitai_settings','comfy','workflows','workflow_manager','models','nodes'):self.window.settings('explore')
-        else:self.cancel()
+        self.cancel()
 
     def compact_navigate(self,index):
         if 0<=index<len(self.nav_routes):self.window.settings(self.nav_routes[index][0])
@@ -419,8 +401,13 @@ class SettingsPage(QWidget):
     def schedule_save(self,*_):
         if not self.syncing:self.autosave.start()
 
+    def schedule_accent_save(self):
+        # Coalesce pointer movement, but keep applying during a continuous drag.
+        if not self.syncing and not self.accent_save.isActive():self.accent_save.start()
+
     def flush(self):
         self.autosave.stop()
+        self.accent_save.stop()
         if self.syncing:return
         self.syncing=True
         try:
@@ -499,16 +486,20 @@ class SettingsPage(QWidget):
             elif isinstance(widget,QComboBox):widget.currentIndexChanged.connect(self.schedule_save)
             elif isinstance(widget,(QSpinBox,QSlider)):widget.valueChanged.connect(self.schedule_save)
             elif isinstance(widget,QCheckBox):widget.toggled.connect(self.schedule_save)
+        self.preferences.accent_row.changed.connect(self.schedule_accent_save)
+        self.preferences.accent_row.editingFinished.connect(self.flush)
         self.syncing=False
 
     def open(self,section='interface'):
+        if section=='explore':
+            section='local_models' if hasattr(self,'local_models_content') else 'workflows'
         if section=='connector':self.connector_content.load()
         if section=='local_models' and hasattr(self,'local_models_content'):
             self.local_models_content.load().prepare_workspace_show()
         if section in ('appearance','completion','dictionary'):self.ensure_preferences()
         self.syncing=True
         for choice in self.interface.choices.buttons(): choice.setChecked(choice.property('mode')==self.window.state.get('selection_view','list'))
-        if page_ready(self.comfy_content) or section in ('comfy','workflows','workflow_manager','models','nodes'):
+        if section in ('comfy','workflows','workflow_manager','models','nodes'):
             self.window.generation_panel.refresh(); self.workflows.refresh(); self.workflow_manager.refresh()
         if page_ready(self.civitai) or section in ('civitai','downloads','civitai_settings'):
             self.civitai.online.blockSignals(True); self.civitai.online.setChecked(self.window.state['settings'].get('online',True)); self.civitai.online.blockSignals(False)

@@ -39,13 +39,25 @@ class FakeService(QObject):
                              runtime_path='synthetic-unused-runtime.exe')
         self.submitted, self.cancelled, self.persisted_at_submit = [], [], []
         self.read_document = None
+        self.prepare_on_submit = False
+
+    @property
+    def can_submit(self):
+        return bool(self.selected_model and self.state not in
+                    ('loading', 'generating', 'stopping', 'unloading'))
+
+    def settings_for_model(self, model_id):
+        return dict(self.settings)
+
+    def model_preset(self, model_id):
+        return dict(system_prompt='')
 
     def submit(self, request):
         # Observation at acceptance proves that the frozen attempt was already
         # published, rather than only present in the in-memory document.
         self.persisted_at_submit.append(self.read_document())
         self.submitted.append(request)
-        self.state = 'generating'
+        self.state = 'loading' if self.prepare_on_submit else 'generating'
         return True
 
     def cancel(self, request_id):
@@ -145,6 +157,71 @@ class LocalChatOwnerContracts(unittest.TestCase):
         self.assertEqual(request.scope['attempt_id'], attempt['id'])
         self.assertEqual(request.scope['user_message_id'], turn['id'])
 
+    def test_unloaded_send_reserves_owner_and_stop_revokes_preparation(self):
+        self.service.state = 'unloaded'
+        self.service.prepare_on_submit = True
+        request = self._send()
+        self.assertTrue(self.owner.busy)
+        self.assertEqual(self.service.state, 'loading')
+        self.assertFalse(self.owner.send('重複點擊'))
+        self.assertEqual(len(self.service.submitted), 1)
+        self.assertEqual(self.service.persisted_at_submit[0]['payload']['turns'][0]['attempts'][0]['status'],
+                         'receiving')
+        self.assertTrue(self.owner.stop())
+        before = self.path.read_bytes()
+        self.service.delta.emit(request, '準備取消後的晚到文字')
+        self.service.finished.emit(request, 'completed', '準備取消後的晚到文字')
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(self.owner.payload['turns'][0]['attempts'][0]['status'], 'stopped')
+
+    def test_preparation_failure_is_saved_on_its_original_attempt(self):
+        self.service.state = 'unloaded'
+        self.service.prepare_on_submit = True
+        request = self._send()
+        self.service.state = 'error'
+        self.service.finished.emit(request, 'error', '合成模型準備失敗')
+        self.assertFalse(self.owner.busy)
+        payload = io.load(self.root, self.path.name).document['payload']
+        attempt = payload['turns'][0]['attempts'][0]
+        self.assertEqual(attempt['request'], request.request_id)
+        self.assertEqual((attempt['status'], attempt['reason']), ('failed', '合成模型準備失敗'))
+        self.assertEqual(attempt['text'], '')
+
+    def test_dispose_during_preparation_cancels_and_disconnects_late_output(self):
+        self.service.state = 'unloaded'
+        self.service.prepare_on_submit = True
+        request = self._send()
+        self.owner.dispose()
+        before = self.path.read_bytes()
+        self.assertEqual(self.service.cancelled, [request.request_id])
+        self.service.delta.emit(request, '關閉後的文字')
+        self.service.finished.emit(request, 'completed', '關閉後的文字')
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertFalse(self.owner.busy)
+
+    def test_reentrant_send_during_save_cannot_duplicate_a_turn(self):
+        attempts = []
+        self.owner.editing.connect(lambda: attempts.append(self.owner.send('重入訊息')) if self.owner.busy else None)
+        self._send()
+        self.assertEqual(attempts, [False])
+        self.assertEqual(len(self.owner.payload['turns']), 1)
+        self.assertEqual(len(self.service.submitted), 1)
+
+    def test_stop_during_save_signal_prevents_later_service_submission(self):
+        revoked = []
+
+        def revoke():
+            if self.owner.busy and not revoked:
+                revoked.append(True)
+                self.owner.stop()
+
+        self.owner.changed.connect(revoke)
+        self.assertFalse(self.owner.send('保存期間取消'))
+        self.assertEqual(self.service.submitted, [])
+        self.assertFalse(self.owner.busy)
+        self.assertEqual(io.load(self.root, self.path.name).document['payload']['turns'][0]['attempts'][0]['status'],
+                         'stopped')
+
     def test_wrong_full_request_is_ignored_even_when_request_id_matches(self):
         request = self._send()
         for defect in ('document', 'epoch', 'input', 'request_id'):
@@ -229,6 +306,8 @@ class LocalChatOwnerContracts(unittest.TestCase):
         self.assertIn('synthetic write failure', self.owner.error)
 
     def test_retarget_rejects_old_request_while_new_attempt_is_active(self):
+        self.service.state = 'unloaded'
+        self.service.prepare_on_submit = True
         request = self._send()
         self.service.delta.emit(request, '舊文件片段')
         self.owner.stop()

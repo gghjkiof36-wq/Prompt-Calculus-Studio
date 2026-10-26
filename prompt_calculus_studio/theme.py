@@ -49,7 +49,10 @@ VISUAL_PALETTES = {
 
 @lru_cache(maxsize=128)
 def _derived_palette(entries):
-    return derive_roles(dict(entries))
+    result = derive_roles(dict(entries))
+    result['permission_full'] = readable('#f58a45', tuple(result[key] for key in
+        ('base', 'surface', 'hover', 'raised', 'popup_active')))
+    return result
 
 
 def visual_tokens(settings=None, *, foundation=None):

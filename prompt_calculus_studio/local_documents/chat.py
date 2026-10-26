@@ -14,7 +14,7 @@ def empty():
 
 
 def validate_payload(payload):
-    if not isinstance(payload, dict) or set(payload) != {'version', 'draft', 'system_prompt', 'turns'} or type(payload['version']) is not int or payload['version'] != 1:
+    if not isinstance(payload, dict) or set(payload) - {'draft_attachments'} != {'version', 'draft', 'system_prompt', 'turns'} or type(payload['version']) is not int or payload['version'] != 1:
         fail('unsupported', '不支援此對話版本。')
     if not isinstance(payload['draft'], str) or len(payload['draft']) > MAX_TEXT:
         fail('limit', '對話草稿過長。')
@@ -24,6 +24,8 @@ def validate_payload(payload):
     if not isinstance(turns, list) or len(turns) > 10000:
         fail('limit', '對話訊息過多。')
     seen = set()
+    from .chat_attachments import validate_list
+    validate_list(payload.get('draft_attachments', []), seen)
     def ident(value):
         if not identifier(value) or value in seen:
             fail('invalid', '對話訊息身分無效或重複。')
@@ -31,10 +33,11 @@ def validate_payload(payload):
     prior = {}
     receiving = 0
     for turn in turns:
-        if not isinstance(turn, dict) or set(turn) != {'id', 'text', 'attempts'}:
+        if not isinstance(turn, dict) or set(turn) - {'attachments'} != {'id', 'text', 'attempts'}:
             fail('invalid', '對話訊息格式無效。')
         ident(turn['id'])
-        if not isinstance(turn['text'], str) or not turn['text'].strip() or len(turn['text']) > MAX_TEXT:
+        validate_list(turn.get('attachments', []), seen)
+        if not isinstance(turn['text'], str) or (not turn['text'].strip() and not turn.get('attachments')) or len(turn['text']) > MAX_TEXT:
             fail('invalid', '對話訊息內容無效。')
         if not isinstance(turn['attempts'], list) or len(turn['attempts']) > 100:
             fail('limit', '此訊息的回覆次數過多。')
@@ -86,9 +89,13 @@ def clone_payload(payload):
     result = copy.deepcopy(payload)
     interrupt(result)
     remap = {}
+    for item in result.get('draft_attachments', []):
+        item['id'] = str(uuid.uuid4())
     for turn in result['turns']:
         old = turn['id']
         turn['id'] = remap[old] = str(uuid.uuid4())
+        for item in turn.get('attachments', []):
+            item['id'] = str(uuid.uuid4())
         for attempt in turn['attempts']:
             old = attempt['id']
             attempt['id'] = remap[old] = str(uuid.uuid4())
@@ -99,18 +106,49 @@ def clone_payload(payload):
     return result
 
 
+def branch_payload(payload, turn_id, attempt_id=None):
+    """Snapshot history through an exact user message or assistant attempt.
+
+    This prepares a prefix with its source IDs. identity.duplicate() gives the
+    final independent document fresh IDs and interrupts copied receiving state.
+    A user-only branch keeps its question without answers, ready for an explicit
+    retry. Unsent composer text belongs to the source and is never copied.
+    """
+    validate_payload(payload)
+    position = next((index for index, turn in enumerate(payload['turns']) if turn['id'] == turn_id), None)
+    if position is None:
+        raise ValueError('找不到這則訊息，無法建立分支。')
+    selected = payload['turns'][position]
+    if attempt_id is None:
+        attempts = []
+    else:
+        attempt_index = next((index for index, attempt in enumerate(selected['attempts'])
+                              if attempt['id'] == attempt_id), None)
+        if attempt_index is None:
+            raise ValueError('找不到這次回覆，無法建立分支。')
+        attempts = selected['attempts'][:attempt_index + 1]
+    prefix = payload['turns'][:position] + [dict(selected, attempts=attempts)]
+    result = dict(version=payload['version'], draft='', system_prompt=payload['system_prompt'],
+                  turns=copy.deepcopy(prefix))
+    validate_payload(result)
+    return result
+
+
 def context_messages(payload, text, *, retry=False):
     """All prior usable turns; an incomplete turn must be retried explicitly."""
     history = payload['turns'][:-1] if retry else payload['turns']
     messages = []
+    from .chat_attachments import message
     if payload['system_prompt']:
         messages.append(dict(role='system', content=payload['system_prompt']))
     for turn in history:
         answer = next((a for a in reversed(turn['attempts']) if a['status'] == 'complete'), None)
         if answer is None:
             raise ValueError('上一則回覆尚未完成，請先重試，或另開一份對話。')
-        messages.extend([dict(role='user', content=turn['text']), dict(role='assistant', content=answer['text'])])
-    messages.append(dict(role='user', content=text))
+        messages.extend([dict(role='user', content=message(turn['text'], turn.get('attachments', []))),
+                         dict(role='assistant', content=answer['text'])])
+    attachments = payload['turns'][-1].get('attachments', []) if retry else payload.get('draft_attachments', [])
+    messages.append(dict(role='user', content=message(text, attachments)))
     return messages
 
 
@@ -121,12 +159,16 @@ def context_references(payload, *, retry=False):
 
 
 def markdown(payload, title):
+    from .chat_attachments import markdown as attachment_markdown
     labels = {'complete':'完成', 'stopped':'已停止', 'interrupted':'中斷', 'failed':'失敗', 'limited':'達到上限', 'receiving':'接收中'}
     lines = ['# ' + title.replace('\n', ' '), '']
     for turn in payload['turns']:
         lines.extend(['## 你', '', turn['text'], ''])
+        lines.extend(attachment_markdown(turn.get('attachments', [])))
         for attempt in turn['attempts']:
             lines.extend(['## 回覆 · '+labels[attempt['status']], '', attempt['text'], ''])
             if attempt['reason']:lines.extend([attempt['reason'], ''])
-    if payload['draft']:lines.extend(['## 未送出草稿', '', payload['draft'], ''])
+    if payload['draft'] or payload.get('draft_attachments'):
+        lines.extend(['## 未送出草稿', '', payload['draft'], ''])
+        lines.extend(attachment_markdown(payload.get('draft_attachments', [])))
     return '\n'.join(lines)

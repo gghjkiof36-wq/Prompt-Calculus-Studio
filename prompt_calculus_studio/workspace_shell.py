@@ -1112,6 +1112,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             self.show_notice('請先完成或取消目前的文件操作。')
             return False
         if tab.document and tab.document.kind == 'chat':
+            if not tab.document.finish_checkpoint():
+                self.show_notice('對話正在保存，請稍後再關閉或切換。')
+                return False
             if tab.document.composing:
                 QApplication.inputMethod().commit()
                 if tab.document.composing:
