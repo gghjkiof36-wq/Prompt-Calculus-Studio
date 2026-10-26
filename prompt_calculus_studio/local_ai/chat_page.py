@@ -3,15 +3,19 @@ import math
 from pathlib import Path
 import weakref
 
-from PySide6.QtCore import Qt, QTimer, Signal, QSignalBlocker
-from PySide6.QtGui import QTextDocument, QTextOption
+from PySide6.QtCore import Qt, QTimer, Signal, QSignalBlocker, QSize
+from PySide6.QtGui import (
+    QAction, QColor, QTextBlockFormat, QTextCharFormat, QTextCursor,
+    QTextDocument, QTextOption,
+)
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QPlainTextEdit,
-    QSizePolicy, QTextBrowser, QVBoxLayout, QWidget,
+    QApplication, QFileDialog, QFrame, QHBoxLayout, QPlainTextEdit,
+    QPushButton, QSizePolicy, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from ..theme import font_pixels, visual_tokens
-from ..widgets import ActionHeader, button, label, row, scrolling
+from ..ui_icons import icon
+from ..widgets import RoundMenu, button, label, row, scrolling
 from ..workspace_style import workspace_colors
 from .chat_settings import ChatSettingsDialog
 
@@ -37,13 +41,14 @@ class ChatComposer(QPlainTextEdit):
         self.setAccessibleName('對話訊息')
         self.setPlaceholderText('輸入訊息…')
         self.setTabChangesFocus(True)
-        self.setMinimumHeight(110)
-        self.setMaximumHeight(200)
+        self.setMinimumHeight(80)
+        self.setMaximumHeight(180)
         self.textChanged.connect(self._fit_height)
+        self._fit_height()
 
     def _fit_height(self):
-        lines = min(7, max(3, self.document().blockCount()))
-        self.setFixedHeight(max(110, min(200, lines * self.fontMetrics().lineSpacing() + 28)))
+        lines = min(7, max(2, self.document().blockCount()))
+        self.setFixedHeight(max(80, min(180, lines * self.fontMetrics().lineSpacing() + 20)))
 
     def _release_commit(self):
         self._commit_guard = False
@@ -96,6 +101,7 @@ class ChatText(QTextBrowser):
         self._content = None
         self._pending = None
         self._setting_text = False
+        self._tokens = None
         self.selectionChanged.connect(self._selection_changed)
 
     def loadResource(self, resource_type, url):
@@ -117,11 +123,44 @@ class ChatText(QTextBrowser):
                 features = (QTextDocument.MarkdownFeature.MarkdownDialectGitHub |
                             QTextDocument.MarkdownFeature.MarkdownNoHTML)
                 self.document().setMarkdown(value[0], features)
+                self._space_markdown()
             else:
                 self.setPlainText(value[0])
         finally:
             self._setting_text = False
         self._fit_height()
+
+    def _space_markdown(self):
+        # QTextDocument's Markdown reader does not apply HTML CSS paragraph
+        # rules. Set display-only block spacing without converting to HTML.
+        cursor = QTextCursor(self.document())
+        cursor.beginEditBlock()
+        block = self.document().begin()
+        while block.isValid():
+            cursor.setPosition(block.position())
+            formatting = block.blockFormat()
+            code = formatting.nonBreakableLines()
+            formatting.setLineHeight(135, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
+            formatting.setTopMargin(0)
+            formatting.setBottomMargin(3 if block.textList() else 12)
+            if code:
+                previous, following = block.previous(), block.next()
+                first = not previous.isValid() or not previous.blockFormat().nonBreakableLines()
+                last = not following.isValid() or not following.blockFormat().nonBreakableLines()
+                formatting.setTopMargin(8 if first else 0)
+                formatting.setBottomMargin(12 if last else 0)
+                formatting.setLeftMargin(12)
+                formatting.setRightMargin(12)
+                if self._tokens:
+                    formatting.setBackground(QColor(self._tokens['field']))
+                cursor.select(QTextCursor.SelectionType.BlockUnderCursor)
+                characters = QTextCharFormat()
+                characters.setFontFamilies(['Cascadia Code', 'Consolas', 'monospace'])
+                cursor.mergeCharFormat(characters)
+                cursor.clearSelection()
+            cursor.setBlockFormat(formatting)
+            block = block.next()
+        cursor.endEditBlock()
 
     def _selection_changed(self):
         if not self._setting_text and self._pending and not self.textCursor().hasSelection():
@@ -139,6 +178,7 @@ class ChatText(QTextBrowser):
         self._fit_height()
 
     def apply_appearance(self, tokens):
+        self._tokens = tokens
         self.document().setDefaultStyleSheet(
             'p { margin-top: 5px; margin-bottom: 12px; }'
             'li { margin-bottom: 5px; }'
@@ -157,17 +197,20 @@ class ChatAttempt(QFrame):
         super().__init__(parent)
         self.setObjectName('ChatAssistant')
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 10, 0, 10)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
         self.heading = label('', 'Subtle')
-        self.copy_button = button('複製', self._copy, 'Quiet')
+        self.copy_button = button('', self._copy, 'IconButton')
+        self.copy_button.setIcon(icon('copy', size=16))
+        self.copy_button.setFixedSize(30, 30)
+        self.copy_button.setToolTip('複製回覆')
         self.copy_button.setAccessibleName('複製這次回覆')
-        layout.addLayout(row(self.heading, None, self.copy_button))
         self.content = ChatText()
         self.content.setAccessibleName('模型回覆')
         layout.addWidget(self.content)
         self.reason = label('', 'Subtle', True)
         layout.addWidget(self.reason)
+        layout.addLayout(row(self.copy_button, self.heading, None))
         self._raw = ''
         self._copy_reset = QTimer(self)
         self._copy_reset.setSingleShot(True)
@@ -177,8 +220,9 @@ class ChatAttempt(QFrame):
         self._raw = attempt.get('text', '')
         status = ATTEMPT_LABELS.get(attempt.get('status'), '未完成')
         model = attempt.get('model_name') or model_names.get(attempt.get('model'), '先前使用的模型')
-        prefix = f'回覆 {index + 1} · ' if total > 1 else ''
-        self.heading.setText(prefix + model + ' · ' + status)
+        self.heading.setText(status)
+        self.heading.setVisible(attempt.get('status') != 'complete')
+        self.copy_button.setToolTip(f'複製回覆 · {model}' + (f' · 第 {index + 1} 次' if total > 1 else ''))
         self.copy_button.setEnabled(bool(self._raw))
         self.content.set_content(self._raw or ('正在等待回覆…' if attempt.get('status') == 'receiving' else '尚未收到文字。'))
         self.reason.setText(attempt.get('reason', ''))
@@ -186,11 +230,13 @@ class ChatAttempt(QFrame):
 
     def _copy(self):
         QApplication.clipboard().setText(self._raw)
-        self.copy_button.setText('已複製')
+        self.copy_button.setIcon(icon('check', size=16))
+        self.copy_button.setAccessibleName('回覆已複製')
         self._copy_reset.start(1600)
 
     def _reset_copy(self):
-        self.copy_button.setText('複製')
+        self.copy_button.setIcon(icon('copy', size=16))
+        self.copy_button.setAccessibleName('複製這次回覆')
 
 
 class ChatTurn(QFrame):
@@ -198,23 +244,29 @@ class ChatTurn(QFrame):
         super().__init__(parent)
         self.setObjectName('ChatTurn')
         self.stack = QVBoxLayout(self)
-        self.stack.setContentsMargins(0, 0, 0, 16)
-        self.stack.setSpacing(18)
+        self.stack.setContentsMargins(0, 0, 0, 12)
+        self.stack.setSpacing(28)
         self.user = QFrame()
         self.user.setObjectName('ChatUser')
         user_layout = QVBoxLayout(self.user)
-        user_layout.setContentsMargins(18, 14, 18, 14)
-        user_layout.setSpacing(6)
-        user_layout.addWidget(label('你', 'Subtle'))
+        user_layout.setContentsMargins(16, 10, 16, 10)
         self.user_text = ChatText()
         self.user_text.setAccessibleName('你的訊息')
         user_layout.addWidget(self.user_text)
-        self.stack.addWidget(self.user)
+        self.stack.addWidget(self.user, 0, Qt.AlignmentFlag.AlignRight)
+        self.history_button = button('', self._toggle_history, 'Quiet')
+        self.history_button.setCheckable(True)
+        self.stack.addWidget(self.history_button, 0, Qt.AlignmentFlag.AlignLeft)
         self.attempts = {}
+        self._attempt_order = []
+        self._user_source = ''
 
     def update_turn(self, turn, model_names, tokens):
-        self.user_text.set_content(turn.get('text', ''), markdown=False)
+        self._user_source = turn.get('text', '')
+        self.user_text.set_content(self._user_source, markdown=False)
+        self._fit_user()
         attempts = turn.get('attempts', [])
+        self._attempt_order = [attempt['id'] for attempt in attempts]
         present = set()
         for index, attempt in enumerate(attempts):
             identity = attempt['id']
@@ -229,6 +281,60 @@ class ChatTurn(QFrame):
             widget = self.attempts.pop(identity)
             self.stack.removeWidget(widget)
             widget.deleteLater()
+        self._sync_history()
+
+    def _fit_user(self):
+        measure = self.user_text.fontMetrics()
+        natural = max((measure.horizontalAdvance(line) for line in self._user_source.splitlines()), default=48) + 36
+        self.user.setFixedWidth(max(72, min(natural, round(self.width() * .8))))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_user()
+
+    def _toggle_history(self):
+        self._sync_history()
+
+    def _sync_history(self):
+        previous = len(self._attempt_order) - 1
+        expanded = self.history_button.isChecked()
+        self.history_button.setVisible(previous > 0)
+        self.history_button.setText(('收起' if expanded else '查看') + f'先前 {previous} 次回覆')
+        for index, identity in enumerate(self._attempt_order):
+            self.attempts[identity].setVisible(expanded or index == previous)
+
+
+class ChatModelButton(QPushButton):
+    """A compact menu anchor; the full model identity remains accessible."""
+
+    def __init__(self, callback, parent=None):
+        super().__init__(parent)
+        self.setObjectName('ChatModelButton')
+        self.setIcon(icon('chevron-down', size=14))
+        self.setIconSize(QSize(14, 14))
+        self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.setFixedHeight(36)
+        self.setMinimumWidth(110)
+        self.setMaximumWidth(250)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self._caption = '選擇模型'
+        self.clicked.connect(callback)
+
+    def set_model(self, name):
+        self._caption = name or '選擇模型'
+        self.setToolTip(self._caption)
+        self.setAccessibleName('對話模型：' + self._caption)
+        self._fit_caption()
+
+    def _fit_caption(self):
+        self.setText(self.fontMetrics().elidedText(self._caption, Qt.TextElideMode.ElideMiddle, max(65, self.width() - 44)))
+
+    def sizeHint(self):
+        return QSize(min(250, max(110, self.fontMetrics().horizontalAdvance(self._caption) + 44)), 36)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_caption()
 
 
 class ChatPage(QWidget):
@@ -256,41 +362,45 @@ class ChatPage(QWidget):
         self._scroll_timer.setSingleShot(True)
         self._scroll_timer.timeout.connect(self._scroll_to_bottom)
         self._follow_output = True
-        self._last_models = None
         self.has_uncommitted_draft = False
         self._rendering = False
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(24, 18, 24, 18)
-        outer.setSpacing(16)
-        settings_button = button('對話設定', self.open_settings, 'Quiet')
-        self.export_button = button('匯出 Markdown…', self._export, 'Quiet')
-        outer.addWidget(ActionHeader(label('本地對話', 'Heading'), settings_button, self.export_button))
+        outer.setContentsMargins(24, 12, 24, 16)
+        outer.setSpacing(8)
+        self.more_button = button('', self._open_actions, 'IconButton')
+        self.more_button.setIcon(icon('more-horizontal'))
+        self.more_button.setFixedSize(32, 32)
+        self.more_button.setToolTip('對話操作')
+        self.more_button.setAccessibleName('對話操作')
+        outer.addLayout(row(None, self.more_button))
+        self.export_action = QAction('匯出 Markdown…', self)
+        self.export_action.triggered.connect(self._export)
+        self.retry_action = QAction('重試上一則', self)
+        self.retry_action.triggered.connect(self._retry)
         centered = QHBoxLayout()
         centered.setContentsMargins(0, 0, 0, 0)
         centered.addStretch()
         column = QWidget()
         column.setObjectName('ChatColumn')
-        column.setMaximumWidth(960)
+        column.setMaximumWidth(820)
         column.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         centered.addWidget(column, 1)
         centered.addStretch()
         outer.addLayout(centered, 1)
         self.column = QVBoxLayout(column)
         self.column.setContentsMargins(0, 0, 0, 0)
-        self.column.setSpacing(16)
+        self.column.setSpacing(12)
         self.column.addStretch(1)
         self.empty_heading = label('開始一段對話', 'ChatEmptyTitle')
         self.empty_heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_heading.setContentsMargins(0, 0, 0, 20)
         self.column.addWidget(self.empty_heading)
-        self.empty_hint = label('選擇已加入的模型並載入，即可在這裡交談。', 'Subtle', True)
-        self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.column.addWidget(self.empty_hint)
 
         self.transcript = QWidget()
         self.transcript.setObjectName('ChatTranscript')
         self.messages = QVBoxLayout(self.transcript)
-        self.messages.setContentsMargins(0, 0, 14, 0)
-        self.messages.setSpacing(18)
+        self.messages.setContentsMargins(0, 20, 12, 20)
+        self.messages.setSpacing(32)
         self.messages.addStretch()
         self.scroll = scrolling(self.transcript)
         self.scroll.setObjectName('ChatScroll')
@@ -301,37 +411,46 @@ class ChatPage(QWidget):
         self.composer_frame = QFrame()
         self.composer_frame.setObjectName('ChatComposerFrame')
         composer_layout = QVBoxLayout(self.composer_frame)
-        composer_layout.setContentsMargins(16, 12, 16, 12)
-        composer_layout.setSpacing(10)
+        composer_layout.setContentsMargins(16, 12, 12, 10)
+        composer_layout.setSpacing(4)
         self.composer = ChatComposer()
         self.composer.setPlainText(document.payload.get('draft', ''))
         self.composer.textChanged.connect(self._draft_changed)
         self.composer.compositionChanged.connect(self._composition_changed)
         self.composer.submitted.connect(self._send)
         composer_layout.addWidget(self.composer)
-        self.model_combo = QComboBox()
-        self.model_combo.setAccessibleName('對話模型')
-        self.model_combo.setMinimumWidth(140)
-        self.model_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.model_combo.setMinimumContentsLength(14)
-        self.model_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.model_combo.currentIndexChanged.connect(self._select_model)
-        self.add_model_button = button('管理模型', self._add_model, 'Quiet')
-        self.add_model_button.setToolTip('前往探索的對話模型，匯入或管理本機模型')
-        self.load_button = button('載入', self._load, 'Quiet')
-        self.unload_button = button('卸載', self._unload, 'Quiet')
-        composer_layout.addWidget(ActionHeader(self.model_combo, self.add_model_button, self.load_button, self.unload_button))
-        self.retry_button = button('重試上一則', self._retry, 'Quiet')
-        self.retry_button.setToolTip('重新回答最後一則訊息，並保留先前回覆。')
-        self.stop_button = button('停止', self._stop, 'Quiet')
-        self.send_button = button('送出', self._send, 'Primary')
-        self.send_button.setToolTip('Enter 送出；Shift + Enter 換行。')
-        self.composer_help = label('Enter 送出 · Shift + Enter 換行', 'Subtle')
-        composer_layout.addWidget(ActionHeader(self.composer_help, self.retry_button, self.stop_button, self.send_button))
-        self.column.addWidget(self.composer_frame)
-        self.status = label('', 'Subtle', True)
+        self.settings_button = button('', self.open_settings, 'IconButton')
+        self.settings_button.setIcon(icon('sliders-horizontal', size=18))
+        self.settings_button.setFixedSize(32, 32)
+        self.settings_button.setToolTip('對話設定')
+        self.settings_button.setAccessibleName('對話設定')
+        self.status = label('', 'Subtle')
         self.status.setAccessibleName('本機模型狀態')
-        self.column.addWidget(self.status)
+        self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.load_button = button('載入', self._prepare_model, 'ChatLoad')
+        self.load_button.setFixedHeight(32)
+        self.load_button.setToolTip('明確載入所選模型')
+        self.model_button = ChatModelButton(self._open_models)
+        self.stop_button = button('', self._stop, 'ChatSend')
+        self.stop_button.setIcon(icon('stop', 'on-accent', 18))
+        self.stop_button.setAccessibleName('停止回覆')
+        self.stop_button.setToolTip('停止回覆')
+        self.send_button = button('', self._send, 'ChatSend')
+        self.send_button.setIcon(icon('arrow-up', 'on-accent', 20))
+        self.send_button.setAccessibleName('送出訊息')
+        self.send_button.setToolTip('Enter 送出；Shift + Enter 換行。')
+        for control in (self.send_button, self.stop_button):
+            control.setFixedSize(40, 40)
+            control.setIconSize(QSize(20, 20))
+        controls = row(self.settings_button, self.status, self.load_button, self.model_button,
+                       self.stop_button, self.send_button)
+        controls.setStretch(1, 1)
+        controls.setSpacing(8)
+        composer_layout.addLayout(controls)
+        self.column.addWidget(self.composer_frame)
+        self.composer_help = label('Enter 送出 · Shift + Enter 換行', 'Subtle')
+        self.composer_help.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.column.addWidget(self.composer_help)
         self.error_label = label('', 'ChatError', True)
         self.error_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.error_label.setAccessibleName('對話錯誤')
@@ -390,7 +509,6 @@ class ChatPage(QWidget):
         payload = self.chat_document.payload
         turns = payload.get('turns', [])
         self.empty_heading.setVisible(not turns)
-        self.empty_hint.setVisible(not turns)
         self.scroll.setVisible(bool(turns))
         self.column.setStretch(0, 0 if turns else 1)
         self.column.setStretch(self.column.count() - 1, 0 if turns else 1)
@@ -406,18 +524,7 @@ class ChatPage(QWidget):
             self.composer._fit_height()
         models = self.service.models
         model_names = {model['id']: model['name'] for model in models}
-        signature = [(model['id'], model['name']) for model in models]
-        if signature != self._last_models:
-            with QSignalBlocker(self.model_combo):
-                self.model_combo.clear()
-                self.model_combo.addItem('選擇模型' if models else '尚未加入模型', '')
-                for model in models:
-                    self.model_combo.addItem(model['name'], model['id'])
-                    self.model_combo.setItemData(self.model_combo.count() - 1, model['path'], Qt.ItemDataRole.ToolTipRole)
-            self._last_models = signature
-        with QSignalBlocker(self.model_combo):
-            index = self.model_combo.findData(self.service.selected_model)
-            self.model_combo.setCurrentIndex(max(0, index))
+        self.model_button.set_model(model_names.get(self.service.selected_model, ''))
         present = set()
         follow = self._follow_output
         self._rendering = True
@@ -442,41 +549,33 @@ class ChatPage(QWidget):
     def _update_actions(self):
         state, busy = self.service.state, self.chat_document.busy
         locked = state in {'loading', 'generating', 'stopping', 'unloading', 'closed'}
-        ready = state == 'ready'
-        self.model_combo.setEnabled(not locked)
-        self.add_model_button.setEnabled(state != 'closed')
-        self.load_button.setVisible(state not in {'generating', 'stopping', 'unloading'})
-        self.load_button.setText('重新載入' if ready else '載入')
-        self.load_button.setEnabled(not locked and bool(self.service.selected_model))
-        self.unload_button.setVisible(state in {'loading', 'ready', 'generating', 'stopping', 'unloading'})
-        self.unload_button.setText('取消載入' if state == 'loading' else '卸載')
-        self.unload_button.setEnabled(ready or state == 'loading')
+        ready = state == 'ready' and not self.service.needs_reload
+        self.model_button.setEnabled(state != 'closed')
+        self.load_button.setVisible(not locked and bool(self.service.selected_model) and not ready)
+        self.load_button.setText('設定引擎' if state == 'unavailable' else '重新載入' if state == 'ready' else '載入')
+        self.load_button.setEnabled(not locked)
         self.stop_button.setVisible(bool(busy))
         self.stop_button.setEnabled(bool(busy) and state not in {'stopping', 'unloading'})
         self.send_button.setVisible(not busy)
         self.send_button.setEnabled(ready and not busy and not self.composing and not self.has_uncommitted_draft
                                     and bool(self.composer.toPlainText().strip()))
-        self.retry_button.setVisible(bool(self.chat_document.payload.get('turns')))
-        self.retry_button.setEnabled(ready and not busy and not self.composing and not self.has_uncommitted_draft)
-        self.export_button.setEnabled(not self.composing and not self.has_uncommitted_draft)
-        model = next((m['name'] for m in self.service.models if m['id'] == self.service.loaded_model), '')
+        self.retry_action.setEnabled(bool(self.chat_document.payload.get('turns')) and ready and not busy
+                                     and not self.composing and not self.has_uncommitted_draft)
+        self.export_action.setEnabled(not self.composing and not self.has_uncommitted_draft)
         descriptions = {
-            'unavailable': '尚未準備本機引擎。請在「對話設定」選擇引擎，並加入 GGUF 模型。',
-            'unloaded': '模型尚未載入。選擇模型後，按「載入」。',
-            'loading': '正在載入模型…',
-            'ready': (model + ' · 已載入') if model else '模型已載入',
-            'generating': '正在接收回覆…' if busy else '另一份對話正在生成，完成後即可送出。',
-            'stopping': '正在停止回覆…' if busy else '另一份對話正在停止回覆…',
-            'unloading': '正在卸載模型…',
-            'error': '本機引擎需要處理，請依下方訊息檢查設定。',
-            'closed': '本機引擎已關閉。',
+            'unavailable': '引擎未設定' if self.service.selected_model else '',
+            'unloaded': '尚未載入' if self.service.selected_model else '',
+            'loading': '載入中…',
+            'ready': '',
+            'generating': '' if busy else '另一對話正在回覆',
+            'stopping': '停止中…' if busy else '另一對話正在停止',
+            'unloading': '卸載中…',
+            'error': '',
+            'closed': '引擎已關閉',
         }
-        capacity = self.service.settings.get('context_size', 4096)
-        self.status.setText(descriptions.get(state, '本機引擎尚未就緒。') + f'  上下文容量 {capacity:,} tokens')
-        if ready and self.service.needs_reload:
-            self.send_button.setEnabled(False)
-            self.retry_button.setEnabled(False)
-            self.status.setText('模型或載入設定已變更，按「重新載入」後即可送出。' + f'  上下文容量 {capacity:,} tokens')
+        status = '設定已變更' if state == 'ready' and self.service.needs_reload else descriptions.get(state, '')
+        self.status.setText(status)
+        self.status.setToolTip(status)
         error = self._ui_error or self.chat_document.notice or self.chat_document.error or self.service.error
         self.error_label.setText(str(error or ''))
         self.error_label.setVisible(bool(error))
@@ -498,7 +597,7 @@ class ChatPage(QWidget):
         self._action(lambda: self.chat_document.send(self.composer.toPlainText()))
 
     def _retry(self):
-        if self.retry_button.isEnabled():
+        if self.retry_action.isEnabled():
             self._follow_output = True
             self._action(self.chat_document.retry)
 
@@ -506,12 +605,50 @@ class ChatPage(QWidget):
         if self.chat_document.busy:
             self._action(self.chat_document.stop)
 
-    def _select_model(self, _index):
-        selected = self.model_combo.currentData()
+    def _select_model(self, selected):
         if selected and selected != self.service.selected_model:
             self._action(lambda: self.service.select_model(selected))
-        elif not selected:
-            self.refresh()
+
+    def _open_actions(self):
+        self._update_actions()
+        menu = RoundMenu(self)
+        menu.addAction(self.retry_action)
+        menu.addAction(self.export_action)
+        menu.open_for(self.more_button, align_right=True)
+        self._actions_menu = menu
+
+    def _open_models(self):
+        menu = RoundMenu(self)
+        state = self.service.state
+        locked = state in {'loading', 'generating', 'stopping', 'unloading', 'closed'}
+        for model in self.service.models:
+            action = menu.addAction(model['name'])
+            action.setCheckable(True)
+            action.setChecked(model['id'] == self.service.selected_model)
+            action.setEnabled(not locked)
+            action.setToolTip(model['path'])
+            action.triggered.connect(lambda _checked=False, identity=model['id']: self._select_model(identity))
+        if self.service.models:
+            menu.addSeparator()
+        action = menu.addAction('管理模型…')
+        action.triggered.connect(self._add_model)
+        action.setEnabled(state != 'closed')
+        if self.service.selected_model:
+            if state != 'ready' or self.service.needs_reload:
+                action = menu.addAction('設定引擎…' if state == 'unavailable' else '重新載入' if state == 'ready' else '載入模型')
+                action.setEnabled(not locked)
+                action.triggered.connect(self._prepare_model)
+            if state in {'ready', 'loading'}:
+                action = menu.addAction('取消載入' if state == 'loading' else '卸載模型')
+                action.triggered.connect(self._unload)
+        menu.open_for(self.model_button, align_right=True)
+        self._models_menu = menu
+
+    def _prepare_model(self):
+        if self.service.state == 'unavailable':
+            self.open_settings()
+        else:
+            self._load()
 
     def _add_model(self):
         self.workspace.open_route('explore', 'local_models')
@@ -541,28 +678,41 @@ class ChatPage(QWidget):
         self.refresh()
 
     def _export(self):
-        if self.composing:
+        if self.composing or self.has_uncommitted_draft:
             return
         directory = QFileDialog.getExistingDirectory(self, '選擇 Markdown 匯出資料夾')
         if not directory:
             return
         path = self._action(lambda: self.chat_document.export_markdown(Path(directory)))
         if isinstance(path, (Path, str)) and path:
-            self.status.setText('已匯出：' + str(path))
+            self.status.setText('已匯出')
+            self.status.setToolTip(str(path))
 
     def apply_appearance(self, settings):
         tokens = self._tokens = visual_tokens(settings)
+        self.send_button.setIcon(icon('arrow-up', tokens['on_accent'], 20))
+        self.stop_button.setIcon(icon('stop', tokens['on_accent'], 18))
         surface = workspace_colors(settings)['content']
-        title_size = font_pixels(settings.get('ui_size', 12) + 6)
+        title_size = font_pixels(settings.get('ui_size', 12) + 9)
         self.setStyleSheet(f'''
             QWidget#LocalChatPage {{ background:{surface}; }}
             QWidget#ChatColumn, QWidget#ChatTranscript, QScrollArea#ChatScroll,
             QTextBrowser#ChatText, QFrame#ChatTurn, QFrame#ChatAssistant {{ background:transparent; border:0; }}
-            QFrame#ChatUser {{ background:{tokens['surface']}; border:0; border-radius:12px; }}
+            QFrame#ChatUser {{ background:{tokens['surface']}; border:0; border-radius:16px; }}
             QFrame#ChatComposerFrame {{ background:{tokens['surface']}; border:1px solid {tokens['divider']}; border-radius:14px; }}
             QPlainTextEdit#ChatComposer {{ background:transparent; border:0; padding:4px; }}
             QTextBrowser#ChatText {{ padding:0; color:{tokens['text']}; }}
-            QLabel#ChatEmptyTitle {{ font-size:{title_size}px; font-weight:600; color:{tokens['text']}; }}
+            QLabel#ChatEmptyTitle {{ font-size:{title_size}px; font-weight:500; color:{tokens['text']}; }}
+            QPushButton#ChatModelButton {{ background:{tokens['raised']}; color:{tokens['text']}; border:0; border-radius:18px; padding:0 12px; }}
+            QPushButton#ChatModelButton:hover {{ background:{tokens['hover']}; }}
+            QPushButton#ChatModelButton:focus {{ border:1px solid {tokens['accent_outline']}; }}
+            QPushButton#ChatLoad {{ background:transparent; border:0; color:{tokens['text']}; padding:0 6px; }}
+            QPushButton#ChatLoad:hover {{ background:{tokens['hover']}; border-radius:8px; }}
+            QPushButton#ChatLoad:focus {{ border:1px solid {tokens['accent_outline']}; border-radius:8px; }}
+            QPushButton#ChatSend {{ background:{tokens['accent']}; border:0; border-radius:20px; padding:0; }}
+            QPushButton#ChatSend:hover {{ background:{tokens['accent_outline']}; }}
+            QPushButton#ChatSend:focus {{ border:2px solid {tokens['text']}; }}
+            QPushButton#ChatSend:disabled {{ background:{tokens['raised']}; }}
             QLabel#ChatError {{ color:{tokens['error']}; }}
         ''')
         for turn in self._turns.values():

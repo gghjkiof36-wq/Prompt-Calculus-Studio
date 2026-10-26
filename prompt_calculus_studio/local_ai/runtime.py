@@ -144,7 +144,10 @@ class LlamaRuntime:
                 '--ctx-size', str(settings['context_size']),
                 '--n-gpu-layers', 'auto' if settings['gpu_layers'] == -1 else str(settings['gpu_layers']),
                 '--parallel', '1',
-                '--no-context-shift', '--no-webui', '--slots', '--no-warmup', '--log-disable']
+                '--no-context-shift', '--no-webui', '--slots', '--no-warmup', '--log-disable',
+                # Keep reasoning-model text in the supported content stream.
+                # Automatic extraction would hide it in reasoning_content.
+                '--reasoning-format', 'none']
         # User/global llama environment must not enable an agent, remote model
         # download, alternate host or prompt logging behind these controls.
         environment = {k: v for k, v in os.environ.items()
