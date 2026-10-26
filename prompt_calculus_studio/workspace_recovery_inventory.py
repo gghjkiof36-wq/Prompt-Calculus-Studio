@@ -13,7 +13,7 @@ MAX_ENTRIES = 512
 MAX_SCAN_BYTES = 128 * 1024 * 1024
 _CACHE_NAME = re.compile(r'[0-9a-f]{64}\.json\Z')
 _SHA = re.compile(r'[0-9a-f]{64}\Z')
-_KINDS = {'.md': 'md', '.pcs-category': 'category', '.pcs-workflow': 'workflow'}
+_KINDS = {'.md': 'md', '.pcs-category': 'category', '.pcs-workflow': 'workflow', '.pcs-chat': 'chat'}
 
 
 def _missing_original(value, record_key):

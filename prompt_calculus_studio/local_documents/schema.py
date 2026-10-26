@@ -10,7 +10,7 @@ import uuid
 MAX_BYTES = 32 * 1024 * 1024
 MAX_DEPTH = 256  # Core's 32 nested groups can occupy several JSON levels each.
 MAX_VALUES = 1_000_000
-SUFFIXES = {'category': '.pcs-category', 'workflow': '.pcs-workflow'}
+SUFFIXES = {'category': '.pcs-category', 'workflow': '.pcs-workflow', 'chat': '.pcs-chat'}
 LIBRARY_FIELD = 'library_categories'
 LIBRARY_FEATURE = 'pcs.canvas-library.v1'
 
@@ -84,9 +84,11 @@ def validate(document):
             revision.get('parent') == revision.get('id')):
         fail('invalid', '文件修訂無效。')
     features = document.get('required_features', [])
-    if (not isinstance(features, list) or any(feature != LIBRARY_FEATURE for feature in features)
+    if (not isinstance(features, list) or any(feature not in (LIBRARY_FEATURE, 'pcs.chat.v1') for feature in features)
             or len(features) != len(set(features))):
         fail('unsupported', '文件需要尚未支援的必要語義。')
+    if (document['kind'] == 'chat') != ('pcs.chat.v1' in features):
+        fail('invalid', '對話必要語義標記不一致。')
     extensions = document.get('extensions')
     if not isinstance(extensions, dict) or any('.' not in key or not key.strip('.') for key in extensions):
         fail('invalid', '擴充資料須使用命名空間。')
@@ -99,6 +101,8 @@ def validate(document):
     try:
         if document['kind'] == 'category':
             from .category import validate_payload
+        elif document['kind'] == 'chat':
+            from .chat import validate_payload
         else:
             from .workflow import validate_payload
         validate_payload(document['payload'])
@@ -115,7 +119,7 @@ def new_document(kind, payload):
     value = dict(format='pcs-document', file_schema_version=1, kind=kind,
                  document_id=str(uuid.uuid4()), revision=dict(id=str(uuid.uuid4()), parent=None),
                  payload=copy.deepcopy(payload), assets=[], extensions={},
-                 required_features=[LIBRARY_FEATURE] if kind == 'workflow' and LIBRARY_FIELD in payload.get('state', {}) else [])
+                 required_features=['pcs.chat.v1'] if kind == 'chat' else [LIBRARY_FEATURE] if kind == 'workflow' and LIBRARY_FIELD in payload.get('state', {}) else [])
     # Asset manifests are prepared separately; missing attachments are explicit issues.
     return validate(value)
 

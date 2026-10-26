@@ -22,7 +22,7 @@ ALIASES = {
 ICON_NAMES = frozenset({
     'home','canvas','media','explore','export','settings','back','forward','search','update',
     'package','download','check','clock','info','close','play','pause','stop','lock','pin','pin-filled','menu','pencil',
-    'workflow','history','external-link','alert','server','check-circle',
+    'workflow','history','external-link','alert','server','check-circle','message-square',
     'folder','plus','minus','copy','trash','caret-down','chevron-down','chevron-up','chevron-left','chevron-right','grid','list','more-horizontal','fold-all','unfold-all',
     'panel-left','type','file-text','list-ordered','arrow-down-up','arrow-up','arrow-down','shuffle','image-single','scan-eye','link-2','maximize','grip-vertical',
     'text-bold','text-italic','text-underline','text-strike','text-color','highlight',
@@ -90,6 +90,11 @@ def _draw(painter, name, filled=False):
 
     def circle(x,y,radius):
         painter.drawEllipse(QPointF(x,y),radius,radius)
+
+    if name == 'message-square':
+        poly((4,4),(20,4),(20,17),(9,17),(4,21),(4,4),closed=True)
+        line(8,9,16,9);line(8,13,13,13)
+        return
 
     if filled and name in ('home', 'media', 'explore', 'settings'):
         painter.setBrush(painter.pen().color())

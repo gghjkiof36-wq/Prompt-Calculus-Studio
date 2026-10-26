@@ -103,6 +103,15 @@ def _native(recovery, value):
     return candidate, source
 
 
+def _chat(value):
+    document = schema.validate(value.get('document'))
+    if document['kind'] != 'chat':
+        raise ValueError('恢復副本內的文件種類不符；副本已保留。')
+    # Remap conversation identities and mark any in-flight answer interrupted.
+    # Restoring a file never resumes or reconnects its former model request.
+    return identity.duplicate(document).document
+
+
 def _relocated_markdown(recovery, raw, original, target):
     if target.parent == original.parent:
         return raw
@@ -128,6 +137,8 @@ def recover_as(recovery, original, name, directory):
     markdown = value['kind'] == 'md'
     if markdown:
         raw = _markdown(value)
+    elif value['kind'] == 'chat':
+        candidate = _chat(value)
     else:
         candidate, source = _native(recovery, value)
         candidate = assets.prepare(candidate, source, parent)

@@ -426,8 +426,10 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         for tab in self.all_pages():
             if isinstance(tab.widget, WorkspaceHome):
                 tab.widget.apply_appearance(appearance)
-            elif tab.document:
+            elif tab.host:
                 tab.host.apply_theme(preserve_layout=True)
+            elif tab.document and tab.document.kind == 'chat':
+                tab.widget.apply_appearance(appearance)
 
     def style_tab_strip(self, strip, appearance=None):
         appearance = appearance or self.display_settings()
@@ -673,7 +675,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.file_items = {}
         self.path_items = {}
         self.entries = []
-        types = {'category': '分類', 'workflow': '工作流', 'markdown': '筆記'}
+        types = {'category': '分類', 'workflow': '工作流', 'markdown': '筆記', 'chat': '對話'}
         for root in self.locations.roots:
             implicit = root == self.locations.initial
             root_item = self.tree.invisibleRootItem() if implicit else QTreeWidgetItem([root.name])
@@ -773,7 +775,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         if self.autosave.editing_dialog(tab):
             self.show_notice('請先完成目前表單的確認或取消。')
             return False
-        return self.prepare_close(tab)
+        return self.prepare_close(tab, stop_chat=False)
 
 
     def prune_saved_pages(self):
@@ -943,7 +945,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
 
     def request_connection(self):
         tab = self.tabs_by_key.get(self.active_key)
-        host = tab.document.host if tab and tab.document else self.ensure_utility()
+        host = tab.host if tab and tab.host else self.ensure_utility()
         host.comfy.recheck_connection()
         self.refresh_connection()
 
@@ -1103,12 +1105,23 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         if saved:self.close_recovery.clear(tab.path)
         return saved
 
-    def prepare_close(self, tab, decision=None):
+    def prepare_close(self, tab, decision=None, *, stop_chat=True):
         buffer = getattr(tab.widget, 'buffer', None)
         if buffer is not None:buffer.flush_mutation()
         if id(tab) in self.autosave.paused:
             self.show_notice('請先完成或取消目前的文件操作。')
             return False
+        if tab.document and tab.document.kind == 'chat':
+            if tab.document.composing:
+                QApplication.inputMethod().commit()
+                if tab.document.composing:
+                    self.show_notice('請先完成目前的輸入法組字，再關閉對話。')
+                    return False
+            if not tab.document.flush_views():
+                self.show_notice('輸入框還有未能保存的內容，請先縮短草稿或複製保留後再關閉。')
+                return False
+            if stop_chat and decision != 'cancel' and not any(t is not tab and t.document is tab.document for t in self.all_pages()):
+                tab.document.stop()
         if decision == 'discard':
             return True
         if decision == 'cancel':
@@ -1259,7 +1272,14 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         except Exception:
             if connector:
                 connector.closing = False
+            local_ai = getattr(self, 'local_ai', None)
+            if local_ai is not None:
+                local_ai.resume_after_close_abort()
             raise
+        if not event.isAccepted() and not getattr(self, '_ai_close_pending', False):
+            local_ai = getattr(self, 'local_ai', None)
+            if local_ai is not None:
+                local_ai.resume_after_close_abort()
         if connector:
             if event.isAccepted():
                 connector.stop()
@@ -1297,6 +1317,20 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 return
         self.layout_store.save()
         if self.utility and not self.utility.close():
+            event.ignore()
+            return
+        local_ai = getattr(self, 'local_ai', None)
+        if local_ai is not None and not local_ai.shutdown():
+            # Keep every QObject/view alive until the owned worker exits. No
+            # GUI wait loop and no QThread destruction during inference.
+            self.show_notice('正在停止本地引擎並保留回覆…')
+            if not getattr(self, '_ai_close_pending', False):
+                self._ai_close_pending = True
+                def retry_close():
+                    self._ai_close_pending = False
+                    if isValid(self):
+                        self.close()
+                QTimer.singleShot(250, self, retry_close)
             event.ignore()
             return
         self.layout_store.stopped = True

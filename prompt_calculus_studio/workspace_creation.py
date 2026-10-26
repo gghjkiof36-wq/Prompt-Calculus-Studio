@@ -6,7 +6,7 @@ from .workspace_file_io import available_targets, name_collision
 
 
 def create_unnamed(commands, kind, directory):
-    suffix = dict(category='.pcs-category', workflow='.pcs-workflow', markdown='.md', folder='')[kind]
+    suffix = dict(category='.pcs-category', workflow='.pcs-workflow', chat='.pcs-chat', markdown='.md', folder='')[kind]
     for target in available_targets(directory/('未命名'+suffix), folder=kind == 'folder'):
         try:
             return commands.create_at(kind, target.name, directory)

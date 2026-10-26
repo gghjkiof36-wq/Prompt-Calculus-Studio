@@ -73,7 +73,7 @@ class DragLabel(QWidget):
         self.title = self.fontMetrics().elidedText(tab.title + (' *' if tab.dirty else ''),
                                                   Qt.TextElideMode.ElideRight, 180)
         suffix = tab.path.suffix if tab.path else ''
-        self.symbol = 'workflow' if suffix == '.pcs-workflow' else 'list' if suffix == '.pcs-category' else 'file-text'
+        self.symbol = 'workflow' if suffix == '.pcs-workflow' else 'list' if suffix == '.pcs-category' else 'message-square' if suffix == '.pcs-chat' else 'file-text'
         self.resize(self.fontMetrics().horizontalAdvance(self.title)+48, 34)
 
     def follow(self, global_point):

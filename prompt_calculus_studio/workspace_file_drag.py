@@ -48,7 +48,7 @@ class WorkspaceFileDrag(QObject):
             return False
         self.token = uuid.uuid4().hex
         self.op.cancel = self.finish
-        if context.kind in ('markdown', 'workflow', 'category'):
+        if context.kind in ('markdown', 'workflow', 'category', 'chat'):
             from .application_events import listen
             from .workspace_tab_drag import DropPreview
             if self.page_preview is None:
@@ -124,7 +124,7 @@ class WorkspaceFileDrag(QObject):
 
     def open_page(self, target):
         """Opening never moves the file or replaces an existing retained page."""
-        if self.op is None or self.op.context.kind not in ('markdown', 'workflow', 'category'):
+        if self.op is None or self.op.context.kind not in ('markdown', 'workflow', 'category', 'chat'):
             return None
         try:
             self.w.commands.files.check_source(self.op)

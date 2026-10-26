@@ -48,7 +48,8 @@ def _inspect(root, entry):
     loaded = load(root, entry.relative)
     document = loaded.document
     payload = document['payload']
-    title = payload['category']['name'] if document['kind'] == 'category' else payload['state']['workspaces'][0]['name']
+    title = (Path(entry.relative).stem if document['kind'] == 'chat' else
+             payload['category']['name'] if document['kind'] == 'category' else payload['state']['workspaces'][0]['name'])
     return dict(**asdict(entry), title=title, document_id=document['document_id'],
                 revision=document['revision']['id'], sha256=loaded.receipt.sha256,
                 issues=list(loaded.issues)), loaded.receipt

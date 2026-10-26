@@ -20,6 +20,8 @@ MAX_TOTAL_BYTES = 256 * 1024 * 1024
 
 def references(document):
     """Yield only known content attachment fields, never arbitrary graph strings."""
+    if document['kind'] == 'chat':
+        return
     from ..composition import walk
     from .policy import material_roots
     payload = document['payload']

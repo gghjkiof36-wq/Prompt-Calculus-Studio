@@ -278,6 +278,21 @@ class WorkspacePanes:
                 if not hasattr(page.buffer, 'save_key'):page.buffer.save_key = tab.key
                 PageObserver(self,tab)
                 if hasattr(self,'notebook'):self.notebook.opened(page)
+            elif path.suffix.casefold() == '.pcs-chat':
+                from .local_ai.chat_document import ChatDocument
+                from .local_ai.chat_page import ChatPage
+                document = matching[0].document if matching else next((d for d in self.documents if d.path == path), None)
+                if document is None:
+                    document = ChatDocument(path, self)
+                    if any(d.key == document.key for d in self.documents):
+                        document.dispose()
+                        document.deleteLater()
+                        raise ValueError('另一個位置的同身分對話已開啟，請先建立獨立副本。')
+                    self.close_recovery.restore_document(document)
+                    self.documents.append(document)
+                page = ChatPage(document, self)
+                tab = Tab('chat:'+uuid.uuid4().hex, path.stem, page, retained, document, path)
+                PageObserver(self, tab)
             else:
                 document = matching[0].document if matching else next((d for d in self.documents if d.path == path), None)
                 if document is None:
@@ -388,13 +403,23 @@ class WorkspacePanes:
         if bar.count():pane.pages.setCurrentWidget(self.tabs_by_key[bar.tabData(bar.currentIndex())].widget)
         pane.strip.fit()
 
-    def dispose_page(self, tab):
+    def dispose_page(self, tab, *, prepared=False):
+        if (not prepared and tab.document and tab.document.kind == 'chat'
+                and not any(t is not tab and t.document is tab.document for t in self.all_pages())
+                and not self.prepare_close(tab)):
+            return False
         self.autosave.forget(tab)
-        if tab.document:
+        if tab.host:
             # Keep the document's execution owner alive after its last view.
             # No focus change or view close cancels accepted work.
             tab.host.hide()
             tab.host.setParent(self)
+        elif tab.document and tab.document.kind == 'chat':
+            if not any(t is not tab and t.document is tab.document for t in self.all_pages()):
+                tab.document.dispose()
+                if tab.document in self.documents:
+                    self.documents.remove(tab.document)
+                tab.document.deleteLater()
         self.pane_for(tab).pages.removeWidget(tab.widget)
         tab.widget.deleteLater()
         return True
@@ -404,7 +429,7 @@ class WorkspacePanes:
         tab = self.tabs_by_key.get(pane.strip.bar.tabData(position))
         if tab is None or not self.prepare_close(tab, decision):return False
         self._detach_view(tab)
-        self.dispose_page(tab)
+        self.dispose_page(tab, prepared=True)
         self.prune_saved_pages()
         if pane.strip.bar.count():self.activate_in(pane, pane.strip.bar.currentIndex())
         elif make_home:
@@ -506,7 +531,7 @@ class WorkspacePanes:
             menu.addAction('移至右側' if pane is self.panes[0] else '移至左側', lambda: self.move_view(tab))
             menu.addSeparator()
             menu.addAction('保存文件 · Ctrl+S', lambda: self.save_tab(tab))
-            editor = tab.host.canvas if tab.document else tab.widget
+            editor = tab.host.canvas if tab.host else tab.widget
             menu.addAction('復原 · Ctrl+Z', editor.undo)
             menu.addAction('重做 · Ctrl+Y', editor.redo)
             owner = tab.document or tab.widget
@@ -514,7 +539,7 @@ class WorkspacePanes:
                 menu.addAction('檢視回復版本', lambda: self.show_recovery(owner))
             for location in getattr(tab.document or tab.widget, 'recovery_paths', []):
                 path = Path(location)
-                if path.is_file() and path.suffix.casefold() in ('.md', '.pcs-category', '.pcs-workflow'):
+                if path.is_file() and path.suffix.casefold() in ('.md', '.pcs-category', '.pcs-workflow', '.pcs-chat'):
                     menu.addAction('開啟保留的文件：'+path.name, lambda checked=False, p=path: self.open_path(p, True, new_tab=True, pane=pane))
             context = self.commands.context('tab', tab=tab)
             self.commands.files.add_actions(menu, context)

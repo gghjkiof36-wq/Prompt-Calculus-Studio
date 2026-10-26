@@ -11,7 +11,7 @@ from .workspace_locations import CommandContext
 PATH_ROLE = Qt.ItemDataRole.UserRole + 1
 KIND_ROLE = Qt.ItemDataRole.UserRole + 2
 ROOT_ROLE = Qt.ItemDataRole.UserRole + 3
-NAMES = dict(category='prompt管理頁', workflow='工作流', markdown='文字文件', folder='資料夾')
+NAMES = dict(category='prompt管理頁', workflow='工作流', chat='對話', markdown='文字文件', folder='資料夾')
 
 
 class NewEntryDialog(StudioDialog):
@@ -149,7 +149,7 @@ class WorkspaceCommands:
             self.workspace.add_root(path)
 
     def add_creation_actions(self, menu, context, folders=True):
-        for kind in ('category', 'workflow', 'markdown', 'folder') if folders else ('category', 'workflow', 'markdown'):
+        for kind in ('category', 'workflow', 'markdown', 'chat', 'folder') if folders else ('category', 'workflow', 'markdown', 'chat'):
             menu.addAction('新增' + NAMES[kind] + ('…' if kind == 'folder' else ''),
                            lambda checked=False, k=kind: self.new(k, context))
 

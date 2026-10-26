@@ -72,7 +72,7 @@ class WorkspaceAutosave(QObject):
 
     @staticmethod
     def editing_dialog(tab):
-        return bool(getattr(getattr(tab.widget, 'buffer', None), 'composing', False)) or any(getattr(getattr(host, 'prompt_editor', None), 'active_dialog', None) is not None
+        return bool(getattr(tab.document, 'composing', False)) or bool(getattr(getattr(tab.widget, 'buffer', None), 'composing', False)) or any(getattr(getattr(host, 'prompt_editor', None), 'active_dialog', None) is not None
                    for host in getattr(tab.document, 'hosts', []))
 
     def flush(self, tab):

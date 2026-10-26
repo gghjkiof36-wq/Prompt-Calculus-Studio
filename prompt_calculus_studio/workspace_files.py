@@ -26,7 +26,7 @@ def create_file(root, kind, name):
             paths.checked(root, name, new=True)
             target.mkdir()  # Exclusive; a concurrent directory is not our success.
             return target
-    suffix = {'category': '.pcs-category', 'workflow': '.pcs-workflow', 'markdown': '.md'}[kind]
+    suffix = {'category': '.pcs-category', 'workflow': '.pcs-workflow', 'chat': '.pcs-chat', 'markdown': '.md'}[kind]
     stem = name[:-len(suffix)] if name.casefold().endswith(suffix) else name
     if not stem.strip():
         raise ValueError('請輸入副檔名之前的名稱。')
@@ -37,6 +37,14 @@ def create_file(root, kind, name):
             paths.checked(root, relative, new=True)
             with target.open('xb'):
                 pass
+    elif kind == 'chat':
+        from .local_documents.chat import empty
+        result = io.create(root, relative, empty())
+        if result.status != 'saved':
+            if result.name_collision:
+                raise FileExistsError(result.error)
+            raise ValueError((result.error or '無法建立對話。') +
+                             ('\n保留的回復版本：\n' + '\n'.join(result.recovery_paths) if result.recovery_paths else ''))
     else:
         state = initial_state()
         state['items'] = []

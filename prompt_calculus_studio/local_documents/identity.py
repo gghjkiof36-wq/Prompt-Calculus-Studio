@@ -16,6 +16,7 @@ def provenance(document):
     """Locate embedded-copy provenance without opening any other root or DB."""
     from .policy import material_roots
     validate(document)
+    if document['kind'] == 'chat':return []
     state = document['payload']['state'] if document['kind'] == 'workflow' else {'items': document['payload']['items']}
     originals = {i['id']: i for i in state.get('items', [])}
     result = []
@@ -99,6 +100,10 @@ def duplicate(document, *, id_maps=None, document_id=None):
     def tree(root, scope):
         return _root(root, maps.setdefault(scope, {}))
 
+    if candidate['kind'] == 'chat':
+        from .chat import clone_payload
+        candidate['payload'] = clone_payload(candidate['payload'])
+        return Duplicate(validate(candidate), maps)
     if candidate['kind'] == 'category':
         payload = candidate['payload']
         category = payload['category']

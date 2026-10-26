@@ -192,5 +192,5 @@ class FileSearchDialog(StudioDialog):
 
     def choose_other(self):
         path, _ = QFileDialog.getOpenFileName(self, '開啟檔案', str(self.w.locations.current or ''),
-                                             'PCS 檔案 (*.pcs-category *.pcs-workflow *.md)')
+                                             'PCS 檔案 (*.pcs-category *.pcs-workflow *.pcs-chat *.md)')
         if path:self.open_path(path)

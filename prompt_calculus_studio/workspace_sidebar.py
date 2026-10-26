@@ -35,7 +35,7 @@ class WorkspaceTreeDelegate(QStyledItemDelegate):
         if self.parent().indexWidget(index) is not None:
             return  # The inline name/error editor owns this complete row.
         from .workspace_commands import KIND_ROLE
-        badge = {'workflow': 'CANVAS', 'category': 'MANAGER'}.get(index.data(KIND_ROLE), '')
+        badge = {'workflow': 'CANVAS', 'category': 'MANAGER', 'chat': 'CHAT'}.get(index.data(KIND_ROLE), '')
         clean = QStyleOptionViewItem(option)
         clean.state &= ~(QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_MouseOver | QStyle.StateFlag.State_HasFocus |
                          QStyle.StateFlag.State_Open | QStyle.StateFlag.State_Children | QStyle.StateFlag.State_Sibling)

@@ -232,7 +232,15 @@ class WorkspaceFileOperations(QObject):
             result = None
         else:
             document = tab.document if tab else None
-            if document:
+            if document and document.kind == 'chat':
+                if not document.flush_views():
+                    raise ValueError('請先完成目前文字輸入，再另存對話。')
+                # Stop the accepted request before its owner acquires a new
+                # document identity; retain its partial answer in the copy.
+                document.stop()
+                source = document.project(remap=False)
+                source_root = document.data
+            elif document:
                 if not document.flush_views():
                     raise ValueError('目前有尚未套用的畫布編輯，請先處理後再另存。')
                 document.host.remember_canvas_view()
@@ -243,8 +251,9 @@ class WorkspaceFileOperations(QObject):
                 source = io.load(op.source.parent, op.source.name).document
                 source_root = op.source.parent
             duplicate = identity.duplicate(source)
-            candidate = assets.prepare(duplicate.document, source_root, target.parent)
-            if document:
+            candidate = (duplicate.document if source['kind'] == 'chat' else
+                         assets.prepare(duplicate.document, source_root, target.parent))
+            if document and document.kind != 'chat':
                 # Stage the new manifest in the same isolated runtime asset root
                 # before publishing. Native widgets/Undo keep their existing IDs.
                 assets.prepare(duplicate.document, source_root, document.data)
@@ -269,16 +278,19 @@ class WorkspaceFileOperations(QObject):
                 old_key = tab.key
                 new_key = result.document['document_id'] if result else 'md:' + uuid.uuid4().hex
                 if result:
-                    if retire_content and document.runtimes is not None:
-                        document.runtimes.retire_content(document)
-                    document.document, document.receipt = result.document, result.receipt
-                    document.path, document.key = target, new_key
-                    document.identity_maps = duplicate.id_maps
-                    document.baseline = copy.deepcopy(document.project()['payload'])
-                    document.dirty = document.draft_dirty = False
-                    document.error = ''
-                    document.last_result = result
-                    document.retarget_execution()
+                    if document.kind == 'chat':
+                        document.retarget(result, target)
+                    else:
+                        if retire_content and document.runtimes is not None:
+                            document.runtimes.retire_content(document)
+                        document.document, document.receipt = result.document, result.receipt
+                        document.path, document.key = target, new_key
+                        document.identity_maps = duplicate.id_maps
+                        document.baseline = copy.deepcopy(document.project()['payload'])
+                        document.dirty = document.draft_dirty = False
+                        document.error = ''
+                        document.last_result = result
+                        document.retarget_execution()
                 else:
                     if markdown_edits:tab.widget.buffer.apply(tab.widget.buffer.snapshot(),markdown_edits)
                     tab.widget.path, tab.widget.baseline, tab.widget.error = target, raw, ''
@@ -406,6 +418,8 @@ class WorkspaceFileOperations(QObject):
                     tab.path, tab.title = old_path, title
                     if tab.document:
                         tab.document.path, tab.document.receipt = old_path, receipt
+                        if tab.document.kind == 'chat':
+                            tab.document.data = old_path.parent
                     else:
                         tab.widget.path = old_path
             except Exception as recovery:
@@ -430,6 +444,8 @@ class WorkspaceFileOperations(QObject):
             if tab.document:
                 tab.document.path = new
                 tab.document.receipt = replace(tab.document.receipt, path=str(new))
+                if tab.document.kind == 'chat':
+                    tab.document.data = new.parent
             else:
                 tab.widget.path = new
                 tab.widget.setAccessibleName(new.name + '，Markdown 編輯')
@@ -459,7 +475,7 @@ class WorkspaceFileOperations(QObject):
             if not (focus is w.tab_strip.bar or w.tab_strip.isAncestorOf(focus)
                     or focus is tab.widget or tab.widget.isAncestorOf(focus)):
                 return
-            canvas = tab.host.canvas if tab.document else None
+            canvas = tab.host.canvas if tab.host else None
             view = canvas.view if canvas else None
             scene = view.scene() if view and callable(getattr(view, 'scene', None)) else None
             item = scene.focusItem() if scene is not None and (focus is view or view.isAncestorOf(focus)) else None

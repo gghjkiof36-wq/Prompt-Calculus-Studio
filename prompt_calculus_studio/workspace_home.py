@@ -57,7 +57,7 @@ class WorkspaceHome(QScrollArea):
         body.addWidget(label('新增', 'WorkspaceSectionTitle'))
         self.create_buttons = {}
         from .workspace_commands import NAMES
-        for kind, symbol in (('category', 'list'), ('workflow', 'workflow'), ('markdown', 'file-text')):
+        for kind, symbol in (('category', 'list'), ('workflow', 'workflow'), ('markdown', 'file-text'), ('chat', 'message-square')):
             title = '新增' + NAMES[kind]
             entry = button(title, lambda checked=False, k=kind: create_file(k), 'WorkspaceCreate')
             entry.setIcon(icon(symbol, 'navigation'))
@@ -96,7 +96,7 @@ class WorkspaceHome(QScrollArea):
                 continue
             seen.add(identity)
             item = QListWidgetItem(path.stem)
-            item.setIcon(icon({'.pcs-category': 'list', '.pcs-workflow': 'workflow'}.get(path.suffix, 'file-text'), 'navigation'))
+            item.setIcon(icon({'.pcs-category': 'list', '.pcs-workflow': 'workflow', '.pcs-chat': 'message-square'}.get(path.suffix, 'file-text'), 'navigation'))
             item.setData(Qt.ItemDataRole.UserRole, str(path))
             item.setToolTip('原位置：' + str(path))
             self.recovery_listing.addItem(item)
@@ -128,7 +128,7 @@ class WorkspaceHome(QScrollArea):
             path = Path(location)
             title = path.stem if path.parent in (Path('.'), self.root) else path.stem + ' — ' + str(path.parent)
             item = QListWidgetItem(title)
-            item.setIcon(icon({'.pcs-category': 'list', '.pcs-workflow': 'workflow'}.get(path.suffix, 'file-text'), 'navigation'))
+            item.setIcon(icon({'.pcs-category': 'list', '.pcs-workflow': 'workflow', '.pcs-chat': 'message-square'}.get(path.suffix, 'file-text'), 'navigation'))
             item.setData(Qt.ItemDataRole.UserRole, str(path))
             item.setToolTip(str(path if path.is_absolute() else self.root/path))
             self.listing.addItem(item)

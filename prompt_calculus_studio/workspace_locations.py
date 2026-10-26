@@ -6,7 +6,7 @@ import os
 from .local_documents import paths
 
 
-KINDS = {'.pcs-category': 'category', '.pcs-workflow': 'workflow', '.md': 'markdown'}
+KINDS = {'.pcs-category': 'category', '.pcs-workflow': 'workflow', '.pcs-chat': 'chat', '.md': 'markdown'}
 INTERNAL_NAMES = frozenset(('.obsidian', '.pcs', 'assets'))
 
 
@@ -74,7 +74,7 @@ class WorkspaceLocations:
         parent = self.directory(value.parent)
         result = self.permitted(paths.checked(parent, value.name))
         if not result.is_file() or result.suffix.casefold() not in KINDS:
-            raise ValueError('請選擇分類、Canvas 工作流或 Markdown 文件。')
+            raise ValueError('請選擇分類、Canvas 工作流、對話或 Markdown 文件。')
         return result
 
     def root_for(self, path):

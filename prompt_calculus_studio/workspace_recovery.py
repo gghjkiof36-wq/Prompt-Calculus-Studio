@@ -27,7 +27,13 @@ class CloseRecovery:
 
     def preserve(self, tab):
         document = tab.document
-        if document:
+        if document and document.kind == 'chat':
+            # Chat content is already a portable envelope. It has no Canvas
+            # state or runtime directory to reconstruct when reopening.
+            value = dict(kind='chat', sha=document.receipt.sha256,
+                         document=copy.deepcopy(document.project()),
+                         baseline=copy.deepcopy(document.baseline), data=str(document.data))
+        elif document:
             value = dict(kind=document.kind, sha=document.receipt.sha256,
                          state=copy.deepcopy(document.state), baseline=copy.deepcopy(document.baseline),
                          document=copy.deepcopy(document.document),
@@ -132,6 +138,11 @@ class CloseRecovery:
     def restore_document(self, document):
         value = self.get(document.path)
         if not value or value.get('kind') != document.kind:return
+        if document.kind == 'chat':
+            if not document.restore_recovery(value):
+                document.recovery_paths = [str(root/self.cache.name(key(document.path))) for root in self.cache.roots
+                                           if (root/self.cache.name(key(document.path))).is_file()]
+            return
         if not all(isinstance(value.get(name),dict) for name in
                    ('state','baseline','runtime_document','opening_settings')):return
         if 'identity_maps' not in value or (value['identity_maps'] is not None
