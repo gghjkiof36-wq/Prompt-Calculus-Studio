@@ -100,7 +100,7 @@ class WorkspaceFileOperations(QObject):
             for tab in self.w.all_pages():
                 self.w.update_tab(tab)
             if selected:
-                self.w.select_path(selected)
+                self.w.select_path(selected, expand_folder=False)
             self.w.save_recent()
             self.w.layout_changed()
         except OSError as error:

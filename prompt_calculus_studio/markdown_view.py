@@ -3,7 +3,7 @@ import re
 from bisect import bisect_right
 from PySide6.QtCore import Qt, QTimer, QByteArray, QRectF, QPoint, QEvent, Slot
 from PySide6.QtGui import (QColor, QFont, QPainter, QTextCursor, QTextCharFormat,
-    QKeySequence, QImage, QPen, QTextBlockFormat, QTextLayout)
+    QKeySequence, QImage, QPen, QTextBlockFormat, QTextLayout, QInputMethodEvent, QGuiApplication)
 from PySide6.QtWidgets import QTextEdit, QPlainTextEdit, QWidget, QTextBrowser
 from .widgets import RoundMenu as QMenu
 from .markdown_layout import SourceLayout
@@ -473,6 +473,7 @@ class SourceView(QPlainTextEdit):
         self.setViewportMargins(margin+gutter, 22, margin, 16)
         self.gutter.setGeometry(margin, self.viewport().y(), gutter, self.viewport().height())
         self.markers.setGeometry(self.rect());self.markers.raise_();self.markers.update()
+        if self.hasFocus():QGuiApplication.inputMethod().update(Qt.InputMethodQuery.ImCursorRectangle)
 
     def update_paragraphs(self,first=0,last=None):
         block = self.document().findBlockByNumber(first)
@@ -697,12 +698,34 @@ class SourceView(QPlainTextEdit):
                 self.surface.apply([SourceEdit(start, end, event.text()+selected+pair)], start+1+len(selected));return
         super().keyPressEvent(event)
 
+    def inputMethodQuery(self, query):
+        value=super().inputMethodQuery(query)
+        if query in (Qt.InputMethodQuery.ImCursorRectangle, Qt.InputMethodQuery.ImAnchorRectangle) and isinstance(value,QRectF):
+            # QPlainTextEdit returns viewport coordinates. The input method
+            # expects coordinates in this focus widget, including our gutters.
+            return value.translated(self.viewport().pos())
+        return value
+
     def inputMethodEvent(self, event):
         if self.surface.mode == 'read' or self.page.buffer.opening:event.ignore();return
         if hasattr(self.surface,'advanced'):self.surface.advanced.clear()
         token = id(self.page);self.page.buffer.composing.add(token)
         self.ime_inserted_range=None
-        try:super().inputMethodEvent(event)
+        attributes=[]
+        for attr in event.attributes():
+            if attr.type==QInputMethodEvent.AttributeType.TextFormat:
+                fmt=attr.value.toCharFormat()
+                if fmt.background().style()!=Qt.BrushStyle.NoBrush:
+                    # Preserve active-clause emphasis without a stark white box.
+                    fmt.setBackground(QColor(self.tokens()['selected']))
+                    fmt.setForeground(QColor(self.tokens()['text']))
+                    attr=QInputMethodEvent.Attribute(attr.type,attr.start,attr.length,fmt)
+            attributes.append(attr)
+        themed=QInputMethodEvent(event.preeditString(),attributes)
+        themed.setCommitString(event.commitString(),event.replacementStart(),event.replacementLength())
+        try:
+            super().inputMethodEvent(themed)
+            event.setAccepted(themed.isAccepted())
         finally:
             if not event.preeditString():self.page.buffer.composing.discard(token)
             self.page.buffer.compositionChanged.emit()
@@ -791,6 +814,12 @@ class SourceView(QPlainTextEdit):
 
     def contextMenuEvent(self, event):
         menu = QMenu(self)
+        from .markdown_image_size import image_at, open_image_size
+        snapshot=self.page.buffer.snapshot()
+        position=python_position(snapshot.text,self.cursorForPosition(event.pos()).position())
+        if image_at(snapshot.text,position):
+            menu.addAction('調整圖片尺寸…',lambda:open_image_size(self.surface,position,snapshot))
+            menu.addSeparator()
         if hasattr(self.surface,'advanced'):self.surface.advanced.spelling_menu(menu,self.cursorForPosition(event.pos()).position())
         menu.addAction('復原', self.page.undo).setEnabled(self.page.document().isUndoAvailable())
         menu.addAction('重做', self.page.redo).setEnabled(self.page.document().isRedoAvailable())

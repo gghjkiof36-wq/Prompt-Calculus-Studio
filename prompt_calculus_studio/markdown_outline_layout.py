@@ -66,7 +66,8 @@ class OutlineLayout(QObject):
             pane.layout().setContentsMargins(reserve,0,0,0)
             pane.layout().activate()
         panel=s.outline_panel
-        left=max(0,round((width-measure)/2)-host-12) if self.placement=='gutter' else 0
+        # Anchor to the pane even when zooming out leaves a wide reading gutter.
+        left=0
         self.base_left=left
         panel.available_height=pane.height();panel.resize(min(host,width),pane.height());panel.move(left+round(self.offset),0)
         self.effect.setOpacity(self.opacity)

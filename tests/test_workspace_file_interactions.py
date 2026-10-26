@@ -196,6 +196,20 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
         self.assertTrue(a.widget.document().isUndoAvailable())
         self.assertEqual(a.path.read_text(encoding='utf-8'), 'edited original')
 
+    def test_folder_drop_preserves_collapsed_moved_and_unrelated_branches(self):
+        source=self.root/'Source'
+        for folder in (source/'Child',self.root/'Other'/'Child'):
+            folder.mkdir(parents=True);(folder/'Note.md').write_text('content',encoding='utf-8')
+        self.w.refresh_tree();self.w.select_path(source);self.w.tree.collapseAll()
+        drag=self.w.tree.file_drag;self.assertTrue(drag.begin())
+        self.assertTrue(self.drag_to(self.root/'Folder').isAccepted());drag.finish();self.events()
+        target=self.root/'Folder'/'Source'
+        self.assertTrue(self.w.path_items[path_key(target.parent)].isExpanded())
+        for path in (target,target/'Child',self.root/'Other',self.root/'Other'/'Child'):
+            self.assertFalse(self.w.path_items[path_key(path)].isExpanded())
+        self.w.refresh_tree()
+        self.assertFalse(self.w.path_items[path_key(target)].isExpanded())
+
     def test_drag_cancel_collision_external_payload_and_external_change_preserve_source(self):
         tab = self.open()
         tab.widget.insertPlainText('kept ')

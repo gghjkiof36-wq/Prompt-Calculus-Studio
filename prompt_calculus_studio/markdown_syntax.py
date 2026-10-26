@@ -240,7 +240,7 @@ def inline_html(text):
     if not items and '\\' not in text:
         # Most manuscript prose has no inline formatting. Preserve the same
         # entity escaping without building a Python style run per character.
-        return html.escape(html.unescape(text))
+        return html.escape(html.unescape(text)).replace('\u2028','<br/>')
     hidden = set()
     for item in items:
         hidden.update(range(item.start, item.first));hidden.update(range(item.last, item.end))
@@ -250,6 +250,7 @@ def inline_html(text):
         if not run:return
         content = html.escape(html.unescape(''.join(run)))
         if previous and previous.get('code'):content = '<code>'+content+'</code>'
+        else:content=content.replace('\u2028','<br/>')
         css = style_css(display_style(previous or {}))
         output.append('<span style="'+html.escape(css, quote=True)+'">'+content+'</span>' if css else content)
         run.clear()

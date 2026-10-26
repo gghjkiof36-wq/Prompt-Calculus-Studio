@@ -141,6 +141,7 @@ def make_toolbar(surface):
     insert.addAction('連結… · Ctrl+K',surface.edit_link)
     insert.addAction('嵌入筆記或區塊…',lambda:surface.edit_link(True))
     insert.addAction(icon('image-single'),'圖片、影音或 PDF…',surface.insert_attachment)
+    insert.addAction('調整圖片尺寸…',surface.resize_image)
     insert.addAction(icon('package'),'演示／原檔…',surface.insert_demo)
     for label,kind in [('程式碼區塊','code'),('行內公式','inline-math'),('區塊公式','math'),('Mermaid 圖表','mermaid'),('提示區塊 Callout','callout'),('腳註','footnote'),('隱藏註解','comment')]:
         insert.addAction(label,lambda checked=False,value=kind:surface.insert_content(value))

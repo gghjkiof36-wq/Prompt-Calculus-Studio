@@ -123,6 +123,40 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
             token=state.push('pcs_wiki','',0);token.content=state.src[state.pos+2:end]
         state.pos=end+2;return True
     md=MarkdownIt('commonmark',{'html':True,'breaks':hard_breaks}).enable(['table','strikethrough'])
+    def unicode_break(state,silent):
+        # Qt Shift+Enter stores a Unicode line separator, not a paragraph.
+        # Preserve it as an explicit break without changing source offsets.
+        if state.src[state.pos:state.pos+1]!='\u2028':return False
+        if not silent:state.push('hardbreak','br',0)
+        state.pos+=1;return True
+    # The text rule normally consumes Unicode separators along with prose.
+    from markdown_it.rules_inline import text as text_rule
+    def unicode_text(state,silent):
+        end=state.src.find('\u2028',state.pos,state.posMax)
+        if end<0:return text_rule(state,silent)
+        start,pending=state.pos,state.pending
+        accepted=text_rule(state,silent)
+        if accepted and state.pos>end:
+            state.pos=end
+            if not silent:state.pending=pending+state.src[start:end]
+        return accepted
+    if '\u2028' in text:
+        md.inline.ruler.before('text','pcs_line_break',unicode_break)
+        md.inline.ruler.at('text',unicode_text)
+    def image_line_breaks(state):
+        for token in state.tokens:
+            children=token.children or []
+            for i,child in enumerate(children):
+                if child.type!='softbreak':continue
+                # An image on its own source line should not pull the next
+                # paragraph onto its baseline; inline sentence images stay so.
+                for start,step in ((i-1,-1),(i+1,1)):
+                    line=[];at=start
+                    while 0<=at<len(children) and children[at].type not in ('softbreak','hardbreak'):
+                        line.append(children[at]);at+=step
+                    if len(line)==1 and line[0].type in ('image','pcs_embed'):
+                        child.type='hardbreak';break
+    md.core.ruler.after('inline','pcs_image_lines',image_line_breaks)
     md.use(footnote_plugin).use(math_plugin).use(tasklists_plugin,enabled=False)
     # Only the checkbox token inserted by the task-list plugin is trusted.
     # User-authored <input> still passes through safe_tag and stays literal.
@@ -192,6 +226,7 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
     # synchronous pass, never across refreshes or different embedded sources.
     resolved_targets={}
     def embed(target,alt='',wiki=False):
+        if wiki and '|' in target:target,alt=target.split('|',1)
         # Obsidian dimensions use |width or |widthxheight; the source is untouched.
         width=height=None
         dimensions=re.search(r'\|(\d{1,4})(?:x(\d{1,4}))?$',target)
@@ -201,7 +236,6 @@ def render(text,path,root,media_renderer=None,hard_breaks=False,notes=None,*,_re
         elif re.search(r'\|(\d{1,4})(?:x(\d{1,4}))?$',alt):
             dimensions=re.search(r'\|(\d{1,4})(?:x(\d{1,4}))?$',alt)
             width=int(dimensions.group(1));height=int(dimensions.group(2)) if dimensions.group(2) else None;alt=alt[:dimensions.start()]
-        elif wiki and '|' in target:target,alt=target.split('|',1)
         address=urlsplit(target)
         if before_embed is not None and (wiki or (not address.scheme and not address.netloc
                 and Path(unquote(address.path)).suffix.lower() in ('','.md'))):

@@ -24,10 +24,13 @@ class OutlineSearchTests(unittest.TestCase):
         raw=''.join('#'*level+' '+('第幾章與長標題測試😀'*3)+'\n\n正文。\n\n' for level in range(1,7))
         (self.root/'Notes.md').write_bytes(raw.encode());tab=self.open('Notes.md');s=tab.widget.md_surface
         self.w.resize(2200,960);self.events();before=s.title_host.mapTo(s,s.page.file_title.pos()).x()
-        s.toggle_outline();QTest.qWait(80)
+        s.toggle_outline();QTest.qWait(220)
         self.assertEqual(s.outline_layout.placement,'gutter')
         self.assertEqual(s.title_host.mapTo(s,s.page.file_title.pos()).x(),before)
-        self.assertGreater(s.outline_panel.x(),0)
+        self.assertEqual(s.outline_panel.x(),0)
+        for zoom in (70,100,140):
+            s.set_zoom(zoom);QTest.qWait(80)
+            self.assertEqual(s.outline_panel.x(),0)
         self.assertEqual(len(s.outline.items),6)
         self.assertGreater(s.outline.visualItemRect(s.outline.items[-1]).height(),s.outline.fontMetrics().lineSpacing())
         self.assertTrue(s.outline.visualItemRect(s.outline.items[-1]).bottom()<s.outline.viewport().height())

@@ -540,6 +540,10 @@ class MarkdownSurface(QWidget):
         from .markdown_attachments import choose
         choose(self)
 
+    def resize_image(self):
+        from .markdown_image_size import open_image_size
+        open_image_size(self)
+
     def insert_content(self,kind):
         if self.mode=='read' or self.page.buffer.composing:return
         snapshot,start,end=self.selection();selected=snapshot.text[start:end]
@@ -709,6 +713,7 @@ class MarkdownSurface(QWidget):
         entries = [('切換至編寫',lambda:self.set_mode('write')),('切換至原文',lambda:self.set_mode('source')),('切換至閱讀',lambda:self.set_mode('read')),
             ('插入／編輯連結',self.edit_link),('嵌入筆記或區塊',lambda:self.edit_link(True)),('開啟游標處連結',self.open_current_link),('筆記屬性',self.edit_properties),
             ('搜尋此文件',self.open_find),('取代此文件',lambda:self.open_find(True)),('顯示／隱藏大綱',self.toggle_outline),('插入／編輯表格',self.edit_table),('插入圖片、影音或 PDF',self.insert_attachment),
+            ('調整圖片尺寸',self.resize_image),
             ('粗體',lambda:self.toggle_style('bold')),('斜體',lambda:self.toggle_style('italic')),('清除格式',self.clear_format),
             ('無序清單',lambda:self.paragraph('bullet')),('有序清單',lambda:self.paragraph('ordered')),('待辦清單',lambda:self.paragraph('task')),
             ('引用',lambda:self.paragraph('quote')),('分隔線',self.insert_rule),('全部折疊',lambda:self.editor.fold_all(True)),('全部展開',lambda:self.editor.fold_all(False)),

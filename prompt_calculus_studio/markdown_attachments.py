@@ -66,6 +66,13 @@ def insert(surface,files=None,image=None):
             relative=os.path.relpath(path,surface.page.path.parent).replace('\\','/')
             references.append('![]('+quote(relative,safe='/.-_')+')')
         text='\n\n'.join(references)
+        before=snapshot.text[:start];after=snapshot.text[end:]
+        # Insert attachments as separate paragraphs, even at a line boundary
+        # or inside prose. Count Shift+Enter separators as existing line breaks.
+        leading=len(before)-len(before.rstrip('\n\u2028'))
+        trailing=len(after)-len(after.lstrip('\n\u2028'))
+        if before:text='\n'*max(0,2-leading)+text
+        text+='\n'*max(0,2-trailing)
         surface.page.buffer.apply(snapshot,[SourceEdit(start,end,text)])
         surface.navigate(start+len(text));surface.refresh();return True
     except (OSError,ValueError) as error:surface.report(str(error));return False

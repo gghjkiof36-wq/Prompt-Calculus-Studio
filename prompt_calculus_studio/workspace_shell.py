@@ -740,7 +740,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             except OSError as error:
                 self.show_notice('目前資料夾已切換，但無法保存導覽位置：' + str(error))
 
-    def select_path(self, path):
+    def select_path(self, path, *, expand_folder=True):
         if path == self.locations.initial and path in self.locations.roots:
             self.tree.setCurrentItem(None)
             return True
@@ -752,7 +752,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         while parent is not None:
             parent.setExpanded(True)
             parent = parent.parent()
-        if item.data(0, KIND_ROLE) in ('root', 'folder'):
+        if expand_folder and item.data(0, KIND_ROLE) in ('root', 'folder'):
             item.setExpanded(True)
         self.tree.scrollToItem(item)
         return True
