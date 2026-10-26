@@ -63,10 +63,14 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
         return event
 
     def drag_to(self, path, drop=True):
-        item = self.w.path_items[path_key(path)]
-        self.w.tree.scrollToItem(item)
-        self.app.processEvents()
-        position = self.w.tree.visualItemRect(item).center()
+        if path == self.root:
+            position = QPoint(12, self.w.tree.viewport().height()-12)
+            self.assertIsNone(self.w.tree.itemAt(position))
+        else:
+            item = self.w.path_items[path_key(path)]
+            self.w.tree.scrollToItem(item)
+            self.app.processEvents()
+            position = self.w.tree.visualItemRect(item).center()
         self.event(Enter, position)
         event = self.event(Move, position)
         if drop:
@@ -329,9 +333,10 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
                 active = self.w.active_key
                 editor = self.w.commands.new(kind, self.w.commands.context('tree', self.w.path_items[path_key(self.root/'Folder')]))
                 self.assertIsNone(self.app.activeModalWidget())
-                self.assertEqual(editor.name.text(), '未命名')
+                created = Path(self.w.tree.currentItem().data(0, Qt.ItemDataRole.UserRole+1))
+                self.assertTrue(editor.name.text().startswith('未命名'))
                 QTest.keyClick(editor.name, Qt.Key.Key_Escape)
-                self.assertFalse(list((self.root/'Folder').glob('未命名*')))
+                self.assertTrue(created.exists())
                 self.w.select_path(self.root/'Folder')
                 editor = self.w.commands.new(kind, self.w.commands.context('tree', self.w.path_items[path_key(self.root/'Folder')]))
                 editor.name.setText('IME-'+position+'-'+kind)
@@ -351,7 +356,7 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
                     self.assertEqual(self.w.tabs_by_key[self.w.active_key].path, path)
         editor = self.w.new_document('markdown', context=self.w.commands.selected_context())
         original = set(self.root.rglob('*'))
-        self.w.tree_fold.setFocus()
+        self.w.tree_folder.setFocus()
         self.events()
         self.assertIsNone(self.w.commands.files.inline)
         self.assertEqual(set(self.root.rglob('*')), original)
@@ -363,13 +368,13 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
         self.w.sync_sidebar()
         editor = self.w.new_document('markdown', context=self.w.commands.selected_context())
         self.assertTrue(self.w.tree.isVisible())
-        self.assertEqual(editor.name.text(), '未命名 2')
+        self.assertEqual(editor.name.text(), '未命名(1)')
         editor.name.setText('未命名')
         editor.submit()
         self.assertTrue(editor.error.isVisible())
         self.assertEqual((self.root/'未命名.md').read_text(encoding='utf-8'), 'existing')
         self.assertEqual(editor.name.text(), '未命名')
-        self.assertIsNone(self.w.tree.currentItem().data(0, Qt.ItemDataRole.UserRole))
+        self.assertEqual(self.w.tree.currentItem().data(0, Qt.ItemDataRole.UserRole+1),str(self.root/'未命名(1).md'))
         editor.cancel()
         self.w.remove_root(self.root)
         with patch.object(self.w, 'choose_root') as choose:
@@ -378,6 +383,7 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
 
     def test_fold_control_and_trailing_menu_actions_are_reachable_in_both_positions(self):
         (self.root/'Folder'/'Child').mkdir()
+        (self.root/'Folder'/'Child'/'Note.md').write_text('visible branch',encoding='utf-8')
         self.w.refresh_tree()
         for position in ('side', 'top'):
             self.w.set_navigation_position(position)

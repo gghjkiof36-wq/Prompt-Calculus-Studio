@@ -402,8 +402,15 @@ class GroupEditor(MaterialPickerMixin,QWidget):
         self.module_dedupe.toggled.connect(self.update_module)
         self.direct_kind = ComboBox()
         for name, kind in [('Tag', 'tags'), ('一般文字', 'text'), ('Markdown', 'markdown')]: self.direct_kind.addItem(name, kind)
-        self.direct_toolbar,dt=page();dt.addLayout(row(label('內容','Subtle'),None,self.direct_kind));dl.addWidget(self.direct_toolbar)
+        from .metadata_prompt_import import MetadataPromptImport
+        self.image_import=MetadataPromptImport(self)
+        self.image_import_button=button('從圖片匯入…',self.image_import.choose,'Quiet')
+        self.image_import_button.setToolTip('選擇或拖入原始 PNG 圖片，讀取 metadata 中的正面 Prompt。')
+        self.direct_toolbar,dt=page();dt.addLayout(row(label('內容','Subtle'),None,self.image_import_button,self.direct_kind));dl.addWidget(self.direct_toolbar)
         self.direct_text = QPlainTextEdit(); self.direct_text.setMinimumHeight(192); dl.addWidget(self.direct_text, 1)
+        self.direct_text.setPlaceholderText('直接輸入，或拖入 PNG 圖片以讀取正面 Prompt')
+        self.image_import.install_on(self.direct_text);self.image_import.install_on(self.image_import_button)
+        self.image_import_status=label('','Subtle',True);dl.addWidget(self.image_import_status);self.image_import_status.hide()
         self.direct_kind.currentIndexChanged.connect(self.update_group); self.direct_text.textChanged.connect(self.update_group)
         self.input_tabs.currentChanged.connect(self.input_pages.setCurrentIndex)
         self.input_tabs.currentChanged.connect(self.update_group)
@@ -434,6 +441,7 @@ class GroupEditor(MaterialPickerMixin,QWidget):
         elif panels.side_pages.currentWidget() is self.preview_holder:panels.set_open(False)
 
     def edit_group(self, ident):
+        self.image_import_status.hide()
         self.loading = True; self.current_group = next(g for g in self.sequence['groups'] if g['id'] == ident)
         group = self.current_group; self.sequence['selected'] = ident
         self.group_title.setText(group['name']); self.group_name.setText(group['name']); self.repeat.setValue(group['repeat'])
@@ -510,6 +518,7 @@ class GroupEditor(MaterialPickerMixin,QWidget):
         for toolbar in (self.module_toolbar,self.direct_toolbar):toolbar.setFixedHeight(header)
         modules=self.input_tabs.currentIndex()==0
         body=(self.modules.minimumHeight() if modules else self.direct_text.minimumHeight())+header+12
+        if not modules and not self.image_import_status.isHidden():body+=self.image_import_status.sizeHint().height()+12
         if modules and not self.inspector.isHidden():body+=self.inspector.minimumSizeHint().height()+16
         self.input_pages.setMinimumHeight(body)
         self.stack.updateGeometry(); self.updateGeometry()

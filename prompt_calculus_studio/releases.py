@@ -127,7 +127,7 @@ RELEASE_ALIASES={
 APP_BASENAME='PromptCalculusStudio'
 EXTENSION_FOLDER='comfyui_prompt_calculus_studio'
 SOURCE_ARCHIVE='PromptCalculusStudio-source.zip'
-SHARED_MODULES=('core','sqlite_schema','snapshots','pnginfo','exclusions','composition','prompt_materials','prompt_groups','prompt_tags','prompt_sources','generation','multi_output','clip_flow','workflow_flow','flow_data','composition_image','workflow_transfer','workflow_import','state_loading','queued_work','native_graph','workspace_scene','canvas_starter','chain_model','chain_connections','stage_model','stage_parameters','module_contracts','result_data','materials','content_history','material_navigation','state_schema','preview_nodes')
+SHARED_MODULES=('core','accent_colors','sqlite_schema','snapshots','pnginfo','exclusions','composition','prompt_materials','prompt_groups','prompt_tags','prompt_sources','generation','multi_output','clip_flow','workflow_flow','flow_data','composition_image','workflow_transfer','workflow_import','state_loading','queued_work','native_graph','workspace_scene','canvas_starter','chain_model','chain_connections','stage_model','stage_parameters','module_contracts','result_data','materials','content_history','material_navigation','state_schema','preview_nodes')
 
 def select_release(arguments):
     # Preserve historical last-version-flag precedence in build_windows.py.

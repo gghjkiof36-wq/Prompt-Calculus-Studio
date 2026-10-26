@@ -10,6 +10,8 @@ from .widgets import label, button, row, dialog_buttons, image_path, set_preview
 from .completion import PromptEdit
 from .core import uid, DEFAULT_SETTINGS, set_selection_separation
 from .media import thumbnail
+from .accent_colors import valid_hex
+from .accent_picker import AccentEditor
 from .image_drop import ImageDropLabel
 
 
@@ -259,12 +261,14 @@ class SettingsDialog(StudioDialog):
         self.menu_transparency_value.valueChanged.connect(self.menu_transparency.setValue)
         menu_transparency_layout.addWidget(self.menu_transparency,1);menu_transparency_layout.addWidget(self.menu_transparency_value)
         form.addRow('選單透明度',self.menu_transparency_row)
-        self.accent = QComboBox()
-        for text,value in [("跟隨配色","neutral"),("霧藍","blue"),("柔綠","green")]: self.accent.addItem(text,value)
-        self.accent.setCurrentIndex(self.accent.findData(s["accent"]))
+        self.accent_row = AccentEditor(s)
+        self.accent = self.accent_row.combo
+        self.accent_hex = self.accent_row.hex
+        self.visual_palette.currentIndexChanged.connect(
+            lambda: self.accent_row.refresh_swatches(self.visual_palette.currentData()))
         self.density = QComboBox(); self.density.addItem("舒適","comfortable"); self.density.addItem("緊湊","compact")
         self.density.setCurrentIndex(self.density.findData(s["density"]))
-        form.addRow("重點色",self.accent); form.addRow("清單間距",self.density)
+        form.addRow("重點色",self.accent_row); form.addRow("清單間距",self.density)
         appearance_layout.addWidget(label("操作行為","Heading"))
         confirmations,confirmations_layout=panel("SettingsGroup"); appearance_layout.addWidget(confirmations)
         confirmations_layout.setContentsMargins(16,16,16,16)
@@ -331,7 +335,7 @@ class SettingsDialog(StudioDialog):
                 control=form.itemAt(index,QFormLayout.ItemRole.FieldRole).widget()
                 form.removeWidget(control)
                 holder=QWidget(); alignment=row(); alignment.setContentsMargins(0,0,0,0);holder.setLayout(alignment)
-                control.setMaximumWidth(480 if control is self.family else 380 if control in (self.transparency_row,self.menu_transparency_row) else 280)
+                control.setMaximumWidth(480 if control is self.family else 380 if control in (self.transparency_row,self.menu_transparency_row,self.accent_row) else 280)
                 alignment.addWidget(control);alignment.addStretch()
                 form.setWidget(index,QFormLayout.ItemRole.FieldRole,holder)
                 if control is self.transparency_row:self.transparency_holder=holder
@@ -407,6 +411,7 @@ class SettingsDialog(StudioDialog):
             self.window.canvas.undo_stack.clear(); self.window.canvas.redo_stack.clear()
         self.window.state["settings"].update(ui_size=self.ui_size.value(),prompt_size=self.prompt_size.value(),
             font_family=self.family.currentFont().family(),material=self.material.currentData(),visual_palette=self.visual_palette.currentData(),accent=self.accent.currentData(),
+            accent_custom=self.accent_hex.text().lower() if valid_hex(self.accent_hex.text()) else prior.get("accent_custom",DEFAULT_SETTINGS["accent_custom"]),
             acrylic_transparency=self.transparency_values['acrylic'],mica_transparency=self.transparency_values['mica'],clear_transparency=self.transparency_values['clear'],menu_transparency=self.menu_transparency.value(),confirm_clear_draft=self.confirm_clear_draft.isChecked(),reduce_motion=self.reduce_motion.isChecked(),
             connection_style=self.connection_style.currentData(),hide_connections=self.hide_connections.isChecked(),density=self.density.currentData(),online=self.online.isChecked(),translator=self.translator.currentData(),
             formatter=self.formatter.currentData(),artist_prefix=self.artist.isChecked())
@@ -420,7 +425,7 @@ class SettingsDialog(StudioDialog):
         self.window.completion.timer.stop()
         settings=self.window.state['settings']
         prompt_changed=changed_separation or any(prior.get(k)!=settings.get(k) for k in ('formatter','artist_prefix'))
-        theme_changed=any(prior.get(k)!=settings.get(k) for k in ('ui_size','prompt_size','font_family','visual_palette','accent','density','reduce_motion','connection_style','hide_connections'))
+        theme_changed=any(prior.get(k)!=settings.get(k) for k in ('ui_size','prompt_size','font_family','visual_palette','accent','accent_custom','density','reduce_motion','connection_style','hide_connections'))
         self.window.changed('prompt' if prompt_changed else 'settings')
         if prompt_changed:self.window.refresh_builder()
         if theme_changed:

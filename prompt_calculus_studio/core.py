@@ -8,6 +8,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
+from .accent_colors import ACCENT_NAMES, DEFAULT_CUSTOM_ACCENT, valid_hex
 from .exclusions import filter_tags, exclusion_rules, tag_key
 from .composition import validate_compositions, root_for, render, effective_nodes, join_fragments, using_legacy_format
 
@@ -17,7 +18,7 @@ SUPPORTED_STATE_VERSIONS=(1,2,3,4,5,6,7)
 DEFAULT_SETTINGS = dict(ui_size=11, prompt_size=12, density="comfortable",
                         context_sidebar_width=240, gallery_columns=12,
                         separate_selections=True, interface_mode='ask', connection_style='curve',reduce_motion=False,hide_connections=False,
-                        material="mica", visual_palette="graphite", accent="neutral", online=True, search_cache=True,
+                        material="mica", visual_palette="graphite", accent="neutral", accent_custom=DEFAULT_CUSTOM_ACCENT, online=True, search_cache=True,
                         acrylic_transparency=61, mica_transparency=61, clear_transparency=20, menu_transparency=6, confirm_clear_draft=True,
                         formatter="spaces", artist_prefix=True, translator="dictionary",
                         font_family="Microsoft JhengHei UI", model_root="", model_categories=["畫風", "角色", "背景", "其他"])
@@ -148,11 +149,13 @@ def validate_state(state):
             len(order)!=len(set(order))):
         raise ValueError("輸出群組順序無效。")
     for key, allowed in {"density":("comfortable","compact"), "material":("solid","mica","acrylic","clear"),
-                         "accent":("neutral","blue","green"), "visual_palette":('graphite','mist','paper'), "formatter":("spaces","original"),
+                         "accent":ACCENT_NAMES, "visual_palette":('graphite','mist','paper'), "formatter":("spaces","original"),
                          "translator":("dictionary","google"), "interface_mode":('ask','list','canvas'),
                          "connection_style":('curve','straight','orthogonal')}.items():
         if settings.get(key, DEFAULT_SETTINGS[key]) not in allowed:
             raise ValueError(f"設定 {key} 無效。")
+    if not valid_hex(settings.get("accent_custom", DEFAULT_CUSTOM_ACCENT)):
+        raise ValueError("自訂重點色色碼無效。")
     for key in ("ui_size", "prompt_size"):
         value = settings.get(key, DEFAULT_SETTINGS[key])
         if type(value) is not int or not 9 <= value <= 22:

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame,
     QHeaderView, QPlainTextEdit, QListWidget, QListWidgetItem, QMessageBox,
     QDialog, QFileDialog, QSplitter)
 
+from .accent_colors import ACCENT_NAMES, valid_hex
 from .core import Storage, initial_state, DEFAULT_SETTINGS
 from .document_host import DesktopDocument, EmbeddedHost
 from .document_tabs import DocumentTabs
@@ -32,7 +33,7 @@ from .workspace_panes import WorkspacePanes
 
 DISPLAY_KEYS = ('font_family', 'ui_size', 'prompt_size', 'material',
                 'mica_transparency', 'acrylic_transparency', 'clear_transparency', 'menu_transparency',
-                'visual_palette', 'accent', 'density', 'reduce_motion')
+                'visual_palette', 'accent', 'accent_custom', 'density', 'reduce_motion')
 MATERIAL_KEYS = frozenset(('material', 'mica_transparency', 'acrylic_transparency', 'clear_transparency',
                            'menu_transparency'))
 
@@ -457,8 +458,10 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                     self.settings[key]=value
                 elif key=='visual_palette' and value in ('graphite','mist','paper'):
                     self.settings[key]=value
-                elif key=='accent' and value in ('neutral','blue','green'):
+                elif key=='accent' and value in ACCENT_NAMES:
                     self.settings[key]=value
+                elif key=='accent_custom' and valid_hex(value):
+                    self.settings[key]=value.lower()
                 elif key=='density' and value in ('comfortable','compact'):
                     self.settings[key]=value
                 elif key=='reduce_motion' and type(value) is bool:

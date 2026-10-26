@@ -88,3 +88,18 @@ Canvas「加入素材」是所屬文件內的非模態浮層，使用 `CanvasPal
 這些檔案是驗證入口，不是本次新跑結果。離屏可檢查布局、狀態與 Qt 契約；例如 no-replay 屬性的檢查不等於 Windows 真實點擊重播已驗收。原生材質、跨螢幕 DPI、輸入法、焦點與使用者視覺接受需各自證據，不能由截圖張數或靜態清單代替。
 
 新 UI 交付記錄固定版本、基準頁／共用來源、完整操作及關鍵狀態，截圖註明版本和環境；有行為例外則連回理由。元件本身或原則改變時同次更新本頁，色彩數值繼續只在既有基準與共用來源維護。分工見[開發指南](README.md#隨功能維護)。
+
+### 重點色選單與自訂色彩
+
+- `accent_colors.py` 定義 Qt-free 的持久化選項與六位 HEX 驗證；新增色名保持既有 neutral／blue／green 的語意。`accent_custom` 獨立保留上次自訂色，切換預設色不抹除它。
+- `accent_picker.py` 沿用共用 ComboBox／PopupSurface。選單以色點、名稱及向量勾選標記表示目前設定；自訂同列提供選色按鈕與 HEX 欄位。小型 HSV 浮層支援滑鼠、方向鍵與 Shift 加速；套用才提交，Escape／取消／點外側保留原值。
+- 不完整或非法 HEX 不覆寫上次合法色碼。Workspace 顯示偏好儲存在使用者介面設定，不寫回開啟的文件內容。
+- 填色保留指定 HEX；`accent_outline` 在現有表面上維持 3:1，按鈕文字由共用 color_roles 調整。選色控制的色點保持原色，不隨選取狀態染色。
+- 有界驗證：`test_accent_picker.py`、`test_color_roles.py`、`test_visual_theme.py`、`test_maintenance_package.py`，另以背景 Qt 截圖檢查選單與自訂浮層。這些不代表原生 Windows 高 DPI／IME 全面驗收。
+
+### 組合直接輸入的圖片 Prompt 入口
+
+- `GroupEditor` 的「直接輸入」共用頁提供「從圖片匯入…」，內容欄與按鈕都接收單張本機 PNG 拖放。`MetadataPromptImport` 一次捕獲最多 25 MiB 原始 bytes，經 `png_metadata_stream` 與既有 `metadata_sources` 讀取，保留 CRC／壓縮 metadata 上限；不解碼像素、不複製原圖、不連網。
+- 只採用 `role=positive`：ComfyUI 依 positive 接線追蹤，parameters 依正負分隔解析。負面與未判定文字不會自動當成正面；多個不同正面來源須選擇。沒有可用來源、檔案損毀／不支援／過大時，維持原內容並提供就地訊息。
+- 空稿且單一來源直接填入。已有文字時以共用 StudioDialog 預覽並選附加／取代／取消，附加是預設；接受時再次核對原組合與內容。使用 QTextCursor edit block 保留編輯框 Undo／Redo，再沿既有素材草稿、DocumentOperations、保存與恢復路徑；匯入本身不發布素材。
+- `test_metadata_prompt_import.py` 驗證真實 Qt 拖放、原圖 bytes、正負與多來源、取消、草稿失效、匯入 Undo、素材保存／重開／Undo／Redo。`test_prompt_group_ui.py` 沿用其他組合流程；既有 uncategorized 斷言問題另留基準對照，不列全綠。

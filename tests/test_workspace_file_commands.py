@@ -89,7 +89,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         QTest.keyClicks(tab.widget, 'unsaved ')
         original = self.note.read_bytes()
         old_editor = tab.widget
-        contexts = [self.w.commands.context('tree', self.item(self.root)),
+        contexts = [self.w.commands.context('tree', None),
                     self.w.commands.context('tree', self.item(self.folder)),
                     self.w.commands.context('toolbar', self.item(self.folder/'Nested.md')),
                     self.w.commands.context('home')]
@@ -130,7 +130,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         menu = self.app.activePopupWidget()
         self.assertEqual([a.text() for a in menu.actions()], ['新增prompt管理頁', '新增工作流', '新增文字文件'])
         action = menu.actions()[2]
-        self.w.tree.setCurrentItem(self.item(self.root))
+        self.w.select_path(self.root)
         self.inline_action(action.trigger, lambda e: (e.name.setText('工具列.md'), QTest.keyClick(e.name, Qt.Key.Key_Return)))
         self.assertTrue((self.folder/'工具列.md').exists())
         before = set(self.w.tabs_by_key)
@@ -147,7 +147,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         self.assertIsNone(self.w.commands.files.inline)
         self.assertTrue((self.folder/'未命名.pcs-category').is_file())
 
-    def test_cancel_and_invalid_inline_name_leave_no_files(self):
+    def test_cancel_and_invalid_inline_name_keep_created_unnamed_files(self):
         before = set(self.root.rglob('*')), set(self.w.tabs_by_key)
         def cancel(editor):
             editor.name.setText('未提交')
@@ -161,7 +161,10 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
             self.assertEqual(editor.name.text(), 'CON')
             editor.cancel()
         self.inline_action(lambda: self.w.commands.new('workflow', self.w.commands.context('toolbar')), fix_error)
-        self.assertEqual((set(self.root.rglob('*')), set(self.w.tabs_by_key)), before)
+        self.assertTrue((self.root/'未命名.md').is_file())
+        self.assertTrue((self.root/'未命名.pcs-workflow').is_file())
+        self.assertFalse((self.root/'未提交.md').exists())
+        self.assertFalse((self.root/'CON.pcs-workflow').exists())
 
     def test_io_name_validation_and_case_collision_for_all_four_kinds(self):
         for kind in ('category', 'workflow', 'markdown', 'folder'):
@@ -310,30 +313,20 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         self.assertEqual(list(self.w.tabs_by_key), before)
         self.assertNotIn(path_key(target), self.w.path_items)
 
-    def test_markdown_and_folder_permission_failures_keep_form_and_original(self):
+    def test_markdown_and_folder_permission_failures_preserve_original_and_no_ghost(self):
         tab = self.w.open_path(self.note, True)
         QTest.keyClicks(tab.widget, 'keep draft')
         original, tabs = self.note.read_bytes(), list(self.w.tabs_by_key)
-        for kind, method in (('markdown', 'open'), ('folder', 'mkdir')):
-            action = getattr(Path, method)
-            def deny(path, *args, **kwargs):
-                if path.name.startswith('Denied'):
-                    raise PermissionError('destination is read-only')
-                return action(path, *args, **kwargs)
-            def submit(dialog):
-                dialog.name.setText('Denied')
-                with patch.object(Path, method, deny):
-                    dialog.submit()
-                self.assertTrue(dialog.isVisible())
-                self.assertIn('read-only', dialog.error.text())
-                self.assertEqual(dialog.name.text(), 'Denied')
-                dialog.cancel()
-            self.inline_action(lambda: self.w.commands.new(kind, self.w.commands.context('toolbar')), submit)
+        for kind in ('markdown', 'folder'):
+            with patch.object(self.w.commands, 'create_at', side_effect=PermissionError('destination is read-only')), patch.object(self.w, 'show_notice') as notice:
+                self.assertIsNone(self.w.commands.new(kind, self.w.commands.context('toolbar')))
+                self.assertIn('read-only',notice.call_args.args[0])
+            self.assertIsNone(self.w.commands.files.inline)
         self.assertEqual(self.note.read_bytes(), original)
         self.assertEqual(list(self.w.tabs_by_key), tabs)
         self.assertTrue(tab.dirty)
         self.assertTrue(tab.widget.document().isUndoAvailable())
-        self.assertFalse(list(self.root.glob('Denied*')))
+        self.assertFalse(list(self.root.glob('未命名*')))
 
     def test_root_link_persistence_failure_rolls_back_navigation_only(self):
         before = list(self.w.locations.roots), self.w.locations.current, set(self.w.path_items)
@@ -397,7 +390,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
             self.w.tree.itemDelegate().initStyleOption(option, index)
             return self.w.tree.style().subElementRect(QStyle.SubElement.SE_ItemViewItemText, option, self.w.tree).x()
         self.assertEqual(text_x(self.folder/'Nested.md'), text_x(self.folder))
-        self.assertEqual(text_x(self.note), text_x(self.root))
+        self.assertEqual(text_x(self.note), text_x(self.folder))
 
     def test_file_menu_operations_target_clicked_file_and_root_only_unlinks(self):
         context = self.w.commands.context('tree', self.item(self.folder/'Nested.md'))
@@ -406,7 +399,8 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         self.assertIn('移至資源回收筒', actions)
         child = actions['另存新檔…']
         self.dialog_action(child.trigger, lambda d: (self.assertEqual(d.directory.text(), str(self.folder)), d.reject()))
-        root_menu = self.w.commands.menu_for(self.w.commands.context('tree', self.item(self.root)))
+        self.w.add_root(self.external)
+        root_menu = self.w.commands.menu_for(self.w.commands.context('tree', self.item(self.external)))
         labels = [action.text() for action in root_menu.actions()]
         self.assertNotIn('移至資源回收筒', labels)
         self.assertIn('移除側欄連結（保留原檔）', labels)

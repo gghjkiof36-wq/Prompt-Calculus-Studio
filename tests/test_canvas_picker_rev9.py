@@ -213,7 +213,15 @@ class PickerRev9Tests(unittest.TestCase):
         image=Path(self.temp.name)/'picker-must-not-read.png'; image.write_bytes(b'preserved-image-bytes')
         source['preview']=str(image)
         before=copy.deepcopy(source)
-        with patch('prompt_calculus_studio.widgets.preview_path',side_effect=AssertionError('Picker must not read images')) as read:
+        # A child picker lets its owner's deferred model-details layout run.
+        # Those unrelated thumbnail refreshes are outside this picker contract.
+        from contextlib import ExitStack
+        from prompt_calculus_studio.model_details import ModelDetails
+        with ExitStack() as scope:
+            for details in self.w.findChildren(ModelDetails):
+                scope.enter_context(patch.object(details.page, 'refresh_preview'))
+            read = scope.enter_context(patch('prompt_calculus_studio.widgets.preview_path',
+                side_effect=AssertionError('Picker must not read images')))
             self.p.refresh(); APP.processEvents(); self.p.assets.viewport().grab()
             read.assert_not_called()
         item=self.p.assets.item(0)

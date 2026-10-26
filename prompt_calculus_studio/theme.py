@@ -2,7 +2,8 @@
 import ctypes
 import sys
 from functools import lru_cache
-from .color_roles import ACTION_SEEDS, color, derive_roles, mix as _mix
+from .accent_colors import ACCENT_PRESETS, DEFAULT_CUSTOM_ACCENT, valid_hex
+from .color_roles import ACTION_SEEDS, color, derive_roles, readable, mix as _mix
 
 
 TOOLTIP_PADDING = (12, 8)
@@ -68,7 +69,14 @@ def visual_tokens(settings=None, *, foundation=None):
         if unknown:raise ValueError('Unknown foundation colors: '+', '.join(sorted(unknown)))
         result.update({key:color(value) for key,value in foundation.items()})
     accent = settings.get('accent','blue' if name == 'mist' else 'neutral')
-    result.setdefault('accent',result.get('accent_'+str(accent),result['accent_neutral']))
+    seed = dict((key, value) for _, key, value in ACCENT_PRESETS).get(accent)
+    if accent == 'custom':
+        seed = settings.get('accent_custom', DEFAULT_CUSTOM_ACCENT)
+        if not valid_hex(seed):seed = DEFAULT_CUSTOM_ACCENT
+    result.setdefault('accent',result.get('accent_'+str(accent),seed or result['accent_neutral']))
+    # Preserve the chosen fill; outlines must remain visible even for white on paper.
+    result['accent_outline'] = readable(result['accent'],
+        tuple(result[key] for key in ('base','surface','field','raised')), minimum=3)
     result = dict(_derived_palette(tuple(sorted(result.items()))))
     result['palette'] = name
     # Native close follows the Windows destructive-action convention.
@@ -203,7 +211,7 @@ def stylesheet(settings):
     QLabel#ExploreTitle {{ font-size:28px; font-weight:600; }}
     QFrame#PopupPanel {{ background:{t['raised']}; border:1px solid {t['line']}; border-radius:16px; }}
     QPushButton#FilterChip {{ background:{t['surface']}; border:1px solid transparent; padding:6px 12px; border-radius:14px; }}
-    QPushButton#FilterChip:checked {{ background:{t['selected']}; border-color:{accent}; }}
+    QPushButton#FilterChip:checked {{ background:{t['selected']}; border-color:{t['accent_outline']}; }}
     QWidget#SettingsReading, QWidget#ContentSurface {{ background:{t['base']}; border:none; border-radius:0; }}
     QFrame#SettingsReading QTabWidget::pane {{ top:0; }}
     QPushButton#ResultPreview {{ background:{t['field']}; border:1px solid {t['line']}; padding:6px; }}
@@ -237,7 +245,7 @@ def stylesheet(settings):
     QScrollArea#SettingsReadingPage QLabel#Heading, QScrollArea[pcsReadingPage="true"] QLabel#Heading {{ font-size:{font_pixels(settings['ui_size'])}px; font-weight:600; }}
     QScrollArea#SettingsReadingPage QLabel#Subtle, QScrollArea[pcsReadingPage="true"] QLabel#Subtle {{ font-size:{font_pixels(max(10,settings['ui_size']-1))}px; font-weight:400; color:{t['muted']}; }}
     QLabel#Brand {{ font-size:{font_pixels(settings['ui_size']+3)}px; font-weight:600; }}
-    QLabel#BrandMark {{ color:{accent}; font-size:31px; }}
+    QLabel#BrandMark {{ color:{t['accent_outline']}; font-size:31px; }}
     QLabel#Eyebrow {{ color:{t['muted']}; font-size:{font_pixels(max(9,settings['ui_size']-1))}px; }}
     QLabel#Draft {{ color:{t['secondary']}; }}
     QFrame#SoftDivider {{ background:{t['divider']}; border:none; }}
@@ -272,7 +280,7 @@ def stylesheet(settings):
     QPushButton#DialogClose:hover {{ background:{t['hover']}; border-color:{t['control']}; }}
     {destructive_button_styles(t)}
     QLineEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {{ background:{t['field']}; border:1px solid {t['line']}; border-radius:8px; padding:7px 10px; selection-background-color:{t['selected']}; selection-color:{t['text']}; }}
-    QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{ border-color:{accent}; }}
+    QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{ border-color:{t['accent_outline']}; }}
     QListWidget#MediaFolders QLineEdit {{ padding:0px 6px; margin:0; border-radius:5px; }}
     QLineEdit:disabled, QPlainTextEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {{ background:{t['disabled_bg']}; color:{t['disabled_text']}; border-color:{t['line']}; }}
     QPlainTextEdit#Prompt {{ font-family:'Cascadia Mono','Consolas','Microsoft JhengHei'; font-size:{font_pixels(settings['prompt_size'])}px; background:{t['field']}; border-color:transparent; }}
@@ -280,7 +288,7 @@ def stylesheet(settings):
     QComboBox {{ padding-right:34px; combobox-popup:0; }}
     QComboBox::drop-down {{ subcontrol-origin:padding; subcontrol-position:top right; width:30px; border:none; background:transparent; }}
     QComboBox::down-arrow {{ image:url('{assets['down']}'); width:16px; height:16px; }}
-    QComboBox:on {{ border-color:{accent}; }}
+    QComboBox:on {{ border-color:{t['accent_outline']}; }}
     QSpinBox, QDoubleSpinBox {{ padding-right:6px; }}
     QSpinBox QLineEdit, QDoubleSpinBox QLineEdit {{ padding:0; border:none; background:transparent; }}
     QSpinBox::up-button, QDoubleSpinBox::up-button {{ subcontrol-origin:padding; subcontrol-position:top right; width:28px; border:none; background:transparent; }}
@@ -347,7 +355,7 @@ def stylesheet(settings):
     QSlider::handle:horizontal {{ width:16px; margin:-6px 0; border-radius:8px; background:{accent}; }}
     QSlider::handle:horizontal:hover {{ background:{t['accent_hover']}; }}
     QCheckBox::indicator, QListView::indicator {{ width:18px; height:18px; border:1px solid {t['control']}; background:{t['field']}; border-radius:5px; }}
-    QCheckBox::indicator:checked, QListView::indicator:checked {{ background:{accent}; border-color:{accent}; image:url('{assets['check']}'); }}
+    QCheckBox::indicator:checked, QListView::indicator:checked {{ background:{accent}; border-color:{t['accent_outline']}; image:url('{assets['check']}'); }}
     QCheckBox:disabled {{ color:{t['disabled_text']}; }}
     QToolTip {{ background:{t['raised']}; color:{t['text']}; font-family:'{family}'; font-size:{tooltip_size}px; font-weight:500; border:1px solid {t['divider']}; border-radius:8px; padding:{TOOLTIP_PADDING[1]}px {TOOLTIP_PADDING[0]}px; }}
     QFrame#RecentOverlaySurface {{ background:{t['base']}; border:1px solid {t['divider']}; border-radius:18px; }}
@@ -362,7 +370,7 @@ def stylesheet(settings):
     QPushButton#IconButton:checked, QToolButton#IconButton:checked {{ background:{t['selected']}; }}
     QPushButton[pcsKeyboardFocus="true"]:focus, QToolButton[pcsKeyboardFocus="true"]:focus {{ border-color:{t['control']}; }}
     QPushButton#Navigation[pcsKeyboardFocus="true"]:focus, QPushButton#SideNavigation[pcsKeyboardFocus="true"]:focus,
-    QPushButton#IconButton[pcsKeyboardFocus="true"]:focus, QToolButton#IconButton[pcsKeyboardFocus="true"]:focus {{ border-color:{accent}; }}
+    QPushButton#IconButton[pcsKeyboardFocus="true"]:focus, QToolButton#IconButton[pcsKeyboardFocus="true"]:focus {{ border-color:{t['accent_outline']}; }}
     QPushButton#Navigation:disabled, QPushButton#SideNavigation:disabled {{ background:transparent; color:{t['disabled_text']}; }}
     QWidget[tone="muted"] {{ color:{t['muted']}; }}
     QWidget[tone="success"] {{ color:{t['success']}; }}
