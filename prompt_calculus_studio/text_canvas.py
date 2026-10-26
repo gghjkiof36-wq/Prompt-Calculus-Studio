@@ -221,17 +221,21 @@ class TextCanvas(QWidget):
         self.drop_target=None
 
     def palette(self,position=None,target=None):
+        active=getattr(self.window,'active_material_picker',None)
+        if active is not None and not active.closed:
+            active.raise_()
+            return active
         previous=(self.root_id,list(self.path)); self.root_id=None; self.path=[]
         if target is not None: self.enter(target)
         self.insertion_key=target
         if target in self.cards: self.cards[target].setSelected(True); self.cards[target].update()
         picker=CanvasPalette(self,position if isinstance(position,QPointF) else None)
         self.window.active_material_picker=picker
-        try: return picker.exec()
-        finally:
+        def finished(_):
             self.window.active_material_picker=None
             self.insertion_key=None; self.root_id,self.path=previous
             if target in self.cards: self.cards[target].update()
+        return picker.present(finished)
 
     def update_output(self):
         if self.output is not None: self.output.update_text()

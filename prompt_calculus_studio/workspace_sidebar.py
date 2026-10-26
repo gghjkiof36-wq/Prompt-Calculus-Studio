@@ -168,6 +168,12 @@ class WorkspaceTree(QTreeWidget):
             self.update_rows(previous,index)
         super().mouseMoveEvent(event)
 
+    def mousePressEvent(self,event):
+        if event.button()==Qt.MouseButton.LeftButton and self.itemAt(event.position().toPoint()) is None:
+            self.setCurrentItem(None)
+            self.clearSelection()
+        super().mousePressEvent(event)
+
     def mouseDoubleClickEvent(self,event):
         from .workspace_commands import KIND_ROLE
         item=self.itemAt(event.position().toPoint())

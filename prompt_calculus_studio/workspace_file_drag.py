@@ -156,6 +156,9 @@ class WorkspaceFileDrag(QObject):
 
     def destination(self, position):
         item = self.tree.itemAt(position)
+        if item is None and self.op is not None and self.op.context.root:
+            root = self.w.locations.initial
+            return root if self.op.context.root == root and self.op.source.parent != root else None
         if item is None or item.data(0, KIND_ROLE) not in ('folder', 'root') or self.op is None:
             return None
         path = Path(item.data(0, PATH_ROLE))

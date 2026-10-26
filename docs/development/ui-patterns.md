@@ -16,6 +16,25 @@ Workspace 文件各自擁有內容，設定不再顯示舊共用視圖的 `separ
 
 ## 依用途選元件
 
+### Canvas 素材與文件入口
+
+Canvas「加入素材」是所屬文件內的非模態浮層，使用 `CanvasPalette.present()`
+與 `finished` 收回暫時的加入目標。不得使用 `exec()` 鎖住工作區；側欄、分頁與
+懸停側欄維持可用。點導航時先關閉浮層，再由原點擊完成導航；點遮罩空白僅關閉，
+不把點擊傳入 Canvas。Escape 優先關閉浮層，不觸發底下頁面的返回捷徑。
+來源頁隱藏時也收掉浮層，避免返回時帶回過期目標。選取與匯入仍經原文件交易，
+保留來源副本、固定目的地、Undo／Redo 與保存流程。
+
+初始內容根（預設 `files`）是側欄的隱含入口，其子項直接顯示於第一層；磁碟位置
+及已加入的其他資料夾連結不變。空白處取消選取後新增，目的地為初始內容根；
+選取資料夾時在其內新增。文件／子資料夾拖至側欄空白處或選「移動到 → 最外層」可回到
+初始根，仍沿用原本同根、不覆寫的搬移與引用處理。
+
+新增先排他建立「未命名」，碰撞使用既有 `(1)`、`(2)` 編號，再提供可選的行內
+改名。Escape、留空或離開輸入框保留已建立項目；手動名稱無效或重名時仍在原
+輸入框顯示錯誤，不覆寫另一文件。首頁與側欄使用相同的預設名稱規則。
+驗證入口：`test_workspace_canvas_creation.py`。
+
 | 用途 | 選用 | 原因與接入注意 |
 | --- | --- | --- |
 | 桌面主視窗外框 | [window_chrome.install_expanded_chrome](../../prompt_calculus_studio/window_chrome.py)，參照 [WorkspaceShell](../../prompt_calculus_studio/workspace_shell.py) | 保留 Windows 原生 frame、resize／最大化等能力。顯示前安裝，預留 caption inset 並跟隨螢幕變更；支援路徑有平台／Qt 版本檢查，不支援時回傳 `None`。不要為統一圓角把主視窗改成 Frameless。 |

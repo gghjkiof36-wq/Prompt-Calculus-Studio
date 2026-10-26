@@ -78,7 +78,8 @@ class MoveMenu:
         if directory is None:
             menu.addAction('請先將所在資料夾加入側欄').setEnabled(False)
             return
-        title = menu.fontMetrics().elidedText(directory.name, Qt.TextElideMode.ElideRight, 220) if top else '移至此資料夾'
+        title = ('最外層' if directory == self.w.locations.initial else
+                 menu.fontMetrics().elidedText(directory.name, Qt.TextElideMode.ElideRight, 220)) if top else '移至此資料夾'
         self.destination_action(menu, title, directory)
         menu.addSeparator()
         try:

@@ -89,6 +89,8 @@ class WorkspaceCommands:
             root = Path(value) if value else root
             tab = w.tab_for_path(path) if path and kind not in ('root', 'folder') else None
         destination = path if kind in ('root', 'folder') else path.parent if path else root
+        if path is None and origin in ('toolbar', 'tree') and w.locations.initial in w.locations.roots:
+            root = destination = w.locations.initial
         document = tab.document if tab else None
         return CommandContext(origin, path, kind, root, destination,
                               path.parent if path and kind not in ('root', 'folder') else None,

@@ -687,10 +687,17 @@ class MultiCanvas(TextCanvas):
         return FunctionPicker(self,position).exec()
 
     def quick_text(self,key,position):
+        active=getattr(self.window,'active_material_picker',None)
+        if active is not None and not active.closed:
+            active.raise_()
+            return active
         previous=(self.root_id,list(self.path),self.insertion_canvas)
         self.root_id=None;self.path=[];self.insertion_canvas=key
-        try:return TextCanvas.palette(self,position)
-        finally:self.root_id,self.path,self.insertion_canvas=previous
+        picker=TextCanvas.palette(self,position)
+        def finished(_):
+            self.root_id,self.path,self.insertion_canvas=previous
+        picker.finished.connect(finished)
+        return picker
 
     def toggle_collapsed(self,key):
         self.commit(lambda s:self.selected_node(s,key)[2].update(collapsed=not self.selected_node(s,key)[2].get('collapsed',False)),label='收合／展開文字')

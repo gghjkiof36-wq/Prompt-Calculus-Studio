@@ -1,9 +1,18 @@
-"""Direct home creation and explicit naming for sidebar file commands."""
-from PySide6.QtWidgets import QTreeWidgetItem
+"""Create a saved unnamed entry, then offer an optional inline rename."""
 from .workspace_file_dialogs import InlineRename
 from .workspace_commands import NAMES
 from .workspace_locations import path_key
-from .ui_icons import icon
+from .workspace_file_io import available_targets, name_collision
+
+
+def create_unnamed(commands, kind, directory):
+    suffix = dict(category='.pcs-category', workflow='.pcs-workflow', markdown='.md', folder='')[kind]
+    for target in available_targets(directory/('未命名'+suffix), folder=kind == 'folder'):
+        try:
+            return commands.create_at(kind, target.name, directory)
+        except (ValueError, OSError) as error:
+            if not name_collision(error):
+                raise
 
 
 def create_home_document(commands, kind, context):
@@ -27,13 +36,7 @@ def create_home_document(commands, kind, context):
             return None
     try:
         directory = w.locations.directory(directory)
-        existing = {p.name.casefold() for p in directory.iterdir()}
-        suffix = dict(category='.pcs-category', workflow='.pcs-workflow', markdown='.md')[kind]
-        name, number = '未命名', 1
-        while (name+suffix).casefold() in existing:
-            number += 1
-            name = '未命名 ' + str(number)
-        path = commands.create_at(kind, name, directory)
+        path = create_unnamed(commands, kind, directory)
     except (ValueError, OSError) as error:
         w.show_notice(str(error))
         return None
@@ -63,7 +66,7 @@ def start_creation(commands, kind, context, after_create=None, finished=None):
             return None
     try:
         directory = w.locations.directory(directory)
-        existing = {p.name.casefold() for p in directory.iterdir()}
+        created = create_unnamed(commands, kind, directory)
     except (OSError, ValueError) as error:
         w.show_notice(str(error))
         if finished:
@@ -73,51 +76,49 @@ def start_creation(commands, kind, context, after_create=None, finished=None):
     w.sidebar_preference = True
     w.sync_sidebar()
     w.tree_state.revealed.add(directory)
+    w.tree_state.revealed.add(created)
     w.refresh_tree()
-    parent = w.path_items.get(path_key(directory))
+    parent = w.tree.invisibleRootItem() if directory == w.locations.initial else w.path_items.get(path_key(directory))
     if parent is None:
         w.show_notice('找不到新增位置，請重新加入這個資料夾。')
         if finished:
             finished()
         return None
-    previous = w.tree_state.selected
-    w.select_path(directory)
-    suffix = dict(category='.pcs-category', workflow='.pcs-workflow', markdown='.md', folder='')[kind]
-    name, number = '未命名', 1
-    while (name+suffix).casefold() in existing:
-        number += 1
-        name = '未命名 ' + str(number)
-    item = QTreeWidgetItem([name])
-    if kind == 'folder':
-        item.setIcon(0, icon('folder', 'navigation'))
-    parent.insertChild(0, item)
+    item = w.path_items.get(path_key(created))
+    if kind != 'folder':
+        w.open_context(created, context)
+    w.tree_state.selected = str(created)
     parent.setExpanded(True)
     w.tree.setCurrentItem(item)
     w.tree.scrollToItem(item)
-    created = None
+    accepted = False
     def commit(value):
-        nonlocal created
-        created = commands.create_at(kind, value, directory)
+        nonlocal created, accepted
+        if not value.strip():
+            accepted = True
+            return  # Empty optional name keeps the already-created entry.
+        from .workspace_locations import CommandContext
+        operation = commands.files.begin(CommandContext('tree', created, kind, context.root, directory))
+        try:
+            created = commands.files.rename(operation, value)
+            accepted = True
+        finally:
+            commands.files.end(operation, refresh=False)
     def finish():
         commands.files.inline = None
-        parent.removeChild(item)
-        w.tree_state.selected = str(created) if created else previous
-        if created:
-            w.tree_state.revealed.add(created)
+        w.tree_state.selected = str(created)
+        w.tree_state.revealed.add(created)
         w.refresh_tree()
         try:
-            if created:
-                w.select_path(created)
-                if after_create:
-                    after_create(created)
-                elif kind != 'folder':
-                    w.open_context(created, context)
+            w.select_path(created)
+            if after_create and accepted:
+                after_create(created)
         except (OSError, ValueError) as error:
             w.show_notice(str(error))
         finally:
             if finished:
                 finished()
-    editor = InlineRename(w.tree, item, directory/name, commit, finish)
+    editor = InlineRename(w.tree, item, created, commit, finish)
     editor.name.setAccessibleName('新增' + NAMES[kind] + '名稱')
     commands.files.inline = editor
     return editor

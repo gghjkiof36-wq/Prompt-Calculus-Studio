@@ -16,7 +16,7 @@ from .material_scope import MaterialScope, populate
 
 
 class PaletteGrip(QSizeGrip):
-    """Resize the centered sheet, leaving the modal backdrop over the window."""
+    """Resize the centered sheet within its owning document."""
     def __init__(self, palette):
         super().__init__(palette.surface); self.palette=palette; self.start=None
         self.setToolTip('調整面板大小'); self.setAccessibleName('調整面板大小')
@@ -48,8 +48,9 @@ class CanvasPalette(QDialog):
         self.choose_destination=bool(choose_destination and self.destination_id is None)
         self.layout_owner=(canvas.window.store,canvas.window.state['workspace'])
         self.setWindowTitle('加入素材')
-        self.setWindowFlags(Qt.WindowType.Dialog|Qt.WindowType.FramelessWindowHint)
-        self.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self.setWindowFlags(Qt.WindowType.Widget)
+        self.setWindowModality(Qt.WindowModality.NonModal)
+        self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.surface=QFrame(self); self.surface.setObjectName('DialogSurface')
         from .canvas_items import canvas_colors
@@ -301,6 +302,26 @@ class CanvasPalette(QDialog):
         return False
 
     def eventFilter(self,watched,event):
+        if self.closed:
+            return False
+        if (event.type()==QEvent.Type.ShortcutOverride and event.key()==Qt.Key.Key_Escape
+                and isinstance(watched,QWidget) and (watched is self or self.isAncestorOf(watched))):
+            event.accept()
+            return True
+        if self.isVisible() and event.type()==QEvent.Type.MouseButtonPress and isinstance(watched,QWidget):
+            # Navigation keeps the original event: one click dismisses the
+            # picker and activates the requested sidebar item or tab.
+            owner=QWidget.window(self.canvas.window)
+            current=watched
+            while current is not None and current is not self:
+                current=current.parentWidget()
+            if current is None and (watched is owner or owner.isAncestorOf(watched)):
+                self.last_mouse_position=None
+                self.reject()
+                return False
+        if watched is self.canvas.window and event.type()==QEvent.Type.Hide:
+            self.reject()
+            return False
         if watched is self.assets.viewport() and event.type()==QEvent.Type.Resize:
             self.align_search()
         if event.type() in (QEvent.Type.MouseButtonPress,QEvent.Type.MouseButtonRelease,QEvent.Type.MouseButtonDblClick):
@@ -345,8 +366,7 @@ class CanvasPalette(QDialog):
 
     def fit_window(self):
         parent=self.canvas.window
-        bounds=QRect(parent.mapToGlobal(QPoint()),parent.size()).intersected(parent.screen().availableGeometry())
-        self.setGeometry(bounds); self.place_sheet()
+        self.setGeometry(parent.rect()); self.place_sheet()
 
     def place_sheet(self):
         area=self.rect().adjusted(12,12,-12,-12)
@@ -376,7 +396,7 @@ class CanvasPalette(QDialog):
         painter=QPainter(self); painter.fillRect(self.rect(),QColor(0,0,0,120))
 
     def showEvent(self,event):
-        super().showEvent(event); self.fit_window(); self.split.setSizes(self.split_sizes)
+        super().showEvent(event); self.fit_window(); self.raise_(); self.split.setSizes(self.split_sizes)
         (self.destination if self.choose_destination else
          self.category if self.narrow_categories.isVisible() else
          self.modules if self.modules.currentRow()>=0 else self.search).setFocus()
@@ -409,5 +429,8 @@ class CanvasPalette(QDialog):
             ClosingClickGuard(self.canvas.view.viewport(),self.last_mouse_position)
         super().done(result)
 
-    def exec(self):
-        result=super().exec(); self.deleteLater(); return result
+    def present(self, finished):
+        self.finished.connect(finished)
+        self.finished.connect(self.deleteLater)
+        self.show()
+        return self

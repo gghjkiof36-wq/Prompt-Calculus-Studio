@@ -672,10 +672,12 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.entries = []
         types = {'category': '分類', 'workflow': '工作流', 'markdown': '筆記'}
         for root in self.locations.roots:
-            root_item = QTreeWidgetItem([root.name])
-            self.set_tree_location(root_item, root, 'root', root)
-            root_item.setIcon(0, icon('folder', 'navigation'))
-            self.tree.addTopLevelItem(root_item)
+            implicit = root == self.locations.initial
+            root_item = self.tree.invisibleRootItem() if implicit else QTreeWidgetItem([root.name])
+            if not implicit:
+                self.set_tree_location(root_item, root, 'root', root)
+                root_item.setIcon(0, icon('folder', 'navigation'))
+                self.tree.addTopLevelItem(root_item)
             folders = {path_key(root): root_item}
             try:
                 inventory = list(self.locations.inventory(root))
@@ -701,9 +703,10 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             except (OSError, ValueError) as error:
                 root_item.setToolTip(0, str(root) + '\n無法完整讀取：' + str(error))
                 self.show_notice('無法完整讀取資料夾：' + str(root))
-            root_item.setExpanded((not old_items and not self.tree_state.loaded) or path_key(root) in expanded)
-            if root_item.isExpanded():
-                expanded.add(path_key(root))
+            if not implicit:
+                root_item.setExpanded((not old_items and not self.tree_state.loaded) or path_key(root) in expanded)
+                if root_item.isExpanded():
+                    expanded.add(path_key(root))
         from PySide6.QtCore import QSignalBlocker
         # Restoring a hidden selection must not reopen its collapsed ancestors.
         with QSignalBlocker(self.tree.selectionModel()):
@@ -735,6 +738,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 self.show_notice('目前資料夾已切換，但無法保存導覽位置：' + str(error))
 
     def select_path(self, path):
+        if path == self.locations.initial and path in self.locations.roots:
+            self.tree.setCurrentItem(None)
+            return True
         item = self.path_items.get(path_key(path))
         if item is None:
             return False

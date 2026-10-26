@@ -364,6 +364,10 @@ class Window(QMainWindow):
         self.generation_panel.refresh(); self.record_navigation('home')
 
     def show_materials(self,canvas_id=None):
+        active=getattr(self,'active_material_picker',None)
+        if active is not None and not active.closed:
+            active.raise_()
+            return active
         if not self.flush_editor_drafts():return None
         from .canvas_palette import CanvasPalette
         from .multi_output import owner
@@ -383,11 +387,10 @@ class Window(QMainWindow):
         canvas.root_id=None;canvas.path=[]
         picker=CanvasPalette(canvas,None,destination_id=canvas_id,choose_destination=canvas_id is None)
         self.active_material_picker=picker
-        try:picker.exec()
-        finally:
+        def finished(_):
             self.active_material_picker=None
             canvas.root_id,canvas.path=previous
-        return picker
+        return picker.present(finished)
 
     def toggle_materials(self):
         self.show_materials()
