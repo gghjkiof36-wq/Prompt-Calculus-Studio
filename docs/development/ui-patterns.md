@@ -103,3 +103,12 @@ Canvas「加入素材」是所屬文件內的非模態浮層，使用 `CanvasPal
 - 只採用 `role=positive`：ComfyUI 依 positive 接線追蹤，parameters 依正負分隔解析。負面與未判定文字不會自動當成正面；多個不同正面來源須選擇。沒有可用來源、檔案損毀／不支援／過大時，維持原內容並提供就地訊息。
 - 空稿且單一來源直接填入。已有文字時以共用 StudioDialog 預覽並選附加／取代／取消，附加是預設；接受時再次核對原組合與內容。使用 QTextCursor edit block 保留編輯框 Undo／Redo，再沿既有素材草稿、DocumentOperations、保存與恢復路徑；匯入本身不發布素材。
 - `test_metadata_prompt_import.py` 驗證真實 Qt 拖放、原圖 bytes、正負與多來源、取消、草稿失效、匯入 Undo、素材保存／重開／Undo／Redo。`test_prompt_group_ui.py` 沿用其他組合流程；既有 uncategorized 斷言問題另留基準對照，不列全綠。
+
+### 素材類型切換與管理卡片
+
+- 流程／組合編輯主卡片預設至少 680 logical px，仍依可用視窗高度縮限，保存區保持可達；文字模塊維持原本高度策略。
+- 管理卡片內資訊、排除 Tag、預覽圖分頁使用 24 logical px 頂部留白，三種素材沿用同一組頁面。
+- `MaterialPanels` 以父視窗可用範圍作固定透明外框，類型切換只改子卡片的位置與尺寸。原本只為左右卡片保留寬度，切換類型仍改動透明原生視窗寬高，可能露出 backing store。`MaterialPages.switch_type` 將關閉側卡、保留分型草稿與切換頁面合併為一次畫面更新；不新增動畫或計時器。
+- `test_material_layout_updates.py` 核對原生外框沒有 Resize／Move、草稿保留、預設高度、右側內容間距與小視窗保存入口；`test_prompt_dialog_regressions.py` 沿用側卡、取消、內容及預覽回歸。背景 Qt 的固定外框證據不等於實際 Windows 顯示器閃爍已由使用者驗收。
+
+- 文字變體主表單移除重複的「變體／Prompt／變量」可見標籤，保留可及名稱；模式與新增變體放在文字框上方同一列，變體管理頁同樣保留 24 logical px 頂部間距。共用 VariantEditor 的編輯、排序、起始項及草稿資料路徑不變。

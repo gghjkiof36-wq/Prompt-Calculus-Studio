@@ -85,11 +85,11 @@ class PromptDialogTests(unittest.TestCase):
     def test_overview_and_group_collapse_return_to_content_height(self):
         dialog,ed=self.populated()
         def listing_fits():
-            # The style's frame/focus margin can add up to four logical pixels
-            # beyond sizeHint. Actual rows must remain fully visible.
+            # The taller default leaves room for more groups; existing rows
+            # must remain fully visible without an unnecessary scrollbar.
             self.assertTrue(ed.listing.isVisible())
             self.assertGreaterEqual(ed.listing.height(),ed.listing.sizeHint().height())
-            self.assertLessEqual(ed.listing.height()-ed.listing.sizeHint().height(),4)
+            self.assertGreaterEqual(dialog.panels.main.height(),680)
             self.assertGreater(ed.listing.count(),0)
             for index in range(ed.listing.count()):
                 self.assertTrue(ed.listing.viewport().rect().contains(ed.listing.visualItemRect(ed.listing.item(index))))

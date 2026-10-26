@@ -110,9 +110,10 @@ class VariantEditor(QWidget):
         self.mode=ComboBox();mode_options(self.mode);self.mode.setAccessibleName('文字變體變量')
         self.mode.setMaximumWidth(190)
         self.random_repeats=QCheckBox('允許重複');self.random_repeats.setChecked(sequence.get('random_repeats',True))
-        layout.addLayout(row(field('變量',self.mode),self.random_repeats,None))
+        self.toolbar=row(self.mode,self.random_repeats,None);layout.addLayout(self.toolbar)
         self.stack=PageStack();layout.addWidget(self.stack,1)
         self.management,management=page();self.management.setParent(self);self.management.hide()
+        management.setContentsMargins(0,24,0,0)
         # These are two pages in one stable card, not an expanding section.
         self.management_stack=QStackedWidget();management.addWidget(self.management_stack)
         self.overview,overview=page();self.management_stack.addWidget(self.overview)

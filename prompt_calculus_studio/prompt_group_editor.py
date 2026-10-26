@@ -652,7 +652,8 @@ class MaterialPages(QWidget):
         self.single_layout=sl
         self.add_variants=button('新增變體',self.add_variant,'Quiet')
         self.add_variants.setIcon(icon('plus'))
-        sl.addLayout(row(label('Prompt', 'Subtle'),None,self.add_variants))
+        self.prompt_label=label('Prompt','Subtle')
+        self.prompt_toolbar=row(self.prompt_label,None,self.add_variants);sl.addLayout(self.prompt_toolbar)
         f.prompt.setMinimumHeight(280); sl.addWidget(f.prompt, 1)
         self.details_toggle = Disclosure('管理'); sl.addWidget(self.details_toggle)
         self.details = QTabWidget(self); self.details.setDocumentMode(True); self.details.tabBar().setDrawBase(False)
@@ -692,7 +693,7 @@ class MaterialPages(QWidget):
         rl.addWidget(f.excludes);rl.addStretch()
         dialog.history_button=button('內容與操作歷史',f.history,'Quiet');details_body.addWidget(dialog.history_button,0,Qt.AlignmentFlag.AlignLeft)
         for name, widget in [('資訊', info), ('排除 Tag', relation), ('預覽圖',self.image_controls)]:
-            widget.layout().setContentsMargins(0,8,0,0);self.details.addTab(widget, name)
+            widget.layout().setContentsMargins(0,24,0,0);self.details.addTab(widget, name)
         dialog.advanced_toggle = self.details_toggle; dialog.advanced = self.details
         # Kept as aliases for code that opens the established advanced entry.
         dialog.info_toggle = dialog.lookup_toggle = dialog.relation_toggle = dialog.history_toggle = self.details_toggle
@@ -710,10 +711,12 @@ class MaterialPages(QWidget):
         self.variant_editor=VariantEditor(self.restored.get('variants') or root.get('variants') or pm.variants(root),self.single)
         self.variant_editor.changed.connect(self.dialog.form.edited)
         self.variant_editor.layoutChanged.connect(self.dialog.fit_page)
-        self.single_layout.insertWidget(1,self.variant_editor,1)
+        self.single_layout.removeItem(self.prompt_toolbar);self.prompt_label.hide()
+        self.prompt_toolbar.removeWidget(self.add_variants)
+        self.variant_editor.toolbar.addWidget(self.add_variants)
+        self.single_layout.insertWidget(0,self.variant_editor,1)
         self.variant_editor.choose.setMaximumWidth(156)
-        self.variant_label=label('變體','Subtle')
-        self.name_row.insertWidget(2,self.variant_label);self.name_row.insertWidget(3,self.variant_editor.choose)
+        self.name_row.insertWidget(2,self.variant_editor.choose)
         self.variant_editor.choose.show()
         self.details.insertTab(0,self.variant_editor.management,'變體')
         self.details.setCurrentWidget(self.variant_editor.management)
@@ -728,6 +731,16 @@ class MaterialPages(QWidget):
         else:self.variant_editor.add()
 
     def switch_type(self):
+        # Publish one complete form. Closing a side card and installing the
+        # next group editor otherwise exposes intermediate empty layouts.
+        enabled=self.dialog.updatesEnabled();self.dialog.setUpdatesEnabled(False)
+        try:
+            self._switch_type()
+            if hasattr(self.dialog,'form_scroll'):self.dialog.fit_page()
+        finally:
+            self.dialog.setUpdatesEnabled(enabled)
+
+    def _switch_type(self):
         if hasattr(self.dialog,'panels'):self.close_group_details(animate=False)
         if self.group_editor:self.group_editor.preview_toggle.setChecked(False)
         self.material_type=self.type_picker.currentData();self.is_group=self.material_type!='text'
@@ -758,7 +771,7 @@ class MaterialPages(QWidget):
         self.place_group_actions()
         self.stack.setCurrentIndex(1 if self.is_group else 0)
         if self.variant_editor:
-            self.variant_editor.choose.setVisible(not self.is_group);self.variant_label.setVisible(not self.is_group)
+            self.variant_editor.choose.setVisible(not self.is_group)
             tab=self.details.indexOf(self.variant_editor.management)
             if self.is_group and tab>=0:self.details.removeTab(tab)
             elif not self.is_group and tab<0:self.details.insertTab(0,self.variant_editor.management,'變體')
@@ -785,7 +798,7 @@ class MaterialPages(QWidget):
         self.dialog.name.setVisible(home);self.dialog.name_label.setVisible(home)
         self.type_picker.setVisible(home and self.dialog.was_new)
         if self.variant_editor:
-            self.variant_editor.choose.setVisible(home and not self.is_group);self.variant_label.setVisible(home and not self.is_group)
+            self.variant_editor.choose.setVisible(home and not self.is_group)
         self.group_details.setVisible(self.is_group and home);self.layout_limits()
         if self.material_type=='combination':self.group_editor.preview_toggle.setVisible(home)
         dialog=self.dialog
@@ -794,6 +807,7 @@ class MaterialPages(QWidget):
             if self.group_editor and index!=1:self.group_editor.preview_toggle.setChecked(False)
             desired=880 if self.is_group and index==2 else 760 if self.is_group else 580
             dialog.panels.set_main_width(desired)
+            dialog.panels.minimum_height=680 if self.is_group else 480
             inside=self.is_group and not home
             dialog.identity.setVisible(inside)
             dialog.back_button.setVisible(inside);dialog.done_button.setVisible(inside)

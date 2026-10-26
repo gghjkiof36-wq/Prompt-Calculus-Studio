@@ -44,6 +44,7 @@ class MaterialPanels(QWidget):
         super().__init__(dialog)
         self.dialog = dialog; self.opened = False; self.preferred_width = 580
         self.progress = 0.; self._fitting = False; self._envelope = False
+        self.surface_height = 620
         self.content = content if content is not None else getattr(dialog,'pages',None)
         self.form_scroll = scroll if scroll is not None else getattr(dialog,'form_scroll',None)
         self.minimum_height = minimum_height; self.close_side = close
@@ -107,17 +108,21 @@ class MaterialPanels(QWidget):
 
     def place(self, progress=None):
         if progress is not None: self.progress = float(progress)
+        height=min(self.height(),self.surface_height)
+        top=max(0,(self.height()-height)//2)
         # Keep both cards at their own width through the final animation frame.
         # QAbstractAnimation is already Stopped when its last value is emitted.
         if self._envelope:
             main_width = self.main_width; side_width = self.side_width
-            offset = round((self.width() - main_width) / 2 * (1 - self.progress))
+            closed_x=(self.width()-main_width)/2
+            opened_x=(self.width()-main_width-self.GAP-side_width)/2
+            offset = round(closed_x+(opened_x-closed_x)*self.progress)
             side_start = (self.width() - main_width) / 2 + main_width - side_width
-            side_x = round(side_start + (main_width + self.GAP - side_start) * self.progress)
-            self.side.setGeometry(side_x, 0, side_width, self.height())
-            self.main.setGeometry(offset, 0, main_width, self.height())
+            side_x = round(side_start + (opened_x+main_width + self.GAP - side_start) * self.progress)
+            self.side.setGeometry(side_x, top, side_width, height)
+            self.main.setGeometry(offset, top, main_width, height)
         else:
-            self.main.setGeometry(self.rect())
+            self.main.setGeometry(0,top,self.width(),height)
         self.update()
 
     def resizeEvent(self, event):
@@ -154,18 +159,18 @@ class MaterialPanels(QWidget):
         self._fitting = True
         try:
             dialog.ensurePolished(); content = self.content
-            # Reserve the union of both cards before the first native paint.
-            # Opening/closing only moves child surfaces; resizing a translucent
-            # top-level HWND at either endpoint flashes its backing store.
-            width = self.expanded_width(); self._envelope = True
-            dialog.resize(width,dialog.height());dialog.layout().activate();self.place();self.main.layout().activate()
+            # Reserve the parent's usable area once. Type changes vary both
+            # card width and height; resizing the transparent native HWND for
+            # each form exposes its backing store even without an animation.
+            self.expanded_width(); self._envelope = True
+            bounds=self.bounds();self.center_frame(bounds.width(),bounds.height())
+            dialog.layout().activate();self.place();self.main.layout().activate()
             for layout in reversed(content.findChildren(QLayout)): layout.invalidate()
             for widget in reversed(content.findChildren(QWidget)): widget.updateGeometry()
             content.layout().activate(); content.updateGeometry(); self.main.layout().activate()
             chrome = self.main.height() - self.form_scroll.viewport().height() + 12
             height = max(self.minimum_height, content.sizeHint().height() + chrome)
-            bounds = self.bounds(); height = min(height, bounds.height())
-            self.center_frame(width, height)
+            self.surface_height = min(height, self.height())
             dialog.layout().activate(); self.place(); content.layout().activate()
         finally: self._fitting = False
 
