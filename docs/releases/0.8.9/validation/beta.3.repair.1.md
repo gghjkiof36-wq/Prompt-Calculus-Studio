@@ -11,10 +11,11 @@
 - 素材編輯卡片高度、管理分頁留白、文字變體工具列與切換更新調整。
 - 起始組合改列內釘選；組合去重移至排除 Tag 框右下。
 - 管理統一左下，組合 Prompt 預覽並列；類型選單右靠。
+- 空心及實心圖釘統一順時針傾斜 20°，套用所有共用圖示入口。
 
 ## 證據邊界
 
-產品實作固定於 `30e874a7097aab1b3292e70691f76bffeaf1e911`；後續只加入 repair1 建置識別及本紀錄。最終來源／binary 身份以包內 BUILD_INFO.json 為準，檔案雜湊見 PACKAGE_MANIFEST.json。
+功能與版面實作固定於 `30e874a7097aab1b3292e70691f76bffeaf1e911`；後續加入 repair1 建置識別及共用圖釘角度調整。最終來源／binary 身份以包內 BUILD_INFO.json 為準，檔案雜湊見 PACKAGE_MANIFEST.json。
 
 本輪有界來源證據共 229 項通過，包含最終 layout／dialog regression／management UI 37 項全綠；各功能完成後未受後續改動影響的證據沿用。保留三組可在公開 Beta3 基準重現的舊測試失敗：Canvas picker 4、prompt group UI 1、large text controls 1；不宣稱全測試通過。
 
