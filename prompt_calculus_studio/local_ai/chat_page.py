@@ -6,19 +6,18 @@ import weakref
 from PySide6.QtCore import Qt, QTimer, Signal, QSignalBlocker, QSize, QEvent, QRectF, QRect, QPoint, QEasingCurve
 from PySide6.QtGui import (
     QAction, QColor, QInputMethodEvent, QTextBlockFormat, QTextCharFormat, QTextCursor,
-    QTextDocument, QTextOption, QBrush, QLinearGradient, QPainter, QPen,
+    QTextDocument, QTextOption, QBrush, QLinearGradient, QPainter, QPen, QCursor,
 )
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLineEdit, QPlainTextEdit,
     QPushButton, QSizePolicy, QTextBrowser, QVBoxLayout, QWidget, QWidgetAction,
-    QAbstractScrollArea, QStyle, QStyleOptionButton, QStyleOptionFocusRect,
+    QAbstractScrollArea, QStyleOptionButton,
 )
 
 from ..theme import font_pixels, visual_tokens
 from ..ui_icons import icon
-from ..widgets import ElidedLabel, RoundMenu, button, label, row, scrolling
+from ..widgets import ElidedLabel, RoundMenu, button, label, row, scrolling, widget_global_position
 from ..management_reading import READING_CONTENT_WIDTH, READING_MARGIN, READING_NARROW_MARGIN
-from ..popup_surface import popup_row_height
 from ..workspace_style import workspace_colors
 from ..dialog_presentation import reduced_motion
 from ..elapsed_animation import ElapsedAnimation
@@ -380,6 +379,8 @@ class ThinkingToggle(QPushButton):
     def __init__(self, callback, parent=None):
         super().__init__('思考', parent)
         self.setObjectName('Quiet')
+        self.setIconSize(QSize(14, 14))
+        self._fit_caption_height()
         self.setCheckable(True)
         self.clicked.connect(callback)
         self._thinking = False
@@ -429,6 +430,7 @@ class ThinkingToggle(QPushButton):
         self.update()
 
     def showEvent(self, event):
+        self._fit_caption_height()
         super().showEvent(event)
         ancestor = self.parentWidget()
         while ancestor is not None:
@@ -455,22 +457,33 @@ class ThinkingToggle(QPushButton):
             self._sync_motion()
         return False
 
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
+            self._fit_caption_height()
+
+    def _fit_caption_height(self):
+        self.setMinimumHeight(max(30, self.fontMetrics().height() + 8))
+
     def paintEvent(self, event):
         self._sync_motion()
         option = QStyleOptionButton()
         self.initStyleOption(option)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-        self.style().drawControl(QStyle.ControlElement.CE_PushButtonBevel, option, painter, self)
-        rect = QRectF(self.style().subElementRect(QStyle.SubElement.SE_PushButtonContents, option, self))
-        text_width = self.fontMetrics().horizontalAdvance(self.text())
+        painter.setFont(self.font())
+        metrics = self.fontMetrics()
+        baseline = round((self.height() - metrics.height()) / 2 + metrics.ascent())
+        text_width = metrics.horizontalAdvance(self.text())
         icon_width = option.iconSize.width() + 4 if not option.icon.isNull() else 0
-        left = rect.left() + (rect.width() - text_width - icon_width) / 2
+        # This is a transcript heading, not a centered button caption. Its
+        # text shares the answer's reading edge; the chevron follows the text.
+        left = 0.
         if icon_width:
-            icon_rect = QRectF(left + text_width + 4, rect.center().y() - option.iconSize.height() / 2,
+            icon_rect = QRectF(left + text_width + 4, (self.height() - option.iconSize.height()) / 2,
                                option.iconSize.width(), option.iconSize.height())
             option.icon.paint(painter, icon_rect.toRect())
-        text_rect = QRectF(left, rect.top(), text_width + 1, rect.height())
+        text_rect = QRectF(left, baseline - metrics.ascent(), text_width + 1, metrics.height())
         if self.motion.state() == self.motion.State.Running:
             band = max(28., text_width * .7)
             center = text_rect.left() - band + self._phase * (text_width + 2 * band)
@@ -481,40 +494,92 @@ class ThinkingToggle(QPushButton):
             painter.setPen(QPen(QBrush(sweep), 0))
         else:
             painter.setPen(QColor(self._tokens['text']))
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.text())
-        if self.hasFocus():
-            focus = QStyleOptionFocusRect()
-            focus.initFrom(self)
-            focus.rect = self.style().subElementRect(QStyle.SubElement.SE_PushButtonFocusRect, option, self)
-            self.style().drawPrimitive(QStyle.PrimitiveElement.PE_FrameFocusRect, focus, painter, self)
+        # The shared button style reserves 9px on each vertical edge. A compact
+        # 30px header cannot use that contents rect for a 20px CJK line: Qt's
+        # rectangle text drawing clips the glyphs. Paint a full measured line
+        # at its baseline; the widget itself still provides the outer clip.
+        painter.drawText(QPoint(0, baseline), self.text())
+        if self.underMouse() or self.hasFocus():
+            # Keep the transcript's reading edge. A content-width underline
+            # avoids the asymmetry of a padded, centered button background.
+            color = QColor(self._tokens['text'] if self.hasFocus() else self._tokens['muted'])
+            painter.setPen(QPen(color, 1.5 if self.hasFocus() else 1.))
+            y = min(self.height() - 2., baseline + metrics.descent() + 2.)
+            painter.drawLine(QPoint(0, round(y)), QPoint(text_width + icon_width, round(y)))
+
+    def sizeHint(self):
+        # Reserve a small right-side hit margin, not Qt's default two-sided
+        # padding for centered captions. The painted affordance ends at chevron.
+        return QSize(self.fontMetrics().horizontalAdvance(self.text()) + self.iconSize().width() + 10,
+                     max(30, self.fontMetrics().height() + 8))
 
 
 class ThinkingBody(QFrame):
-    """A bounded reveal; streaming content is never re-animated per token."""
+    """Clip a stable, top-aligned document instead of squeezing its layout."""
+    settled = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._expanded = False
+        self._syncing = False
+        self.content = QWidget(self)
+        self.content.installEventFilter(self)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(0)
         self.reveal = ElapsedAnimation(self)
         self.reveal.setDuration(180)
         self.reveal.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.reveal.valueChanged.connect(self._advance_reveal)
         self.reveal.finished.connect(self._finish_reveal)
-        self.hide()
+
+    def _content_height(self):
+        layout = self.content.layout()
+        return max(0, layout.sizeHint().height()) if layout else 0
+
+    def _sync_content(self, *, fit_viewport=True):
+        if self._syncing:
+            return
+        self._syncing = True
+        try:
+            # The child keeps its natural height throughout the reveal. Only
+            # the outer viewport clips; native text/WebEngine never compress.
+            self.content.setGeometry(0, 8, self.width(), self._content_height())
+            if self.content.layout():
+                self.content.layout().activate()
+            height = self._content_height()
+            self.content.resize(self.width(), height)
+            if fit_viewport and self.reveal.state() != self.reveal.State.Running:
+                self.setFixedHeight(height + 8 if self._expanded else 0)
+        finally:
+            self._syncing = False
+
+    def eventFilter(self, watched, event):
+        if watched is self.content and event.type() == QEvent.Type.LayoutRequest:
+            self._sync_content()
+        return False
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if event.size().width() != event.oldSize().width():
+            self._sync_content()
 
     def set_expanded(self, expanded):
         if self._expanded == expanded:
             return
-        self._expanded = expanded
-        start = self.height() if self.isVisible() else 0
+        start = self.height()
         self.reveal.stop()
+        self._expanded = expanded
+        self._sync_content(fit_viewport=False)
+        self.setFixedHeight(start)
         if reduced_motion(self) or not system_motion_enabled() or not self.parentWidget().isVisible():
             self._finish_reveal()
             return
-        self.setVisible(True)
-        end = self.layout().sizeHint().height() if expanded else 0
-        self.setMaximumHeight(start)
-        self.reveal.setStartValue(start)
-        self.reveal.setEndValue(max(0, end))
+        end = self._content_height() + 8 if expanded else 0
+        # QVariantAnimation emits valueChanged while replacing its endpoints.
+        # Do not briefly apply the previous animation's zero/full endpoint.
+        with QSignalBlocker(self.reveal):
+            self.reveal.setStartValue(start)
+            self.reveal.setEndValue(end)
         self.reveal.start()
 
     def _advance_reveal(self, value):
@@ -522,15 +587,16 @@ class ThinkingBody(QFrame):
             self.reveal.stop()
             self._finish_reveal()
         else:
-            self.setMaximumHeight(max(0, round(value)))
+            self.setFixedHeight(max(0, round(value)))
 
     def _finish_reveal(self):
-        self.setMaximumHeight(16777215 if self._expanded else 0)
-        self.setVisible(self._expanded)
+        self._sync_content()
+        self.setFixedHeight(self._content_height() + 8 if self._expanded else 0)
+        self.settled.emit()
 
     def hideEvent(self, event):
         self.reveal.stop()
-        self.setMaximumHeight(16777215 if self._expanded else 0)
+        self._finish_reveal()
         super().hideEvent(event)
 
 
@@ -538,6 +604,7 @@ class ChatAttempt(QFrame):
     branchRequested = Signal(str)
     exportMarkdownRequested = Signal(str)
     retryRequested = Signal()
+    thinkingInteraction = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -545,12 +612,15 @@ class ChatAttempt(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.thinking = QFrame()
         self.thinking.setObjectName('ChatThinking')
         thinking_layout = QVBoxLayout(self.thinking)
         thinking_layout.setContentsMargins(0, 0, 0, 0)
-        thinking_layout.setSpacing(8)
-        self.thinking_toggle = ThinkingToggle(self._sync_thinking)
+        thinking_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # The reveal owns its leading 8px gap, so it shrinks continuously too.
+        thinking_layout.setSpacing(0)
+        self.thinking_toggle = ThinkingToggle(self._toggle_thinking)
         self.thinking_toggle.setAccessibleName('展開思考')
         self.thinking_copy = button('', self._copy_thinking, 'IconButton')
         self.thinking_copy.setIcon(icon('copy', size=16))
@@ -560,7 +630,7 @@ class ChatAttempt(QFrame):
         thinking_layout.addLayout(row(self.thinking_toggle, self.thinking_copy, None))
         self.thinking_body = ThinkingBody()
         self.thinking_body.setObjectName('ChatThinkingBody')
-        thinking_body_layout = QVBoxLayout(self.thinking_body)
+        thinking_body_layout = QVBoxLayout(self.thinking_body.content)
         thinking_body_layout.setContentsMargins(12, 0, 0, 0)
         self.thinking_content = ChatText()
         self.thinking_content.setProperty('thinking', True)
@@ -604,6 +674,9 @@ class ChatAttempt(QFrame):
         layout.addWidget(self.heading)
         self.actions = QWidget()
         self.actions.setLayout(row(self.copy_button, self.retry_icon_button, self.branch_button, self.more_button, None))
+        actions_policy = self.actions.sizePolicy()
+        actions_policy.setRetainSizeWhenHidden(True)
+        self.actions.setSizePolicy(actions_policy)
         layout.addWidget(self.actions)
         self._attempt_id = ''
         self._raw = ''
@@ -684,6 +757,10 @@ class ChatAttempt(QFrame):
         self.thinking_toggle.setAccessibleName('收合思考' if expanded else '展開思考')
         self.thinking_toggle.setToolTip('收合思考' if expanded else '展開思考')
 
+    def _toggle_thinking(self):
+        self.thinkingInteraction.emit(self.thinking_body)
+        self._sync_thinking()
+
     def _copy_thinking(self):
         QApplication.clipboard().setText(self._thinking_text)
         self.thinking_copy.setIcon(icon('check', size=16))
@@ -701,6 +778,46 @@ class ChatAttempt(QFrame):
         _fit_error_frame(self.error_frame, self.reason, self.width())
 
 
+class ChatUserAction(QPushButton):
+    """Keep the action's geometry and tab stop while its row is at rest."""
+    focusChanged = Signal()
+
+    def __init__(self, callback, parent=None):
+        super().__init__('', parent)
+        self.setObjectName('IconButton')
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._revealed = False
+        self.keyboard_focus = False
+        self.clicked.connect(callback)
+
+    def set_revealed(self, value):
+        value = bool(value)
+        if self._revealed != value:
+            self._revealed = value
+            self.update()
+
+    def paintEvent(self, event):
+        if self._revealed or (self.hasFocus() and self.keyboard_focus):
+            super().paintEvent(event)
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self.keyboard_focus = event.reason() != Qt.FocusReason.MouseFocusReason
+        self.focusChanged.emit()
+        self.update()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.keyboard_focus = False
+        self.focusChanged.emit()
+        self.update()
+
+    def mousePressEvent(self, event):
+        self.keyboard_focus = False
+        self.focusChanged.emit()
+        super().mousePressEvent(event)
+
+
 class ChatTurn(QFrame):
     branchRequested = Signal(str, str)
     exportMarkdownRequested = Signal(str, str)
@@ -710,6 +827,7 @@ class ChatTurn(QFrame):
     editCancelled = Signal()
     editChanged = Signal()
     retryRequested = Signal(str)
+    thinkingInteraction = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -717,6 +835,7 @@ class ChatTurn(QFrame):
         self.stack = QVBoxLayout(self)
         self.stack.setContentsMargins(0, 0, 0, 12)
         self.stack.setSpacing(28)
+        self.stack.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.user = QFrame()
         self.user.setObjectName('ChatUser')
         user_layout = QVBoxLayout(self.user)
@@ -725,7 +844,8 @@ class ChatTurn(QFrame):
         self.user_text.setAccessibleName('你的訊息')
         user_layout.addWidget(self.user_text)
         self._turn_id = ''
-        self.user_copy_button = button('', self._copy_user, 'IconButton')
+        self._user_hovered = False
+        self.user_copy_button = ChatUserAction(self._copy_user)
         self.user_copy_button.setIcon(icon('copy', size=16))
         self.user_copy_button.setFixedSize(30, 30)
         self.user_copy_button.setToolTip('複製訊息')
@@ -733,11 +853,13 @@ class ChatTurn(QFrame):
         self._user_copy_reset = QTimer(self)
         self._user_copy_reset.setSingleShot(True)
         self._user_copy_reset.timeout.connect(self._reset_user_copy)
-        self.user_edit_button = button('', lambda: self.editRequested.emit(self._turn_id), 'IconButton')
+        self.user_edit_button = ChatUserAction(lambda: self.editRequested.emit(self._turn_id))
         self.user_edit_button.setIcon(icon('pencil', size=16))
         self.user_edit_button.setFixedSize(30, 30)
         self.user_edit_button.setToolTip('編輯訊息')
         self.user_edit_button.setAccessibleName('編輯這則訊息')
+        for control in (self.user_copy_button, self.user_edit_button):
+            control.focusChanged.connect(self._sync_user_actions)
         self.user_versions_button = button('', lambda: self.versionsRequested.emit(self._turn_id), 'IconButton')
         self.user_versions_button.setIcon(icon('history', size=16))
         self.user_versions_button.setFixedSize(30, 30)
@@ -790,6 +912,16 @@ class ChatTurn(QFrame):
         self._display_signature = None
         self.editing = False
 
+    def set_user_hovered(self, value):
+        self._user_hovered = bool(value)
+        self._sync_user_actions()
+
+    def _sync_user_actions(self):
+        controls = (self.user_copy_button, self.user_edit_button)
+        revealed = self._user_hovered or any(control.hasFocus() and control.keyboard_focus for control in controls)
+        for control in controls:
+            control.set_revealed(revealed)
+
     def update_turn(self, turn, model_names, tokens):
         signature = (turn['id'], turn.get('text', ''), tuple(
             tuple(attempt.get(key, '') for key in ('id', 'text', 'status', 'reason', 'model', 'model_name'))
@@ -817,6 +949,7 @@ class ChatTurn(QFrame):
                 widget.branchRequested.connect(lambda attempt_id: self.branchRequested.emit(self._turn_id, attempt_id))
                 widget.exportMarkdownRequested.connect(lambda attempt_id: self.exportMarkdownRequested.emit(self._turn_id, attempt_id))
                 widget.retryRequested.connect(lambda: self.retryRequested.emit(self._turn_id))
+                widget.thinkingInteraction.connect(self.thinkingInteraction)
                 widget.apply_appearance(tokens)
                 self.attempts[identity] = widget
                 self.stack.addWidget(widget)
@@ -856,6 +989,7 @@ class ChatTurn(QFrame):
         self.user_copy_button.setVisible(bool(self._user_source))
         self.user_versions_button.setVisible(self._version_count > 1)
         self.user_edit_button.show()
+        self._sync_user_actions()
 
     def set_version_count(self, count):
         self._version_count = count
@@ -929,19 +1063,26 @@ class ChatModelMenu(RoundMenu):
         tokens = page._tokens
         self.choices = []
         self.setObjectName('ChatModelMenu')
+        text_pixels = page.model_button.font().pixelSize()
+        if text_pixels <= 0:
+            text_pixels = font_pixels(page.model_button.font().pointSizeF())
+        self.setStyleSheet(
+            f'QMenu#ChatModelMenu, QMenu#ChatModelMenu QLabel {{font-size:{text_pixels}px;}}'
+            f'QLineEdit#ChatModelSearch {{font-size:{text_pixels}px;padding:2px 6px;min-height:0;}}')
         header = QWidget()
         header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(8, 4, 8, 6)
-        header_layout.setSpacing(6)
+        header_layout.setContentsMargins(6, 2, 6, 4)
+        header_layout.setSpacing(4)
         header_layout.addWidget(label('模型', 'Subtle'))
         self.search = QLineEdit()
         self.search.setObjectName('ChatModelSearch')
         self.search.setAccessibleName('搜尋對話模型')
         self.search.setPlaceholderText('搜尋模型')
         self.search.setClearButtonEnabled(True)
+        self.search.setFixedHeight(max(28, text_pixels + 12))
         self.search.addAction(icon('search', tokens['secondary'], 16), QLineEdit.ActionPosition.LeadingPosition)
         header_layout.addWidget(self.search)
-        width = min(440, max(300, page.width() - 32))
+        width = min(344, max(200, page.width() - 32))
         header.setFixedWidth(width)
         search_action = QWidgetAction(self)
         search_action.setDefaultWidget(header)
@@ -960,21 +1101,21 @@ class ChatModelMenu(RoundMenu):
             entry.setObjectName('ChatModelEntry')
             entry.setFixedWidth(width)
             entry.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            entry.setMinimumHeight(popup_row_height(self.fontMetrics(), 18))
+            entry.setFixedHeight(max(28, text_pixels + 14))
             layout = QHBoxLayout(entry)
-            layout.setContentsMargins(10, 5, 10, 5)
-            layout.setSpacing(8)
+            layout.setContentsMargins(8, 3, 8, 3)
+            layout.setSpacing(6)
             mark = label('')
-            mark.setPixmap(icon('server', tokens['secondary'], 18).pixmap(18, 18))
+            mark.setPixmap(icon('server', tokens['secondary'], 16).pixmap(16, 16))
             layout.addWidget(mark)
             caption = ElidedLabel(model['name'])
             caption.setTextFormat(Qt.TextFormat.PlainText)
             caption.setMinimumWidth(0)
             layout.addWidget(caption, 1)
             check = label('')
-            check.setFixedSize(18, 18)
+            check.setFixedSize(16, 16)
             if action.isChecked():
-                check.setPixmap(icon('check', tokens['text'], 18).pixmap(18, 18))
+                check.setPixmap(icon('check', tokens['text'], 16).pixmap(16, 16))
             layout.addWidget(check)
             entry.setToolTip(model['name'] + '\n' + model['path'])
             entry.setStyleSheet(
@@ -987,10 +1128,6 @@ class ChatModelMenu(RoundMenu):
             self.choices.append((action, entry, model['name'].casefold()))
         self.empty_action = self.addAction('尚未加入模型' if not self.choices else '沒有符合的模型')
         self.empty_action.setEnabled(False)
-        self.addSeparator()
-        self.manage_action = self.addAction('管理模型…')
-        self.manage_action.triggered.connect(self._manage)
-        self.manage_action.setEnabled(page.service.state != 'closed')
         self.hovered.connect(self._hover)
         self._filter()
 
@@ -1019,24 +1156,32 @@ class ChatModelMenu(RoundMenu):
                 return True
             if event.key() == Qt.Key.Key_Down:
                 first = next((action for action, _entry, _name in self.choices
-                              if action.isVisible() and action.isEnabled()), self.manage_action)
-                self.setFocus()
-                self.setActiveAction(first)
+                              if action.isVisible() and action.isEnabled()), None)
+                if first is not None:
+                    self.setFocus()
+                    self.setActiveAction(first)
                 return True
         return super().eventFilter(watched, event)
 
-    def open_for(self, control, view=None, *, align_right=False):
-        super().open_for(control, view, align_right=align_right)
+    def open_for(self, control, view=None, *, align_right=True):
+        top = widget_global_position(control, QPoint(0, 0), view)
+        bottom = widget_global_position(control, QPoint(control.width(), control.height()), view)
+        self._prepare(top)
+        size = self.sizeHint().expandedTo(self.minimumSize()).boundedTo(self.maximumSize())
+        position = QPoint(bottom.x() - size.width(), top.y() - size.height() - 8)
+        screen = QApplication.screenAt(top) or control.screen()
+        if screen is not None:
+            area = screen.availableGeometry().adjusted(4, 4, -4, -4)
+            if position.y() < area.top():
+                position.setY(bottom.y() + 8)
+            position.setX(max(area.left(), min(position.x(), area.right() + 1 - size.width())))
+            position.setY(max(area.top(), min(position.y(), area.bottom() + 1 - size.height())))
+        self.open_at(position)
         self.search.setFocus(Qt.FocusReason.PopupFocusReason)
 
     def _choose(self, identity):
         self.close()
         self.page._select_model(identity)
-
-    def _manage(self):
-        self.close()
-        self.page._add_model()
-
 
 class ChatPage(QWidget):
     """A view of a shared ChatDocument; background ownership stays in the doc."""
@@ -1067,6 +1212,11 @@ class ChatPage(QWidget):
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setSingleShot(True)
         self._scroll_timer.timeout.connect(self._scroll_to_bottom)
+        self._manual_disclosures = weakref.WeakSet()
+        self._disclosure_connections = weakref.WeakSet()
+        self._disclosure_settle = QTimer(self)
+        self._disclosure_settle.setSingleShot(True)
+        self._disclosure_settle.timeout.connect(self._finish_disclosure_scroll)
         self._visibility_timer = QTimer(self)
         self._visibility_timer.setSingleShot(True)
         self._visibility_timer.timeout.connect(self._sync_rich_visibility)
@@ -1128,6 +1278,9 @@ class ChatPage(QWidget):
         self.scroll = scrolling(self.transcript_host)
         self.scroll.setObjectName('ChatScroll')
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover)
+        self.scroll.viewport().setMouseTracking(True)
+        self.scroll.viewport().installEventFilter(self)
         self.scroll.verticalScrollBar().valueChanged.connect(self._scroll_position_changed)
         self.scroll.verticalScrollBar().rangeChanged.connect(self._scroll_range_changed)
         self.scroll.verticalScrollBar().sliderPressed.connect(self._cancel_history_anchor)
@@ -1291,7 +1444,7 @@ class ChatPage(QWidget):
 
     def _scroll_position_changed(self, value):
         self._visibility_timer.start(0)
-        if self._history_anchor is not None:
+        if self._history_anchor is not None or self._manual_disclosures:
             return
         if self._rendering or self._scroll_timer.isActive():
             return
@@ -1314,14 +1467,60 @@ class ChatPage(QWidget):
             bar = self.scroll.verticalScrollBar()
             bar.setValue(bar.maximum())
 
+    def _pause_disclosure_scroll(self, body):
+        # A user opening earlier reasoning is reading, not following generation.
+        # Keep layout-driven scrollbar clamping from enabling auto-follow again.
+        self._follow_output = False
+        self._scroll_timer.stop()
+        self._disclosure_settle.stop()
+        self._manual_disclosures.add(body)
+        if body not in self._disclosure_connections:
+            self._disclosure_connections.add(body)
+            body.settled.connect(self._queue_disclosure_scroll_finish)
+
+    def _queue_disclosure_scroll_finish(self):
+        if self._manual_disclosures:
+            self._disclosure_settle.start(0)
+
+    def _finish_disclosure_scroll(self):
+        for body in tuple(self._manual_disclosures):
+            try:
+                running = body.reveal.state() == body.reveal.State.Running
+            except RuntimeError:  # A turn may be removed while a callback is queued.
+                running = False
+            if not running:
+                self._manual_disclosures.discard(body)
+        self._follow_output = False
+
     def _sync_rich_visibility(self):
         # Scrollbar visibility settles after range/layout updates. Keep the
         # fixed composer on the same reading axis as the scroll viewport.
         self._fit_reading_columns()
+        self._sync_user_hover()
         for turn in self._turns.values():
             for attempt in turn.attempts.values():
                 attempt.content.sync_rich_visibility()
                 attempt.thinking_content.sync_rich_visibility()
+
+    def eventFilter(self, watched, event):
+        if watched is self.scroll.viewport():
+            kind = event.type()
+            if kind in (QEvent.Type.HoverEnter, QEvent.Type.HoverMove, QEvent.Type.MouseMove):
+                self._sync_user_hover(event.position().toPoint())
+            elif kind in (QEvent.Type.Leave, QEvent.Type.HoverLeave):
+                self._sync_user_hover(QPoint(-1, -1))
+        return super().eventFilter(watched, event)
+
+    def _sync_user_hover(self, position=None):
+        viewport = self.scroll.viewport()
+        if position is None:
+            position = viewport.mapFromGlobal(QCursor.pos())
+        inside = self.isVisible() and viewport.isVisible() and viewport.rect().contains(position)
+        for turn in self._turns.values():
+            top = turn.user_group.mapTo(viewport, QPoint(0, 0)).y()
+            # Include the reserved action row and a small surrounding band;
+            # the horizontal hit area is the entire conversation viewport.
+            turn.set_user_hovered(inside and not turn.editing and top - 8 <= position.y() < top + turn.user_group.height() + 8)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1338,6 +1537,9 @@ class ChatPage(QWidget):
 
     def hideEvent(self, event):
         self._cancel_history_anchor()
+        self._disclosure_settle.stop()
+        self._manual_disclosures.clear()
+        self._sync_user_hover(QPoint(-1, -1))
         super().hideEvent(event)
 
     def _cancel_history_anchor(self, *_args):
@@ -1422,6 +1624,7 @@ class ChatPage(QWidget):
                 widget.editCancelled.connect(self.discard_inline_edit)
                 widget.editChanged.connect(self._inline_edit_changed)
                 widget.retryRequested.connect(self._retry_turn)
+                widget.thinkingInteraction.connect(self._pause_disclosure_scroll)
                 self._turns[identity] = widget
                 self.messages.insertWidget(position + 1, widget)
             widget = self._turns[identity]
@@ -1647,6 +1850,7 @@ class ChatPage(QWidget):
                               for i in range(3)]).name()
         title_size = font_pixels(ui_size + 9)
         control_font = font_pixels(max(10, ui_size - 1))
+        model_font = font_pixels(max(9, ui_size - 2))
         control_height = max(32, round(control_font + 12))
         for control in (self.send_button, self.stop_button, self.add_button):
             control.setFixedSize(control_height, control_height)
@@ -1667,7 +1871,7 @@ class ChatPage(QWidget):
             QPlainTextEdit#ChatComposer {{ background:transparent; border:0; padding:4px; }}
             QTextBrowser#ChatText {{ padding:0; color:{tokens['text']}; }}
             QLabel#ChatEmptyTitle {{ font-size:{title_size}px; font-weight:500; color:{tokens['text']}; }}
-            QPushButton#ChatModelButton {{ background:{tokens['raised']}; color:{tokens['text']}; border:0; border-radius:{control_height//2}px; padding:0 10px; font-size:{control_font}px; }}
+            QPushButton#ChatModelButton {{ background:{tokens['raised']}; color:{tokens['text']}; border:0; border-radius:{control_height//2}px; padding:0 10px; font-size:{model_font}px; }}
             QPushButton#ChatModelButton:hover {{ background:{tokens['hover']}; }}
             QPushButton#ChatModelButton:focus {{ border:1px solid {tokens['accent_outline']}; }}
             QPushButton#ChatSend {{ background:{tokens['accent']}; border:0; border-radius:{control_height//2}px; padding:0; }}

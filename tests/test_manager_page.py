@@ -79,7 +79,7 @@ class ManagerPageTests(unittest.TestCase):
 
     def test_responsive_detail_retains_card_size_and_batch_selection(self):
         self.populated()
-        self.page.resize(1400, 900)
+        self.page.resize(1700, 900)
         self.page.show()
         self.app.processEvents()
         height = self.page.gallery.gridSize().height()
@@ -91,6 +91,24 @@ class ManagerPageTests(unittest.TestCase):
         self.assertTrue(self.page.list_stack.isVisible())
         self.assertEqual(self.page.detail_back.text(), '關閉詳情')
         self.assertEqual(self.page.gallery.gridSize().height(), height)
+        self.assertEqual(self.page.column.width(), 740)
+        self.assertEqual(self.page.list_stack.width(), 740)
+        self.assertEqual(self.page.detail_scroll.x(), self.page.column.geometry().right() + 33)
+        self.assertEqual(self.page.detail_scroll.width(), 340)
+        self.page.resize(1900, 900)
+        self.app.processEvents()
+        self.assertEqual(self.page.column.x(), (self.page.width() - 740) // 2)
+        self.page.show_view('tools')
+        self.app.processEvents()
+        self.assertFalse(self.page.detail_scroll.isVisible())
+        self.page.show_view('packages')
+        self.app.processEvents()
+        self.assertTrue(self.page.detail_scroll.isVisible())
+        self.page.resize(1200, 900)
+        self.app.processEvents()
+        self.assertEqual(self.page.column.x(), (self.page.width() - 740) // 2)
+        self.assertFalse(self.page.list_stack.isVisible())
+        self.assertEqual(self.page.detail_scroll.x(), self.page.column.x())
         self.page.resize(720, 900)
         self.app.processEvents()
         self.assertFalse(self.page.list_stack.isVisible())
@@ -134,7 +152,7 @@ class ManagerPageTests(unittest.TestCase):
             for index in range(40)
         })
         self.page.client.available = self.page.client.can_update = True
-        self.page.resize(1400, 900)
+        self.page.resize(1700, 900)
         self.page.render(); self.page.show()
         self.page.select('Example Package 00', True)
         self.page.open_detail('Example Package 00')
@@ -264,8 +282,8 @@ class ManagerPageTests(unittest.TestCase):
         QTest.qWait(30)
         gallery = self.page.gallery
         self.assertEqual(gallery.visualItemRect(gallery.item(0)).top(),
-                         gallery.visualItemRect(gallery.item(4)).top())
-        self.assertGreater(gallery.visualItemRect(gallery.item(5)).top(),
+                         gallery.visualItemRect(gallery.item(2)).top())
+        self.assertGreater(gallery.visualItemRect(gallery.item(3)).top(),
                            gallery.visualItemRect(gallery.item(0)).top())
 
     def test_filters_preserve_ids_and_refresh_discards_removed_selection_and_detail(self):

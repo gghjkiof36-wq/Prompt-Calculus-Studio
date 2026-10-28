@@ -159,6 +159,8 @@ class ExecutionBar(QFrame):
     def resizeEvent(self,event):
         super().resizeEvent(event); self.parentWidget().update();self.place_zoom_controls()
     def place_zoom_controls(self):
+        recent=getattr(self.canvas,'recent_control',None)
+        if recent is not None:recent.place()
         controls=getattr(self.canvas,'zoom_controls',None)
         if controls is not None:controls.place()
         self.canvas.view.position_status()
@@ -232,8 +234,20 @@ class ExecutionBar(QFrame):
         self.setMaximumWidth(max(1,area.width())); self.adjustSize()
         self.present_status()
         if self.drag is None:
-            x,y=self.canvas.window.state['settings'].get('execution_bar_position',[0.0,1.0])
-            self.move(area.left()+round(max(0,area.width()-self.width())*x),area.top()+round(max(0,area.height()-self.height())*y))
+            position=self.canvas.window.state['settings'].get('execution_bar_position')
+            if position is not None:
+                x,y=position
+                left=area.left()+round(max(0,area.width()-self.width())*x)
+            else:
+                # Center the default on the application rather than following
+                # the sidebar edge. Split views keep their own local center.
+                workspace=getattr(self.canvas.window,'workspace_owner',None)
+                center=area.center().x()
+                if workspace is not None and len(getattr(workspace,'panes',[]))==1:
+                    center=self.parentWidget().mapFromGlobal(workspace.mapToGlobal(workspace.rect().center())).x()
+                left=max(area.left(),min(center-self.width()//2,area.right()-self.width()+1))
+                y=1.0
+            self.move(left,area.top()+round(max(0,area.height()-self.height())*y))
         else:
             # Status ticks may resize the controls, but the held pointer owns
             # the position until release stores it. Only clamp to the viewport.

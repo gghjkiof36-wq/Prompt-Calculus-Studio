@@ -9,7 +9,7 @@ from PySide6.QtCore import QCoreApplication, QEvent, QPoint
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton
 
-from prompt_calculus_studio.management_reading import PREFERRED_CONTENT_WIDTH, ReadingPanel, ReadingText
+from prompt_calculus_studio.management_reading import READING_CONTENT_WIDTH, ReadingPanel, ReadingText
 from prompt_calculus_studio.window import Window
 
 
@@ -65,11 +65,16 @@ class ManagementContentWidthTests(unittest.TestCase):
                 with self.subTest(width=width, page=key):
                     scroll, panel = self.show(width, height, key)
                     bounds.append((panel.mapTo(self.window, QPoint()).x(), panel.width()))
-                    self.assertEqual(panel.width(), PREFERRED_CONTENT_WIDTH)
+                    self.assertEqual(panel.width(), READING_CONTENT_WIDTH)
+                    left = self.page.column.mapTo(self.page, QPoint()).x()
+                    self.assertLessEqual(abs(left - (self.page.width() - self.page.column.width()) / 2), 1)
+                    self.assertEqual(self.page.header.x(), self.page.pages.x())
+                    self.assertEqual(self.page.tab_widget.x(), self.page.pages.x())
                     self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
             self.assertEqual(len(set(bounds)), 1, bounds)
             recorded[width] = bounds[0]
-        self.assertEqual(recorded[1360], recorded[2048])
+        self.assertEqual(recorded[1360][1], recorded[2048][1])
+        self.assertGreater(recorded[2048][0], recorded[1360][0])
 
     def test_narrow_large_text_keeps_panels_and_controls_reachable(self):
         bounds = []
@@ -77,7 +82,7 @@ class ManagementContentWidthTests(unittest.TestCase):
             with self.subTest(page=key):
                 scroll, panel = self.show(640, 480, key, points=18)
                 bounds.append((panel.mapTo(self.window, QPoint()).x(), panel.width()))
-                self.assertLess(panel.width(), PREFERRED_CONTENT_WIDTH)
+                self.assertLess(panel.width(), READING_CONTENT_WIDTH)
                 self.assertLessEqual(panel.width(), scroll.viewport().width())
                 self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
                 for text in panel.findChildren(ReadingText):

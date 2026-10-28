@@ -304,8 +304,9 @@ class MultiCanvas(TextCanvas):
         self.output_picker=ComboBox(); self.output_picker.currentIndexChanged.connect(self.choose_current)
         self.output_picker.setToolTip('選項隔離開啟時，每份輸出分別保存清單內容；切回畫布模式使用各畫布內容。')
         window.builder_panel.layout().insertWidget(0,self.output_picker)
-        from .canvas_onboarding import CanvasOnboarding,CanvasZoomControls
+        from .canvas_onboarding import CanvasOnboarding,CanvasZoomControls,CanvasRecentControl
         self.onboarding=CanvasOnboarding(self);self.layout().insertWidget(0,self.onboarding)
+        self.recent_control=CanvasRecentControl(self)
         self.zoom_controls=CanvasZoomControls(self)
         from .canvas_starter import guide
         self._starter_view_pending=bool(guide(window.state) and not window.state.get('canvas_view'))

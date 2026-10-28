@@ -792,7 +792,7 @@ class CanvasView(QGraphicsView):
         if not widgets:return
         gap=6;total=sum(item[2] for item in widgets)+gap*(len(widgets)-1)
         width=max(item[1] for item in widgets)
-        obstacles=[item.geometry() for item in (bar,getattr(self.canvas,'zoom_controls',None))
+        obstacles=[item.geometry() for item in (bar,getattr(self.canvas,'zoom_controls',None),getattr(self.canvas,'recent_control',None))
                    if item is not None and not item.isHidden()]
         intervals=[(12,max(12,self.viewport().height()-12))]
         # Use an actual free interval, including below a bar dragged upward.

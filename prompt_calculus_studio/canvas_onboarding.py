@@ -56,6 +56,32 @@ def setup_badge(canvas,badge,pending,complete='已綁定'):
         ('600' if pending else '400')+';}')
 
 
+class CanvasRecentControl(QFrame):
+    """A document-owned entry to actual recent results, separate from nodes."""
+    def __init__(self,canvas):
+        super().__init__(canvas.view.viewport());self.canvas=canvas
+        self.setObjectName('InsetPanel')
+        body=QHBoxLayout(self);body.setContentsMargins(4,3,4,3)
+        from .ui_icons import icon
+        self.action=button('',canvas.window.show_recent_sheet,'IconButton')
+        self.action.setIcon(icon('image-single'))
+        self.action.setToolTip('最近預覽');self.action.setAccessibleName('最近預覽')
+        body.addWidget(self.action)
+        canvas.view.viewport().installEventFilter(self);self.place()
+
+    def place(self):
+        self.adjustSize();area=self.parentWidget().rect().adjusted(12,12,-12,-12)
+        x=max(area.left(),area.right()-self.width()+1);y=max(area.top(),area.bottom()-self.height()+1)
+        bar=getattr(self.canvas,'execution_bar',None)
+        if bar and bar.isVisible() and bar.geometry().intersects(self.geometry().translated(x-self.x(),y-self.y())):
+            y=max(area.top(),bar.y()-self.height()-10)
+        self.move(x,y);self.raise_()
+
+    def eventFilter(self,watched,event):
+        if event.type() in (QEvent.Type.Resize,QEvent.Type.Show):QTimer.singleShot(0,self,self.place)
+        return super().eventFilter(watched,event)
+
+
 class CanvasZoomControls(QFrame):
     """Visible view controls remain available after dismissing the starter."""
     def __init__(self,canvas):
@@ -83,7 +109,9 @@ class CanvasZoomControls(QFrame):
             self.hide();return
         self.show()
         self.adjustSize();area=self.parentWidget().rect().adjusted(12,12,-12,-12)
-        x=max(area.left(),area.right()-self.width()+1);y=max(area.top(),area.bottom()-self.height()+1)
+        recent=getattr(self.canvas,'recent_control',None)
+        right=recent.x()-10 if recent is not None and not recent.isHidden() else area.right()+1
+        x=max(area.left(),right-self.width());y=max(area.top(),area.bottom()-self.height()+1)
         if bar and bar.isVisible() and bar.geometry().intersects(self.geometry().translated(x-self.x(),y-self.y())):
             y=max(area.top(),bar.y()-self.height()-10)
         self.move(x,y);self.raise_()

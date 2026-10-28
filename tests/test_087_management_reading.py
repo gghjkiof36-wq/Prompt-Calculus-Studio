@@ -55,9 +55,9 @@ class ManagementReadingTests(unittest.TestCase):
             self.assertEqual(self.page.heading.font().pixelSize(),font_pixels(16))
             panel=content.findChild(ReadingPanel);self.assertEqual(panel.body.contentsMargins().left(),24)
         extension=self.page.extension;body=extension.findChild(ReadingPanel).body
-        self.assertEqual(body.itemAt(body.indexOf(extension.version)-1).spacerItem().sizeHint().height(),16)
-        self.assertEqual(body.itemAt(body.indexOf(extension.status)+1).spacerItem().sizeHint().height(),24)
-        self.assertEqual(body.itemAt(body.indexOf(extension.automatic)+1).spacerItem().sizeHint().height(),10)
+        self.assertEqual(body.spacing(),14)
+        self.assertEqual(extension.automatic.text(),'自動更新')
+        self.assertEqual(extension.check.text(),'')
 
     def test_narrow_large_text_reflows_long_paths_and_status_without_internal_scroll(self):
         path='D:/合成安裝位置/中文長路徑/'+('very-long-directory-name-'*10)+'/ComfyUI'

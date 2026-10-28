@@ -1,6 +1,6 @@
 """Responsive Manager page backed by real capability and operation records."""
 from math import ceil
-from PySide6.QtCore import Qt, QTimer, QUrl, QSize, QPointF
+from PySide6.QtCore import Qt, QTimer, QUrl, QSize, QPointF, QEvent
 from PySide6.QtGui import QDesktopServices, QPainter, QTextLayout, QTextOption
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QBoxLayout, QStackedWidget,
     QLineEdit, QCheckBox, QButtonGroup, QListWidgetItem, QSizePolicy, QLabel)
@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QBoxLayout, QS
 from .manager_gallery import PackageGallery, DATA_ROLE, package_status
 from .manager_client import ManagerClient
 from .manager_protocol import is_manager_package
+from .management_reading import READING_CONTENT_WIDTH, READING_MARGIN, READING_NARROW_MARGIN
 from .widgets import (label, button, row, panel, scrolling, ActionHeader, StudioDialog,
                       ComboBox as QComboBox)
 
@@ -89,8 +90,13 @@ class ManagerPage(QWidget):
         self.view = 'packages'
         self.rendering = False
         self.setObjectName('ManagerPage')
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(20, 20, 20, 16)
+        self.column = QWidget(self)
+        self.column.setMaximumWidth(READING_CONTENT_WIDTH)
+        self.column.setMinimumWidth(0)
+        self.column.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        outer = QVBoxLayout(self.column)
+        self.column_layout = outer
+        outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(14)
         self.location = label('', 'Subtle')
         self.location.hide()
@@ -152,6 +158,7 @@ class ManagerPage(QWidget):
         self.pages.addWidget(self.tools_page)
         self.history_content = QWidget()
         self.history_layout = QVBoxLayout(self.history_content)
+        self.history_layout.setContentsMargins(0, 0, 0, 0)
         self.history_page = scrolling(self.history_content)
         self.pages.addWidget(self.history_page)
         self.client.changed.connect(self.render)
@@ -252,10 +259,11 @@ class ManagerPage(QWidget):
         detail_container_layout.addWidget(self.detail, 0, Qt.AlignmentFlag.AlignTop)
         detail_container_layout.addStretch()
         self.detail_scroll = scrolling(detail_container)
+        self.detail_scroll.setParent(self)
         self.detail_scroll.setMinimumWidth(0)
         self.detail_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.content.addWidget(self.detail_scroll)
         self.detail_scroll.hide()
+        self.list_stack.installEventFilter(self)
         return page
 
     def set_package_view(self, grid):
@@ -330,6 +338,7 @@ class ManagerPage(QWidget):
         self.update_all.setVisible(key == 'packages' and bool(self.client.available or self.client.packages))
         if key == 'history':
             self.render_history()
+        self.arrange()
 
     def open_comfy(self):
         if self.client.server:
@@ -619,19 +628,26 @@ class ManagerPage(QWidget):
     def arrange(self):
         if not hasattr(self, 'list_stack'):
             return
-        compact = self.width() < 1100 or self.height() < 680
+        margin = READING_NARROW_MARGIN if self.width() < 720 else READING_MARGIN
+        width = min(READING_CONTENT_WIDTH, max(0, self.width() - 2 * margin))
+        compact = self.height() < 680
+        has_detail = self.view == 'packages' and bool(self.detail_id)
+        detail_width, detail_gap = 340, 32
+        left = (self.width() - width) // 2
+        dock_detail = has_detail and left + width + detail_gap + detail_width <= self.width() - margin
+        self.column.setGeometry(left, 16 if compact else 24, width,
+                                max(0, self.height() - (28 if compact else 36)))
         self.location.hide()
         self.heading.setText('管理與更新')
-        self.layout().setSpacing(14)
-        self.layout().setContentsMargins(14 if compact else 24, 16 if compact else 24, 14 if compact else 24, 12)
         tabs_width = sum(control.sizeHint().width() for control in self.tabs.buttons()) + 8 * (len(self.tabs.buttons()) - 1) + 48
-        compact_navigation = self.width() < max(540, tabs_width)
+        compact_navigation = width < max(540, tabs_width)
         self.tab_widget.setVisible(not compact_navigation)
         self.compact_tabs.setVisible(compact_navigation)
-        self.selection_layout.setDirection(QBoxLayout.Direction.TopToBottom if self.width() < 540 else QBoxLayout.Direction.LeftToRight)
+        self.selection_layout.setDirection(QBoxLayout.Direction.TopToBottom if width < 540 else QBoxLayout.Direction.LeftToRight)
         self.list_stack.setCurrentWidget(self.empty if not self.visible_packages() else self.gallery)
-        self.detail_scroll.setVisible(bool(self.detail_id))
-        detail_only = bool(self.detail_id) and self.width() < 1040
+        self.detail_scroll.setVisible(has_detail)
+        detail_only = has_detail and not dock_detail
+        self.detail_docked = dock_detail
         if self.detail_id and hasattr(self, 'detail_back'):
             from .ui_icons import icon
             self.detail_back.setText('返回套件' if detail_only else '關閉詳情')
@@ -644,10 +660,27 @@ class ManagerPage(QWidget):
         self.filter_bar.setVisible(available and not detail_only)
         self.category_bar.setVisible(available and not detail_only)
         self.count.setVisible(available and not detail_only)
-        self.detail_scroll.setMaximumWidth(16777215 if detail_only else 340)
-        self.detail_scroll.setMinimumWidth(0 if detail_only else 310 if self.detail_id else 0)
-        self.gallery.set_compact(self.width() < 1040 or self.height() < 680)
+        self.column_layout.activate()
+        self.pages.layout().activate()
+        self.package_page.layout().activate()
+        self.position_detail()
+        self.gallery.set_compact(width < 1040 or compact)
         self.gallery.reflow()
+
+    def position_detail(self):
+        if not hasattr(self, 'detail_scroll') or self.detail_scroll.isHidden():
+            return
+        top = self.package_page.mapTo(self, self.content.geometry().topLeft()).y()
+        docked = getattr(self, 'detail_docked', False)
+        left = self.column.x() + self.column.width() + 32 if docked else self.column.x()
+        width = 340 if docked else self.column.width()
+        self.detail_scroll.setGeometry(left, top, width, max(0, self.height() - top - 12))
+        self.detail_scroll.raise_()
+
+    def eventFilter(self, watched, event):
+        if watched is getattr(self, 'list_stack', None) and event.type() in (QEvent.Type.Move, QEvent.Type.Resize):
+            self.position_detail()
+        return super().eventFilter(watched, event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
