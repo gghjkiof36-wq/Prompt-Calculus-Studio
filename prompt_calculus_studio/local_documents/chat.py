@@ -7,6 +7,7 @@ from .schema import fail, identifier, new_document
 FEATURE = 'pcs.chat.v1'
 REVISION_FEATURE = 'pcs.chat-revisions.v1'
 REASONING_FEATURE = 'pcs.chat-reasoning.v1'
+TIMING_FEATURE = 'pcs.chat-timing.v1'
 STATES = {'receiving', 'complete', 'stopped', 'interrupted', 'failed', 'limited'}
 MAX_TEXT = 1_000_000
 
@@ -65,7 +66,7 @@ def _validate_turns(turns, *, seen=None, terminal_context=False):
         if not isinstance(turn['attempts'], list) or len(turn['attempts']) > 100:
             fail('limit', '此訊息的回覆次數過多。')
         for attempt in turn['attempts']:
-            if not isinstance(attempt, dict) or set(attempt) - {'reasoning'} != {'id', 'request', 'model', 'model_name', 'profile_epoch', 'parameters', 'system_prompt', 'context', 'text', 'status', 'reason'}:
+            if not isinstance(attempt, dict) or set(attempt) - {'reasoning', 'thinking_seconds'} != {'id', 'request', 'model', 'model_name', 'profile_epoch', 'parameters', 'system_prompt', 'context', 'text', 'status', 'reason'}:
                 fail('invalid', '對話回覆格式無效。')
             ident(attempt['id']); ident(attempt['request'])
             if not identifier(attempt['profile_epoch']) or not isinstance(attempt['status'], str) or attempt['status'] not in STATES:
@@ -92,6 +93,14 @@ def _validate_turns(turns, *, seen=None, terminal_context=False):
                     normalize_reasoning(attempt['reasoning'], max_tokens=params['max_tokens'])
                 except ValueError as exc:
                     fail('invalid', str(exc))
+            if 'thinking_seconds' in attempt:
+                seconds = attempt['thinking_seconds']
+                try:
+                    valid = type(seconds) in (int, float) and seconds >= 0 and math.isfinite(seconds)
+                except OverflowError:
+                    valid = False
+                if not valid:
+                    fail('invalid', '對話思考用時必須是有限的非負秒數。')
             refs = attempt['context']
             if not isinstance(refs, list) or len(refs) != len(prior):
                 fail('invalid', '對話上下文關聯不完整。')
@@ -106,7 +115,7 @@ def _validate_turns(turns, *, seen=None, terminal_context=False):
             prior[turn['id']].add('')
 
 
-def has_reasoning(payload):
+def _has_attempt_field(payload, field):
     """Feature presence also covers archived paths, including malformed input."""
     paths = [payload]
     revisions = payload.get('revisions', [])
@@ -118,9 +127,17 @@ def has_reasoning(payload):
             continue
         for turn in turns:
             attempts = turn.get('attempts', []) if isinstance(turn, dict) else []
-            if isinstance(attempts, list) and any(isinstance(a, dict) and 'reasoning' in a for a in attempts):
+            if isinstance(attempts, list) and any(isinstance(a, dict) and field in a for a in attempts):
                 return True
     return False
+
+
+def has_reasoning(payload):
+    return _has_attempt_field(payload, 'reasoning')
+
+
+def has_timing(payload):
+    return _has_attempt_field(payload, 'thinking_seconds')
 
 
 def sync_features(document):
@@ -137,6 +154,11 @@ def sync_features(document):
             features.append(REASONING_FEATURE)
     elif REASONING_FEATURE in features:
         features.remove(REASONING_FEATURE)
+    if has_timing(document['payload']):
+        if TIMING_FEATURE not in features:
+            features.append(TIMING_FEATURE)
+    elif TIMING_FEATURE in features:
+        features.remove(TIMING_FEATURE)
     return document
 
 

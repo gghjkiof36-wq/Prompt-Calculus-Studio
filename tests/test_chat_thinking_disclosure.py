@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from PySide6.QtCore import QEvent, QPoint, Qt
-from PySide6.QtGui import QColor, QFont, QImage, QPainter
+from PySide6.QtGui import QColor, QFont, QPixmap, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -143,7 +143,7 @@ class ThinkingDisclosure(unittest.TestCase):
                 image = self.toggle.grab().toImage()
                 width = self.toggle.fontMetrics().horizontalAdvance(self.toggle.text())
                 background = image.pixelColor(0, 0)
-                reference = QImage(width + 2, 100, QImage.Format.Format_ARGB32)
+                reference = QPixmap(width + 2, 100)
                 reference.fill(background)
                 painter = QPainter(reference)
                 painter.setFont(self.toggle.font())
@@ -153,7 +153,7 @@ class ThinkingDisclosure(unittest.TestCase):
                 def ink(bitmap):
                     return sum(bitmap.pixelColor(x, y) != background
                                for y in range(bitmap.height()) for x in range(width + 1))
-                self.assertEqual(ink(image), ink(reference))
+                self.assertEqual(ink(image), ink(reference.toImage()))
 
 
 if __name__ == '__main__':

@@ -386,6 +386,7 @@ class ThinkingToggle(QPushButton):
         self.setCheckable(True)
         self.clicked.connect(callback)
         self._thinking = False
+        self._elapsed_seconds = None
         self._phase = 0.
         self._tokens = visual_tokens()
         self._system_motion = system_motion_enabled()
@@ -400,8 +401,28 @@ class ThinkingToggle(QPushButton):
 
     def set_thinking(self, value):
         self._thinking = bool(value)
-        self.setText('思考中' if self._thinking else '思考')
+        self._update_caption()
         self._sync_motion()
+
+    def set_elapsed(self, seconds):
+        self._elapsed_seconds = (max(0, int(seconds))
+                                 if isinstance(seconds, (int, float)) and not isinstance(seconds, bool)
+                                 and math.isfinite(seconds) else None)
+        self._update_caption()
+
+    def _update_caption(self):
+        title = '思考中' if self._thinking else '思考'
+        caption = title + self._elapsed_caption()
+        if self.text() != caption:
+            self.setText(caption)
+            self.setAccessibleDescription(caption)
+
+    def _elapsed_caption(self):
+        if self._elapsed_seconds is None:
+            return ''
+        seconds = (str(self._elapsed_seconds) if self._elapsed_seconds < 1_000_000
+                   else f'{self._elapsed_seconds:.3g}')
+        return f' · {seconds} 秒'
 
     def apply_appearance(self, tokens):
         self._tokens = tokens
@@ -477,6 +498,8 @@ class ThinkingToggle(QPushButton):
         metrics = self.fontMetrics()
         baseline = round((self.height() - metrics.height()) / 2 + metrics.ascent())
         text_width = metrics.horizontalAdvance(self.text())
+        title = '思考中' if self._thinking else '思考'
+        title_width = metrics.horizontalAdvance(title)
         icon_width = option.iconSize.width() + 4 if not option.icon.isNull() else 0
         # This is a transcript heading, not a centered button caption. Its
         # text shares the answer's reading edge; the chevron follows the text.
@@ -485,10 +508,10 @@ class ThinkingToggle(QPushButton):
             icon_rect = QRectF(left + text_width + 4, (self.height() - option.iconSize.height()) / 2,
                                option.iconSize.width(), option.iconSize.height())
             option.icon.paint(painter, icon_rect.toRect())
-        text_rect = QRectF(left, baseline - metrics.ascent(), text_width + 1, metrics.height())
+        text_rect = QRectF(left, baseline - metrics.ascent(), title_width + 1, metrics.height())
         if self.motion.state() == self.motion.State.Running:
-            band = max(28., text_width * .7)
-            center = text_rect.left() - band + self._phase * (text_width + 2 * band)
+            band = max(28., title_width * .7)
+            center = text_rect.left() - band + self._phase * (title_width + 2 * band)
             sweep = QLinearGradient(center - band / 2, 0, center + band / 2, 0)
             sweep.setColorAt(0., QColor(self._tokens['muted']))
             sweep.setColorAt(.5, QColor(self._tokens['text']))
@@ -500,7 +523,10 @@ class ThinkingToggle(QPushButton):
         # 30px header cannot use that contents rect for a 20px CJK line: Qt's
         # rectangle text drawing clips the glyphs. Paint a full measured line
         # at its baseline; the widget itself still provides the outer clip.
-        painter.drawText(QPoint(0, baseline), self.text())
+        painter.drawText(QPoint(0, baseline), title)
+        if self._elapsed_seconds is not None:
+            painter.setPen(QColor(self._tokens['secondary']))
+            painter.drawText(QPoint(title_width, baseline), self._elapsed_caption())
         if self.underMouse() or self.hasFocus():
             # Keep the transcript's reading edge. A content-width underline
             # avoids the asymmetry of a padded, centered button background.
@@ -686,6 +712,7 @@ class ChatAttempt(QFrame):
         self._answer = self._thinking_text = ''
         self._last_receiving = None
         self._has_thinking = False
+        self._thinking_seconds = None
         self._copy_reset = QTimer(self)
         self._copy_reset.setSingleShot(True)
         self._copy_reset.timeout.connect(self._reset_copy)
@@ -711,6 +738,8 @@ class ChatAttempt(QFrame):
         self._has_thinking = parts.has_thinking
         self.thinking.setVisible(parts.has_thinking)
         self.thinking_toggle.set_thinking(parts.has_thinking and receiving and not parts.closed)
+        self._thinking_seconds = attempt.get('thinking_seconds')
+        self.thinking_toggle.set_elapsed(self._thinking_seconds)
         self.thinking_content.set_content(parts.thinking)
         self.thinking_copy.setEnabled(bool(parts.thinking))
         self._sync_thinking()
@@ -926,7 +955,7 @@ class ChatTurn(QFrame):
 
     def update_turn(self, turn, model_names, tokens):
         signature = (turn['id'], turn.get('text', ''), tuple(
-            tuple(attempt.get(key, '') for key in ('id', 'text', 'status', 'reason', 'model', 'model_name'))
+            tuple(attempt.get(key, '') for key in ('id', 'text', 'status', 'reason', 'model', 'model_name', 'thinking_seconds'))
             for attempt in turn.get('attempts', [])), tuple(model_names.items()),
             tuple((item.get('id'), item.get('name'), item.get('size')) for item in turn.get('attachments', [])))
         if signature == self._display_signature:
@@ -1460,21 +1489,41 @@ class ChatPage(QWidget):
     def _update_elapsed(self):
         # A one-second caption update must never reparse the transcript.
         elapsed = getattr(self.chat_document, 'generation_elapsed_seconds', None)
-        visible = (self.isVisible() and not self.window().isMinimized()
-                   and elapsed is not None)
+        visible = self.isVisible() and not self.window().isMinimized()
         if not visible:
             self._elapsed_timer.stop()
             self.elapsed_label.hide()
             return
-        seconds = max(0, int(elapsed))
-        text = f'{seconds // 60}:{seconds % 60:02d}'
-        if self.elapsed_label.text() != text:
-            self.elapsed_label.setText(text)
-        self.elapsed_label.show()
-        if not self.chat_document.busy:
+        thinking_active = self._update_thinking_elapsed()
+        if elapsed is None:
+            self.elapsed_label.hide()
+        else:
+            seconds = max(0, int(elapsed))
+            text = f'{seconds // 60}:{seconds % 60:02d}'
+            if self.elapsed_label.text() != text:
+                self.elapsed_label.setText(text)
+            self.elapsed_label.show()
+        if not self.chat_document.busy or (elapsed is None and not thinking_active):
             self._elapsed_timer.stop()
         elif not self._elapsed_timer.isActive():
             self._elapsed_timer.start()
+
+    def _update_thinking_elapsed(self):
+        measure = getattr(self.chat_document, 'thinking_elapsed_seconds', None)
+        active = False
+        for turn in self._turns.values():
+            for attempt in turn.attempts.values():
+                if not attempt._has_thinking:
+                    continue
+                # Finished timings already came from this attempt's projection.
+                # Only the live heading needs a clock lookup; querying each old
+                # attempt would rescan document history every second.
+                seconds = attempt._thinking_seconds
+                if self.chat_document.busy and attempt.thinking_toggle._thinking and callable(measure):
+                    seconds = measure(attempt._attempt_id)
+                attempt.thinking_toggle.set_elapsed(seconds)
+                active |= attempt.thinking_toggle._thinking and seconds is not None
+        return active
 
     def _draft_changed(self):
         if not self.composer.composing:

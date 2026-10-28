@@ -54,6 +54,7 @@ class ChatDocument(QObject):
         self._attempt = None
         self._generation_started = None
         self._generation_elapsed = None
+        self._reset_thinking_clock()
         self._disposed = False
         self._attachment_job = None
         self._checkpoint_job = None
@@ -91,6 +92,65 @@ class ChatDocument(QObject):
         if self._request is None or self._generation_started is None:
             return self._generation_elapsed
         return max(0., monotonic() - self._generation_started)
+
+    def thinking_elapsed_seconds(self, attempt_id):
+        """Observed thinking stream only, with completed values saved per attempt."""
+        if self._attempt is not None and self._attempt['id'] == attempt_id and self._thinking_started is not None:
+            return max(0., monotonic() - self._thinking_started)
+        for path in (self.payload, *reversed(self.payload.get('revisions', []))):
+            for turn in path['turns']:
+                for attempt in turn['attempts']:
+                    if attempt['id'] == attempt_id:
+                        value = attempt.get('thinking_seconds')
+                        return None if value is None else float(value)
+        return None
+
+    def _reset_thinking_clock(self):
+        self._thinking_started = self._thinking_prefix_started = None
+        self._thinking_tail = ''
+        self._thinking_scan_done = False
+
+    def _freeze_thinking_clock(self, now=None):
+        if self._attempt is not None and self._thinking_started is not None:
+            now = monotonic() if now is None else now
+            self._attempt['thinking_seconds'] = max(0., now - self._thinking_started)
+            self.dirty = True
+        self._thinking_started = self._thinking_prefix_started = None
+        self._thinking_tail = ''
+        self._thinking_scan_done = True
+
+    def _observe_thinking(self, chunk, *, streaming=True):
+        if self._attempt is None or self._thinking_scan_done or not chunk:
+            return
+        if self._attempt.get('reasoning', {}).get('enable_thinking') is False:
+            self._thinking_scan_done = True
+            return
+        now = monotonic()
+        if self._thinking_started is not None:
+            # Scan only the newly received text plus a possible split closing
+            # tag, rather than reparsing a growing thinking block per token.
+            tail = self._thinking_tail + chunk
+            if '</think>' in tail:
+                self._freeze_thinking_clock(now)
+            else:
+                self._thinking_tail = tail[-7:]
+            return
+        if not streaming and self._thinking_prefix_started is None:
+            return  # A final-only result does not establish a stream duration.
+        from .thinking import split_thinking
+        parts = split_thinking(self._attempt['text'], receiving=streaming)
+        if parts.pending_open:
+            if self._thinking_prefix_started is None:
+                self._thinking_prefix_started = now
+        elif parts.has_thinking:
+            self._thinking_started = self._thinking_prefix_started if self._thinking_prefix_started is not None else now
+            self._thinking_prefix_started = None
+            self._thinking_tail = self._attempt['text'][-7:]
+            if parts.closed:
+                self._freeze_thinking_clock(now)
+        elif self._attempt['text'].lstrip('\ufeff').strip():
+            self._thinking_prefix_started = None
+            self._thinking_scan_done = True
 
     @property
     def composing(self):
@@ -566,6 +626,7 @@ class ChatDocument(QObject):
                 self._request = request
                 self._attempt = candidate['turns'][-1]['attempts'][-1]
                 self._generation_started = self._generation_elapsed = None
+                self._reset_thinking_clock()
                 try:
                     self._save_revision_candidate(candidate)
                 except (ValueError, OSError, KeyError, TypeError):
@@ -590,6 +651,7 @@ class ChatDocument(QObject):
             # Stop or Save As. The service receives nothing until save succeeds.
             self._request = request
             self._generation_started = self._generation_elapsed = None
+            self._reset_thinking_clock()
             self.dirty = True
             self.editing.emit()
             if not self._owns(request):
@@ -638,6 +700,7 @@ class ChatDocument(QObject):
             self.stop(reason='回覆已達文件長度上限。', status='limited')
             return
         self._attempt['text'] += text
+        self._observe_thinking(text)
         self.dirty = True
         if not self.refresh_timer.isActive():
             self.refresh_timer.start()
@@ -650,21 +713,25 @@ class ChatDocument(QObject):
             return
         if status in ('completed', 'cancelled', 'limited'):
             if not detail.startswith(self._attempt['text']) or len(detail) > chat.MAX_TEXT:
-                self._finish_local('failed', '回覆串流不一致；已保留收到的內容。')
+                self._finish_local('failed', '回復串流不一致')
                 return
+            suffix = detail[len(self._attempt['text']):]
             self._attempt['text'] = detail
+            self._observe_thinking(suffix, streaming=False)
             target = {'completed': 'complete', 'cancelled': 'stopped', 'limited': 'limited'}[status]
             self._finish_local(target, '已達最大輸出長度。' if status == 'limited' else '')
         else:
             self._finish_local('failed', detail or '模型未完成回覆。')
 
     def _finish_local(self, status, reason, *, cancel_request=None):
+        self._freeze_thinking_clock()
         if self._attempt is not None:
             self._attempt.update(status=status, reason=reason)
         if self._generation_started is not None:
             self._generation_elapsed = max(0., monotonic() - self._generation_started)
         self._request = self._attempt = None
         self._generation_started = None
+        self._reset_thinking_clock()
         if cancel_request is not None:
             self.service.cancel(cancel_request.request_id)
         self.checkpoint_timer.stop()
@@ -688,6 +755,7 @@ class ChatDocument(QObject):
         self._cancel_attachment_import()
         self.stop()
         self._generation_started = self._generation_elapsed = None
+        self._reset_thinking_clock()
         self.owner_epoch = str(uuid.uuid4())
         self.path = Path(target).absolute()
         self.data = self.path.parent
