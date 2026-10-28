@@ -43,7 +43,7 @@ class ThinkingDurationUI(unittest.TestCase):
     def test_live_second_tick_only_updates_captions(self):
         item = self.show()
         self.assertEqual(item.thinking_toggle.text(), '思考中 · 3 秒')
-        self.assertEqual(self.page.elapsed_label.text(), '0:13')
+        self.assertFalse(hasattr(self.page, 'elapsed_label'))
         before = copy.deepcopy(self.doc.payload)
         with patch.object(self.page, 'refresh', wraps=self.page.refresh) as refresh, \
              patch.object(item.thinking_content, 'set_content', wraps=item.thinking_content.set_content) as content, \
@@ -53,14 +53,14 @@ class ThinkingDurationUI(unittest.TestCase):
             self.doc.generation_elapsed_seconds = 14.2
             QTest.qWait(1100)
             self.assertEqual(item.thinking_toggle.text(), '思考中 · 4 秒')
-            self.assertEqual(self.page.elapsed_label.text(), '0:14')
+            self.assertFalse(hasattr(self.page, 'elapsed_label'))
             self.assertEqual(refresh.call_count, 0)
             self.assertEqual(content.call_count, 0)
             self.assertEqual(disclosure.call_count, 0)
             self.assertEqual(motion.call_count, 0)
         self.assertEqual(self.doc.payload, before)
 
-    def test_closed_thinking_freezes_while_answer_and_total_continue(self):
+    def test_closed_thinking_freezes_and_timer_stops_while_answer_continues(self):
         item = self.show()
         self.seconds['a4'] = 8.4
         self.raw['thinking_seconds'] = 8.4
@@ -72,7 +72,7 @@ class ThinkingDurationUI(unittest.TestCase):
         self.doc.generation_elapsed_seconds = 40.2
         self.page._update_elapsed()
         self.assertEqual(item.thinking_toggle.text(), '思考 · 8 秒')
-        self.assertEqual(self.page.elapsed_label.text(), '0:40')
+        self.assertFalse(self.page._elapsed_timer.isActive())
         self.raw['status'] = 'complete'
         self.doc.busy = False
         self.doc.changed.emit()
@@ -121,7 +121,7 @@ class ThinkingDurationUI(unittest.TestCase):
         item = self.show()
         self.assertEqual(item.thinking_toggle.text(), '思考 · 12 秒')
         self.assertFalse(self.page._elapsed_timer.isActive())
-        self.assertFalse(self.page.elapsed_label.isVisible())
+        self.assertFalse(hasattr(self.page, 'elapsed_label'))
 
     def test_only_live_attempt_queries_clock_among_completed_history(self):
         active = self.doc.payload['turns'][0]

@@ -702,6 +702,7 @@ class ChatAttempt(QFrame):
         layout.addWidget(self.heading)
         self.actions = QWidget()
         self.actions.setLayout(row(self.copy_button, self.retry_icon_button, self.branch_button, self.more_button, None))
+        self.actions.setMinimumHeight(30)
         actions_policy = self.actions.sizePolicy()
         actions_policy.setRetainSizeWhenHidden(True)
         self.actions.setSizePolicy(actions_policy)
@@ -713,6 +714,7 @@ class ChatAttempt(QFrame):
         self._last_receiving = None
         self._has_thinking = False
         self._thinking_seconds = None
+        self._has_history_control = False
         self._copy_reset = QTimer(self)
         self._copy_reset.setSingleShot(True)
         self._copy_reset.timeout.connect(self._reset_copy)
@@ -724,9 +726,9 @@ class ChatAttempt(QFrame):
         self._attempt_id = attempt.get('id', '')
         self._status = attempt.get('status', '')
         self._raw = attempt.get('text', '')
-        self.branch_button.setVisible(bool(self._attempt_id and self._raw))
         receiving = attempt.get('status') == 'receiving'
-        self.actions.setVisible(not receiving)
+        self.branch_button.setVisible(not receiving and bool(self._attempt_id and self._raw))
+        self.actions.setVisible(not receiving or self._has_history_control)
         parts = split_thinking(self._raw, receiving=receiving)
         self._answer, self._thinking_text = parts.answer, parts.thinking
         if parts.has_thinking and not self._has_thinking:
@@ -751,8 +753,8 @@ class ChatAttempt(QFrame):
         self.heading.setVisible(bool(status))
         self.copy_button.setToolTip(('複製回覆' if parts.answer.strip() else '複製完整內容') + f' · {model}')
         self.copy_button.setEnabled(bool(self._raw.strip()))
-        self.copy_button.setVisible(True)
-        self.more_button.setVisible(bool(parts.answer.strip()) and bool(self._attempt_id))
+        self.copy_button.setVisible(not receiving)
+        self.more_button.setVisible(not receiving and bool(parts.answer.strip()) and bool(self._attempt_id))
         self.content.setVisible(bool(parts.answer.strip()))
         self.content.set_content(parts.answer)
         failed = attempt.get('status') == 'failed'
@@ -934,9 +936,13 @@ class ChatTurn(QFrame):
         user_actions.addWidget(self.user_edit_button)
         user_group_layout.addLayout(user_actions)
         self.stack.addWidget(self.user_group)
-        self.history_button = button('', self._toggle_history, 'Quiet')
+        self.history_button = button('', self._toggle_history, 'IconButton')
+        self.history_button.setParent(self)
+        self.history_button.setIcon(icon('history', size=16))
+        self.history_button.setFixedSize(30, 30)
         self.history_button.setCheckable(True)
-        self.stack.addWidget(self.history_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.history_button.hide()
+        self._history_owner = None
         self.attempts = {}
         self._attempt_order = []
         self._user_source = ''
@@ -1046,8 +1052,25 @@ class ChatTurn(QFrame):
     def _sync_history(self):
         previous = len(self._attempt_order) - 1
         expanded = self.history_button.isChecked()
+        latest = self.attempts[self._attempt_order[-1]] if self._attempt_order else None
+        if latest is not self._history_owner:
+            if self._history_owner is not None:
+                old = self._history_owner
+                old.actions.layout().removeWidget(self.history_button)
+                old._has_history_control = False
+                old.actions.setVisible(old._status != 'receiving')
+            self.history_button.setParent(latest.actions if latest is not None else self)
+            if latest is not None:
+                actions = latest.actions.layout()
+                actions.insertWidget(actions.indexOf(latest.more_button), self.history_button)
+            self._history_owner = latest
+        if latest is not None:
+            latest._has_history_control = previous > 0
+            latest.actions.setVisible(latest._status != 'receiving' or previous > 0)
         self.history_button.setVisible(previous > 0)
-        self.history_button.setText(('收起' if expanded else '查看') + f'先前 {previous} 次回覆')
+        description = ('收起' if expanded else '查看') + f'先前 {previous} 次回覆'
+        self.history_button.setToolTip(description)
+        self.history_button.setAccessibleName(description)
         for index, identity in enumerate(self._attempt_order):
             self.attempts[identity].setVisible(expanded or index == previous)
 
@@ -1358,9 +1381,6 @@ class ChatPage(QWidget):
         self.status = label('', 'Subtle')
         self.status.setAccessibleName('本機模型狀態')
         self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.elapsed_label = label('', 'ChatElapsed')
-        self.elapsed_label.setAccessibleName('生成經過時間')
-        self.elapsed_label.hide()
         self.approval_button = ApprovalButton(self.service)
         self.approval_button.errorOccurred.connect(self._approval_error)
         self.add_button = button('', self._open_attachments, 'IconButton')
@@ -1380,7 +1400,7 @@ class ChatPage(QWidget):
         for control in (self.send_button, self.stop_button):
             control.setFixedSize(32, 32)
             control.setIconSize(QSize(16, 16))
-        controls = row(self.add_button, self.approval_button, self.status, self.elapsed_label, self.model_button,
+        controls = row(self.add_button, self.approval_button, self.status, self.model_button,
                        self.stop_button, self.send_button)
         controls.setStretch(2, 1)
         controls.setSpacing(8)
@@ -1488,22 +1508,12 @@ class ChatPage(QWidget):
 
     def _update_elapsed(self):
         # A one-second caption update must never reparse the transcript.
-        elapsed = getattr(self.chat_document, 'generation_elapsed_seconds', None)
         visible = self.isVisible() and not self.window().isMinimized()
         if not visible:
             self._elapsed_timer.stop()
-            self.elapsed_label.hide()
             return
         thinking_active = self._update_thinking_elapsed()
-        if elapsed is None:
-            self.elapsed_label.hide()
-        else:
-            seconds = max(0, int(elapsed))
-            text = f'{seconds // 60}:{seconds % 60:02d}'
-            if self.elapsed_label.text() != text:
-                self.elapsed_label.setText(text)
-            self.elapsed_label.show()
-        if not self.chat_document.busy or (elapsed is None and not thinking_active):
+        if not self.chat_document.busy or not thinking_active:
             self._elapsed_timer.stop()
         elif not self._elapsed_timer.isActive():
             self._elapsed_timer.start()
@@ -1990,7 +2000,6 @@ class ChatPage(QWidget):
             QPlainTextEdit#ChatComposer {{ background:transparent; border:0; padding:4px; }}
             QTextBrowser#ChatText {{ padding:0; color:{tokens['text']}; }}
             QLabel#ChatEmptyTitle {{ font-size:{title_size}px; font-weight:500; color:{tokens['text']}; }}
-            QLabel#ChatElapsed {{ font-size:{control_font}px; color:{tokens['secondary']}; }}
             QPushButton#ChatModelButton {{ background:{tokens['raised']}; color:{tokens['text']}; border:0; border-radius:{control_height//2}px; padding:0 10px; font-size:{model_font}px; }}
             QPushButton#ChatModelButton:hover {{ background:{tokens['hover']}; }}
             QPushButton#ChatModelButton:focus {{ border:1px solid {tokens['accent_outline']}; }}

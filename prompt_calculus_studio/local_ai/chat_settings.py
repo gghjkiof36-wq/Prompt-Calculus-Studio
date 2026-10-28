@@ -98,11 +98,11 @@ class ModelPresetPanel(QWidget):
         resource_card, resource_body = panel(); layout.addWidget(resource_card)
         resource_body.addWidget(label('上下文與資源', 'Heading'))
         self.context_size = ModelSettingsPanel._spin(256, 1048576, 512)
-        self.gpu_layers = ModelSettingsPanel._spin(-1, 999); self.gpu_layers.setSpecialValueText('全部可用層')
+        self.gpu_layers = ModelSettingsPanel._spin(-1, 999); self.gpu_layers.setSpecialValueText('自動')
         resources = ModelSettingsPanel._form()
         for name, field in (('上下文容量（tokens）', self.context_size), ('GPU 層數', self.gpu_layers)):
             field.setAccessibleName(name); resources.addRow(name, field)
-        resource_body.addLayout(resources); self.gpu_layers.setToolTip('0 使用 CPU；全部可用層會盡量使用 GPU。')
+        resource_body.addLayout(resources); self.gpu_layers.setToolTip('自動：引擎依可用 GPU 記憶體分配層數；0 使用 CPU；其他數值指定 GPU 層數。')
         generation_card, generation_body = panel(); layout.addWidget(generation_card)
         generation_body.addWidget(label('生成', 'Heading'))
         self.max_tokens = ModelSettingsPanel._spin(1, 262144, 128)

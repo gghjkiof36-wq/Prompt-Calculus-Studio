@@ -124,36 +124,39 @@ class ChatRefreshBudget(unittest.TestCase):
             self.assertEqual(resize.call_count, count)
         text.deleteLater()
 
-    def test_visible_elapsed_timer_updates_only_caption_and_survives_page_switch(self):
-        self.doc.generation_elapsed_seconds = 12.
-        self.show()
-        self.assertEqual(self.page.elapsed_label.text(), '0:12')
+    def test_visible_thinking_timer_updates_only_caption_and_survives_page_switch(self):
+        seconds = [12.]
+        self.doc.thinking_elapsed_seconds = lambda _identity: seconds[0]
+        self.raw['text'] = '<think>目前思考內容。'
+        item = self.show()
+        self.assertEqual(item.thinking_toggle.text(), '思考中 · 12 秒')
+        self.assertFalse(hasattr(self.page, 'elapsed_label'))
         self.assertTrue(self.page._elapsed_timer.isActive())
         with patch.object(self.page, 'refresh', wraps=self.page.refresh) as refresh:
-            self.doc.generation_elapsed_seconds = 13.
+            seconds[0] = 13.
             QTest.qWait(1100)
-            self.assertEqual(self.page.elapsed_label.text(), '0:13')
+            self.assertEqual(item.thinking_toggle.text(), '思考中 · 13 秒')
             self.assertEqual(refresh.call_count, 0)
         self.page.hide()
         self.assertFalse(self.page._elapsed_timer.isActive())
-        self.doc.generation_elapsed_seconds = 65.
+        seconds[0] = 65.
         self.page.show(); QTest.qWait(30)
-        self.assertEqual(self.page.elapsed_label.text(), '1:05')
-        self.doc.busy = False; self.doc.generation_elapsed_seconds = 65.
+        self.assertEqual(item.thinking_toggle.text(), '思考中 · 65 秒')
+        self.doc.busy = False
+        self.raw.update(status='complete', text='<think>目前思考內容。</think>\n完成。', thinking_seconds=65.)
         self.doc.changed.emit(); QTest.qWait(20)
-        self.assertTrue(self.page.elapsed_label.isVisible())
-        self.assertEqual(self.page.elapsed_label.text(), '1:05')
+        self.assertEqual(item.thinking_toggle.text(), '思考 · 65 秒')
         self.assertFalse(self.page._elapsed_timer.isActive())
         with patch.object(self.page, 'refresh', wraps=self.page.refresh) as refresh:
             QTest.qWait(1100)
             self.assertEqual(refresh.call_count, 0)
-            self.assertEqual(self.page.elapsed_label.text(), '1:05')
+            self.assertEqual(item.thinking_toggle.text(), '思考 · 65 秒')
         self.page.hide(); self.page.show(); QTest.qWait(30)
-        self.assertEqual(self.page.elapsed_label.text(), '1:05')
+        self.assertEqual(item.thinking_toggle.text(), '思考 · 65 秒')
         self.assertFalse(self.page._elapsed_timer.isActive())
-        self.doc.generation_elapsed_seconds = None
-        self.doc.changed.emit(); QTest.qWait(20)
-        self.assertFalse(self.page.elapsed_label.isVisible())
+        self.raw.pop('thinking_seconds')
+        self.doc.changed.emit(); QTest.qWait(60)
+        self.assertEqual(item.thinking_toggle.text(), '思考')
         self.assertFalse(self.page._elapsed_timer.isActive())
 
 
