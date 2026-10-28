@@ -19,6 +19,14 @@ class WorkspaceNotice(QLabel):
         self.hide()
 
     def present(self, text, duration=6000):
+        if not text:
+            self.expire.stop()
+            self.clear()
+            self.hide()
+            return
+        # Repeated status reports must not hold the same toast on screen.
+        if not self.isHidden() and self.text()==text:
+            return
         self.setText(text)
         self.reposition()
         self.show()

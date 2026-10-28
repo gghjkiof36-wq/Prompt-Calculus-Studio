@@ -91,19 +91,18 @@ class WorkspaceLocations:
         pending = [self.directory(root)]
         while pending:
             directory = pending.pop()
-            for path in sorted(directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.casefold())):
-                if path.name.casefold() in INTERNAL_NAMES or paths.is_link(path):
-                    continue
+            entries = paths.document_entries(directory, KINDS, INTERNAL_NAMES)
+            for path, is_directory, _ in sorted(entries, key=lambda item: (not item[1], item[0].name.casefold())):
                 if path == self.data or self.data in path.parents:
                     continue
                 try:
                     paths.relative_parts(path.name)
                 except ValueError:
                     continue
-                if path.is_dir():
+                if is_directory:
                     yield path, 'folder'
                     pending.append(path)
-                elif path.is_file() and path.suffix.casefold() in KINDS:
+                else:
                     yield path, KINDS[path.suffix.casefold()]
 
     def recent(self, values):

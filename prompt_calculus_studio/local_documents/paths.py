@@ -26,6 +26,27 @@ def is_link(path):
     return stat.S_ISLNK(info.st_mode) or bool(getattr(info, 'st_file_attributes', 0) & 0x400)
 
 
+def document_entries(directory, suffixes, excluded_names=()):
+    """Read directory metadata once, retaining folders and supported files only."""
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if entry.name.casefold() in excluded_names:
+                continue
+            is_directory = entry.is_dir(follow_symlinks=False)
+            if not is_directory:
+                dot = entry.name.rfind('.')
+                if dot <= 0 or entry.name[dot:].casefold() not in suffixes:
+                    continue
+                if not entry.is_file(follow_symlinks=False):
+                    continue
+            info = entry.stat(follow_symlinks=False)
+            if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
+                continue
+            # DirEntry caches enumeration metadata on Windows. Avoid allocating
+            # Paths and issuing lstat/is_file/stat for every recovery sibling.
+            yield Path(entry.path), is_directory, info
+
+
 def root_path(root):
     path = Path(root).absolute()
     if any(part.casefold() == '.obsidian' for part in path.parts):
@@ -46,7 +67,8 @@ def checked(root, relative, *, new=False):
         if path.exists():
             if not path.is_dir():
                 fail('path', '父路徑不是資料夾。')
-            matches = [p for p in path.iterdir() if p.name.casefold() == part.casefold()]
+            with os.scandir(path) as entries:
+                matches = [Path(entry.path) for entry in entries if entry.name.casefold() == part.casefold()]
             if len(matches) > 1:
                 fail('collision', '路徑有大小寫衝突。')
             if matches:

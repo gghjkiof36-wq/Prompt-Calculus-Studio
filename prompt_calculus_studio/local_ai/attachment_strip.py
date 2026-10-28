@@ -150,7 +150,9 @@ class AttachmentStrip(QScrollArea):
         return remove
 
     def apply_appearance(self, tokens):
-        self._tokens = tokens
+        if self._tokens == tokens:
+            return
+        self._tokens = dict(tokens)
         self.setStyleSheet('QScrollArea#ChatAttachments, QScrollArea#ChatAttachments>QWidget>QWidget {background:transparent;border:0;}'
             f'QFrame#ChatAttachment {{background:{tokens["raised"]};border:1px solid {tokens["divider"]};border-radius:10px;}}'
             f'QPushButton#ChatImageRemove {{background:{tokens["raised"]};border:1px solid {tokens["divider"]};border-radius:12px;padding:0;}}')

@@ -6,6 +6,7 @@ dedicated service thread. Cancellation is the sole thread-safe control method.
 from __future__ import annotations
 
 import ctypes
+import hashlib
 from http.client import HTTPConnection, HTTPException
 import json
 import os
@@ -16,7 +17,14 @@ import time
 
 from .engine import Cancellation
 from .registry import validate_model
+from .reasoning import normalize_reasoning
 from .settings import SAMPLING_KEYS, resolve_runtime
+
+
+# Verified against Qwen/Qwen3.5-9B's published template and llama.cpp b11900.
+# Do not infer a model capability from an editable display name or file name.
+QWEN35_TEMPLATE_SHA256 = 'a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715'
+REASONING_BUILD = 'b11900-'
 
 
 class WindowsJob:
@@ -87,6 +95,9 @@ class LlamaRuntime:
         self.model = None
         self.settings = None
         self.context_size = 0
+        self._reasoning_props = None
+        self._thinking_checked = False
+        self._budget_checked = False
 
     @property
     def alive(self):
@@ -208,11 +219,82 @@ class LlamaRuntime:
         if not self.alive:
             raise RuntimeError('本地引擎在載入時停止。')
 
-    def _prompt_tokens(self, messages, cancel):
+    def _reasoning_options(self, params, cancel):
+        """Resolve the saved policy on this owned engine, without inference.
+
+        Null budget is a versioned model default, not a claimed measured token
+        count. Explicit controls fail closed rather than rely on ignored keys.
+        """
+        if 'reasoning' not in params:
+            return {}
+        policy = normalize_reasoning(params['reasoning'], max_tokens=params['max_tokens'])
+        enabled, budget = policy['enable_thinking'], policy['reasoning_budget_tokens']
+        if enabled is None and budget == -1:
+            return {}  # Explicitly keep the engine's unlimited/default budget.
+        if self._reasoning_props is None:
+            try:
+                props = self._json('/props', cancel=cancel)
+            except (OSError, HTTPException, ValueError, RuntimeError):
+                cancel.check()
+                if enabled is None and budget is None:
+                    return {}  # Unknown model: follow its existing behavior.
+                raise RuntimeError('無法確認思考控制支援。請改用相容引擎，或回復依模型設定。') from None
+            self._reasoning_props = props if isinstance(props, dict) else {}
+        props = self._reasoning_props
+        template = props.get('chat_template', '')
+        known_qwen = (isinstance(template, str) and
+                      hashlib.sha256(template.encode('utf-8')).hexdigest() == QWEN35_TEMPLATE_SHA256)
+        if enabled is None and budget is None and not known_qwen:
+            return {}
+        build = props.get('build_info', '')
+        if not isinstance(build, str) or not build.startswith(REASONING_BUILD):
+            raise RuntimeError('此引擎尚未確認支援思考控制。請使用 llama.cpp b11900，或將思考上限設為不限。')
+        if enabled is not None and not known_qwen:
+            raise RuntimeError('此模型尚未確認支援思考切換。請將思考模式設為依模型。')
+        probe = [{'role': 'user', 'content': 'Hello'}]
+        if known_qwen and not self._thinking_checked:
+            on = self._json('/apply-template', dict(messages=probe, chat_template_kwargs={'enable_thinking': True}), cancel=cancel)
+            off = self._json('/apply-template', dict(messages=probe, chat_template_kwargs={'enable_thinking': False}), cancel=cancel)
+            if (not isinstance(on, dict) or not isinstance(off, dict)
+                    or not isinstance(on.get('prompt'), str) or not isinstance(off.get('prompt'), str)
+                    or not on['prompt'].rstrip().endswith('<think>')
+                    or not off['prompt'].rstrip().endswith('</think>') or on['prompt'] == off['prompt']):
+                raise RuntimeError('引擎未套用思考模式。請確認模型與引擎版本。')
+            self._thinking_checked = True
+        options = {}
+        if enabled is not None:
+            options['chat_template_kwargs'] = {'enable_thinking': enabled}
+        if enabled is False:
+            return options
+        if budget is None:
+            budget = min(512, params['max_tokens'] - 1) if known_qwen else -1
+        if budget >= 0:
+            if not known_qwen and not self._budget_checked:
+                rendered = self._json('/apply-template', {'messages': probe}, cancel=cancel)
+                if (not isinstance(rendered, dict) or not isinstance(rendered.get('prompt'), str)
+                        or not rendered['prompt'].rstrip().endswith('<think>')):
+                    raise RuntimeError('此模型尚未確認支援思考上限。請將思考上限設為不限。')
+                # b11900's differential parser must discover an end marker;
+                # an open prefill alone is not evidence of a working budget.
+                marker = 'PCS_REASONING_CAPABILITY_PROBE'
+                assistant = {'role': 'assistant', 'content': 'Answer'}
+                plain = self._json('/apply-template', dict(messages=probe + [assistant], add_generation_prompt=False), cancel=cancel)
+                reasoned = self._json('/apply-template', dict(messages=probe + [dict(assistant, reasoning_content=marker)], add_generation_prompt=False), cancel=cancel)
+                text = reasoned.get('prompt') if isinstance(reasoned, dict) else None
+                if (not isinstance(plain, dict) or not isinstance(plain.get('prompt'), str)
+                        or not isinstance(text, str) or marker in plain['prompt']
+                        or marker not in text or '<think>' not in text.split(marker, 1)[0]
+                        or '</think>' not in text.split(marker, 1)[1]):
+                    raise RuntimeError('此模型尚未確認支援思考上限。請將思考上限設為不限。')
+                self._budget_checked = True
+            options['reasoning_budget_tokens'] = budget
+        return options
+
+    def _prompt_tokens(self, messages, cancel, options=None):
         # llama.cpp uses the same chat formatter for this endpoint and chat
         # completions. Its text completion path tokenizes with true/true too.
         # The actual engine build still needs a fixture-based parity check.
-        rendered = self._json('/apply-template', {'messages': messages}, cancel=cancel, timeout=180)
+        rendered = self._json('/apply-template', {'messages': messages, **(options or {})}, cancel=cancel, timeout=180)
         if not isinstance(rendered, dict) or not isinstance(rendered.get('prompt'), str):
             raise RuntimeError('引擎未提供聊天模板，無法安全組合上下文。')
         tokenized = self._json('/tokenize', {'content': rendered['prompt'], 'add_special': True,
@@ -224,12 +306,13 @@ class LlamaRuntime:
 
     def generate(self, messages, params, cancel, on_delta):
         validate_model(self.model)
-        count = self._prompt_tokens(messages, cancel)
+        options = self._reasoning_options(params, cancel)
+        count = self._prompt_tokens(messages, cancel, options)
         if count + params['max_tokens'] > self.context_size:
             raise RuntimeError(f'上下文不足：輸入約 {count} tokens，回覆預留 {params["max_tokens"]}，'
                                f'目前上限 {self.context_size}。請縮短對話，或調高上下文容量後重新傳送。')
         payload = {'model': self.model['id'], 'messages': messages, 'stream': True,
-                   **{key: params[key] for key in SAMPLING_KEYS}}
+                   **{key: params[key] for key in SAMPLING_KEYS}, **options}
         connection = self._connect(cancel)
         pieces = []
         size = 0
@@ -341,5 +424,6 @@ class LlamaRuntime:
                 self.process, self.job = None, None
                 self.model, self.settings = None, None
                 self.context_size, self.port, self.key = 0, 0, ''
+                self._reasoning_props, self._thinking_checked, self._budget_checked = None, False, False
         if self.alive:
             raise RuntimeError('本地引擎尚未完全停止，仍在清理程序。')

@@ -120,6 +120,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.sidebar_width = 264
         self.show_empty_folders = True
         self.ambient_effect = 'off'
+        self.performance_monitor_enabled = True
         self.navigation_position = 'side'
         self.markdown_mode = 'write'
         self._markdown_mode_chosen = False
@@ -172,6 +173,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         from .workspace_ambient import WorkspaceAmbient
         self.ambient = WorkspaceAmbient(self)
         self.ambient.configure()
+        from .workspace_performance import WorkspacePerformance
+        self.performance_monitor = WorkspacePerformance(self)
         if not defer_restore:
             self.initialize_documents()
 
@@ -423,6 +426,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.workspace_stack.sync_surface()
         if hasattr(self, 'ambient'):
             self.ambient.configure()
+        if hasattr(self, 'performance_monitor'):
+            self.performance_monitor.configure()
         for tab in self.all_pages():
             if isinstance(tab.widget, WorkspaceHome):
                 tab.widget.apply_appearance(appearance)
@@ -494,6 +499,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 self.show_empty_folders = saved['show_empty_folders']
             if saved.get('ambient_effect') in ('off', 'sakura', 'rain', 'snow'):
                 self.ambient_effect = saved['ambient_effect']
+            if type(saved.get('performance_monitor_enabled')) is bool:
+                self.performance_monitor_enabled = saved['performance_monitor_enabled']
             if saved.get('markdown_mode') in ('write', 'source', 'read'):
                 self.markdown_mode = saved['markdown_mode']
                 self._markdown_mode_chosen = True
@@ -510,7 +517,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                      sidebar_auto_hide=self.sidebar_auto_hide, sidebar_open_delay=self.sidebar_open_delay,
                      sidebar_close_delay=self.sidebar_close_delay,
                      navigation_position=self.navigation_position, show_empty_folders=self.show_empty_folders,
-                     ambient_effect=self.ambient_effect)
+                     ambient_effect=self.ambient_effect,
+                     performance_monitor_enabled=self.performance_monitor_enabled)
         if self._markdown_mode_chosen:saved['markdown_mode'] = self.markdown_mode
         output=QSaveFile(str(self.data/'workspace-ui.json'))
         output.setDirectWriteFallback(False)
@@ -555,6 +563,11 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             return
         self.ambient_effect = effect
         self.ambient.configure()
+        self.save_ui_preferences()
+
+    def set_performance_monitor(self, enabled):
+        self.performance_monitor_enabled = bool(enabled)
+        self.performance_monitor.sync()
         self.save_ui_preferences()
 
     def sidebar_target(self):
@@ -1297,6 +1310,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             local_ai = getattr(self, 'local_ai', None)
             if local_ai is not None:
                 local_ai.resume_after_close_abort()
+        if event.isAccepted():
+            self.performance_monitor.shutdown()
         if connector:
             if event.isAccepted():
                 connector.stop()

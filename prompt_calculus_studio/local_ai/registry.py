@@ -9,6 +9,7 @@ import re
 import tempfile
 from uuid import UUID, uuid4
 
+from .reasoning import normalize_reasoning
 from .settings import DEFAULT_SETTINGS, normalize_settings
 from .approval import ApprovalMode, normalize_mode
 
@@ -24,7 +25,7 @@ def normalize_model_presets(value, models):
     result = {}
     for model_id, preset in value.items():
         if (model_id not in identities or not isinstance(preset, dict)
-                or set(preset) != {'parameters', 'system_prompt'}
+                or set(preset) - {'reasoning'} != {'parameters', 'system_prompt'}
                 or not isinstance(preset['parameters'], dict)
                 or set(preset['parameters']) != set(MODEL_PARAMETERS)):
             raise ValueError('模型個別設定不完整，或已不屬於目前模型。')
@@ -34,6 +35,8 @@ def normalize_model_presets(value, models):
         settings = normalize_settings(preset['parameters'])
         result[model_id] = {'parameters': {key: settings[key] for key in MODEL_PARAMETERS},
                             'system_prompt': prompt}
+        if 'reasoning' in preset:
+            result[model_id]['reasoning'] = normalize_reasoning(preset['reasoning'], max_tokens=settings['max_tokens'])
     return result
 
 

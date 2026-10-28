@@ -836,7 +836,9 @@ class StageRunner(QObject):
 
     def disconnected(self):
         if self.closed:return
-        for run in self.runs(True):self.pause(run['id'],'連線中斷；已提交紀錄保留，恢復後請繼續。',reason='disconnect')
+        for run in self.runs(True):
+            if run['status'] in ('running','waiting'):
+                self.pause(run['id'],'連線中斷；已提交紀錄保留，恢復後請繼續。',reason='disconnect')
         self.cancel_apply('輸入同步連線中斷，未自動重送。')
         for run in self.runs(True):
             if run.get('free_state')=='applying':self.store.update(run['id'],free_state='failed',free_error='輸入同步連線中斷，未自動重送。')

@@ -1,7 +1,8 @@
 """Read receipts, exclusive create and recoverable Windows saves.
 
 A candidate is immutable to the caller. Only status='saved' permits clearing
-dirty. All recovery paths are visible sibling files, never a hidden cache.
+dirty. Failed or uncertain writes retain visible sibling recovery files;
+verified successful writes remove only their own temporary recovery files.
 """
 from __future__ import annotations
 
@@ -94,6 +95,18 @@ def _existing(paths):
     return tuple(str(path) for path in paths.values() if path.exists())
 
 
+def _cleanup_saved(paths):
+    # Run only after publication and readback agree, while the parent directory
+    # is still pinned. Older attempts may contain unresolved external changes.
+    for path in paths.values():
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            # A locked recovery file cannot turn an accepted save into failure.
+            # Report any leftovers to the caller without retrying publication.
+            pass
+
+
 def create(root, relative, document):
     recovery = {}
     published = False
@@ -130,6 +143,7 @@ def create(root, relative, document):
             # External edit after publication: keep the in-memory candidate too.
             return SaveResult('conflict', recovery_paths=_existing(recovery), error='新建後文件已被外部修改。',
                               published=True)
+        _cleanup_saved(recovery)
         return SaveResult('saved', loaded.document, loaded.receipt, _existing(recovery), published=True)
     except (DocumentError, OSError) as error:
         return SaveResult('conflict' if getattr(error, 'code', '') in ('exists', 'collision', 'conflict')
@@ -189,6 +203,7 @@ def save(root, relative, document, expected):
                 if loaded.receipt.sha256 != digest(raw):
                     return SaveResult('conflict', recovery_paths=_existing(recovery),
                                       error='替換後文件已改動；候選及原版本保留。')
+        _cleanup_saved(recovery)
         return SaveResult('saved', loaded.document, loaded.receipt, _existing(recovery))
     except (DocumentError, OSError) as error:
         # ReplaceFile can report partial rename failure (e.g. 1177). Its actual

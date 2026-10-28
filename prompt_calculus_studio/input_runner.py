@@ -390,9 +390,21 @@ class InputRunner:
         else:self.notify('已暫停後續項目，目前沒有本次 PCS 提交中的工作。')
 
     def disconnected(self):
-        had_work=self.has_work()
+        # Retained/paused history still blocks endpoint changes, but it is not
+        # newly interrupted work and must not generate a fresh global notice.
+        if self.window.state.get('multi_output',{}).get('version',0)>=7:
+            had_work=bool(self.chain.applying or self.chain.apply_queue or
+                          any(run['status'] in ('running','waiting') for run in self.chain.runs(True)))
+        else:
+            chain=self.chain.current()
+            active_owners={owner for owner,control in self.local_controls() if not control.get('paused')}
+            had_work=bool(self.current or self.direct.busy() or chain and chain['status']=='running' or
+                          any(row['owner'] in active_owners and row['state']!='failed' for row in self.store.rows()) or
+                          any(owner in active_owners and (control.get('credits',0) or control.get('active'))
+                              for owner,control in self.local_controls()))
         self.chain.disconnected()
         self.direct.disconnected()
-        for owner,_ in self.controls():self.store.set_control(owner,paused=True)
+        for owner,control in self.controls():
+            if not control.get('paused'):self.store.set_control(owner,paused=True)
         self.current=None
         self.notify('連線中斷，待執行內容已保留。' if had_work else '')

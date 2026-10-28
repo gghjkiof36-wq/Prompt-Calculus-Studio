@@ -21,11 +21,14 @@ class InputRunnerTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.directory=Path(self.tmp.name);self.db=sqlite3.connect(':memory:');self.addCleanup(self.db.close)
         self.state,self.cid,self.out=canvas_state();p=workflow();p['frontend_id']='native-A'
+        # These cases exercise the retained pre-Stage input queue. The shared
+        # canvas fixture now upgrades to v7, which selects a different runner.
+        self.state['multi_output']['version']=6
         self.state['generation']=dict(mode='txt2img',profiles=[p],source=None)
         self.clip=next(iter(self.state['multi_output']['clip_inputs']));set_binding(self.state,'flow',self.clip,('6','text'))
         self.window=NS(state=self.state,store=NS(db=self.db,directory=self.directory),notice=lambda x:None)
         self.calls=[];self.jobs={};self.records={};self.timers=[]
-        self.client=NS(window=self.window,url='http://local',connected=True,running=0,pending=0,
+        self.client=NS(window=self.window,url='http://local',connected=True,dispatch_allowed=True,running=0,pending=0,
                        stateChanged=NS(emit=lambda:None),request=lambda *a,**k:self.calls.append((a,k)))
         def submit(snapshot,workflow,queued,failed,valid,**kwargs):
             ident=kwargs['ident'];job=dict(id=ident,prompt_id='prompt-'+ident,state='queued',native_operation=ident)

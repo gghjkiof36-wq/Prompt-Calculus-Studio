@@ -266,12 +266,14 @@ class ChatText(QTextBrowser):
             self._rich_ready(self._rich_ready_height)
 
     def _fit_height(self, *_args):
-        if self._rich_presented or self._reserved_height is not None:
+        if self._setting_text or self._rich_presented or self._reserved_height is not None:
             return
         height = math.ceil(self.document().size().height()) + 8
         # Very long replies remain readable with an inner scrollbar rather
         # than exceeding Qt's maximum widget geometry.
-        self.setFixedHeight(max(self.fontMetrics().height() + 8, min(12000, height)))
+        height = max(self.fontMetrics().height() + 8, min(12000, height))
+        if self.minimumHeight() != height or self.maximumHeight() != height:
+            self.setFixedHeight(height)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1209,6 +1211,11 @@ class ChatPage(QWidget):
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.timeout.connect(self.refresh)
+        self._refresh_pending = True
+        self._scheduled_lifecycle = None
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.setInterval(1000)
+        self._elapsed_timer.timeout.connect(self._update_elapsed)
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setSingleShot(True)
         self._scroll_timer.timeout.connect(self._scroll_to_bottom)
@@ -1322,6 +1329,9 @@ class ChatPage(QWidget):
         self.status = label('', 'Subtle')
         self.status.setAccessibleName('本機模型狀態')
         self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.elapsed_label = label('', 'ChatElapsed')
+        self.elapsed_label.setAccessibleName('生成經過時間')
+        self.elapsed_label.hide()
         self.approval_button = ApprovalButton(self.service)
         self.approval_button.errorOccurred.connect(self._approval_error)
         self.add_button = button('', self._open_attachments, 'IconButton')
@@ -1341,7 +1351,7 @@ class ChatPage(QWidget):
         for control in (self.send_button, self.stop_button):
             control.setFixedSize(32, 32)
             control.setIconSize(QSize(16, 16))
-        controls = row(self.add_button, self.approval_button, self.status, self.model_button,
+        controls = row(self.add_button, self.approval_button, self.status, self.elapsed_label, self.model_button,
                        self.stop_button, self.send_button)
         controls.setStretch(2, 1)
         controls.setSpacing(8)
@@ -1424,10 +1434,47 @@ class ChatPage(QWidget):
         self.composer.redo()
 
     def _schedule_refresh(self):
-        # Merge stream fragments into bounded UI updates, not one rich-text
-        # document relayout per token.
-        if not self._refresh_timer.isActive():
-            self._refresh_timer.start(70)
+        self._refresh_pending = True
+        self._update_elapsed()
+        lifecycle, length = self._reply_lifecycle()
+        changed = lifecycle != self._scheduled_lifecycle
+        self._scheduled_lifecycle = lifecycle
+        if not self.isVisible():
+            self._refresh_timer.stop()
+            return
+        # First content and terminal transitions bypass stream throttling.
+        # Long growing Markdown needs fewer full parses, not queued old frames.
+        if changed:
+            self._refresh_timer.start(0)
+        elif not self._refresh_timer.isActive():
+            delay = (350 if length >= 24000 else 220 if length >= 8000 else 120) if self.chat_document.busy else 30
+            self._refresh_timer.start(delay)
+
+    def _reply_lifecycle(self):
+        turns = self.chat_document.payload.get('turns', [])
+        attempts = turns[-1].get('attempts', []) if turns else []
+        latest = attempts[-1] if attempts else {}
+        text = latest.get('text', '')
+        return (latest.get('id'), latest.get('status'), self.chat_document.busy, bool(text)), len(text)
+
+    def _update_elapsed(self):
+        # A one-second caption update must never reparse the transcript.
+        elapsed = getattr(self.chat_document, 'generation_elapsed_seconds', None)
+        visible = (self.isVisible() and not self.window().isMinimized()
+                   and elapsed is not None)
+        if not visible:
+            self._elapsed_timer.stop()
+            self.elapsed_label.hide()
+            return
+        seconds = max(0, int(elapsed))
+        text = f'{seconds // 60}:{seconds % 60:02d}'
+        if self.elapsed_label.text() != text:
+            self.elapsed_label.setText(text)
+        self.elapsed_label.show()
+        if not self.chat_document.busy:
+            self._elapsed_timer.stop()
+        elif not self._elapsed_timer.isActive():
+            self._elapsed_timer.start()
 
     def _draft_changed(self):
         if not self.composer.composing:
@@ -1443,6 +1490,8 @@ class ChatPage(QWidget):
         self._update_actions()
 
     def _scroll_position_changed(self, value):
+        if not self.isVisible():
+            return
         self._visibility_timer.start(0)
         if self._history_anchor is not None or self._manual_disclosures:
             return
@@ -1452,6 +1501,8 @@ class ChatPage(QWidget):
         self._follow_output = value >= bar.maximum() - 40
 
     def _scroll_range_changed(self, _minimum, _maximum):
+        if not self.isVisible():
+            return
         self._visibility_timer.start(0)
         if self._history_anchor is not None:
             self._anchor_timer.start(0)
@@ -1493,6 +1544,8 @@ class ChatPage(QWidget):
         self._follow_output = False
 
     def _sync_rich_visibility(self):
+        if not self.isVisible():
+            return
         # Scrollbar visibility settles after range/layout updates. Keep the
         # fixed composer on the same reading axis as the scroll viewport.
         self._fit_reading_columns()
@@ -1536,11 +1589,22 @@ class ChatPage(QWidget):
             _fit_error_frame(self.error_frame, self.error_label, self.composer_column.width(), 32)
 
     def hideEvent(self, event):
+        self._refresh_pending = True
+        self._refresh_timer.stop()
+        self._scroll_timer.stop()
+        self._visibility_timer.stop()
+        self._elapsed_timer.stop()
         self._cancel_history_anchor()
         self._disclosure_settle.stop()
         self._manual_disclosures.clear()
         self._sync_user_hover(QPoint(-1, -1))
         super().hideEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._update_elapsed()
+        if self._refresh_pending:
+            self._refresh_timer.start(0)
 
     def _cancel_history_anchor(self, *_args):
         self._history_anchor = None
@@ -1585,6 +1649,11 @@ class ChatPage(QWidget):
             self._anchor_finish.start(250)
 
     def refresh(self):
+        if not self.isVisible():
+            self._refresh_pending = True
+            return
+        self._refresh_pending = False
+        self._scheduled_lifecycle, _ = self._reply_lifecycle()
         payload = self.chat_document.payload
         turns = payload.get('turns', [])
         earlier = max(0, len(turns) - self._history_limit)
@@ -1651,6 +1720,7 @@ class ChatPage(QWidget):
         self._update_actions()
 
     def _update_actions(self):
+        self._update_elapsed()
         state, busy = self.service.state, self.chat_document.busy
         importing = getattr(self.chat_document, 'attachments_busy', False)
         attachments = getattr(self.chat_document, 'draft_attachments', [])
@@ -1871,6 +1941,7 @@ class ChatPage(QWidget):
             QPlainTextEdit#ChatComposer {{ background:transparent; border:0; padding:4px; }}
             QTextBrowser#ChatText {{ padding:0; color:{tokens['text']}; }}
             QLabel#ChatEmptyTitle {{ font-size:{title_size}px; font-weight:500; color:{tokens['text']}; }}
+            QLabel#ChatElapsed {{ font-size:{control_font}px; color:{tokens['secondary']}; }}
             QPushButton#ChatModelButton {{ background:{tokens['raised']}; color:{tokens['text']}; border:0; border-radius:{control_height//2}px; padding:0 10px; font-size:{model_font}px; }}
             QPushButton#ChatModelButton:hover {{ background:{tokens['hover']}; }}
             QPushButton#ChatModelButton:focus {{ border:1px solid {tokens['accent_outline']}; }}

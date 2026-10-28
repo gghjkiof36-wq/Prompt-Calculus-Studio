@@ -6,6 +6,7 @@ from .schema import fail, identifier, new_document
 
 FEATURE = 'pcs.chat.v1'
 REVISION_FEATURE = 'pcs.chat-revisions.v1'
+REASONING_FEATURE = 'pcs.chat-reasoning.v1'
 STATES = {'receiving', 'complete', 'stopped', 'interrupted', 'failed', 'limited'}
 MAX_TEXT = 1_000_000
 
@@ -64,7 +65,7 @@ def _validate_turns(turns, *, seen=None, terminal_context=False):
         if not isinstance(turn['attempts'], list) or len(turn['attempts']) > 100:
             fail('limit', '此訊息的回覆次數過多。')
         for attempt in turn['attempts']:
-            if not isinstance(attempt, dict) or set(attempt) != {'id', 'request', 'model', 'model_name', 'profile_epoch', 'parameters', 'system_prompt', 'context', 'text', 'status', 'reason'}:
+            if not isinstance(attempt, dict) or set(attempt) - {'reasoning'} != {'id', 'request', 'model', 'model_name', 'profile_epoch', 'parameters', 'system_prompt', 'context', 'text', 'status', 'reason'}:
                 fail('invalid', '對話回覆格式無效。')
             ident(attempt['id']); ident(attempt['request'])
             if not identifier(attempt['profile_epoch']) or not isinstance(attempt['status'], str) or attempt['status'] not in STATES:
@@ -85,6 +86,12 @@ def _validate_turns(turns, *, seen=None, terminal_context=False):
                     or type(params['seed']) is not int or not -1 <= params['seed'] <= 4294967295
                     or type(params['gpu_layers']) is not int or not -1 <= params['gpu_layers'] <= 999):
                 fail('invalid', '對話回覆參數無效。')
+            if 'reasoning' in attempt:
+                from ..local_ai.reasoning import normalize_reasoning
+                try:
+                    normalize_reasoning(attempt['reasoning'], max_tokens=params['max_tokens'])
+                except ValueError as exc:
+                    fail('invalid', str(exc))
             refs = attempt['context']
             if not isinstance(refs, list) or len(refs) != len(prior):
                 fail('invalid', '對話上下文關聯不完整。')
@@ -99,6 +106,23 @@ def _validate_turns(turns, *, seen=None, terminal_context=False):
             prior[turn['id']].add('')
 
 
+def has_reasoning(payload):
+    """Feature presence also covers archived paths, including malformed input."""
+    paths = [payload]
+    revisions = payload.get('revisions', [])
+    if isinstance(revisions, list):
+        paths.extend(revision for revision in revisions if isinstance(revision, dict))
+    for path in paths:
+        turns = path.get('turns', [])
+        if not isinstance(turns, list):
+            continue
+        for turn in turns:
+            attempts = turn.get('attempts', []) if isinstance(turn, dict) else []
+            if isinstance(attempts, list) and any(isinstance(a, dict) and 'reasoning' in a for a in attempts):
+                return True
+    return False
+
+
 def sync_features(document):
     from .chat_attachments import sync_feature
     sync_feature(document)
@@ -108,6 +132,11 @@ def sync_features(document):
             features.append(REVISION_FEATURE)
     elif REVISION_FEATURE in features:
         features.remove(REVISION_FEATURE)
+    if has_reasoning(document['payload']):
+        if REASONING_FEATURE not in features:
+            features.append(REASONING_FEATURE)
+    elif REASONING_FEATURE in features:
+        features.remove(REASONING_FEATURE)
     return document
 
 
@@ -196,7 +225,16 @@ def context_messages(payload, text, *, retry=False):
         answer = context_answer(turn)
         messages.append(dict(role='user', content=message(turn['text'], turn.get('attachments', []))))
         if answer is not None and answer['text']:
-            messages.append(dict(role='assistant', content=answer['text']))
+            from ..local_ai.thinking import split_thinking
+            parts = split_thinking(answer['text'])
+            # Only an unfinished reasoning-enabled attempt can still be inside
+            # its reasoning envelope. A completed or thinking-disabled answer
+            # may use an opening tag literally; preserve that text as context.
+            unfinished_reasoning = (answer['status'] in {'stopped', 'interrupted', 'failed', 'limited'}
+                                    and answer.get('reasoning', {}).get('enable_thinking') is not False
+                                    and parts.has_thinking and not parts.closed)
+            if not unfinished_reasoning:
+                messages.append(dict(role='assistant', content=answer['text']))
     attachments = payload['turns'][-1].get('attachments', []) if retry else payload.get('draft_attachments', [])
     messages.append(dict(role='user', content=message(text, attachments)))
     return messages

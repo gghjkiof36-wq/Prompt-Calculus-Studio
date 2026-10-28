@@ -2,7 +2,8 @@
 from pathlib import Path
 import weakref
 from PySide6.QtWidgets import QDoubleSpinBox, QFileDialog, QFormLayout, QLineEdit, QPlainTextEdit, QSpinBox, QVBoxLayout, QWidget
-from ..widgets import button, label, panel, row
+from ..widgets import ComboBox, button, label, panel, row
+from .reasoning import DEFAULT_REASONING
 
 
 def open_model_settings(workspace, document=None):
@@ -86,6 +87,7 @@ class ModelPresetPanel(QWidget):
     """A staged preset tied to an immutable model ID, never the active selection."""
     def __init__(self, service, model_id, parent=None):
         super().__init__(parent); self.service = service; self.model_id = model_id; self._snapshot = None
+        self._reasoning_supported = False
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 8, 0, 0); layout.setSpacing(18)
         prompt_card, prompt_body = panel(); layout.addWidget(prompt_card)
         prompt_body.addWidget(label('提示詞', 'Heading'))
@@ -110,6 +112,24 @@ class ModelPresetPanel(QWidget):
         for name, field in (('回覆上限（tokens）', self.max_tokens), ('溫度', self.temperature), ('Top P', self.top_p), ('隨機種子', self.seed)):
             field.setAccessibleName(name); generation.addRow(name, field)
         generation_body.addLayout(generation)
+        self.thinking_mode = ComboBox()
+        for text, value in (('依模型', None), ('開啟', True), ('關閉', False)):
+            self.thinking_mode.addItem(text, value)
+        self.thinking_mode.setAccessibleName('思考模式')
+        self.thinking_budget_mode = ComboBox()
+        for text, value in (('依模型', 'default'), ('不限', 'unlimited'), ('自訂', 'custom')):
+            self.thinking_budget_mode.addItem(text, value)
+        self.thinking_budget_mode.setAccessibleName('思考上限模式')
+        self.thinking_budget = ModelSettingsPanel._spin(0, 262144, 128)
+        self.thinking_budget.setValue(512); self.thinking_budget.setSuffix(' tokens')
+        self.thinking_budget.setAccessibleName('思考上限')
+        self.thinking_controls = QWidget()
+        thinking = ModelSettingsPanel._form(); thinking.setContentsMargins(0, 0, 0, 0)
+        thinking.addRow('思考模式', self.thinking_mode)
+        thinking.addRow('思考上限', row(self.thinking_budget_mode, self.thinking_budget))
+        self.thinking_controls.setLayout(thinking); generation_body.addWidget(self.thinking_controls)
+        self.thinking_mode.currentIndexChanged.connect(self._sync_thinking_controls)
+        self.thinking_budget_mode.currentIndexChanged.connect(self._sync_thinking_controls)
         self.max_tokens.setToolTip('回覆上限須小於上下文容量，為輸入保留空間。')
         self.message = label('', 'Subtle', True); self.message.setAccessibleName('模型預設保存狀態'); layout.addWidget(self.message)
         self.apply_button = button('儲存模型設定', self.apply, 'Primary')
@@ -122,6 +142,17 @@ class ModelPresetPanel(QWidget):
                     top_p=self.top_p.value(), seed=_integer(self.seed.text().strip(), -1, 4294967295, '隨機種子請輸入 -1 到 4294967295 的整數。'),
                     gpu_layers=self.gpu_layers.value())
 
+    def reasoning_values(self):
+        enabled = self.thinking_mode.currentData()
+        mode = self.thinking_budget_mode.currentData()
+        budget = self.thinking_budget.value() if mode == 'custom' else (-1 if mode == 'unlimited' else None)
+        return dict(enable_thinking=enabled, reasoning_budget_tokens=None if enabled is False else budget)
+
+    def _sync_thinking_controls(self):
+        enabled = self.thinking_mode.currentData() is not False
+        self.thinking_budget_mode.setEnabled(enabled)
+        self.thinking_budget.setVisible(enabled and self.thinking_budget_mode.currentData() == 'custom')
+
     def reload(self):
         try: snapshot = self.service.model_preset(self.model_id)
         except (ValueError, OSError, RuntimeError) as exc:
@@ -129,18 +160,32 @@ class ModelPresetPanel(QWidget):
         self._snapshot = snapshot; values = snapshot['parameters']
         for key in ('context_size', 'max_tokens', 'temperature', 'top_p', 'gpu_layers'): getattr(self, key).setValue(values[key])
         self.seed.setText(str(values['seed'])); self.system_prompt.setPlainText(snapshot['system_prompt'])
+        # A running preview may open this lazy page after source updates while
+        # its existing service still has the previous preset contract. Do not
+        # advertise controls that that service cannot persist or execute.
+        self._reasoning_supported = 'reasoning' in snapshot
+        self.thinking_controls.setVisible(self._reasoning_supported)
+        reasoning = snapshot.get('reasoning', DEFAULT_REASONING)
+        self.thinking_mode.setCurrentIndex(0 if reasoning['enable_thinking'] is None else (1 if reasoning['enable_thinking'] else 2))
+        budget = reasoning['reasoning_budget_tokens']
+        self.thinking_budget_mode.setCurrentIndex(0 if budget is None else (1 if budget == -1 else 2))
+        self.thinking_budget.setValue(512 if budget is None or budget < 0 else budget)
+        self._sync_thinking_controls()
         self.apply_button.setEnabled(True); self.reset_button.setEnabled(True); self.message.setText(''); return True
 
     def refresh(self):
         try:
-            if self._snapshot is None or (self.values() == self._snapshot['parameters'] and self.system_prompt.toPlainText() == self._snapshot['system_prompt']):
+            if self._snapshot is None or (self.values() == self._snapshot['parameters'] and self.system_prompt.toPlainText() == self._snapshot['system_prompt']
+                                         and (not self._reasoning_supported or self.reasoning_values() == self._snapshot['reasoning'])):
                 self.reload()
         except ValueError: pass  # Keep an unfinished local edit, including an invalid seed.
 
     def apply(self):
         if self._snapshot is None: return False
         try:
-            if not self.service.configure_model(self.model_id, self.values(), system_prompt=self.system_prompt.toPlainText(), expected_revision=self._snapshot['revision']):
+            options = {'reasoning': self.reasoning_values()} if self._reasoning_supported else {}
+            if not self.service.configure_model(self.model_id, self.values(), system_prompt=self.system_prompt.toPlainText(),
+                                                expected_revision=self._snapshot['revision'], **options):
                 raise ValueError(self.service.error or '模型設定尚未保存。')
         except (ValueError, OSError, RuntimeError) as exc:
             self.message.setText(str(exc)); return False

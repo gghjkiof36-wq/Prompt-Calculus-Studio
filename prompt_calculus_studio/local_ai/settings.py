@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import sys
 
+from .reasoning import DEFAULT_REASONING, normalize_reasoning
+
 
 DEFAULT_SETTINGS = {
     'runtime_path': '',

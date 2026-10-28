@@ -7,7 +7,7 @@ import uuid
 
 from .identity import Registry
 from .io import load
-from .paths import checked, is_link, root_path
+from .paths import checked, document_entries, root_path
 from .schema import DocumentError, SUFFIXES
 
 
@@ -32,13 +32,11 @@ def scan(root):
         if identity in seen:
             continue
         seen.add(identity)
-        for path in sorted(directory.iterdir(), key=lambda p: p.name.casefold()):
-            if path.name.casefold() in ('.pcs', '.obsidian') or is_link(path):
-                continue
-            if path.is_dir():
+        entries = document_entries(directory, suffixes, ('.pcs', '.obsidian'))
+        for path, is_directory, info in sorted(entries, key=lambda item: item[0].name.casefold()):
+            if is_directory:
                 pending.append(path)
-            elif path.is_file() and path.suffix.casefold() in suffixes:
-                info = path.stat()
+            else:
                 yield Entry(path.relative_to(root).as_posix(), suffixes[path.suffix.casefold()], info.st_size, info.st_mtime_ns)
 
 

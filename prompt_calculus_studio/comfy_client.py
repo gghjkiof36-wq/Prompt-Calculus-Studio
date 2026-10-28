@@ -48,6 +48,7 @@ class ComfyClient(QObject):
         self.native_open_supported=False;self.opening_native=False;self.native_unavailable_reason=''
         self.message='尚未連接 ComfyUI'; self.polling=False; self.stopped=False; self.replies=set()
         self.connection_checking=False; self._connection_check_until=0.0
+        self._disconnect_reported=False
         self.run_id=''; self.run_started=0; self.checking_run=False; self.last_signature=''; self.last_results=0
         self.running=0; self.pending=0; self.epoch=0
         self._workflow_catalog=None
@@ -197,9 +198,13 @@ class ComfyClient(QObject):
         self._connection_check_until=0.0
         self.native_supported=False;self.native_open_supported=False;self.opening_native=False;self.native_unavailable_reason=''
         self.images.reset(); self.images_supported=False
-        self.generation.disconnected(); self.direct_supported=False; self.snapshot_versions=None
-        self.input_flow.disconnected()
-        self.queue_supported=False;self.queue.disconnected()
+        if self.document_polling:
+            self.generation.disconnected()
+            self.input_flow.disconnected()
+            self.queue.disconnected()
+        self._disconnect_reported=True
+        self.direct_supported=False; self.snapshot_versions=None
+        self.queue_supported=False
         self.flow_supported=None; self.fetching_workflow=False; self.register_library=True
         self.had_control=False; self.control_interrupted=False
         self.sync_timer.stop()
@@ -233,15 +238,21 @@ class ComfyClient(QObject):
             self.control_interrupted=self.had_control
             self.message=message
             if self.visible_status()!=before:self.stateChanged.emit()
-            self.generation.disconnected()
-            self.input_flow.disconnected()
-            self.queue.disconnected()
+            # A failed status poll is not a new interruption every 1.5 seconds.
+            # Utility pages observe connection state without owning work.
+            if not self._disconnect_reported:
+                self._disconnect_reported=True
+                if self.document_polling:
+                    self.generation.disconnected()
+                    self.input_flow.disconnected()
+                    self.queue.disconnected()
             if self.run_id:
                 self.window.notice('生成提交的連線中斷，結果尚未確認；請查看 ComfyUI 紀錄，不會自動重送。'); self.run_id=''
         def received(status):
             before=self.visible_status()
             self.polling=False; self.connection_checking=False
             if not self.enabled: return
+            self._disconnect_reported=False
             old=self.lease; self.connected=True; self.ready=bool(status.get('ready')); self.lease=status.get('lease',''); self.target=status.get('target','')
             self.had_control=self.had_control or self.ready
             self.extension_info={key:value for key,value in status.get('extension',{}).items() if key in ('root','version','release','git_head') and isinstance(value,str)} if isinstance(status.get('extension'),dict) else {}

@@ -17,6 +17,7 @@ from .approval import normalize_mode
 from .library import ModelLibrary
 from .registry import MAX_MODEL_PROMPT, MODEL_PARAMETERS, ModelRegistry, validate_model
 from .runtime import LlamaRuntime
+from .reasoning import DEFAULT_REASONING, normalize_reasoning
 from .settings import LOAD_KEYS, normalize_settings, resolve_runtime, validate_messages
 
 
@@ -310,14 +311,15 @@ class LocalAIService(QObject):
         preset = self._registry.model_presets.get(model_id)
         overrides = copy.deepcopy(preset['parameters']) if preset else {}
         prompt = preset['system_prompt'] if preset else ''
+        reasoning = copy.deepcopy(preset.get('reasoning', DEFAULT_REASONING) if preset else DEFAULT_REASONING)
         # The token includes inherited/common values, so a staged form cannot
         # save over a newer preset or a common configuration changed elsewhere.
-        revision = hashlib.sha256(json.dumps([model_id, settings, overrides, prompt],
+        revision = hashlib.sha256(json.dumps([model_id, settings, overrides, prompt, reasoning],
                                              sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
         return dict(model_id=model_id, parameters={key: settings[key] for key in MODEL_PARAMETERS},
-                    overrides=overrides, system_prompt=prompt, revision=revision)
+                    overrides=overrides, system_prompt=prompt, reasoning=reasoning, revision=revision)
 
-    def configure_model(self, model_id, values, *, system_prompt=None, expected_revision=None):
+    def configure_model(self, model_id, values, *, system_prompt=None, reasoning=None, expected_revision=None):
         if not self._can_edit():
             return False
         try:
@@ -327,6 +329,8 @@ class LocalAIService(QObject):
             if not isinstance(values, dict) or set(values) - set(MODEL_PARAMETERS):
                 raise ValueError('模型設定包含不支援的項目。')
             settings = normalize_settings(values, base=self.settings_for_model(model_id))
+            reasoning = normalize_reasoning(current['reasoning'] if reasoning is None else reasoning,
+                                            max_tokens=settings['max_tokens'])
             prompt = current['system_prompt'] if system_prompt is None else system_prompt
             if not isinstance(prompt, str) or len(prompt) > MAX_MODEL_PROMPT:
                 raise ValueError('模型預設指示格式無效或過長。')
@@ -335,6 +339,8 @@ class LocalAIService(QObject):
             # combine a sparse context/max-token pair into an invalid profile.
             presets[model_id] = dict(parameters={key: settings[key] for key in MODEL_PARAMETERS},
                                      system_prompt=prompt)
+            if reasoning != DEFAULT_REASONING:
+                presets[model_id]['reasoning'] = reasoning
             if presets != self._registry.model_presets:
                 self._registry.update(model_presets=presets)
         except (OSError, ValueError, TypeError, KeyError) as exc:
@@ -517,7 +523,7 @@ class LocalAIService(QObject):
         if not isinstance(request, ServiceRequest) or request.service != 'local_ai' or request.operation != 'chat':
             raise ValueError('本地對話請求格式無效。')
         payload = request.input
-        if not isinstance(payload, dict) or set(payload) != {'messages', 'model', 'params'}:
+        if not isinstance(payload, dict) or set(payload) - {'reasoning'} != {'messages', 'model', 'params'}:
             raise ValueError('本地對話請求缺少訊息、模型或參數。')
         model = next((m for m in self.models if m['id'] == payload['model']), None)
         if model is None or payload['model'] != self.selected_model:
@@ -525,6 +531,8 @@ class LocalAIService(QObject):
         if not isinstance(payload['params'], dict) or set(payload['params']) != set(self.settings):
             raise ValueError('請求缺少完整的參數快照。')
         params = normalize_settings(payload['params'])
+        if 'reasoning' in payload:
+            params['reasoning'] = normalize_reasoning(payload['reasoning'], max_tokens=params['max_tokens'])
         messages = validate_messages(payload['messages'])
         resolve_runtime(params['runtime_path'])
         validate_model(model)

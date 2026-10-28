@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+from time import monotonic
 import uuid
 import weakref
 
@@ -51,6 +52,8 @@ class ChatDocument(QObject):
         self.serial = 0
         self._request = None
         self._attempt = None
+        self._generation_started = None
+        self._generation_elapsed = None
         self._disposed = False
         self._attachment_job = None
         self._checkpoint_job = None
@@ -81,6 +84,13 @@ class ChatDocument(QObject):
     @property
     def busy(self):
         return self._request is not None or self._revision_saving
+
+    @property
+    def generation_elapsed_seconds(self):
+        """Current/last accepted request; elapsed time is never persisted."""
+        if self._request is None or self._generation_started is None:
+            return self._generation_elapsed
+        return max(0., monotonic() - self._generation_started)
 
     @property
     def composing(self):
@@ -500,7 +510,12 @@ class ChatDocument(QObject):
                 raise ValueError('請等待目前操作完成，再傳送訊息。')
             model = self.service.selected_model
             settings = copy.deepcopy(self.service.settings_for_model(model))
-            default_prompt = self.service.model_preset(model)['system_prompt']
+            model_preset = self.service.model_preset(model)
+            default_prompt = model_preset['system_prompt']
+            reasoning = copy.deepcopy(model_preset.get('reasoning'))
+            if reasoning is not None:
+                from .reasoning import normalize_reasoning
+                reasoning = normalize_reasoning(reasoning, max_tokens=settings['max_tokens'])
             own_prompt = source_payload['system_prompt']
             effective_prompt = own_prompt if own_prompt.strip() else default_prompt
             context_payload = dict(source_payload, system_prompt=effective_prompt)
@@ -508,7 +523,7 @@ class ChatDocument(QObject):
             refs = chat.context_references(source_payload, retry=retry)
             params = {key: settings[key] for key in PARAMETERS}
             model_name = next((m['name'] for m in getattr(self.service, 'models', []) if m['id'] == model), model)
-            profile = str(uuid.uuid5(uuid.NAMESPACE_URL, json.dumps([model, params, effective_prompt], sort_keys=True)))
+            profile = str(uuid.uuid5(uuid.NAMESPACE_URL, json.dumps([model, params, effective_prompt, reasoning], sort_keys=True)))
             turn = source_payload['turns'][-1] if retry else dict(id=str(uuid.uuid4()), text=text, attempts=[])
             if not retry and source_attachments:
                 turn['attachments'] = copy.deepcopy(source_attachments)
@@ -518,12 +533,16 @@ class ChatDocument(QObject):
                            profile_epoch=profile, parameters=params,
                            system_prompt=effective_prompt, context=refs,
                            text='', status='receiving', reason='')
+            request_input = dict(messages=messages, model=model, params=settings)
+            if reasoning is not None:
+                attempt['reasoning'] = copy.deepcopy(reasoning)
+                request_input['reasoning'] = copy.deepcopy(reasoning)
             self.serial += 1
             request = ServiceRequest('local_ai', 'chat', request_id=attempt['request'],
                                      scope=dict(document_id=self.key, owner_epoch=self.owner_epoch,
                                                 revision=self.serial, user_message_id=turn['id'],
                                                 attempt_id=attempt['id']),
-                                     input=dict(messages=messages, model=model, params=settings))
+                                     input=request_input)
             # Validate a candidate before mutating a live document or clearing
             # its draft, including turn/attempt limits and reference integrity.
             candidate = copy.deepcopy(source_payload)
@@ -546,6 +565,7 @@ class ChatDocument(QObject):
                 # Reserving the request prevents reentrant generation/edits.
                 self._request = request
                 self._attempt = candidate['turns'][-1]['attempts'][-1]
+                self._generation_started = self._generation_elapsed = None
                 try:
                     self._save_revision_candidate(candidate)
                 except (ValueError, OSError, KeyError, TypeError):
@@ -556,8 +576,11 @@ class ChatDocument(QObject):
                 if not self._owns(request):
                     return False
                 self.notice = ''
+                self._generation_started = monotonic()
                 if not self.service.submit(request):
-                    self._finish_local('failed', self.service.error or '引擎未接受訊息，請確認模型狀態後重試。')
+                    if self._owns(request):
+                        self._generation_started = self._generation_elapsed = None
+                        self._finish_local('failed', self.service.error or '引擎未接受訊息，請確認模型狀態後重試。')
                     return False
                 self.changed.emit()
                 return True
@@ -566,6 +589,7 @@ class ChatDocument(QObject):
             # Reserve this owner before save/changed signals can reenter Send,
             # Stop or Save As. The service receives nothing until save succeeds.
             self._request = request
+            self._generation_started = self._generation_elapsed = None
             self.dirty = True
             self.editing.emit()
             if not self._owns(request):
@@ -583,8 +607,10 @@ class ChatDocument(QObject):
             if not self._owns(request):
                 return False
             self.notice = ''
+            self._generation_started = monotonic()
             if not self.service.submit(request):
                 if self._owns(request):
+                    self._generation_started = self._generation_elapsed = None
                     if not retry and source_attachments:
                         self.payload['draft_attachments'] = source_attachments
                         if not self.payload['draft']:
@@ -635,7 +661,10 @@ class ChatDocument(QObject):
     def _finish_local(self, status, reason, *, cancel_request=None):
         if self._attempt is not None:
             self._attempt.update(status=status, reason=reason)
+        if self._generation_started is not None:
+            self._generation_elapsed = max(0., monotonic() - self._generation_started)
         self._request = self._attempt = None
+        self._generation_started = None
         if cancel_request is not None:
             self.service.cancel(cancel_request.request_id)
         self.checkpoint_timer.stop()
@@ -658,6 +687,7 @@ class ChatDocument(QObject):
             return False
         self._cancel_attachment_import()
         self.stop()
+        self._generation_started = self._generation_elapsed = None
         self.owner_epoch = str(uuid.uuid4())
         self.path = Path(target).absolute()
         self.data = self.path.parent

@@ -29,7 +29,93 @@ class SaveTests(DocumentsCase):
         self.assertEqual(candidate, before)
         loaded = io.load(self.destination, '分類.pcs-category')
         self.assertEqual(loaded.document, result.document)
-        self.assertTrue(any(Path(p).suffix == '.external' for p in result.recovery_paths))
+        self.assertEqual(result.recovery_paths, ())
+        self.assertEqual(io.recovery_files(self.destination, '分類.pcs-category'), ())
+
+    def test_repeated_successful_saves_do_not_accumulate_recovery_files(self):
+        saved = self.saved()
+        for number in range(30):
+            saved = io.save(self.destination, '分類.pcs-category',
+                            self.edit(saved, f'checkpoint {number}'), saved.receipt)
+            self.assertEqual(saved.status, 'saved', saved)
+            self.assertEqual(saved.recovery_paths, ())
+        loaded = io.load(self.destination, '分類.pcs-category')
+        self.assertEqual(loaded.document['payload']['items'][0]['notes'], 'checkpoint 29')
+        self.assertEqual(io.recovery_files(self.destination, '分類.pcs-category'), ())
+
+    def test_successful_save_preserves_older_failed_attempt_recovery_bytes(self):
+        saved = self.saved()
+        def fail(phase):
+            if phase == 'before-replace':
+                raise OSError('interrupted before replacement')
+        with patch.object(io, '_checkpoint', side_effect=fail):
+            failed = io.save(self.destination, '分類.pcs-category',
+                             self.edit(saved, 'preserve failed candidate'), saved.receipt)
+        self.assertEqual(failed.status, 'failed', failed)
+        retained = {Path(path): Path(path).read_bytes() for path in failed.recovery_paths}
+        self.assertTrue(retained)
+        result = io.save(self.destination, '分類.pcs-category',
+                         self.edit(saved, 'successful candidate'), saved.receipt)
+        self.assertEqual(result.status, 'saved', result)
+        self.assertEqual(result.recovery_paths, ())
+        self.assertEqual({path: path.read_bytes() for path in retained}, retained)
+        self.assertEqual(set(io.recovery_files(self.destination, '分類.pcs-category')), set(retained))
+
+    def test_locked_cleanup_file_does_not_retry_or_reject_successful_save(self):
+        saved = self.saved()
+        unlink = Path.unlink
+        def locked_candidate(path, *args, **kwargs):
+            if path.suffix == '.candidate':
+                raise PermissionError('recovery file locked')
+            return unlink(path, *args, **kwargs)
+        with patch.object(Path, 'unlink', locked_candidate), \
+                patch.object(windows, 'replace', wraps=windows.replace) as replacement:
+            result = io.save(self.destination, '分類.pcs-category', self.edit(saved), saved.receipt)
+        self.assertEqual(result.status, 'saved', result)
+        self.assertFalse(result.dirty)
+        self.assertEqual(replacement.call_count, 1)
+        self.assertEqual(len(result.recovery_paths), 1)
+        self.assertTrue(result.recovery_paths[0].endswith('.candidate'))
+        self.assertEqual(io.load(self.destination, '分類.pcs-category').document, result.document)
+
+    def test_successful_save_cleanup_keeps_parent_pinned_until_last_unlink(self):
+        saved = self.saved()
+        unlink = Path.unlink
+        cleaned = []
+        moved = self.destination.with_name('moved-document-root')
+        def guarded_unlink(path, *args, **kwargs):
+            if '.recovery-' in path.name and path.exists():
+                with self.assertRaises(PermissionError):
+                    self.destination.rename(moved)
+                cleaned.append(path.suffix)
+            return unlink(path, *args, **kwargs)
+        with patch.object(Path, 'unlink', guarded_unlink):
+            result = io.save(self.destination, '分類.pcs-category', self.edit(saved), saved.receipt)
+        self.assertEqual(result.status, 'saved', result)
+        self.assertEqual(set(cleaned), {'.candidate', '.before', '.external'})
+        self.destination.rename(moved)
+        moved.rename(self.destination)
+
+    def test_post_replace_external_edit_retains_all_versions_without_cleanup(self):
+        saved = self.saved()
+        path = self.destination / '分類.pcs-category'
+        external = schema.encode(self.edit(saved, 'external after publication'))
+        replacement = self.destination / 'external.tmp'
+        replacement.write_bytes(external)
+        def race(phase):
+            if phase == 'after-replace':
+                windows.replace(path, replacement, self.destination / 'competitor.previous')
+        with patch.object(io, '_checkpoint', side_effect=race), \
+                patch.object(io, '_cleanup_saved', wraps=io._cleanup_saved) as cleanup:
+            result = io.save(self.destination, path.name, self.edit(saved), saved.receipt)
+        self.assertEqual(result.status, 'conflict', result)
+        cleanup.assert_not_called()
+        recovered = {Path(p).suffix: Path(p).read_bytes() for p in result.recovery_paths}
+        self.assertEqual(set(recovered), {'.candidate', '.before', '.external'})
+        self.assertEqual(schema.decode(recovered['.before']), saved.document)
+        self.assertEqual(schema.decode(recovered['.external']), saved.document)
+        self.assertEqual(schema.decode(recovered['.candidate'])['payload']['items'][0]['notes'], 'candidate')
+        self.assertEqual(path.read_bytes(), external)
 
     def test_external_modification_before_save_keeps_original_path_and_dirty(self):
         saved = self.saved()
@@ -170,6 +256,13 @@ io.save(sys.argv[1], sys.argv[2], candidate, loaded.receipt)
 
 
 class CreateTests(DocumentsCase):
+    def test_successful_create_removes_its_recovery_files(self):
+        result = self.saved()
+        self.assertEqual(result.status, 'saved', result)
+        self.assertEqual(result.recovery_paths, ())
+        self.assertEqual(io.recovery_files(self.destination, '分類.pcs-category'), ())
+        self.assertEqual(io.load(self.destination, '分類.pcs-category').document, result.document)
+
     def test_create_is_exclusive_and_invalid_or_cancelled_preparation_writes_nothing(self):
         saved = self.saved()
         path = self.destination / '分類.pcs-category'

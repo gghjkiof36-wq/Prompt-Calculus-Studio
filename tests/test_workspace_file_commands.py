@@ -128,14 +128,16 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
         self.w.select_path(self.folder)
         QTest.mouseClick(self.w.tree_new, Qt.MouseButton.LeftButton)
         menu = self.app.activePopupWidget()
-        self.assertEqual([a.text() for a in menu.actions()], ['新增prompt管理頁', '新增工作流', '新增文字文件'])
-        action = menu.actions()[2]
+        self.assertEqual([a.text() for a in menu.actions()],
+                         ['新增prompt管理頁', '新增工作流', '新增文字文件', '新增對話'])
+        action = next(a for a in menu.actions() if a.text() == '新增文字文件')
         self.w.select_path(self.root)
         self.inline_action(action.trigger, lambda e: (e.name.setText('工具列.md'), QTest.keyClick(e.name, Qt.Key.Key_Return)))
         self.assertTrue((self.folder/'工具列.md').exists())
         before = set(self.w.tabs_by_key)
         menu = self.w.commands.menu_for(self.w.commands.context('tree', self.item(self.folder)))
-        self.inline_action(menu.actions()[0].menu().actions()[3].trigger,
+        create_folder = next(a for a in menu.actions()[0].menu().actions() if a.text() == '新增資料夾…')
+        self.inline_action(create_folder.trigger,
                            lambda e: (e.name.setText('新資料夾'), e.submit()))
         self.assertTrue((self.folder/'新資料夾').is_dir())
         self.assertEqual(set(self.w.tabs_by_key), before)

@@ -308,6 +308,10 @@ class SettingsDialog(StudioDialog):
             self.sidebar_auto_hide.toggled.connect(save_hover)
             self.sidebar_open_delay.valueChanged.connect(save_hover)
             self.sidebar_close_delay.valueChanged.connect(save_hover)
+            self.performance_monitor=QCheckBox('效能監測')
+            self.performance_monitor.setChecked(workspace.performance_monitor_enabled)
+            self.performance_monitor.toggled.connect(workspace.set_performance_monitor)
+            confirmations_layout.addWidget(self.performance_monitor)
         self.reduce_motion=QCheckBox('減少畫布展開動畫'); self.reduce_motion.setChecked(s.get('reduce_motion',False)); confirmations_layout.addWidget(self.reduce_motion)
         if workspace is not None:
             self.reduce_motion.setText('減少動態效果')

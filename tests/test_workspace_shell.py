@@ -654,7 +654,8 @@ class WorkspaceShellTests(unittest.TestCase):
 
     def test_start_page_creation_recent_files_and_collision_preserve_existing_content(self):
         self.assertEqual(self.w.pages.currentWidget().listing.count(), 0)
-        for kind, name in (('workflow', 'New canvas'), ('category', 'New category'), ('markdown', 'New note')):
+        for kind, name in (('workflow', 'New canvas'), ('category', 'New category'),
+                           ('markdown', 'New note'), ('chat', 'New chat')):
             tab = self.w.new_document(kind, name)
             self.events()
             self.assertIsNotNone(tab, self.errors)
@@ -665,15 +666,15 @@ class WorkspaceShellTests(unittest.TestCase):
             self.assertTrue(self.errors.pop())
         page = self.w.new_tab().widget
         self.events()
-        self.assertEqual(page.listing.count(), 3)
-        self.assertEqual(page.listing.item(0).text(), 'New note')
-        self.assertEqual(set(page.create_buttons), {'workflow', 'category', 'markdown'})
+        self.assertEqual(page.listing.count(), 4)
+        self.assertEqual(page.listing.item(0).text(), 'New chat')
+        self.assertEqual(set(page.create_buttons), {'workflow', 'category', 'markdown', 'chat'})
         self.assertLessEqual(page.content.width(), 620)
         self.assertAlmostEqual(page.content.geometry().center().x(), page.rect().center().x(), delta=2)
         self.assertEqual(self.w.tree.columnCount(), 1)
         self.w.save_recent()
         import json
-        self.assertEqual(json.loads((self.w.data/'recent-files.json').read_text(encoding='utf-8'))[0], str(self.root/'New note.md'))
+        self.assertEqual(json.loads((self.w.data/'recent-files.json').read_text(encoding='utf-8'))[0], str(self.root/'New chat.pcs-chat'))
 
     def test_markdown_edit_save_cancel_reopen_and_conflict_preserve_bytes(self):
         tab = self.w.open_path(self.root/'Notes.md', True)
