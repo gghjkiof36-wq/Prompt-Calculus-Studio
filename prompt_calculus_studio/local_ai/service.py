@@ -388,11 +388,16 @@ class LocalAIService(QObject):
             any(self.generation_settings[key] != self._loaded_settings[key] for key in LOAD_KEYS)))
 
     @property
-    def can_submit(self):
-        """Whether Send may reserve the slot; validation failures remain explicit."""
-        return bool(self.selected_model and not self._closing and self._active is None
+    def can_accept(self):
+        """Shared slot availability, independent of the chat model selection."""
+        return bool(not self._closing and self._active is None
                     and self.state not in BUSY
                     and (self._worker is None or not self._worker.exiting.is_set()))
+
+    @property
+    def can_submit(self):
+        """Whether chat Send may reserve the slot with its selected model."""
+        return bool(self.selected_model and self.can_accept)
 
     def _available_state(self):
         try:
@@ -518,15 +523,16 @@ class LocalAIService(QObject):
 
     def validate_submission(self, request):
         """Read-only preflight. No reservation, signals, worker or model load."""
-        if not self.can_submit:
-            raise ValueError('請先選擇模型，並等待目前操作完成。')
-        if not isinstance(request, ServiceRequest) or request.service != 'local_ai' or request.operation != 'chat':
+        if (not isinstance(request, ServiceRequest) or request.service != 'local_ai'
+                or request.operation not in ('chat', 'text_assist')):
             raise ValueError('本地對話請求格式無效。')
+        if not (self.can_submit if request.operation == 'chat' else self.can_accept):
+            raise ValueError('請先選擇模型，並等待目前操作完成。')
         payload = request.input
         if not isinstance(payload, dict) or set(payload) - {'reasoning'} != {'messages', 'model', 'params'}:
             raise ValueError('本地對話請求缺少訊息、模型或參數。')
         model = next((m for m in self.models if m['id'] == payload['model']), None)
-        if model is None or payload['model'] != self.selected_model:
+        if model is None or (request.operation == 'chat' and payload['model'] != self.selected_model):
             raise ValueError('選用的模型已變更，請重新傳送。')
         if not isinstance(payload['params'], dict) or set(payload['params']) != set(self.settings):
             raise ValueError('請求缺少完整的參數快照。')

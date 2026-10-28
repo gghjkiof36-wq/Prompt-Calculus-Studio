@@ -16,7 +16,7 @@
 | 新增外部服務 | [service_adapters](../../prompt_calculus_studio/service_adapters.py)；現有範例 [CivitAIBrowseAdapter](../../prompt_calculus_studio/civitai_adapter.py) | 封套凍結輸入並核對完整 request；各服務保留自己的傳輸、認證和回應限制。封套不承擔排程、重試或目的文件的新鮮度判斷。 |
 | Stage 圖片內容推導 | [stage_context.project](../../prompt_calculus_studio/stage_context.py) → [image_source](../../prompt_calculus_studio/image_source.py)／[pnginfo](../../prompt_calculus_studio/pnginfo.py) | 一次操作共用驗證過的 bytes 與 metadata，Reader 的 choice、來源及可變輸出各自獨立。 |
 
-例如新增「整理選中 Prompt」：先凍結目前文件、選取與版本，取得候選後再核對目的內容；使用者採用時，以該文件的一次 `commit(..., merge_key=None)` 寫入，再由原保存流程處理落盤。若功能目標是 Markdown，則接其 buffer 操作；不把閱讀頁 HTML 寫回原文。模型功能本身仍屬下述規劃。
+例如新增「整理選中 Prompt」：先凍結目前文件、選取與版本，取得候選後再核對目的內容；使用者採用時，以該文件的一次 `commit(..., merge_key=None)` 寫入，再由原保存流程處理落盤。Markdown 的本機「文字協作」已依同一原則接到 `buffer.apply(captured_snapshot, [SourceEdit])`：先預覽，選擇取代或插入才提交一次可復原編輯，不把閱讀頁 HTML 寫回原文。Prompt 整理與通用 skill 執行仍屬規劃。
 
 ## 保留的資料與依賴契約
 
@@ -45,7 +45,7 @@ Beta2 的根範圍修復提供具體例子：背景閱讀已取得廣根下的�
 | --- | --- | --- |
 | 文件操作 | 共用內容交易、驗證及同一份歷史；Canvas runtime adapter 仍存在 | 新功能被迫借用畫面才能操作內容時，補最小能力介面；以無畫面操作、相同 Undo 及保存重試不重加內容驗證。 |
 | 背景生命週期 | 回執與可作廢投影分流，保留現有 scheduler | 兩條實際流程需要相同排程改動時，才抽共用骨架；owner、有效性和接受義務仍由各入口決定。不能把保留 host 直接判為記憶體洩漏。 |
-| 外部服務／AI | CivitAI 連線測試、搜尋、版本詳情已接封套；[AI／skill 內容契約](087-ai-skill-contracts.md)仍是規劃 | 有具體模型功能時，補來源原文 SHA、scope、版本、Unicode scalar spans、候選審閱及採用前重驗，再提交一次交易。模型、候選 UI、skill 執行尚未提供。 |
+| 外部服務／AI | CivitAI 連線測試、搜尋、版本詳情已接封套；[本機對話與 Markdown 文字協作](local-inference-architecture.md)已實作。通用 [AI／skill 內容契約](087-ai-skill-contracts.md)仍是規劃 | Markdown 文字協作已凍結來源 SHA、scope、版本、Python 字元範圍，候選審閱後重驗原分頁／位置／快照並提交一次 buffer 編輯。其他文件類型與 skill 執行須按實際需求補接點，不沿用目前焦點決定寫入。 |
 | Stage 來源 | 每次 `project` 按已解析 root／path／SHA 共用來源；每個 Reader 輸出獨立 | 固定案例量測仍顯示瓶頸時，分開量 hash、parse、state copy 與輸出成本再決定。25 MiB 是單來源捕獲上限，不是整體記憶體保證；新操作重新驗證，沒有跨操作快取。 |
 
 優先順序是先確認新需求的資料歸屬與最小完整流程，再接既有介面，補必要驗證；只有出現上述具體限制才局部抽取。跨程序隔離、其他儲存格式或插件平台若成為真實需求，再另記取捨與遷移條件，現階段不預建框架。

@@ -23,6 +23,18 @@
 
 啟動入口仍是 PCS 既有工作區入口。原先只做靜態檢查的回執保留為當時紀錄；新增的契約、離屏介面與真模型證據見下節。本次獨立準備模型及引擎，沒有安裝全域 CUDA／pip、建置 EXE 或替換正式安裝。引擎預留 `runtimes/llama.cpp/llama-server.exe`，也可由設定明確選擇固定版本目錄中的檔案；產品內的安裝／更新管理尚未完成，不要求使用者另開 LM Studio。
 
+### Markdown 文字協作（2026-10-29）
+
+Markdown 的編寫／原文模式新增右鍵「文字協作…」。選取文字時使用該範圍；沒有選取或在選取外按右鍵時，使用該處的原文段落（以換行分隔）。`markdown_text_assist.MarkdownTextTarget` 捕獲原分頁、文件位置、save key、完整 SourceSnapshot 及 Python 字元範圍；不從閱讀頁 HTML 推算來源，也不自動送出整份文件。
+
+`local_ai.text_assist.TextAssistController` 以獨立的 `ServiceRequest(operation='text_assist')` 共用本機模型服務及單一生成槽。每次請求凍結來源 SHA、owner epoch、指令、模型與參數；本次選模型不改全域聊天選擇。來源視為待編輯資料，請求只包含來源與修改需求，不帶聊天歷史、不建立 `.pcs-chat`，也不執行模型產出的工具或程式碼。
+
+`text_assist_dialog` 先呈現可複製的候選正文。僅完整成功且思考標記已閉合的候選可採用；停止、失敗、達上限、來源失效或修改需求／模型後，停用採用。關閉／取消先撤銷接收權再取消請求，晚到結果不會重新取得寫入權。
+
+採用端用原始 `buffer.apply(captured_snapshot, [SourceEdit])` 提交一次可復原編輯，再沿既有 Markdown 保存流程。採用前另外核對原分頁仍開啟、path／save key 未變、非唯讀／組字及無保存錯誤；切換目前焦點不改目的地。候選換行轉為 LF，範圍外原文與原始換行／BOM 由 SourceLedger 保留。「接在後面」在原範圍末端插入獨立段落。候選在採用前僅存記憶體，沒有新增文件 schema 或恢復交易。
+
+本批證據為控制器／服務聚焦測試、離屏對話框與真正 Markdown buffer／writer 的右鍵至保存重開流程；沒有新增真模型推理、GPU 或前景操作驗證，不把既有聊天模型結果當成這次改寫品質驗收。固定來源、回執與畫面見任務 `MARKDOWN-TEXT-ASSIST-VALIDATION.json`。舊程序仍持有不支援此操作的服務時，入口提示重新開啟 PCS，不替換正在運作的服務。
+
 ### 基礎版受驗來源與結果（歷史證據）
 
 契約測試基準為 `f2d0ad9a432a73e4d0b31b6f9bbcb7b7bdcb2e17`。真模型及原探索頁驗證使用該基準加 `runtime.py` 的 `--reasoning-format none` 修改；固定檔案摘要及最後交付提交由任務回執記錄。此參數讓 R1 的思考文字保留在目前支援的 `content` 串流，避免預設 `auto` 將它拆到尚未接受的 `reasoning_content`。原文完整保存；後續新增的顯示層將前導 `<think>` 區塊獨立呈現，不改這份傳輸與保存契約。

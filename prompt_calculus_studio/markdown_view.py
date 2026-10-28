@@ -817,6 +817,8 @@ class SourceView(QPlainTextEdit):
         from .markdown_image_size import image_at, open_image_size
         snapshot=self.page.buffer.snapshot()
         position=python_position(snapshot.text,self.cursorForPosition(event.pos()).position())
+        from .markdown_text_assist import add_text_assist_action
+        add_text_assist_action(menu, self.surface, position)
         if image_at(snapshot.text,position):
             menu.addAction('調整圖片尺寸…',lambda:open_image_size(self.surface,position,snapshot))
             menu.addSeparator()
