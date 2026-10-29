@@ -6,12 +6,12 @@ from unittest.mock import patch
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QInputMethodEvent, QTextCharFormat, QTextCursor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QPlainTextEdit, QWidget
+from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QMenu, QPlainTextEdit, QWidget
 from shiboken6 import isValid
 
 from prompt_calculus_studio.core import initial_state
 from prompt_calculus_studio.color_roles import contrast
-from prompt_calculus_studio.local_ai.text_assist_panel import TextAssistPanel
+from prompt_calculus_studio.local_ai.text_assist_panel import TextAssistInput, TextAssistPanel
 from prompt_calculus_studio.theme import stylesheet, widget_palette
 
 
@@ -128,7 +128,7 @@ class TextAssistPanelUI(unittest.TestCase):
         self.assertEqual(panel.windowType(), Qt.WindowType.Widget)
         self.assertIs(panel.parentWidget(), self.parent)
         self.assertEqual(panel.findChildren(QComboBox), [])
-        for name in ('models', 'source', 'heading', 'preview', 'replace_button', 'insert_button'):
+        for name in ('models', 'source', 'heading', 'preview', 'replace_button', 'insert_button', 'keep_menu_button'):
             self.assertFalse(hasattr(panel, name), name)
         self.assertEqual(panel.findChildren(QPlainTextEdit), [panel.instruction])
         self.assertEqual(panel.instruction.placeholderText(), '描述你想如何編輯…')
@@ -138,7 +138,7 @@ class TextAssistPanelUI(unittest.TestCase):
         self.assertEqual(panel.start_button.parentWidget(), panel.controls)
         self.assertIs(self.app.focusWidget(), self.editor)
         self.assertTrue(panel.review_controls.isHidden())
-        for control in (panel.start_button, panel.stop_button, panel.close_button):
+        for control in (panel.start_button, panel.close_button):
             self.assertEqual(control.text(), '')
             self.assertFalse(control.icon().isNull())
             self.assertTrue(control.accessibleName())
@@ -211,15 +211,18 @@ class TextAssistPanelUI(unittest.TestCase):
             self.assertGreaterEqual(contrast(tokens['text'], tokens['selected']), 4.5)
             self.assertGreaterEqual(contrast(tokens['secondary'], tokens['raised']), 4.5)
 
-    def test_start_uses_controller_model_and_enter_remains_multiline(self):
+    def test_enter_submits_current_model_and_shift_enter_adds_a_newline(self):
         panel = self.panel
         self.controller.selected_model_id = 'two'
         panel.instruction.setPlainText('精簡')
         panel.focus_input()
-        QTest.keyClick(panel.instruction, Qt.Key.Key_Return)
+        panel.instruction.moveCursor(QTextCursor.MoveOperation.End)
+        QTest.keyClick(panel.instruction, Qt.Key.Key_Return, Qt.KeyboardModifier.ShiftModifier)
         self.assertEqual(self.controller.starts, [])
-        panel.start_button.click()
-        self.assertEqual(self.controller.starts, [('精簡', 'two')])
+        self.assertEqual(panel.instruction.toPlainText(), '精簡\n')
+        panel.instruction.insertPlainText('保持語氣')
+        QTest.keyClick(panel.instruction, Qt.Key.Key_Return)
+        self.assertEqual(self.controller.starts, [('精簡\n保持語氣', 'two')])
         self.assertTrue(panel.instruction.isHidden())
         self.assertTrue(panel.controls.isHidden())
         self.assertTrue(panel.review_controls.isVisible())
@@ -252,14 +255,13 @@ class TextAssistPanelUI(unittest.TestCase):
         self.assertEqual(self.controller.disposals, 1)
         self.assertEqual(closed, [True])
 
-    def test_keep_dropdown_preserves_insert_use(self):
+    def test_keep_has_no_menu_or_insert_action(self):
         self.start()
-        self.controller.complete('接在後面的候選')
-        self.panel.keep_menu_button.click()
-        menu = self.panel._keep_menu
-        self.assertEqual([action.text() for action in menu.actions()], ['接在原文後'])
-        menu.actions()[0].trigger()
-        self.assertEqual(self.applied, [('insert', '接在後面的候選')])
+        self.controller.complete('完整候選')
+        self.assertFalse(hasattr(self.panel, 'keep_menu_button'))
+        self.assertEqual(self.panel.findChildren(QMenu), [])
+        self.panel.keep_button.click()
+        self.assertEqual(self.applied, [('replace', '完整候選')])
         self.assertEqual(self.controller.disposals, 1)
 
     def test_retry_preserves_original_instruction_and_source(self):
@@ -303,16 +305,16 @@ class TextAssistPanelUI(unittest.TestCase):
         self.panel.instruction.setPlainText('改成條列')
         self.assertFalse(self.panel.keep_button.isEnabled())
         self.assertEqual(self.panel.status.text(), '需求或模型已變更，請重新產生候選。')
-        self.panel._apply('replace')
+        self.panel._apply()
         self.assertEqual(self.applied, [])
         self.panel.instruction.setPlainText('請精簡這段文字。')
         self.assertTrue(self.panel.keep_button.isEnabled())
         self.controller.selected_model_id = 'two'
         self.controller.changed.emit()
-        self.assertFalse(self.panel.keep_menu_button.isEnabled())
+        self.assertFalse(self.panel.keep_button.isEnabled())
         self.controller.selected_model_id = 'one'
         self.controller.changed.emit()
-        self.assertTrue(self.panel.keep_menu_button.isEnabled())
+        self.assertTrue(self.panel.keep_button.isEnabled())
 
     def test_stopped_failed_limited_allow_retry_delete_but_not_keep(self):
         self.start()
@@ -389,8 +391,7 @@ class TextAssistPanelUI(unittest.TestCase):
         self.assertGreaterEqual(self.panel.height(), 32)
         self.assertLessEqual(self.panel.height(), 36)
         self.assertEqual(self.panel.findChildren(QPlainTextEdit), [self.panel.instruction])
-        for control in (self.panel.keep_button, self.panel.keep_menu_button,
-                        self.panel.retry_button, self.panel.delete_button):
+        for control in (self.panel.keep_button, self.panel.retry_button, self.panel.delete_button):
             bottom = control.mapTo(self.panel, control.rect().bottomRight())
             self.assertLess(bottom.x(), self.panel.width())
             self.assertLess(bottom.y(), self.panel.height())
@@ -408,12 +409,11 @@ class TextAssistPanelUI(unittest.TestCase):
             self.controller.complete('候選文字' * 100)
             self.controller.error = '這是一段很長但必須可完整讀取的錯誤說明。' * 10
             self.controller.changed.emit()
-            self.place(320)
+            self.place(304)
             self.assertEqual(self.panel.status.toolTip(), self.controller.error)
-            self.assertLessEqual(self.panel.width(), 320)
+            self.assertLessEqual(self.panel.width(), 304)
             self.assertGreaterEqual(self.panel.status.width(), self.panel.status.fontMetrics().horizontalAdvance('錯誤說明'))
-            for control in (self.panel.keep_button, self.panel.keep_menu_button,
-                            self.panel.retry_button, self.panel.delete_button):
+            for control in (self.panel.keep_button, self.panel.retry_button, self.panel.delete_button):
                 bottom = control.mapTo(self.panel, control.rect().bottomRight())
                 self.assertLess(bottom.x(), self.panel.width())
                 self.assertLess(bottom.y(), self.panel.height())
@@ -448,15 +448,14 @@ class TextAssistPanelUI(unittest.TestCase):
         self.assertFalse(panel.instruction.textCursor().hasSelection())
         self.assertEqual(panel.instruction.verticalScrollBar().maximum(), 0)
 
-    def test_review_pill_uses_content_width_and_quiet_dropdown_without_completion_caption(self):
+    def test_review_pill_has_no_completion_caption_or_secondary_keep_control(self):
         self.start()
         self.controller.complete('候選')
         self.place()
         self.assertEqual(self.panel.status.text(), '')
         self.assertTrue(self.panel.status.isHidden())
         self.assertLessEqual(self.panel.preferred_width(500), 280)
-        self.assertEqual(self.panel.keep_menu_button.objectName(), 'Quiet')
-        self.assertLessEqual(self.panel.keep_menu_button.width(), 26)
+        self.assertFalse(hasattr(self.panel, 'keep_menu_button'))
         self.assertLess(self.panel.delete_button.mapTo(self.panel, QPoint()).x(),
                         self.panel.keep_button.mapTo(self.panel, QPoint()).x())
 
@@ -479,6 +478,67 @@ class TextAssistPanelUI(unittest.TestCase):
             self.assertIs(self.app.focusWidget(), self.editor)
         finally:
             self.app.setFont(previous)
+
+    def test_ime_confirming_enter_never_submits_or_inserts_a_newline(self):
+        editor = self.panel.instruction
+        self.panel.focus_input()
+        self.app.sendEvent(editor, QInputMethodEvent('改寫', []))
+        QTest.keyClick(editor, Qt.Key.Key_Return)
+        self.assertEqual(self.controller.starts, [])
+        self.assertEqual(editor.toPlainText(), '')
+        commit = QInputMethodEvent()
+        commit.setCommitString('改寫')
+        self.app.sendEvent(editor, commit)
+        QTest.keyClick(editor, Qt.Key.Key_Return)
+        self.assertEqual(self.controller.starts, [])
+        self.assertEqual(editor.toPlainText(), '改寫')
+        QTest.qWait(10)
+        QTest.keyClick(editor, Qt.Key.Key_Return)
+        self.assertEqual(self.controller.starts, [('改寫', 'one')])
+
+    def test_reusable_input_emits_keypad_submit_and_restores_its_custom_placeholder(self):
+        editor = TextAssistInput(self.parent)
+        editor.setPlaceholderText('描述你想起稿或續寫的內容…')
+        submitted = []
+        editor.submitted.connect(lambda: submitted.append(editor.toPlainText()))
+        self.app.sendEvent(editor, QInputMethodEvent('起稿', []))
+        self.assertEqual(editor.placeholderText(), '')
+        commit = QInputMethodEvent()
+        commit.setCommitString('起稿')
+        self.app.sendEvent(editor, commit)
+        self.assertEqual(editor.placeholderText(), '描述你想起稿或續寫的內容…')
+        QTest.qWait(10)
+        QTest.keyClick(editor, Qt.Key.Key_Enter, Qt.KeyboardModifier.KeypadModifier)
+        self.assertEqual(submitted, ['起稿'])
+        self.assertEqual(editor.toPlainText(), '起稿')
+        editor.setReadOnly(True)
+        QTest.keyClick(editor, Qt.Key.Key_Return)
+        self.assertEqual(submitted, ['起稿'])
+
+    def test_loading_generating_stopping_and_completed_share_action_geometry(self):
+        self.start()
+        self.place(320)
+        before = self.panel.geometry()
+        positions = {name: getattr(self.panel, name).mapTo(self.panel, QPoint())
+                     for name in ('delete_button', 'stop_button', 'keep_button')}
+        size = self.panel.stop_button.size()
+        for state in ('generating', 'stopping'):
+            self.controller.state = state
+            self.panel.refresh()
+            self.place(320)
+            self.assertEqual(self.panel.geometry(), before)
+            for name, point in positions.items():
+                self.assertEqual(getattr(self.panel, name).mapTo(self.panel, QPoint()), point)
+            self.assertEqual(self.panel.stop_button.size(), size)
+            self.assertTrue(self.panel.status.isHidden())
+        self.controller.complete('完成候選')
+        self.place(320)
+        self.assertEqual(self.panel.geometry(), before)
+        self.assertEqual(self.panel.retry_button.mapTo(self.panel, QPoint()), positions['stop_button'])
+        self.assertEqual(self.panel.retry_button.size(), size)
+        self.assertEqual(self.panel.keep_button.mapTo(self.panel, QPoint()), positions['keep_button'])
+        self.assertEqual(self.panel.keep_button.text(), '保留')
+        self.assertEqual(self.panel.delete_button.height(), self.panel.keep_button.height())
 
 
 if __name__ == '__main__':

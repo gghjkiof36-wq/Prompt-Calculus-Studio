@@ -134,7 +134,28 @@ class MarkdownInlineAssist(QObject):
         panel.closed.connect(lambda: self._closed(panel))
         panel.geometry_needed.connect(self.reposition)
         panel.controller.changed.connect(self.state_changed)
+        if hasattr(self.surface, 'draft_composer'):
+            self.surface.draft_composer.refresh()
         self.reposition()
+
+    def start_draft(self, instruction):
+        """Capture the current complete document only when the user sends."""
+        if not instruction.strip() or not self._allowed() or self.panel is not None:
+            return None
+        self._opening = True
+        try:
+            from .markdown_text_assist import open_text_assist
+            panel = open_text_assist(self.surface, kind='draft')
+            if panel is not None:
+                panel.instruction.setPlainText(instruction)
+                if not panel.start_button.isEnabled():
+                    self.surface.report(panel.start_button.toolTip())
+                    self.dismiss()
+                    return None
+                panel.start_button.click()
+            return panel
+        finally:
+            self._opening = False
 
     def state_changed(self):
         panel = self.panel
@@ -204,7 +225,10 @@ class MarkdownInlineAssist(QObject):
         if panel is None:
             raise ValueError('這次文字協作已關閉。')
         self.restore_projection()
-        return panel.target.apply(mode, text)
+        applied = panel.target.apply(mode, text)
+        if applied and panel.target.kind == 'draft':
+            self.surface.draft_composer.instruction.clear()
+        return applied
 
     def _closed(self, panel):
         if self.panel is panel:
@@ -212,6 +236,8 @@ class MarkdownInlineAssist(QObject):
             self.panel = None
             self._suppressed = self.surface.selection()
             self.surface.text_assist_panel = None
+            if hasattr(self.surface, 'draft_composer'):
+                self.surface.draft_composer.refresh()
 
     def dismiss(self):
         self.timer.stop()
@@ -221,6 +247,8 @@ class MarkdownInlineAssist(QObject):
         self.restore_projection()
         self.panel = None
         self._suppressed = self.surface.selection()
+        if hasattr(self.surface, 'draft_composer'):
+            self.surface.draft_composer.refresh()
 
     def reposition(self, *args):
         panel = self.panel
@@ -278,10 +306,15 @@ class MarkdownInlineAssist(QObject):
         if panel is None or not isValid(panel):
             return
         selection = (panel.target.snapshot, panel.target.start, panel.target.end)
+        kind = panel.target.kind
         instruction = panel.instruction.toPlainText()
         self.dismiss()
+        if kind == 'draft':
+            self.surface.draft_composer.instruction.setPlainText(instruction)
+            self.surface.draft_composer.instruction.setFocus()
+            return
         from .markdown_text_assist import open_text_assist
-        replacement = open_text_assist(self.surface, *selection)
+        replacement = open_text_assist(self.surface, *selection, kind=kind)
         if replacement is not None:
             replacement.instruction.setPlainText(instruction)
 

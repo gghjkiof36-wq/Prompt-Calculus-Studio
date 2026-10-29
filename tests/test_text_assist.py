@@ -12,6 +12,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
 
 from prompt_calculus_studio.local_ai.settings import DEFAULT_SETTINGS
+from prompt_calculus_studio.local_ai.runtime import LlamaRuntime
 from prompt_calculus_studio.local_ai.text_assist import TextAssistController
 from prompt_calculus_studio.service_adapters import ServiceRequest
 import test_local_ai_auto_prepare as prepare_fixtures
@@ -103,9 +104,102 @@ class TextAssistContracts(unittest.TestCase):
         self.assertIsNone(request.input['reasoning']['enable_thinking'])
         messages = request.input['messages']
         self.assertEqual([m['role'] for m in messages], ['system', 'user'])
-        self.assertEqual(json.loads(messages[-1]['content']), dict(instruction='  保留空白\n', source_text='原文🙂\n'))
+        self.assertEqual(json.loads(messages[-1]['content']),
+                         dict(instruction='  保留空白\n', operation='rewrite',
+                              document_text='原文🙂\n', source_text='原文🙂\n'))
         self.assertNotIn('synthetic.md', messages[-1]['content'])
         self.assertIn('只輸出', messages[0]['content'])
+
+    def test_full_document_context_is_frozen_and_never_truncated_to_the_selection(self):
+        document = '# 文件前文\n\n' + ('完整上下文🙂\n' * 18000) + '原文🙂\n\n最後的上下文不得消失。'
+        scope = dict(self.scope, document_sha256='caller-value')
+        controller = TextAssistController(self.service, source_text='原文🙂\n', source_scope=scope,
+                                          document_text=document)
+        self.addCleanup(controller.dispose)
+        self.assertTrue(controller.start('參考整份文件，只改這段'))
+        request = self.service.requests[-1]
+        payload = json.loads(request.input['messages'][-1]['content'])
+        self.assertEqual(payload['document_text'], document)
+        self.assertEqual(payload['source_text'], '原文🙂\n')
+        self.assertEqual(controller.document_text, document)
+        self.assertEqual(controller.operation, 'rewrite')
+        digest = hashlib.sha256(document.encode('utf-8')).hexdigest()
+        self.assertEqual(request.scope['document_sha256'], digest)
+        self.assertEqual(request.scope['source']['document_sha256'], digest)
+        self.assertEqual(controller.source_scope['document_sha256'], digest)
+        self.assertEqual(scope['document_sha256'], 'caller-value')
+        scope['revision'] = 99
+        self.assertEqual(request.scope['source']['revision'], 3)
+        self.assertIn('不要重寫、重複或輸出文件的其他部分', request.input['messages'][0]['content'])
+
+    def test_draft_accepts_empty_document_and_empty_eof_target(self):
+        controller = TextAssistController(self.service, source_text='',
+                                          source_scope=dict(kind='draft', start=0, end=0, revision=1),
+                                          document_text='', operation='draft')
+        self.addCleanup(controller.dispose)
+        self.assertTrue(controller.start('寫一篇關於秋天的短文'))
+        request = self.service.requests[-1]
+        content = json.loads(request.input['messages'][-1]['content'])
+        self.assertEqual(content, dict(instruction='寫一篇關於秋天的短文', operation='draft',
+                                       document_text='', source_text=''))
+        self.assertEqual(request.operation, 'text_assist')
+        self.assertEqual(request.scope['text_operation'], 'draft')
+        self.assertEqual(request.scope['source']['start'], 0)
+        self.assertEqual(request.scope['source']['end'], 0)
+        self.assertEqual(request.scope['document_sha256'], hashlib.sha256(b'').hexdigest())
+        self.assertIn('文件為空時，直接起草', request.input['messages'][0]['content'])
+        self.service.complete(request, '# 秋天\n\n落葉掠過窗前。')
+        self.assertEqual(controller.candidate_for_apply(), '# 秋天\n\n落葉掠過窗前。')
+
+    def test_draft_of_existing_document_sends_full_context_and_only_requests_append(self):
+        document = '# 既有文章\n\n已寫好的段落。\n'
+        controller = TextAssistController(self.service, source_text='', document_text=document,
+                                          operation='draft', source_scope=dict(kind='draft',
+                                          start=len(document), end=len(document)), model_id='b')
+        self.addCleanup(controller.dispose)
+        self.assertTrue(controller.start('接著寫下一段'))
+        request = self.service.requests[-1]
+        self.assertEqual(json.loads(request.input['messages'][-1]['content'])['document_text'], document)
+        self.assertIn('不要重複、改寫或輸出既有文件內容', request.input['messages'][0]['content'])
+        self.assertEqual(request.input['model'], 'b')
+        self.assertEqual(self.service.selected_model, 'a')
+
+    def test_same_selected_text_with_different_document_hash_cannot_supply_a_result(self):
+        controller = TextAssistController(self.service, source_text='原文', document_text='前文 原文 後文',
+                                          source_scope=self.scope)
+        self.addCleanup(controller.dispose)
+        self.assertTrue(controller.start('改寫'))
+        request = self.service.requests[-1]
+        other = ServiceRequest('local_ai', 'text_assist', request_id=request.request_id,
+                               scope=dict(request.scope, document_sha256=hashlib.sha256(b'other').hexdigest()),
+                               input=request.input)
+        self.service.delta.emit(other, '別份文件的結果')
+        self.service.finished.emit(other, 'completed', '別份文件的結果')
+        self.assertTrue(controller.busy)
+        self.assertEqual(controller.raw_text, '')
+        self.service.complete(request, '正確候選')
+        self.assertEqual(controller.candidate_for_apply(), '正確候選')
+
+    def test_new_input_types_and_rewrite_empty_target_are_rejected(self):
+        for extra in (dict(document_text=4), dict(document_text=False), dict(document_text='\ud800'),
+                      dict(operation='unknown'), dict(operation=None)):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                TextAssistController(self.service, source_text='原文', source_scope={}, **extra)
+        for source in ('', '   ', None):
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                TextAssistController(self.service, source_text=source, document_text='上下文', source_scope={})
+        self.assertEqual(self.service.requests, [])
+
+    def test_draft_instruction_validation_and_preset_cannot_replace_output_contract(self):
+        controller = TextAssistController(self.service, source_text='', source_scope={}, operation='draft')
+        self.addCleanup(controller.dispose)
+        self.assertFalse(controller.start('  '))
+        self.assertIn('想寫什麼', controller.error)
+        self.service.preset['system_prompt'] = '輸出整份文件，再解說你的修改。'
+        self.assertTrue(controller.start('開始寫作'))
+        system = self.service.requests[-1].input['messages'][0]['content']
+        self.assertIn('僅在不與上述編輯任務衝突時參考', system)
+        self.assertTrue(system.endswith('仍須只輸出本次候選 Markdown 正文，不加入解說。'))
 
     def test_stream_hides_split_thinking_and_only_completed_body_can_apply(self):
         request = self.start()
@@ -309,6 +403,47 @@ class TextAssistServiceContracts(unittest.TestCase):
             self.service.validate_submission(bad)
         self.service._closing = True
         self.assertFalse(self.service.can_accept)
+
+    def test_message_size_gate_rejects_full_document_before_loading_without_truncation(self):
+        document = '中' * (4 * 1024 * 1024)
+        controller = TextAssistController(self.service, source_text='中', document_text=document,
+                                          source_scope=dict(document_id='large'))
+        self._controllers.append(controller)
+        self.assertFalse(controller.start('改寫選取部分'))
+        self.assertEqual(controller.document_text, document)
+        self.assertEqual(controller.state, 'failed')
+        self.assertIn('過大', controller.error)
+        self.assertFalse(controller.can_apply)
+        self.assertEqual(self.factories, [])
+        self.assertEqual(self.runtime.starts, [])
+
+    def test_full_document_reaches_real_runtime_token_gate_and_failure_blocks_adoption(self):
+        document = '# 前文\n\n原文🙂\n\n' + ('上下文不能被截斷。' * 200) + '文件尾端。'
+        controller = TextAssistController(self.service, source_text='原文🙂', document_text=document,
+                                          source_scope=dict(document_id='token-limit'))
+        self._controllers.append(controller)
+        runtime = LlamaRuntime()  # No engine/process starts in this constructor.
+        runtime.model = dict(id='synthetic')
+        runtime.context_size = 4096
+        received = []
+        def count_tokens(messages, cancel, options):
+            received.append(copy.deepcopy(messages))
+            return 4090
+        with patch('prompt_calculus_studio.local_ai.runtime.validate_model'), \
+                patch.object(runtime, '_reasoning_options', return_value={}), \
+                patch.object(runtime, '_prompt_tokens', side_effect=count_tokens), \
+                patch.object(runtime, '_connect') as connect, \
+                patch.object(self.runtime, 'generate', side_effect=runtime.generate):
+            self.assertTrue(controller.start('只改選取文字'))
+            self.wait_for(lambda: controller.state == 'failed' and self.service.state == 'ready')
+            connect.assert_not_called()
+        self.assertEqual(len(received), 1)
+        self.assertEqual(json.loads(received[0][-1]['content'])['document_text'], document)
+        self.assertIn('上下文不足', controller.error)
+        self.assertEqual(controller.raw_text, '')
+        self.assertFalse(controller.can_apply)
+        with self.assertRaisesRegex(ValueError, '上下文不足'):
+            controller.candidate_for_apply()
 
 
 if __name__ == '__main__':

@@ -274,21 +274,19 @@ class MarkdownInlineAssistTests(unittest.TestCase):
         reopened = self.open('Inline.md', retained=True)
         self.assertEqual(reopened.widget.encoded(), expected)
 
-    def test_keep_menu_insert_is_one_undo(self):
+    def test_review_has_one_keep_action_and_no_append_menu(self):
         tab = self.page()
         self.select(tab)
         panel = self.start(tab)
         self.service.complete('接續😀')
         self.settle()
-        menus = []
-        with patch('prompt_calculus_studio.local_ai.text_assist_panel.RoundMenu.open_for',
-                   lambda menu, *_args, **_kwargs: menus.append(menu)):
-            QTest.mouseClick(panel.keep_menu_button, Qt.MouseButton.LeftButton)
-            self.assertEqual(len(menus), 1)
-            action = next(action for action in menus[0].actions() if action.text() == '接在原文後')
-            action.trigger()
+        self.assertFalse(hasattr(panel, 'keep_menu_button'))
+        self.assertTrue(panel.keep_button.isEnabled())
+        with self.assertRaises(ValueError):
+            panel.target.apply('insert', '舊附加入口')
+        QTest.mouseClick(panel.keep_button, Qt.MouseButton.LeftButton)
         self.settle()
-        expected = RAW.replace(SELECTED.encode(), (SELECTED+'\r\n\r\n接續😀\r\n\r\n').encode())
+        expected = RAW.replace(SELECTED.encode(), '接續😀'.encode())
         self.assertEqual(tab.widget.encoded(), expected)
         tab.widget.undo()
         self.assertEqual(tab.widget.encoded(), RAW)

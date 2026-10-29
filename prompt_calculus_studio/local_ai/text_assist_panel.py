@@ -7,24 +7,33 @@ from PySide6.QtWidgets import QBoxLayout, QFrame, QLayout, QPlainTextEdit, QSize
 
 from ..theme import visual_tokens, window_appearance
 from ..ui_icons import icon
-from ..widgets import ElidedLabel, RoundMenu, button, row
+from ..widgets import ElidedLabel, button, row
 
 
 class TextAssistInput(QPlainTextEdit):
     compositionChanged = Signal()
+    submitted = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.composing = False
+        self._commit_guard = QTimer(self)
+        self._commit_guard.setSingleShot(True)
+        self._commit_guard.setInterval(0)
         self.tokens = visual_tokens()
         self._placeholder = '描述你想如何編輯…'
         self.setPlaceholderText(self._placeholder)
         self.document().setDocumentMargin(0)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
+    def setPlaceholderText(self, text):
+        self._placeholder = text
+        super().setPlaceholderText('' if self.composing else text)
+
     def inputMethodEvent(self, event):
         if self.isReadOnly():
             return super().inputMethodEvent(event)
+        was_composing = self.composing
         self.composing = True
         self.compositionChanged.emit()
         attributes = []
@@ -39,16 +48,28 @@ class TextAssistInput(QPlainTextEdit):
         themed = QInputMethodEvent(event.preeditString(), attributes)
         themed.setCommitString(event.commitString(), event.replacementStart(), event.replacementLength())
         # Preedit is painted while the native document may still be empty.
-        self.setPlaceholderText('' if event.preeditString() else self._placeholder)
+        super().setPlaceholderText('' if event.preeditString() else self._placeholder)
         try:
             super().inputMethodEvent(themed)
             event.setAccepted(themed.isAccepted())
         finally:
             self.composing = bool(event.preeditString())
+            if was_composing and event.commitString() and not self.composing:
+                # Some IMEs forward the confirming Return after the commit event.
+                self._commit_guard.start()
             self.compositionChanged.emit()
 
     def keyPressEvent(self, event):
-        if self.composing and event.key() == Qt.Key.Key_Escape:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self.composing or self._commit_guard.isActive():
+                event.accept()
+            elif event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                super().keyPressEvent(event)
+            else:
+                if not self.isReadOnly() and not event.isAutoRepeat():
+                    self.submitted.emit()
+                event.accept()
+        elif self.composing and event.key() == Qt.Key.Key_Escape:
             event.accept()
         else:
             super().keyPressEvent(event)
@@ -83,12 +104,10 @@ class TextAssistPanel(QFrame):
         self.instruction.setAccessibleName('修改要求')
         self.instruction.setPlaceholderText('描述你想如何編輯…')
         self.start_button = button('', self._start, 'Primary')
-        self.stop_button = button('', controller.stop, 'IconButton')
+        self.stop_button = button('停止', controller.stop, 'Quiet')
         self.close_button = button('', self.dismiss, 'IconButton')
-        self.keep_menu_button = button('', self._open_keep_menu, 'Quiet')
-        self.keep_menu_button.setProperty('assistMenu', True)
         for control, title in ((self.start_button, '送出修改要求'), (self.stop_button, '停止產生'),
-                               (self.close_button, '關閉文字協作'), (self.keep_menu_button, '保留方式')):
+                               (self.close_button, '關閉文字協作')):
             control.setToolTip(title)
             control.setAccessibleName(title)
             control.setAutoDefault(False)
@@ -121,24 +140,19 @@ class TextAssistPanel(QFrame):
         actions.setContentsMargins(0, 0, 0, 0)
         actions.setSpacing(2)
         self.review_actions.setLayout(actions)
-        review.addWidget(self.review_actions)
-        self.keep_button = button('保留', lambda: self._apply('replace'), 'Primary')
+        review.addWidget(self.review_actions, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.keep_button = button('保留', self._apply, 'Primary')
         self.retry_button = button('重試', self._retry, 'Quiet')
         self.delete_button = button('刪除', self.dismiss, 'Quiet')
         self.keep_button.setAccessibleName('保留候選並取代原文')
         self.retry_button.setAccessibleName('依相同要求重試')
         self.delete_button.setAccessibleName('刪除候選並還原原文')
-        self.keep_group = QWidget()
-        keep = row(self.keep_button, self.keep_menu_button)
-        keep.setContentsMargins(0, 0, 0, 0)
-        keep.setSpacing(0)
-        self.keep_group.setLayout(keep)
         actions.addWidget(self.delete_button)
         actions.addWidget(self.stop_button)
         actions.addWidget(self.retry_button)
-        actions.addWidget(self.keep_group)
+        actions.addWidget(self.keep_button)
         self.body.addWidget(self.review_controls)
-        for control in (self.keep_button, self.retry_button, self.delete_button):
+        for control in (self.keep_button, self.retry_button, self.delete_button, self.stop_button):
             control.setAutoDefault(False)
             control.setDefault(False)
             control.setIconSize(QSize(14, 14))
@@ -153,15 +167,15 @@ class TextAssistPanel(QFrame):
         self.instruction.document().documentLayout().documentSizeChanged.connect(self._queue_fit)
         self.instruction.textChanged.connect(self.refresh)
         self.instruction.compositionChanged.connect(self.refresh)
+        self.instruction.submitted.connect(self._start)
         controller.changed.connect(self._changed)
         self.destroyed.connect(controller.dispose)
         self.setTabOrder(self.instruction, self.start_button)
         self.setTabOrder(self.start_button, self.close_button)
-        self.setTabOrder(self.close_button, self.keep_button)
-        self.setTabOrder(self.keep_button, self.keep_menu_button)
-        self.setTabOrder(self.keep_menu_button, self.stop_button)
+        self.setTabOrder(self.close_button, self.delete_button)
+        self.setTabOrder(self.delete_button, self.stop_button)
         self.setTabOrder(self.stop_button, self.retry_button)
-        self.setTabOrder(self.retry_button, self.delete_button)
+        self.setTabOrder(self.retry_button, self.keep_button)
         self._apply_theme()
         self.refresh()
 
@@ -172,19 +186,17 @@ class TextAssistPanel(QFrame):
             return
         self._theme_signature = signature
         self.instruction.tokens = tokens
-        radius = 18 if self._reviewing else 12
+        radius = 18 if self._reviewing else 24
         self.setStyleSheet(f'''
             QFrame#TextAssistPanel {{background:{tokens['raised']};border:1px solid {tokens['line']};border-radius:{radius}px;}}
             QPlainTextEdit#TextAssistInstruction {{background:transparent;border:0;padding:4px;color:{tokens['text']};placeholder-text-color:{tokens['secondary']};selection-background-color:{tokens['selected']};selection-color:{tokens['text']};}}
             QLabel#TextAssistStatus {{color:{tokens['secondary']};}}
             QFrame#TextAssistPanel QPushButton {{min-width:0;min-height:0;padding:3px 7px;border-radius:12px;}}
             QFrame#TextAssistPanel QPushButton#IconButton {{padding:6px;}}
-            QFrame#TextAssistPanel QPushButton[assistMenu="true"] {{padding:2px;border:0;background:transparent;}}
         ''')
         self.start_button.setIcon(icon('arrow-up', tokens['on_accent'], 16))
-        self.stop_button.setIcon(icon('stop-filled', tokens['text'], 16))
+        self.stop_button.setIcon(icon('stop-filled', tokens['text'], 14))
         self.close_button.setIcon(icon('close', tokens['text'], 16))
-        self.keep_menu_button.setIcon(icon('chevron-down', tokens['text'], 12))
         self.retry_button.setIcon(icon('refresh-cw', tokens['text'], 14))
         self.delete_button.setIcon(icon('close', tokens['text'], 14))
 
@@ -208,10 +220,15 @@ class TextAssistPanel(QFrame):
         if not self._closed and not self._reviewing and self.isVisible():
             self._fit_timer.start(0)
 
+    def _action_widths(self):
+        metrics = self.keep_button.fontMetrics()
+        padding = self.keep_button.minimumSizeHint().width() - metrics.horizontalAdvance(self.keep_button.text())
+        keep = metrics.horizontalAdvance('生成中…') + padding
+        middle = max(self.stop_button.minimumSizeHint().width(), self.retry_button.minimumSizeHint().width())
+        return self.delete_button.minimumSizeHint().width(), middle, keep
+
     def _actions_width(self):
-        middle = self.stop_button if self.controller.busy else self.retry_button
-        return (self.keep_button.minimumSizeHint().width() + max(20, self.keep_menu_button.minimumSizeHint().width())
-                + middle.minimumSizeHint().width() + self.delete_button.minimumSizeHint().width() + 4)
+        return sum(self._action_widths()) + 4
 
     def _metrics(self, width):
         metrics = self.instruction.fontMetrics()
@@ -227,7 +244,7 @@ class TextAssistPanel(QFrame):
                                               Qt.TextFlag.TextWordWrap, self.instruction.placeholderText())
             instruction = max(instruction, min(line * 6, placeholder.height()) + 10)
         action = max(28, self.keep_button.fontMetrics().height() + 6)
-        status_width = self.status.fontMetrics().horizontalAdvance(self.status.text())
+        status_width = self.status.fontMetrics().horizontalAdvance(self.status.text()) if not self.status.isHidden() else 0
         stacked = bool(status_width and self._actions_width() + status_width + 6 > width - 8)
         return instruction, control, action, line, stacked
 
@@ -235,7 +252,7 @@ class TextAssistPanel(QFrame):
         if not self._reviewing:
             return max(1, min(500, available))
         width = max(230, self._actions_width() + 8)
-        if self.status.text():
+        if not self.status.isHidden():
             width = max(width, min(300, width + self.status.fontMetrics().horizontalAdvance(self.status.text()) + 6))
         return max(1, min(width, available))
 
@@ -263,10 +280,13 @@ class TextAssistPanel(QFrame):
         self.status.setFixedHeight(line)
         for widget in (self.start_button, self.close_button):
             widget.setFixedSize(control, control)
-        self.stop_button.setFixedSize(action, action)
-        for widget in (self.keep_button, self.keep_menu_button, self.retry_button, self.delete_button):
+        for widget in (self.keep_button, self.stop_button, self.retry_button, self.delete_button):
             widget.setFixedHeight(action)
-        self.keep_menu_button.setFixedWidth(max(20, self.keep_menu_button.minimumSizeHint().width()))
+        delete, middle, keep = self._action_widths()
+        self.delete_button.setFixedWidth(delete)
+        self.stop_button.setFixedWidth(middle)
+        self.retry_button.setFixedWidth(middle)
+        self.keep_button.setFixedWidth(keep)
         signature = (self._reviewing, instruction if not self._reviewing else 0, control, action,
                      line, stacked, self.preferred_width(500))
         if signature != self._geometry_signature:
@@ -298,8 +318,7 @@ class TextAssistPanel(QFrame):
         self.retry_button.setEnabled(available and not busy and bool(self._last_instruction)
                                      and self.controller.service.can_accept)
         self.keep_button.setEnabled(can_apply)
-        self.keep_menu_button.setEnabled(can_apply)
-        captions = {'loading': '準備中…', 'generating': '生成中…', 'stopping': '正在停止…',
+        captions = {'loading': '準備中…', 'generating': '生成中…', 'stopping': '停止中…',
                     'stopped': '已停止'}
         status = self._apply_error or self.controller.error or captions.get(state, '')
         if self.controller.can_apply and not self._input_matches_candidate():
@@ -310,7 +329,9 @@ class TextAssistPanel(QFrame):
             elif not self.controller.service.can_accept:
                 status = '本機模型正忙碌，請稍後再試。'
         self.status.setText(status)
-        self.status.setVisible(self._reviewing and bool(status))
+        inline_state = busy and not self._apply_error and not self.controller.error
+        self.keep_button.setText(captions.get(state, '生成中…') if inline_state else '保留')
+        self.status.setVisible(self._reviewing and bool(status) and not inline_state)
         self.status.setToolTip(status)
         self.status.setAccessibleDescription(status)
         self.start_button.setToolTip(status if not self._reviewing and status else '送出修改要求')
@@ -335,21 +356,13 @@ class TextAssistPanel(QFrame):
         self.instruction.blockSignals(False)
         self._submit(self._last_instruction)
 
-    def _open_keep_menu(self):
-        if not self.keep_menu_button.isEnabled():
-            return
-        menu = RoundMenu(self)
-        menu.addAction('接在原文後', lambda: self._apply('insert'))
-        menu.open_for(self.keep_menu_button, align_right=True)
-        self._keep_menu = menu
-
-    def _apply(self, mode):
+    def _apply(self):
         if not self._input_matches_candidate():
             self.refresh()
             return
         try:
             candidate = self.controller.candidate_for_apply()
-            if self.apply_callback(mode, candidate) is False:
+            if self.apply_callback('replace', candidate) is False:
                 self._apply_error = '無法套用，請重新選取原文。'
                 self.refresh()
                 return

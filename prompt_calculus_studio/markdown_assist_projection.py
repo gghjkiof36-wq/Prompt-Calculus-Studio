@@ -4,6 +4,7 @@ from PySide6.QtGui import QColor, QPainter, QPen, QTextBlockFormat, QTextCharFor
 
 from .markdown_syntax import reading_html
 from .markdown_view import ReadingView
+from .markdown_text_assist import draft_prefix
 from .theme import visual_tokens, window_appearance
 
 
@@ -41,13 +42,15 @@ class AssistProjection(ReadingView):
     def project(self, target, candidate, controls_height=36):
         """An empty/None candidate keeps original text, without a fake deletion."""
         source = target.snapshot.text
-        if not 0 <= target.start < target.end <= len(source):
+        drafting = getattr(target, 'kind', 'selection') == 'draft'
+        valid = target.start == target.end == len(source) if drafting else 0 <= target.start < target.end <= len(source)
+        if not valid:
             raise ValueError('這次文字協作的原文範圍已失效。')
         if candidate is not None and not isinstance(candidate, str):
             raise ValueError('文字協作候選必須是文字。')
         candidate = (candidate or '').replace('\r\n', '\n').replace('\r', '\n').replace('\u2029', '\n')
         before, original, after = source[:target.start], source[target.start:target.end], source[target.end:]
-        self.projected_source = before + (candidate if candidate else original) + after
+        self.projected_source = before + (draft_prefix(before) if drafting and candidate else '') + (candidate if candidate else original) + after
         scroll = self.verticalScrollBar().value()
         self.apply_preferences()
         document = self.document()
@@ -68,7 +71,8 @@ class AssistProjection(ReadingView):
             self._insert(cursor, original)
             self.original_range = (self.start_position, cursor.position())
             if candidate:
-                cursor.insertBlock(QTextBlockFormat(), QTextCharFormat())
+                if not drafting:
+                    cursor.insertBlock(QTextBlockFormat(), QTextCharFormat())
                 start = cursor.position()
                 self._insert(cursor, candidate)
                 self.candidate_range = (start, cursor.position())
@@ -83,7 +87,7 @@ class AssistProjection(ReadingView):
                 self._insert(cursor, after)
             block = document.findBlock(self.start_position)
             self._base_top_margin = block.blockFormat().topMargin()
-            while block.isValid() and block.position() < self.end_position:
+            while block.isValid() and block.position() <= max(self.start_position, self.end_position - 1):
                 fmt = block.blockFormat()
                 fmt.setLeftMargin(fmt.leftMargin() + 8)
                 fmt.setRightMargin(fmt.rightMargin() + 8)
@@ -153,7 +157,7 @@ class AssistProjection(ReadingView):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(QPen(color, 1))
         painter.setBrush(QColor(0, 0, 0, 0))
-        painter.drawRoundedRect(QRectF(rect).adjusted(.5, .5, -.5, -.5), 4, 4)
+        painter.drawRoundedRect(QRectF(rect).adjusted(.5, .5, -.5, -.5), 10, 10)
 
     def refresh(self):
         # This view owns a frozen review, never the buffer's current projection.

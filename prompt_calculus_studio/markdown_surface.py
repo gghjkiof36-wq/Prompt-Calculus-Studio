@@ -134,6 +134,9 @@ class MarkdownSurface(QWidget):
         if hasattr(workspace, 'markdown_mode'):self.apply_mode(workspace.markdown_mode, focus=False)
         from .markdown_inline_assist import MarkdownInlineAssist
         self.inline_assist = MarkdownInlineAssist(self)
+        from .markdown_draft_composer import MarkdownDraftComposer
+        self.draft_composer = MarkdownDraftComposer(self)
+        content.addWidget(self.draft_composer)
 
     def prepare_workspace_show(self):
         # Standalone adapters may bind their workspace after construction.
@@ -182,6 +185,7 @@ class MarkdownSurface(QWidget):
         if self.mode == 'read' and self.reader.advanced and self.reader.rich:
             left,right = getattr(self.reader.rich,'content_margins',(left,right))
         self.title_layout.setContentsMargins(left,20,right,6)
+        if hasattr(self, 'draft_composer'):self.draft_composer.refresh()
         style_key=(self.preferences['reading_family'],self.zoom_percent)
         if getattr(self,'_title_style_key',None)==style_key:return
         self._title_style_key=style_key
@@ -487,6 +491,7 @@ class MarkdownSurface(QWidget):
 
     def update_controls(self, *args):
         if not hasattr(self, 'editor'):return
+        if hasattr(self, 'draft_composer'):self.draft_composer.refresh()
         ready = (self.mode != 'read' and not self.page.buffer.composing and not self.page.buffer.opening
                  and getattr(getattr(self, 'inline_assist', None), 'projection', None) is None)
         self.toolbar.setEnabled(ready);self.mode_box.setEnabled(not self.page.buffer.composing and not self.page.buffer.opening)

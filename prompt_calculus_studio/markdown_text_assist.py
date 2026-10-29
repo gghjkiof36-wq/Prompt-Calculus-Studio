@@ -8,6 +8,11 @@ from shiboken6 import isValid
 from .markdown_source import SourceEdit, utf16_position
 
 
+def draft_prefix(source):
+    """Separate a new draft from the existing document without rewriting it."""
+    return '\n' * max(0, 2 - (len(source) - len(source.rstrip('\n')))) if source else ''
+
+
 class MarkdownTextTarget(QObject):
     """Keep original source, view and location authoritative until adoption."""
     def __init__(self, surface, snapshot, start, end, *, kind='selection'):
@@ -16,7 +21,10 @@ class MarkdownTextTarget(QObject):
         workspace = page.file_title.workspace
         if surface.mode == 'read' or page.buffer.opening or page.buffer.composing:
             raise ValueError('請先回到編寫模式，並完成目前的組字。')
-        if not 0 <= start < end <= len(snapshot.text) or not snapshot.text[start:end].strip():
+        if kind == 'draft':
+            if start != end or end != len(snapshot.text):
+                raise ValueError('起稿位置必須在文件結尾。')
+        elif not 0 <= start < end <= len(snapshot.text) or not snapshot.text[start:end].strip():
             raise ValueError('請選取要協作的文字。')
         if page.buffer.snapshot() != snapshot:
             raise ValueError('原文已變更，請重新選取文字。')
@@ -75,17 +83,12 @@ class MarkdownTextTarget(QObject):
 
     def apply(self, mode, text):
         surface, buffer = self.check()
-        if mode not in ('replace', 'insert') or not isinstance(text, str) or not text.strip():
+        if mode != 'replace' or not isinstance(text, str) or not text.strip():
             raise ValueError('尚無可套用的候選文字。')
         text = text.replace('\r\n', '\n').replace('\r', '\n').replace('\u2029', '\n')
-        if mode == 'replace':
-            edit = SourceEdit(self.start, self.end, text)
-        else:
-            # Append as a separate Markdown paragraph, preserving every source byte.
-            before, after = self.snapshot.text[:self.end], self.snapshot.text[self.end:]
-            prefix = '\n' * max(0, 2 - (len(before) - len(before.rstrip('\n'))))
-            suffix = '\n' * max(0, 2 - (len(after) - len(after.lstrip('\n')))) if after else ''
-            edit = SourceEdit(self.end, self.end, prefix + text + suffix)
+        if self.kind == 'draft':
+            text = draft_prefix(self.snapshot.text) + text
+        edit = SourceEdit(self.start, self.end, text)
         self._applying = True
         try:
             buffer.apply(self.snapshot, [edit])
@@ -110,6 +113,8 @@ def open_text_assist(surface, snapshot=None, start=None, end=None, *, kind='sele
     from .markdown_models import markdown_model_id
     if snapshot is None:
         snapshot, start, end = surface.selection()
+        if kind == 'draft':
+            start = end = len(snapshot.text)
     try:
         target = MarkdownTextTarget(surface, snapshot, start, end, kind=kind)
     except ValueError as error:
@@ -136,12 +141,16 @@ def open_text_assist(surface, snapshot=None, start=None, end=None, *, kind='sele
         cursor.setPosition(utf16_position(snapshot.text, end), QTextCursor.MoveMode.KeepAnchor)
         surface.editor.setTextCursor(cursor)
     controller = TextAssistController(service,
-                                      source_text=target.source_text, source_scope=target.scope, model_id=model_id)
+                                      source_text=target.source_text, source_scope=target.scope, model_id=model_id,
+                                      document_text=snapshot.text, operation='draft' if kind == 'draft' else 'rewrite')
     panel = TextAssistPanel(surface, controller, surface.inline_assist.apply_candidate)
     controller.setParent(panel)
     target.setParent(panel)
     target.bind(controller)
     panel.target = target
+    if kind == 'draft':
+        panel.keep_button.setAccessibleName('保留起稿並加入文件')
+        panel.delete_button.setAccessibleName('刪除起稿候選')
     surface.text_assist_panel = panel
     surface.inline_assist.attach(panel)
     return panel

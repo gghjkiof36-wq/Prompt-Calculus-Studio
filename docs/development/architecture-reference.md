@@ -16,7 +16,7 @@
 | 新增外部服務 | [service_adapters](../../prompt_calculus_studio/service_adapters.py)；現有範例 [CivitAIBrowseAdapter](../../prompt_calculus_studio/civitai_adapter.py) | 封套凍結輸入並核對完整 request；各服務保留自己的傳輸、認證和回應限制。封套不承擔排程、重試或目的文件的新鮮度判斷。 |
 | Stage 圖片內容推導 | [stage_context.project](../../prompt_calculus_studio/stage_context.py) → [image_source](../../prompt_calculus_studio/image_source.py)／[pnginfo](../../prompt_calculus_studio/pnginfo.py) | 一次操作共用驗證過的 bytes 與 metadata，Reader 的 choice、來源及可變輸出各自獨立。 |
 
-例如新增「整理選中 Prompt」：先凍結目前文件、選取與版本，取得候選後再核對目的內容；使用者採用時，以該文件的一次 `commit(..., merge_key=None)` 寫入，再由原保存流程處理落盤。Markdown 的本機「文字協作」已依同一原則接到 `buffer.apply(captured_snapshot, [SourceEdit])`：先預覽，選擇取代或插入才提交一次可復原編輯，不把閱讀頁 HTML 寫回原文。Prompt 整理與通用 skill 執行仍屬規劃。
+例如新增「整理選中 Prompt」：先凍結目前文件、選取與版本，取得候選後再核對目的內容；使用者採用時，以該文件的一次 `commit(..., merge_key=None)` 寫入，再由原保存流程處理落盤。Markdown 的本機「文字協作」已依同一原則接到 `buffer.apply(captured_snapshot, [SourceEdit])`：完整文件作上下文，選區改寫或文末起稿先預覽，按保留才提交一次可復原編輯，不把閱讀頁 HTML 寫回原文。Prompt 整理與通用 skill 執行仍屬規劃。
 
 ## 保留的資料與依賴契約
 

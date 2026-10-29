@@ -147,14 +147,14 @@ class MarkdownTextAssistTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '已套用'):
             target.apply('replace', '不能再次套用')
 
-    def test_insert_preserves_source_and_is_one_undo(self):
+    def test_draft_appends_at_document_end_and_is_one_undo(self):
         tab = self.page()
         right = self.w.duplicate_view(tab, True)
         right.widget.md_surface.apply_mode('source', focus=False)
-        target = self.target(tab)
-        self.assertTrue(target.apply('insert', '附加😀\n第二行'))
-        expected = RAW.replace(SELECTED.encode(),
-                               (SELECTED+'\r\n\r\n附加😀\r\n第二行\r\n\r\n').encode())
+        snapshot = tab.widget.buffer.snapshot()
+        target = MarkdownTextTarget(tab.widget.md_surface, snapshot, len(snapshot.text), len(snapshot.text), kind='draft')
+        self.assertTrue(target.apply('replace', '附加😀\n第二行'))
+        expected = RAW + '\r\n附加😀\r\n第二行'.encode()
         self.assertEqual(tab.widget.encoded(), expected)
         right.widget.undo()
         self.assertEqual(tab.widget.encoded(), RAW)
