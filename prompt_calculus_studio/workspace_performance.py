@@ -1,44 +1,57 @@
-"""Passive Qt UI redraw FPS and GUI wake-up latency, not display refresh Hz."""
+"""Measure GUI update cadence without continuously repainting the workspace."""
 from collections import deque
+import math
 import time
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QRegion
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QWidget
 
-from .application_events import listen, unlisten
 from .theme import visual_tokens
 
 
 class PerformanceSamples:
-    """A bounded, one-second measurement window using monotonic timestamps."""
-    def __init__(self, now):
-        self.reset(now)
+    """Real GUI callbacks in a one-second window; missed slots are not frames."""
+    def __init__(self, now, refresh_rate=60.):
+        self.reset(now, refresh_rate)
 
-    def reset(self, now):
+    @staticmethod
+    def valid_rate(rate):
+        return float(rate) if type(rate) in (int, float) and math.isfinite(rate) and 1 <= rate <= 1000 else 60.
+
+    def reset(self, now, refresh_rate=60.):
         self.started = now
-        self.paints = deque(maxlen=4096)
-        self.latencies = deque(maxlen=128)
+        self.refresh_rate = self.valid_rate(refresh_rate)
+        self.period = 1. / self.refresh_rate
+        self.deadline = now + self.period
+        self.frames = deque(maxlen=4096)
 
-    def paint(self, now):
-        self.paints.append(now)
+    def pulse(self, now):
+        if now < self.deadline:
+            return False
+        late = now - self.deadline
+        self.frames.append((now, late * 1000.))
+        # Keep the fractional cadence (e.g. 144 Hz), but never replay callbacks
+        # missed during a stall or let a delayed timer drive a catch-up loop.
+        self.deadline += (math.floor(late / self.period) + 1) * self.period
+        if self.deadline <= now:
+            self.deadline += self.period
+        return True
 
-    def wake(self, now, expected):
-        self.latencies.append((now, max(0., now - expected) * 1000.))
+    def wait_ms(self, now):
+        return max(1, math.ceil((self.deadline - now) * 1000.))
 
     def values(self, now):
         cutoff = now - 1.
-        while self.paints and self.paints[0] <= cutoff:
-            self.paints.popleft()
-        while self.latencies and self.latencies[0][0] <= cutoff:
-            self.latencies.popleft()
+        while self.frames and self.frames[0][0] <= cutoff:
+            self.frames.popleft()
         span = min(1., max(.001, now - self.started))
-        return len(self.paints) / span, max((v for _, v in self.latencies), default=0.)
+        return len(self.frames) / span, max((lag for _, lag in self.frames), default=0.)
 
 
 class WorkspacePerformance(QWidget):
-    """One workspace-owned observer; its own paints never feed the counter."""
-    INTERVAL_MS = 50
+    """One paced GUI heartbeat; the displayed number is not a GPU present rate."""
+    DISPLAY_INTERVAL = .25
 
     def __init__(self, workspace):
         super().__init__(workspace)
@@ -48,8 +61,9 @@ class WorkspacePerformance(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        description = ('FPS：最近一秒的介面重繪幀率；— 表示暫無重繪，通常是畫面靜止。'
-                       '不是螢幕更新率（Hz）。\n'
+        description = ('FPS：最近一秒的介面更新率估計。以所在螢幕刷新率安排採樣，'
+                       '依實際回應計算；靜止時仍持續量測，卡頓時下降。'
+                       '不是 GPU 呈現幀率；— 表示正在取得樣本。\n'
                        'Lag：最近一秒介面回應的最大延遲估計值。')
         self.setToolTip(description)
         self.setAccessibleDescription(description)
@@ -57,11 +71,10 @@ class WorkspacePerformance(QWidget):
         self.lines = ('FPS', self.rate_text, 'Lag', self.delay_text)
         self.running = False
         self.closed = False
-        self.batch_painted = False
         self.samples = PerformanceSamples(time.perf_counter())
         self.timer = QTimer(self)
         self.timer.setTimerType(Qt.TimerType.PreciseTimer)
-        self.timer.setInterval(self.INTERVAL_MS)
+        self.timer.setSingleShot(True)
         self.timer.timeout.connect(self.tick)
         self.visibility_sync = QTimer(self)
         self.visibility_sync.setSingleShot(True)
@@ -87,7 +100,7 @@ class WorkspacePerformance(QWidget):
         metrics = QFontMetrics(self.paint_font)
         self.lines = (('FPS', self.rate_text, 'Lag', self.delay_text) if side else
                       (f'FPS {self.rate_text}', f'Lag {self.delay_text}'))
-        activity = '暫無介面重繪' if self.rate_text == '—' else f'介面 FPS {self.rate_text}'
+        activity = '正在取得介面更新樣本' if self.rate_text == '—' else f'介面 FPS 估計 {self.rate_text}'
         self.setAccessibleName(f'效能監測：{activity}，延遲估計 {self.delay_text}')
         width = (max(1, min(44, self.workspace.rail.width() - 8)) if side else
                  max(metrics.horizontalAdvance(text) for text in ('FPS 4096', 'Lag 9999+s')) + 12)
@@ -110,18 +123,14 @@ class WorkspacePerformance(QWidget):
                   and self.workspace.isActiveWindow())
         if active != self.running:
             self.running = active
-            self.batch_painted = False
             if active:
                 now = time.perf_counter()
-                self.samples.reset(now)
-                self.expected = now + self.INTERVAL_MS / 1000.
+                self.samples.reset(now, self.screen_rate())
                 self.last_display = now
                 self.rate_text, self.delay_text = '—', '0ms'
-                listen(self, QEvent.Type.Paint, QEvent.Type.UpdateRequest)
-                self.timer.start()
+                self.timer.start(self.samples.wait_ms(now))
             else:
                 self.timer.stop()
-                unlisten(self)
         self.setVisible(active)
         if active:
             self.place()
@@ -131,28 +140,34 @@ class WorkspacePerformance(QWidget):
         self.visibility_sync.stop()
         self.sync()
 
+    def screen_rate(self):
+        screen = QWidget.screen(self.workspace)
+        return PerformanceSamples.valid_rate(screen.refreshRate() if screen else None)
+
     def tick(self):
         if not self.running:
             return
         now = time.perf_counter()
-        self.samples.wake(now, self.expected)
-        # Qt merges overdue timer events. Start a fresh deadline after a stall;
-        # do not count missed timer ticks as either frames or repeated stalls.
-        self.expected = now + self.INTERVAL_MS / 1000.
-        if now - self.last_display < 1.:
-            return
-        self.last_display = now
-        rate, latency = self.samples.values(now)
-        delay = f'{latency:.0f}ms' if latency < 1000 else f'{latency / 1000:.1f}s'
-        if latency >= 9999900:
-            delay = '9999+s'
-        # An event-driven, unchanged window has no new frames to measure;
-        # avoid presenting that normal idle state as a frozen 0 FPS display.
-        values = f'{rate:.0f}' if rate else '—', delay
-        if values != (self.rate_text, self.delay_text):
-            self.rate_text, self.delay_text = values
-            self.place()
-            self.update()
+        self.samples.pulse(now)
+        if now - self.last_display >= self.DISPLAY_INTERVAL:
+            self.last_display = now
+            refresh_rate = self.screen_rate()
+            if abs(refresh_rate - self.samples.refresh_rate) > .01:
+                # Moving to another display or changing its refresh rate starts
+                # a fresh window; old-display samples cannot skew the new rate.
+                self.samples.reset(now, refresh_rate)
+                values = '—', '0ms'
+            else:
+                rate, latency = self.samples.values(now)
+                delay = f'{latency:.0f}ms' if latency < 1000 else f'{latency / 1000:.1f}s'
+                if latency >= 9999900:
+                    delay = '9999+s'
+                values = f'{rate:.0f}' if self.samples.frames else '—', delay
+            if values != (self.rate_text, self.delay_text):
+                self.rate_text, self.delay_text = values
+                self.place()
+                self.update()
+        self.timer.start(self.samples.wait_ms(time.perf_counter()))
 
     def eventFilter(self, watched, event):
         kind = event.type()
@@ -169,19 +184,6 @@ class WorkspacePerformance(QWidget):
         if watched in (self.workspace, self.workspace.rail, self.anchor) and kind in (
                 QEvent.Type.Move, QEvent.Type.Resize, QEvent.Type.Show):
             self.place()
-        if not self.running:
-            return False
-        if watched is self.workspace and kind == QEvent.Type.UpdateRequest:
-            self.batch_painted = False
-        elif (kind == QEvent.Type.Paint and not self.batch_painted
-              and isinstance(watched, QWidget) and watched is not self
-              # Embedded widgets may also use `window` as an owner attribute.
-              and QWidget.window(watched) is self.workspace):
-            # A root paint restricted to this overlay is still self-generated.
-            if watched is self.workspace and event.region().subtracted(QRegion(self.geometry())).isEmpty():
-                return False
-            self.batch_painted = True
-            self.samples.paint(time.perf_counter())
         return False
 
     def paintEvent(self, event):

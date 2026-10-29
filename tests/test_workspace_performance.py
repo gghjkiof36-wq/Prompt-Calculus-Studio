@@ -1,4 +1,4 @@
-"""Passive update counting, event-loop latency and workspace preference lifetime."""
+"""Real GUI callback cadence, responsiveness and workspace preference lifetime."""
 import json
 import os
 from pathlib import Path
@@ -6,8 +6,9 @@ import time
 import unittest
 from unittest.mock import patch
 
-from PySide6.QtCore import QPoint, QRect, Qt, QTimer
-from PySide6.QtGui import QFontDatabase, QFontMetrics
+from PySide6.QtCore import QEventLoop, QPoint, QRect, Qt, QTimer
+from PySide6.QtGui import QFontDatabase, QFontMetrics, QPainter, QScreen
+from PySide6.QtNetwork import QNetworkAccessManager
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QWidget
 
@@ -16,29 +17,100 @@ from prompt_calculus_studio.workspace_performance import PerformanceSamples
 from prompt_calculus_studio.workspace_shell import WorkspaceShell
 
 
-class PerformanceSamplesTests(unittest.TestCase):
-    def test_wakes_are_not_frames_and_lag_expires(self):
-        samples = PerformanceSamples(0.)
-        for index in range(1, 21):
-            samples.wake(index * .05, index * .05)
-        self.assertEqual(samples.values(1.), (0., 0.))
-        samples.wake(1.2, 1.05)
-        self.assertAlmostEqual(samples.values(1.2)[1], 150.)
-        samples.paint(1.4)
-        samples.paint(1.5)
-        self.assertEqual(samples.values(2.)[0], 2.)
-        self.assertAlmostEqual(samples.values(2.)[1], 150.)
-        self.assertEqual(samples.values(2.6), (0., 0.))
+class ContentPaintProbe(QWidget):
+    """A real opaque content surface, independent of the readout region."""
+    def __init__(self, owner):
+        super().__init__(owner)
+        self.window = owner  # Some PCS content widgets use this owner attribute.
+        self.paints = 0
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        self.setGeometry(300, 180, 120, 80)
 
-    def test_windows_are_bounded_and_resume_discards_old_samples(self):
+    def paintEvent(self, event):
+        self.paints += 1
+        painter = QPainter(self)
+        painter.fillRect(event.rect(), self.palette().window())
+
+
+class PerformanceSamplesTests(unittest.TestCase):
+    def test_fractional_deadlines_do_not_drift_at_60_144_and_5994_hz(self):
+        for rate in (60., 144., 59.94):
+            with self.subTest(rate=rate):
+                start = now = 123.456
+                samples = PerformanceSamples(start, rate)
+                waits = set()
+                for index in range(1, 901):
+                    delay = samples.wait_ms(now)
+                    self.assertGreaterEqual(delay, 1)
+                    waits.add(delay)
+                    now += delay / 1000.
+                    self.assertTrue(samples.pulse(now))
+                    # Compare with the independent absolute ideal, not with
+                    # a deadline computed by another copy of the algorithm.
+                    ideal = start + index / rate
+                    self.assertGreaterEqual(now + 1e-9, ideal)
+                    self.assertLessEqual(now - ideal, .001001)
+                    self.assertAlmostEqual(samples.deadline, start + (index + 1) / rate, places=8)
+                    self.assertGreater(samples.deadline, now)
+                self.assertGreater(len(waits), 1, 'Fractional intervals need alternating integer waits')
+                self.assertAlmostEqual(samples.values(now)[0], rate, delta=1.)
+
+    def test_early_callbacks_do_not_count_or_postpone_the_existing_deadline(self):
         samples = PerformanceSamples(0.)
-        for index in range(5000):
-            samples.paint(index / 10000.)
-            samples.wake(index / 10000., 0.)
-        self.assertLessEqual(len(samples.paints), 4096)
-        self.assertLessEqual(len(samples.latencies), 128)
-        samples.reset(10.)
+        deadline = samples.deadline
+        for now in (.001, .004, .009, .015):
+            self.assertFalse(samples.pulse(now))
+            self.assertEqual(samples.deadline, deadline)
+            self.assertEqual(len(samples.frames), 0)
+        self.assertTrue(samples.pulse(.017))
+        self.assertEqual(len(samples.frames), 1)
+        self.assertFalse(samples.pulse(.017))
+        self.assertLessEqual(samples.wait_ms(.017), 17)
+
+    def test_long_stall_counts_once_skips_missed_slots_and_still_resumes(self):
+        samples = PerformanceSamples(0.)
+        self.assertTrue(samples.pulse(.017))
+        self.assertTrue(samples.pulse(1.37))
+        self.assertEqual(len(samples.frames), 2)
+        self.assertGreater(samples.deadline, 1.37)
+        self.assertLessEqual(samples.deadline - 1.37, 1. / 60. + 1e-9)
+        self.assertGreater(samples.frames[-1][1], 1300.)
+        for _ in range(10):
+            self.assertFalse(samples.pulse(1.37))
+        self.assertEqual(len(samples.frames), 2, 'A missed slot is not an observed frame')
+        next_callback = 1.37 + samples.wait_ms(1.37) / 1000.
+        self.assertTrue(samples.pulse(next_callback))
+        self.assertEqual(len(samples.frames), 3)
+
+    def test_one_second_window_keeps_the_missing_time_and_expires_lag(self):
+        samples = PerformanceSamples(0., 10.)
+        for now in (.101, .201, .301):
+            self.assertTrue(samples.pulse(now))
+        self.assertTrue(samples.pulse(.901))
+        rate, lag = samples.values(1.)
+        self.assertEqual(rate, 4., 'Do not divide by only the short retained timestamp span')
+        self.assertAlmostEqual(lag, 501.)
+        self.assertEqual(samples.values(1.902), (0., 0.))
+
+    def test_samples_are_bounded_and_reset_discards_old_rate_and_stall(self):
+        samples = PerformanceSamples(0., 1000.)
+        for _ in range(5000):
+            samples.pulse(samples.deadline + .000001)
+        self.assertLessEqual(len(samples.frames), 4096)
+        samples.reset(10., 144.)
         self.assertEqual(samples.values(10.), (0., 0.))
+        self.assertEqual(samples.refresh_rate, 144.)
+        self.assertAlmostEqual(samples.deadline, 10. + 1. / 144.)
+
+    def test_invalid_rates_fall_back_without_invalid_timer_intervals(self):
+        for rate in (None, True, False, '144', 0, -1, .5, 1001, float('inf'), float('-inf'), float('nan')):
+            with self.subTest(rate=rate):
+                samples = PerformanceSamples(100., rate)
+                self.assertEqual(samples.refresh_rate, 60.)
+                self.assertEqual(samples.wait_ms(100.), 17)
+                self.assertEqual(samples.wait_ms(101.), 1)
+        for rate in (1., 59.94, 144., 1000.):
+            self.assertEqual(PerformanceSamples.valid_rate(rate), rate)
 
 
 class WorkspacePerformanceTests(unittest.TestCase):
@@ -52,6 +124,13 @@ class WorkspacePerformanceTests(unittest.TestCase):
     tearDown = fixture.WorkspaceShellTests.tearDown
 
     def setUp(self):
+        refresh = patch.object(QScreen, 'refreshRate', return_value=60.)
+        refresh.start()
+        self.addCleanup(refresh.stop)
+        for method in ('get', 'post', 'put', 'sendCustomRequest'):
+            network = patch.object(QNetworkAccessManager, method, side_effect=AssertionError('No network'))
+            network.start()
+            self.addCleanup(network.stop)
         fixture.WorkspaceShellTests.setUp(self)
         self.w.sync_display_settings(dict(self.w.settings, font_family='Microsoft JhengHei UI'))
         self.w.activateWindow()
@@ -59,75 +138,96 @@ class WorkspacePerformanceTests(unittest.TestCase):
         self.monitor = self.w.performance_monitor
         self.assertTrue(self.monitor.running)
 
-    def test_actual_child_paints_count_once_and_monitor_does_not_drive_idle(self):
-        # A content update may repaint several widgets, but is one window batch.
-        self.monitor.timer.stop()
-        self.events()
-        self.monitor.samples.reset(time.perf_counter() - 1.)
-        for child in (self.w.rail, self.w.routes['home'], self.w.routes['settings']):
-            child.update()
-        self.app.processEvents()
-        self.assertEqual(len(self.monitor.samples.paints), 1)
-        self.monitor.samples.reset(time.perf_counter() - 1.)
-        self.monitor.rate_text, self.monitor.delay_text = '123', '456ms'
-        self.monitor.place()
-        self.monitor.update()
-        self.app.processEvents()
-        self.assertEqual(len(self.monitor.samples.paints), 0)
-        # No periodic redraw is requested just to sample the GUI wake-up time.
-        self.monitor.expected = time.perf_counter() + .05
-        self.monitor.last_display = time.perf_counter()
-        self.monitor.timer.start()
-        QTest.qWait(2250)
-        self.assertEqual(self.monitor.samples.values(time.perf_counter())[0], 0.)
-        self.assertEqual(self.monitor.lines[:2], ('FPS', '—'))
-        self.assertIn('暫無介面重繪', self.monitor.accessibleName())
+    def wait(self, milliseconds):
+        # qWait processes events in coarse steps, distorting high refresh rates.
+        loop = QEventLoop()
+        QTimer.singleShot(milliseconds, loop.quit)
+        loop.exec()
 
-    def test_fps_readout_counts_real_batches_and_explains_its_meaning(self):
+    def observe_callbacks(self):
+        timestamps = []
+        self.monitor.timer.timeout.connect(lambda: timestamps.append(time.perf_counter()))
+        return timestamps
+
+    def evidence(self, name, value):
+        if folder := os.environ.get('PCS_PERFORMANCE_EVIDENCE'):
+            target = Path(folder)
+            target.mkdir(parents=True, exist_ok=True)
+            (target / (name + '.json')).write_text(json.dumps(value, indent=2), encoding='utf-8')
+
+    def test_idle_fps_is_measured_from_real_callbacks_not_requested_refresh_rate(self):
+        observed = self.observe_callbacks()
+        self.wait(1300)
+        now = time.perf_counter()
+        rate, latency = self.monitor.samples.values(now)
+        actual = sum(now - 1. < stamp <= now for stamp in observed)
+        self.assertGreater(actual, 35, observed)
+        self.assertLessEqual(actual, 65)
+        self.assertAlmostEqual(rate, actual, delta=1.)
+        self.assertGreater(float(self.monitor.rate_text), 35.)
+        self.assertLess(latency, 150.)
+        self.assertTrue(self.monitor.timer.isSingleShot())
+        self.assertEqual(self.monitor.timer.timerType(), Qt.TimerType.PreciseTimer)
+        self.evidence('idle-callbacks', dict(measured_fps=rate, observed_callbacks_last_second=actual,
+                                          requested_refresh_rate=60., max_lag_ms=latency))
+
+    def test_readout_explains_gui_cadence_and_latency_without_claiming_display_frames(self):
+        self.wait(400)
         monitor = self.monitor
-        monitor.timer.stop()
-        self.events()
-        monitor.samples.reset(time.perf_counter() - 1.)
-        for _ in range(3):
-            self.w.routes['home'].update()
-            self.app.processEvents()
-        self.assertEqual(len(monitor.samples.paints), 3)
-        monitor.last_display = time.perf_counter() - 1.1
-        monitor.expected = time.perf_counter()
-        monitor.tick()
-        self.assertEqual(monitor.lines[:2], ('FPS', '3'))
-        self.assertIn('FPS 3', monitor.accessibleName())
+        self.assertGreater(float(monitor.rate_text), 0.)
+        self.assertIn(monitor.rate_text, monitor.accessibleName())
         self.assertEqual(monitor.accessibleDescription(), monitor.toolTip())
-        for explanation in ('介面重繪幀率', '— 表示暫無重繪', '不是螢幕更新率', 'Hz', '延遲估計值'):
+        self.assertNotIn('暫無介面重繪', monitor.accessibleName())
+        self.assertNotIn('介面重繪幀率', monitor.toolTip())
+        for explanation in ('依實際回應計算', '靜止時仍持續量測', '卡頓時下降', '不是 GPU 呈現幀率', '延遲估計值'):
             self.assertIn(explanation, monitor.toolTip())
 
-    def test_a_gui_stall_records_latency_without_fabricating_frames(self):
-        QTest.qWait(80)
-        self.monitor.samples.reset(time.perf_counter() - 1.)
-        time.sleep(.18)  # This is the deliberate, bounded GUI-thread stall.
+    def test_real_gui_stall_lowers_fps_raises_lag_and_recovers_without_catchup(self):
+        observed = self.observe_callbacks()
+        self.wait(1300)
+        baseline, _ = self.monitor.samples.values(time.perf_counter())
+        self.assertGreater(baseline, 35.)
+        before = len(observed)
+        time.sleep(.32)  # Deliberately block this GUI thread once, within bounds.
         self.app.processEvents()
-        self.assertGreater(self.monitor.samples.values(time.perf_counter())[1], 100.)
-        self.assertLessEqual(len(self.monitor.samples.paints), 1)
+        now = time.perf_counter()
+        stalled, latency = self.monitor.samples.values(now)
+        self.assertLess(stalled, baseline * .85)
+        self.assertGreater(latency, 200.)
+        self.assertLessEqual(len(observed) - before, 2, 'Missed slots must not be replayed in a burst')
+        self.assertAlmostEqual(stalled, sum(now - 1. < stamp <= now for stamp in observed), delta=1.)
+        self.wait(1300)
+        recovered, recovered_latency = self.monitor.samples.values(time.perf_counter())
+        self.assertGreater(recovered, baseline * .8)
+        self.assertLess(recovered_latency, 150., 'The old stall must expire from the rolling window')
+        self.evidence('stall-recovery', dict(baseline_fps=baseline, stalled_fps=stalled,
+                                            stall_max_lag_ms=latency, stall_seconds=.32,
+                                            recovered_fps=recovered, recovered_max_lag_ms=recovered_latency))
 
-    def test_opaque_child_with_window_owner_counts_each_synchronous_repaint(self):
-        # Several embedded PCS widgets store their host as `window`. An opaque
-        # child can be the first Paint in a batch, without a parent Paint first.
-        self.monitor.timer.stop()
-        child = QWidget(self.w)
-        child.window = self.w
-        child.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
-        child.setGeometry(100, 100, 64, 64)
+    def test_sampling_and_readout_do_not_continuously_repaint_content(self):
+        child = ContentPaintProbe(self.w)
         child.show()
-        self.events()
+        self.wait(350)
         try:
-            self.monitor.samples.reset(time.perf_counter() - 1.)
-            for count in range(1, 4):
-                child.repaint()
-                self.assertEqual(len(self.monitor.samples.paints), count)
+            before = child.paints
+            child.repaint()
+            self.assertGreater(child.paints, before, 'The probe must observe a real synchronous paint')
+            self.w.set_performance_monitor(False)
+            self.wait(100)
+            child.paints = 0
+            self.wait(300)
+            self.assertEqual(child.paints, 0)
+            self.w.set_performance_monitor(True)
+            self.wait(100)
+            child.paints = 0
+            callbacks = self.observe_callbacks()
+            self.wait(1250)
+            self.assertGreater(len(callbacks), 35)
+            self.assertEqual(child.paints, 0, 'Neither sampling nor readout refresh may drive content painting')
+            self.evidence('content-paints', dict(callbacks=len(callbacks), observed_seconds=1.25,
+                                                content_paints=child.paints, monitor_enabled=True))
         finally:
-            child.hide()
-            child.deleteLater()
-            self.events()
+            child.hide(); child.deleteLater(); self.events()
 
     def test_checkbox_persists_without_editing_documents(self):
         tab = self.open('Notes', 'md')
@@ -206,9 +306,13 @@ class WorkspacePerformanceTests(unittest.TestCase):
 
     def test_hidden_background_and_close_stop_observation(self):
         monitor = self.monitor
+        callbacks = self.observe_callbacks()
         self.w.hide()
         self.events()
         self.assertFalse(monitor.timer.isActive())
+        before = len(callbacks)
+        self.wait(100)
+        self.assertEqual(len(callbacks), before)
         self.w.show()
         self.w.activateWindow()
         self.app.setActiveWindow(self.w)
@@ -217,21 +321,31 @@ class WorkspacePerformanceTests(unittest.TestCase):
         with patch.object(self.w, 'isActiveWindow', return_value=False):
             monitor.sync()
             self.assertFalse(monitor.running)
+            before = len(callbacks)
+            self.wait(100)
+            self.assertEqual(len(callbacks), before)
         monitor.sync()
         self.assertTrue(monitor.running)
-        self.assertEqual(len(monitor.samples.paints), 0)
+        self.assertEqual(len(monitor.samples.frames), 0)
         self.assertEqual(monitor.lines[:2], ('FPS', '—'))
+        self.assertIn('正在取得', monitor.accessibleName())
         self.w.showMinimized()
         self.events()
         self.assertFalse(monitor.timer.isActive())
+        before = len(callbacks)
+        self.wait(100)
+        self.assertEqual(len(callbacks), before)
         self.w.showNormal()
         self.w.activateWindow()
         self.app.setActiveWindow(self.w)
         self.events()
         self.assertTrue(monitor.timer.isActive())
-        self.assertEqual(len([timer for timer in monitor.findChildren(QTimer) if not timer.isSingleShot()]), 1)
+        timers = monitor.findChildren(QTimer)
+        self.assertTrue(all(timer.isSingleShot() for timer in timers))
+        self.assertEqual([timer for timer in timers if timer.isActive()], [monitor.timer])
         self.assertTrue(self.w.close())
         self.assertTrue(monitor.closed)
         self.assertFalse(monitor.timer.isActive())
-        router = self.app._pcs_application_events
-        self.assertFalse(any(ref() is monitor for entries in router.listeners.values() for ref in entries))
+        before = len(callbacks)
+        self.wait(100)
+        self.assertEqual(len(callbacks), before)
