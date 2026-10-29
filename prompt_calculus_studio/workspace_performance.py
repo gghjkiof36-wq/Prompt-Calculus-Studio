@@ -48,11 +48,12 @@ class WorkspacePerformance(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        description = ('FPS：最近一秒的介面重繪幀率，靜止時可為 0；不是螢幕更新率（Hz）。\n'
-                       'Lag：最近一秒介面事件處理的最大延遲。')
+        description = ('FPS：最近一秒的介面重繪幀率；— 表示暫無重繪，通常是畫面靜止。'
+                       '不是螢幕更新率（Hz）。\n'
+                       'Lag：最近一秒介面回應的最大延遲估計值。')
         self.setToolTip(description)
         self.setAccessibleDescription(description)
-        self.rate_text, self.delay_text = '0', '0ms'
+        self.rate_text, self.delay_text = '—', '0ms'
         self.lines = ('FPS', self.rate_text, 'Lag', self.delay_text)
         self.running = False
         self.closed = False
@@ -86,7 +87,8 @@ class WorkspacePerformance(QWidget):
         metrics = QFontMetrics(self.paint_font)
         self.lines = (('FPS', self.rate_text, 'Lag', self.delay_text) if side else
                       (f'FPS {self.rate_text}', f'Lag {self.delay_text}'))
-        self.setAccessibleName(f'效能監測：介面 FPS {self.rate_text}，延遲 {self.delay_text}')
+        activity = '暫無介面重繪' if self.rate_text == '—' else f'介面 FPS {self.rate_text}'
+        self.setAccessibleName(f'效能監測：{activity}，延遲估計 {self.delay_text}')
         width = (max(1, min(44, self.workspace.rail.width() - 8)) if side else
                  max(metrics.horizontalAdvance(text) for text in ('FPS 4096', 'Lag 9999+s')) + 12)
         self.setFixedSize(width, metrics.height() * len(self.lines) + 8)
@@ -114,7 +116,7 @@ class WorkspacePerformance(QWidget):
                 self.samples.reset(now)
                 self.expected = now + self.INTERVAL_MS / 1000.
                 self.last_display = now
-                self.rate_text, self.delay_text = '0', '0ms'
+                self.rate_text, self.delay_text = '—', '0ms'
                 listen(self, QEvent.Type.Paint, QEvent.Type.UpdateRequest)
                 self.timer.start()
             else:
@@ -144,7 +146,9 @@ class WorkspacePerformance(QWidget):
         delay = f'{latency:.0f}ms' if latency < 1000 else f'{latency / 1000:.1f}s'
         if latency >= 9999900:
             delay = '9999+s'
-        values = f'{rate:.0f}', delay
+        # An event-driven, unchanged window has no new frames to measure;
+        # avoid presenting that normal idle state as a frozen 0 FPS display.
+        values = f'{rate:.0f}' if rate else '—', delay
         if values != (self.rate_text, self.delay_text):
             self.rate_text, self.delay_text = values
             self.place()
@@ -171,7 +175,8 @@ class WorkspacePerformance(QWidget):
             self.batch_painted = False
         elif (kind == QEvent.Type.Paint and not self.batch_painted
               and isinstance(watched, QWidget) and watched is not self
-              and watched.window() is self.workspace):
+              # Embedded widgets may also use `window` as an owner attribute.
+              and QWidget.window(watched) is self.workspace):
             # A root paint restricted to this overlay is still self-generated.
             if watched is self.workspace and event.region().subtracted(QRegion(self.geometry())).isEmpty():
                 return False

@@ -9,6 +9,7 @@ from unittest.mock import patch
 from PySide6.QtCore import QPoint, QRect, Qt, QTimer
 from PySide6.QtGui import QFontDatabase, QFontMetrics
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QWidget
 
 import test_workspace_shell as fixture
 from prompt_calculus_studio.workspace_performance import PerformanceSamples
@@ -79,7 +80,8 @@ class WorkspacePerformanceTests(unittest.TestCase):
         self.monitor.timer.start()
         QTest.qWait(2250)
         self.assertEqual(self.monitor.samples.values(time.perf_counter())[0], 0.)
-        self.assertEqual(self.monitor.lines[:2], ('FPS', '0'))
+        self.assertEqual(self.monitor.lines[:2], ('FPS', '—'))
+        self.assertIn('暫無介面重繪', self.monitor.accessibleName())
 
     def test_fps_readout_counts_real_batches_and_explains_its_meaning(self):
         monitor = self.monitor
@@ -96,7 +98,7 @@ class WorkspacePerformanceTests(unittest.TestCase):
         self.assertEqual(monitor.lines[:2], ('FPS', '3'))
         self.assertIn('FPS 3', monitor.accessibleName())
         self.assertEqual(monitor.accessibleDescription(), monitor.toolTip())
-        for explanation in ('介面重繪幀率', '靜止時可為 0', '不是螢幕更新率', 'Hz'):
+        for explanation in ('介面重繪幀率', '— 表示暫無重繪', '不是螢幕更新率', 'Hz', '延遲估計值'):
             self.assertIn(explanation, monitor.toolTip())
 
     def test_a_gui_stall_records_latency_without_fabricating_frames(self):
@@ -106,6 +108,26 @@ class WorkspacePerformanceTests(unittest.TestCase):
         self.app.processEvents()
         self.assertGreater(self.monitor.samples.values(time.perf_counter())[1], 100.)
         self.assertLessEqual(len(self.monitor.samples.paints), 1)
+
+    def test_opaque_child_with_window_owner_counts_each_synchronous_repaint(self):
+        # Several embedded PCS widgets store their host as `window`. An opaque
+        # child can be the first Paint in a batch, without a parent Paint first.
+        self.monitor.timer.stop()
+        child = QWidget(self.w)
+        child.window = self.w
+        child.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        child.setGeometry(100, 100, 64, 64)
+        child.show()
+        self.events()
+        try:
+            self.monitor.samples.reset(time.perf_counter() - 1.)
+            for count in range(1, 4):
+                child.repaint()
+                self.assertEqual(len(self.monitor.samples.paints), count)
+        finally:
+            child.hide()
+            child.deleteLater()
+            self.events()
 
     def test_checkbox_persists_without_editing_documents(self):
         tab = self.open('Notes', 'md')
@@ -198,6 +220,7 @@ class WorkspacePerformanceTests(unittest.TestCase):
         monitor.sync()
         self.assertTrue(monitor.running)
         self.assertEqual(len(monitor.samples.paints), 0)
+        self.assertEqual(monitor.lines[:2], ('FPS', '—'))
         self.w.showMinimized()
         self.events()
         self.assertFalse(monitor.timer.isActive())
