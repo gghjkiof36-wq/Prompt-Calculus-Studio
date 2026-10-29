@@ -6,7 +6,7 @@ Keep Markdown notes, reusable prompts and Canvas workflows locally. Chat with lo
 
 ## What it does
 
-- Register existing GGUF files and your own llama-server, then save local `.pcs-chat` conversations with attachments, message versions and branches. LM Studio is not required.
+- Register existing GGUF files and your own llama-server, then save local `.pcs-chat` conversations with attachments, message versions and branches.
 - Rewrite selected Markdown using the full document as context, or draft into an empty document or at its end. Compare candidates on the page; only Keep applies the edit, which can be undone.
 - Save selected ChatGPT messages through the Chrome extension, send them to PCS or download JSON/Markdown, and find saved files in download history.
 - Edit Markdown with source and reading views side by side, formulas, tables, images, outlines, search, links and version history. Ctrl+V retains available formatting; Ctrl+Shift+V pastes plain text.
@@ -40,7 +40,7 @@ py -3.12 -m venv .venv
 
 The first installation downloads dependencies. Afterwards, double-click `Start.vbs`; no command window needs to remain open. Follow the [Chrome setup](docs/guide/chrome-connector.md) to install its connection tools and load the extension. For image generation, install one matching ComfyUI extension, restart the backend and refresh the workflow browser page.
 
-Local AI requires your own GGUF model and supported llama-server. Configure them under Explore → Local Models; neither is bundled, and LM Studio is not required. See the [local AI guide](docs/guide/local-ai.md).
+Local AI requires your own GGUF model and supported llama-server. Configure them under Explore → Local Models; neither is bundled. See the [local AI guide](docs/guide/local-ai.md).
 
 ## First use and upgrades
 
@@ -51,7 +51,6 @@ New documents live in `files`; settings, recovery data and task records live in 
 ## Before using
 
 - This is a pre-alpha preview; try copies of your data first. Models can omit meaning or produce errors. Review candidates before keeping them; adjust the document or settings if full context exceeds the limit.
-
 - Chrome captures messages already loaded on the page; selecting all does not include history the site has not loaded.
 - Complex charts and widgets may retain only static images, text or source links. Formula characters lost in older data cannot be recovered through display changes.
 - Not all Obsidian plugins are supported. The ChatGPT web editing workflow still uses manual copying and pasting; local text assistance uses your own model separately.

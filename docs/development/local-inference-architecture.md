@@ -1,14 +1,14 @@
 # PCS 內建本地 AI：架構決策稿
 
-2026-10-27 · 版本：0.8.10 Pre-alpha1。**首版介面、探索模型頁與文件／引擎接點已實作；使用者已允許下載及本機運行，固定模型的有界驗證已通過。** 尚非完整 LM Studio 功能或正式發布驗收。
+2026-10-27 · 版本：0.8.10 Pre-alpha1。本文件整理本機模型管理、文件與引擎接點，以及相應的驗證範圍。
 
 使用者其後要求先統一對話頁骨架，依 01 的空白頁原型及使用者提供的訊息串範例整理。下列離屏畫面結果對應各自記錄的來源；新的對話頁驗證另列於任務執行回執，不以舊畫面宣稱新版驗收。
 
-本稿依使用者最新要求，取代「需另開 LM Studio 的外部服務接入」方向。當前目標是在 PCS 內提供 LM Studio 類型的模型管理、推理與對話。使用者已明確暫緩本機 API；GPT／Obsidian 聯動也移到後續。本稿保留擴充方向，不因此啟動 API 或聯動實作。
+PCS 在工作區內管理 GGUF 模型、自有推理程序與對話文件。本機 API 與 GPT／Obsidian 聯動列為後續擴充。
 
 ## 本批實作與驗證邊界
 
-使用者先授權實作可獨立交互的基礎介面、模型選擇、上下文與生成設定，當時要求完成後先不運行；其後已明確允許下載與本機運行，並選定 DeepSeek-R1-0528-Qwen3-8B Q4_K_M。原先「不運行」限制已由這次授權解除。01 組已撤回外接 LM Studio 前提；GPT／Obsidian 聯動仍在後續。下表分開記錄實作、已取得的證據及未涵蓋範圍。
+下表列出固定版本的實作接點、已有證據與待補範圍；模型操作、參數與介面按各自的契約維護。
 
 | 接點 | 已寫入程式 | 待後續驗證或補足 |
 | --- | --- | --- |
@@ -21,7 +21,7 @@
 | `local_ai/registry.py` | 引用單一既有 GGUF；讀取檔頭、大小、修改時間；模型 UUID 與設定檔原子保存 | 本次模型另有完整檔案 SHA-256 安裝回執；registry 本身尚無完整 metadata／hash、分片、網路搜尋下載、引擎自動安裝更新 |
 | Workspace 整合 | 新增／開啟／分頁／拖曳／搜尋／改名／另存／複製／恢復／關閉的 chat 分支，與 Canvas host 分開 | 離屏真按鈕新增文件、磁碟讀回及跨探索／對話往返通過；其餘跨頁、失敗與原生互動路徑仍需對應回歸 |
 
-啟動入口仍是 PCS 既有工作區入口。原先只做靜態檢查的回執保留為當時紀錄；新增的契約、離屏介面與真模型證據見下節。本次獨立準備模型及引擎，沒有安裝全域 CUDA／pip、建置 EXE 或替換正式安裝。引擎預留 `runtimes/llama.cpp/llama-server.exe`，也可由設定明確選擇固定版本目錄中的檔案；產品內的安裝／更新管理尚未完成，不要求使用者另開 LM Studio。
+啟動入口仍是 PCS 既有工作區入口。原先只做靜態檢查的回執保留為當時紀錄；新增的契約、離屏介面與真模型證據見下節。本次獨立準備模型及引擎，沒有安裝全域 CUDA／pip、建置 EXE 或替換正式安裝。引擎預留 `runtimes/llama.cpp/llama-server.exe`，也可由設定明確選擇固定版本目錄中的檔案；產品內的安裝／更新管理尚未完成。
 
 ### Markdown 文字協作（2026-10-29）
 
@@ -77,7 +77,7 @@
 
 思考切換限於已核對的 Qwen3.5 模板與 llama.cpp b11900；執行時由 `/props` 核對 build 與模板 SHA-256，再以 `/apply-template` 比較開關結果。該模板預設思考上限為 `min(512, max_tokens-1)`，明確「不限」保留，關閉思考則不附上限。其他模型的預設沿引擎行為；明確要求未經確認的控制會給出錯誤，不默默忽略。自訂上限須小於回覆上限；未知模板另須證明可解析起訖思考標記。上限快照代表請求策略，並非實測思考 token 數或答案品質保證。
 
-2026-10-28 使用 Windows／RTX 3080 10GB、同一 Qwen3.5-9B HauhauCS Q6_K、b11900、8192 context 與固定 sampling，對合成輸入 `test` 各跑一次：GPU 固定 8 層且思考上限 512 時，觀察思考 108.30 秒、生成總時 114.75 秒；只改 GPU 自動分配後為 6.08／6.34 秒。再將思考上限改 128 的比較案為 1.58／1.84 秒。載入時間另計，三案皆正常完成且收回自有程序。此結果支持先修正 GPU 配置，未提供複雜題品質證據，故一般思考預設維持 512。這是單一提示的實機對照，輸出內容不同，並非 LM Studio 同條件重測、所有題目固定速度或自動分配確為全層的證明。
+2026-10-28 使用 Windows／RTX 3080 10GB、同一 Qwen3.5-9B HauhauCS Q6_K、b11900、8192 context 與固定 sampling，對合成輸入 `test` 各跑一次：GPU 固定 8 層且思考上限 512 時，觀察思考 108.30 秒、生成總時 114.75 秒；只改 GPU 自動分配後為 6.08／6.34 秒。再將思考上限改 128 的比較案為 1.58／1.84 秒。載入時間另計，三案皆正常完成且收回自有程序。此結果支持先修正 GPU 配置，未提供複雜題品質證據，故一般思考預設維持 512。這是單一提示的實機對照，輸出內容不同，不能推廣為所有題目的固定速度或自動分配確為全層的證明。
 
 停止、中斷、失敗或達長度上限的回覆若仍處於未閉合的前導思考區，且未明確關閉思考，下一輪不將該片段當 assistant 答案送回；保存原文、歷史及引用不變。正常完成的回覆、明確關閉思考的回覆，以及正文或程式碼中的字面標記均保留在後續上下文。
 
@@ -97,7 +97,7 @@ WebEngine 顯示頁共用一份無持久化 profile，僅開放精確的隨附�
 
 成功保存必須完成原有替換、讀回及衝突確認，才在父目錄固定保護內清除**當次**恢復副本；失敗、外部競寫與不確定的替換結果保留副本及錯誤狀態。這不是歷史清理機制，既存 recovery 檔沒有可靠接受標記，不按名稱或雜湊批次移除。文件樹與索引使用 `os.scandir` 並先排除已識別的內部恢復檔，避免對大量副本逐一解析路徑；普通相似名稱文件仍會顯示。
 
-對話頁按可見性及內容長度合併串流投影，思考時計只更新回覆標題；輸入列不顯示總耗時。owner 既有生成總時鐘保留作內部狀態，不寫入文件。工作區監測被動觀察重繪與 GUI 延遲，行為詳見 [UI 原則](ui-patterns.md)。這些調整處理前端／檔案成本，不代表模型推論速度或 LM Studio 對比已驗收。
+對話頁按可見性及內容長度合併串流投影，思考時計只更新回覆標題；輸入列不顯示總耗時。owner 既有生成總時鐘保留作內部狀態，不寫入文件。工作區監測被動觀察重繪與 GUI 延遲，行為詳見 [UI 原則](ui-patterns.md)。這些調整處理前端／檔案成本，模型推理耗時另按實際請求記錄。
 
 推理在獨立 worker，自有 llama-server 程序承擔模型運算；跨執行緒只傳入固定請求與增量文字。文件每 60 ms 合併一次畫面通知，保存檢查點沿原有 1500 ms 排程；這兩個數字是排程值，不是即時延遲保證。UI 不把每個 token 當成重建整份訊息串的理由。
 
@@ -109,11 +109,10 @@ WebEngine 顯示頁共用一份無持久化 profile，僅開放精確的隨附�
 
 2026-10-27 的相同合成資料、Qt 離屏比較：300 輪初次開頁約 4.80 s 降至 0.81 s，串流刷新中位約 23.61 ms 降至 1.51 ms；加入最後的複製按鈕及捲動修正後，複核為 0.90 s／2.65 ms。24 則格式化回覆的活動顯示頁由 24 降至 2（單一共享 profile）。400 輪、14.4 MB 文件的首則分支約 926 ms 降至 27 ms，末則分支約 1717 ms 降至 899 ms。模型庫 200 筆未變資料刷新中位約 16 ms 降至 0.96 ms。這些是特定 fixture 的前端／資料成本，會受機器負載影響，不是模型 tokens/s，也不代表最終原生介面效能驗收。原始前後收據由任務 STATUS 索引；附件等後續變更另附其來源與驗證。
 
-架構核對採用 [Qt WebEngine lifecycle](https://doc.qt.io/qt-6.11/qwebenginepage.html) 對隱藏頁面的資源管理原則，以及 [Open WebUI 效能說明](https://github.com/open-webui/docs/blob/main/docs/troubleshooting/performance.md) 對串流批次和重複處理成本的討論。PCS 的「按可視區建頁、保留選取、增量通知」是依現有 Qt 結構作出的設計選擇；沒有照搬多使用者 Web server 設定，也沒有為此換框架或加入外部服務。
+架構核對採用 [Qt WebEngine lifecycle](https://doc.qt.io/qt-6.11/qwebenginepage.html) 對隱藏頁面的資源管理原則，以及 [Open WebUI 效能說明](https://github.com/open-webui/docs/blob/main/docs/troubleshooting/performance.md) 對串流批次和重複處理成本的討論。PCS 的「按可視區建頁、保留選取、增量通知」是依現有 Qt 結構作出的設計選擇。
 
 生成錯誤使用對應回覆內的淡紅底細框與可選取文字，依文字長度決定框寬，保留已收到內容。重試圖示放在回覆下方操作列；未能建立請求的操作錯誤也放在對話區，輸入稿保留。正常停止只顯示一次「生成已停止」，不附空回覆或重複狀態。正常畫面不增加操作教學和實作說明，編輯框只保留文字與取消／送出。紅框的原先選型參考 [Carbon inline notifications](https://www.carbondesignsystem.com/building-blocks/core/components/notification/guidelines) 與 [Fluent message bar](https://fluent2.microsoft.design/components/web/react/core/messagebar/usage)，本輪比例依使用者提供的對話錯誤畫面調整，配色和元件仍沿 PCS 共用 tokens。
 
-使用者原型是本輪視覺基準。2026-10-27 另對照主流產品官方操作文件：[ChatGPT 將模型選擇放入輸入區](https://help.openai.com/en/articles/6825453-chatgpt-release-notes)、[Claude 將模型選單放在送出旁](https://support.claude.com/en/articles/8664678-change-the-model-effort-and-thinking-settings)、[Gemini 在輸入框底部選擇模型](https://support.google.com/gemini/answer/18648722)、[LM Studio 基本對話操作](https://lmstudio.ai/docs/app/basics)。這是上一輪骨架的代表產品對照，並非全市場調查或像素複製；本輪依使用者補充改為送出時自動準備模型，附件另按下節接入，不增加未實作的語音入口。
 
 目前逐段輸出使用同一個 worker 的 Qt queued signals 保序，接受端核對完整不可變 ServiceRequest 與本地 owner。尚未實作跨服務重送或序號去重協定，不能把這個同程序事件通道直接作日後公開 API。`profile_epoch` 是模型 UUID 與可攜參數的 UUIDv5 指紋；不是引擎執行階段身分或模型權重 hash。路徑、臨時憑證不寫入對話文件。
 
@@ -241,7 +240,7 @@ GPU／RAM 估算是建議，載入結果才是實際能力。完整目標包含�
 
 ## 功能目標與施工順序
 
-這是一個階段內分批完成的範圍，不把第一個能回一句話的版本稱為 LM Studio 功能完成。
+各階段按已完成接點與相應驗證記錄交付。
 
 | 批次 | 可用成果 | 必要驗收 |
 | --- | --- | --- |
@@ -263,7 +262,6 @@ GPT／Obsidian 聯動不在上述批次內。API 與文件介面應可供將來�
 | [llama.cpp Windows 發布](https://github.com/ggml-org/llama.cpp/releases) | CPU／CUDA 等可打包引擎來源 | 選型需實機驗證驅動與 runtime；不只根據資產名稱宣告相容 |
 | [GPT4All Qt 應用](https://github.com/nomic-ai/gpt4all/tree/main/gpt4all-chat) | UI／推理分離、模型資源管理、下載和版本化聊天 | 沿 PCS PySide6、writer 與 owner，不整套搬入 C++／QML 應用 |
 | [Jan worker](https://github.com/janhq/jan/blob/main/src-tauri/plugins/tauri-plugin-llamacpp/src/engine/worker.rs) | 原生推理獨立程序、結構化啟動訊息與 Windows 程序回收 | 保留 PCS 前端；自訂薄 worker 僅在官方 server 無法滿足經測試的取消／生命週期契約時採用 |
-| [LM Studio 功能說明](https://lmstudio.ai/docs/app/offline) | 對照模型、離線聊天、本機 API、文件問答與 runtime 維護體驗 | 功能對照用，不作 PCS 的必要執行依賴 |
 
 採用實作前固定來源版本、核對授權告示與相依條件。模型權重、引擎及 GPU runtime 各有自己的分發條件，不能以一份專案 LICENSE 推論全部相同。
 
@@ -287,4 +285,4 @@ Jan 的 [build.rs](https://github.com/janhq/jan/blob/main/src-tauri/plugins/taur
 4. 固定模型、引擎、硬體與上下文，分開記冷啟動、首字延遲、輸出速度、峰值 RAM／VRAM、停止至閒置及卸載至資源釋放。
 5. 更新／回退、離線啟動、缺失依賴、不同 DPI／IME 與正式打包均有對應證據；mock／離屏不能替代上述真實驗證。
 
-當前已完成首版介面、文件與自有引擎接點。基礎版的 42 項契約、7 項離屏實頁及固定 R1／b11900 真多輪證據保留其原始來源；自動準備模型與介面調整另有新回執，見任務 STATUS 與 UI-REFINEMENT-VALIDATION.json。這些結果是受影響接點的有界核對；尚未完成上述全部架構目標、完整 LM Studio 功能、原生互動與效能矩陣或正式發布驗收。舊靜態回執保留，不將單模型結果擴大成全面支援。
+當前已完成首版介面、文件與自有引擎接點。基礎版的 42 項契約、7 項離屏實頁及固定 R1／b11900 真多輪證據保留其原始來源；自動準備模型與介面調整另有新回執，見任務 STATUS 與 UI-REFINEMENT-VALIDATION.json。這些結果是受影響接點的有界核對；尚未完成上述全部架構目標、原生互動與效能矩陣或正式發布驗收。舊靜態回執保留，不將單模型結果擴大成全面支援。

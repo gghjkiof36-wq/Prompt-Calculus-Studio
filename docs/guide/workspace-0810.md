@@ -31,9 +31,9 @@ py -3.12 -m venv .venv
 
 ## 開始使用功能
 
-- 本機模型與文字協作：自行提供 GGUF 及支援的 llama-server，依[本機 AI 指南](local-ai.md)設定；不需要 LM Studio。
+- 本機模型與文字協作：自行提供 GGUF 及支援的 llama-server，依[本機 AI 指南](local-ai.md)設定。
 - Markdown 與文件：原文／編寫／閱讀、大綱、搜尋、連結、貼上及匯入，見[筆記操作](workspace-089.md)與[貼上／匯入](markdown-import.md)。
 - Chrome 對話保存：本版沿用 Chrome 0.2.7。將配套中的 `PCS-Chrome-Connector` 改名為 `connector-package`，放到 `run.py` 旁，再由「探索 → 下載紀錄 → 加入 Chrome」設定；見[連線步驟](chrome-connector.md)。
 - ComfyUI：安裝同版通用／legacy／modern 其中一份配套，重新啟動後端與刷新網頁。圖片生成仍需自己的模型與工作流，見[相容指南](comfyui-compatibility.md)。
 
-本次不提供完整 PCS EXE、GGUF 或推理引擎下載；Chrome 配套只有獨立連線工具，不是 PCS 主程式。
+PCS 主程式以來源版提供，GGUF 與推理引擎需另行準備；Chrome 配套提供網頁保存所需的連線工具。
