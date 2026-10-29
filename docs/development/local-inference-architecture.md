@@ -25,15 +25,17 @@
 
 ### Markdown 文字協作（2026-10-29）
 
-Markdown 的編寫／原文模式新增右鍵「文字協作…」。選取文字時使用該範圍；沒有選取或在選取外按右鍵時，使用該處的原文段落（以換行分隔）。`markdown_text_assist.MarkdownTextTarget` 捕獲原分頁、文件位置、save key、完整 SourceSnapshot 及 Python 字元範圍；不從閱讀頁 HTML 推算來源，也不自動送出整份文件。
+`markdown_inline_assist.MarkdownInlineAssist` 觀察編寫／原文模式的選取完成，在文件內開啟 `local_ai.text_assist_panel.TextAssistPanel`。輸入框不奪焦點，保留反向選取；拖曳、組字、多游標或矩形選取期間不啟動。右鍵保留一般編輯功能。`MarkdownTextTarget` 捕獲原分頁、文件位置、save key、完整 SourceSnapshot 及 Python 字元範圍，不從閱讀頁 HTML 推算來源。
 
-`local_ai.text_assist.TextAssistController` 以獨立的 `ServiceRequest(operation='text_assist')` 共用本機模型服務及單一生成槽。每次請求凍結來源 SHA、owner epoch、指令、模型與參數；本次選模型不改全域聊天選擇。來源視為待編輯資料，請求只包含來源與修改需求，不帶聊天歷史、不建立 `.pcs-chat`，也不執行模型產出的工具或程式碼。
+`markdown_models` 在工作區資料夾的 `md-models.json` 保存各絕對文件路徑的模型 ID（version 1）。首次使用凍結當下聊天選擇，包含空選擇；之後獨立保存，同一 buffer 的視圖共用，開啟中的另存／改名繼承選擇。使用短鎖及 QSaveFile 原子提交，損毀、未知版本或模型失效時報錯，不覆寫或靜默改選。未開啟文件的外部改名不推斷身份。這份設定不寫入 Markdown 正文或聊天登記。
 
-`text_assist_dialog` 先呈現可複製的候選正文。僅完整成功且思考標記已閉合的候選可採用；停止、失敗、達上限、來源失效或修改需求／模型後，停用採用。關閉／取消先撤銷接收權再取消請求，晚到結果不會重新取得寫入權。
+`TextAssistController` 以獨立的 `ServiceRequest(operation='text_assist')` 共用本機模型服務及單一生成槽。每次請求凍結來源 SHA、owner epoch、指令、文件模型與參數；不帶聊天歷史、不建立 `.pcs-chat`，也不執行模型產出的工具或程式碼。
 
-採用端用原始 `buffer.apply(captured_snapshot, [SourceEdit])` 提交一次可復原編輯，再沿既有 Markdown 保存流程。採用前另外核對原分頁仍開啟、path／save key 未變、非唯讀／組字及無保存錯誤；切換目前焦點不改目的地。候選換行轉為 LF，範圍外原文與原始換行／BOM 由 SourceLedger 保留。「接在後面」在原範圍末端插入獨立段落。候選在採用前僅存記憶體，沒有新增文件 schema 或恢復交易。
+正文使用獨立唯讀 `markdown_assist_projection.AssistProjection` 在原文件頁顯示暫時投影；選取範圍以淡灰刪除線原文、藍色新文及細框呈現，框上方預留小型審閱膠囊。投影不共用 SourceView 的可編輯 document，不改底層 buffer、autosave、Undo 或磁碟。串流只呈現可見正文，思考區不寫入投影；重試由原快照重新投影，刪除恢復原編輯器。投影期間停用文件編輯工具與指令快捷鍵。原文變動撤回投影並使候選失效，關閉／取消先撤銷接收權，再取消請求。
 
-本批證據為控制器／服務聚焦測試、離屏對話框與真正 Markdown buffer／writer 的右鍵至保存重開流程；沒有新增真模型推理、GPU 或前景操作驗證，不把既有聊天模型結果當成這次改寫品質驗收。固定來源、回執與畫面見任務 `MARKDOWN-TEXT-ASSIST-VALIDATION.json`。舊程序仍持有不支援此操作的服務時，入口提示重新開啟 PCS，不替換正在運作的服務。
+完整成功且思考標記已閉合才可「保留」。採用端用 `buffer.apply(captured_snapshot, [SourceEdit])` 提交一次可復原編輯，沿既有 Markdown 保存流程；另外核對原分頁、path／save key、唯讀／組字及保存錯誤。候選換行轉為 LF，範圍外原文與原始換行／BOM 由 SourceLedger 保留。「接在原文後」插入獨立段落。沒有新增文件 schema 或恢復交易。
+
+本次介面改版採合成服務、離屏完整工作區及真實 buffer／writer 驗證；來源與結果見本組任務 STATUS。此前實際 Qwen 潤飾／想法測試保留為原版本證據，不代表新介面已經原生 Windows 或 GPU 驗收。舊程序若仍持有不支援此操作的服務，提示重新開啟 PCS，不替換正在運作的服務。
 
 ### 基礎版受驗來源與結果（歷史證據）
 

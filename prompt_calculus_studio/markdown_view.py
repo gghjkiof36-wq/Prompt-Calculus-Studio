@@ -817,8 +817,6 @@ class SourceView(QPlainTextEdit):
         from .markdown_image_size import image_at, open_image_size
         snapshot=self.page.buffer.snapshot()
         position=python_position(snapshot.text,self.cursorForPosition(event.pos()).position())
-        from .markdown_text_assist import add_text_assist_action
-        add_text_assist_action(menu, self.surface, position)
         if image_at(snapshot.text,position):
             menu.addAction('調整圖片尺寸…',lambda:open_image_size(self.surface,position,snapshot))
             menu.addSeparator()
@@ -866,6 +864,10 @@ class ReadingView(QTextBrowser):
     def update_measure(self):
         margin=max(24,(self.width()-self.surface.preferences.get('reading_width',880))//2)
         self.setViewportMargins(margin+22,26,margin,16)
+        # A styled QTextBrowser may retain its outer width after the reading
+        # margins change. Constrain the actual text layout, not the scrollbar.
+        width=max(1,self.viewport().width())
+        if self.document().textWidth()!=width:self.document().setTextWidth(width)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -939,6 +941,7 @@ class ReadingView(QTextBrowser):
         document.setLayoutEnabled(False)
         try:self.setHtml(html)
         finally:document.setLayoutEnabled(enabled)
+        self.update_measure()
 
     def refresh(self):
         scroll = self.verticalScrollBar().value()

@@ -6,9 +6,8 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QContextMenuEvent, QInputMethodEvent, QTextCursor
 
 from prompt_calculus_studio.markdown_source import utf16_position
-from prompt_calculus_studio.markdown_text_assist import MarkdownTextTarget, add_text_assist_action, open_text_assist
+from prompt_calculus_studio.markdown_text_assist import MarkdownTextTarget, open_text_assist
 from prompt_calculus_studio.local_ai.text_assist import TextAssistController
-from prompt_calculus_studio.widgets import RoundMenu
 import test_workspace_panes as fixture
 
 
@@ -91,30 +90,6 @@ class MarkdownTextAssistTests(unittest.TestCase):
         target.bind(controller)
         return service, controller
 
-    def test_menu_freezes_unicode_selection_or_clicked_paragraph(self):
-        tab = self.page()
-        surface = tab.widget.md_surface
-        snapshot, start, end = self.select(tab)
-        self.assertEqual(snapshot.text[start:end], SELECTED)
-        self.assertGreater(surface.editor.textCursor().selectionStart(), start)
-        menu = RoundMenu(surface)
-        with patch('prompt_calculus_studio.markdown_text_assist.open_text_assist') as opened:
-            action = add_text_assist_action(menu, surface, start+2)
-            surface.editor.moveCursor(QTextCursor.MoveOperation.End)
-            action.trigger()
-            self.assertEqual(opened.call_args.args, (surface, snapshot, start, end))
-            self.assertEqual(opened.call_args.kwargs, dict(kind='selection'))
-            self.select(tab)
-            clicked = snapshot.text.index('後段')
-            action = add_text_assist_action(menu, surface, clicked)
-            action.trigger()
-            _, frozen, a, b = opened.call_args.args
-            self.assertEqual(frozen.text[a:b], '後段')
-            self.assertEqual(opened.call_args.kwargs, dict(kind='paragraph'))
-        self.assertFalse(tab.dirty)
-        self.assertEqual(tab.widget.encoded(), RAW)
-        menu.deleteLater()
-
     def test_completed_preview_keeps_source_bytes_and_undo_unchanged(self):
         tab = self.page()
         target = self.target(tab)
@@ -138,7 +113,7 @@ class MarkdownTextAssistTests(unittest.TestCase):
         active_key = self.w.active_key
         with patch('prompt_calculus_studio.local_ai.service.for_workspace', return_value=object()), \
                 patch('prompt_calculus_studio.local_ai.text_assist.TextAssistController') as controller, \
-                patch('prompt_calculus_studio.local_ai.text_assist_dialog.TextAssistDialog') as dialog:
+                patch('prompt_calculus_studio.local_ai.text_assist_panel.TextAssistPanel') as dialog:
             self.assertIsNone(open_text_assist(surface, snapshot, start, end))
         controller.assert_not_called()
         dialog.assert_not_called()
@@ -309,34 +284,22 @@ class MarkdownTextAssistTests(unittest.TestCase):
         self.assertTrue(self.w.save_tab(right))
         self.assertEqual(tab.path.read_bytes(), expected)
 
-    def test_right_click_dialog_preview_apply_save_and_reopen(self):
+    def test_inline_preview_apply_save_and_reopen(self):
         tab = self.page()
         surface = tab.widget.md_surface
-        self.select(tab)
+        selection = self.select(tab)
         service = FakeService()
-        menus = []
-        position = surface.editor.cursorRect(surface.editor.textCursor()).center()
-        event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, position,
-                                  surface.editor.viewport().mapToGlobal(position))
-        with patch('prompt_calculus_studio.markdown_view.QMenu.open_at',
-                   lambda menu, *_args, **_kwargs: menus.append(menu)), \
-                patch('prompt_calculus_studio.local_ai.service.for_workspace', return_value=service):
-            surface.editor.contextMenuEvent(event)
-            self.assertEqual(len(menus), 1)
-            action = next(action for action in menus[0].actions() if action.text() == '文字協作…')
-            self.assertTrue(action.isEnabled())
-            action.trigger()
-        dialog = surface.text_assist_dialog
-        self.assertEqual(dialog.controller.source_text, SELECTED)
-        self.assertTrue(tab.retained)
-        dialog.instruction.setPlainText('保留意思並精簡')
-        dialog.start_button.click()
+        with patch('prompt_calculus_studio.local_ai.service.for_workspace', return_value=service):
+            panel = open_text_assist(surface, *selection)
+        self.assertEqual(panel.controller.source_text, SELECTED)
+        panel.instruction.setPlainText('保留意思並精簡')
+        panel.start_button.click()
         self.assertEqual(len(service.requests), 1)
         service.complete('<think>推理不是正文</think>整合候選😀')
-        self.assertEqual(dialog.preview.toPlainText(), '整合候選😀')
+        self.assertIn('整合候選😀', surface.inline_assist.projection.toPlainText())
         self.assertEqual(tab.widget.encoded(), RAW)
-        self.assertTrue(dialog.replace_button.isEnabled())
-        dialog.replace_button.click()
+        self.assertTrue(panel.keep_button.isEnabled())
+        panel.keep_button.click()
         expected = RAW.replace(SELECTED.encode(), '整合候選😀'.encode())
         self.assertEqual(tab.widget.encoded(), expected)
         self.assertTrue(self.w.save_tab(tab))
@@ -346,7 +309,6 @@ class MarkdownTextAssistTests(unittest.TestCase):
         reopened = self.open('Assist.md', retained=True)
         self.assertEqual(reopened.widget.encoded(), expected)
         self.assertFalse(reopened.widget.document().isUndoAvailable())
-        # Closing the original page also owns/destructs its context menu.
 
 
 if __name__ == '__main__':

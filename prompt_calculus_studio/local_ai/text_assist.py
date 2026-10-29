@@ -27,7 +27,7 @@ _EDIT_INSTRUCTIONS = (
 class TextAssistController(QObject):
     changed = Signal()
 
-    def __init__(self, service, *, source_text, source_scope, parent=None):
+    def __init__(self, service, *, source_text, source_scope, model_id=None, parent=None):
         super().__init__(parent)
         if not isinstance(source_text, str) or not source_text.strip():
             raise ValueError('請先選取要處理的文字。')
@@ -44,7 +44,7 @@ class TextAssistController(QObject):
         self._serial = 0
         self._request = None
         self._disposed = self._invalidated = False
-        self._selected_model_id = service.selected_model
+        self._selected_model_id = service.selected_model if model_id is None else model_id
         self.state = 'idle'
         self.raw_text = self.error = ''
         self.model_name = self._model_name(self._selected_model_id)

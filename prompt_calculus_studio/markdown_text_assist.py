@@ -1,7 +1,7 @@
 """Local text assistance adopts one candidate into one captured source range."""
 import weakref
 
-from PySide6.QtCore import QObject, Qt
+from PySide6.QtCore import QObject
 from PySide6.QtGui import QTextCursor
 from shiboken6 import isValid
 
@@ -17,7 +17,7 @@ class MarkdownTextTarget(QObject):
         if surface.mode == 'read' or page.buffer.opening or page.buffer.composing:
             raise ValueError('請先回到編寫模式，並完成目前的組字。')
         if not 0 <= start < end <= len(snapshot.text) or not snapshot.text[start:end].strip():
-            raise ValueError('請選取要協作的文字，或在有文字的段落按右鍵。')
+            raise ValueError('請選取要協作的文字。')
         if page.buffer.snapshot() != snapshot:
             raise ValueError('原文已變更，請重新選取文字。')
         tab = next((tab for tab in workspace.tabs_by_key.values() if tab.widget is page), None) if workspace else None
@@ -103,27 +103,11 @@ class MarkdownTextTarget(QObject):
         return True
 
 
-def add_text_assist_action(menu, surface, position):
-    """Freeze a selection, or the right-clicked source paragraph, before opening."""
-    snapshot, start, end = surface.selection()
-    kind = 'selection'
-    if start == end or not start <= position <= end:
-        start = snapshot.text.rfind('\n', 0, position) + 1
-        end = snapshot.text.find('\n', position)
-        if end < 0:
-            end = len(snapshot.text)
-        kind = 'paragraph'
-    action = menu.addAction('文字協作…', lambda: open_text_assist(surface, snapshot, start, end, kind=kind))
-    action.setEnabled(surface.mode != 'read' and not surface.page.buffer.opening
-                      and not surface.page.buffer.composing and bool(snapshot.text[start:end].strip()))
-    menu.addSeparator()
-    return action
-
-
 def open_text_assist(surface, snapshot=None, start=None, end=None, *, kind='selection'):
     from .local_ai.service import for_workspace
     from .local_ai.text_assist import TextAssistController
-    from .local_ai.text_assist_dialog import TextAssistDialog
+    from .local_ai.text_assist_panel import TextAssistPanel
+    from .markdown_models import markdown_model_id
     if snapshot is None:
         snapshot, start, end = surface.selection()
     try:
@@ -137,22 +121,27 @@ def open_text_assist(surface, snapshot=None, start=None, end=None, *, kind='sele
         target.deleteLater()
         surface.report('請重新開啟 PCS，以使用文字協作。')
         return None
-    previous = getattr(surface, 'text_assist_dialog', None)
+    try:
+        model_id = markdown_model_id(surface, service)
+    except (ValueError, OSError) as error:
+        target.deleteLater()
+        surface.report(str(error))
+        return None
+    previous = getattr(surface, 'text_assist_panel', None)
     if previous is not None and isValid(previous):
         previous.close()
-    workspace.retain(workspace.tabs_by_key[target.tab_key])
-    cursor = surface.editor.textCursor()
-    cursor.setPosition(utf16_position(snapshot.text, start))
-    cursor.setPosition(utf16_position(snapshot.text, end), QTextCursor.MoveMode.KeepAnchor)
-    surface.editor.setTextCursor(cursor)
+    if surface.selection() != (snapshot, start, end):
+        cursor = surface.editor.textCursor()
+        cursor.setPosition(utf16_position(snapshot.text, start))
+        cursor.setPosition(utf16_position(snapshot.text, end), QTextCursor.MoveMode.KeepAnchor)
+        surface.editor.setTextCursor(cursor)
     controller = TextAssistController(service,
-                                      source_text=target.source_text, source_scope=target.scope)
-    dialog = TextAssistDialog(surface, controller, target.apply)
-    controller.setParent(dialog)
-    target.setParent(dialog)
+                                      source_text=target.source_text, source_scope=target.scope, model_id=model_id)
+    panel = TextAssistPanel(surface, controller, surface.inline_assist.apply_candidate)
+    controller.setParent(panel)
+    target.setParent(panel)
     target.bind(controller)
-    dialog.target = target
-    dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-    surface.text_assist_dialog = dialog
-    dialog.show()
-    return dialog
+    panel.target = target
+    surface.text_assist_panel = panel
+    surface.inline_assist.attach(panel)
+    return panel

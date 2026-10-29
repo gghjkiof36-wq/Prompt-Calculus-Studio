@@ -132,6 +132,8 @@ class MarkdownSurface(QWidget):
         self.editor.document().setLayoutEnabled(not self.page.buffer.opening)
         workspace = self.page.file_title.workspace
         if hasattr(workspace, 'markdown_mode'):self.apply_mode(workspace.markdown_mode, focus=False)
+        from .markdown_inline_assist import MarkdownInlineAssist
+        self.inline_assist = MarkdownInlineAssist(self)
 
     def prepare_workspace_show(self):
         # Standalone adapters may bind their workspace after construction.
@@ -255,6 +257,9 @@ class MarkdownSurface(QWidget):
 
     def view_menu(self):
         menu = QMenu(self)
+        from .markdown_inline_assist import add_model_menu
+        add_model_menu(menu, self)
+        menu.addSeparator()
         menu.addAction(icon('search'), '搜尋\tCtrl+F', self.open_find)
         if self.mode != 'read':menu.addAction('取代\tCtrl+H', lambda:self.open_find(True))
         menu.addSeparator()
@@ -365,6 +370,8 @@ class MarkdownSurface(QWidget):
             return
         if self.page.buffer.composing:self.report('請先完成目前的中文組字。');return
         if mode not in ('write', 'source', 'read'):return
+        if hasattr(self, 'inline_assist'):
+            self.inline_assist.dismiss()
         self.mode = mode
         label,symbol={'write':('編寫','pencil'),'source':('原文','source-code'),'read':('閱讀','book-open')}[mode]
         self.mode_box.setIcon(icon(symbol));self.mode_box.setToolTip(label+' · 切換模式');self.mode_box.setAccessibleName(label+' · 切換模式')
@@ -386,6 +393,8 @@ class MarkdownSurface(QWidget):
         return snapshot, python_position(snapshot.text, cursor.selectionStart()), python_position(snapshot.text, cursor.selectionEnd())
 
     def apply(self, edits, caret=None, *, join_previous=False):
+        if getattr(getattr(self, 'inline_assist', None), 'projection', None) is not None:
+            self.report('請先保留或刪除這次文字協作。');return False
         if self.mode == 'read':self.report('目前是閱讀模式，請切換至編寫或原文。');return False
         try:
             changed = self.page.buffer.apply(self.page.buffer.snapshot(), edits, join_previous=join_previous)
@@ -478,8 +487,13 @@ class MarkdownSurface(QWidget):
 
     def update_controls(self, *args):
         if not hasattr(self, 'editor'):return
-        ready = self.mode != 'read' and not self.page.buffer.composing and not self.page.buffer.opening
+        ready = (self.mode != 'read' and not self.page.buffer.composing and not self.page.buffer.opening
+                 and getattr(getattr(self, 'inline_assist', None), 'projection', None) is None)
         self.toolbar.setEnabled(ready);self.mode_box.setEnabled(not self.page.buffer.composing and not self.page.buffer.opening)
+        projecting = getattr(getattr(self, 'inline_assist', None), 'projection', None) is not None
+        self.search_button.setEnabled(not projecting)
+        for shortcut in getattr(self, 'command_shortcuts', {}).values():
+            shortcut.setEnabled(not projecting)
         if self.page.buffer.opening:return
         self.undo_action.setEnabled(ready and self.page.document().isUndoAvailable())
         self.redo_action.setEnabled(ready and self.page.document().isRedoAvailable())
