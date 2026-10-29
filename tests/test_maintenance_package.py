@@ -29,7 +29,8 @@ class PackagingTests(unittest.TestCase):
                     self.assertFalse(name.startswith(('data/','qa/','.git/','vendor/','.builder/'))); self.assertFalse(name.endswith(('.sqlite3','.token')))
             info=json.loads((folder/'BUILD_INFO.json').read_text(encoding='utf-8'))
             required_validation={'--v0.8.9-beta.2':'docs/releases/0.8.9/validation/beta.2.md',
-                                 '--v0.8.9-beta.3':'docs/releases/0.8.9/validation/beta.3.md'}
+                                 '--v0.8.9-beta.3':'docs/releases/0.8.9/validation/beta.3.md',
+                                 '--v0.8.10-pre-alpha.1':'docs/releases/0.8.10/validation/pre-alpha.1.md'}
             self.assertIn(CURRENT.flag,required_validation,'A new current release needs its explicit validation contract')
             self.assertEqual(info['release'],CURRENT.flag)
             self.assertEqual(info['validation'],required_validation[CURRENT.flag])

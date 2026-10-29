@@ -41,7 +41,7 @@ def source_paths(root=ROOT):
         raise ValueError('建置來源必須是獨立 Git 根目錄。')
     blocked={'data','qa','build','dist','vendor','.builder','__pycache__','credentials','backups','local_library.json','settings.json','fault.log','error.log','agents.md','agent-guides'}
     folders={'prompt_calculus_studio','comfyui_prompt_calculus_studio','tests','docs','extensions'}
-    suffixes={'.py','.js','.mjs','.css','.ps1','.cmd','.vbs','.md','.txt','.svg','.ico','.png','.json','.html','.woff2'}
+    suffixes={'.py','.pyw','.js','.mjs','.css','.ps1','.cmd','.vbs','.md','.txt','.svg','.ico','.png','.json','.html','.woff2'}
     paths=[]
     for name in git_output(root,'ls-files','-z','--cached').split('\0'):
         if not name:continue
@@ -65,6 +65,7 @@ def source_paths(root=ROOT):
 def validation_reference(release, paths):
     """Use evidence for the exact build flag; other builds link to the index."""
     reports={
+        '--v0.8.10-pre-alpha.1':'docs/releases/0.8.10/validation/pre-alpha.1.md',
         '--v0.8.9-beta.3.repair.1':'docs/releases/0.8.9/validation/beta.3.repair.1.md',
         '--v0.8.9-beta.3':'docs/releases/0.8.9/validation/beta.3.md',
         '--v0.8.9-beta.2':'docs/releases/0.8.9/validation/beta.2.md',

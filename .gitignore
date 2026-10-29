@@ -15,3 +15,6 @@ qa/
 # Local AI instructions
 **/AGENTS.md
 /docs/agent-guides/
+
+# Per-launch diagnostics from the windowless source entry.
+logs/

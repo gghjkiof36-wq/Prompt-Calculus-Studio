@@ -2,7 +2,7 @@
 
 [文件首頁](../README.md) · [精簡更新紀錄](../../CHANGELOG.md)
 
-版本使用「主版.次版.修訂」三段號。本次來源對應 **[0.8.9 Beta3](0.8.9/README.md)**，公開附件以對應 Release 實際紀錄為準。每版主頁集中提供發布、修復、驗證及歷史紀錄。
+版本使用「主版.次版.修訂」三段號。本次來源對應 **[0.8.10 Pre-alpha1](0.8.10/README.md)**，公開附件以對應 Release 實際紀錄為準。每版主頁集中提供發布、修復、驗證及歷史紀錄。
 
 ## 開發歷程
 
@@ -13,6 +13,7 @@
 
 | 版本 | 發布 | 版本紀錄 |
 |---|---|---|
+| 0.8.10 | [Pre-alpha1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.10-pre-alpha.1) | [版本主頁](0.8.10/README.md) |
 | 0.8.9 | [Beta3](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta.3) · [Beta](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta) · [Alpha 1 Repair 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-alpha.1.repair.1) | [版本主頁](0.8.9/README.md) |
 | 0.8.8 | [Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.8-alpha.1) | [版本主頁](0.8.8/README.md) |
 | 0.8.7 | [Alpha 1](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.7-alpha.1) | [版本主頁](0.8.7/README.md) |

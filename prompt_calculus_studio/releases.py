@@ -109,13 +109,14 @@ RELEASES={r.flag:r for r in (
     Release('--v0.8.9-beta.2','v0.8.9-beta.2','v0.8.9 Beta2','Start-PCS-v0.8.9-Beta2','--v0.8.9-beta.2'),
     Release('--v0.8.9-beta.3','v0.8.9-beta.3','v0.8.9 Beta3','Start-PCS-v0.8.9-Beta3','--v0.8.9-beta.3'),
     Release('--v0.8.9-beta.3.repair.1','v0.8.9-beta.3.repair.1','v0.8.9 Beta3 repair1','Start-PCS-v0.8.9-Beta3-repair1','--v0.8.9-beta.3'),
+    Release('--v0.8.10-pre-alpha.1','v0.8.10-pre-alpha.1','v0.8.10 Pre-alpha1','Start-PCS-v0.8.10-Pre-alpha1','--v0.8.10-pre-alpha.1'),
 )}
 
 COMFYUI_COMPATIBILITY_PROFILES={
     'legacy-0.39.2':dict(backend='0.39.2',frontend='1.53.10',family='legacy'),
     'modern-0.40.0':dict(backend='0.40.0',frontend='1.55.17',family='modern'),
 }
-CURRENT=RELEASES['--v0.8.9-beta.3']
+CURRENT=RELEASES['--v0.8.10-pre-alpha.1']
 # Historical build flags remain readable; new metadata uses explicit dotted version identifiers.
 RELEASE_ALIASES={
     '--v084-alpha1':'--v0.8.4-alpha.1',

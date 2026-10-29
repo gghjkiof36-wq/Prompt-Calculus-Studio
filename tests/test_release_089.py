@@ -27,7 +27,7 @@ class Release089Tests(unittest.TestCase):
             self.assertEqual(run.returncode, 0, run.stdout+run.stderr)
             result = json.loads((base/'data/smoke-result.json').read_text())
             self.assertEqual(result['entry'], 'WorkspaceShell')
-            self.assertIn('v0.8.9 Beta3', result['title'])
+            self.assertIn(CURRENT.version, result['title'])
             self.assertTrue(result['ok'])
             self.assertEqual(result['reading'], 'ready')
             self.assertEqual(result['blocked_urls'], [])
@@ -35,11 +35,11 @@ class Release089Tests(unittest.TestCase):
             self.assertFalse((base/'wrong-data').exists())
 
     def test_launchers_and_shared_identity_are_current(self):
-        self.assertEqual(CURRENT.flag, '--v0.8.9-beta.3')
-        self.assertEqual(len(SHARED_MODULES), 34)
+        self.assertEqual(CURRENT.flag, '--v0.8.10-pre-alpha.1')
+        self.assertEqual(len(SHARED_MODULES), 35)
         with tempfile.TemporaryDirectory() as directory:
             write_launchers(directory, CURRENT)
             for suffix in ('.cmd', '.vbs'):
                 text = (Path(directory)/(CURRENT.launcher+suffix)).read_text()
-                self.assertIn('--v0.8.9-beta.3', text)
+                self.assertIn(CURRENT.argument, text)
                 self.assertNotIn('--v0.8.8-alpha', text)

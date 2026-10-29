@@ -1,10 +1,10 @@
 # 從 Chrome 保存 ChatGPT 對話
 
-適用 [0.8.9 Beta3](../releases/0.8.9/beta.3.md)，Windows、Chrome 116 以上，配套擴充為 0.2.7。
+適用 [0.8.10 Pre-alpha1](../releases/0.8.10/pre-alpha.1.md)，Windows、Chrome 116 以上，配套擴充為 0.2.7。
 
 ## 安裝配套
 
-1. 從 [Beta3 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta.3) 下載 `PCS-v0.8.9-Beta3-Chrome-Connector.zip` 並完整解壓。
+1. 從 [Pre-alpha1 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.10-pre-alpha.1) 下載 `PCS-v0.8.10-Pre-alpha1-Chrome-Connector.zip` 並完整解壓。
 2. 將裡面的 `PCS-Chrome-Connector` 資料夾改名為 `connector-package`，放在 PCS 的 `run.py` 旁。保留其內的 `chrome`、連線工具與其他檔案。
 3. 啟動 PCS，在「探索 → 下載紀錄」按「加入 Chrome」，再按「連接 PCS」。這會安裝目前 Windows 帳戶的連線工具，並啟用此工作區的接收服務。
 4. 按「開啟擴充頁」，在 Chrome 啟用「開發人員模式」，選「載入未封裝項目」，載入配套內的 `chrome` 資料夾；可用「開啟擴充資料夾」找到位置。
