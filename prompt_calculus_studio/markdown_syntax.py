@@ -276,7 +276,13 @@ def reading_html(text, hard_breaks=False, *, lines=None, web=False):
         line, number = item['text'], item['number']
         if item['protected']:
             flush();output.append('<pre id="line-'+str(number)+'">'+html.escape(line)+'</pre>');continue
-        if not line.strip():flush();continue
+        if not line.strip():
+            flush()
+            # The writing surface gives source blank lines a real caret row.
+            # Preserve that row in the reading projection as well; fixed CSS
+            # paragraph margins otherwise shrink the gaps, especially at zoom.
+            output.append('<p class="pcs-source-gap" style="-qt-paragraph-type:empty;"><br/></p>')
+            continue
         heading, listing = item['heading'], item['listing']
         if heading:
             flush();level = len(heading.group(2));css=style_css(item['container'].style) if item['container'] else ''
@@ -302,4 +308,6 @@ def reading_html(text, hard_breaks=False, *, lines=None, web=False):
                 content = line[:-2] if line.endswith('  ') else line[:-1] if hard_break else line
                 paragraph.append(inline_html(content)+('<br/>' if hard_break else ''))
     flush()
-    return '<html><body>'+''.join(output)+'</body></html>'
+    body = ''.join(output)
+    if web:body = '<div class="pcs-source-lines">'+body+'</div>'
+    return '<html><body>'+body+'</body></html>'

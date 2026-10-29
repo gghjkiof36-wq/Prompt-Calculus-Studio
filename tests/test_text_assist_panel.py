@@ -6,7 +6,7 @@ from unittest.mock import patch
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QInputMethodEvent, QTextCharFormat, QTextCursor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QMenu, QPlainTextEdit, QWidget
+from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLabel, QMenu, QPlainTextEdit, QWidget
 from shiboken6 import isValid
 
 from prompt_calculus_studio.core import initial_state
@@ -520,7 +520,7 @@ class TextAssistPanelUI(unittest.TestCase):
         self.place(320)
         before = self.panel.geometry()
         positions = {name: getattr(self.panel, name).mapTo(self.panel, QPoint())
-                     for name in ('delete_button', 'stop_button', 'keep_button')}
+                     for name in ('delete_button', 'stop_button', 'busy_status')}
         size = self.panel.stop_button.size()
         for state in ('generating', 'stopping'):
             self.controller.state = state
@@ -536,9 +536,33 @@ class TextAssistPanelUI(unittest.TestCase):
         self.assertEqual(self.panel.geometry(), before)
         self.assertEqual(self.panel.retry_button.mapTo(self.panel, QPoint()), positions['stop_button'])
         self.assertEqual(self.panel.retry_button.size(), size)
-        self.assertEqual(self.panel.keep_button.mapTo(self.panel, QPoint()), positions['keep_button'])
+        self.assertEqual(self.panel.keep_button.mapTo(self.panel, QPoint()), positions['busy_status'])
         self.assertEqual(self.panel.keep_button.text(), '保留')
         self.assertEqual(self.panel.delete_button.height(), self.panel.keep_button.height())
+
+    def test_busy_caption_is_a_normal_noninteractive_label_and_cannot_apply(self):
+        self.start()
+        label = self.panel.busy_status
+        self.assertIsInstance(label, QLabel)
+        self.assertTrue(label.isVisible())
+        self.assertTrue(label.isEnabled())
+        self.assertEqual(label.text(), '準備中…')
+        self.assertEqual(label.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        self.assertEqual(label.textInteractionFlags(), Qt.TextInteractionFlag.NoTextInteraction)
+        self.assertTrue(self.panel.keep_button.isHidden())
+        self.assertFalse(self.panel.keep_button.isEnabled())
+        QTest.mouseClick(label, Qt.MouseButton.LeftButton)
+        self.assertEqual(self.applied, [])
+        self.assertEqual(len(self.controller.starts), 1)
+        self.controller.state = 'generating'
+        self.panel.refresh()
+        self.assertEqual(label.text(), '生成中…')
+        self.assertGreaterEqual(contrast(self.panel.instruction.tokens['secondary'],
+                                        self.panel.instruction.tokens['raised']), 4.5)
+        self.controller.complete('完整候選')
+        self.assertTrue(label.isHidden())
+        self.assertTrue(self.panel.keep_button.isVisible())
+        self.assertTrue(self.panel.keep_button.isEnabled())
 
 
 if __name__ == '__main__':

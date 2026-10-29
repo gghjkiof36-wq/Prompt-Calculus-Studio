@@ -1,4 +1,4 @@
-"""Passive QWidget repaint batches and GUI wake-up latency, not display FPS."""
+"""Passive Qt UI redraw FPS and GUI wake-up latency, not display refresh Hz."""
 from collections import deque
 import time
 
@@ -48,9 +48,12 @@ class WorkspacePerformance(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setAccessibleName('效能監測：Qt 畫面更新率與事件循環延遲')
-        self.rate_text, self.delay_text = '0/s', '0ms'
-        self.lines = ('Paint', self.rate_text, 'Lag', self.delay_text)
+        description = ('FPS：最近一秒的介面重繪幀率，靜止時可為 0；不是螢幕更新率（Hz）。\n'
+                       'Lag：最近一秒介面事件處理的最大延遲。')
+        self.setToolTip(description)
+        self.setAccessibleDescription(description)
+        self.rate_text, self.delay_text = '0', '0ms'
+        self.lines = ('FPS', self.rate_text, 'Lag', self.delay_text)
         self.running = False
         self.closed = False
         self.batch_painted = False
@@ -81,10 +84,11 @@ class WorkspacePerformance(QWidget):
     def place(self):
         side = self.workspace.navigation_position == 'side'
         metrics = QFontMetrics(self.paint_font)
-        self.lines = (('Paint', self.rate_text, 'Lag', self.delay_text) if side else
-                      (f'Paint {self.rate_text}', f'Lag {self.delay_text}'))
+        self.lines = (('FPS', self.rate_text, 'Lag', self.delay_text) if side else
+                      (f'FPS {self.rate_text}', f'Lag {self.delay_text}'))
+        self.setAccessibleName(f'效能監測：介面 FPS {self.rate_text}，延遲 {self.delay_text}')
         width = (max(1, min(44, self.workspace.rail.width() - 8)) if side else
-                 max(metrics.horizontalAdvance(text) for text in ('Paint 4096/s', 'Lag 9999+s')) + 12)
+                 max(metrics.horizontalAdvance(text) for text in ('FPS 4096', 'Lag 9999+s')) + 12)
         self.setFixedSize(width, metrics.height() * len(self.lines) + 8)
         if side:
             point = self.anchor.mapTo(self.workspace, QPoint(0, 0))
@@ -110,7 +114,7 @@ class WorkspacePerformance(QWidget):
                 self.samples.reset(now)
                 self.expected = now + self.INTERVAL_MS / 1000.
                 self.last_display = now
-                self.rate_text, self.delay_text = '0/s', '0ms'
+                self.rate_text, self.delay_text = '0', '0ms'
                 listen(self, QEvent.Type.Paint, QEvent.Type.UpdateRequest)
                 self.timer.start()
             else:
@@ -140,7 +144,7 @@ class WorkspacePerformance(QWidget):
         delay = f'{latency:.0f}ms' if latency < 1000 else f'{latency / 1000:.1f}s'
         if latency >= 9999900:
             delay = '9999+s'
-        values = f'{rate:.0f}/s', delay
+        values = f'{rate:.0f}', delay
         if values != (self.rate_text, self.delay_text):
             self.rate_text, self.delay_text = values
             self.place()

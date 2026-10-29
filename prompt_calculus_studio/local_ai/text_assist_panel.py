@@ -3,7 +3,7 @@ import math
 
 from PySide6.QtCore import Qt, QEvent, QRect, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QInputMethodEvent
-from PySide6.QtWidgets import QBoxLayout, QFrame, QLayout, QPlainTextEdit, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QBoxLayout, QFrame, QLabel, QLayout, QPlainTextEdit, QSizePolicy, QVBoxLayout, QWidget
 
 from ..theme import visual_tokens, window_appearance
 from ..ui_icons import icon
@@ -142,6 +142,13 @@ class TextAssistPanel(QFrame):
         self.review_actions.setLayout(actions)
         review.addWidget(self.review_actions, 0, Qt.AlignmentFlag.AlignVCenter)
         self.keep_button = button('保留', self._apply, 'Primary')
+        self.busy_status = QLabel()
+        self.busy_status.setObjectName('TextAssistBusyStatus')
+        self.busy_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.busy_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.busy_status.setAccessibleName('文字協作狀態')
+        self.busy_status.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.busy_status.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.retry_button = button('重試', self._retry, 'Quiet')
         self.delete_button = button('刪除', self.dismiss, 'Quiet')
         self.keep_button.setAccessibleName('保留候選並取代原文')
@@ -151,6 +158,7 @@ class TextAssistPanel(QFrame):
         actions.addWidget(self.stop_button)
         actions.addWidget(self.retry_button)
         actions.addWidget(self.keep_button)
+        actions.addWidget(self.busy_status)
         self.body.addWidget(self.review_controls)
         for control in (self.keep_button, self.retry_button, self.delete_button, self.stop_button):
             control.setAutoDefault(False)
@@ -191,6 +199,7 @@ class TextAssistPanel(QFrame):
             QFrame#TextAssistPanel {{background:{tokens['raised']};border:1px solid {tokens['line']};border-radius:{radius}px;}}
             QPlainTextEdit#TextAssistInstruction {{background:transparent;border:0;padding:4px;color:{tokens['text']};placeholder-text-color:{tokens['secondary']};selection-background-color:{tokens['selected']};selection-color:{tokens['text']};}}
             QLabel#TextAssistStatus {{color:{tokens['secondary']};}}
+            QLabel#TextAssistBusyStatus {{color:{tokens['secondary']};background:transparent;border:1px solid {tokens['line']};border-radius:12px;padding:3px 7px;}}
             QFrame#TextAssistPanel QPushButton {{min-width:0;min-height:0;padding:3px 7px;border-radius:12px;}}
             QFrame#TextAssistPanel QPushButton#IconButton {{padding:6px;}}
         ''')
@@ -280,13 +289,15 @@ class TextAssistPanel(QFrame):
         self.status.setFixedHeight(line)
         for widget in (self.start_button, self.close_button):
             widget.setFixedSize(control, control)
-        for widget in (self.keep_button, self.stop_button, self.retry_button, self.delete_button):
+        for widget in (self.keep_button, self.busy_status, self.stop_button, self.retry_button, self.delete_button):
             widget.setFixedHeight(action)
         delete, middle, keep = self._action_widths()
         self.delete_button.setFixedWidth(delete)
         self.stop_button.setFixedWidth(middle)
         self.retry_button.setFixedWidth(middle)
         self.keep_button.setFixedWidth(keep)
+        self.busy_status.setFixedWidth(keep)
+        self.busy_status.setFont(self.keep_button.font())
         signature = (self._reviewing, instruction if not self._reviewing else 0, control, action,
                      line, stacked, self.preferred_width(500))
         if signature != self._geometry_signature:
@@ -330,7 +341,9 @@ class TextAssistPanel(QFrame):
                 status = '本機模型正忙碌，請稍後再試。'
         self.status.setText(status)
         inline_state = busy and not self._apply_error and not self.controller.error
-        self.keep_button.setText(captions.get(state, '生成中…') if inline_state else '保留')
+        self.busy_status.setText(captions.get(state, '生成中…') if inline_state else '')
+        self.busy_status.setVisible(inline_state)
+        self.keep_button.setVisible(not inline_state)
         self.status.setVisible(self._reviewing and bool(status) and not inline_state)
         self.status.setToolTip(status)
         self.status.setAccessibleDescription(status)

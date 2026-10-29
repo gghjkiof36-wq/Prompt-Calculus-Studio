@@ -68,7 +68,7 @@ class WorkspacePerformanceTests(unittest.TestCase):
         self.app.processEvents()
         self.assertEqual(len(self.monitor.samples.paints), 1)
         self.monitor.samples.reset(time.perf_counter() - 1.)
-        self.monitor.rate_text, self.monitor.delay_text = '123/s', '456ms'
+        self.monitor.rate_text, self.monitor.delay_text = '123', '456ms'
         self.monitor.place()
         self.monitor.update()
         self.app.processEvents()
@@ -79,7 +79,25 @@ class WorkspacePerformanceTests(unittest.TestCase):
         self.monitor.timer.start()
         QTest.qWait(2250)
         self.assertEqual(self.monitor.samples.values(time.perf_counter())[0], 0.)
-        self.assertEqual(self.monitor.lines[:2], ('Paint', '0/s'))
+        self.assertEqual(self.monitor.lines[:2], ('FPS', '0'))
+
+    def test_fps_readout_counts_real_batches_and_explains_its_meaning(self):
+        monitor = self.monitor
+        monitor.timer.stop()
+        self.events()
+        monitor.samples.reset(time.perf_counter() - 1.)
+        for _ in range(3):
+            self.w.routes['home'].update()
+            self.app.processEvents()
+        self.assertEqual(len(monitor.samples.paints), 3)
+        monitor.last_display = time.perf_counter() - 1.1
+        monitor.expected = time.perf_counter()
+        monitor.tick()
+        self.assertEqual(monitor.lines[:2], ('FPS', '3'))
+        self.assertIn('FPS 3', monitor.accessibleName())
+        self.assertEqual(monitor.accessibleDescription(), monitor.toolTip())
+        for explanation in ('介面重繪幀率', '靜止時可為 0', '不是螢幕更新率', 'Hz'):
+            self.assertIn(explanation, monitor.toolTip())
 
     def test_a_gui_stall_records_latency_without_fabricating_frames(self):
         QTest.qWait(80)
@@ -96,6 +114,8 @@ class WorkspacePerformanceTests(unittest.TestCase):
         self.events()
         control = self.w.utility.settings_page.preferences.performance_monitor
         self.assertTrue(control.isChecked())
+        self.assertEqual(control.toolTip(), self.monitor.toolTip())
+        self.assertFalse(control.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents))
         control.setChecked(False)
         self.events()
         self.assertFalse(self.monitor.timer.isActive())
@@ -140,7 +160,7 @@ class WorkspacePerformanceTests(unittest.TestCase):
             self.assertEqual(len(monitor.lines), 4)
             metrics = QFontMetrics(monitor.paint_font)
             self.assertTrue(all(metrics.horizontalAdvance(line) + 4 <= monitor.width()
-                                for line in ('Paint', '4096/s', 'Lag', '9999+s')))
+                                for line in ('FPS', '4096', 'Lag', '9999+s')))
             if folder := os.environ.get('PCS_PERFORMANCE_EVIDENCE'):
                 target = Path(folder)
                 target.mkdir(parents=True, exist_ok=True)

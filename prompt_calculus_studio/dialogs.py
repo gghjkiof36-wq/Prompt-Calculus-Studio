@@ -309,6 +309,7 @@ class SettingsDialog(StudioDialog):
             self.sidebar_open_delay.valueChanged.connect(save_hover)
             self.sidebar_close_delay.valueChanged.connect(save_hover)
             self.performance_monitor=QCheckBox('效能監測')
+            self.performance_monitor.setToolTip(workspace.performance_monitor.toolTip())
             self.performance_monitor.setChecked(workspace.performance_monitor_enabled)
             self.performance_monitor.toggled.connect(workspace.set_performance_monitor)
             confirmations_layout.addWidget(self.performance_monitor)

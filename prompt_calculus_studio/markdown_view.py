@@ -854,8 +854,8 @@ class ReadingView(QTextBrowser):
         scale = self.surface.zoom_percent/100
         font = QFont(p['reading_family']);font.setPointSizeF(p['reading_size']*scale);self.document().setDefaultFont(font)
         heading = [round(n*p['reading_size']/12*scale,2) for n in (25,21,18,16,14,13)]
-        self.document().setDefaultStyleSheet(f'''p {{margin-top:8px;margin-bottom:8px;line-height:{p['line_height']}%;}}
-            h1,h2,h3,h4,h5,h6 {{margin-top:22px;margin-bottom:10px;font-weight:600;}}
+        self.document().setDefaultStyleSheet(f'''p {{margin-top:0px;margin-bottom:0px;line-height:{p['line_height']}%;}}
+            h1,h2,h3,h4,h5,h6 {{margin-top:6px;margin-bottom:6px;line-height:120%;font-weight:700;}}
             h1 {{font-size:{heading[0]}pt;}} h2 {{font-size:{heading[1]}pt;}} h3 {{font-size:{heading[2]}pt;}}
             h4 {{font-size:{heading[3]}pt;}} h5 {{font-size:{heading[4]}pt;}} h6 {{font-size:{heading[5]}pt;}}
             pre,code {{font-family:Consolas;}} blockquote {{margin-left:22px;color:{t['secondary']};}}''')

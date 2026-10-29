@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QPalette
+from PySide6.QtGui import QFont, QPalette, QTextCursor
 from PySide6.QtWidgets import QTextEdit
 
 from prompt_calculus_studio.core import initial_state
@@ -147,6 +147,68 @@ class MarkdownReadingWrapTests(unittest.TestCase):
             self.assertEqual(tab.widget.encoded(), raw)
             self.assertFalse(tab.widget.document().isUndoAvailable())
             surface.inline_assist.dismiss()
+
+    def test_reading_preserves_writing_paragraph_gaps_at_zoom(self):
+        source = ('## 第一章\n\n' + PROSE + '\n\n' + '林默站在窗前。' * 16
+                  + '\n\n他沒有點單。\n\n\n「你來了。」')
+        tab, raw = self.page(source)
+        surface = tab.widget.md_surface
+        prefixes = ('雨停', '林默', '他沒有', '「你來了')
+
+        def paragraph_gaps(view):
+            blocks = []
+            block = view.document().begin()
+            while block.isValid():
+                if block.text().startswith(prefixes):
+                    blocks.append(block)
+                block = block.next()
+            self.assertEqual(len(blocks), 4)
+            gaps = []
+            for previous, current in zip(blocks, blocks[1:]):
+                # Measure after scrolling the boundary into view. The plain
+                # editor virtualizes offscreen block geometry at large zoom.
+                cursor = QTextCursor(current)
+                view.setTextCursor(cursor)
+                view.ensureCursorVisible()
+                self.events()
+                end = QTextCursor(previous)
+                end.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+                gaps.append(view.cursorRect(cursor).top()-view.cursorRect(end).top())
+            return gaps
+
+        for zoom in (100, 140, 150, 200):
+            for line_height in (150, 180):
+                with self.subTest(zoom=zoom, line_height=line_height):
+                    surface.preferences['line_height'] = line_height
+                    surface.set_zoom(zoom)
+                    surface.set_mode('write')
+                    surface.apply_preferences()
+                    self.events()
+                    writing = paragraph_gaps(surface.editor)
+                    surface.set_mode('read')
+                    self.events()
+                    reading = paragraph_gaps(surface.reader)
+                    # Compare the last line of one paragraph to the first of
+                    # the next, independent of toolbar/title position or wrap.
+                    for reader_gap, writer_gap in zip(reading, writing):
+                        self.assertAlmostEqual(reader_gap, writer_gap, delta=1)
+                    self.assertEqual(surface.reader.horizontalScrollBar().maximum(), 0)
+        self.assertEqual(tab.widget.encoded(), raw)
+        self.assertFalse(tab.dirty)
+        self.assertFalse(tab.widget.document().isUndoAvailable())
+
+    def test_reading_blank_rows_do_not_expand_tight_list_items(self):
+        tab, raw = self.page('前文\n\n- 第一項\n- 第二項\n\n後文')
+        surface = tab.widget.md_surface
+        surface.set_mode('read')
+        self.events()
+        rows = []
+        block = surface.reader.document().begin()
+        while block.isValid():
+            rows.append(block.text())
+            block = block.next()
+        self.assertEqual(rows, ['前文', '', '• 第一項', '• 第二項', '', '後文'])
+        self.assertEqual(tab.widget.encoded(), raw)
 
 
 if __name__ == '__main__':
