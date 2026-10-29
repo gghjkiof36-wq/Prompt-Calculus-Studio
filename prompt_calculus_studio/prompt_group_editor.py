@@ -700,9 +700,15 @@ class MaterialPages(QWidget):
         self.image_controls,images=page();images.addWidget(f.preview,1)
         images.addLayout(row(button('選擇圖片',f.choose_image,'Quiet'),None,button('移除',f.clear_image,'DangerQuiet')))
         f.show_preview()
-        relation, rl = page();rl.setSpacing(8);rl.addWidget(label('排除 Tag','Subtle'))
+        relation, rl = page();self.excludes_page=relation;rl.setSpacing(8)
+        self.excludes_title=label('排除 Tag','Subtle');rl.addWidget(self.excludes_title)
         f.excludes.setPlaceholderText('');f.excludes.setMinimumHeight(120);f.excludes.setMaximumHeight(120)
-        rl.addWidget(f.excludes);self.excludes_actions=row(None);rl.addLayout(self.excludes_actions);rl.addStretch()
+        rl.addWidget(f.excludes)
+        self.variant_excludes,local_excludes=page();local_excludes.setSpacing(8)
+        local_excludes.setContentsMargins(0,8,0,0)
+        local_excludes.addWidget(label('當前變體','Subtle'))
+        rl.addWidget(self.variant_excludes);self.variant_excludes.hide()
+        self.excludes_actions=row(None);rl.addLayout(self.excludes_actions);rl.addStretch()
         dialog.history_button=button('內容與操作歷史',f.history,'Quiet');details_body.addWidget(dialog.history_button,0,Qt.AlignmentFlag.AlignLeft)
         for name, widget in [('資訊', info), ('排除 Tag', relation), ('預覽圖',self.image_controls)]:
             widget.layout().setContentsMargins(0,24,0,0);self.details.addTab(widget, name)
@@ -724,6 +730,8 @@ class MaterialPages(QWidget):
         self.variant_editor=VariantEditor(self.restored.get('variants') or root.get('variants') or pm.variants(root),self.single)
         self.variant_editor.changed.connect(self.dialog.form.edited)
         self.variant_editor.layoutChanged.connect(self.dialog.fit_page)
+        self.variant_excludes.layout().addWidget(self.variant_editor.excludes_stack)
+        self.variant_editor.excludes_stack.show()
         self.single_layout.removeItem(self.prompt_toolbar);self.prompt_label.hide()
         self.prompt_toolbar.removeWidget(self.add_variants)
         self.variant_editor.toolbar.addWidget(self.add_variants)
@@ -736,12 +744,20 @@ class MaterialPages(QWidget):
         self.dialog.prompt.hide()
         if not existing:self.variant_editor.add()
         self.variant_editor.show()
+        self.sync_exclusion_fields()
         self.layout_limits()
         if hasattr(self.dialog,'form_scroll'):self.dialog.fit_page()
 
     def add_variant(self):
         if self.variant_editor is None:self.enable_variants()
         else:self.variant_editor.add()
+
+    def sync_exclusion_fields(self):
+        self.excludes_title.setText('排除 Tag' if self.is_group else '全部變體')
+        self.dialog.form.excludes.setAccessibleName('排除 Tag' if self.is_group else '全部變體排除 Tag')
+        self.dialog.form.excludes.setToolTip('使用此素材時生效的完整 Tag，每行一項。' if self.is_group else
+                                           '所有變體共用的完整 Tag，每行一項。')
+        self.variant_excludes.setVisible(not self.is_group and self.variant_editor is not None)
 
     def switch_type(self):
         # Publish one complete form. Closing a side card and installing the
@@ -796,6 +812,7 @@ class MaterialPages(QWidget):
             if self.is_group and tab>=0:self.details.removeTab(tab)
             elif not self.is_group and tab<0:self.details.insertTab(0,self.variant_editor.management,'變體')
         self.dialog.name.setVisible(not self.is_group or self.group_editor.stack.currentIndex() == 0)
+        self.sync_exclusion_fields()
         self.layout_limits()
         if hasattr(self.dialog,'done_button'):self.page_changed(self.group_editor.stack.currentIndex() if self.is_group else 0)
 

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 from .accent_colors import ACCENT_NAMES, DEFAULT_CUSTOM_ACCENT, valid_hex
-from .exclusions import filter_tags, exclusion_rules, tag_key
+from .exclusions import filter_tags, exclusion_rules, tag_key, effective_excludes
 from .composition import validate_compositions, root_for, render, effective_nodes, join_fragments, using_legacy_format
 
 SUPPORTED_STATE_VERSIONS=(1,2,3,4,5,6,7)
@@ -363,7 +363,7 @@ def compose_details(state):
                  [root_for(state, items[i]) for i in state['selections'].get(mid, []) if i in items])
         for root in roots:
             for part in effective_nodes(root):
-                for tag in part['excludes']:
+                for tag in effective_excludes(part):
                     rules.setdefault(tag_key(tag), []).append(part['name'])
     def fragment(ident,text):
         filtered,removed=filter_tags(text,rules)

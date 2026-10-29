@@ -9,6 +9,7 @@ from .prompt_group_editor import page, field, PageStack, mode_options, tool
 from .prompt_editor import ReorderableList
 from .ui_icons import icon
 from . import prompt_groups as groups
+from . import prompt_materials as pm
 
 
 REPEAT_ROLE=Qt.ItemDataRole.UserRole+1
@@ -100,7 +101,7 @@ class VariantEditor(QWidget):
 
     def __init__(self, sequence, parent=None):
         super().__init__(parent)
-        self.sequence=copy.deepcopy(sequence);self.loading=False;self.editors={}
+        self.sequence=copy.deepcopy(sequence);self.loading=False;self.editors={};self.exclusion_editors={}
         layout=QVBoxLayout(self);layout.setContentsMargins(0,0,0,0);layout.setSpacing(12)
         # The host places this beside the material name. Keep detached controls
         # hidden until the host installs them, so they cannot overlay the text.
@@ -112,6 +113,9 @@ class VariantEditor(QWidget):
         self.random_repeats=QCheckBox('允許重複');self.random_repeats.setChecked(sequence.get('random_repeats',True))
         self.toolbar=row(self.mode,self.random_repeats,None);layout.addLayout(self.toolbar)
         self.stack=PageStack();layout.addWidget(self.stack,1)
+        # The material management card hosts these fields. Each variant keeps
+        # its own native text document, including its local undo history.
+        self.excludes_stack=QStackedWidget(self);self.excludes_stack.setFixedHeight(120);self.excludes_stack.hide()
         self.management,management=page();self.management.setParent(self);self.management.hide()
         management.setContentsMargins(0,24,0,0)
         # These are two pages in one stable card, not an expanding section.
@@ -180,6 +184,13 @@ class VariantEditor(QWidget):
             editor.setPlaceholderText('輸入這個變體的 Prompt');editor.setAccessibleName('變體 Prompt')
             self.stack.addWidget(editor);self.editors[ident]=editor
             editor.textChanged.connect(lambda g=group,e=editor:self.edit_text(g,e))
+        if ident not in self.exclusion_editors:
+            editor=QPlainTextEdit();editor.setPlainText('\n'.join(group.get('excludes',[])))
+            editor.setAccessibleName('當前變體排除 Tag')
+            editor.setToolTip('僅此變體生效的完整 Tag，每行一項。')
+            self.excludes_stack.addWidget(editor);self.exclusion_editors[ident]=editor
+            editor.textChanged.connect(lambda g=group,e=editor:self.edit_excludes(g,e))
+        self.excludes_stack.setCurrentWidget(self.exclusion_editors[ident])
         self.stack.setCurrentWidget(self.editors[ident]);self.listing.setCurrentRow(self.choose.currentIndex())
         self.loading=False;self.update_controls()
 
@@ -200,6 +211,7 @@ class VariantEditor(QWidget):
         start=next(group['name'] for group in self.sequence['groups'] if group['id']==self.sequence['start'])
         self.choose.setToolTip(f'{current["name"]} · 第 {at+1} / {count} 個變體\n起始變體：{start}')
         self.choose.setAccessibleDescription(f'第 {at+1} / {count} 個變體；起始變體：{start}')
+        self.exclusion_editors[current['id']].setAccessibleDescription(f'僅套用於「{current["name"]}」')
         self.detail_title.setText(current['name'])
 
     def navigate(self,delta):
@@ -220,6 +232,12 @@ class VariantEditor(QWidget):
         group=groups.selected(self.sequence);group.update(name=self.name.text(),repeat=self.repeat.value())
         self.choose.setItemText(self.choose.currentIndex(),group['name'])
         self.update_row(group,self.listing.currentItem());self.update_controls();self.changed.emit()
+
+    def edit_excludes(self,group,editor):
+        if self.loading:return
+        pm.set_variant_excludes(self.sequence,group['id'],
+                               [value.strip() for value in editor.toPlainText().splitlines() if value.strip()])
+        self.changed.emit()
 
     def configure(self,*_):
         if self.loading:return
@@ -250,8 +268,9 @@ class VariantEditor(QWidget):
         if len(rows)<2:return
         at=next(i for i,v in enumerate(rows) if v['id']==ident)
         replacement=rows[(at+1)%len(rows)]['id'];groups.remove(self.sequence,ident,replacement)
-        if ident in self.editors:
-            editor=self.editors.pop(ident);self.stack.removeWidget(editor);editor.deleteLater()
+        for editors,stack in ((self.editors,self.stack),(self.exclusion_editors,self.excludes_stack)):
+            if ident in editors:
+                editor=editors.pop(ident);stack.removeWidget(editor);editor.deleteLater()
         self.refresh(replacement);self.changed.emit()
 
     def menu(self):
@@ -275,4 +294,4 @@ class VariantEditor(QWidget):
     def value(self, content_kind):
         result=copy.deepcopy(self.sequence)
         for group in result['groups']:group['content_kind']=content_kind
-        groups.validate(result);return result
+        pm.validate_variants(result);return result

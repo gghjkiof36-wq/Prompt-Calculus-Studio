@@ -1,6 +1,6 @@
 """Visual exclusion state from the same per-canvas rules as Prompt compilation."""
 from . import composition as comp
-from .exclusions import filter_tags, tag_key
+from .exclusions import filter_tags, tag_key, effective_excludes
 
 
 def affected_nodes(state):
@@ -20,7 +20,7 @@ def affected_nodes(state):
         rules = {}
         for _, root in roots:
             for part in comp.effective_nodes(root):
-                for tag in part['excludes']:
+                for tag in effective_excludes(part):
                     rules.setdefault(tag_key(tag), []).append(part['name'])
         if not rules:
             continue

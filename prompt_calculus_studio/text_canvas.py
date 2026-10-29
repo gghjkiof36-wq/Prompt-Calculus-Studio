@@ -143,7 +143,8 @@ class NodeDialog(StudioDialog):
             from . import prompt_groups as groups
             root=dict(self.value,**value)
             changed=self.sequence['selected']!=self.original_selected or self.sequence['mode']!=pm.sequence(self.original)['mode']
-            position=groups.cursor(self.sequence,start=self.sequence['selected']) if changed else pm.position(self.original)
+            position=groups.cursor(self.sequence,start=self.sequence['selected'],
+                                   variants=self.sequence_field=='variants') if changed else pm.position(self.original)
             position['repeat']=min(position.get('repeat',0),groups.selected(self.sequence)['repeat']-1)
             value['selection_cursor']=dict(signature=pm.signature(root),position=position)
         elif self.value.get('combination'):

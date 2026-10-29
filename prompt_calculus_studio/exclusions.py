@@ -6,6 +6,15 @@ def tag_key(text):
     return ' '.join(text.strip().replace('_',' ').casefold().split())
 
 
+def effective_excludes(part):
+    """Read common and current-variant rules from the caller's resolved tree."""
+    variants = part.get('variants')
+    if not variants:
+        return tuple(part.get('excludes', ()))
+    from .prompt_groups import selected
+    return (*part.get('excludes', ()), *selected(variants).get('excludes', ()))
+
+
 def positions(text,delimiters):
     stack=[]; escaped=False; found=[]
     for index,char in enumerate(text):

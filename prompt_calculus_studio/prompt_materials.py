@@ -66,6 +66,28 @@ def variants(root):
                 start=first['id'], selected=first['id'], groups=[first])
 
 
+def validate_variants(sequence):
+    from .prompt_groups import validate as validate_sequence
+    return validate_sequence(sequence, variants=True)
+
+
+def set_variant_excludes(sequence, ident, values):
+    """Edit one draft without validating unrelated, still-being-edited fields."""
+    if (not isinstance(sequence, dict) or type(sequence.get('version')) is not int
+            or sequence['version'] not in (1, 2) or not isinstance(sequence.get('groups'), list)):
+        raise ValueError('變體格式不支援，原資料保留。')
+    if not isinstance(values, list) or any(not isinstance(tag, str) or not tag.strip() for tag in values):
+        raise ValueError('變體排除 Tag 格式無效。')
+    matches = [group for group in sequence['groups'] if isinstance(group, dict) and group.get('id') == ident]
+    if len(matches) != 1:
+        raise ValueError('這個變體已不存在。')
+    if values:
+        matches[0]['excludes'] = list(dict.fromkeys(tag.strip() for tag in values))
+        sequence['version'] = 2
+    else:
+        matches[0].pop('excludes', None)
+
+
 def new(material_type, name):
     from .composition import node
     from .prompt_groups import new_group
@@ -157,9 +179,7 @@ def validate(root, visit, depth):
     if present and material_type is not None and material_type != expected[present[0]]:
         raise ValueError('素材類型與內容不符，原資料保留。')
     if 'variants' in root:
-        validate_sequence(root['variants'])
-        if any(g['input'] != 'text' or g['modules'] for g in root['variants']['groups']):
-            raise ValueError('文字變體只能包含文字。')
+        validate_variants(root['variants'])
     if 'combination' in root:
         group = root['combination']
         validate_sequence(dict(version=1, mode='fixed', start=group.get('id'),
@@ -192,7 +212,8 @@ def position(root, restart=False):
         from .prompt_sources import legacy_signature
         if legacy.get('signature') == legacy_signature(root) and not legacy['position'].get('exhausted'):
             return copy.deepcopy(legacy['position'])
-    return groups.cursor(seq, start=seq['selected'] if not restart else None)
+    return groups.cursor(seq, start=seq['selected'] if not restart else None,
+                         variants=bool(root.get('variants')))
 
 
 def cycle_length(root):

@@ -60,8 +60,10 @@ def from_node(root):
     return dict(version=1, mode='fixed', start=first['id'], selected=first['id'], groups=[first])
 
 
-def validate(sequence, visit=None, depth=0):
-    if not isinstance(sequence, dict) or sequence.get('version') != 1:
+def validate(sequence, visit=None, depth=0, *, variants=False):
+    versions = (1, 2) if variants else (1,)
+    if (not isinstance(sequence, dict) or type(sequence.get('version')) is not int
+            or sequence['version'] not in versions):
         raise ValueError('流程版本不支援，原資料保留。')
     if sequence.get('mode') not in MODES:
         raise ValueError('流程的變量模式無效。')
@@ -87,6 +89,16 @@ def validate(sequence, visit=None, depth=0):
             raise ValueError('組合內的素材清單無效。')
         if type(group.get('deduplicate', False)) is not bool:
             raise ValueError('組合去重設定無效。')
+        if variants:
+            if group['input'] != 'text' or group['modules']:
+                raise ValueError('文字變體只能包含文字。')
+            excludes = group.get('excludes', [])
+            if not isinstance(excludes, list) or any(not isinstance(tag, str) or not tag.strip() for tag in excludes):
+                raise ValueError('變體排除 Tag 格式無效。')
+            if excludes and sequence['version'] < 2:
+                raise ValueError('變體排除 Tag 需要第 2 版變體格式。')
+        elif 'excludes' in group:
+            raise ValueError('只有文字變體支援局部排除 Tag。')
         if visit:
             for module in group['modules']:
                 visit(module, depth + 1)
@@ -186,8 +198,8 @@ def render_body(root, transform=None):
     return render_group(group, transform)
 
 
-def cursor(sequence, *, start=None):
-    validate(sequence)
+def cursor(sequence, *, start=None, variants=False):
+    validate(sequence, variants=variants)
     ident = start or (sequence['selected'] if sequence['mode'] == 'fixed' else sequence['start'])
     if ident not in {g['id'] for g in sequence['groups']}:
         raise ValueError('供應起點已不存在。')
