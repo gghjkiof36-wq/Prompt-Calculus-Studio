@@ -283,12 +283,21 @@ class ComfyClient(QObject):
             if not self.snapshot_compatible:
                 self.message=self.compatibility_message
                 self.control_interrupted=True; self.sync_timer.stop()
-            if self.visible_status()!=before:self.stateChanged.emit()
-            if not self.document_polling:return
-            self.generation.observe(status)
+            changed=self.visible_status()!=before
+            if not self.document_polling:
+                if changed:self.stateChanged.emit()
+                return
+            # Explicit runner callbacks can notify while processing receipts;
+            # give every observer the current node before any such callback.
+            self.input_flow.last_status=status
+            generation_changed=self.generation.observe(status,publish_status=False)
             self.input_flow.observe(status)
             self.queue.observe()
             self.images.poll()
+            # Merge transport and periodic generation updates only after the
+            # current receipt has reached every observer. Observers still run
+            # for unchanged polls; accepted results are never deduplicated.
+            if changed or generation_changed:self.stateChanged.emit()
             if self.snapshot_compatible and 'workflow_transfer_v1' in status.get('capabilities',[]) and 'multi_output' in self.window.state: self.receive_workflow()
             if self.snapshot_compatible and self.ready and old!=self.lease and not direct_mode(self.window.state): self.last_signature=''; self.sync_timer.start()
             if self.run_id and not self.generation.batch: self.check_run()

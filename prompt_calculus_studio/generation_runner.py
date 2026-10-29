@@ -14,8 +14,15 @@ ACTIVE=('submitting','queued','running','unconfirmed')
 class GenerationRunner:
     def __init__(self,client):
         self.client=client; self.window=client.window; self.batch=None; self.checking=set(); self.message=''; self.pipeline=None; self.native_waiting=set();self.parameter_checking=set();self.parameter_checked={}
-        self.db=self.window.store.db
-        self.db.execute('CREATE TABLE IF NOT EXISTS generation_jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL, created REAL NOT NULL)'); self.db.commit()
+        self.db=self.window.store.db;self._active_status_key=None
+        from .sqlite_schema import schema_transaction
+        with schema_transaction(self.db):
+            self.db.execute('CREATE TABLE IF NOT EXISTS generation_jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL, created REAL NOT NULL)')
+            # Scheduler/status reads must not parse completed frozen payloads.
+            self.db.execute("CREATE INDEX IF NOT EXISTS generation_state ON generation_jobs(json_extract(body,'$.state'))")
+            self.db.execute("""CREATE INDEX IF NOT EXISTS generation_retention ON generation_jobs(created DESC)
+                WHERE json_extract(body,'$.queue_job') IS NULL AND json_extract(body,'$.chain') IS NULL
+                AND json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed')""")
         self.jobs={}
         for row in self.db.execute("SELECT body FROM generation_jobs WHERE json_extract(body,'$.state') IN ('submitting','queued','running','unconfirmed') ORDER BY created"):
             job=json.loads(row[0])
@@ -32,9 +39,15 @@ class GenerationRunner:
             self.db.execute("DELETE FROM generation_jobs WHERE id IN (SELECT id FROM generation_jobs WHERE json_extract(body,'$.queue_job') IS NULL AND json_extract(body,'$.chain') IS NULL AND json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed') ORDER BY created DESC LIMIT -1 OFFSET 200)")
 
     def status(self,text):
+        # Explicit completion/error/receipt messages remain notifications even
+        # when their wording repeats. Only periodic active summaries coalesce.
+        self._active_status_key=None
+        self._set_status(text)
+        self.client.stateChanged.emit()
+
+    def _set_status(self,text):
         self.message=text
         if hasattr(self.window,'generation_panel'): self.window.generation_panel.status.setText(text); self.window.generation_panel.status.setVisible(bool(text))
-        self.client.stateChanged.emit()
 
     def run(self,count):
         if self.window.state.get('multi_output',{}).get('version',1)>=5:
@@ -183,10 +196,11 @@ class GenerationRunner:
         if message: self.status(message); self.window.notice(message)
 
     def disconnected(self):
+        self._active_status_key=None
         self.checking.clear();self.native_waiting.clear()
         if self.batch: self.finish_batch('連線中斷，已停止後續提交；已送出的任務須重新連線確認，不會自動重送。')
 
-    def observe(self,status):
+    def observe(self,status,*,publish_status=True):
         if self.pipeline:self.pipeline.observe(status)
         running=set(status.get('running_ids',[])); queued=set(status.get('queued_ids',[]))
         for job in list(self.jobs.values()):
@@ -271,7 +285,21 @@ class GenerationRunner:
         if not self.batch and active:
             n=sum(job.get('prompt_id',job['id']) in running for job in active)
             q=sum(job.get('prompt_id',job['id']) in queued for job in active)
-            if n or q: self.status(f'生成中 {n} 項 · 等待中 {q} 項')
+            if n or q:
+                # Keep identity/node/receipt changes visible even at equal
+                # counts. Heartbeat timestamps and frozen snapshots are not UI
+                # changes. Copy receipts so later in-place updates compare.
+                key=(self.client.url,getattr(self.client,'epoch',0),n,q,status.get('executing_node'),
+                     tuple((job['id'],job.get('prompt_id'),job['state'],job.get('node'),
+                            job.get('native_operation'),job.get('error'),copy.deepcopy(job.get('parameter_receipt')))
+                           for job in sorted(active,key=lambda value:value['id'])))
+                if key==self._active_status_key:return False
+                self._active_status_key=key
+                self._set_status(f'生成中 {n} 項 · 等待中 {q} 項')
+                if publish_status:self.client.stateChanged.emit()
+                return True
+        self._active_status_key=None
+        return False
 
     def records(self):
         return [json.loads(row[0]) for row in self.db.execute('SELECT body FROM generation_jobs ORDER BY created DESC LIMIT 100')]

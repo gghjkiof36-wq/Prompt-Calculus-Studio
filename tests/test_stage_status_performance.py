@@ -62,6 +62,7 @@ class StatusRefreshTests(unittest.TestCase):
             stack.enter_context(patch.object(client,'request',side_effect=request))
             observers=[stack.enter_context(patch.object(owner,name)) for owner,name in
                        ((client.generation,'observe'),(client.input_flow,'observe'),(client.queue,'observe'),(client.images,'poll'))]
+            observers[0].return_value=False
             client.poll();self.assertEqual(len(signals),1)
             for _ in range(5):client.poll()
             self.assertEqual(len(signals),1);self.assertTrue(all(p.call_count==6 for p in observers))
