@@ -14,7 +14,7 @@ ACTIVE=('submitting','queued','running','unconfirmed')
 class GenerationRunner:
     def __init__(self,client):
         self.client=client; self.window=client.window; self.batch=None; self.checking=set(); self.message=''; self.pipeline=None; self.native_waiting=set();self.parameter_checking=set();self.parameter_checked={}
-        self.db=self.window.store.db;self._active_status_key=None
+        self.db=self.window.store.db;self._active_status_key=None;self._pending_progress_save=set()
         from .sqlite_schema import schema_transaction
         with schema_transaction(self.db):
             self.db.execute('CREATE TABLE IF NOT EXISTS generation_jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL, created REAL NOT NULL)')
@@ -35,8 +35,13 @@ class GenerationRunner:
     def save(self,job):
         if self.client.stopped:return
         with self.db:
-            self.db.execute('INSERT OR REPLACE INTO generation_jobs VALUES (?,?,?)',(job['id'],json.dumps(job,ensure_ascii=False),job['created']))
-            self.db.execute("DELETE FROM generation_jobs WHERE id IN (SELECT id FROM generation_jobs WHERE json_extract(body,'$.queue_job') IS NULL AND json_extract(body,'$.chain') IS NULL AND json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed') ORDER BY created DESC LIMIT -1 OFFSET 200)")
+            self._write_job(job)
+        self._pending_progress_save.discard(job['id'])
+
+    def _write_job(self,job):
+        """Write within the caller's transaction; publish only after its commit."""
+        self.db.execute('INSERT OR REPLACE INTO generation_jobs VALUES (?,?,?)',(job['id'],json.dumps(job,ensure_ascii=False),job['created']))
+        self.db.execute("DELETE FROM generation_jobs WHERE id IN (SELECT id FROM generation_jobs WHERE json_extract(body,'$.queue_job') IS NULL AND json_extract(body,'$.chain') IS NULL AND json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed') ORDER BY created DESC LIMIT -1 OFFSET 200)")
 
     def status(self,text):
         # Explicit completion/error/receipt messages remain notifications even
@@ -227,12 +232,19 @@ class GenerationRunner:
                 now=time.time(); changed=job['state']!=state
                 job['state']=state
                 if state=='running':
-                    job.setdefault('started',now)
+                    if 'started' not in job:job['started']=now;changed=True
                     node=status.get('executing_node')
                     if node is not None and node!=job.get('node'):
-                        job.update(node=str(node),node_started=now); changed=True
-                if changed or now-job.get('last_seen',0)>=5:
-                    job['last_seen']=now; self.save(job)
+                        job.update(node=str(node),node_started=now)
+                # Display progress stays live without repeatedly serializing
+                # the frozen payload and committing it on the GUI thread.
+                # State/receipt/terminal saves still include the latest values.
+                job['last_seen']=now
+                if changed or job['id'] in self._pending_progress_save:
+                    # Retain the original started time and retry a failed
+                    # transaction even when the next observed state is equal.
+                    self._pending_progress_save.add(job['id'])
+                    self.save(job)
                 continue
             if ident in self.checking or len(self.checking)>=4: continue
             self.checking.add(ident)
@@ -302,7 +314,14 @@ class GenerationRunner:
         return False
 
     def records(self):
-        return [json.loads(row[0]) for row in self.db.execute('SELECT body FROM generation_jobs ORDER BY created DESC LIMIT 100')]
+        return [self._with_progress(json.loads(row[0])) for row in self.db.execute('SELECT body FROM generation_jobs ORDER BY created DESC LIMIT 100')]
+
+    def _with_progress(self,record):
+        job=self.jobs.get(record['id'])
+        if job and job['state'] in ACTIVE and record['state'] in ACTIVE:
+            for key in ('node','node_started','last_seen'):
+                if key in job:record[key]=copy.deepcopy(job[key])
+        return record
 
     def refresh_parameters(self,job,force=False):
         from .job_details import job_marker
@@ -318,11 +337,32 @@ class GenerationRunner:
             if (self.client.stopped or self.window.store is not store or self.client.epoch!=epoch or self.client.url!=server
                     or value.get('prompt_id')!=job['prompt_id']):return
             if value.get('parameter_receipt'):
-                job['parameter_receipt']=copy.deepcopy(value['parameter_receipt']);self.save(job)
+                received=copy.deepcopy(value['parameter_receipt'])
+                candidate=dict(job,parameter_receipt=received)
+                changed=job.get('parameter_receipt')!=received
                 chain=getattr(getattr(self.client,'input_flow',None),'chain',None)
-                if chain and not chain.closed:
-                    attempt=chain.store.read(job['id'])
-                    if attempt:chain.store.record_parameters(attempt,job);chain.later()
+                chain=chain if chain and not chain.closed else None
+                attempt=None
+                if chain and chain.store.db is self.db:
+                    # Keep the native receipt and its Stage seed acceptance
+                    # atomic. A failed write/commit leaves the live job pending
+                    # so the next poll can still obtain and accept the receipt.
+                    with chain.store.transaction():
+                        if changed:self._write_job(candidate)
+                        attempt=chain.store.read(job['id'])
+                        if attempt:chain.store.record_parameters(attempt,candidate)
+                    if changed:self._pending_progress_save.discard(job['id'])
+                    if changed:job['parameter_receipt']=received
+                else:
+                    if changed:
+                        self.save(candidate)
+                        job['parameter_receipt']=received
+                    if chain:
+                        attempt=chain.store.read(job['id'])
+                        if attempt:chain.store.record_parameters(attempt,candidate)
+                # An equal job receipt can still be missing from the Stage
+                # journal after recovery. Only the redundant job write skips.
+                if attempt:chain.later()
         self.client.request('workflow/native/status',dict(id=operation),done,
                             lambda error:self.parameter_checking.discard(operation))
         return True
@@ -394,4 +434,4 @@ class GenerationRunner:
 
     def record(self,ident):
         row=self.db.execute('SELECT body FROM generation_jobs WHERE id=?',(ident,)).fetchone()
-        return json.loads(row[0]) if row else None
+        return self._with_progress(json.loads(row[0])) if row else None

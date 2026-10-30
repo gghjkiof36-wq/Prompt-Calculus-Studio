@@ -20,7 +20,7 @@ class PdfExport(QObject):
         # This offscreen host renders without replacing the editor or flashing.
         self.host=QWidget();self.host.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
         self.host.resize(900,1000);layout=QVBoxLayout(self.host);layout.setContentsMargins(0,0,0,0)
-        self.view=RichView(surface.reader);layout.addWidget(self.view);self.host.show()
+        self.view=RichView(surface.reader,parent=self.host);layout.addWidget(self.view);self.host.show()
         self.destroyed.connect(self.host.deleteLater)
         self.view.rendered.connect(self.ready)
         self.timeout=QTimer(self);self.timeout.setSingleShot(True);self.timeout.timeout.connect(lambda:self.finish(False,'PDF 匯出逾時。'))

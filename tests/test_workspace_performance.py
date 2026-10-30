@@ -288,14 +288,51 @@ class WorkspacePerformanceTests(unittest.TestCase):
                 target.mkdir(parents=True, exist_ok=True)
                 self.assertTrue(self.w.grab().save(str(target / f'side-{width}-{font}.png')))
         self.w.set_navigation_position('top')
-        self.events()
-        self.assertTrue(self.w.rect().contains(monitor.geometry()))
-        self.assertGreater(monitor.y(), self.w.height() // 2)
-        self.assertLessEqual(monitor.geometry().bottom(), self.w.height() - 48)
-        self.assertEqual(len(monitor.lines), 2)
-        self.assertFalse(monitor.geometry().intersects(self.w.rail.geometry()))
-        if folder := os.environ.get('PCS_PERFORMANCE_EVIDENCE'):
-            self.assertTrue(self.w.grab().save(str(Path(folder) / 'top-740-18.png')))
+        for width, font in ((1440, 12), (740, 18)):
+            self.w.resize(width, 900)
+            self.w.sync_display_settings(dict(self.w.settings, ui_size=font))
+            self.events()
+            self.assertIs(monitor.parentWidget(), self.w.rail)
+            self.assertTrue(monitor.isVisible())
+            self.assertFalse(monitor.visibleRegion().isEmpty())
+            self.assertTrue(self.w.rail.rect().contains(monitor.geometry()))
+            self.assertEqual(self.w.rail.body.indexOf(monitor),
+                             self.w.rail.body.indexOf(self.w.routes['settings']) + 1)
+            self.assertEqual(len(monitor.lines), 2)
+            self.assertEqual(monitor.paint_font.pixelSize(), 9)
+            for control in self.w.routes.values():
+                self.assertFalse(monitor.geometry().intersects(control.geometry()))
+                self.assertTrue(self.w.rail.rect().contains(control.geometry()))
+            global_rect = QRect(monitor.mapTo(self.w, QPoint()), monitor.size())
+            self.assertTrue(self.w.top.geometry().contains(global_rect))
+            connection_rect = QRect(self.w.connection.mapTo(self.w, QPoint()), self.w.connection.size())
+            self.assertFalse(global_rect.intersects(connection_rect))
+            metrics = QFontMetrics(monitor.paint_font)
+            self.assertTrue(all(metrics.horizontalAdvance(line) + 12 <= monitor.width()
+                                for line in ('FPS 4096', 'Lag 9999+s')))
+            if folder := os.environ.get('PCS_PERFORMANCE_EVIDENCE'):
+                self.assertTrue(self.w.grab().save(str(Path(folder) / f'top-{width}-{font}.png')))
+
+    def test_top_readout_slot_survives_navigation_switches_and_respects_disabled_hidden(self):
+        monitor = self.monitor
+        for _ in range(2):
+            self.w.set_navigation_position('top'); self.events()
+            self.assertIs(monitor.parentWidget(), self.w.rail)
+            self.assertTrue(monitor.isVisible()); self.assertTrue(monitor.timer.isActive())
+            self.w.set_performance_monitor(False); self.events()
+            self.assertFalse(monitor.isVisible()); self.assertFalse(monitor.timer.isActive())
+            self.w.set_performance_monitor(True); self.events()
+            self.assertTrue(monitor.isVisible()); self.assertTrue(monitor.timer.isActive())
+            self.w.hide(); self.events()
+            self.assertFalse(monitor.isVisible()); self.assertFalse(monitor.timer.isActive())
+            self.w.show(); self.w.activateWindow(); self.app.setActiveWindow(self.w); self.events()
+            self.assertTrue(monitor.isVisible()); self.assertTrue(monitor.timer.isActive())
+            self.w.set_navigation_position('side'); self.events()
+            self.assertIs(monitor.parentWidget(), self.w)
+            self.assertEqual(self.w.rail.body.indexOf(monitor), -1)
+            self.assertTrue(monitor.isVisible())
+            rail_rect = QRect(self.w.rail.mapTo(self.w, QPoint()), self.w.rail.size())
+            self.assertTrue(rail_rect.contains(monitor.geometry()))
 
     def test_close_veto_keeps_the_live_monitor(self):
         with patch.object(self.w, '_close_workspace_event', side_effect=lambda event: event.ignore()):

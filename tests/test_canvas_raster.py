@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter, QPaint
 from PySide6.QtWidgets import QApplication
 
 from prompt_calculus_studio.canvas_raster import LAYERS, SHADOWS, RasterCache, paint_cached, paint_scope
+from prompt_calculus_studio.canvas_surface import TILES as SURFACE_TILES
 from prompt_calculus_studio.canvas_items import CanvasView, NodeCard, canvas_colors, paint_module_surface, _paint_module_surface
 from prompt_calculus_studio.composition import node
 from prompt_calculus_studio import module_chrome
@@ -24,6 +25,7 @@ class CanvasRasterTests(unittest.TestCase):
     def setUp(self):
         LAYERS.clear()
         SHADOWS.clear()
+        SURFACE_TILES.clear()
         self.font = QFont('Microsoft JhengHei UI', 10)
         self.value = node('角色設定', '午後街道，暖色陽光。 standing, soft light')
         self.value['collapsed'] = False
@@ -172,8 +174,8 @@ class CanvasRasterTests(unittest.TestCase):
         for zoom in (.3, .599, .6, .9, 1.5):
             view.transform = lambda: SimpleNamespace(m11=lambda: zoom)
             def direct(p):
-                colors=canvas_colors(self.canvas); p.fillRect(rect, QColor(colors['canvas_background']))
                 p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+                colors=canvas_colors(self.canvas); p.fillRect(rect, QColor(colors['canvas_background']))
                 dot=QColor(colors['line']); dot.setAlpha(90)
                 pen=QPen(dot, 1); pen.setCosmetic(True); p.setPen(pen)
                 spacing=28 if zoom >= .6 else 112
@@ -191,6 +193,28 @@ class CanvasRasterTests(unittest.TestCase):
                 self.render(lambda p: CanvasView.drawBackground(view,p,rect),zoom)
                 self.assertIs(view._grid_points,points)
                 self.assertLessEqual(len(view._grid_batches),4)
+
+    def test_background_preserves_partial_render_clip_and_painter_state(self):
+        view=SimpleNamespace(canvas=self.canvas,transform=lambda:SimpleNamespace(m11=lambda:1.04))
+        image=QImage(360,260,QImage.Format.Format_ARGB32_Premultiplied)
+        image.setDevicePixelRatio(1.25);image.fill(QColor('#ab2345'))
+        painter=QPainter(image)
+        try:
+            painter.translate(10.3,12.7);painter.scale(1.04,1.04)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setClipRect(QRectF(55,45,115,85))
+            transform=painter.worldTransform();clip=painter.clipPath();hints=painter.renderHints()
+            CanvasView.drawBackground(view,painter,QRectF(30,20,190,150))
+            self.assertEqual(painter.worldTransform(),transform)
+            self.assertEqual(painter.clipPath(),clip)
+            self.assertEqual(painter.renderHints(),hints)
+        finally:
+            painter.end()
+        # A partial render must not fill the whole image or overwrite its
+        # surrounding target. The inset sample avoids grid dots/clip edges.
+        for x,y in ((5,5),(350,250),(60,110),(270,110)):
+            self.assertEqual(image.pixelColor(x,y),QColor('#ab2345'))
+        self.assertEqual(image.pixelColor(143,110),QColor(canvas_colors(self.canvas)['canvas_background']))
 
 
     def test_module_surfaces_keep_pixels_and_live_selection_at_fractional_scales(self):
@@ -214,7 +238,7 @@ class CanvasRasterTests(unittest.TestCase):
         with patch.object(canvas_items,'_paint_module_surface',wraps=canvas_items._paint_module_surface) as draw:
             for offset in ((24,24),(28,28),(32,32)):
                 self.render(lambda p:paint_module_surface(p,outline,colors,44),offset=offset)
-            self.assertEqual(draw.call_count,2)
+            self.assertEqual(draw.call_count,2)  # Small surfaces keep single-blit layer reuse.
             changed=dict(colors,canvas_body='#303030')
             self.render(lambda p:paint_module_surface(p,outline,changed,44),offset=(32,32))
             self.assertEqual(draw.call_count,3)

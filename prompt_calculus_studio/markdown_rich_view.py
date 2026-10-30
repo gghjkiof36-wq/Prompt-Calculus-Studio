@@ -70,8 +70,11 @@ class ContentBridge(QObject):
 
 class RichView(QWebEngineView):
     rendered=Signal()
-    def __init__(self,reader,*,document_path=None,interactive=True):
-        super().__init__(reader);self.reader=reader;self.surface=reader.surface
+    def __init__(self,reader,*,document_path=None,interactive=True,parent=None):
+        super().__init__(reader if parent is None else parent)
+        from .webengine_host import prepare_native_host
+        prepare_native_host(self)
+        self.reader=reader;self.surface=reader.surface
         self.document_path=document_path;self.interactive=interactive
         self.setAccessibleName('Markdown 內容閱讀區');self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.payload={};self.projection=None;self.render_state='loading';self.pdf_pages={};self.ready=False;self.version=0;self.presented_version=None;self.snapshot=None;self.image_sources={}

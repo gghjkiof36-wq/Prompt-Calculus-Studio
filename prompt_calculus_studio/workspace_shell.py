@@ -88,14 +88,13 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         super().__init__()
         self.workspace_ready = False
         self._startup_loading = defer_restore
-        # Choose the texture-capable backing store before the first native
-        # window is created. Lazy WebEngine readers can then join the ordinary
-        # widget hierarchy without recreating the shell or native child layers.
-        # This empty, hidden widget loads no QML, document or browser page.
-        from PySide6.QtQuickWidgets import QQuickWidget
-        self._compositor = QQuickWidget(self)
-        self._compositor.setFixedSize(0, 0)
-        self._compositor.hide()
+        # Browser views own their native composition boundary on Windows; the
+        # workspace and its canvases can keep their ordinary raster surface.
+        if QApplication.platformName() != 'windows':
+            from PySide6.QtQuickWidgets import QQuickWidget
+            self._compositor = QQuickWidget(self)
+            self._compositor.setFixedSize(0, 0)
+            self._compositor.hide()
         from .tooltips import install_tooltip_styling
         install_tooltip_styling()
         self.data = Path(data).absolute()

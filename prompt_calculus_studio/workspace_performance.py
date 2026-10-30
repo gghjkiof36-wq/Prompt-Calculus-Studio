@@ -82,6 +82,7 @@ class WorkspacePerformance(QWidget):
         workspace.installEventFilter(self)
         workspace.rail.installEventFilter(self)
         self.anchor.installEventFilter(self)
+        workspace.rail.performance_monitor = self
         self.configure()
 
     def configure(self):
@@ -106,13 +107,27 @@ class WorkspacePerformance(QWidget):
                  max(metrics.horizontalAdvance(text) for text in ('FPS 4096', 'Lag 9999+s')) + 12)
         self.setFixedSize(width, metrics.height() * len(self.lines) + 8)
         if side:
+            # Side navigation retains the compact readout above Settings.
+            # Top navigation owns a real layout slot rather than covering a
+            # document/native browser surface near the bottom of the window.
+            if self.parentWidget() is not self.workspace:
+                self.workspace.rail.body.removeWidget(self)
+                self.setParent(self.workspace)
+                self.setVisible(self.running)
             point = self.anchor.mapTo(self.workspace, QPoint(0, 0))
             rail = self.workspace.rail
             rail_left = rail.mapTo(self.workspace, QPoint(0, 0)).x()
             x, bottom = rail_left + (rail.width() - self.width()) // 2, point.y() - 6
         else:
-            # Keep the document's word count / save-status footer readable.
-            x, bottom = 8, self.workspace.height() - max(48, 2 * QFontMetrics(self.paint_font).height())
+            rail = self.workspace.rail
+            if self.parentWidget() is not rail:
+                self.setParent(rail)
+                self.setVisible(self.running)
+            index = rail.body.indexOf(self.anchor) + 1
+            if rail.body.indexOf(self) != index:
+                rail.body.removeWidget(self)
+                rail.body.insertWidget(index, self, 0, Qt.AlignmentFlag.AlignVCenter)
+            return
         self.move(min(x, max(0, self.workspace.width() - self.width())),
                   max(0, bottom - self.height()))
         self.raise_()

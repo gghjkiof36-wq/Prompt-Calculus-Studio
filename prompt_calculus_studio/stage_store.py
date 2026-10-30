@@ -18,6 +18,7 @@ class StageStore:
             db.execute("CREATE INDEX IF NOT EXISTS stage_latest ON stage_journal(kind,workspace,json_extract(body,'$.stage'),position)")
             db.execute("CREATE INDEX IF NOT EXISTS stage_active ON stage_journal(kind,json_extract(body,'$.status'),workspace,owner,position)")
             db.execute("CREATE INDEX IF NOT EXISTS stage_open_runs ON stage_journal(workspace,position) WHERE kind='run' AND json_extract(body,'$.status') NOT IN ('complete','cancelled')")
+            db.execute("CREATE INDEX IF NOT EXISTS stage_parent ON stage_journal(kind,workspace,json_extract(body,'$.parent'),position)")
         for run in self.open_runs():
             self.update(run['id'],status='paused',pause_reason='restart',message='重新開啟後保留進度，請從紀錄繼續。')
 
@@ -33,6 +34,54 @@ class StageStore:
             FROM stage_journal WHERE kind='attempt' AND workspace=? AND json_extract(body,'$.stage')=?
             ORDER BY position DESC LIMIT 1""",(workspace,stage)).fetchone()
         return dict(status=row[0],error=row[1] or '') if row else None
+
+    def status_value(self,ident):
+        row=self.db.execute("SELECT json_extract(body,'$.status') FROM stage_journal WHERE id=?",(ident,)).fetchone()
+        return row[0] if row else None
+
+    def latest_entry_attempt(self,workspace,ident):
+        """Read only the latest descendant attempt, including nested scopes."""
+        # Parent-first traversal and an affinity-free bound keep both lookups
+        # on the parent index, rather than scanning a workspace's history.
+        row=self.db.execute("""WITH RECURSIVE descendants(id) AS (
+                VALUES (?) UNION
+                SELECT e.id FROM descendants d CROSS JOIN stage_journal e
+                    ON json_extract(e.body,'$.parent')=+d.id
+                    WHERE e.kind='entry' AND e.workspace=?
+            ), latest(id) AS (
+                SELECT (SELECT a.id FROM stage_journal a
+                    WHERE a.kind='attempt' AND a.workspace=? AND json_extract(a.body,'$.parent')=+d.id
+                    ORDER BY a.position DESC LIMIT 1) FROM descendants d
+            )
+            SELECT json_extract(body,'$.status'),json_extract(body,'$.cancel_requested')
+            FROM stage_journal WHERE id=(SELECT a.id FROM latest
+                JOIN stage_journal a ON a.id=latest.id ORDER BY a.position DESC LIMIT 1)""",
+            (ident,workspace,workspace)).fetchone()
+        return dict(status=row[0],cancel_requested=row[1]) if row else None
+
+    def entry_summaries(self,workspace,scheduler):
+        """List display fields, leaving frozen graphs/text for explicit detail reads."""
+        query="""SELECT id,workspace,owner,
+            json_extract(body,'$.run','$.scheduler','$.parent','$.status','$.label'),
+            json_extract(body,'$.source'),
+            (SELECT value FROM json_each(body,'$.saved.values') WHERE json_extract(value,'$.type')='image' LIMIT 1),
+            (SELECT value FROM json_each(body,'$.saved.inputs') WHERE json_extract(value,'$.type')='image' LIMIT 1),
+            (SELECT json_extract(value,'$[0]') FROM json_each(body,'$.saved.batches') WHERE json_array_length(value)>0 LIMIT 1),
+            (SELECT MAX(json_array_length(value)) FROM json_each(body,'$.saved.batches'))
+            FROM stage_journal WHERE kind='entry' AND workspace=? AND json_extract(body,'$.scheduler')=?
+            AND json_extract(body,'$.status') IN ("""+','.join('?' for _ in ACTIVE)+') ORDER BY position'
+        result=[]
+        for row in self.db.execute(query,(workspace,scheduler,*ACTIVE)):
+            run,key,parent,status,label=json.loads(row[3])
+            source=json.loads(row[4]) if row[4] is not None else None
+            first=row[5] if row[5] is not None else row[6]
+            value=json.loads(first)['value'] if first is not None else None
+            batch=json.loads(row[7]) if row[7] is not None else None
+            image=source or value or batch
+            count=1 if source else row[8] if row[8] is not None else 1 if image else None
+            result.append(dict(id=row[0],workspace=row[1],owner=row[2],run=run,scheduler=key,
+                               parent=parent,status=status,label=label,image=image,image_count=count))
+        return result
 
     def rows(self,kind,workspace=None,owner=None,active=False):
         sql='SELECT body FROM stage_journal WHERE kind=?';args=[kind]
@@ -140,13 +189,15 @@ class StageStore:
             if (not field.get('seed_mode') or field['seed_mode']=='fixed' or proof.get('node')!=field['node']
                     or proof.get('field')!=field['field']):continue
             signature=seed_signature(config,field)
-            with self.db:
+            with self.transaction():
                 prior=next((r for r in self.rows('parameter_state',attempt['workspace'],attempt['stage']) if r['signature']==signature),None)
                 if prior and prior.get('attempt_created',0)>attempt['created']:continue
                 values=dict(signature=signature,attempt=attempt['id'],attempt_created=attempt['created'],prompt_id=job['prompt_id'],
                     used_seed=proof['actual'],status='observed',next_seed=proof.get('next_value'))
                 if prior:
-                    if prior.get('prompt_id')==job['prompt_id'] and prior.get('next_seed') is not None:continue
+                    if all(prior.get(key)==value for key,value in values.items()):continue
+                    if (prior.get('attempt')==attempt['id'] and prior.get('prompt_id')==job['prompt_id']
+                            and prior.get('next_seed') is not None):continue
                     self.update(prior['id'],**values)
                 else:self.add('parameter_state',attempt['workspace'],attempt['stage'],**values)
 

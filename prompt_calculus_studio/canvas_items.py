@@ -20,6 +20,9 @@ def canvas_colors(canvas):
 
 def paint_module_surface(painter,outline,colors,header_bottom):
     """Paint only the module's visual layers, keeping its existing outline."""
+    from .canvas_surface import paint_rounded_surface
+    if paint_rounded_surface(painter,outline,colors,header_bottom,_paint_module_surface):
+        return
     from .canvas_raster import paint_cached
     geometry=tuple((e.x,e.y,e.type.value) for i in range(outline.elementCount()) for e in (outline.elementAt(i),))
     pen=painter.pen()
@@ -172,6 +175,10 @@ class ModuleProxyWidget(QGraphicsProxyWidget):
     def __init__(self,parent=None):
         super().__init__(parent)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemUsesExtendedStyleOption)
+        # CanvasView admits visible controls within a shared pixmap budget.
+        # Qt still invalidates admitted caches for widget/zoom/DPR changes.
+        from .canvas_proxy_cache import register
+        register(self)
         self.relayout=QTimer(self);self.relayout.setSingleShot(True)
         self.relayout.timeout.connect(self.fit_content)
 
@@ -189,6 +196,9 @@ class ModuleProxyWidget(QGraphicsProxyWidget):
         result=super().itemChange(change,value)
         if change==QGraphicsItem.GraphicsItemChange.ItemSceneHasChanged and self.scene() is None:
             self.relayout.stop()
+            self.setCacheMode(QGraphicsItem.CacheMode.NoCache)
+        if change==QGraphicsItem.GraphicsItemChange.ItemVisibleHasChanged and not value:
+            self.setCacheMode(QGraphicsItem.CacheMode.NoCache)
         return result
 
     def setWidget(self,panel):
@@ -325,8 +335,14 @@ class TextCard(ResizableCard):
         divider=44
         paint_module_surface(painter,self.canvas.functions.outline(self,outline),colors,divider)
         from .module_chrome import paint_header
-        paint_header(painter,self.width,getattr(self,'title','Prompt 控制'),self.canvas.font(),colors,
-                     self.collapsed,getattr(self,'module_icon','canvas'),self.hot)
+        from .canvas_raster import paint_cached
+        title=getattr(self,'title','Prompt 控制');font=self.canvas.font()
+        collapsed=self.collapsed;module_icon=getattr(self,'module_icon','canvas')
+        header=('module-header',self.width,title,font.key(),tuple(sorted(colors.items())),
+                collapsed,module_icon,self.hot)
+        paint_cached(painter,header,QRectF(0,0,self.width,divider),
+                     lambda target:paint_header(target,self.width,title,font,colors,
+                                                collapsed,module_icon,self.hot))
         pen=QPen(QColor(colors.get('canvas_divider',colors['canvas_line'])),1);pen.setCosmetic(True);painter.setPen(pen)
         painter.drawLine(QPointF(0,divider),QPointF(self.width,divider))
         painter.setFont(self.canvas.font())
@@ -663,6 +679,8 @@ class CanvasView(QGraphicsView):
 
     def paintEvent(self,event):
         from .canvas_raster import paint_scope
+        from .canvas_proxy_cache import configure
+        configure()
         # Zoom changes every full-card raster. Draw those layers directly
         # while it changes; small device-aligned shadow tiles remain bounded.
         # Full-card reuse resumes without a repaint timer.
@@ -672,8 +690,21 @@ class CanvasView(QGraphicsView):
         self.canvas._paint_colors=canvas_colors(self.canvas)
         try:
             with paint_scope(time.monotonic()>=getattr(self,'_raster_direct_until',0)):
+                if self.pan is not None:
+                    painter=QPainter(self.viewport())
+                    try:reused=self.pan_raster.paint(painter,tuple(sorted(self.canvas._paint_colors.items())))
+                    finally:painter.end()
+                    if reused:return
                 super().paintEvent(event)
         finally:self.canvas._paint_colors=previous
+
+    def hideEvent(self,event):
+        if getattr(self,'pan',None) is not None:
+            self.pan=None;self.pan_button=None;self.unsetCursor()
+            self.pan_raster.end()
+        super().hideEvent(event)
+        from .canvas_proxy_cache import configure
+        configure()
 
     def __init__(self,canvas):
         super().__init__(canvas); self.canvas=canvas; self.pan=None; self.pan_button=None; self.box_start=None
@@ -697,6 +728,8 @@ class CanvasView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setAcceptDrops(True); self.viewport().setAcceptDrops(True)
+        from .canvas_pan_cache import PanRasterCache
+        self.pan_raster=PanRasterCache(self)
 
     def viewportEvent(self,event):
         if event.type()==QEvent.Type.ToolTip:
@@ -866,8 +899,11 @@ class CanvasView(QGraphicsView):
 
     def drawBackground(self,painter,rect):
         painter.save()
-        colors=canvas_colors(self.canvas);painter.fillRect(rect,QColor(colors['canvas_background']))
+        colors=canvas_colors(self.canvas)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing,False)
+        # A solid background has no antialiased edges within the exposed area.
+        # Keep its scene rect and painter clip so partial renders stay bounded.
+        painter.fillRect(rect,QColor(colors['canvas_background']))
         dot=QColor(colors['line']);dot.setAlpha(90)
         pen=QPen(dot,1); pen.setCosmetic(True); painter.setPen(pen)
         spacing=28 if self.transform().m11()>=.6 else 112
@@ -938,6 +974,7 @@ class CanvasView(QGraphicsView):
             self.setFocus(); self.scene().clearFocus()
             if not event.modifiers()&Qt.KeyboardModifier.ControlModifier:self.scene().clearSelection()
             self.pan=event.position(); self.pan_button=event.button(); self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self.pan_raster.begin()
             event.accept(); return
         super().mousePressEvent(event)
 
@@ -971,7 +1008,7 @@ class CanvasView(QGraphicsView):
                 card.setSelected((card.key not in self.box_selection) if hit and clicked else hit or card.key in self.box_selection)
             self.box_start=None; self.rubber.hide(); event.accept(); return
         if self.pan is not None and event.button()==self.pan_button:
-            self.pan=None; self.pan_button=None; self.unsetCursor(); event.accept(); return
+            self.pan=None; self.pan_button=None; self.pan_raster.end(); self.unsetCursor(); event.accept(); return
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self,event):

@@ -1291,7 +1291,24 @@ class ChatPage(QWidget):
         self._editing_turn_id = None
         self._versions_dialog = None
         self._rendering = False
-        outer = QVBoxLayout(self)
+        # One fixed native composition boundary for the whole conversation.
+        # Reply browsers remain ordinary children: their fallback text, hover
+        # controls and scroll clipping must share the same stacking surface.
+        from ..webengine_host import prepare_native_host
+        self._content_host = QWidget(self)
+        self._content_host.setObjectName('LocalChatContentHost')
+        prepare_native_host(self._content_host)
+        if QApplication.platformName() == 'windows':
+            # A plain-text conversation may acquire its first browser later.
+            # Choose this host's RHI surface before its first native creation.
+            from PySide6.QtQuickWidgets import QQuickWidget
+            self._compositor = QQuickWidget(self._content_host)
+            self._compositor.setFixedSize(0, 0)
+            self._compositor.hide()
+        frame = QVBoxLayout(self)
+        frame.setContentsMargins(0, 0, 0, 0)
+        frame.addWidget(self._content_host)
+        outer = QVBoxLayout(self._content_host)
         outer.setContentsMargins(0, 12, 0, 16)
         outer.setSpacing(8)
         self.more_button = button('', self._open_actions, 'IconButton')
@@ -1986,7 +2003,7 @@ class ChatPage(QWidget):
         self.model_button.setFixedHeight(control_height)
         self.model_button.setMaximumWidth(220)
         self.setStyleSheet(f'''
-            QWidget#LocalChatPage {{ background:{surface}; }}
+            QWidget#LocalChatPage, QWidget#LocalChatContentHost {{ background:{surface}; }}
             QWidget#ChatColumn, QWidget#ChatTranscript, QWidget#ChatReadingHost, QScrollArea#ChatScroll,
             QTextBrowser#ChatText, QFrame#ChatTurn, QFrame#ChatAssistant,
             QFrame#ChatThinking {{ background:transparent; border:0; }}

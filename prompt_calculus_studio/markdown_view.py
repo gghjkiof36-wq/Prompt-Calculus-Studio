@@ -961,10 +961,8 @@ class ReadingView(QTextBrowser):
         self.setVerticalScrollBarPolicy(policy);self.setHorizontalScrollBarPolicy(policy)
         if self.advanced:
             if self.rich is None:
-                # Keep the reader in the widget stack. Promoting this scroll
-                # area to a native window during a mode change can hide it
-                # and promote its siblings/ancestors on Windows. WebEngine's
-                # texture child must share the shell's normal composition.
+                # RichView isolates its own Windows texture composition. Keep
+                # this existing reader and its siblings in the widget stack.
                 from .markdown_rich_view import RichView
                 self.rich=RichView(self);self.rich.setGeometry(self.rect());self.rich.setZoomFactor(self.surface.zoom_percent/100)
             if large and not complex_content:

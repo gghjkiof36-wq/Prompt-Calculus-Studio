@@ -6,6 +6,7 @@ expanded; results leave a scope after all its entries have finished.
 import copy
 import hashlib
 import json
+import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
@@ -33,7 +34,7 @@ class StageRunner(QObject):
         super().__init__(flow.client);self.flow=flow;self.client=flow.client;self.window=flow.window
         self.store=StageStore(self.window.store.db);self.closed=False;self.pumping=False;self.preparing=None;self.collecting=set();self.apply_queue=[];self.applying=None
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(self.pump)
-        self.results={};self.preview_results={};self.preview_stamps={};self.load_results()
+        self.results={};self.preview_results={};self.preview_stamps={};self._result_save_errors=set();self.load_results()
         self.apply_abort=None;self.apply_owner=None;self.apply_operation=None;self.apply_cancellations=set()
 
     def later(self):
@@ -324,14 +325,7 @@ class StageRunner(QObject):
                     self.pop(run,frame['produced']);continue
                 item=entries[0]
                 if item['status']!='waiting':return
-                frame['active']=item['id'];self.store.update(item['id'],status='running')
-                ctx=copy.deepcopy(frame['ctx']);ctx['saved']=merge_saved(ctx.get('saved',{}),item['saved'])
-                if item['saved'].get('scene'):ctx['scene']=item['saved']['scene']
-                if item.get('source'):ctx.setdefault('sources',{})[frame['auto']]=item['source']
-                if item.get('supply_images'):ctx.setdefault('sources',{}).update(item['supply_images'])
-                ctx['parent']=item['id']
-                stack.append(dict(kind='seq',nodes=frame['node']['children'],index=0,ctx=ctx,produced={}))
-                self.save(run);continue
+                self.activate_entry(run,frame,item);continue
             if frame['kind']=='stage':
                 stage=run['plan']['stages'][frame['key']]
                 if 'variants' not in frame:frame['variants']=self.variants(run,stage,frame['ctx'],frame);self.save(run)
@@ -340,24 +334,29 @@ class StageRunner(QObject):
                 self.dispatch(run,frame,stage);return
         self.save(run);self.later()
 
+    def activate_entry(self,run,frame,item):
+        # No external work starts until both the row and its owning stack are
+        # committed. A failed transaction is retried from a fresh run in pump.
+        with self.store.transaction():
+            frame['active']=item['id'];self.store.update(item['id'],status='running')
+            ctx=copy.deepcopy(frame['ctx']);ctx['saved']=merge_saved(ctx.get('saved',{}),item['saved'])
+            if item['saved'].get('scene'):ctx['scene']=item['saved']['scene']
+            if item.get('source'):ctx.setdefault('sources',{})[frame['auto']]=item['source']
+            if item.get('supply_images'):ctx.setdefault('sources',{}).update(item['supply_images'])
+            ctx['parent']=item['id']
+            run['stack'].append(dict(kind='seq',nodes=frame['node']['children'],index=0,ctx=ctx,produced={}))
+            self.save(run)
+
     def entry_status(self,item):
         """Project execution state without changing scope ownership/history."""
         if item['status']!='running':return item['status']
-        entries={e['id']:e for e in self.store.rows('entry',item['workspace'])}
-        def belongs(attempt):
-            parent=attempt.get('parent');seen=set()
-            while parent and parent not in seen:
-                if parent==item['id']:return True
-                seen.add(parent);parent=entries.get(parent,{}).get('parent')
-            return False
-        attempts=[a for a in self.store.rows('attempt',item['workspace']) if belongs(a)]
-        if attempts:
-            attempt=attempts[-1];status=attempt['status']
+        attempt=self.store.latest_entry_attempt(item['workspace'],item['id'])
+        if attempt:
+            status=attempt['status']
             if attempt.get('cancel_requested'):return 'cancelling'
             if status in ('unconfirmed','failed','result_error','preparing','collecting'):return status
             if status=='submitted':return 'submitted'
-        run=self.store.read(item['run'])
-        return 'paused' if run and run['status']=='paused' else item['status']
+        return 'paused' if self.store.status_value(item['run'])=='paused' else item['status']
 
     def initialize_loop(self,run,frame):
         node=frame['node'];frame['initialized']=True
@@ -679,15 +678,30 @@ class StageRunner(QObject):
                 profile=next((p for p in attempt.get('snapshot_state',{}).get('generation',{}).get('profiles',[]) if p['id']==stage['workflow']),{})
                 texts=[dict(node=node,field=field,text=graph[node]['inputs'][field]) for node,field in profile_text_fields(dict(profile,graph=graph))]
                 result=dict(run=run['id'],images=images,text=text,texts=texts,attempts=[attempt['id']],records=[dict(attempt=attempt['id'],text=text,texts=texts)])
-                self.store.update(attempt['id'],status='complete',result=result,error='');self.collecting.discard(attempt['id'])
-                current=self.store.read(run['id'])
-                frame=next((f for f in current['stack'] if f.get('job')==attempt['id']),None)
-                if frame and current['status']!='cancelled':
-                    merge_results(frame['produced'],{stage['id']:result});frame['job']=None;frame['index']+=1
-                    autos={key for s in current['plan']['stages'].values() if s['auto'] for key in (s.get('suppliers') or [s['auto']])}
-                    for key,value in attempt.get('sources',{}).items():
-                        if key not in autos:current.setdefault('source_positions',{}).setdefault(key,value)
-                    self.save(current)
+                # Accept the result and advance its owning frame together.
+                # Publishing either half alone costs an extra commit and can
+                # strand a completed attempt if the second write fails.
+                try:
+                    with self.store.transaction():
+                        self.store.update(attempt['id'],status='complete',result=result,error='')
+                        current=self.store.read(run['id'])
+                        frame=next((f for f in current['stack'] if f.get('job')==attempt['id']),None)
+                        if frame and current['status']!='cancelled':
+                            merge_results(frame['produced'],{stage['id']:result});frame['job']=None;frame['index']+=1
+                            autos={key for s in current['plan']['stages'].values() if s['auto'] for key in (s.get('suppliers') or [s['auto']])}
+                            for key,value in attempt.get('sources',{}).items():
+                                if key not in autos:current.setdefault('source_positions',{}).setdefault(key,value)
+                            self.save(current)
+                except sqlite3.Error:
+                    # request() converts escaped callback errors to backend
+                    # failures. Keep this rolled-back attempt collectable.
+                    self.collecting.discard(attempt['id'])
+                    if attempt['id'] not in self._result_save_errors:
+                        self._result_save_errors.add(attempt['id'])
+                        self.window.notice('結果暫時無法保存，會在下次檢查時重試。')
+                    return
+                self._result_save_errors.discard(attempt['id'])
+                self.collecting.discard(attempt['id'])
                 if current['workspace']==self.window.state['workspace']:
                     self.remember_preview(attempt,result)
                     self.results[stage['id']]=copy.deepcopy(frame['produced'][stage['id']]) if frame and stage['id'] in frame['produced'] else result
@@ -695,6 +709,12 @@ class StageRunner(QObject):
                 if current['status']=='paused':self.settle(self.store.read(current['id']))
                 self.notify();self.later()
             except (ValueError,OSError) as exc:fail(str(exc))
+            except Exception:
+                # A failed database transaction leaves the attempt active.
+                # Allow the next observation to collect it again, without
+                # changing it into a backend error or resubmitting its prompt.
+                self.collecting.discard(attempt['id'])
+                raise
         if expected:self.client.request('desktop/results?prompt_id='+quote(job['prompt_id'],safe=''),done=received,failed=fail)
         else:received([])
 

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QImage, QPainter, QPainterPath, QPen, QTransform, QMouseEvent, QWheelEvent
-from PySide6.QtWidgets import QApplication, QComboBox, QGraphicsScene, QGraphicsView, QLineEdit, QPushButton, QVBoxLayout, QWidget, QTextEdit
+from PySide6.QtWidgets import QApplication, QComboBox, QGraphicsItem, QGraphicsScene, QGraphicsView, QLineEdit, QPushButton, QVBoxLayout, QWidget, QTextEdit
 from PySide6.QtTest import QTest
 
 from prompt_calculus_studio.canvas_items import ModuleProxyWidget, paint_module_surface
@@ -14,6 +14,36 @@ from prompt_calculus_studio import module_chrome, ui_icons
 from prompt_calculus_studio.connection_pill import ConnectionPill
 
 APP = QApplication.instance() or QApplication([])
+
+
+def assert_device_cache_pixels(test, actual, direct, *, fractional_sampling=False):
+    test.assertEqual(actual.size(), direct.size())
+    dpr=actual.devicePixelRatio()
+    if abs(dpr-round(dpr))<1e-6 and not fractional_sampling:
+        test.assertLessEqual(max(abs(a-b) for a,b in zip(bytes(actual.constBits()),bytes(direct.constBits()))),3)
+        return
+    # At fractional DPR/transform Qt's device-cache and direct paths sample native
+    # monochrome controls at different physical-pixel phases. Keep the full
+    # geometry/content check: <=1.5% changed luminance pixels, and every bright
+    # glyph/edge pixel within one physical pixel except <=32 native-AA pixels.
+    # The 1.25-DPR baseline comparison has 1.08% changed / 27 outliers at most.
+    planes=[]
+    for image in (actual,direct):
+        grey=image.convertToFormat(QImage.Format.Format_Grayscale8)
+        raw=bytes(grey.constBits());stride=grey.bytesPerLine();width=grey.width()
+        planes.append(b''.join(raw[y*stride:y*stride+width] for y in range(grey.height())))
+    left,right=planes;width=actual.width()
+    test.assertLessEqual(sum(abs(a-b)>3 for a,b in zip(left,right)),len(left)*.015)
+    masks=[{(i%width,i//width) for i,pixel in enumerate(plane) if pixel>128} for plane in planes]
+    for first,second in (masks,masks[::-1]):
+        unmatched=sum(not any((x+dx,y+dy) in second for dx in (-1,0,1) for dy in (-1,0,1)) for x,y in first)
+        test.assertLessEqual(unmatched,32)
+
+
+class MeasuredProxy(ModuleProxyWidget):
+    def paint(self,*args):
+        self.paint_count=getattr(self,'paint_count',0)+1
+        return super().paint(*args)
 
 
 class ProxyPaintTests(unittest.TestCase):
@@ -29,7 +59,10 @@ class ProxyPaintTests(unittest.TestCase):
         self.text=QTextEdit('Morning light\n'+('測試換行與縮放文字\n'*12));self.text.setFixedHeight(90)
         self.combo=QComboBox();self.combo.addItems(['選擇文字節點','另一節點'])
         for control in (self.button,self.edit,self.text,self.combo):layout.addWidget(control)
-        self.proxy=ModuleProxyWidget();self.proxy.setWidget(self.panel);self.scene.addItem(self.proxy)
+        self.proxy=MeasuredProxy();self.proxy.setWidget(self.panel);self.scene.addItem(self.proxy)
+        # This fixture checks Qt cache invalidation; Canvas budget policy has
+        # its own viewport/visibility coverage in test_canvas_proxy_cache.
+        self.proxy.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
         self.proxy.setGeometry(QRectF(0,0,320,220));self.scene.setSceneRect(-500,-500,1500,1500)
         self.view.resize(620,440);self.view.show();self.view.centerOn(self.proxy)
         self.events()
@@ -78,6 +111,27 @@ class ProxyPaintTests(unittest.TestCase):
                        lambda:self.text.selectAll(),
                        lambda:QTest.mouseMove(self.view.viewport(),self.view.mapFromScene(self.proxy.mapToScene(QPointF(self.button.pos()+self.button.rect().center()))))):
             change();self.events();self.assert_matches_direct()
+
+    def test_pan_reuses_widget_pixels_and_live_update_invalidates_them(self):
+        self.view.setTransform(QTransform.fromScale(.5,.5));self.view.centerOn(self.proxy);self.events()
+        counts=[]
+        for mode in (QGraphicsItem.CacheMode.NoCache,QGraphicsItem.CacheMode.DeviceCoordinateCache):
+            self.proxy.setCacheMode(mode);self.events();self.proxy.paint_count=0
+            for index in range(30):
+                bar=self.view.horizontalScrollBar()
+                bar.setValue(bar.value()+(1 if index<15 else -1))
+                self.events()
+            counts.append(self.proxy.paint_count)
+        before=self.capture();self.proxy.paint_count=0
+        self.edit.setText('目前節點更新後仍須立即顯示');QTest.qWait(30);self.events()
+        after=self.capture()
+        self.assertGreater(self.proxy.paint_count,0)
+        self.assertNotEqual(before,after)
+        self.assertGreater(counts[0],15)
+        self.assertLess(counts[1],max(3,counts[0]//4))
+        self.proxy.setCacheMode(QGraphicsItem.CacheMode.NoCache);self.events()
+        direct=self.capture()
+        assert_device_cache_pixels(self,after,direct)
 
 class NavigationChromeTests(unittest.TestCase):
     def test_header_measurements_follow_title_width_and_font_without_sharing_mutable_actions(self):

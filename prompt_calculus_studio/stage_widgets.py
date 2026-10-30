@@ -177,13 +177,15 @@ class SchedulePanel(QFrame):
         from .module_chrome import style_action
         from .canvas_items import canvas_colors
         style_action(self.pause_button,canvas_colors(self.canvas))
-        rows=self.entries();value=self.canvas.data()['schedulers'].get(self.key,{})
+        rows=self.runner.store.entry_summaries(self.canvas.window.state['workspace'],self.key)
+        statuses={item['id']:self.runner.entry_status(item) for item in rows}
+        value=self.canvas.data()['schedulers'].get(self.key,{})
         from .scheduler_wiring import legacy_edges
         legacy=bool(legacy_edges(self.canvas.window.state,self.key))
         self.legacy_button.setVisible(legacy)
         self.empty.setText('請先整理舊接線，改由輸入模塊供應內容' if legacy else '沒有等待執行的任務')
         ids=[r['id'] for r in rows];old=[self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]
-        selected=self.selected();selected=selected['id'] if selected else None
+        selected=self.list.currentItem();selected=selected.data(Qt.ItemDataRole.UserRole) if selected else None
         self.list.blockSignals(True)
         if ids!=old:
             self.list.clear()
@@ -191,9 +193,8 @@ class SchedulePanel(QFrame):
                 entry=QListWidgetItem();entry.setData(Qt.ItemDataRole.UserRole,item['id']);self.list.addItem(entry)
             if selected in ids:self.list.setCurrentRow(ids.index(selected))
         for index,item in enumerate(rows):
-            source=entry_image(item);counts=[len(v) for v in item['saved'].get('batches',{}).values()]
-            count=1 if item.get('source') else max(counts) if counts else 1 if source else None
-            entry=self.list.item(index);entry.setText(f"{index+1} · {item['label']}\n{NAMES.get(self.runner.entry_status(item),item['status'])}"+(' · '+str(count)+' 張' if count is not None else '')+(' · '+source['name'] if source else ''))
+            source=item['image'];count=item['image_count']
+            entry=self.list.item(index);entry.setText(f"{index+1} · {item['label']}\n{NAMES.get(statuses[item['id']],item['status'])}"+(' · '+str(count)+' 張' if count is not None else '')+(' · '+source['name'] if source else ''))
             entry.setToolTip('雙擊查看內容；右鍵處理此項');entry.setFlags(entry.flags() | Qt.ItemFlag.ItemIsDragEnabled if item['status']=='waiting' else entry.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
             if source:entry.setIcon(QIcon(str(self.canvas.window.store.directory/source['relative'])))
         self.list.blockSignals(False);self.rows=rows
@@ -206,7 +207,7 @@ class SchedulePanel(QFrame):
         self.empty.setVisible(not rows);self.list.setVisible(bool(rows))
         counts={}
         for item in rows:
-            status=self.runner.entry_status(item);counts[status]=counts.get(status,0)+1
+            status=statuses[item['id']];counts[status]=counts.get(status,0)+1
         status=' · '.join(str(count)+' 項'+NAMES.get(status,status) for status,count in counts.items())
         if paused:status=' · '.join(filter(None,('已暫停',status)))
         summary=' · '.join(filter(None,(mode,status)))
