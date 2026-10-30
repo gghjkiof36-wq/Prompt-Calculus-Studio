@@ -220,6 +220,7 @@ class TextCanvas(QWidget):
         self.drop_loader.setParent(self); self.drop_loader.hide()
         self.drop_loader.filesReady.connect(self.import_images); self.drop_loader.failed.connect(lambda message:import_error(window,message))
         self.drop_target=None
+        self.view.acceleration.finalize()
 
     def palette(self,position=None,target=None):
         active=getattr(self.window,'active_material_picker',None)

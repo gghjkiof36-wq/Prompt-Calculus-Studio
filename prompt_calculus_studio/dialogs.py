@@ -313,6 +313,16 @@ class SettingsDialog(StudioDialog):
             self.performance_monitor.setChecked(workspace.performance_monitor_enabled)
             self.performance_monitor.toggled.connect(workspace.set_performance_monitor)
             confirmations_layout.addWidget(self.performance_monitor)
+            self.canvas_hardware_acceleration=QCheckBox('畫布硬體加速')
+            self.canvas_hardware_acceleration.setChecked(workspace.canvas_hardware_acceleration)
+            self.canvas_hardware_acceleration.setToolTip('使用 GPU 加速畫布拖動與縮放。重新啟動 PCS 後生效。')
+            self.canvas_hardware_acceleration.toggled.connect(workspace.set_canvas_hardware_acceleration)
+            confirmations_layout.addWidget(self.canvas_hardware_acceleration)
+            self.canvas_acceleration_hint=label('', 'Subtle', True)
+            self.update_canvas_acceleration_hint()
+            self.canvas_hardware_acceleration.toggled.connect(self.update_canvas_acceleration_hint)
+            workspace.canvasAccelerationStatusChanged.connect(self.update_canvas_acceleration_hint)
+            confirmations_layout.addWidget(self.canvas_acceleration_hint)
         self.reduce_motion=QCheckBox('減少畫布展開動畫'); self.reduce_motion.setChecked(s.get('reduce_motion',False)); confirmations_layout.addWidget(self.reduce_motion)
         if workspace is not None:
             self.reduce_motion.setText('減少動態效果')
@@ -380,6 +390,12 @@ class SettingsDialog(StudioDialog):
         self.transparency.valueChanged.connect(self.preview_material)
         self.menu_transparency.valueChanged.connect(self.preview_material)
         self.finished.connect(self.finish_preview)
+
+    def update_canvas_acceleration_hint(self, *_):
+        text='重新啟動 PCS 後生效。'
+        if self.window.workspace_owner.canvas_hardware_acceleration_fallback:
+            text='本次硬體加速未能啟動，已使用軟體繪製。'+text
+        self.canvas_acceleration_hint.setText(text)
 
     def preview_material(self, *_):
         material=self.material.currentData()

@@ -5,7 +5,7 @@ import uuid
 import json
 from shiboken6 import isValid
 
-from PySide6.QtCore import Qt, QSize, QUrl, QTimer, QSaveFile, QIODevice, QEvent
+from PySide6.QtCore import Qt, QSize, QUrl, QTimer, QSaveFile, QIODevice, QEvent, Signal
 from PySide6.QtGui import QShortcut, QKeySequence, QDesktopServices, QColor
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame,
     QVBoxLayout, QHBoxLayout, QStackedWidget, QTreeWidget, QTreeWidgetItem,
@@ -84,12 +84,14 @@ class WorkspaceTop(QFrame):
 
 
 class WorkspaceShell(WorkspacePanes, QMainWindow):
+    canvasAccelerationStatusChanged = Signal()
+
     def __init__(self, root, data, *, defer_restore=False):
         super().__init__()
         self.workspace_ready = False
         self._startup_loading = defer_restore
         # Browser views own their native composition boundary on Windows; the
-        # workspace and its canvases can keep their ordinary raster surface.
+        # workspace keeps its raster surface; accelerated canvases own theirs.
         if QApplication.platformName() != 'windows':
             from PySide6.QtQuickWidgets import QQuickWidget
             self._compositor = QQuickWidget(self)
@@ -120,6 +122,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.show_empty_folders = True
         self.ambient_effect = 'off'
         self.performance_monitor_enabled = True
+        self.canvas_hardware_acceleration = True
+        self.canvas_hardware_acceleration_fallback = False
         self.navigation_position = 'side'
         self.markdown_mode = 'write'
         self._markdown_mode_chosen = False
@@ -134,6 +138,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.default_settings = dict(DEFAULT_SETTINGS, ui_size=12, online=False, comfy_enabled=False)
         self.settings = dict(self.default_settings)
         self.load_ui_preferences()
+        # Keep one renderer policy for the session, including tabs opened after
+        # changing the preference. Recreating a live viewport can lose controls.
+        self.canvas_hardware_acceleration_active = self.canvas_hardware_acceleration
         self.appearance_preview = {}
         self.native_material = False
         self._material_ready = False
@@ -500,6 +507,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 self.ambient_effect = saved['ambient_effect']
             if type(saved.get('performance_monitor_enabled')) is bool:
                 self.performance_monitor_enabled = saved['performance_monitor_enabled']
+            if type(saved.get('canvas_hardware_acceleration')) is bool:
+                self.canvas_hardware_acceleration = saved['canvas_hardware_acceleration']
             if saved.get('markdown_mode') in ('write', 'source', 'read'):
                 self.markdown_mode = saved['markdown_mode']
                 self._markdown_mode_chosen = True
@@ -517,7 +526,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                      sidebar_close_delay=self.sidebar_close_delay,
                      navigation_position=self.navigation_position, show_empty_folders=self.show_empty_folders,
                      ambient_effect=self.ambient_effect,
-                     performance_monitor_enabled=self.performance_monitor_enabled)
+                     performance_monitor_enabled=self.performance_monitor_enabled,
+                     canvas_hardware_acceleration=self.canvas_hardware_acceleration)
         if self._markdown_mode_chosen:saved['markdown_mode'] = self.markdown_mode
         output=QSaveFile(str(self.data/'workspace-ui.json'))
         output.setDirectWriteFallback(False)
@@ -568,6 +578,15 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.performance_monitor_enabled = bool(enabled)
         self.performance_monitor.sync()
         self.save_ui_preferences()
+
+    def set_canvas_hardware_acceleration(self, enabled):
+        self.canvas_hardware_acceleration = bool(enabled)
+        self.save_ui_preferences()
+
+    def report_canvas_acceleration_fallback(self):
+        if not self.canvas_hardware_acceleration_fallback:
+            self.canvas_hardware_acceleration_fallback = True
+            self.canvasAccelerationStatusChanged.emit()
 
     def sidebar_target(self):
         if self.active_route=='home':

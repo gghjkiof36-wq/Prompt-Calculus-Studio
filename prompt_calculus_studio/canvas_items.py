@@ -662,6 +662,13 @@ class NodeCard(ResizableCard):
 
 
 class CanvasView(QGraphicsView):
+    def nativeEvent(self,event_type,message):
+        acceleration=getattr(self,'acceleration',None)
+        if acceleration is not None:
+            handled,result=acceleration.native_event(event_type,message)
+            if handled:return True,result
+        return super().nativeEvent(event_type,message)
+
     transformChanged=Signal()
 
     def scale(self,sx,sy):
@@ -708,6 +715,8 @@ class CanvasView(QGraphicsView):
 
     def __init__(self,canvas):
         super().__init__(canvas); self.canvas=canvas; self.pan=None; self.pan_button=None; self.box_start=None
+        from .canvas_acceleration import CanvasAcceleration
+        self.acceleration=CanvasAcceleration(self,canvas)
         self.click_start=None; self.click_dragged=False; self.blank_press=False
         self.last_blank_click=None; self.pending_palette=None
         self.rubber=QRubberBand(QRubberBand.Shape.Rectangle,self.viewport()); self.box_selection=set()
