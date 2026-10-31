@@ -95,6 +95,58 @@ class WorkspaceStartupTests(unittest.TestCase):
         self.w.centralWidget().setEnabled(True)
         startup.deleteLater()
 
+    def test_performance_readout_waits_for_main_interface_and_respects_preference(self):
+        from prompt_calculus_studio.workspace_shell import WorkspaceShell
+        self.w.hide()
+        for position in ('side', 'top'):
+            for enabled in (True, False):
+                with self.subTest(position=position, enabled=enabled):
+                    data = self.root.parent / f'startup-monitor-{position}-{enabled}'
+                    window = WorkspaceShell(self.root, data, defer_restore=True)
+                    window.set_navigation_position(position)
+                    window.set_performance_monitor(enabled)
+                    monitor = window.performance_monitor
+                    failures, ready, phases = [], [], []
+                    startup = StartupProgress(window, lambda _: None,
+                        lambda *_: ready.append(True), failures.append)
+                    def observed_step(title, action):
+                        def run():
+                            phases.append(title)
+                            self.assertFalse(monitor.isVisible(), title)
+                            self.assertFalse(monitor.running, title)
+                            self.assertFalse(monitor.timer.isActive(), title)
+                            action()
+                        return run
+                    startup.steps = [(title, observed_step(title, action))
+                                     for title, action in startup.steps]
+                    def foreground_for_test(target):
+                        target.show()
+                        target.activateWindow()
+                        self.app.setActiveWindow(target)
+                    try:
+                        with patch('prompt_calculus_studio.workspace_startup.foreground',
+                                   side_effect=foreground_for_test):
+                            startup.start()
+                            for _ in range(200):
+                                QTest.qWait(10)
+                                if startup.finished_loading or startup.cancelled:
+                                    break
+                        self.assertEqual(failures, [])
+                        self.assertTrue(startup.finished_loading)
+                        self.assertEqual(ready, [True])
+                        self.assertEqual(len(phases), 7)
+                        self.assertFalse(startup.isVisible())
+                        self.assertEqual(monitor.isVisible(), enabled)
+                        self.assertEqual(monitor.running, enabled)
+                        self.assertEqual(monitor.timer.isActive(), enabled)
+                        self.assertEqual(window.performance_monitor_enabled, enabled)
+                        self.assertIs(monitor.parentWidget(), window if position == 'side' else window.rail)
+                    finally:
+                        window.close()
+                        window.deleteLater()
+                        self.app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                        self.events()
+
     def test_closing_before_restore_keeps_saved_layout_and_one_window(self):
         from prompt_calculus_studio.workspace_shell import WorkspaceShell
         data = self.root.parent/'deferred-startup-data'

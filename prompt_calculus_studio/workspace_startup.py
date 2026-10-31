@@ -143,6 +143,7 @@ class StartupProgress(QWidget):
                 self.parentWidget().removeEventFilter(self)
                 self.workspace.removeEventFilter(self)
                 foreground(self.workspace)
+                self.workspace.performance_monitor.sync()
             return
         title, action = self.steps[self.completed]
         self.message.setText(title)

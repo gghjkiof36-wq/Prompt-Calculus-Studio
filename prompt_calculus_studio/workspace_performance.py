@@ -134,6 +134,7 @@ class WorkspacePerformance(QWidget):
 
     def sync(self):
         active = (not self.closed and self.workspace.performance_monitor_enabled
+                  and not self.workspace._startup_loading
                   and self.workspace.isVisible() and not self.workspace.isMinimized()
                   and self.workspace.isActiveWindow())
         if active != self.running:
