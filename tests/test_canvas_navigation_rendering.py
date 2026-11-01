@@ -258,6 +258,26 @@ class CanvasNavigationTests(unittest.TestCase):
         self.assertEqual(view.transform(),transform)
         self.assertLess((view.mapToScene(QPoint())-origin).manhattanLength(),3)
 
+    def test_wheel_percentage_coalesces_but_programmatic_zoom_is_immediate(self):
+        tab=self.open('Street','pcs-workflow')
+        canvas=tab.host.canvas;view=canvas.view;controls=canvas.zoom_controls
+        canvas.zoom_to(.7);view.centerOn(8000,8000);self.events()
+        with patch.object(controls,'place',wraps=controls.place) as place:
+            for delta in (12,12,12,12):
+                point=QPoint(160,120)
+                event=QWheelEvent(QPointF(point),QPointF(view.viewport().mapToGlobal(point)),
+                    QPoint(),QPoint(0,delta),Qt.MouseButton.NoButton,
+                    Qt.KeyboardModifier.NoModifier,Qt.ScrollPhase.ScrollUpdate,False)
+                APP.sendEvent(view.viewport(),event)
+            self.assertEqual(controls.value.text(),'70%')
+            place.assert_not_called()
+            QTest.qWait(150)
+            self.assertEqual(controls.value.text(),f'{round(view.transform().m11()*100)}%')
+            self.assertLessEqual(place.call_count,1)
+        canvas.zoom_to(1.04)
+        self.assertEqual(controls.value.text(),'104%')
+        self.assertFalse(controls.wheel_label_timer.isActive())
+
     def test_wheel_on_scrollable_module_keeps_scroll_ownership_at_boundary(self):
         tab=self.open('Street','pcs-workflow');canvas=tab.host.canvas;view=canvas.view
         card=next(iter(canvas.outputs.values()));editor=card.panel.editor

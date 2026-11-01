@@ -1,17 +1,18 @@
-"""A bounded, temporary raster backing for a Canvas camera drag.
+"""A bounded, temporary raster backing for a Canvas camera gesture.
 
 The view owns interaction and still moves its real scrollbars. Call begin/end
 at camera-drag boundaries and paint with an identity viewport painter before
 normal scene painting. A False result requires the normal paint path. Pass an
 immutable appearance key when colors depend on state outside Qt's palette.
 
-During a drag only, translation rounds to the nearest physical pixel (at most
-half a pixel per axis). No image scaling/interpolation or camera snapping is
-used. end() requests a normal repaint, restoring the exact subpixel position.
+During a drag, translation rounds to the nearest physical pixel (at most half
+a pixel per axis), without interpolation or camera snapping. Wheel gestures
+can briefly resample a fully covering backing within a bounded scale range.
+After 120 ms without wheel input, normal painting restores exact text/edges.
 """
 import math
 
-from PySide6.QtCore import QEvent, QObject, QPointF, QRect, QRectF, Qt
+from PySide6.QtCore import QEvent, QObject, QPointF, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QGraphicsProxyWidget, QWidget
 
@@ -23,6 +24,10 @@ class PanRasterCache(QObject):
         self.max_bytes = max(0, int(max_bytes))
         self.overscan = max(0, int(overscan))
         self.active = False
+        self.allow_zoom = False
+        self.zoom_timer = QTimer(self)
+        self.zoom_timer.setSingleShot(True)
+        self.zoom_timer.timeout.connect(self.finish_zoom)
         self.image = None
         self.captures = self.hits = 0
         self.last_offset = (0, 0)
@@ -44,8 +49,23 @@ class PanRasterCache(QObject):
         self.active = True
         self._sync_scene()
 
+    def begin_zoom(self):
+        """Reuse camera pixels only while wheel input continues, never at rest."""
+        self.allow_zoom = True
+        self.begin()
+        self.zoom_timer.start(120)
+
+    def finish_zoom(self):
+        self.allow_zoom = False
+        if getattr(self.view, 'pan', None) is not None:
+            self.invalidate()
+        else:
+            self.end()
+
     def end(self):
         was_active = self.active
+        self.zoom_timer.stop()
+        self.allow_zoom = False
         self.active = False
         self.invalidate()
         self._disconnect_scene()
@@ -86,7 +106,7 @@ class PanRasterCache(QObject):
                 pass
         self._widgets = []
 
-    def _watch_widgets(self):
+    def _watch_widgets(self, refresh_cache):
         # Only rescan on a capture, never on a buffer hit. Widget-only updates
         # must invalidate too, including synchronous repaint before changed.
         self._unwatch_widgets()
@@ -94,6 +114,12 @@ class PanRasterCache(QObject):
             return
         for item in self._scene.items():
             if isinstance(item, QGraphicsProxyWidget) and item.widget() is not None:
+                if refresh_cache and item.cacheMode() == item.CacheMode.DeviceCoordinateCache:
+                    # Qt keeps separate viewport and QImage pixmaps for this
+                    # proxy, but shares their dirty region. A live viewport
+                    # paint can consume an edit before the next camera capture.
+                    # Reapplying the same mode clears the old target pixmaps.
+                    item.setCacheMode(item.CacheMode.DeviceCoordinateCache)
                 root = item.widget()
                 self._widgets.extend([root, *root.findChildren(QWidget)])
         for widget in self._widgets:
@@ -103,6 +129,11 @@ class PanRasterCache(QObject):
         if not self.active:
             return False
         kind = event.type()
+        if kind == QEvent.Type.LayoutRequest and watched in (self.view,self.view.viewport()):
+            # Camera changes reposition viewport overlays. Those controls are
+            # not in view.render's scene backing; their layout is independent.
+            # Scene/proxy layouts remain watched, and viewport size is keyed.
+            return False
         if watched in (self.view, self.view.viewport()) and kind in (QEvent.Type.Hide, QEvent.Type.Close):
             self.end()
         elif kind in (QEvent.Type.Resize, QEvent.Type.StyleChange, QEvent.Type.FontChange,
@@ -122,7 +153,9 @@ class PanRasterCache(QObject):
     def _padding(self, width, height, dpr):
         if width*height*4 > self.max_bytes:
             return None
-        low, high = 0, round(self.overscan*dpr)
+        # Wheel zoom also reveals content on all four edges. The existing
+        # byte budget remains authoritative, including on high-DPI screens.
+        low, high = 0, round((max(self.overscan,512) if self.allow_zoom else self.overscan)*dpr)
         while low < high:
             middle = (low+high+1)//2
             if (width+2*middle)*(height+2*middle)*4 <= self.max_bytes:
@@ -150,6 +183,29 @@ class PanRasterCache(QObject):
         if rect.isEmpty() or not math.isfinite(dpr) or dpr <= 0:
             return False
         key = (rect.width(), rect.height(), dpr, matrix.m11(), matrix.m22(), appearance_key)
+        previous_key = self._key
+        target = None
+        if (self.allow_zoom and self.image is not None
+                and key[:3] == self._key[:3] and key[5:] == self._key[5:]):
+            ratio_x, ratio_y = matrix.m11()/self._key[3], matrix.m22()/self._key[4]
+            x = (matrix.dx()-ratio_x*self._origin[0])*dpr-self._pad*ratio_x
+            y = (matrix.dy()-ratio_y*self._origin[1])*dpr-self._pad*ratio_y
+            candidate = QRectF(x,y,self.image.width()*ratio_x,self.image.height()*ratio_y)
+            if (.75 <= ratio_x <= 1.5 and abs(ratio_x-ratio_y)<1e-9
+                    and candidate.contains(QRectF(0,0,math.ceil(rect.width()*dpr),math.ceil(rect.height()*dpr)))):
+                target = candidate
+                self.hits += 1
+            else:
+                self.invalidate()
+        if target is not None:
+            painter.save()
+            try:
+                painter.setClipRect(QRectF(rect), Qt.ClipOperation.IntersectClip)
+                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+                painter.drawImage(QRectF(target.x()/dpr,target.y()/dpr,target.width()/dpr,target.height()/dpr), self.image)
+            finally:
+                painter.restore()
+            return True
         if self.image is not None and key == self._key:
             dx = round((matrix.dx()-self._origin[0])*dpr)
             dy = round((matrix.dy()-self._origin[1])*dpr)
@@ -173,7 +229,11 @@ class PanRasterCache(QObject):
                 base = view.palette().base().color()
             base.setAlpha(255)
             image.fill(base)
-            self._watch_widgets()
+            # Ordinary camera movement can reuse current widget content when
+            # recapturing past an edge. Refresh it for a new/invalidated frame.
+            refresh_cache = (previous_key is None or previous_key[:3] != key[:3]
+                             or previous_key[5] != appearance_key)
+            self._watch_widgets(refresh_cache)
             revision = self._revision
             logical_pad = math.ceil(pad/dpr)
             source = QRect(-logical_pad, -logical_pad,

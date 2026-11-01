@@ -164,5 +164,60 @@ class PopupSurfaceFinalTests(unittest.TestCase):
             self.assertEqual(image.pixelColor(120,159).name(),border.name())
         finally:popup.close()
 
+    def test_proxy_popup_resolves_workspace_before_choosing_capture_surface(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
+        from prompt_calculus_studio.canvas_acceleration import CanvasAcceleration, visible_canvas_views
+        from prompt_calculus_studio import popup_surface
+
+        host,_=self.host(width=560)
+        host.resize(560,360)
+        host.state={'settings': dict(DEFAULT_SETTINGS,menu_transparency=24,canvas_hardware_acceleration=False)}
+        scene=QGraphicsScene(host)
+        view=QGraphicsView(scene,host)
+        host.box.addWidget(view)
+        view.acceleration=CanvasAcceleration(view,SimpleNamespace(window=host))
+        control=QFrame();controls=QVBoxLayout(control);editor=QLineEdit(control);controls.addWidget(editor)
+        scene.addWidget(control)
+        host.show();APP.processEvents()
+        self.assertIn(view,visible_canvas_views(host))
+        self.assertIs(QWidget.window(editor),control)
+
+        popup=QFrame(None,Qt.WindowType.Popup|Qt.WindowType.FramelessWindowHint)
+        self.windows.append(popup)
+        surface=PopupSurface(popup,editor)
+        self.assertIs(surface.surface_host(),host)
+        popup.resize(100,60);popup.move(view.viewport().mapToGlobal(view.viewport().rect().center())-QPoint(50,30))
+        with patch.object(popup_surface,'backdrop_widget',wraps=popup_surface.backdrop_widget) as sample:
+            popup.show();APP.processEvents()
+            self.assertTrue(sample.called)
+            self.assertTrue(all(call.args[0] is host for call in sample.call_args_list))
+            self.assertIsNone(surface.backdrop)
+        popup.hide();view.hide();APP.processEvents()
+        self.assertNotIn(view,visible_canvas_views(host))
+        self.assertIs(popup_surface.backdrop_widget(host,host.rect()),host)
+
+    def test_canvas_window_samples_only_a_sibling_covering_the_whole_popup(self):
+        from types import SimpleNamespace
+        from PySide6.QtWidgets import QGraphicsView, QHBoxLayout
+        from prompt_calculus_studio.canvas_acceleration import CanvasAcceleration
+        from prompt_calculus_studio.popup_surface import backdrop_widget
+
+        host,_=self.host(width=620);host.resize(620,300)
+        host.state={'settings': {'canvas_hardware_acceleration':False}}
+        row=QHBoxLayout();host.box.addLayout(row)
+        side=QFrame(host);view=QGraphicsView(host)
+        row.addWidget(side,1);row.addWidget(view,1)
+        view.acceleration=CanvasAcceleration(view,SimpleNamespace(window=host))
+        host.show();APP.processEvents()
+        center=side.mapTo(host,side.rect().center())
+        region=QRect(center-QPoint(30,20),center+QPoint(30,20))
+        self.assertIs(backdrop_widget(host,region),side)
+        spanning=region.united(QRect(view.mapTo(host,view.rect().center()),view.size()/8))
+        self.assertIsNone(backdrop_widget(host,spanning))
+        other,_=self.host();other.show();APP.processEvents()
+        self.assertIs(backdrop_widget(other,other.rect()),other)
+
 
 if __name__=='__main__':unittest.main()

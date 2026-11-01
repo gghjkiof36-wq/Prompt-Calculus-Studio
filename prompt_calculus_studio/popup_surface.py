@@ -60,6 +60,23 @@ def popup_width(owner_width, text_width, available_width):
     return max(1, min(available_width, POPUP_MAX_WIDTH, desired))
 
 
+def backdrop_widget(host, region):
+    """Sample an ordinary widget without recursively rendering a live Canvas."""
+    from .canvas_acceleration import visible_canvas_views
+    views = visible_canvas_views(host)
+    if not views:
+        return host
+    widget = host.childAt(region.center())
+    while widget is not None and widget is not host:
+        bounds = QRect(widget.mapTo(host, QPoint()), widget.size())
+        if bounds.contains(region) and not any(
+                view is widget or view.isAncestorOf(widget) or widget.isAncestorOf(view)
+                for view in views):
+            return widget
+        widget = widget.parentWidget()
+    return None
+
+
 def refresh_popup_surfaces(host):
     """Repaint open popups for a live setting change without recapturing them."""
     from PySide6.QtWidgets import QApplication
@@ -125,7 +142,7 @@ class PopupSurface(QObject):
         while owner is not None and owner.windowType() in (Qt.WindowType.Popup,Qt.WindowType.ToolTip):
             owner=owner.parentWidget()
         if owner is None:return
-        host=QWidget.window(owner)
+        host=self.surface_host()
         if host is self.popup or not host.isVisible():return
         self._capturing=True
         try:
@@ -134,11 +151,19 @@ class PopupSurface(QObject):
             source=QRect(host.mapFromGlobal(self.popup.mapToGlobal(QPoint())),size).adjusted(-margin,-margin,margin,margin)
             visible=source.intersected(host.rect())
             if visible.isEmpty():return
+            if self.tint_alpha()==255:return
+            sample=backdrop_widget(host,visible)
+            if sample is None:
+                # The scene may use its own native backbuffer. A clipped grab
+                # of the host can re-enter scene painting during popup Show.
+                # Use the menu's existing theme surface over this boundary.
+                return
             # Start from an opaque palette fallback for portions outside the
             # app, rather than reading windows behind it or exposing raw lines.
             sampled=QPixmap(source.size());sampled.fill(self.surface_palette().color(QPalette.ColorRole.ToolTipBase))
             painter=QPainter(sampled)
-            painter.drawPixmap(visible.topLeft()-source.topLeft(),host.grab(visible));painter.end()
+            local=QRect(sample.mapFrom(host,visible.topLeft()),visible.size())
+            painter.drawPixmap(visible.topLeft()-source.topLeft(),sample.grab(local));painter.end()
             scene=QGraphicsScene();item=scene.addPixmap(sampled)
             blur=QGraphicsBlurEffect();blur.setBlurRadius(20)
             blur.setBlurHints(QGraphicsBlurEffect.BlurHint.QualityHint);item.setGraphicsEffect(blur)

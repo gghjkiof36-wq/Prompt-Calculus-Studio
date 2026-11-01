@@ -192,6 +192,42 @@ class WorkspaceExecutionTests(unittest.TestCase):
         self.finish()
         self.assertIsNone(self.w.scheduler.owner)
 
+    def test_completed_stage_image_updates_visible_and_returning_sibling_view(self):
+        from PySide6.QtGui import QColor, QImage
+        from prompt_calculus_studio import preview_nodes
+
+        owner=self.a.host
+        stage=next(iter(owner.canvas.data()['stages']))
+        previews=[]
+        def connect_preview(state):
+            previews.append(preview_nodes.add(state))
+            multi_output.connect(state,stage,previews[0],'image')
+        self.assertTrue(owner.canvas.commit(connect_preview),self.notices)
+        sibling=self.w.duplicate_view(self.a)
+
+        def finish_with(color):
+            def png(path,metadata):
+                image=QImage(64,48,QImage.Format.Format_RGB32)
+                image.fill(QColor(color))
+                self.assertTrue(image.save(str(path)))
+            with patch('stage_fixture.png',png):self.finish()
+
+        for index,color in enumerate(('#ad2965','#15a471')):
+            self.click(self.a)
+            prompt=next(iter(self.peer.pending))
+            self.w.focus_tab(sibling if index==0 else self.b)
+            self.assertEqual(sibling.host.canvas.isVisible(),index==0)
+            finish_with(color)
+            self.w.focus_tab(sibling);QTest.qWait(40)
+            panel=sibling.host.canvas.preview_cards[previews[0]].panel
+            source=owner.comfy.input_flow.chain.preview_results[stage]['images'][0]
+            self.assertEqual(source['reference']['prompt_id'],prompt)
+            self.assertEqual(Path(panel.input_record['path']),owner.store.directory/source['relative'])
+            self.assertEqual(len(panel.preview.pictures),1)
+            shown=panel.preview.pictures[0].toImage()
+            self.assertEqual(shown.pixelColor(shown.width()//2,shown.height()//2).name(),color)
+            self.assertNotIn(stage,self.b.host.comfy.input_flow.chain.preview_results)
+
     def test_cancel_waiting_file_does_not_touch_running_file(self):
         self.click(self.a)
         self.click(self.b)
@@ -201,6 +237,31 @@ class WorkspaceExecutionTests(unittest.TestCase):
         self.assertFalse(self.w.scheduler.waiting)
         self.finish()
         self.assertEqual(len(self.peer.submissions), 1)
+
+    def test_changed_image_source_uses_existing_document_refresh_for_sibling_preview(self):
+        from prompt_calculus_studio import preview_nodes
+
+        canvas=self.a.host.canvas
+        self.w.focus_tab(self.a)
+        source=canvas.functions.add_image(enhanced=False)
+        stage=next(iter(canvas.data()['stages']))
+        previews=[]
+        def wire(state):
+            previews.append(preview_nodes.add(state))
+            multi_output.connect(state,stage,source,'image')
+            multi_output.connect(state,stage,previews[0],'image')
+        self.assertTrue(canvas.commit(wire),self.notices)
+        other=self.w.duplicate_view(self.a)
+        sibling=other.host.canvas
+        self.click(self.a)
+        self.w.focus_tab(other)
+        with patch.object(sibling,'refresh_result_previews',wraps=sibling.refresh_result_previews) as extra:
+            self.finish()
+            self.assertIsNotNone(canvas.window.state['canvas_functions']['images'][source].get('source'))
+            shown=sibling.preview_cards[previews[0]].panel.preview.pictures
+            self.assertEqual(len(shown),1)
+            self.assertFalse(shown[0].isNull())
+            extra.assert_not_called()
 
     def test_cancel_running_file_keeps_lane_until_backend_receipt(self):
         self.click(self.a)

@@ -1,4 +1,5 @@
 """Browser loading must not change the workspace's Windows rendering surface."""
+import os
 import unittest
 from unittest.mock import patch
 
@@ -9,7 +10,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QWidget
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
-from prompt_calculus_studio.webengine_host import prepare_native_host
+from prompt_calculus_studio.webengine_host import configure_canvas_composition, prepare_native_host
 import test_markdown_reader_lifecycle as fixture
 
 
@@ -102,7 +103,8 @@ class NativeBrowserBoundaryTests(unittest.TestCase):
         body = page._turns['4'].attempts['a4'].content
         self.assertIsNone(body.rich)
         native_handle = int(page._content_host.winId())
-        self.assertEqual(page._content_host.windowHandle().surfaceType(), QSurface.SurfaceType.Direct3DSurface)
+        if self.window.canvas_hardware_acceleration_active:
+            self.assertEqual(page._content_host.windowHandle().surfaceType(), QSurface.SurfaceType.OpenGLSurface)
         self.check_shell('plain-chat')
         # A live native text selection intentionally holds the first rich
         # projection behind its fallback, without mocking/disconnecting slots.
@@ -195,6 +197,26 @@ class NativeBrowserBoundaryTests(unittest.TestCase):
                 self.assertEqual(QCoreApplication.testAttribute(attribute), previous)
         finally:
             QCoreApplication.setAttribute(attribute, original)
+
+
+class CanvasCompositionPolicyTests(unittest.TestCase):
+    def test_windows_canvas_selects_matching_quick_api_and_respects_overrides(self):
+        from PySide6.QtQuick import QQuickWindow, QSGRendererInterface
+
+        with patch('prompt_calculus_studio.webengine_host.QApplication.platformName', return_value='windows'), \
+                patch.object(QQuickWindow, 'setGraphicsApi') as select_api, patch.dict(os.environ, clear=True):
+            self.assertTrue(configure_canvas_composition(True))
+            select_api.assert_called_once_with(QSGRendererInterface.GraphicsApi.OpenGL)
+            select_api.reset_mock()
+            self.assertFalse(configure_canvas_composition(False))
+            for backend, compatible in [('d3d11', False), ('software', False), ('vulkan', False),
+                                        ('gl', True), ('gles2', True), ('opengl', True)]:
+                with self.subTest(backend=backend), patch.dict(os.environ, QSG_RHI_BACKEND=backend):
+                    self.assertEqual(configure_canvas_composition(True), compatible)
+                    self.assertEqual(os.environ['QSG_RHI_BACKEND'], backend)
+            with patch.dict(os.environ, QT_QUICK_BACKEND='software', QSG_RHI_BACKEND='opengl'):
+                self.assertFalse(configure_canvas_composition(True))
+            select_api.assert_not_called()
 
 
 if __name__ == '__main__':

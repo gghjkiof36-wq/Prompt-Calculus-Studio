@@ -319,6 +319,14 @@ class MultiCanvas(TextCanvas):
                 or getattr(self,'_scene_refresh_pending',True)
                 or getattr(self,'_visible_scene_state',None)!=self.history_state()):
             self.refresh()
+        elif getattr(self,'_result_preview_pending',False):
+            self.results.refresh()
+        self._result_preview_pending=False
+
+    def refresh_result_previews(self):
+        self._result_preview_pending=not self.isVisible()
+        if not self._result_preview_pending:
+            self.results.refresh()
     def restore_view(self):
         # Mode changes can save the empty GraphicsView before its first show.
         # Apply the new-document starting view only after real cards and final

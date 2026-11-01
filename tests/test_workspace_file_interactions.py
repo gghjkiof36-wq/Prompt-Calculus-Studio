@@ -94,6 +94,69 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
         self.assertTrue(a.dirty)
         self.assertEqual(a.path, self.root/'Notes.md')
 
+    def test_opening_or_dismissing_file_menu_does_not_scan_move_destinations(self):
+        from prompt_calculus_studio.local_documents import paths
+
+        tab = self.open()
+        files = self.w.commands.files
+        with patch.object(paths, 'document_entries', wraps=paths.document_entries) as entries:
+            menu = self.w.commands.menu_for(self.context(path=tab.path))
+            menu.open_at(self.w.tree.mapToGlobal(QPoint(30, 70)))
+            self.events()
+            self.assertFalse([call for call in entries.call_args_list if call.args[1] == ()])
+            self.assertFalse(files.pending)
+            menu.close()
+            self.events()
+            self.assertNotIn(id(tab), self.w.autosave.paused)
+
+            menu = self.w.commands.menu_for(self.context(path=tab.path))
+            menu.open_at(self.w.tree.mapToGlobal(QPoint(30, 70)))
+            new_folder = self.root/'New after opening'
+            new_folder.mkdir()
+            sub = next(a.menu() for a in menu.actions() if a.text() == '移動到')
+            sub.popup(menu.pos()+QPoint(menu.width(), 0))
+            self.events()
+            self.assertIn(str(new_folder), [a.data() for a in sub.actions()])
+            self.assertEqual(len(files.pending), 1)
+            menu.close()
+            self.events()
+            self.assertFalse(files.pending)
+            self.assertTrue(tab.path.is_file())
+
+    def test_move_omits_link_destinations_and_rechecks_replaced_directory(self):
+        import os
+        from contextlib import ExitStack
+
+        outside = Path(self.area.name)/'outside'
+        outside.mkdir()
+        tab = self.open()
+        raw = tab.path.read_bytes()
+        with ExitStack() as cleanup:
+            def link(path):
+                if os.name == 'nt':
+                    import _winapi
+                    _winapi.CreateJunction(str(outside), str(path))
+                    cleanup.callback(path.rmdir)
+                else:
+                    path.symlink_to(outside, target_is_directory=True)
+                    cleanup.callback(path.unlink)
+
+            alias = self.root/'Alias'
+            link(alias)
+            menu, sub = self.menu(tab.path)
+            self.assertNotIn(str(alias), [a.data() for a in sub.actions()])
+            folder = self.root/'Folder'
+            action = next(a for a in sub.actions() if a.data() == str(folder))
+            folder.rename(self.root/'Original folder')
+            link(folder)
+            action.trigger()
+            menu.close()
+            self.events()
+            self.assertEqual(tab.path, self.root/'Notes.md')
+            self.assertEqual(tab.path.read_bytes(), raw)
+            self.assertFalse((outside/tab.path.name).exists())
+            self.assertFalse(self.w.commands.files.pending)
+
     def test_submenu_parent_leaf_root_and_source_descendants(self):
         nested = self.root/'Folder'/'Nested'
         nested.mkdir()

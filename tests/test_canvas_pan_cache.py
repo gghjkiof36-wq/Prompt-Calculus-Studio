@@ -1,12 +1,13 @@
 """Camera-only backing reuse stays opaque, sharp, bounded and live."""
 import math
 import os
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter, QPen, QTransform
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter, QPen, QTransform, QWheelEvent
 from PySide6.QtWidgets import (QApplication, QGraphicsRectItem, QGraphicsScene,
                                QGraphicsView, QLabel, QLineEdit, QVBoxLayout, QWidget)
 from PySide6.QtTest import QTest
@@ -260,3 +261,157 @@ class CanvasPanCacheTests(unittest.TestCase):
         finally:
             canvas.close(); canvas.deleteLater()
             APP.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    def assert_full_frame(self, image):
+        # frame() starts magenta. No pixel may be left uncovered by the camera
+        # snapshot; the magenta viewport child is deliberately not in it.
+        self.assertNotIn(0xffff00ff, memoryview(image.constBits()).cast('I'))
+
+    def test_wheel_snapshot_reuses_scaled_camera_pixels_without_repainting_items(self):
+        self.cache.end(); self.cache.begin_zoom()
+        self.frame()
+        image = self.cache.image
+        key, paints, captures = image.cacheKey(), self.item.paints, self.cache.captures
+        self.view.scale(1.15, 1.15)
+        actual, used = self.frame()
+        self.assertTrue(used); self.assertEqual(self.cache.hits, 1)
+        self.assertEqual(self.cache.captures, captures)
+        self.assertEqual(self.cache.image.cacheKey(), key)
+        self.assertEqual(self.item.paints, paints)
+        self.assertLessEqual(self.cache.byte_count, self.cache.max_bytes)
+        self.assert_full_frame(actual)
+
+    def test_zoom_ratio_or_camera_coverage_miss_recaptures_within_budget(self):
+        self.cache.end(); self.cache.begin_zoom()
+        self.frame()
+        for name, action in (
+            ('ratio', lambda: self.view.scale(1.6, 1.6)),
+            ('uncovered_edge', lambda: self.view.horizontalScrollBar().setValue(
+                self.view.horizontalScrollBar().value()+1400)),
+        ):
+            with self.subTest(reason=name):
+                captures = self.cache.captures
+                action()
+                actual, used = self.frame()
+                self.assertTrue(used)
+                self.assertEqual(self.cache.captures, captures+1)
+                self.assertLessEqual(self.cache.byte_count, self.cache.max_bytes)
+                self.assert_full_frame(actual)
+                self.assert_pixels(actual, self.frame(cached=False)[0], roundoff=True)
+        self.cache.end()
+        rect = self.view.viewport().rect()
+        limited = PanRasterCache(self.view, max_bytes=rect.width()*rect.height()*4-1)
+        try:
+            limited.begin_zoom()
+            actual, used = self.frame(dpr=1., cache=limited)
+            self.assertFalse(used); self.assertEqual(limited.byte_count, 0)
+            self.assert_full_frame(actual)
+            self.assert_pixels(actual, self.frame(cached=False, dpr=1.)[0])
+        finally:
+            limited.end()
+
+    def test_live_scene_and_proxy_updates_replace_a_scaled_wheel_snapshot(self):
+        self.cache.end(); self.cache.begin_zoom()
+        self.frame(); self.view.scale(1.1, 1.1)
+        self.frame()
+        for name, action in (
+            ('scene', lambda: self.item.setBrush(QColor('#efc861'))),
+            ('proxy', lambda: self.edit.setText('Changed during wheel zoom')),
+        ):
+            with self.subTest(source=name):
+                captures = self.cache.captures
+                action(); self.events()
+                self.assertIsNone(self.cache.image)
+                actual, used = self.frame()
+                self.assertTrue(used)
+                self.assertEqual(self.cache.captures, captures+1)
+                self.assert_full_frame(actual)
+                self.assert_pixels(actual, self.frame(cached=False)[0], roundoff=True)
+
+    def test_viewport_layout_keeps_wheel_pixels_but_proxy_layout_recaptures(self):
+        self.cache.end(); self.cache.begin_zoom()
+        self.frame()
+        image, captures = self.cache.image, self.cache.captures
+        APP.sendEvent(self.view.viewport(), QEvent(QEvent.Type.LayoutRequest))
+        self.assertIs(self.cache.image, image)
+        self.frame()
+        self.assertEqual(self.cache.captures, captures)
+        APP.sendEvent(self.edit, QEvent(QEvent.Type.LayoutRequest))
+        self.assertIsNone(self.cache.image)
+        actual, used = self.frame()
+        self.assertTrue(used); self.assertEqual(self.cache.captures, captures+1)
+        self.assert_pixels(actual, self.frame(cached=False)[0], roundoff=True)
+
+    @contextmanager
+    def real_canvas(self):
+        from prompt_calculus_studio.canvas_items import CanvasView
+        canvas = QWidget()
+        canvas.window = SimpleNamespace(state={'workspace': 'qa'}, store=None)
+        canvas._paint_colors = dict(base='#242829', canvas_background='#242829', line='#525757')
+        layout = QVBoxLayout(canvas)
+        view = CanvasView(canvas); layout.addWidget(view)
+        view.scene().setSceneRect(-1000, -1000, 3000, 3000)
+        item = PaintedItem(QRectF(-50, -50, 100, 100))
+        item.setBrush(QColor('#9bbaa8')); view.scene().addItem(item)
+        canvas.resize(470, 350); canvas.show(); view.centerOn(0, 0)
+        self.events()
+        try:
+            yield view, item
+        finally:
+            canvas.close(); canvas.deleteLater()
+            APP.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    def wheel(self, view, delta=120):
+        point = QPoint(20, 20)
+        event = QWheelEvent(QPointF(point), QPointF(view.viewport().mapToGlobal(point)),
+                            QPoint(), QPoint(0, delta), Qt.MouseButton.NoButton,
+                            Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.ScrollUpdate, False)
+        APP.sendEvent(view.viewport(), event)
+        self.events()
+
+    def test_actual_wheel_hook_settles_to_exact_paint_and_releases_after_120ms(self):
+        with self.real_canvas() as (view, item):
+            self.wheel(view)
+            cache = view.pan_raster
+            self.assertTrue(cache.active); self.assertTrue(cache.allow_zoom)
+            self.assertEqual(cache.zoom_timer.interval(), 120)
+            self.assertTrue(cache.zoom_timer.isActive()); self.assertIsNotNone(cache.image)
+            captures, paints = cache.captures, item.paints
+            self.wheel(view, 40)
+            self.assertEqual(cache.captures, captures)
+            self.assertEqual(item.paints, paints)
+            self.assertGreater(cache.hits, 0)
+            QTest.qWait(170); self.events()
+            self.assertFalse(cache.active); self.assertFalse(cache.allow_zoom)
+            self.assertFalse(cache.zoom_timer.isActive()); self.assertEqual(cache.byte_count, 0)
+            self.assertGreater(item.paints, paints)  # Timeout requested actual scene paint.
+            actual = view.viewport().grab().toImage()
+            rect = view.viewport().rect()
+            expected = QImage(actual.size(), QImage.Format.Format_RGB32)
+            expected.setDevicePixelRatio(actual.devicePixelRatioF())
+            expected.fill(QColor('#ff00ff'))
+            painter = QPainter(expected); painter.setRenderHints(view.renderHints())
+            try:
+                view.render(painter, QRectF(rect), rect, Qt.AspectRatioMode.IgnoreAspectRatio)
+            finally:
+                painter.end()
+            self.assert_pixels(actual.convertToFormat(QImage.Format.Format_RGB32), expected, roundoff=True)
+
+    def test_programmatic_camera_transforms_cancel_active_wheel_reuse(self):
+        with self.real_canvas() as (view, item):
+            for name, action in (
+                ('scale', lambda: view.scale(1.05, 1.05)),
+                ('reset', view.resetTransform),
+                ('set', lambda: view.setTransform(QTransform.fromScale(.85, .85))),
+            ):
+                with self.subTest(transform=name):
+                    self.wheel(view)
+                    self.assertTrue(view.pan_raster.active)
+                    paints = item.paints
+                    action()
+                    self.assertFalse(view.pan_raster.active)
+                    self.assertFalse(view.pan_raster.allow_zoom)
+                    self.assertFalse(view.pan_raster.zoom_timer.isActive())
+                    self.assertEqual(view.pan_raster.byte_count, 0)
+                    self.events()
+                    self.assertGreater(item.paints, paints)

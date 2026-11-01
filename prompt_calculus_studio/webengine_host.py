@@ -1,6 +1,27 @@
-"""Keep a Windows browser's texture composition out of the workspace window."""
+"""Keep Windows browser and Canvas composition compatible within the workspace."""
+import os
+
 from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QApplication
+
+
+def configure_canvas_composition(requested):
+    """Choose the session API before any document creates its graphics surface."""
+    if not requested or QApplication.platformName() != 'windows':
+        return requested
+    # An explicit Quick adaptation or RHI backend belongs to the caller. Keep
+    # its choice and use an ordinary Canvas viewport if it cannot share GL.
+    adaptation = os.environ.get('QT_QUICK_BACKEND') or os.environ.get('QMLSCENE_DEVICE')
+    if adaptation and adaptation != 'rhi':
+        return False
+    backend = os.environ.get('QSG_RHI_BACKEND')
+    if backend:
+        return backend in ('gl', 'gles2', 'opengl')
+    from PySide6.QtQuick import QQuickWindow, QSGRendererInterface
+    # Windows defaults to D3D for Quick. Mixing that with a QOpenGLWidget
+    # leaves stale pixels when its native sibling Chat or reader is shown.
+    QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.OpenGL)
+    return True
 
 
 def prepare_native_host(view):

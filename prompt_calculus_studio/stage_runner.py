@@ -705,7 +705,7 @@ class StageRunner(QObject):
                 if current['workspace']==self.window.state['workspace']:
                     self.remember_preview(attempt,result)
                     self.results[stage['id']]=copy.deepcopy(frame['produced'][stage['id']]) if frame and stage['id'] in frame['produced'] else result
-                    self.refresh_results()
+                    self.refresh_results(preview_changed=bool(images))
                 if current['status']=='paused':self.settle(self.store.read(current['id']))
                 self.notify();self.later()
             except (ValueError,OSError) as exc:fail(str(exc))
@@ -747,7 +747,7 @@ class StageRunner(QObject):
             self.refresh_results()
             self.window.changed('prompt')
 
-    def refresh_results(self):
+    def refresh_results(self, *, preview_changed=False):
         canvas=getattr(self.window,'canvas',None)
         if canvas:
             # Update derived source text on the visible Canvas without an edit
@@ -756,7 +756,13 @@ class StageRunner(QObject):
             changed=sync_result_view(self.window.state,self.window.store.directory,self.results)
             if changed:
                 canvas.refresh();self.window.changed('prompt')
-            else:canvas.functions.refresh();canvas.results.refresh();canvas.refresh_image_previews()
+            else:
+                canvas.functions.refresh();canvas.results.refresh();canvas.refresh_image_previews()
+                # A document edit above already schedules all sibling views.
+                # Publish a display-only result when there was no such edit.
+                if preview_changed:
+                    publish=getattr(self.window,'refresh_sibling_result_previews',None)
+                    if publish:publish()
 
     def pause(self,ident,message='已暫停後續派送；目前工作繼續。',reason='manual'):
         run=self.store.read(ident)

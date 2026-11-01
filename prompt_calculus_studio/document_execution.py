@@ -63,6 +63,13 @@ class DocumentExecution(QObject):
         if self.document is not None:
             for host in self.document.hosts:host.recent.receive_results(values)
 
+    def refresh_sibling_result_previews(self):
+        if self.document is None:
+            return
+        for host in self.document.hosts:
+            if host is not self.view_host and not host.closing:
+                host.canvas.refresh_result_previews()
+
     def detach(self):
         self._state = copy.deepcopy(self.state)
         self.document = None

@@ -96,12 +96,30 @@ class CanvasZoomControls(QFrame):
             action.setStyleSheet('QPushButton { padding:4px 7px; }')
             action.setAccessibleName(action.toolTip());body.addWidget(action)
         self.value.setMinimumWidth(54)
+        # This is a QWidget overlay over a separately composed Canvas. Moving
+        # or repainting it at every wheel event also updates the workspace.
+        self.wheel_label_timer=QTimer(self)
+        self.wheel_label_timer.setSingleShot(True)
+        self.wheel_label_timer.setInterval(100)
+        self.wheel_label_timer.timeout.connect(self.update_percentage)
         canvas.view.transformChanged.connect(self.refresh)
         canvas.view.viewport().installEventFilter(self);self.refresh()
+        self.place()
 
     def refresh(self):
-        self.value.setText(f'{round(self.canvas.view.transform().m11()*100)}%')
-        self.place()
+        if getattr(self.canvas.view,'_wheel_transform',False):
+            if not self.wheel_label_timer.isActive():
+                self.wheel_label_timer.start()
+            return
+        self.wheel_label_timer.stop()
+        self.update_percentage()
+
+    def update_percentage(self):
+        text=f'{round(self.canvas.view.transform().m11()*100)}%'
+        if self.value.text()!=text:
+            self.value.setText(text)
+            if self.sizeHint()!=self.size():
+                self.place()
 
     def place(self):
         bar=getattr(self.canvas,'execution_bar',None)

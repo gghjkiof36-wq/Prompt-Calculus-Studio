@@ -1,9 +1,11 @@
 """Custom foundations share readable derived roles without Qt or preset names."""
 import copy
 import unittest
+from unittest.mock import patch
 
+from prompt_calculus_studio.accent_colors import ACCENT_PRESETS
 from prompt_calculus_studio.color_roles import color, contrast, derive_roles, luminance, readable
-from prompt_calculus_studio.theme import visual_tokens
+from prompt_calculus_studio.theme import accent_color, visual_tokens
 
 
 FOUNDATIONS = {
@@ -30,6 +32,18 @@ SURFACES = ('base', 'chrome', 'surface', 'raised', 'field', 'sidebar')
 
 
 class ColorRoleTests(unittest.TestCase):
+    def test_swatch_resolution_preserves_palette_and_custom_colors_without_full_derivation(self):
+        choices = [(key, None) for _, key, _ in ACCENT_PRESETS] + [
+            ('custom', '#F077AF'), ('custom', 'invalid'), ('custom', None), ('unknown', None)]
+        cases = [{'visual_palette': palette, 'accent': accent, 'accent_custom': custom}
+                 for palette in ('graphite', 'mist', 'paper', 'unknown') for accent, custom in choices]
+        cases += [{}, {'visual_palette': 'mist'}]
+        expected = [visual_tokens(settings)['accent'] for settings in cases]
+        with patch('prompt_calculus_studio.theme._derived_palette', side_effect=AssertionError('swatches need no full palette')):
+            for settings, value in zip(cases, expected):
+                with self.subTest(settings=settings):
+                    self.assertEqual(accent_color(settings), value)
+
     def test_application_finish_preserves_canvas_and_readable_interaction_states(self):
         # These are the accepted Canvas surfaces before the application migration.
         baselines={

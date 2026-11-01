@@ -673,42 +673,52 @@ class CanvasView(QGraphicsView):
 
     def scale(self,sx,sy):
         if sx==1 and sy==1:return
+        self._cancel_wheel_backing()
         self._raster_direct_until=time.monotonic()+.12
         super().scale(sx,sy);self.transformChanged.emit()
 
     def resetTransform(self):
+        self._cancel_wheel_backing()
         self._raster_direct_until=time.monotonic()+.12
         super().resetTransform();self.transformChanged.emit()
 
     def setTransform(self,matrix,combine=False):
+        self._cancel_wheel_backing()
         self._raster_direct_until=time.monotonic()+.12
         super().setTransform(matrix,combine);self.transformChanged.emit()
+
+    def _cancel_wheel_backing(self):
+        cache=getattr(self,'pan_raster',None)
+        if cache is not None and cache.allow_zoom and not getattr(self,'_wheel_transform',False):
+            cache.end()
 
     def paintEvent(self,event):
         from .canvas_raster import paint_scope
         from .canvas_proxy_cache import configure
         configure()
-        # Zoom changes every full-card raster. Draw those layers directly
-        # while it changes; small device-aligned shadow tiles remain bounded.
-        # Full-card reuse resumes without a repaint timer.
+        # If a camera backing is unavailable, paint the exact current zoom.
+        # Avoid allocating full-card rasters for transient scales.
         # A frame has one appearance. Resolve it once rather than merging
         # workspace settings and deriving the palette for every port/card.
         previous=getattr(self.canvas,'_paint_colors',None)
         self.canvas._paint_colors=canvas_colors(self.canvas)
         try:
             with paint_scope(time.monotonic()>=getattr(self,'_raster_direct_until',0)):
-                if self.pan is not None:
+                cache=getattr(self,'pan_raster',None)
+                if cache is not None and cache.active:
                     painter=QPainter(self.viewport())
-                    try:reused=self.pan_raster.paint(painter,tuple(sorted(self.canvas._paint_colors.items())))
+                    try:reused=cache.paint(painter,tuple(sorted(self.canvas._paint_colors.items())))
                     finally:painter.end()
                     if reused:return
                 super().paintEvent(event)
         finally:self.canvas._paint_colors=previous
 
     def hideEvent(self,event):
+        cache=getattr(self,'pan_raster',None)
+        if cache is not None:
+            cache.end()
         if getattr(self,'pan',None) is not None:
             self.pan=None;self.pan_button=None;self.unsetCursor()
-            self.pan_raster.end()
         super().hideEvent(event)
         from .canvas_proxy_cache import configure
         configure()
@@ -912,8 +922,16 @@ class CanvasView(QGraphicsView):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing,False)
         # A solid background has no antialiased edges within the exposed area.
         # Keep its scene rect and painter clip so partial renders stay bounded.
-        painter.fillRect(rect,QColor(colors['canvas_background']))
+        background=QColor(colors['canvas_background'])
+        painter.fillRect(rect,background)
         dot=QColor(colors['line']);dot.setAlpha(90)
+        # These non-antialiased dots sit on the solid fill above. Precompose
+        # their identical RGB value so Qt can batch opaque points on OpenGL;
+        # translucent points otherwise take a separate stroke for every dot.
+        if (background.alpha()==255 and painter.opacity()==1.
+                and painter.compositionMode()==QPainter.CompositionMode.CompositionMode_SourceOver):
+            dot.setRgb(*((front*90+back*165+127)//255
+                         for front,back in zip(dot.getRgb()[:3],background.getRgb()[:3])),255)
         pen=QPen(dot,1); pen.setCosmetic(True); painter.setPen(pen)
         spacing=28 if self.transform().m11()>=.6 else 112
         xs=range(math.floor(rect.left()/spacing)*spacing,math.ceil(rect.right()),spacing)
@@ -959,7 +977,11 @@ class CanvasView(QGraphicsView):
         point=event.position().toPoint();before=self.mapToScene(point)
         anchor=self.transformationAnchor();self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         factor=1.15**(event.angleDelta().y()/120);scale=self.transform().m11();target=max(.12,min(3.,scale*factor))
-        self.scale(target/scale,target/scale)
+        if target!=scale:
+            self.pan_raster.begin_zoom()
+        self._wheel_transform=True
+        try:self.scale(target/scale,target/scale)
+        finally:self._wheel_transform=False
         after=self.mapToScene(point);delta=after-before
         self.translate(delta.x(),delta.y());self.setTransformationAnchor(anchor)
         self.pointer_scene=before

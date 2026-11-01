@@ -140,7 +140,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.load_ui_preferences()
         # Keep one renderer policy for the session, including tabs opened after
         # changing the preference. Recreating a live viewport can lose controls.
-        self.canvas_hardware_acceleration_active = self.canvas_hardware_acceleration
+        from .webengine_host import configure_canvas_composition
+        self.canvas_hardware_acceleration_active = configure_canvas_composition(self.canvas_hardware_acceleration)
+        self.canvas_hardware_acceleration_fallback = self.canvas_hardware_acceleration and not self.canvas_hardware_acceleration_active
         self.appearance_preview = {}
         self.native_material = False
         self._material_ready = False

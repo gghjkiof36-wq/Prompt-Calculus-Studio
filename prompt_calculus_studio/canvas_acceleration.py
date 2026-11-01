@@ -12,6 +12,13 @@ _failed = False
 _native_api = None
 
 
+def visible_canvas_views(window):
+    """Visible scene views owned by this workspace, including raster fallback."""
+    return [controller.view for controller in tuple(_controllers)
+            if isValid(controller) and isValid(controller.view)
+            and controller.view.isVisible() and QWidget.window(controller.view) is window]
+
+
 def create_viewport(view):
     from PySide6.QtGui import QPaintEvent
     from PySide6.QtOpenGLWidgets import QOpenGLWidget

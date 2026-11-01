@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLineEdit
 from .accent_colors import ACCENT_PRESETS, DEFAULT_CUSTOM_ACCENT, valid_hex
 from .widgets import ComboBox, ComboItemDelegate, button
 from .popup_surface import PopupSurface
-from .theme import visual_tokens
+from .theme import accent_color
 from .ui_icons import icon
 
 
@@ -163,7 +163,7 @@ class AccentEditor(QWidget):
 
     def refresh_swatches(self,palette):
         for n,(_,key,_) in enumerate(ACCENT_PRESETS):
-            self.combo.setItemIcon(n,swatch(visual_tokens({'visual_palette':palette,'accent':key})['accent']))
+            self.combo.setItemIcon(n,swatch(accent_color({'visual_palette':palette,'accent':key})))
 
     def sync_custom(self,*_):
         self.custom.setVisible(self.combo.currentData()=='custom')

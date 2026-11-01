@@ -20,7 +20,9 @@ class MoveMenu:
         menu.aboutToShow.connect(self.start)
         self.root_menu.aboutToHide.connect(self.defer_finish)
         self.root_menu.destroyed.connect(self.finish)
-        self.populate(menu, context.root, top=True)
+        # Keep the submenu reachable without reading the filesystem when the
+        # ordinary file menu opens. Build it only when the user visits it.
+        menu.addAction('載入資料夾…').setEnabled(False)
 
     def start(self):
         if self.op is not None or self.closed:
@@ -28,6 +30,7 @@ class MoveMenu:
         try:
             self.op = self.files.begin(self.context)
             self.op.cancel = self.finish
+            self.populate(self.menu, self.context.root, top=True)
         except (OSError, ValueError) as error:
             self.w.show_notice(str(error))
             self.menu.setEnabled(False)
@@ -48,9 +51,7 @@ class MoveMenu:
             return []
         directory = self.w.locations.directory(directory)
         result = []
-        for child in directory.iterdir():
-            if child.name.casefold() in INTERNAL_NAMES or paths.is_link(child) or not child.is_dir():
-                continue
+        for child, _, _ in paths.document_entries(directory, (), INTERNAL_NAMES):
             try:
                 self.w.locations.directory(child)
             except (OSError, ValueError):

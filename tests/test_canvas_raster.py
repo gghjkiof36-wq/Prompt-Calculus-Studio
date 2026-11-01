@@ -216,6 +216,37 @@ class CanvasRasterTests(unittest.TestCase):
             self.assertEqual(image.pixelColor(x,y),QColor('#ab2345'))
         self.assertEqual(image.pixelColor(143,110),QColor(canvas_colors(self.canvas)['canvas_background']))
 
+    def test_grid_translucent_background_opacity_and_composition_keep_original_blending(self):
+        view=SimpleNamespace(canvas=self.canvas,transform=lambda:SimpleNamespace(m11=lambda:1.04))
+        rect=QRectF(-75,-41,650,400)
+        cases=(('translucent_background','#60111111',1.,QPainter.CompositionMode.CompositionMode_SourceOver),
+               ('painter_opacity','#111111',.45,QPainter.CompositionMode.CompositionMode_SourceOver),
+               ('composition_mode','#111111',1.,QPainter.CompositionMode.CompositionMode_Multiply))
+        for name,background,opacity,mode in cases:
+            with self.subTest(state=name):
+                colors=canvas_colors(self.canvas)
+                colors['canvas_background']=background
+                self.canvas._paint_colors=colors
+                try:
+                    def draw(painter,actual):
+                        painter.setOpacity(opacity);painter.setCompositionMode(mode)
+                        if actual:
+                            CanvasView.drawBackground(view,painter,rect)
+                            self.assertEqual(painter.opacity(),opacity)
+                            self.assertEqual(painter.compositionMode(),mode)
+                            return
+                        painter.setRenderHint(QPainter.RenderHint.Antialiasing,False)
+                        painter.fillRect(rect,QColor(background))
+                        dot=QColor(colors['line']);dot.setAlpha(90)
+                        pen=QPen(dot,1);pen.setCosmetic(True);painter.setPen(pen)
+                        for x in range(math.floor(rect.left()/28)*28,math.ceil(rect.right()),28):
+                            for y in range(math.floor(rect.top()/28)*28,math.ceil(rect.bottom()),28):
+                                painter.drawPoint(QPointF(x,y))
+                    self.assertEqual(self.render(lambda p:draw(p,True),zoom=1.04),
+                                     self.render(lambda p:draw(p,False),zoom=1.04))
+                finally:
+                    del self.canvas._paint_colors
+
 
     def test_module_surfaces_keep_pixels_and_live_selection_at_fractional_scales(self):
         outline=QPainterPath();outline.addRoundedRect(QRectF(0,0,360,280),16,16)

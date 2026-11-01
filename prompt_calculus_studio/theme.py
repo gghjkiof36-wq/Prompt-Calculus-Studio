@@ -55,6 +55,24 @@ def _derived_palette(entries):
     return result
 
 
+def _accent_color(settings, name, foundation):
+    accent = settings.get('accent','blue' if name == 'mist' else 'neutral')
+    seed = dict((key, value) for _, key, value in ACCENT_PRESETS).get(accent)
+    if accent == 'custom':
+        seed = settings.get('accent_custom', DEFAULT_CUSTOM_ACCENT)
+        if not valid_hex(seed):seed = DEFAULT_CUSTOM_ACCENT
+    return color(foundation.get('accent',
+        foundation.get('accent_'+str(accent),seed or foundation['accent_neutral'])))
+
+
+def accent_color(settings=None):
+    """Resolve a swatch without deriving unrelated text/interaction colors."""
+    settings = settings or {}
+    name = settings.get('visual_palette','graphite')
+    if name not in VISUAL_PALETTES:name = 'graphite'
+    return _accent_color(settings, name, VISUAL_PALETTES[name])
+
+
 def visual_tokens(settings=None, *, foundation=None):
     """Return an independent token map; old settings default to graphite.
 
@@ -71,12 +89,7 @@ def visual_tokens(settings=None, *, foundation=None):
         unknown = set(foundation)-set(result)-set(ACTION_SEEDS)-{'accent'}
         if unknown:raise ValueError('Unknown foundation colors: '+', '.join(sorted(unknown)))
         result.update({key:color(value) for key,value in foundation.items()})
-    accent = settings.get('accent','blue' if name == 'mist' else 'neutral')
-    seed = dict((key, value) for _, key, value in ACCENT_PRESETS).get(accent)
-    if accent == 'custom':
-        seed = settings.get('accent_custom', DEFAULT_CUSTOM_ACCENT)
-        if not valid_hex(seed):seed = DEFAULT_CUSTOM_ACCENT
-    result.setdefault('accent',result.get('accent_'+str(accent),seed or result['accent_neutral']))
+    result.setdefault('accent',_accent_color(settings, name, result))
     # Preserve the chosen fill; outlines must remain visible even for white on paper.
     result['accent_outline'] = readable(result['accent'],
         tuple(result[key] for key in ('base','surface','field','raised')), minimum=3)
