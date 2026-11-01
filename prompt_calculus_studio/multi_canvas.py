@@ -65,17 +65,6 @@ class OutputEditor(QFrame):
         body.addLayout(row(None,self.save_material))
         self.align_headers()
 
-    def preferred_height(self,width):
-        # Size the sheet once when opened; typing never moves it underneath the cursor.
-        from .flow_data import text_sources
-        sources=text_sources(self.canvas.data()['outputs'][self.key])
-        rows=len(sources)+sum(len(self.canvas.data()['canvases'].get(key,{}).get('members',[])) for key in sources)
-        text=self.editor.toPlainText()
-        columns=max(24,int(width*.65/max(1,self.editor.fontMetrics().averageCharWidth())))
-        lines=sum(max(1,(len(line)+columns-1)//columns) for line in text.splitlines())
-        field=max(180,min(400,max(rows*38,lines*self.editor.fontMetrics().lineSpacing()+28)))
-        return field+100
-
     def align_headers(self):
         height=max(40,self.preview_toggle.sizeHint().height(),self.copy_button.sizeHint().height())
         self.source_count.setFixedHeight(height);self.text_toolbar.setFixedHeight(height)

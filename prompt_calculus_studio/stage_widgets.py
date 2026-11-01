@@ -168,10 +168,6 @@ class SchedulePageContent(QFrame):
         self.pager.layout().setContentsMargins(0,0,0,0);body.addWidget(self.pager)
         self.canvas.window.comfy.stateChanged.connect(self.refresh);self.refresh()
 
-    def preferred_height(self,width):
-        rows=len(self.rows) if self.group else len(self.groups)
-        return min(500,96+max(1,min(rows,8))*(46 if self.group else 58))
-
     def adapt_width(self,width):
         compact=width<700
         self.history.setText('' if compact else '歷史')

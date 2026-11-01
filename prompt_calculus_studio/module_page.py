@@ -8,6 +8,9 @@ from .ui_icons import icon
 
 
 class ModulePage(QFrame):
+    PANEL_WIDTH = 1200
+    PANEL_HEIGHT = 600
+
     def __init__(self, canvas, title, content, on_close=None, *, kind):
         previous = getattr(canvas, '_module_page', None)
         if previous is not None and isValid(previous):
@@ -65,11 +68,10 @@ class ModulePage(QFrame):
     def fit(self):
         self.setGeometry(self.canvas.rect())
         gap=32 if self.width()>=800 else 16
-        width=min(920,max(1,self.width()-gap*2))
+        width=min(self.PANEL_WIDTH,max(1,self.width()-gap*2))
         adapt=getattr(self.content,'adapt_width',None)
         if adapt:adapt(width-48)
-        preferred=getattr(self.content,'preferred_height',lambda width:400)(width-48)
-        height=min(preferred+98,max(1,self.height()-gap*2))
+        height=min(self.PANEL_HEIGHT,max(1,self.height()-gap*2))
         self.surface.setGeometry((self.width()-width)//2,(self.height()-height)//2,width,height)
 
     def paintEvent(self,event):
