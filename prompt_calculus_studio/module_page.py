@@ -8,8 +8,8 @@ from .ui_icons import icon
 
 
 class ModulePage(QFrame):
-    PANEL_WIDTH = 1200
-    PANEL_HEIGHT = 600
+    PANEL_WIDTH = 920
+    PANEL_HEIGHT = 700
 
     def __init__(self, canvas, title, content, on_close=None, *, kind):
         previous = getattr(canvas, '_module_page', None)
