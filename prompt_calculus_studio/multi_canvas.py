@@ -18,10 +18,10 @@ from .clip_widgets import ClipCard,ExecutionBar,ClipBindingDialog
 from .quiet_splitter import QuietSplitter
 
 
-class OutputPanel(QFrame):
+class OutputEditor(QFrame):
     def __init__(self,canvas,key):
         super().__init__(); self.canvas=canvas; self.key=key; self.updating=False
-        self.setObjectName('CanvasModuleBody'); body=QVBoxLayout(self); body.setContentsMargins(4,8,4,4);body.setSpacing(10)
+        self.setObjectName('ModuleDetailBody'); body=QVBoxLayout(self); body.setContentsMargins(0,0,0,0);body.setSpacing(14)
         self.source_rows=canvas.data().get('version',0)>=7
         if self.source_rows:
             from .output_sources import OutputSources
@@ -34,22 +34,25 @@ class OutputPanel(QFrame):
         self.order.setMinimumHeight(96);self.order.setObjectName('ModuleSourceOrder')
         self.order.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.order.customContextMenuRequested.connect(self.context)
-        self.split=QuietSplitter(Qt.Orientation.Vertical); self.split.setChildrenCollapsible(False)
+        self.split=QuietSplitter(Qt.Orientation.Horizontal); self.split.setChildrenCollapsible(False)
         self.split.setObjectName('PromptSplit')
-        self.split.setToolTip('拖曳分隔線，調整組合清單與文字欄的比例。')
+        self.split.setToolTip('調整來源清單寬度')
         listing=QWidget(); list_layout=QVBoxLayout(listing); list_layout.setContentsMargins(0,0,0,0)
+        listing.setMinimumWidth(200);listing.setMaximumWidth(340)
         self.source_count=label('文字來源','Subtle')
         list_layout.addWidget(self.source_count);list_layout.addWidget(self.order)
         text_panel=QWidget();self.text_panel=text_panel; text_layout=QVBoxLayout(text_panel); text_layout.setContentsMargins(0,0,0,0)
         self.draft_status=label('Prompt 預覽','Subtle')
-        self.preview_toggle=button('收合預覽',self.toggle_preview,'Quiet')
+        self.preview_toggle=button('收合預覽',self.toggle_preview,'Quiet');self.preview_toggle.hide()
         self.copy_button=button('',lambda:canvas.window.copy_text(self.editor.toPlainText()),'Quiet')
         self.copy_button.setAccessibleName('複製 Prompt');self.copy_button.setToolTip('複製 Prompt')
         from .ui_icons import icon
         self.copy_button.setIcon(icon('copy'));self.copy_button.setProperty('iconName','copy')
-        text_layout.addLayout(row(self.draft_status,None,self.preview_toggle,self.copy_button))
+        self.text_toolbar=QWidget();self.text_toolbar.setLayout(row(self.draft_status,None,self.preview_toggle,self.copy_button))
+        self.text_toolbar.layout().setContentsMargins(0,0,0,0)
+        text_layout.addWidget(self.text_toolbar)
         self.editor=QPlainTextEdit(); self.editor.setObjectName('Prompt'); self.editor.setMinimumSize(260,80)
-        self.editor.setMaximumHeight(190)
+        self.editor.setMaximumHeight(16777215)
         self.editor.setPlaceholderText('輸入提示詞，或從左側接入文字。'); self.editor.textChanged.connect(self.edited); text_layout.addWidget(self.editor,1)
         self.split.addWidget(listing); self.split.addWidget(text_panel); body.addWidget(self.split,1)
         self.split.splitterMoved.connect(self.save_ratio); self.loaded_ratio=None
@@ -58,8 +61,24 @@ class OutputPanel(QFrame):
         self.clear.setText('還原');self.clear.setToolTip('清除手動內容，使用文字來源重新組合')
         self.save_material=button('存入素材庫',lambda:canvas.window.new_item(self.editor.toPlainText()),'Quiet')
         self.save_material.setIcon(icon('package'));self.refresh_visual_theme()
-        text_layout.itemAt(0).layout().insertWidget(1,self.clear)
-        body.addWidget(self.save_material)
+        self.text_toolbar.layout().insertWidget(1,self.clear)
+        body.addLayout(row(None,self.save_material))
+        self.align_headers()
+
+    def preferred_height(self,width):
+        # Size the sheet once when opened; typing never moves it underneath the cursor.
+        from .flow_data import text_sources
+        sources=text_sources(self.canvas.data()['outputs'][self.key])
+        rows=len(sources)+sum(len(self.canvas.data()['canvases'].get(key,{}).get('members',[])) for key in sources)
+        text=self.editor.toPlainText()
+        columns=max(24,int(width*.65/max(1,self.editor.fontMetrics().averageCharWidth())))
+        lines=sum(max(1,(len(line)+columns-1)//columns) for line in text.splitlines())
+        field=max(180,min(400,max(rows*38,lines*self.editor.fontMetrics().lineSpacing()+28)))
+        return field+100
+
+    def align_headers(self):
+        height=max(40,self.preview_toggle.sizeHint().height(),self.copy_button.sizeHint().height())
+        self.source_count.setFixedHeight(height);self.text_toolbar.setFixedHeight(height)
 
     def refresh_visual_theme(self):
         from .module_chrome import style_action
@@ -67,6 +86,7 @@ class OutputPanel(QFrame):
         style_action(self.save_material,canvas_colors(self.canvas))
         if self.source_rows:
             self.order.refresh(self.canvas.window.state,canvas_colors(self.canvas))
+        self.align_headers()
 
     def toggle_preview(self):
         output=self.canvas.data()['outputs'][self.key]
@@ -74,12 +94,9 @@ class OutputPanel(QFrame):
         self.apply_preview_visibility();self.canvas.window.changed('layout')
 
     def apply_preview_visibility(self):
-        collapsed=self.canvas.data()['outputs'][self.key].get('preview_collapsed',False)
-        self.editor.setVisible(not collapsed);self.preview_toggle.setText('展開預覽' if collapsed else '收合預覽')
-        self.text_panel.setMaximumHeight(self.preview_toggle.sizeHint().height()+8 if collapsed else 240)
-        self.preview_toggle.setAccessibleName(self.preview_toggle.text())
-        card=self.canvas.outputs.get(self.key)
-        if card:card.layout_card()
+        # The dedicated editor always shows its content. Keep the old card's
+        # collapsed preference intact for documents opened by an older build.
+        self.editor.show();self.text_panel.setMaximumHeight(16777215)
 
     def more_actions(self):
         menu=RoundMenu(self)
@@ -92,7 +109,7 @@ class OutputPanel(QFrame):
             self.loaded_ratio=sizes[0]/sum(sizes)
             self.canvas.data()['outputs'][self.key]['panel_ratio']=self.loaded_ratio; self.canvas.window.changed('layout')
     def restore_ratio(self):
-        ratio=self.canvas.data()['outputs'][self.key].get('panel_ratio',.62)
+        ratio=min(.4,max(.2,self.canvas.data()['outputs'][self.key].get('panel_ratio',.28)))
         if ratio!=self.loaded_ratio:
             self.split.setSizes([round(ratio*1000),round((1-ratio)*1000)]); self.loaded_ratio=ratio
     def context(self,pos):
@@ -112,6 +129,8 @@ class OutputPanel(QFrame):
             if key in self.canvas.cards:self.canvas.cards[key].setSelected(True)
             self.canvas.context(key,widget_global_position(self.order.viewport(),pos,self.canvas.view),[key])
     def open_source(self,key):
+        page=getattr(self.canvas,'_module_page',None)
+        if page is not None:page.finish()
         if not self.source_rows:self.canvas.focus_node(key);return
         parent=key.split('::')[0]
         groups=(self.canvas.containers,self.canvas.outputs,self.canvas.flow_cards,self.canvas.functions.cards)
@@ -132,7 +151,11 @@ class OutputPanel(QFrame):
             for cid in canvas_ids(state['multi_output']['outputs'][self.key]):
                 value=state['multi_output']['canvases'][cid]
                 value['members']=[k for k in keys if k in value['members']]
-        QTimer.singleShot(0,lambda:canvas.commit(reorder))
+        page=getattr(canvas,'_module_page',None);workspace=canvas.window.state['workspace']
+        def apply():
+            if (page is not None and not page.closed and page.content is self
+                    and canvas.window.state['workspace']==workspace):canvas.commit(reorder)
+        QTimer.singleShot(0,self,apply)
     def edited(self):
         if self.updating: return
         from .drafts import edit
@@ -171,8 +194,48 @@ class OutputPanel(QFrame):
         self.updating=False
 
 
+class OutputPanel(QFrame):
+    """Small Canvas entry; the source tree and text editor exist only on demand."""
+    def __init__(self,canvas,key):
+        super().__init__();self.canvas=canvas;self.key=key;self.page=None
+        self.setObjectName('CanvasModuleBody')
+        body=QVBoxLayout(self);body.setContentsMargins(4,8,4,4);body.setSpacing(8)
+        self.summary=label('','Subtle',True);body.addWidget(self.summary)
+        self.open_button=button('開啟 Prompt 輸出',self.open_page,'Quiet');body.addWidget(self.open_button)
+
+    def open_page(self):
+        if self.page is not None and not self.page.closed:
+            self.page.raise_();return self.page
+        from .module_page import ModulePage
+        editor=OutputEditor(self.canvas,self.key)
+        def closed():
+            from shiboken6 import isValid
+            self.page=None
+            if isValid(self) and isValid(self.summary) and not self.canvas.window.closing:self.refresh()
+        self.page=ModulePage(self.canvas,self.canvas.data()['outputs'][self.key]['name'],editor,closed,kind='outputs')
+        editor.restore_ratio();editor.refresh();self.page.fit();editor.editor.setFocus()
+        return self.page
+
+    def refresh(self):
+        output=self.canvas.data()['outputs'].get(self.key)
+        if output is None:
+            if self.page is not None:self.page.finish()
+            return
+        from .flow_data import text_sources
+        manual=output['draft'] is not None
+        self.summary.setText(('手動內容 · '+str(len(output['draft']))+' 字') if manual else '文字來源 · '+str(len(text_sources(output))))
+        if self.page is not None and not self.page.closed:
+            self.page.heading.setText(output['name']);self.page.content.refresh()
+
+    def restore_ratio(self):pass
+
+    def refresh_visual_theme(self):
+        if self.page is not None and not self.page.closed:
+            self.page.refresh_visual_theme();self.page.content.refresh_visual_theme()
+
+
 class OutputCard(TextCard):
-    default_size=(440,410)
+    default_size=(360,210)
     def __init__(self,canvas,key):
         super().__init__(canvas); self.key=key; self.module_icon='list-ordered'; self.panel=OutputPanel(canvas,key); self.init_interaction()
     def attach(self):
@@ -183,7 +246,7 @@ class OutputCard(TextCard):
         width,height=self.requested_size; minimum=self.panel.minimumSizeHint()
         from .flow_data import text_sources
         top=max(102,90+24*len(text_sources(self.canvas.data()['outputs'][self.key])))
-        self.proxy.setGeometry(QRectF(14,top,max(350,minimum.width(),width-28),max(210,minimum.height(),height-top-14))); self.sync_bounds()
+        self.proxy.setGeometry(QRectF(14,top,max(290,minimum.width(),width-28),max(80,minimum.height()))); self.sync_bounds()
     def update_text(self):
         self.title=self.canvas.data()['outputs'][self.key]['name']; self.panel.refresh(); super().update_text()
     def open_menu(self,position): self.canvas.output_menu(self.key,position)
@@ -437,6 +500,8 @@ class MultiCanvas(TextCanvas):
         Deferred output/layout refreshes must not use cards from the old model;
         constructing new cards remains the visible Canvas refresh's job.
         """
+        page=getattr(self,'_module_page',None)
+        if page is not None:page.validate_owner()
         state=self.window.state; data=self.data(); removed=set()
         node_keys={key for key in state.get('uses',{})}
         for key,root in state.get('uses',{}).items():
@@ -501,6 +566,8 @@ class MultiCanvas(TextCanvas):
             if card is not None:card.sync_bounds()
         self.update_lines()
     def refresh(self, *, prepare_hidden=False):
+        page=getattr(self,'_module_page',None)
+        if page is not None:page.validate_owner()
         if not hasattr(self,'outputs') or self.refreshing: return
         self._scene_refresh_pending=True
         if hasattr(self,'onboarding'):self.onboarding.refresh()

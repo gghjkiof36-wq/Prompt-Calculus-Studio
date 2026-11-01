@@ -13,6 +13,7 @@ from .exclusions import filter_tags, exclusion_rules, tag_key, effective_exclude
 from .composition import validate_compositions, root_for, render, effective_nodes, join_fragments, using_legacy_format
 
 SUPPORTED_STATE_VERSIONS=(1,2,3,4,5,6,7)
+RUN_COUNT_LIMIT=1000
 
 
 DEFAULT_SETTINGS = dict(ui_size=11, prompt_size=12, density="comfortable",
@@ -169,7 +170,7 @@ def validate_state(state):
     count=settings.get('comfy_count',1)
     if 'comfy_url' in settings: local_address(settings['comfy_url'])
     if type(settings.get('comfy_enabled',False)) is not bool: raise ValueError('ComfyUI 連線設定必須是布林值。')
-    if type(count) is not int or not 1<=count<=100: raise ValueError('運行次數須介於 1–100。')
+    if type(count) is not int or not 1<=count<=RUN_COUNT_LIMIT: raise ValueError(f'運行次數須介於 1–{RUN_COUNT_LIMIT:,}。')
     for material in ('acrylic','mica','clear'):
         transparency=settings.get(material+'_transparency',DEFAULT_SETTINGS[material+'_transparency'])
         if type(transparency) is not int or not 0 <= transparency <= 100:

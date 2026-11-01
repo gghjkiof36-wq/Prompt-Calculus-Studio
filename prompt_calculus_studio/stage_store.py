@@ -15,6 +15,13 @@ class StageStore:
         with schema_transaction(db):
             db.execute('CREATE TABLE IF NOT EXISTS stage_journal (id TEXT PRIMARY KEY, kind TEXT, workspace TEXT, owner TEXT, position INTEGER, body TEXT NOT NULL)')
             db.execute('CREATE INDEX IF NOT EXISTS stage_owner ON stage_journal(kind,workspace,owner,position)')
+            db.execute('CREATE INDEX IF NOT EXISTS stage_position ON stage_journal(position)')
+            db.execute('CREATE INDEX IF NOT EXISTS stage_owner_order ON stage_journal(kind,owner,position)')
+            db.execute("CREATE INDEX IF NOT EXISTS stage_group ON stage_journal(kind,workspace,json_extract(body,'$.scheduler'),json_extract(body,'$.execution_group'),position)")
+            db.execute("""CREATE INDEX IF NOT EXISTS stage_entry_display ON stage_journal(kind,workspace,
+                json_extract(body,'$.scheduler'),json_extract(body,'$.status'),
+                COALESCE(json_extract(body,'$.execution_group'),'legacy:'||json_extract(body,'$.run')),
+                json_extract(body,'$.run'),id,position,json_extract(body,'$.created'),json_extract(body,'$.label'))""")
             db.execute("CREATE INDEX IF NOT EXISTS stage_latest ON stage_journal(kind,workspace,json_extract(body,'$.stage'),position)")
             db.execute("CREATE INDEX IF NOT EXISTS stage_active ON stage_journal(kind,json_extract(body,'$.status'),workspace,owner,position)")
             db.execute("CREATE INDEX IF NOT EXISTS stage_open_runs ON stage_journal(workspace,position) WHERE kind='run' AND json_extract(body,'$.status') NOT IN ('complete','cancelled')")
@@ -59,7 +66,13 @@ class StageStore:
             (ident,workspace,workspace)).fetchone()
         return dict(status=row[0],cancel_requested=row[1]) if row else None
 
-    def entry_summaries(self,workspace,scheduler):
+    def entry_states(self,workspace,scheduler):
+        """Minimal ownership/state projection for a collapsed schedule card."""
+        query="SELECT id,json_extract(body,'$.run'),json_extract(body,'$.status'),COALESCE(json_extract(body,'$.execution_group'),'legacy:'||json_extract(body,'$.run')) FROM stage_journal INDEXED BY stage_entry_display WHERE kind='entry' AND workspace=? AND json_extract(body,'$.scheduler')=? AND json_extract(body,'$.status') IN ("+','.join('?' for _ in ACTIVE)+') ORDER BY position'
+        return [dict(id=ident,workspace=workspace,run=run,status=status,execution_group=group)
+                for ident,run,status,group in self.db.execute(query,(workspace,scheduler,*ACTIVE))]
+
+    def entry_summaries(self,workspace,scheduler,*,group=None,limit=None,offset=0):
         """List display fields, leaving frozen graphs/text for explicit detail reads."""
         query="""SELECT id,workspace,owner,
             json_extract(body,'$.run','$.scheduler','$.parent','$.status','$.label'),
@@ -68,10 +81,16 @@ class StageStore:
             (SELECT value FROM json_each(body,'$.saved.inputs') WHERE json_extract(value,'$.type')='image' LIMIT 1),
             (SELECT json_extract(value,'$[0]') FROM json_each(body,'$.saved.batches') WHERE json_array_length(value)>0 LIMIT 1),
             (SELECT MAX(json_array_length(value)) FROM json_each(body,'$.saved.batches'))
-            FROM stage_journal WHERE kind='entry' AND workspace=? AND json_extract(body,'$.scheduler')=?
-            AND json_extract(body,'$.status') IN ("""+','.join('?' for _ in ACTIVE)+') ORDER BY position'
+            FROM stage_journal WHERE kind='entry' AND workspace=? AND json_extract(body,'$.scheduler')=?"""
+        args=[workspace,scheduler]
+        if group is None:
+            query+=" AND json_extract(body,'$.status') IN ("+','.join('?' for _ in ACTIVE)+')';args.extend(ACTIVE)
+        else:
+            query+=" AND COALESCE(json_extract(body,'$.execution_group'),'legacy:'||json_extract(body,'$.run'))=?";args.append(group)
+        query+=' ORDER BY position'
+        if limit is not None:query+=' LIMIT ? OFFSET ?';args.extend((limit,offset))
         result=[]
-        for row in self.db.execute(query,(workspace,scheduler,*ACTIVE)):
+        for row in self.db.execute(query,args):
             run,key,parent,status,label=json.loads(row[3])
             source=json.loads(row[4]) if row[4] is not None else None
             first=row[5] if row[5] is not None else row[6]
@@ -82,6 +101,90 @@ class StageStore:
             result.append(dict(id=row[0],workspace=row[1],owner=row[2],run=run,scheduler=key,
                                parent=parent,status=status,label=label,image=image,image_count=count))
         return result
+
+    def active_count(self,workspace,scheduler,owner=None):
+        query="SELECT COUNT(*) FROM stage_journal WHERE kind='entry' AND workspace=? AND json_extract(body,'$.scheduler')=? AND json_extract(body,'$.status') IN ("+','.join('?' for _ in ACTIVE)+')'
+        args=[workspace,scheduler,*ACTIVE]
+        if owner is not None:query+=' AND owner=?';args.append(owner)
+        return self.db.execute(query,args).fetchone()[0]
+
+    def next_entry(self,owner):
+        query="SELECT body FROM stage_journal WHERE kind='entry' AND owner=? AND json_extract(body,'$.status') IN ("+','.join('?' for _ in ACTIVE)+') ORDER BY position LIMIT 1'
+        row=self.db.execute(query,(owner,*ACTIVE)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def waiting_ids(self,owner):
+        return [r[0] for r in self.db.execute("SELECT id FROM stage_journal WHERE kind='entry' AND owner=? AND json_extract(body,'$.status')='waiting' ORDER BY position",(owner,))]
+
+    def scheduler_runs(self,workspace,scheduler):
+        query="""SELECT DISTINCT json_extract(body,'$.run') FROM stage_journal WHERE kind='entry' AND workspace=?
+            AND json_extract(body,'$.scheduler')=? AND json_extract(body,'$.status') IN ('waiting','running','retained')
+            UNION SELECT id FROM stage_journal r WHERE kind='run' AND workspace=?
+            AND json_extract(body,'$.status') NOT IN ('complete','cancelled')
+            AND (EXISTS(SELECT 1 FROM json_each(r.body,'$.plan.scopes') WHERE key=?)
+            OR EXISTS(SELECT 1 FROM json_each(r.body,'$.plan.stages') WHERE json_extract(value,'$.scheduler')=?))"""
+        return [r[0] for r in self.db.execute(query,(workspace,scheduler,workspace,scheduler,scheduler))]
+
+    def schedule_groups(self,workspace,scheduler,include=None):
+        """One accepted Execute per group; old records retain their run boundary.
+
+        Only display fields cross this boundary. Pending automatic rounds are
+        counted from their existing feed cursor, without materializing them.
+        """
+        # Aggregate even the group keys: SQLite otherwise retains a complete
+        # body row for bare expressions beside MIN(), despite the display index.
+        query="""SELECT MIN(COALESCE(json_extract(body,'$.execution_group'),'legacy:'||json_extract(body,'$.run'))),
+            MIN(json_extract(body,'$.status')),COUNT(*),MIN(json_extract(body,'$.created')),
+            MIN(position),MIN(json_extract(body,'$.label'))
+            FROM stage_journal INDEXED BY stage_entry_display WHERE kind='entry' AND workspace=? AND json_extract(body,'$.scheduler')=?
+            GROUP BY COALESCE(json_extract(body,'$.execution_group'),'legacy:'||json_extract(body,'$.run')),json_extract(body,'$.status') ORDER BY 5"""
+        groups={}
+        for ident,status,count,created,position,title in self.db.execute(query,(workspace,scheduler)):
+            group=groups.setdefault(ident,dict(id=ident,counts={},total=0,pending=0,created=created,position=position,label=title or '執行'))
+            group['counts'][status]=count;group['total']+=count
+            group['position']=min(group['position'],position);group['created']=min(group['created'],created)
+        # JSON extraction does not deserialize the run's graph or frozen inputs.
+        feeds=self.db.execute("""SELECT COALESCE(json_extract(f.value,'$.ctx.execution_group'),json_extract(r.body,'$.execution_group'),'legacy:'||r.id),
+            json_extract(f.value,'$.feed.total')-json_extract(f.value,'$.feed.next'),
+            json_extract(r.body,'$.created'),r.position
+            FROM stage_journal r,json_each(r.body,'$.stack') f
+            WHERE r.kind='run' AND r.workspace=? AND json_extract(r.body,'$.status') NOT IN ('complete','cancelled')
+            AND json_extract(f.value,'$.node.key')=? AND json_extract(f.value,'$.feed.next')<json_extract(f.value,'$.feed.total')""",(workspace,scheduler))
+        for ident,remaining,created,position in feeds:
+            group=groups.setdefault(ident,dict(id=ident,counts={},total=0,pending=0,created=created,position=position,label='批次供應'))
+            group['pending']+=remaining;group['total']+=remaining
+        return sorted((g for g in groups.values() if g['id']==include or g['pending'] or any(g['counts'].get(s,0) for s in (*ACTIVE,'retained'))),key=lambda g:g['position'])
+
+    def reorder_page(self,workspace,scheduler,group,ids,expected):
+        """Permute only the visible waiting slots; never move another group.
+
+        The full visible page is compared first so a dispatch or a concurrent
+        move cannot silently turn a stale drag into a different queue order.
+        """
+        with self.transaction():
+            actual=self.entry_summaries(workspace,scheduler,group=group,limit=len(expected['ids']),offset=expected['offset'])
+            if [r['id'] for r in actual]!=expected['ids'] or [r['status'] for r in actual]!=expected['statuses']:
+                raise ValueError('排程內容已更新，請重新調整。')
+            waiting={r['id']:r for r in actual if r['status']=='waiting'}
+            if len(ids)!=len(set(ids)) or set(ids)!=set(waiting):raise ValueError('只能拖曳尚未提交的項目。')
+            owners={r['owner'] for r in waiting.values()}
+            for owner in owners:
+                before=[r['id'] for r in actual if r['id'] in waiting and r['owner']==owner]
+                after=[key for key in ids if waiting[key]['owner']==owner]
+                # Crossing scope boundaries changes execution semantics.
+                if [waiting[key]['owner'] for key in ids]!=[r['owner'] for r in actual if r['id'] in waiting]:
+                    raise ValueError('請在同一輪序列內調整順序。')
+                positions=[self.db.execute('SELECT position FROM stage_journal WHERE id=?',(key,)).fetchone()[0] for key in before]
+                for position,key in zip(positions,after):self.db.execute('UPDATE stage_journal SET position=? WHERE id=?',(position,key))
+
+    def patch(self,ident,**values):
+        """Write changed fields without decoding unchanged frozen run content."""
+        if not values:return
+        slots=','.join('?,json(?)' for _ in values)
+        args=[part for key,value in values.items() for part in ('$.'+key,json.dumps(value,ensure_ascii=False))]
+        with self.transaction():
+            if not self.db.execute('UPDATE stage_journal SET body=json_set(body,'+slots+') WHERE id=?',(*args,ident)).rowcount:
+                raise ValueError('執行紀錄不存在。')
 
     def rows(self,kind,workspace=None,owner=None,active=False):
         sql='SELECT body FROM stage_journal WHERE kind=?';args=[kind]
@@ -106,8 +209,6 @@ class StageStore:
     def add(self,kind,workspace,owner='',**values):
         item=dict(id=uuid.uuid4().hex,kind=kind,workspace=workspace,owner=owner,created=time.time(),**copy.deepcopy(values))
         with self.transaction():
-            if kind=='entry' and sum(r.get('scheduler')==item.get('scheduler') for r in self.rows(kind,workspace,active=True))>=10:
-                raise ValueError('預排程已滿十項，未加入這次要求。')
             self.db.execute('INSERT INTO stage_journal VALUES (?,?,?,?,(SELECT COALESCE(MAX(position),0)+1 FROM stage_journal),?)',
                 (item['id'],kind,workspace,owner,json.dumps(item,ensure_ascii=False)))
         return item
@@ -216,8 +317,5 @@ class StageStore:
 
     def restore_retained(self,run):
         entries=[r for r in self.rows('entry',run['workspace']) if r['run']==run['id'] and r['status']=='retained']
-        active=self.rows('entry',run['workspace'],active=True)
-        for key in {r['scheduler'] for r in entries}:
-            if sum(r['scheduler']==key for r in entries+active)>10:raise ValueError('預排程最多十項；請先移除其他等待項目，再恢復這份流程。')
         with self.db:
             for row in entries:self.update(row['id'],status='waiting')

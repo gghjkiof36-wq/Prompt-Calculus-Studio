@@ -171,14 +171,14 @@ class ScheduleRefreshProjectionTests(unittest.TestCase):
         from prompt_calculus_studio.flow_data import add_scheduler
         keys=[]
         self.assertTrue(self.c.commit(lambda state:keys.append(add_scheduler(state))))
-        key=keys[0];panel=self.c.flow_cards[key].panel;store=self.runner.store
+        key=keys[0];panel=self.c.flow_cards[key].panel.open_page().content;store=self.runner.store
         workspace=self.w.state['workspace']
         run=store.add('run',workspace,status='paused',server=self.w.comfy.url,plan={})
         saved={'scene':{'keep':'original frozen graph'},'values':{'text':{'type':'text','value':'original'}}}
         entries=[store.add('entry',workspace,'owner',run=run['id'],scheduler=key,label='Item '+str(i),
                            status='running' if i==0 else 'waiting',saved=saved) for i in range(3)]
         attempt=store.add('attempt',workspace,run['id'],parent=entries[0]['id'],status='submitted')
-        panel.refresh();panel.list.setCurrentRow(1)
+        panel.open_group('legacy:'+run['id']);panel.list.setCurrentRow(1)
         for status,label in (('submitted','已提交'),('collecting','保存結果'),('failed','失敗')):
             store.update(attempt['id'],status=status)
             with patch.object(self.runner,'entry_status',wraps=self.runner.entry_status) as project, \
@@ -186,7 +186,7 @@ class ScheduleRefreshProjectionTests(unittest.TestCase):
                 panel.refresh()
             self.assertEqual(Counter(call.args[0]['id'] for call in project.call_args_list),
                              Counter({item['id']:1 for item in entries}))
-            self.assertIn(label,panel.list.item(0).text());self.assertIn('1 項'+label,panel.summary.text())
+            self.assertIn(label,panel.list.item(0).text());self.assertIn('3 項',panel.summary.text())
             self.assertEqual(panel.list.currentItem().data(Qt.ItemDataRole.UserRole),entries[1]['id'])
         self.assertEqual(panel.selected(),entries[1])
         self.assertEqual(panel.entries(),entries)

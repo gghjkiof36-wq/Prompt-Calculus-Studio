@@ -4,8 +4,8 @@ import hashlib
 import json
 from .job_outcomes import JobOutcome
 from pathlib import Path
-from PySide6.QtCore import Qt,QSize,QTimer,QRectF,Signal
-from PySide6.QtGui import QColor,QPainter,QPainterPath,QPen
+from PySide6.QtCore import Qt,QSize,QTimer,QRectF,Signal,QEvent
+from PySide6.QtGui import QColor,QPainter,QPainterPath,QPen,QShortcut,QKeySequence
 from PySide6.QtWidgets import QFrame,QVBoxLayout,QHBoxLayout,QBoxLayout,QWidget,QListWidget,QListWidgetItem,QFileDialog,QScrollArea,QSizePolicy,QStyledItemDelegate,QStyle
 from .widgets import label,button,row,ComboBox,RoundMenu,record_icon,set_record_preview,open_file,reveal_file,ElidedLabel
 from .media import import_image
@@ -83,6 +83,7 @@ class RecentPage(QFrame):
         super().__init__(); self.window=window; self.catalog=window.catalog
         self.record=None; self.page=0; self.pending=[]; self.saves=[]; self.processing=False; self.collecting=set()
         self._preview_receipts={}
+        self._tile_stamps={}
         self.known={r[0] for r in self.catalog.db.execute("SELECT id FROM resources WHERE kind='recent'")}
         self.details_open=False;self._adapting=False
         self.setObjectName('WorkspaceSurface'); layout=QVBoxLayout(self); layout.setContentsMargins(24,20,24,20);layout.setSpacing(16)
@@ -105,6 +106,7 @@ class RecentPage(QFrame):
         self.images.setMovement(QListWidget.Movement.Static); self.images.setIconSize(QSize(176,176)); self.images.setGridSize(QSize(194,194));self.images.setSpacing(0);self.images.setWordWrap(False)
         self.images.setItemDelegate(RecentImageDelegate(self));self.images.setMouseTracking(True);self.images.setAccessibleName('最近生成圖片');self.images.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.images.currentItemChanged.connect(self.select); self.images.itemDoubleClicked.connect(lambda _:self.view_image())
+        self.images.installEventFilter(self)
         self.images.itemClicked.connect(lambda item:self.show_details(item));self.images.itemActivated.connect(self.show_details)
         self.images.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu); self.images.customContextMenuRequested.connect(self.context)
         content.addWidget(self.images,1);self.empty=label('生成的圖片會顯示在這裡。','Subtle',True);self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter);content.addWidget(self.empty,1)
@@ -117,7 +119,20 @@ class RecentPage(QFrame):
         self.detail_close=button('',self.hide_details,'IconButton');self.detail_close.setToolTip('關閉詳情');self.detail_close.setAccessibleName('關閉詳情')
         self.detail_close.setProperty('iconName','close');self.detail_close.setIcon(icon('close'))
         self.detail_close.setIconSize(QSize(18,18));self.detail_close.setFixedSize(36,36)
-        title_row=QHBoxLayout();title_row.addWidget(self.detail_name,1);title_row.addWidget(self.detail_close);right.addLayout(title_row)
+        self.previous_image=button('',lambda:self.step_image(-1),'IconButton')
+        self.next_image=button('',lambda:self.step_image(1),'IconButton')
+        self.image_position=label('','Subtle')
+        for control,name,glyph in ((self.previous_image,'上一張','chevron-left'),(self.next_image,'下一張','chevron-right')):
+            control.setIcon(icon(glyph));control.setProperty('iconName',glyph)
+            control.setAccessibleName(name);control.setToolTip(name);control.setFixedSize(36,36)
+        title_row=QHBoxLayout();title_row.setSpacing(4);title_row.addWidget(self.detail_name,1)
+        for widget in (self.previous_image,self.image_position,self.next_image,self.detail_close):title_row.addWidget(widget)
+        right.addLayout(title_row)
+        self.image_shortcuts=[]
+        for key,delta in ((Qt.Key.Key_Left,-1),(Qt.Key.Key_Right,1)):
+            shortcut=QShortcut(QKeySequence(key),self.detail_scroll)
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(lambda d=delta:self.step_image(d));self.image_shortcuts.append(shortcut)
         self.detail_body=QBoxLayout(QBoxLayout.Direction.TopToBottom);self.detail_body.setSpacing(20);right.addLayout(self.detail_body)
         self.preview=RecentPreview(window.store);self.preview.setAcceptDrops(False);self.preview.setToolTip('完整圖片預覽');self.preview.setFocusPolicy(Qt.FocusPolicy.NoFocus);self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter);self.detail_body.addWidget(self.preview,0,Qt.AlignmentFlag.AlignTop)
         self.preview.activated.connect(self.view_image)
@@ -149,6 +164,25 @@ class RecentPage(QFrame):
         for i in range(self.images.count()):
             item=self.images.item(i)
             if item.data(Qt.ItemDataRole.UserRole)==ident:self.images.setCurrentItem(item);self.show_details(item);self.images.scrollToItem(item);break
+
+    def update_image_navigation(self):
+        ids=[record['id'] for record in self.catalog.rows('recent',limit=120)]
+        ident=(self.record or {}).get('id');index=ids.index(ident) if ident in ids else -1
+        self.image_position.setText(f'{index+1} / {len(ids)}' if index>=0 else '')
+        self.previous_image.setEnabled(index>0);self.next_image.setEnabled(0<=index<len(ids)-1)
+
+    def step_image(self,delta):
+        ids=[record['id'] for record in self.catalog.rows('recent',limit=120)]
+        ident=(self.record or {}).get('id')
+        if ident not in ids:return
+        target=ids.index(ident)+delta
+        if 0<=target<len(ids):self.show_record(ids[target])
+
+    def eventFilter(self,watched,event):
+        if watched is self.images and self.details_open and event.type()==QEvent.Type.KeyPress and not event.modifiers():
+            if event.key() in (Qt.Key.Key_Left,Qt.Key.Key_Right):
+                self.step_image(-1 if event.key()==Qt.Key.Key_Left else 1);event.accept();return True
+        return super().eventFilter(watched,event)
 
     def show_metadata(self):
         if self.record:
@@ -249,6 +283,7 @@ class RecentPage(QFrame):
         self.catalog=catalog
         self.pending=[]
         self._preview_receipts={}
+        self._tile_stamps={}
         self.known={r[0] for r in catalog.db.execute("SELECT id FROM resources WHERE kind='recent'")}
         self.record=None;self.page=0;self.collecting=set()
         self.refresh_timer.stop()
@@ -382,12 +417,25 @@ class RecentPage(QFrame):
     def refresh(self):
         selected=self.record['id'] if self.record else None
         scroll=self.images.verticalScrollBar().value()
-        self.images.blockSignals(True); self.images.clear()
+        self.images.blockSignals(True)
         total=self.catalog.count('recent'); self.page=min(self.page,max(0,(total-1)//30))
-        for record in self.catalog.rows('recent',limit=30,offset=self.page*30):
-            item=QListWidgetItem(record['name']); item.setData(Qt.ItemDataRole.UserRole,record['id'])
+        records=self.catalog.rows('recent',limit=30,offset=self.page*30)
+        ids=[record['id'] for record in records]
+        existing=[self.images.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.images.count())]
+        if existing!=ids:self.images.clear();self._tile_stamps={}
+        from .media_paths import preview_file
+        for index,record in enumerate(records):
+            item=self.images.item(index)
+            if item is None:item=QListWidgetItem();self.images.addItem(item)
+            item.setText(record['name']);item.setData(Qt.ItemDataRole.UserRole,record['id'])
             item.setData(Qt.ItemDataRole.AccessibleTextRole,record['name']);item.setToolTip(record['name'])
-            item.setIcon(record_icon(self.window.store,record,176)); self.images.addItem(item)
+            path=preview_file(self.window.store.directory,record)
+            try:
+                info=path.stat() if path else None
+                stamp=(str(path),info.st_size,info.st_mtime_ns,info.st_ctime_ns) if info else None
+            except OSError:stamp=None
+            if record['id'] not in self._tile_stamps or self._tile_stamps[record['id']]!=stamp:
+                item.setIcon(record_icon(self.window.store,record,176));self._tile_stamps[record['id']]=stamp
             if selected==record['id']: self.images.setCurrentItem(item)
         self.images.blockSignals(False); self.select(self.images.currentItem())
         self.images.verticalScrollBar().setValue(scroll)
@@ -405,7 +453,7 @@ class RecentPage(QFrame):
         metadata=(self.record or {}).get('metadata',{})
         self.metadata_summary.setText('含內嵌資料' if metadata.get('raw') else '未含內嵌資料')
         if not item:self.details_open=False
-        self.update_save_button();self.adapt_layout()
+        self.update_save_button();self.update_image_navigation();self.adapt_layout()
 
     def update_save_button(self):
         self.save_button.setText('儲存圖片'); self.save_button.setEnabled(False); self.info.setText('')
@@ -453,6 +501,11 @@ class RecentPage(QFrame):
     def view_image(self):
         if self.record:
             from .image_viewer import show_image
-            show_image(self.window,self.record['path'],self.record.get('name',''))
+            catalog=self.catalog
+            records=self.catalog.rows('recent',limit=120)
+            def selected(ident):
+                if self.catalog is catalog:self.show_record(ident)
+            show_image(self.window,self.record['path'],self.record.get('name',''),records=records,
+                       selected_id=self.record['id'],on_select=selected)
 
     def turn(self,delta): self.page=max(0,self.page+delta); self.refresh()

@@ -34,8 +34,8 @@ class WorkflowTests(unittest.TestCase):
         self.image=self.canvas.functions.add_image(position=QPointF(-500,900))
         self.canvas.commit(lambda s:workflow_flow.bind_image(s,self.image,'A','9'))
         self.canvas.commit(lambda s:model.connect(s,self.image,self.ob,'image'))
-        self.canvas.outputs[self.oid].panel.editor.setPlainText('A frozen')
-        self.canvas.outputs[self.ob].panel.editor.setPlainText('B frozen')
+        self.canvas.outputs[self.oid].panel.open_page().content.editor.setPlainText('A frozen')
+        self.canvas.outputs[self.ob].panel.open_page().content.editor.setPlainText('B frozen')
         self.client=self.w.comfy; self.runner=self.client.generation
         self.client.connected=True; self.client.direct_supported=True; self.client.images_supported=True; self.client.flow_supported=True
         self.requests=[]
@@ -63,7 +63,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(a['data']['prompt']['6']['inputs']['text'],'A frozen')
         self.assertEqual(a['data']['prompt']['7']['inputs']['text'],'A frozen')
         a['done'](dict(prompt_id='a1')); self.assertFalse(self.requests)
-        self.canvas.outputs[self.ob].panel.editor.setPlainText('later B edit')
+        self.canvas.outputs[self.ob].panel.open_page().content.editor.setPlainText('later B edit')
         self.canvas.commit(lambda s:workflow_flow.set_position(s,'B',1))
         self.runner.observe(dict(running_ids=['a1'],queued_ids=[],executing_node='3'))
         self.assertFalse(self.requests); self.assertIn(self.ca,self.canvas.active_keys)

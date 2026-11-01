@@ -1005,7 +1005,7 @@ class CanvasView(QGraphicsView):
         if event.button()==Qt.MouseButton.MiddleButton or (event.button()==Qt.MouseButton.LeftButton and background):
             self.setFocus(); self.scene().clearFocus()
             if not event.modifiers()&Qt.KeyboardModifier.ControlModifier:self.scene().clearSelection()
-            self.pan=event.position(); self.pan_button=event.button(); self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self.pan=event.position(); self.pan_button=event.button(); self._pan_remainder=QPointF(); self.setCursor(Qt.CursorShape.ClosedHandCursor)
             self.pan_raster.begin()
             event.accept(); return
         super().mousePressEvent(event)
@@ -1017,9 +1017,13 @@ class CanvasView(QGraphicsView):
         if self.box_start is not None:
             self.rubber.setGeometry(QRect(self.box_start,event.position().toPoint()).normalized()); event.accept(); return
         if self.pan is not None:
-            delta=event.position()-self.pan; self.pan=event.position()
-            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value()-round(delta.x()))
-            self.verticalScrollBar().setValue(self.verticalScrollBar().value()-round(delta.y()))
+            delta=event.position()-self.pan+getattr(self,'_pan_remainder',QPointF()); self.pan=event.position()
+            dx,dy=round(delta.x()),round(delta.y())
+            # High-rate mouse events and fractional display scaling often move
+            # less than one logical pixel. Keep that movement for the next event.
+            self._pan_remainder=delta-QPointF(dx,dy)
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value()-dx)
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value()-dy)
             event.accept(); return
         super().mouseMoveEvent(event)
 

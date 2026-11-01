@@ -60,7 +60,7 @@ class BoundSchedulerTests(unittest.TestCase):
 
     def test_batch_refill_and_cancel_keep_frozen_content(self):
         config=self.bound_text((11,1),batch=True);self.click()
-        rows=self.runner.store.rows('entry',active=True);self.assertEqual(len(rows),10,self.notices)
+        rows=self.runner.store.rows('entry',active=True);self.assertEqual(len(rows),12,self.notices)
         self.runner.remove_entry(rows[1]['id'])
         supply.definitions(self.w.state)[config['source']]['root']['sequence']['groups'][0]['text']='later edit'
         for _ in range(11):self.executor.finish()

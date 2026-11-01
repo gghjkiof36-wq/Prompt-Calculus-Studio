@@ -69,7 +69,8 @@ class GenerationRunner:
         profile=active_profile(self.window.state)
         if not profile: raise ValueError('請先匯入並選擇對應工作流。')
         validate_profile(profile)
-        if type(count) is not int or not 1<=count<=100: raise ValueError('運行次數須介於 1–100。')
+        from .core import RUN_COUNT_LIMIT
+        if type(count) is not int or not 1<=count<=RUN_COUNT_LIMIT: raise ValueError(f'運行次數須介於 1–{RUN_COUNT_LIMIT:,}。')
         source=copy.deepcopy(options(self.window.state).get('source'))
         profile=copy.deepcopy(profile); snapshot=self.client.snapshot(); content=None
         if 'multi_output' in snapshot['state']:

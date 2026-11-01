@@ -111,7 +111,7 @@ class CanvasRefreshStyleTests(StageFixture):
         self.w.state['settings'].update(visual_palette='paper',ui_size=16)
         self.w.apply_theme(preserve_layout=True);QTest.qWait(30)
         self.assertTrue(all(p.styleSheet()==self.w.styleSheet() for p in self.panels()))
-        self.assertEqual(self.c.outputs[self.out].panel.editor.toPlainText(),'white shirt')
+        self.assertEqual(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText(),'white shirt')
         self.w.set_interface_mode('list');self.w.set_interface_mode('canvas');QTest.qWait(20)
         self.assertTrue(all(p.styleSheet()==self.w.styleSheet() for p in self.panels()))
         self.assertFalse(self.executor.submissions)

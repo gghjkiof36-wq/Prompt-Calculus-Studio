@@ -1,4 +1,4 @@
-"""A new camera capture must contain the live Prompt output widget."""
+"""Camera snapshots keep the live output summary; full text stays in its page."""
 import unittest
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
@@ -17,7 +17,7 @@ class CanvasPromptPanTests(unittest.TestCase):
     events = fixtures.WorkspaceShellTests.events
 
     def editor_ink(self, view, card):
-        editor = card.panel.editor.viewport()
+        editor = card.panel.summary
         origin = editor.mapTo(card.panel, QPoint())
         left = view.mapFromScene(card.proxy.mapToScene(QPointF(origin)))
         right = view.mapFromScene(card.proxy.mapToScene(QPointF(origin + QPoint(editor.width(), editor.height()))))
@@ -28,9 +28,10 @@ class CanvasPromptPanTests(unittest.TestCase):
         self.assertTrue(image.rect().contains(bounds))
         gray = image.copy(bounds).convertToFormat(QImage.Format.Format_Grayscale8)
         pixels, stride = bytes(gray.constBits()), gray.bytesPerLine()
-        # Glyph pixels in each third also catch a partial loss of lower lines.
-        return tuple(sum(p > 105 for y in range(i*gray.height()//3, (i+1)*gray.height()//3)
-                         for p in pixels[y*stride:y*stride+gray.width()]) for i in range(3))
+        sample=[p for y in range(gray.height()) for p in pixels[y*stride:y*stride+gray.width()]]
+        # The summary uses secondary text, rather than the editor's white ink.
+        background=sorted(sample)[len(sample)//2]
+        return (sum(p>background+24 for p in sample),)
 
     def pan(self, view, card):
         def mouse(kind, point, button, buttons):
@@ -61,8 +62,9 @@ class CanvasPromptPanTests(unittest.TestCase):
         canvas = host.canvas
         view = canvas.view
         key, card = next(iter(canvas.outputs.items()))
-        editor = card.panel.editor
+        page=card.panel.open_page();editor = page.content.editor
         editor.setPlainText('短文')
+        page.finish()
         canvas.zoom_to(.85); view.centerOn(card); self.events()
         self.assertEqual(card.proxy.cacheMode(), QGraphicsItem.CacheMode.DeviceCoordinateCache)
         self.pan(view, card)  # Populate the QImage render target's proxy pixels.
@@ -71,12 +73,13 @@ class CanvasPromptPanTests(unittest.TestCase):
         text = '\n'.join(('場景 01  清晨的山谷與溪水', '場景 02  石板小橋和松樹',
                           '場景 03  微風中的芒草', '場景 04  遠山輪廓與積雲',
                           'SCENE 05  paper lanterns at dusk', 'SCENE 06  sunset over river'))
-        editor.setPlainText(text)
+        page=card.panel.open_page();editor=page.content.editor;editor.setPlainText(text)
         editor.moveCursor(QTextCursor.MoveOperation.Start)
+        page.finish()
         view.setFocus(); self.events()
         self.assertIs(canvas.outputs[key], card)
         before = self.editor_ink(view, card)
-        self.assertTrue(all(value > 80 for value in before), before)
+        self.assertGreater(before[0],20,before)  # One short secondary-label line.
         captures, hits = view.pan_raster.captures, view.pan_raster.hits
         moving = self.pan(view, card)
         after = self.editor_ink(view, card)
@@ -85,6 +88,6 @@ class CanvasPromptPanTests(unittest.TestCase):
                 self.assertAlmostEqual(displayed, direct, delta=max(20, direct*.12))
         self.assertEqual(view.pan_raster.captures, captures+1)
         self.assertGreater(view.pan_raster.hits, hits)
-        self.assertEqual(editor.toPlainText(), text)
+        self.assertEqual(card.panel.open_page().content.editor.toPlainText(), text)
         self.assertEqual(canvas.data()['outputs'][key]['draft'], text)
         self.assertEqual(multi_output.compile_output(host.state, key)['final_prompt'], text)

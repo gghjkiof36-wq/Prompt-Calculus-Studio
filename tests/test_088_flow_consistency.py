@@ -52,14 +52,14 @@ class FlowConsistencyTests(unittest.TestCase):
         self.assertEqual(root['sequence']['selected'],root['sequence']['groups'][index]['id'])
         self.assertEqual(card.value['sequence']['selected'],root['sequence']['selected'])
         self.assertEqual(card.own,comp.render(root))
-        self.assertEqual(self.c.outputs[self.out].panel.editor.toPlainText(),model.compile_output(self.w.state,self.out)['final_prompt'])
+        self.assertEqual(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText(),model.compile_output(self.w.state,self.out)['final_prompt'])
 
     def test_six_manual_clicks_refresh_visible_round_and_freeze_each_payload(self):
         self.canvas_sequence()
         expected=[]
         for index in range(6):
             self.assert_visible(index)
-            expected.append(self.c.outputs[self.out].panel.editor.toPlainText())
+            expected.append(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText())
             self.click()
             self.assert_visible((index+1)%6)
         for _ in range(6):self.executor.finish()
@@ -71,12 +71,12 @@ class FlowConsistencyTests(unittest.TestCase):
         self.click();self.assert_visible(1)
         self.assertTrue(self.c.commit(lambda state:edit(state,'manual prompt',self.out)))
         self.click()
-        self.assertEqual(self.c.outputs[self.out].panel.editor.toPlainText(),'manual prompt')
+        self.assertEqual(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText(),'manual prompt')
         for _ in range(2):self.executor.finish()
         self.assertEqual(self.submitted_texts(),['prompt 0','manual prompt'],self.notices)
         self.assertTrue(self.c.commit(lambda state:edit(state,'',self.out)))
         self.c.update_output()
-        self.assertEqual(self.c.outputs[self.out].panel.editor.toPlainText(),'')
+        self.assertEqual(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText(),'')
 
     def test_binding_input_is_numbered_and_has_only_one_control_row_family(self):
         q=self.canvas_sequence(bound=True)
@@ -101,13 +101,13 @@ class FlowConsistencyTests(unittest.TestCase):
     def test_automatic_supply_progress_refreshes_both_source_and_output(self):
         config=self.group_source((1,1,1),batch=True)
         self.click()
-        self.assertEqual(self.c.outputs[self.out].panel.editor.toPlainText(),'prompt 0')
+        self.assertEqual(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText(),'prompt 0')
         self.executor.finish();self.executor.finish();QTest.qWait(30)
         root=supply.definitions(self.w.state)[config['source']]['root']
         # All three rounds were saved at Execute; completion must not consume
         # another round. The visible live cursor already points to the next cycle.
         self.assertEqual(root['sequence']['selected'],root['sequence']['groups'][0]['id'])
-        self.assertEqual(self.c.outputs[self.out].panel.editor.toPlainText(),comp.render(root))
+        self.assertEqual(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText(),comp.render(root))
         self.executor.finish()
         self.assertEqual(self.submitted_texts(),['prompt 0','prompt 1','prompt 2'])
 

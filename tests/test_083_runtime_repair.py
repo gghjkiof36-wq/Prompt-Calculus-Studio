@@ -237,7 +237,7 @@ class RuntimeRepairTests(unittest.TestCase):
 
     def test_unscheduled_images_submit_each_click_without_gpu_wait(self):
         key,_,_=self.image_batch(3,False);self.click();self.click();self.click()
-        self.c.outputs[self.out].panel.editor.setPlainText('manual next')
+        self.c.outputs[self.out].panel.open_page().content.editor.setPlainText('manual next')
         self.executor.finish();self.executor.finish();self.executor.finish()
         self.assertEqual([p['prompt']['6']['inputs']['text'] for p in self.executor.submissions],['image 1','image 2','image 3'])
 

@@ -23,7 +23,7 @@ class SourceTreeTests(StageFixture):
             s['multi_output']['canvases'][self.cid]['name']='人物畫布'
             s['multi_output']['canvases'][second]['name']='場景畫布'
         self.c.commit(setup);APP.processEvents()
-        return self.c.outputs[self.out].panel.order
+        return self.c.outputs[self.out].panel.open_page().content.order
 
     def group(self,tree,key):
         return next(tree.topLevelItem(i) for i in range(tree.topLevelItemCount()) if tree.token(tree.topLevelItem(i))[1]==key)
@@ -44,7 +44,7 @@ class SourceTreeTests(StageFixture):
         self.assertTrue(self.drop(tree,group.child(0),group.child(1)))
         self.assertEqual(self.c.data()['canvases'][self.cid]['members'],['pose','root'])
         self.assertEqual(self.c.data()['canvases'][self.other]['members'],['scene'])
-        text=self.c.outputs[self.out].panel.editor.toPlainText()
+        text=self.c.outputs[self.out].panel.open_page().content.editor.toPlainText()
         self.assertLess(text.index('standing'),text.index('red dress'));self.assertIn('hands behind back',text)
         self.assertEqual(self.w.state['uses'],before['uses']);self.assertEqual(self.c.data()['connections'],before['multi_output']['connections'])
         self.c.undo();self.assertEqual(self.c.data()['canvases'][self.cid]['members'],['root','pose'])
@@ -62,7 +62,7 @@ class SourceTreeTests(StageFixture):
         self.w.persist();self.assertIn(self.cid,self.w.store.load()['multi_output']['outputs'][self.out]['source_collapsed'])
         QTest.keyClick(tree,Qt.Key.Key_Space);APP.processEvents();self.assertTrue(self.group(tree,self.cid).isExpanded())
         self.assertEqual(compile_output(self.w.state,self.out)['final_prompt'],text)
-        buttons=[b.text() for b in self.c.outputs[self.out].panel.findChildren(QPushButton)]
+        buttons=[b.text() for b in self.c.outputs[self.out].panel.open_page().content.findChildren(QPushButton)]
         self.assertNotIn('排序',buttons)
         group=self.group(tree,self.cid);rect=tree.visualItemRect(group)
         self.assertEqual(rect.left(),tree.visualItemRect(group.child(0)).left())
@@ -79,7 +79,7 @@ class SourceTreeTests(StageFixture):
         self.assertTrue(self.drop(tree,self.group(tree,self.cid),self.group(tree,self.other)))
         self.assertEqual(text_sources(self.c.data()['outputs'][self.out]),[self.other,self.cid])
         self.assertEqual(self.c.data()['canvases'],before['multi_output']['canvases'])
-        self.assertEqual(self.w.state['draft'],'');self.assertEqual(self.c.outputs[self.out].panel.editor.toPlainText(),'')
+        self.assertEqual(self.w.state['draft'],'');self.assertEqual(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText(),'')
         self.c.undo();self.assertEqual(text_sources(self.c.data()['outputs'][self.out]),[self.cid,self.other])
         self.assertEqual(self.w.state['draft'],'')
 
@@ -96,7 +96,7 @@ class SourceTreeTests(StageFixture):
         item=self.group(tree,key);self.assertEqual(item.childCount(),0)
         self.assertTrue(self.drop(tree,item,self.group(tree,self.cid),after=False))
         self.assertEqual(text_sources(self.c.data()['outputs'][self.out]),[key,self.cid,self.other])
-        self.assertTrue(self.c.outputs[self.out].panel.editor.toPlainText().startswith('cinematic light'))
+        self.assertTrue(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText().startswith('cinematic light'))
         self.assertEqual(self.w.state['canvas_functions'],before)
         self.c.undo();self.assertEqual(text_sources(self.c.data()['outputs'][self.out]),[self.cid,self.other,key])
 
@@ -118,21 +118,23 @@ class SourceTreeTests(StageFixture):
     def test_theme_change_keeps_collapsed_groups_and_visible_content(self):
         tree=self.prepare();self.group(tree,self.cid).setExpanded(False)
         self.w.state['settings'].update(visual_palette='paper',ui_size=16);self.w.apply_theme(preserve_layout=True);APP.processEvents()
-        tree=self.c.outputs[self.out].panel.order;group=self.group(tree,self.cid)
+        tree=self.c.outputs[self.out].panel.open_page().content.order;group=self.group(tree,self.cid)
         self.assertFalse(group.isExpanded());self.assertEqual(group.childCount(),2)
         self.assertEqual(group.child(0).text(0),'角色');self.assertTrue(group.icon(0).isNull())
         self.assertFalse(group.child(0).icon(0).isNull())
         self.assertGreaterEqual(group.sizeHint(0).height(),tree.fontMetrics().height()+20)
 
-    def test_expanded_rows_fit_and_long_lists_remain_bounded(self):
+    def test_expanded_rows_scroll_and_keep_the_detail_page_bounded(self):
         tree=self.prepare();self.w.resize(1600,960);APP.processEvents()
         last=self.group(tree,self.other).child(0)
+        tree.scrollToItem(last);APP.processEvents()
         self.assertTrue(tree.viewport().rect().contains(tree.visualItemRect(last)))
         expanded_height=tree.minimumHeight()
         for i in range(tree.topLevelItemCount()):tree.topLevelItem(i).setExpanded(False)
-        APP.processEvents();self.assertLess(tree.minimumHeight(),expanded_height)
+        APP.processEvents();self.assertEqual(tree.minimumHeight(),expanded_height)
         self.group(tree,self.cid).setExpanded(True);APP.processEvents()
         group=self.group(tree,self.cid)
+        tree.scrollToItem(group.child(1));APP.processEvents()
         self.assertTrue(tree.viewport().rect().contains(tree.visualItemRect(group.child(1))))
         def add(s):
             for i in range(12):

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication,QPushButton,QPlainTextEdit
 from PySide6.QtTest import QTest
 import stage_fixture as fixtures
 from prompt_calculus_studio import multi_output as model,stage_model
-from prompt_calculus_studio.flow_data import add_image_input,add_scheduler
+from prompt_calculus_studio.flow_data import add_image_input,add_scheduler,CAPACITY
 
 if not QFontDatabase.families():
     for filename in ('msjh.ttc','consola.ttf','segoeui.ttf'):QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+filename)
@@ -53,8 +53,11 @@ class StageTests(unittest.TestCase):
         self.runner.store.update(attempt['id'],status='unconfirmed',error='fixture lost reply')
         self.assertEqual(self.runner.entry_status(entry),'unconfirmed')
         self.assertEqual(self.runner.store.read(entry['id'])['status'],'running')
-        from prompt_calculus_studio.stage_widgets import SchedulePanel
-        panel=SchedulePanel(self.c,schedule[0]);panel.refresh()
+        from prompt_calculus_studio.stage_widgets import SchedulePageContent
+        summary=self.c.flow_cards[schedule[0]].panel;summary.refresh()
+        self.assertIn('提交未確認',summary.summary.text())
+        self.assertNotIn('執行中',summary.summary.text())
+        panel=SchedulePageContent(self.c,schedule[0]);panel.refresh();panel.open_group(entry['execution_group'])
         self.assertIn('提交未確認',panel.list.item(0).text());self.assertNotIn('執行中',panel.list.item(0).text())
         panel.deleteLater()
 
@@ -179,11 +182,11 @@ class StageTests(unittest.TestCase):
     def test_auto_batch_capacity_twelve_and_nested_three_times_two(self):
         source,items,config=self.image_batch(count=12)
         self.click()
-        panel=self.c.flow_cards[config['inner']].panel;panel.refresh()
-        self.assertIn('1 張',panel.list.item(0).text());self.assertNotIn('12 張',panel.list.item(0).text())
+        panel=self.c.flow_cards[config['inner']].panel.open_page().content;panel.open_group(panel.groups[0]['id'])
+        self.assertEqual(panel.rows[0]['image_count'],1);self.assertNotIn('12 張',panel.list.item(0).text())
         self.assertTrue(all(not entry['saved']['batches'] for entry in self.runner.store.rows('entry',active=True)))
         for i in range(12):
-            rows=self.runner.store.rows('entry',active=True);self.assertLessEqual(len(rows),10)
+            rows=self.runner.store.rows('entry',active=True);self.assertLessEqual(len(rows),CAPACITY)
             self.assertTrue(self.executor.pending,self.notices);self.executor.finish()
         self.assertEqual(len(self.executor.submissions),12,self.notices);self.assertIsNone(self.runner.current())
 
@@ -196,16 +199,16 @@ class StageTests(unittest.TestCase):
     def test_cancel_releases_capacity_and_stop_feed_preserves_saved_items(self):
         source,items,config=self.image_batch(count=12)
         self.click();old=self.runner.current()
-        self.assertEqual(len(self.runner.store.rows('entry',active=True)),10)
+        self.assertEqual(len(self.runner.store.rows('entry',active=True)),12)
         self.runner.cancel(old['id']);self.executor.tick()
         self.assertFalse(self.runner.store.rows('entry',active=True))
         self.click();current=self.runner.current();self.assertNotEqual(old['id'],current['id'])
-        self.assertEqual(len(self.runner.store.rows('entry',active=True)),10)
+        self.assertEqual(len(self.runner.store.rows('entry',active=True)),12)
         self.runner.stop_feed(current['id'],source)
         self.executor.finish();self.assertEqual(len(self.executor.submissions),2)
         self.runner.resume(current['id']);QTest.qWait(35)
-        for _ in range(9):self.executor.finish()
-        self.assertEqual(len(self.executor.submissions),11)
+        for _ in range(11):self.executor.finish()
+        self.assertEqual(len(self.executor.submissions),13)
         self.assertEqual(self.runner.store.read(current['id'])['status'],'complete')
         self.assertFalse(self.runner.store.rows('entry',active=True))
 
@@ -363,7 +366,7 @@ class StageTests(unittest.TestCase):
         self.image_batch(count=12);self.click();run=self.runner.current()
         self.runner.pause(run['id']);self.executor.finish()
         self.assertEqual(len(self.executor.submissions),1)
-        pending=self.runner.store.rows('entry',active=True);self.assertEqual(len(pending),9)
+        pending=self.runner.store.rows('entry',active=True);self.assertEqual(len(pending),11)
         self.assertEqual(sum(e['status']=='complete' for e in self.runner.store.rows('entry')),1)
         victim=next(i for i in pending if i['status']=='waiting');self.runner.store.remove(victim['id'])
         removed=next(v['value']['sha256'] for v in victim['saved']['inputs'].values() if v['type']=='image')
@@ -373,15 +376,17 @@ class StageTests(unittest.TestCase):
         self.assertFalse(any(removed in p['prompt']['10']['inputs']['image'] for p in self.executor.submissions))
         self.assertIsNone(self.runner.current())
 
-    def test_outer_items_visible_before_stage_and_capacity_is_per_module(self):
+    def test_outer_items_visible_before_stage_and_next_execute_is_a_separate_group(self):
         keys=self.stages(('flow','B','C'));refs=[]
         def setup(s):
             q=add_scheduler(s);refs.append(q);model.connect(s,keys[1],q+'::flow','flow')
-        self.c.commit(setup);self.controls.count.setValue(10);self.click()
-        rows=self.runner.store.rows('entry',active=True);self.assertEqual(len(rows),10)
+        self.c.commit(setup);self.controls.count.setValue(CAPACITY);self.click()
+        rows=self.runner.store.rows('entry',active=True);self.assertEqual(len(rows),CAPACITY)
         self.assertTrue(all(i['status']=='waiting' for i in rows));self.controls.count.setValue(1);self.click()
-        self.assertEqual(len(self.runner.store.rows('entry',active=True)),10)
-        self.assertEqual(len(self.runner.runs(True)),1);self.assertTrue(any('十項' in n for n in self.notices))
+        self.assertEqual(len(self.runner.store.rows('entry',active=True)),CAPACITY+1)
+        groups=self.runner.store.schedule_groups(self.w.state['workspace'],refs[0])
+        self.assertEqual([g['total'] for g in groups],[CAPACITY,1])
+        self.assertEqual(len(self.runner.runs(True)),2)
 
     def test_generated_metadata_restores_modules_and_manual_blank(self):
         from prompt_calculus_studio.image_source import read_content
@@ -389,7 +394,7 @@ class StageTests(unittest.TestCase):
         source=self.runner.results[key]['images'][0];content=read_content(self.w.store.directory/source['relative'])
         self.assertEqual(content['kind'],'modules');self.assertEqual(content['roots'][0]['prompt'],'white shirt')
         self.assertIsNone(content['manual_text'])
-        self.c.outputs[self.out].panel.editor.setPlainText('');self.click();self.executor.finish()
+        self.c.outputs[self.out].panel.open_page().content.editor.setPlainText('');self.click();self.executor.finish()
         source=self.runner.results[key]['images'][0];content=read_content(self.w.store.directory/source['relative'])
         self.assertEqual(content['text'],'');self.assertEqual(content.get('manual_text'),'')
 
@@ -418,7 +423,7 @@ class StageInterfaceTests(unittest.TestCase):
     def test_waiting_outer_item_lists_and_replaces_one_saved_batch_image(self):
         from prompt_calculus_studio.widgets import ComboBox
         source,images,config=self.image_batch(outer=True);self.click();self.click()
-        panel=self.c.flow_cards[config['outer']].panel;panel.refresh();panel.list.setCurrentRow(1)
+        panel=self.c.flow_cards[config['outer']].panel.open_page().content;panel.open_group(panel.groups[-1]['id']);panel.list.setCurrentRow(0)
         item=panel.selected();seen=[]
         def edit():
             dialog=QApplication.activeModalWidget();picker=dialog.findChild(ComboBox);seen.append(picker.count())
@@ -497,9 +502,12 @@ class StageInterfaceTests(unittest.TestCase):
         def setup(s):
             q=add_scheduler(s);refs.append(q);model.connect(s,stage,q+'::flow','flow')
         self.c.commit(setup)
-        for text in ('first','second full text','third full text'):
-            self.c.commit(lambda s,t=text:s['uses']['root'].update(prompt=t));self.click()
-        panel=self.c.flow_cards[refs[0]].panel;listing=panel.list;self.c.fit();panel.refresh();QApplication.processEvents()
+        self.c.commit(lambda s:s['uses']['root'].update(prompt='first'));self.controls.count.setValue(3);self.click()
+        entries=self.runner.store.rows('entry',active=True)
+        for entry,text in zip(entries[1:],('second full text','third full text')):
+            saved=copy.deepcopy(entry['saved']);saved['values'][self.clip]['value']=text
+            self.runner.store.edit(entry['id'],saved)
+        panel=self.c.flow_cards[refs[0]].panel.open_page().content;panel.open_group(panel.groups[0]['id']);listing=panel.list;self.c.fit();panel.refresh();QApplication.processEvents()
         ids=[i['id'] for i in panel.entries()];listing.setCurrentRow(2);selected=listing.currentItem();panel.refresh();self.assertIs(listing.currentItem(),selected)
         self.assertNotIn('full text',selected.text())
         listing._source=ids[2];listing._drag_token=b'stage-queue-drag';panel.dragging=True

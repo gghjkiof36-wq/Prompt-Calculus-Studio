@@ -21,7 +21,8 @@ class ChainRunner:
     def start(self,count):
         if self.current():self.notify('這個工作區已有串接；請從串接模塊或任務紀錄查看／繼續。');return
         if not self.client.connected:raise ValueError('請先連線至 ComfyUI。')
-        if type(count) is not int or not 1<=count<=100:raise ValueError('串接輪次須為 1–100。')
+        from .core import RUN_COUNT_LIMIT
+        if type(count) is not int or not 1<=count<=RUN_COUNT_LIMIT:raise ValueError(f'串接輪次須為 1–{RUN_COUNT_LIMIT:,}。')
         plan=prepare_plan(self.window.state);entries=[dict(root={},ancestors={})]
         source=plan.get('source');scheduler=plan.get('scheduler');claimed=[]
         if source:

@@ -24,7 +24,7 @@ class EditingRepairTests(unittest.TestCase):
 
     def test_empty_new_duplicate_edit_switch_reopen_and_snapshot_scope(self):
         first=self.w.state['workspace'];first_graph=copy.deepcopy(self.c.data())
-        self.c.outputs[self.out].panel.editor.setPlainText('')
+        self.c.outputs[self.out].panel.open_page().content.editor.setPlainText('')
         with patch('prompt_calculus_studio.window.QInputDialog.getText',return_value=('01',True)):self.w.new_workspace()
         second=self.w.state['workspace'];self.assertNotEqual(first,second)
         self.assertFalse(self.w.state.get('uses'));self.assertFalse(self.c.data()['bindings'])

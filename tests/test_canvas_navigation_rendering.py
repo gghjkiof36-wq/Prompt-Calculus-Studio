@@ -278,17 +278,15 @@ class CanvasNavigationTests(unittest.TestCase):
         self.assertEqual(controls.value.text(),'104%')
         self.assertFalse(controls.wheel_label_timer.isActive())
 
-    def test_wheel_on_scrollable_module_keeps_scroll_ownership_at_boundary(self):
+    def test_wheel_in_output_page_keeps_scroll_ownership_at_boundary(self):
         tab=self.open('Street','pcs-workflow');canvas=tab.host.canvas;view=canvas.view
-        card=next(iter(canvas.outputs.values()));editor=card.panel.editor
+        card=next(iter(canvas.outputs.values()));editor=card.panel.open_page().content.editor
         editor.setPlainText('\n'.join(f'line {i}' for i in range(80)))
-        canvas.zoom_to(.8);view.centerOn(card);self.events()
-        local=editor.viewport().mapTo(card.panel,editor.viewport().rect().center())
-        point=view.mapFromScene(card.proxy.mapToScene(QPointF(local)))
+        self.events();point=editor.viewport().rect().center()
         bar=editor.verticalScrollBar();self.assertGreater(bar.maximum(),0);bar.setValue(0)
         scale=view.transform().m11()
-        self.wheel(view,point,-120);self.assertGreater(bar.value(),0)
-        bar.setValue(bar.maximum());self.wheel(view,point,-120)
+        self.wheel(editor,point,-120);self.assertGreater(bar.value(),0)
+        bar.setValue(bar.maximum());self.wheel(editor,point,-120)
         self.assertEqual(view.transform().m11(),scale)
 
 

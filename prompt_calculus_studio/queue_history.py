@@ -31,13 +31,19 @@ def capture(store, ids):
 
 
 def untouched(store, values):
-    ids=set(values)
+    by_workspace={}
     for value in values.values():
         item=value['item']
         if item['kind']!='entry' or item['status'] not in ('waiting','removed') or item.get('prompt_id'):
             return False
-        if any(a.get('parent') in ids for a in store.rows('attempt',item['workspace'])):return False
-        if any(e.get('parent') in ids for e in store.rows('entry',item['workspace'])):return False
+        by_workspace.setdefault(item['workspace'],[]).append(item['id'])
+    for workspace,ids in by_workspace.items():
+        # Any child is sufficient: a descendant necessarily has a first child.
+        # Keep the parent lookup indexed and independent of total queue history.
+        for start in range(0,len(ids),400):
+            chunk=ids[start:start+400]
+            query="SELECT 1 FROM stage_journal WHERE kind IN ('entry','attempt') AND workspace=? AND json_extract(body,'$.parent') IN ("+','.join('?' for _ in chunk)+') LIMIT 1'
+            if store.db.execute(query,(workspace,*chunk)).fetchone():return False
     return True
 
 
@@ -82,11 +88,6 @@ def restore(canvas, source, destination, after):
             run=store.read(ident)
             if not run or run['status'] in ('complete','cancelled') or run['server']!=runner.client.url:
                 raise ValueError('原流程已結束或連線不符，未重建或重送。')
-        waiting=store.rows('entry',expected['workspace'],active=True)
-        for scheduler in {v['item']['scheduler'] for v in target['records'].values()}:
-            count=sum(r['scheduler']==scheduler and r['id'] not in current for r in waiting)
-            count+=sum(v['item']['scheduler']==scheduler and v['item']['status']=='waiting' for v in target['records'].values())
-            if count>10:raise ValueError('預排程已滿十項，請先移除其他等待項目。')
         with store.db:
             for ident in runs:runner.pause(ident,'已復原等待項目；檢查內容後按「繼續」。')
             for ident,value in target['records'].items():

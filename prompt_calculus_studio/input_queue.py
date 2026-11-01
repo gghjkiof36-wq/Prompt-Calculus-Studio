@@ -3,7 +3,7 @@ import copy
 import json
 import time
 import uuid
-from .flow_data import CAPACITY, validate_value
+from .flow_data import validate_value
 
 ACTIVE = ('waiting','preparing','submitted','unconfirmed','failed')
 
@@ -89,7 +89,6 @@ class InputQueue:
                   source=copy.deepcopy(source),label=label,state='waiting',created=time.time(),error='')
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
-            if len(self.rows(owner))>=CAPACITY:raise ValueError('預排程已滿十項；請等待完成或移除一項。')
             self.db.execute('INSERT INTO input_queue VALUES (?, ?, (SELECT COALESCE(MAX(position),0)+1 FROM input_queue), ?)',
                             (item['id'],owner,json.dumps(item,ensure_ascii=False)))
         return item

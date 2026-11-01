@@ -22,7 +22,7 @@ class ScheduleItemActionsTests(StageTests):
 
     def test_failed_item_right_click_only_removes_that_item_and_preserves_next_inputs(self):
         key,entries=self.queue();self.executor.finish(error=True)
-        panel=self.c.flow_cards[key].panel;panel.refresh()
+        panel=self.c.flow_cards[key].panel.open_page().content;panel.open_group(panel.groups[0]['id'])
         self.assertEqual(self.runner.entry_status(entries[0]),'failed')
         saved=copy.deepcopy(entries[1:]);connections=copy.deepcopy(self.c.data()['connections']);menus=[]
         point=panel.list.visualItemRect(panel.list.item(0)).center()
@@ -39,7 +39,7 @@ class ScheduleItemActionsTests(StageTests):
         self.assertEqual(len(self.executor.submissions),3)
 
     def test_delete_waiting_item_and_empty_context_never_remove_module(self):
-        key,entries=self.queue();panel=self.c.flow_cards[key].panel;panel.refresh()
+        key,entries=self.queue();panel=self.c.flow_cards[key].panel.open_page().content;panel.open_group(panel.groups[0]['id'])
         panel.list.setCurrentRow(1);QTest.keyClick(panel.list,Qt.Key.Key_Delete)
         self.assertEqual(self.runner.store.read(entries[1]['id'])['status'],'removed')
         self.assertEqual(self.runner.store.read(entries[2]['id']),entries[2])
@@ -83,7 +83,7 @@ class ScheduleItemActionsTests(StageTests):
         self.assertTrue(all(self.runner.store.read(e['id'])['status']=='retained' for e in entries[1:]))
 
     def test_more_menu_cancel_uses_current_item_in_this_scheduler(self):
-        key,entries=self.queue();panel=self.c.flow_cards[key].panel;panel.refresh();menus=[]
+        key,entries=self.queue();panel=self.c.flow_cards[key].panel.open_page().content;panel.open_group(panel.groups[0]['id']);menus=[]
         with patch('prompt_calculus_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):panel.more_actions()
         next(a for a in menus[0].actions() if a.text()=='取消目前項目').trigger();QTest.qWait(30)
         self.assertEqual(self.runner.store.read(entries[0]['id'])['status'],'cancelled')

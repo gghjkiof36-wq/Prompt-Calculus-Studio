@@ -6,7 +6,9 @@ import json
 from .module_contracts import DATA_TYPES,WIRES
 TYPES = DATA_TYPES
 TYPE_NAMES = {key:WIRES[key].label for key in TYPES}
-CAPACITY = 10
+# Automatic supply materializes this many pending rows at a time. It is not
+# the total queue capacity or the accepted Execute count.
+CAPACITY = 100
 
 
 def upgrade(state):

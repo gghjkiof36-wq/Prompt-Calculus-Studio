@@ -17,6 +17,40 @@ for font in ('msjh.ttc','msjhbd.ttc','segoeui.ttf'):QFontDatabase.addApplication
 
 
 class RecentOverlayTests(unittest.TestCase):
+    def test_image_navigation_crosses_grid_pages_and_keeps_selection(self):
+        records=self.w.catalog.rows('recent',limit=120)
+        self.w.open_recent_details(records[29]['id']);QTest.qWait(30)
+        QTest.mouseClick(self.r.next_image,Qt.MouseButton.LeftButton)
+        self.assertEqual(self.r.record['id'],records[30]['id']);self.assertEqual(self.r.page,1)
+        self.r.images.setFocus();QTest.keyClick(self.r.images,Qt.Key.Key_Left)
+        self.assertEqual(self.r.record['id'],records[29]['id']);self.assertEqual(self.r.page,0)
+        self.r.show_record(records[0]['id']);self.assertFalse(self.r.previous_image.isEnabled())
+        self.r.show_record(records[-1]['id']);self.assertFalse(self.r.next_image.isEnabled())
+        ident=self.r.record['id'];self.r.refresh();self.assertEqual(self.r.record['id'],ident)
+
+    def test_unchanged_refresh_reuses_tiles_but_detects_changed_image(self):
+        self.r.refresh()
+        with patch('prompt_calculus_studio.recent.record_icon',wraps=__import__('prompt_calculus_studio.widgets',fromlist=['record_icon']).record_icon) as decode:
+            self.r.refresh();self.assertEqual(decode.call_count,0)
+            record=self.w.catalog.rows('recent',limit=1)[0]
+            record.update(path=str(Path(self.temp.name)/'missing.png'),thumb='');self.w.catalog.put('recent',record)
+            self.r.refresh();self.assertGreater(decode.call_count,0)
+
+    def test_large_viewer_arrows_and_unreadable_image_do_not_trap_navigation(self):
+        from prompt_calculus_studio.image_viewer import ImageViewerDialog
+        records=self.w.catalog.rows('recent',limit=3)
+        records[1]=dict(records[1],path=str(Path(self.temp.name)/'missing.png'))
+        changes=[]
+        viewer=ImageViewerDialog(self.w,records[0]['path'],records[0]['name'],records=records,
+                                 selected_id=records[0]['id'],on_select=changes.append)
+        viewer.show();QTest.qWait(30);viewer.setFocus()
+        QTest.keyClick(viewer,Qt.Key.Key_Right)
+        self.assertEqual(viewer.index,1);self.assertTrue(viewer.display.text())
+        QTest.mouseClick(viewer.next,Qt.MouseButton.LeftButton)
+        self.assertEqual(viewer.index,2);self.assertFalse(viewer.picture.isNull())
+        self.assertFalse(viewer.next.isEnabled());self.assertEqual(changes,[records[1]['id'],records[2]['id']])
+        viewer.close()
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'});self.env.start()

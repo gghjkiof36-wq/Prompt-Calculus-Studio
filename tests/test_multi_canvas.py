@@ -79,7 +79,7 @@ class MultiCanvasTests(unittest.TestCase):
         clip2=self.canvas.add_clip(QPointF(2700,-600),o2)
         self.canvas.commit(lambda s:clip_flow.set_binding(s,'flow',clip,('6','text')))
         self.canvas.commit(lambda s:clip_flow.set_binding(s,'flow',clip2,('7','text')))
-        self.canvas.outputs[o2].panel.editor.setPlainText('manual negative')
+        self.canvas.outputs[o2].panel.open_page().content.editor.setPlainText('manual negative')
         self.assertEqual(model.compile_output(self.w.state,o2)['final_prompt'],'manual negative')
         self.assertEqual(clip_flow.selected_binding(self.w.state,clip2),dict(workflow='flow',clip=clip2,node='7',field='text'))
         self.assertIn('#7 / text',self.canvas.clips[clip2].panel.binding.text())
@@ -100,7 +100,7 @@ class MultiCanvasTests(unittest.TestCase):
         QTest.mouseMove(canvas.view.viewport(),b,30); QTest.mouseRelease(canvas.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier,b); QTest.qWait(20)
         card=canvas.cards[root]; self.assertAlmostEqual(card.x()-start.x(),60,delta=3); self.assertAlmostEqual(card.y()-start.y(),35,delta=3)
     def test_reopen_keeps_lines_text_and_manual_drafts(self):
-        self.add('saved'); self.canvas.outputs[self.oid].panel.editor.setPlainText('kept draft'); self.w.persist()
+        self.add('saved'); self.canvas.outputs[self.oid].panel.open_page().content.editor.setPlainText('kept draft'); self.w.persist()
         expected=copy.deepcopy(self.canvas.data()); self.w.close(); APP.processEvents(); self.w=Window(self.tmp.name); self.window=self.w
         self.assertEqual(self.w.state['multi_output'],expected); self.assertEqual(self.w.state['draft'],'kept draft')
 
@@ -111,7 +111,7 @@ class MultiCanvasTests(unittest.TestCase):
         from prompt_calculus_studio.composition import instance
         from prompt_calculus_studio.widgets import StudioDialog,ComboBox
         self.assertEqual(self.w.state['selection_view'],'canvas')
-        self.canvas.outputs[self.oid].panel.editor.setPlainText('canvas manual');APP.processEvents()
+        self.canvas.outputs[self.oid].panel.open_page().content.editor.setPlainText('canvas manual');APP.processEvents()
         for manual in ('list manual',''):
           with self.subTest(manual=manual):
             # Build the pre-0.8.7 saved list state independently from the new UI.

@@ -75,7 +75,7 @@ class ScheduleOrderDialog(StudioDialog):
         self.body.addWidget(self.listing,1)
         if not self.rows:self.body.addWidget(label('沒有等待執行的任務','Subtle'))
         self.error=label('','ConflictNotice',True);self.error.hide();self.body.addWidget(self.error)
-        self.more=button('更多',lambda:panel.more_actions(self.more),'Quiet')
+        self.more=button('整個預排程',lambda:panel.more_actions(self.more,selection=False),'Quiet')
         self.save_button=button('套用',self.apply_changes,'Primary');style_action(self.save_button,colors,primary=True)
         self.cancel_button=button('取消',self.reject,'Quiet')
         self.body.addLayout(row(self.more,None,self.cancel_button,self.save_button))
@@ -93,7 +93,7 @@ class ScheduleOrderDialog(StudioDialog):
             waiting=[key for key,r in self.rows.items() if r['status']=='waiting']
             orders={}
             for owner in {self.rows[key]['owner'] for key in waiting}:
-                owned=[r['id'] for r in store.rows('entry',owner=owner,active=True) if r['status']=='waiting']
+                owned=store.waiting_ids(owner)
                 changed=[key for key in ids if key in waiting and self.rows[key]['owner']==owner]
                 changed.extend(key for key in owned if key in removed)
                 choices=iter(changed);orders[owner]=[next(choices) if key in waiting else key for key in owned]

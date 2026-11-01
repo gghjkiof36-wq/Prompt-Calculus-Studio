@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QWidget,QHBoxLayout,QSpinBox,QPushButton,QStyleOpt
 from .widgets import button,label,RoundMenu
 from .generation import direct_mode,active_profile,options
 from .ui_icons import icon
+from .core import RUN_COUNT_LIMIT
 
 
 class ActivityButton(QPushButton):
@@ -50,7 +51,7 @@ class RunControls(QWidget):
         super().__init__(); self.window=window; self.copy_fallback=copy_fallback; self.execution_only=False
         self.compact=False; self.activity_count=0; self.activity_available=False
         layout=QHBoxLayout(self); layout.setContentsMargins(0,0,0,0); layout.setSpacing(6)
-        self.count=QSpinBox();self.count.setObjectName('RunCount'); self.count.setRange(1,100); self.count.setValue(window.state['settings'].get('comfy_count',1))
+        self.count=QSpinBox();self.count.setObjectName('RunCount'); self.count.setRange(1,RUN_COUNT_LIMIT); self.count.setValue(window.state['settings'].get('comfy_count',1))
         self.count.setStyleSheet('QSpinBox {padding:4px 4px 4px 8px;} QSpinBox::up-button,QSpinBox::down-button {width:18px;}')
         self.count.setAccessibleName('運行次數'); self.count.setToolTip('運行次數，每次依照 ComfyUI 工作流的 Seed 規則提交。'); self.count.setFixedWidth(76)
         self.count.valueChanged.connect(self.count_changed); layout.addWidget(self.count)
@@ -106,8 +107,8 @@ class RunControls(QWidget):
         # Both actions follow the chosen UI font. Reserve space for the maximum
         # count and its unit so changing the number cannot move either button.
         self.stop.ensurePolished()
-        self.count.setFixedWidth(max(76,self.count.fontMetrics().horizontalAdvance('100'+self.count.suffix())+36) if self.execution_only
-                                 else max(88,self.count.fontMetrics().horizontalAdvance('100'+self.count.suffix())+58))
+        self.count.setFixedWidth(max(76,self.count.fontMetrics().horizontalAdvance(str(RUN_COUNT_LIMIT)+self.count.suffix())+36) if self.execution_only
+                                 else max(88,self.count.fontMetrics().horizontalAdvance(str(RUN_COUNT_LIMIT)+self.count.suffix())+58))
         if self.execution_only:
             for widget in (self.count,self.run_button,self.stop):widget.ensurePolished()
             height=max(36,self.count.fontMetrics().height()+14,self.run_button.fontMetrics().height()+14)
@@ -129,7 +130,7 @@ class RunControls(QWidget):
     def refresh(self):
         modern=self.window.state.get('multi_output',{}).get('version',1)>=5
         single_native=self.window.state.get('multi_output',{}).get('version',1)==4
-        self.count.blockSignals(True); self.count.setMaximum(1 if single_native else 100); self.count.blockSignals(False)
+        self.count.blockSignals(True); self.count.setMaximum(1 if single_native else RUN_COUNT_LIMIT); self.count.blockSignals(False)
         if single_native:self.count.setToolTip('本候選每次執行一個工作流；圖片批量大小沿用 ComfyUI 設定。多輪與跨流程暫擱。')
         if modern:self.count.setToolTip('提交次數。未接預排程時立即交給 ComfyUI；接上預排程後，忙碌時保存下一份輸入。')
         from .chain_model import enabled

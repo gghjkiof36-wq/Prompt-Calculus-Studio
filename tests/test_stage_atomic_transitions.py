@@ -32,7 +32,7 @@ class StageAtomicTransitionsTests(unittest.TestCase):
         self.runner.save = lambda run: StageRunner.save(self.runner, run)
         self.runner.pause = lambda *a, **k: self.fail('database failure must not pause a backend job')
         for name in ('remember_preview', 'refresh_results', 'settle', 'notify', 'later'):
-            setattr(self.runner, name, lambda *a, name=name: self.publish(name))
+            setattr(self.runner, name, lambda *a, name=name, **kwargs: self.publish(name))
         self.run = self.store.add('run', 'w', status='running', round=1, initial={}, stack=[],
             plan={'stages': {'stage': {'id': 'stage', 'workflow': 'workflow', 'auto': None,
                                       'text_output': ['3', 'text']}}})

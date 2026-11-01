@@ -31,7 +31,8 @@ class WorkflowRun:
         self.token=uuid.uuid4().hex; self.waiting=None; self.index=0; self.round=0; self.completed={}; self.frozen={}; self.raw={}; self.active_keys=set(); self.node=None
     def active(self):return bool(self.runner.batch and self.runner.batch['token']==self.token)
     def start(self,count):
-        if type(count) is not int or not 1<=count<=100:raise ValueError('運行次數須介於 1–100。')
+        from .core import RUN_COUNT_LIMIT
+        if type(count) is not int or not 1<=count<=RUN_COUNT_LIMIT:raise ValueError(f'運行次數須介於 1–{RUN_COUNT_LIMIT:,}。')
         self.snapshot=copy.deepcopy(self.client.snapshot()); self.state=self.snapshot['state']; self.directory=self.window.store.directory
         self.profiles=copy.deepcopy(execution_profiles(self.state)); self.count=count
         # First native acceptance gate: no saved-profile execution fallback.

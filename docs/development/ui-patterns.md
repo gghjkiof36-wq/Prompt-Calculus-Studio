@@ -166,6 +166,15 @@ Canvas 執行列未保存拖曳位置時，單欄預設對齊應用視窗中央�
 - 中鍵或空白處左鍵平移持有獨立的 scene 互動狀態，期間停止 Qt 重播先前 hover，避免未變的控制項反覆使快照失效；程式或背景內容更新仍照常失效重畫。放開、隱藏、關閉或 renderer 回退時，恢復平移前的互動設定，原本停用互動的 view 仍停用。滾輪轉平移先結束滾輪狀態，再取得平移狀態；晚到的滾輪結束不釋放仍在進行的平移。程式改變倍率保留既有平移擁有權，到放開時恢復文字編輯與節點拖曳。
 - 保存與投影的驗證入口：[參數回執交易](../../tests/test_parameter_receipt_persistence.py)、[Stage 狀態投影](../../tests/test_stage_refresh_projection.py)、[Stage 原子轉移](../../tests/test_stage_atomic_transitions.py)。畫面與生命週期入口：[WebEngine native 邊界](../../tests/test_webengine_native_boundary.py)、[畫布加速與回退](../../tests/test_canvas_acceleration.py)、[加速偏好保存](../../tests/test_canvas_acceleration_settings.py)、[平移快照](../../tests/test_canvas_pan_cache.py)、[滾輪與平移互動](../../tests/test_canvas_wheel_interaction.py)、[多倍率快照與上限](../../tests/test_canvas_wheel_backing.py)、[效能監測及導覽位置](../../tests/test_workspace_performance.py)。聚焦測試與有界 Windows 畫面核對只支持各自的資料、繪製及生命週期契約；真實生成時的吞吐量、長停頓與發布驗收另按對應來源及量測紀錄判定。
 
+### Canvas 預排程與 Prompt 詳情頁
+
+- Canvas 上的 Prompt 輸出與預排程只保留摘要和開啟入口；`ModulePage` 在原 Canvas 內置中呈現詳情，沿 Stage 參數頁及新增功能模組的 `module_dialog_styles`、標題與關閉規格。寬度最多 920 logical px，高度由內容估算並限制於視窗；長來源、Prompt、序列在各欄內捲動。關閉頁面不隱藏／重建 Canvas，不改縮放；切換文件或移除 owner 時關閉，延後排序不能寫回其他頁面。
+- Prompt 左欄為來源及順序，右欄為最終文字，工具列等高、底部保存素材動作獨立。專用詳情頁總是顯示文字，舊卡片 `preview_collapsed` 設定保留但不控制詳情；空手動稿仍與自動稿分開，沿既有 commit／Undo／保存處理。來源摺疊只改顯示。
+- 預排程先列批次，再開啟其中的序列；每次接受 Execute 產生 `execution_group`，同次內的直接 run、內層及自動補入沿此識別。追加到同 run 的下一次 Execute 有獨立識別；舊紀錄只按既有 run 分組，不推造原點擊歷史。單次執行 1–1,000，Stage 佇列沒有 100 項總上限；`CAPACITY=100` 僅是自動供應每個 owner 的預載窗口。序列每頁最多 50 項，組數包含已保存與待供應數量。
+- 分組、狀態與序列清單使用 SQLite 顯示投影，開啟內容才讀完整凍結值。拖排只置換目前頁面的等待位置，對照原 id／狀態，不能跨 owner 或改動其他組／頁；管理本頁的移除先留在草稿，套用時核對。全排程暫停／繼續／取消採明示文案；未確認提交與取消待確認維持原回執規則。
+- 最近生成詳情及圖片檢視器支援左右按鈕與方向鍵，依打開時的可用序列切換；兩端停用，缺失圖片仍可切到前後項。未變的縮圖投影保留 tile，不重複解碼。
+- 核對入口：`test_canvas_module_pages.py`、`test_schedule_groups.py`、`test_schedule_item_actions.py`、`test_087_queue_history.py`、`test_output_source_lifecycle.py`、`test_recent_overlay.py`。離屏操作／截圖不能替代使用者現行 PCS 視窗的原生流暢度驗收。
+
 ### 組合直接輸入的圖片 Prompt 入口
 
 - `GroupEditor` 的「直接輸入」共用頁提供「從圖片匯入…」，內容欄與按鈕都接收單張本機 PNG 拖放。`MetadataPromptImport` 一次捕獲最多 25 MiB 原始 bytes，經 `png_metadata_stream` 與既有 `metadata_sources` 讀取，保留 CRC／壓縮 metadata 上限；不解碼像素、不複製原圖、不連網。

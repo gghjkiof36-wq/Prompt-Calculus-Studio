@@ -71,10 +71,8 @@ class OutputSources(QTreeWidget):
         self.fit_visible_rows();self.verticalScrollBar().setValue(scroll)
 
     def fit_visible_rows(self):
-        count=sum(1+(self.topLevelItem(i).childCount() if self.topLevelItem(i).isExpanded() else 0)
-                  for i in range(self.topLevelItemCount()))
-        row_height=max(42,self.fontMetrics().height()+20)
-        self.setMinimumHeight(max(96,min(6,count)*row_height+8))
+        # The dedicated page owns its height; expanded sources scroll within it.
+        self.setMinimumHeight(96)
 
     def save_fold(self,item,collapsed):
         key=self.token(item)[1];output=self.canvas.data()['outputs'][self.output]
@@ -173,6 +171,7 @@ class OutputSources(QTreeWidget):
         ordered=list(before);ordered.insert(index,ordered.pop(old));canvas=self.canvas;output=self.output
         window=canvas.window;store=window.store;workspace=window.state['workspace']
         context=window.canvas_edit_context;card=canvas.outputs.get(output)
+        page=getattr(card.panel,'page',None) if card else None
         container=canvas.containers.get(owner) if kind=='member' else None
         def apply(state):
             current=state['multi_output']
@@ -193,7 +192,8 @@ class OutputSources(QTreeWidget):
                     or window.store is not store or window.canvas is not canvas
                     or window.canvas_edit_context is not context or window.state['workspace']!=workspace
                     or card is None or canvas.outputs.get(output) is not card or not isValid(card)
-                    or card.panel.order is not self):return
+                    or page is None or page.closed or card.panel.page is not page
+                    or page.content.order is not self):return
             if kind=='member' and (container is None or canvas.containers.get(owner) is not container
                                    or not isValid(container)):return
             canvas.commit(apply,label='排列文字來源' if kind=='source' else '排列文字模塊')

@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from prompt_calculus_studio.stage_store import StageStore
+from prompt_calculus_studio.flow_data import CAPACITY
 from prompt_calculus_studio import queue_history as history
 
 
@@ -65,10 +66,11 @@ class QueueHistoryTests(unittest.TestCase):
         self.assertEqual(self.store.read(copied['id'])['status'],'removed')
         self.redo();self.assertEqual(self.store.read(copied['id']),copied)
 
-    def test_restore_refuses_over_capacity(self):
+    def test_restore_can_cross_automatic_prefetch_size(self):
         self.remove()
-        for i in range(9):self.entry(str(i))
-        self.undo();self.assertEqual(self.store.read(self.a['id'])['status'],'removed')
+        for i in range(CAPACITY-1):self.entry(str(i))
+        self.undo();self.assertEqual(self.store.read(self.a['id'])['status'],'waiting')
+        self.assertEqual(self.store.active_count('w','q'),CAPACITY+1)
 
     def test_existing_attempt_never_creates_undo(self):
         self.store.add('attempt','w',self.run['id'],parent=self.a['id'],status='failed')

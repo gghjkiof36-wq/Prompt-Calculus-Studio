@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import unittest
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter, QPen, QTransform, QWheelEvent
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter, QPen, QTransform, QWheelEvent, QMouseEvent
 from PySide6.QtWidgets import (QApplication, QGraphicsRectItem, QGraphicsScene,
                                QGraphicsView, QLabel, QLineEdit, QVBoxLayout, QWidget)
 from PySide6.QtTest import QTest
@@ -261,6 +261,33 @@ class CanvasPanCacheTests(unittest.TestCase):
         finally:
             canvas.close(); canvas.deleteLater()
             APP.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    def test_high_rate_fractional_mouse_motion_is_not_discarded(self):
+        from prompt_calculus_studio.canvas_items import CanvasView
+        canvas=QWidget();canvas.window=SimpleNamespace(state={'workspace':'qa'},store=None)
+        canvas._paint_colors=dict(base='#242829',canvas_background='#242829',line='#525757')
+        layout=QVBoxLayout(canvas);view=CanvasView(canvas);layout.addWidget(view)
+        view.scene().setSceneRect(-1000,-1000,3000,3000)
+        canvas.resize(470,350);canvas.show();view.centerOn(0,0);self.events()
+        def move(x,y):
+            point=QPointF(x,y)
+            APP.sendEvent(view.viewport(),QMouseEvent(QEvent.Type.MouseMove,point,point,
+                Qt.MouseButton.NoButton,Qt.MouseButton.MiddleButton,Qt.KeyboardModifier.NoModifier))
+        try:
+            QTest.mousePress(view.viewport(),Qt.MouseButton.MiddleButton,pos=QPoint(100,100))
+            before=(view.horizontalScrollBar().value(),view.verticalScrollBar().value())
+            for i in range(1,101):move(100+i*.2,100+i*.125)
+            self.assertEqual(view.horizontalScrollBar().value(),before[0]-20)
+            self.assertLessEqual(abs(view.verticalScrollBar().value()-(before[1]-12.5)),.5)
+            for i in range(99,-1,-1):move(100+i*.2,100+i*.125)
+            self.assertEqual((view.horizontalScrollBar().value(),view.verticalScrollBar().value()),before)
+            QTest.mouseRelease(view.viewport(),Qt.MouseButton.MiddleButton,pos=QPoint(100,100))
+            QTest.mousePress(view.viewport(),Qt.MouseButton.MiddleButton,pos=QPoint(100,100))
+            move(100.2,100.2)
+            self.assertEqual((view.horizontalScrollBar().value(),view.verticalScrollBar().value()),before)
+            QTest.mouseRelease(view.viewport(),Qt.MouseButton.MiddleButton,pos=QPoint(100,100))
+        finally:
+            canvas.close();canvas.deleteLater();APP.sendPostedEvents(None,QEvent.Type.DeferredDelete)
 
     def assert_full_frame(self, image):
         # frame() starts magenta. No pixel may be left uncovered by the camera

@@ -71,10 +71,10 @@ class CanvasDeleteKeysTests(unittest.TestCase):
         for kind,key in targets:
           for delete_key in (Qt.Key.Key_Delete,Qt.Key.Key_Backspace):
             with self.subTest(kind=kind,key=delete_key):
-                editor=self.c.outputs[self.out].panel.editor
+                page=self.c.outputs[self.out].panel.open_page();editor=page.content.editor
                 QTest.mouseClick(editor.viewport(),Qt.MouseButton.LeftButton)
                 editor.setFocus();QTest.qWait(5)
-                self.assertIsNotNone(self.c.view.scene().focusItem())
+                self.assertTrue(editor.hasFocus());page.finish();fixture.APP.processEvents()
                 card=next(c for c in [self.c.preview_card,*self.c.clips.values(),*self.c.outputs.values(),
                                      *self.c.functions.cards.values(),*self.c.flow_cards.values(),
                                      *self.c.containers.values(),*self.c.cards.values()] if c.key==key)
@@ -99,8 +99,8 @@ class CanvasDeleteKeysTests(unittest.TestCase):
         self.assertFalse(self.executor.submissions)
 
     def test_text_editing_keeps_delete_backspace_and_undo_inside_editor(self):
-        editor=self.c.outputs[self.out].panel.editor
         self.select_header(self.c.outputs[self.out])
+        editor=self.c.outputs[self.out].panel.open_page().content.editor
         QTest.mouseClick(editor.viewport(),Qt.MouseButton.LeftButton)
         editor.setFocus();QTest.keyClick(editor,Qt.Key.Key_A,Qt.KeyboardModifier.ControlModifier)
         QTest.keyClicks(editor,'abc');QTest.keyClick(editor,Qt.Key.Key_Backspace)

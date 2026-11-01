@@ -75,7 +75,8 @@ class InputRunner:
         if enabled(self.window.state):return self.chain.start(count)
         from .workflow_flow import execution_profiles
         if not self.client.connected:raise ValueError('請先連線至 ComfyUI。')
-        if type(count) is not int or not 1<=count<=100:raise ValueError('執行次數須介於 1–100。')
+        from .core import RUN_COUNT_LIMIT
+        if type(count) is not int or not 1<=count<=RUN_COUNT_LIMIT:raise ValueError(f'執行次數須介於 1–{RUN_COUNT_LIMIT:,}。')
         state=self.window.state;profiles=execution_profiles(state)
         if len(profiles)!=1:raise ValueError('本輪請使用一個明確的目標工作流；不自動串接不同工作流。')
         workflow=profiles[0]['id'];scheduler=scheduler_for(state,workflow);source=source_for(state,workflow)
@@ -117,9 +118,6 @@ class InputRunner:
                 self.store.set_control(owner,feed=dict(key=source,batch=image['batch_id'],next=index+1,total=len(image['items'])))
             self.fill(owner)
         else:
-            reserve=count if busy else count-1
-            if len(self.store.rows(owner))+reserve+self.direct_count(owner)>CAPACITY:
-                raise ValueError('預排程最多十項；目前空位不足，未加入這次要求。')
             context=self.context()
             if not busy:
                 self.direct.add(context,route)

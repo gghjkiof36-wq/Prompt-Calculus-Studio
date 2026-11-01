@@ -158,7 +158,7 @@ class SchedulePanel(QFrame):
     def __init__(self,canvas,key):
         super().__init__();self.canvas=canvas;self.key=key;self.updating=False;self.selected=None;self.setObjectName('InsetPanel')
         body=QVBoxLayout(self);body.setContentsMargins(14,12,14,12)
-        self.status=label('只保存接入資料 · 最多十項','Subtle',True);body.addWidget(self.status)
+        self.status=label('保存接入資料','Subtle',True);body.addWidget(self.status)
         self.add_channel_button=button('增加端口',self.add_channel,'Quiet')
         body.addLayout(row(button('暫停',lambda:self.action('pause'),'Quiet'),button('繼續',lambda:self.action('resume'),'Quiet'),
                            button('取消目前',lambda:self.action('cancel'),'Quiet'),self.add_channel_button))
@@ -221,7 +221,7 @@ class SchedulePanel(QFrame):
                 if record['id']==ident:self.listing.setCurrentItem(item)
             for item in existing.values():self.listing.takeItem(self.listing.row(item))
         feed=control.get('feed');remaining=max(0,feed['total']-feed['next']) if feed else 0
-        self.status.setText(('已暫停 · ' if control['paused'] else '')+str(len(rows))+'／10 項'+(' · 尚有 '+str(remaining)+' 張待補入' if feed else '')+'\n'+(self.runner.message or '按執行保存接入資料，空閒時自動送出。'))
+        self.status.setText(('已暫停 · ' if control['paused'] else '')+str(len(rows))+' 項'+(' · 尚有 '+str(remaining)+' 張待補入' if feed else '')+'\n'+(self.runner.message or '按執行保存接入資料，空閒時自動送出。'))
         self.updating=False
         if not self.listing.currentItem() and self.listing.count():self.listing.setCurrentRow(0)
         if self.listing.currentItem() and self.ports.count()==0:self.selection_changed()
@@ -338,7 +338,7 @@ class FlowCard(TextCard):
         self.init_interaction()
         if self.kind=='stages':self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable,True)
     @property
-    def default_size(self):return (440,400) if self.kind=='schedulers' else (360,245) if self.kind=='stages' else (360,160)
+    def default_size(self):return (360,210) if self.kind=='schedulers' else (360,245) if self.kind=='stages' else (360,160)
     def layout_is_current(self):
         return self.canvas.flow_cards.get(self.key) is self and self.key in self.canvas.data().get(self.kind,{})
     def attach(self):
@@ -356,6 +356,7 @@ class FlowCard(TextCard):
             specs=scheduler_port_specs(self.canvas.window.state,self.key)
             top=60+24*(max(p[4] for p in specs)+1)
         w,h=self.requested_size;minimum=self.panel.minimumSizeHint()
+        if self.kind=='schedulers' and hasattr(self.panel,'open_page'):h=top+14+max(80,minimum.height())
         self.proxy.setGeometry(QRectF(14,top,max(290,w-28,minimum.width()),max(h-top-14,minimum.height())));self.sync_bounds()
     def update_text(self):self.panel.refresh();super().update_text()
     def release_control(self,event):

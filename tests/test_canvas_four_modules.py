@@ -33,7 +33,7 @@ class FourModuleTests(StageFixture):
         entries=[store.add('entry',self.w.state['workspace'],run['id'],run=run['id'],scheduler=keys[0],
                            label='Stage 1',status='running' if i==0 else 'waiting',saved={'values':{}},stages=[])
                  for i in range(4)]
-        panel.refresh();return panel,entries
+        panel=panel.open_page().content;panel.open_group(panel.groups[0]['id']);return panel,entries
 
     def drop(self,listing,key,index):
         listing._source=key;listing._drag_token=b'four-modules-drag'
@@ -79,7 +79,7 @@ class FourModuleTests(StageFixture):
             QTest.mouseClick(dialog.save_button,Qt.MouseButton.LeftButton);return dialog.result()
         with patch.object(SourceOrderDialog,'exec',apply):self.c.order_sources(self.out)
         self.assertEqual(text_sources(self.c.data()['outputs'][self.out]),[second,self.cid])
-        self.assertEqual(self.c.outputs[self.out].panel.editor.toPlainText(),'');self.assertEqual(self.w.state['draft'],'')
+        self.assertEqual(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText(),'');self.assertEqual(self.w.state['draft'],'')
         self.assertEqual(self.w.state['uses'],before);self.c.undo()
         self.assertEqual(text_sources(self.c.data()['outputs'][self.out]),[self.cid,second]);self.assertEqual(self.w.state['draft'],'')
 
@@ -93,7 +93,7 @@ class FourModuleTests(StageFixture):
         dialog.listing.remove_waiting([ids[2]])
         QTest.mouseClick(dialog.save_button,Qt.MouseButton.LeftButton)
         self.assertEqual(dialog.result(),QDialog.DialogCode.Accepted)
-        self.assertEqual([r['id'] for r in panel.entries()],[ids[0],ids[3],ids[1]])
+        self.assertEqual([r['id'] for r in panel.entries() if r['status']!='removed'],[ids[0],ids[3],ids[1]])
         self.assertEqual(self.runner.store.read(ids[0]),entries[0])
         self.c.undo();self.assertEqual(capture(self.runner.store,ids),before)
         self.c.redo();self.assertEqual(self.runner.store.read(ids[2])['status'],'removed')
@@ -108,13 +108,13 @@ class FourModuleTests(StageFixture):
         self.assertIn('已更新',dialog.error.text());self.assertEqual(capture(self.runner.store,ids),before);dialog.reject()
 
     def test_pause_style_and_management_keep_advanced_actions(self):
-        panel,entries=self.queue();self.assertEqual(panel.pause_button.styleSheet(),self.c.outputs[self.out].panel.save_material.styleSheet())
+        panel,entries=self.queue();self.assertEqual(panel.pause_button.objectName(),'Quiet')
         dialog=ScheduleOrderDialog(panel);menus=[]
         from prompt_calculus_studio.widgets import RoundMenu
         with patch.object(RoundMenu,'open_for',lambda menu,*args:menus.append(menu)):
             QTest.mouseClick(dialog.more,Qt.MouseButton.LeftButton)
-        self.assertIn('增加資料接點',[a.text() for a in menus[0].actions()])
-        self.assertIn('取消此處所有流程（含等待項目）',[a.text() for a in menus[0].actions()]);dialog.reject()
+        self.assertNotIn('移除選取項目',[a.text() for a in menus[0].actions()])
+        self.assertIn('取消整個預排程的所有流程',[a.text() for a in menus[0].actions()]);dialog.reject()
 
     def test_theme_changes_update_source_actions_without_repolishing_on_refresh(self):
         key,panel=self.source();old=panel.choose.styleSheet()

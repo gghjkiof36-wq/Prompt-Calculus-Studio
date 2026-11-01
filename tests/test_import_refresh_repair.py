@@ -83,7 +83,7 @@ class ImportRefreshRepairTests(StageFixture):
         self.w.settings('data')
         # Hidden refresh still updates text; it only defers scene construction.
         self.w.changed('prompt'); self.w.changes.flush()
-        self.assertEqual(self.c.outputs[self.out].panel.editor.toPlainText(), '')
+        self.assertEqual(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText(), '')
         self.w.change_workspace(second); self.w.changes.flush()
         self.assertNotIn(self.clip, self.c.clips)
         self.w.change_workspace(first); self.w.return_to_prompt(); QTest.qWait(25)

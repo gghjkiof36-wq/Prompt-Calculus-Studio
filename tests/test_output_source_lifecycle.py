@@ -85,7 +85,7 @@ class SourceLifecycleTests(StageFixture):
                 self.w.persist(); saved = self.w.store.load()
                 self.assertEqual(saved['multi_output']['canvases'][self.cid]['members'], ['root', 'pose'])
                 self.assertEqual(text_sources(saved['multi_output']['outputs'][self.out]), [self.cid, self.other])
-                tree = self.c.outputs[self.out].panel.order
+                tree = self.c.outputs[self.out].panel.open_page().content.order
 
     def test_replaced_store_rejects_queued_drop(self):
         tree = self.prepare(); self.queue(tree)
@@ -118,7 +118,7 @@ class SourceLifecycleTests(StageFixture):
         tree = self.prepare(); self.queue(tree)
         # Replace the parent's live control before deleting the old context;
         # display/font recovery must not be left with a dangling panel.order.
-        panel = self.c.outputs[self.out].panel
+        panel = self.c.outputs[self.out].panel.open_page().content
         panel.order = OutputSources(self.c, self.out)
         self.assertIsNotNone(tree.parentWidget().layout().replaceWidget(tree, panel.order))
         tree.hide(); tree.deleteLater()
