@@ -71,9 +71,6 @@ class WorkspaceNavigation(QFrame):
             return
         preferred = sum(self.routes[key].fontMetrics().horizontalAdvance(title)+50
                         for key, title, _ in DESTINATIONS) + 24
-        monitor = getattr(self, 'performance_monitor', None)
-        if monitor is not None and monitor.workspace.performance_monitor_enabled:
-            preferred += monitor.width() + self.body.spacing()
         compact = available < preferred
         for key, title, _ in DESTINATIONS:
             self.routes[key].setText('' if compact else title)

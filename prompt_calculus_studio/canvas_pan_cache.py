@@ -43,6 +43,7 @@ class PanRasterCache(QObject):
         self.active = False
         self.allow_zoom = False
         self._wheel_interactive = None
+        self._pan_interactive = None
         self.zoom_timer = QTimer(self)
         self.zoom_timer.setSingleShot(True)
         self.zoom_timer.timeout.connect(self.finish_zoom)
@@ -68,6 +69,14 @@ class PanRasterCache(QObject):
         return self.image.sizeInBytes() if self.image is not None else 0
 
     def begin(self):
+        if getattr(self.view, 'pan', None) is not None and self._pan_interactive is None:
+            # Camera scrolling makes Qt replay its last scene mouse move.
+            # Suspend hover for the owned pan, just as for wheel zoom, while
+            # retaining all scene/widget invalidations for real content edits.
+            if self.allow_zoom:
+                self.end()  # Restore wheel policy before transferring ownership.
+            self._pan_interactive = self.view.isInteractive()
+            self.view.setInteractive(False)
         if self.active:
             return
         self.active = True
@@ -120,6 +129,9 @@ class PanRasterCache(QObject):
         was_active = self.active
         self._release_zoom_owner()
         self._restore_interaction()
+        if self._pan_interactive is not None:
+            interactive, self._pan_interactive = self._pan_interactive, None
+            self.view.setInteractive(interactive)
         self.zoom_timer.stop()
         self.allow_zoom = False
         self.active = False

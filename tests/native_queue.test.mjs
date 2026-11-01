@@ -4,7 +4,7 @@ import {installNativeQueue,applyNativeBindings} from '../comfyui_prompt_calculus
 import {graphFingerprint} from '../comfyui_prompt_calculus_studio/web/graph_fingerprint.js';
 import {captureManual} from '../comfyui_prompt_calculus_studio/web/state.js';
 
-function fixture({busy=false,timeout=12000,capture=false,policy=null,manual=null,onRequest=null}={}) {
+function fixture({busy=false,timeout=12000,capture=false,policy=null,manual=null,onRequest=null,onLoad=null}={}) {
     globalThis.document=new EventTarget();
     const graph={id:'native-A',inputs:{width:1216,height:832,batch_size:2,seed:10},
         serialize(){return {id:this.id,nodes:[{id:1,type:'EmptyLatentImage',widgets_values:Object.values(this.inputs)}]};}};
@@ -26,6 +26,7 @@ function fixture({busy=false,timeout=12000,capture=false,policy=null,manual=null
                 return true;
             } finally {this.processingQueue=false;}
         }};
+    if(onLoad)app.loadGraphData=onLoad;
     const request=async (route,value)=>{(route==='workflow/native/event'?diagnostics:prepared).push({route,value:structuredClone(value)});return onRequest?onRequest(route,value):route==='workflow/inputs/claim'&&manual?manual(value):{};};
     const seeds={queueHooks(){return {before(){graph.inputs.seed++;},after(){graph.inputs.seed++;}};}};
     const adapter=installNativeQueue(app,api,request,'tab-session',(...args)=>notices.push(args),timeout,undefined,undefined,capture?seeds:null);
@@ -225,6 +226,64 @@ test('websocket probe refreshes identity immediately and reports short submissio
         f.api.dispatchEvent(new CustomEvent('prompt_studio_native_probe',{detail:{probe:'after-stop'}}));
         await new Promise(resolve=>setImmediate(resolve));assert.equal(f.prepared.length,count);
     } finally {f.adapter.stop();}
+});
+
+test('probes during an idle in-flight poll drain the newest probe without a false busy acknowledgement',async t=>{
+    t.mock.method(globalThis,'setInterval',()=>0);
+    let release,count=0;
+    const f=fixture({onRequest:route=>{
+        if(route==='workflow/native/poll'&&++count===1)return new Promise(resolve=>release=resolve);
+        return {};
+    }});
+    const tick=()=>new Promise(resolve=>setImmediate(resolve));
+    try {
+        const pending=f.adapter.poll();await tick();
+        for(const probe of ['probe-1','probe-2','probe-3'])
+            f.api.dispatchEvent(new CustomEvent('prompt_studio_native_probe',{detail:{probe}}));
+        await tick();
+        assert.equal(count,1,'an idle HTTP poll must not create a concurrent busy acknowledgement');
+        release({commands:[]});await pending;await tick();
+        const polls=f.prepared.filter(p=>p.route==='workflow/native/poll').map(p=>p.value);
+        assert.equal(polls.length,2,'drain once without depending on interval timers');
+        assert.ok(polls.every(p=>p.ready===true&&p.reason===''));
+        assert.equal(polls[1].probe,'probe-3');
+        assert.deepEqual(polls[1].identity,f.command.identity);
+        assert.equal(f.sent.length,0);
+    } finally {release?.({commands:[]});f.adapter.stop();}
+});
+
+for(const phase of ['serialization','loading'])test(`a probe during polling still reports real ${phase} busy`,async t=>{
+    t.mock.method(globalThis,'setInterval',()=>0);
+    let releasePoll,releaseOperation,polls=0;
+    const hold=()=>new Promise(resolve=>releaseOperation=resolve);
+    const f=fixture({onLoad:phase==='loading'?hold:null,onRequest:route=>{
+        if(route==='workflow/native/poll'&&++polls===1)return new Promise(resolve=>releasePoll=resolve);
+        return {};
+    }});
+    const tick=()=>new Promise(resolve=>setImmediate(resolve));
+    if(phase==='serialization'){
+        const original=f.app.graphToPrompt;
+        f.app.graphToPrompt=async()=>{await hold();return original.call(f.app);};
+    }
+    try {
+        const pendingPoll=f.adapter.poll();await tick();
+        const pendingOperation=phase==='loading'?f.app.loadGraphData():f.adapter.execute({...f.command,action:'inspect'});
+        await tick();
+        assert.equal(typeof releaseOperation,'function');
+        f.api.dispatchEvent(new CustomEvent('prompt_studio_native_probe',{detail:{probe:'real-busy'}}));
+        await tick();
+        const acknowledgement=f.prepared.filter(p=>p.route==='workflow/native/poll').at(-1).value;
+        assert.equal(polls,2);
+        assert.equal(acknowledgement.probe,'real-busy');assert.equal(acknowledgement.ready,false);
+        assert.match(acknowledgement.reason,phase==='loading'?/載入工作流/:/正在提交/);
+        assert.equal(f.sent.length,0);
+        releasePoll({commands:[]});await pendingPoll;await tick();
+        releaseOperation();await pendingOperation;await tick();
+        await f.adapter.poll();
+        const idle=f.prepared.filter(p=>p.route==='workflow/native/poll').at(-1).value;
+        assert.equal(idle.probe,'real-busy');assert.equal(idle.ready,true);
+        assert.equal(f.sent.length,0);
+    } finally {releasePoll?.({commands:[]});releaseOperation?.();f.adapter.stop();}
 });
 
 test('probe during owned serialization or native loading acknowledges busy without accepting a command',async()=>{

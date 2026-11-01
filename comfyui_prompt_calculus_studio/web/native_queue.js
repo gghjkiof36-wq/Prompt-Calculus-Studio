@@ -413,13 +413,20 @@ export function installNativeQueue(app,api,request,session,notice=()=>{},timeout
         probe=value;
         if(stopped||!api.clientId)return;
         if(polling||active||loading||app.configuringGraph) {
-            if(polling)pollRequested=true;
+            const error=unavailable();
+            if(polling) {
+                pollRequested=true;
+                // An idle HTTP poll owns no graph transaction. Drain the latest
+                // probe after its response instead of overwriting ready with a
+                // false busy acknowledgement in the same backend session.
+                if(!error)return;
+            }
             // A busy acknowledgement cannot claim or execute a command. It
             // lets the waiter distinguish a live switching browser from a
             // missing browser while the original owner keeps its transaction.
             if(acknowledging)return;
             acknowledging=true;
-            try {await boundedRequest('workflow/native/poll',pollValue(unavailable()||'ComfyUI 正在回覆原生操作。'));}
+            try {await boundedRequest('workflow/native/poll',pollValue(error||'ComfyUI 正在回覆原生操作。'));}
             catch {} finally {acknowledging=false;}
         } else await poll();
     };

@@ -30,6 +30,9 @@ class NativeQueue:
         with service.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS native_operations (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS native_diagnostics (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
+            # Heartbeats must not parse every retained snapshot to find live work.
+            # SQLite maintains this index across all existing journal writers.
+            db.execute("CREATE INDEX IF NOT EXISTS native_operations_state_idx ON native_operations (json_extract(body,'$.state'))")
             # A restart cannot prove whether a delivered browser command ran.
             for ident,raw in db.execute('SELECT id,body FROM native_operations').fetchall():
                 value=json.loads(raw)

@@ -1,9 +1,10 @@
 """Native command/payload evidence. All backend history and images are fixtures."""
 import copy
+import json
 import sqlite3
 import tempfile
 import unittest
-from contextlib import contextmanager
+from contextlib import closing,contextmanager
 from pathlib import Path
 from unittest.mock import patch
 from test_comfy_integration import Service
@@ -56,6 +57,46 @@ class NativeQueueTests(unittest.TestCase):
         self.queue.prepare(value)
         visual['extra']={'pcs_native_operation':'operation-1'}
         return dict(prompt=actual,client_id='real-web-sid',extra_data=dict(extra_pnginfo=dict(workflow=visual)))
+
+    def test_legacy_journal_state_index_preserves_receipts_and_tracks_delivery(self):
+        legacy=self.root/'legacy';legacy.mkdir()
+        receipts=[dict(id=f'old-{i}',state=state,submit_inflight=False,
+                       snapshot=dict(original='保留原始快照'*4096),error='retained error',
+                       payload=dict(prompt={'6':{'inputs':{'text':''}}}))
+                  for i,state in enumerate(('queued','failed','unconfirmed','captured','opened'))]
+        with closing(sqlite3.connect(legacy/'integration.sqlite3')) as db, db:
+            db.execute('CREATE TABLE native_operations (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
+            db.executemany('INSERT INTO native_operations VALUES (?,?)',
+                           [(r['id'],json.dumps(r,ensure_ascii=False)) for r in receipts])
+
+        service=Service(legacy,self.root,self.root);queue=service.native_queue
+        poll_sql="SELECT body FROM native_operations WHERE json_extract(body,'$.state')='pending'"
+        handshake_sql="SELECT id FROM native_operations WHERE json_extract(body,'$.state') IN ('pending','delivered','prepared','submitted')"
+        with service.connect() as db:
+            preserved={ident:json.loads(body) for ident,body in db.execute('SELECT id,body FROM native_operations')}
+            self.assertEqual(preserved,{r['id']:r for r in receipts})
+            for query in (poll_sql,handshake_sql):
+                with self.subTest(query=query):
+                    plan=[row[3] for row in db.execute('EXPLAIN QUERY PLAN '+query)]
+                    self.assertTrue(any('SEARCH native_operations USING INDEX native_operations_state_idx' in step for step in plan),plan)
+            self.assertEqual(db.execute(poll_sql).fetchall(),[])
+
+        # The existing INSERT OR REPLACE and delivery UPDATE paths must keep
+        # the indexed state current; finished history must never be reissued.
+        queue.poll(self.live);queue.start(self.request)
+        with service.connect() as db:
+            self.assertEqual([json.loads(row[0])['id'] for row in db.execute(poll_sql)],[self.request['id']])
+        commands=queue.poll(self.live)['commands']
+        self.assertEqual([command['id'] for command in commands],[self.request['id']])
+        self.assertEqual(queue.poll(self.live)['commands'],[])
+        with service.connect() as db:
+            self.assertEqual(db.execute(poll_sql).fetchall(),[])
+            self.assertEqual(db.execute(handshake_sql).fetchall(),[(self.request['id'],)])
+        restarted=Service(legacy,self.root,self.root).native_queue
+        self.assertEqual(restarted.read(self.request['id'])['state'],'unconfirmed')
+        self.assertEqual(restarted.poll(self.live)['commands'],[])
+        for receipt in receipts:
+            self.assertEqual(restarted.read(receipt['id']),receipt)
 
     def test_exact_native_payload_keeps_two_images_manual_text_and_original_snapshot(self):
         before=copy.deepcopy(self.snapshot);payload=self.prepared();graph=copy.deepcopy(payload['prompt'])

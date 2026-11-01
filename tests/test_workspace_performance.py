@@ -292,21 +292,24 @@ class WorkspacePerformanceTests(unittest.TestCase):
             self.w.resize(width, 900)
             self.w.sync_display_settings(dict(self.w.settings, ui_size=font))
             self.events()
-            self.assertIs(monitor.parentWidget(), self.w.rail)
+            self.assertIs(monitor.parentWidget(), self.w.top)
             self.assertTrue(monitor.isVisible())
             self.assertFalse(monitor.visibleRegion().isEmpty())
-            self.assertTrue(self.w.rail.rect().contains(monitor.geometry()))
-            self.assertEqual(self.w.rail.body.indexOf(monitor),
-                             self.w.rail.body.indexOf(self.w.routes['settings']) + 1)
+            self.assertTrue(self.w.top.rect().contains(monitor.geometry()))
+            self.assertEqual(self.w.top.layout().indexOf(monitor),
+                             self.w.top.layout().indexOf(self.w.connection) - 1)
+            self.assertEqual(self.w.rail.body.indexOf(monitor), -1)
             self.assertEqual(len(monitor.lines), 2)
             self.assertEqual(monitor.paint_font.pixelSize(), 9)
             for control in self.w.routes.values():
-                self.assertFalse(monitor.geometry().intersects(control.geometry()))
+                control_rect = QRect(control.mapTo(self.w.top, QPoint()), control.size())
+                self.assertFalse(monitor.geometry().intersects(control_rect))
                 self.assertTrue(self.w.rail.rect().contains(control.geometry()))
             global_rect = QRect(monitor.mapTo(self.w, QPoint()), monitor.size())
             self.assertTrue(self.w.top.geometry().contains(global_rect))
             connection_rect = QRect(self.w.connection.mapTo(self.w, QPoint()), self.w.connection.size())
             self.assertFalse(global_rect.intersects(connection_rect))
+            self.assertLess(global_rect.right(), connection_rect.left())
             metrics = QFontMetrics(monitor.paint_font)
             self.assertTrue(all(metrics.horizontalAdvance(line) + 12 <= monitor.width()
                                 for line in ('FPS 4096', 'Lag 9999+s')))
@@ -317,7 +320,9 @@ class WorkspacePerformanceTests(unittest.TestCase):
         monitor = self.monitor
         for _ in range(2):
             self.w.set_navigation_position('top'); self.events()
-            self.assertIs(monitor.parentWidget(), self.w.rail)
+            self.assertIs(monitor.parentWidget(), self.w.top)
+            self.assertEqual(self.w.top.layout().indexOf(monitor),
+                             self.w.top.layout().indexOf(self.w.connection) - 1)
             self.assertTrue(monitor.isVisible()); self.assertTrue(monitor.timer.isActive())
             self.w.set_performance_monitor(False); self.events()
             self.assertFalse(monitor.isVisible()); self.assertFalse(monitor.timer.isActive())
@@ -330,6 +335,7 @@ class WorkspacePerformanceTests(unittest.TestCase):
             self.w.set_navigation_position('side'); self.events()
             self.assertIs(monitor.parentWidget(), self.w)
             self.assertEqual(self.w.rail.body.indexOf(monitor), -1)
+            self.assertEqual(self.w.top.layout().indexOf(monitor), -1)
             self.assertTrue(monitor.isVisible())
             rail_rect = QRect(self.w.rail.mapTo(self.w, QPoint()), self.w.rail.size())
             self.assertTrue(rail_rect.contains(monitor.geometry()))

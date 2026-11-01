@@ -143,7 +143,7 @@ Canvas 執行列未保存拖曳位置時，單欄預設對齊應用視窗中央�
 
 ### 工作區效能監測與通知
 
-- 側邊導覽在設定上方顯示 9 px 英文 `FPS`／`Lag`，寬度限於圖示欄內；上方導覽則在設定旁保留真正的布局位置，以兩行呈現，不浮蓋文件左下角。窄窗導覽的寬度計算包含讀值，切換導覽方向時沿同一個監測元件重新掛接，不攔截輸入或移動文件內容。`FPS` 為最近一秒 GUI 更新回應節拍的估計：以所在螢幕刷新率安排單一 PreciseTimer，僅計實際回呼；畫面靜止仍持續量測，主執行緒卡頓則降低。這不是 GPU 呈現幀率，也不是將螢幕 Hz 直接當成實測值。`Lag` 為同一秒內超過預定節拍的最大延遲。初始、恢復或更換螢幕頻率時暫顯 `—` 等待樣本；設定開關及提示沿用工作區偏好。
+- 側邊導覽在設定上方顯示 9 px 英文 `FPS`／`Lag`，寬度限於圖示欄內；上方導覽則在右上角 ComfyUI 連線徽章左側保留真正的布局位置，以兩行呈現，不浮蓋文件左下角。窄窗導覽先扣除頂列讀值占用的寬度，不在導覽列內重複計算，切換導覽方向時沿同一個監測元件重新掛接，不攔截輸入或移動文件內容。`FPS` 為最近一秒 GUI 更新回應節拍的估計：以所在螢幕刷新率安排單一 PreciseTimer，僅計實際回呼；畫面靜止仍持續量測，主執行緒卡頓則降低。這不是 GPU 呈現幀率，也不是將螢幕 Hz 直接當成實測值。`Lag` 為同一秒內超過預定節拍的最大延遲。初始、恢復或更換螢幕頻率時暫顯 `—` 等待樣本；設定開關及提示沿用工作區偏好。
 - 計時採單調時鐘與絕對截止時間，保留 59.94／144 Hz 等非整數毫秒週期；錯過的節拍跳過、不補計，長停頓仍包含在一秒分母內。無有效螢幕頻率時以 60 Hz 為採樣目標。每 250 ms 更新讀值及核對所在螢幕頻率，不訂閱全域 Paint，也不呼叫頂層 `QWindow.requestUpdate()` 強制重畫。頁面內容不為監測而重繪。
 - 啟動的「載入工作區／恢復分頁」期間不顯示或取樣；啟動畫面結束、進入主介面後才按既有開關顯示，側邊與上方導覽一致。監測僅在前景、可見且未最小化的工作區取樣；停用、背景、隱藏及關閉時停止計時，關閉被取消時仍正常工作。GUI 完全停頓期間讀值也會停，恢復後才呈現低 FPS 與延遲峰值；不能據此定位 GPU 或單一工作階段。
 - 相同連線錯誤不得不斷延後通知消退時間；不同錯誤、重新連線後的新斷線仍能顯示。不確定已提交工作只標示狀態，不因通知去重或重連自動重送生成。
@@ -163,7 +163,8 @@ Canvas 執行列未保存拖曳位置時，單欄預設對齊應用視窗中央�
 - 場景內容、代理控制項、外觀、DPR 與 viewport 尺寸變動會讓快照失效。相機只移動操作列所觸發的 LayoutRequest 可略過，因為操作列在快照外。首次擷取或內容變動後重新擷取時會清除代理控制項在舊繪圖目標的像素，避免拖動看到上一版文字。
 - 模組標題沿既有裝置解析度快取，名稱、字型、配色、寬度、收合及滑過狀態均參與失效判斷。小底板維持既有單圖快取；超過單張 2 MiB 的標準圓角底板使用獨立 4 MiB 小圖塊快取，保留完整標題區、圓角、邊框與陰影，只延伸均勻的中段。縮放、DPR 與次像素位置仍保留原始畫素，不放大舊圖。特殊接合外框、明確裁切、旋轉及混合狀態繼續使用原畫法。原圖層總量 48 MiB／單張 2 MiB 上限不變，避免大型底板擠掉文字快取。
 - 背景純色填滿不啟用反鋸齒，網格仍沿既有批次點陣；填色保留原場景矩形與 painter clip，不擴成整個繪圖目標。控件、文字、圓角和連線的反鋸齒規則不變。
-- 保存與投影的驗證入口：[參數回執交易](../../tests/test_parameter_receipt_persistence.py)、[Stage 狀態投影](../../tests/test_stage_refresh_projection.py)、[Stage 原子轉移](../../tests/test_stage_atomic_transitions.py)。畫面與生命週期入口：[WebEngine native 邊界](../../tests/test_webengine_native_boundary.py)、[畫布加速與回退](../../tests/test_canvas_acceleration.py)、[加速偏好保存](../../tests/test_canvas_acceleration_settings.py)、[平移快照](../../tests/test_canvas_pan_cache.py)、[滾輪互動](../../tests/test_canvas_wheel_interaction.py)、[多倍率快照與上限](../../tests/test_canvas_wheel_backing.py)、[效能監測及導覽位置](../../tests/test_workspace_performance.py)。聚焦測試與有界 Windows 畫面核對只支持各自的資料、繪製及生命週期契約；真實生成時的吞吐量、長停頓與發布驗收另按對應來源及量測紀錄判定。
+- 中鍵或空白處左鍵平移持有獨立的 scene 互動狀態，期間停止 Qt 重播先前 hover，避免未變的控制項反覆使快照失效；程式或背景內容更新仍照常失效重畫。放開、隱藏、關閉或 renderer 回退時，恢復平移前的互動設定，原本停用互動的 view 仍停用。滾輪轉平移先結束滾輪狀態，再取得平移狀態；晚到的滾輪結束不釋放仍在進行的平移。程式改變倍率保留既有平移擁有權，到放開時恢復文字編輯與節點拖曳。
+- 保存與投影的驗證入口：[參數回執交易](../../tests/test_parameter_receipt_persistence.py)、[Stage 狀態投影](../../tests/test_stage_refresh_projection.py)、[Stage 原子轉移](../../tests/test_stage_atomic_transitions.py)。畫面與生命週期入口：[WebEngine native 邊界](../../tests/test_webengine_native_boundary.py)、[畫布加速與回退](../../tests/test_canvas_acceleration.py)、[加速偏好保存](../../tests/test_canvas_acceleration_settings.py)、[平移快照](../../tests/test_canvas_pan_cache.py)、[滾輪與平移互動](../../tests/test_canvas_wheel_interaction.py)、[多倍率快照與上限](../../tests/test_canvas_wheel_backing.py)、[效能監測及導覽位置](../../tests/test_workspace_performance.py)。聚焦測試與有界 Windows 畫面核對只支持各自的資料、繪製及生命週期契約；真實生成時的吞吐量、長停頓與發布驗收另按對應來源及量測紀錄判定。
 
 ### 組合直接輸入的圖片 Prompt 入口
 

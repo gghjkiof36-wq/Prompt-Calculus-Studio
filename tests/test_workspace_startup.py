@@ -140,7 +140,7 @@ class WorkspaceStartupTests(unittest.TestCase):
                         self.assertEqual(monitor.running, enabled)
                         self.assertEqual(monitor.timer.isActive(), enabled)
                         self.assertEqual(window.performance_monitor_enabled, enabled)
-                        self.assertIs(monitor.parentWidget(), window if position == 'side' else window.rail)
+                        self.assertIs(monitor.parentWidget(), window if position == 'side' else window.top)
                     finally:
                         window.close()
                         window.deleteLater()

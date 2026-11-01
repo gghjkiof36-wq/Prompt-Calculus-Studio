@@ -111,7 +111,7 @@ class WorkspacePerformance(QWidget):
             # Top navigation owns a real layout slot rather than covering a
             # document/native browser surface near the bottom of the window.
             if self.parentWidget() is not self.workspace:
-                self.workspace.rail.body.removeWidget(self)
+                self.workspace.top.layout().removeWidget(self)
                 self.setParent(self.workspace)
                 self.setVisible(self.running)
             point = self.anchor.mapTo(self.workspace, QPoint(0, 0))
@@ -119,14 +119,21 @@ class WorkspacePerformance(QWidget):
             rail_left = rail.mapTo(self.workspace, QPoint(0, 0)).x()
             x, bottom = rail_left + (rail.width() - self.width()) // 2, point.y() - 6
         else:
-            rail = self.workspace.rail
-            if self.parentWidget() is not rail:
-                self.setParent(rail)
+            top = self.workspace.top
+            if self.parentWidget() is not top:
+                self.setParent(top)
                 self.setVisible(self.running)
-            index = rail.body.indexOf(self.anchor) + 1
-            if rail.body.indexOf(self) != index:
-                rail.body.removeWidget(self)
-                rail.body.insertWidget(index, self, 0, Qt.AlignmentFlag.AlignVCenter)
+            layout = top.layout()
+            index = layout.indexOf(self.workspace.connection)
+            # Navigation rearrangement temporarily removes the connection
+            # control; the shell places us after it has rebuilt the top row.
+            if index < 0:
+                return
+            if layout.indexOf(self) != index - 1:
+                layout.removeWidget(self)
+                layout.insertWidget(layout.indexOf(self.workspace.connection), self,
+                                    0, Qt.AlignmentFlag.AlignVCenter)
+            self.workspace.sync_navigation_density()
             return
         self.move(min(x, max(0, self.workspace.width() - self.width())),
                   max(0, bottom - self.height()))

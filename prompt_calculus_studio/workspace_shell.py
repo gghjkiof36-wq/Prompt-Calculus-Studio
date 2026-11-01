@@ -657,6 +657,8 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.nav_controls.show()
         self.connection.show()
         for pane in self.panes:pane.strip.show()
+        if monitor := getattr(self, 'performance_monitor', None):
+            monitor.place()
         self.sync_navigation_density()
         QTimer.singleShot(0, self.pane_tab_row.sync)
 
@@ -666,6 +668,9 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.nav_controls.layout().setContentsMargins(0, 0, 0, 0)
         available = (self.width()-margins.left()-margins.right()
                      -self.nav_controls.sizeHint().width()-self.connection.width()-22)
+        monitor = getattr(self, 'performance_monitor', None)
+        if horizontal and monitor is not None and self.performance_monitor_enabled:
+            available -= monitor.width()
         self.rail.adapt_width(available)
 
     def sync_tab_inset(self):
