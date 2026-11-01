@@ -56,11 +56,9 @@ class ModulePage(QFrame):
         apply_module_dialog(self,colors,heading_size)
         t=dialog_colors(colors)
         self.setStyleSheet(self.styleSheet()+f'''
-            QTreeWidget#ScheduleGroupsList {{background:transparent;border:0;outline:0;}}
-            QTreeWidget#ScheduleGroupsList::item {{padding:6px 8px;border-bottom:1px solid {t['line']};}}
-            QTreeWidget#ScheduleGroupsList::item:hover {{background:{t['hover']};}}
-            QTreeWidget#ScheduleGroupsList::item:selected {{background:{t['selected']};color:{t['text']};}}
-            QHeaderView::section {{background:transparent;color:{t['secondary']};padding:8px;border:0;}}
+            QPushButton#Quiet:checked {{background:{t['selected']};color:{t['text']};}}
+            QListWidget#ScheduleGroupsList {{background:transparent;border:0;padding:0;outline:0;}}
+            QListWidget#ScheduleGroupsList::item {{background:transparent;border:0;padding:0;}}
             QTreeWidget#ModuleSourceOrder {{background:transparent;border:0;padding:0;}}
         ''')
         self.body.setContentsMargins(24,18,24,20);self.body.setSpacing(14)

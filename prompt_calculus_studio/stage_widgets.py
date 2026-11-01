@@ -3,7 +3,7 @@ import copy
 import json
 from PySide6.QtCore import Qt,QTimer,QSize,QEvent,QRect
 from PySide6.QtGui import QIcon,QImageReader,QPixmap
-from PySide6.QtWidgets import QFrame,QVBoxLayout,QListWidget,QListWidgetItem,QPlainTextEdit,QDialog,QLineEdit,QTreeWidget,QTreeWidgetItem,QHeaderView,QWidget,QStyledItemDelegate,QStyleOptionViewItem,QStyle,QApplication
+from PySide6.QtWidgets import QFrame,QVBoxLayout,QListWidget,QListWidgetItem,QPlainTextEdit,QDialog,QLineEdit,QWidget,QStyledItemDelegate,QStyleOptionViewItem,QStyle,QApplication
 from .widgets import label,button,row,ComboBox,StudioDialog,RoundMenu,dialog_buttons,widget_global_position
 from .workflow_binding import WorkflowBindingDialog
 from .output_order import OutputOrderList
@@ -130,18 +130,10 @@ class SchedulePageContent(QFrame):
         self.summary.installEventFilter(self)
         self.policy_button=button('輸入取值',self.policies,'Quiet')
         self.policy_button.setParent(self);self.policy_button.hide()
-        self.groups_list=QTreeWidget();self.groups_list.setObjectName('ScheduleGroupsList')
-        self.groups_list.setColumnCount(4);self.groups_list.setHeaderLabels(['批次','序列','狀態',''])
-        self.groups_list.setRootIsDecorated(False);self.groups_list.setIndentation(0);self.groups_list.setUniformRowHeights(True)
-        self.groups_list.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
-        self.groups_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.groups_list.setAccessibleName('預排程批次，點選查看序列')
-        header=self.groups_list.header();header.setStretchLastSection(False)
-        header.setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch)
-        for column,width in ((1,96),(2,170),(3,32)):
-            header.setSectionResizeMode(column,QHeaderView.ResizeMode.Fixed);header.resizeSection(column,width)
-        self.groups_list.itemClicked.connect(lambda item,column:self.open_group(item.data(0,Qt.ItemDataRole.UserRole)))
-        self.groups_list.itemActivated.connect(lambda item,column:self.open_group(item.data(0,Qt.ItemDataRole.UserRole)))
+        from .schedule_group_view import ScheduleGroupView
+        self.groups_list=ScheduleGroupView()
+        self.groups_list.itemClicked.connect(lambda item:self.open_group(item.data(Qt.ItemDataRole.UserRole)))
+        self.groups_list.itemActivated.connect(lambda item:self.open_group(item.data(Qt.ItemDataRole.UserRole)))
         body.addWidget(self.groups_list,1)
         self.list=PendingList(self);self.list.setIconSize(QSize(32,32));self.list.setMinimumHeight(96);self.list.setObjectName('ModuleScheduleList');self.list.setProperty('moduleChoices',True)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff);self.list.setTextElideMode(Qt.TextElideMode.ElideRight)
@@ -151,7 +143,7 @@ class SchedulePageContent(QFrame):
         self.empty=label('沒有等待執行的任務','Subtle',True);self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setMinimumHeight(56);body.addWidget(self.empty,1)
         self.pause_button=button('全部暫停',self.toggle_pause,'Quiet')
-        self.more=button('管理本頁',self.manage,'Quiet')
+        self.more=button('管理',self.manage,'Quiet')
         self.more.setAccessibleName('管理預排程');self.more.setToolTip('拖曳排列等待項目')
         self.legacy_button=button('整理舊接線',self.convert_wiring,'Quiet');body.insertWidget(0,self.legacy_button)
         history=self.history=button('歷史',lambda:show_history(canvas.window),'Quiet');history.setAccessibleName('歷史');history.setToolTip('歷史')
@@ -160,7 +152,13 @@ class SchedulePageContent(QFrame):
         self.back_button=button('所有批次',lambda:self.open_group(None),'Quiet')
         self.back_button.setAccessibleName('返回所有批次');self.back_button.setToolTip('所有批次')
         self.back_button.setIcon(icon('arrow-left'));self.back_button.setProperty('iconName','arrow-left')
-        body.insertLayout(0,row(self.back_button,self.summary,None,history,self.more,self.pause_button))
+        self.card_mode=button('卡片',lambda:self.set_group_view('cards'),'Quiet')
+        self.list_mode=button('清單',lambda:self.set_group_view('list'),'Quiet')
+        for control in (self.card_mode,self.list_mode):control.setCheckable(True)
+        self.view_switch=QWidget();self.view_switch.setLayout(row(self.card_mode,self.list_mode))
+        self.view_switch.layout().setContentsMargins(0,0,0,0);self.view_switch.layout().setSpacing(2)
+        self.set_group_view(getattr(canvas,'_schedule_group_view_mode','cards'))
+        body.insertLayout(0,row(self.back_button,self.summary,None,self.view_switch,history,self.more,self.pause_button))
         self.range_label=label('','Subtle')
         self.previous=button('上一頁',lambda:self.turn_page(-1),'Quiet')
         self.following=button('下一頁',lambda:self.turn_page(1),'Quiet')
@@ -172,7 +170,11 @@ class SchedulePageContent(QFrame):
         compact=width<700
         self.history.setText('' if compact else '歷史')
         self.back_button.setText('' if compact else '所有批次')
-        self.more.setText('管理' if compact else '管理本頁')
+
+    def set_group_view(self,mode):
+        self.canvas._schedule_group_view_mode=mode
+        self.groups_list.set_mode(mode)
+        self.card_mode.setChecked(mode=='cards');self.list_mode.setChecked(mode=='list')
 
     def open_group(self,ident):
         self.group=ident;self.offset=0;self.refresh()
@@ -262,19 +264,25 @@ class SchedulePageContent(QFrame):
         legacy=bool(legacy_edges(self.canvas.window.state,self.key))
         self.legacy_button.setVisible(legacy)
         self.empty.setText('請先整理舊接線' if legacy else '等待供應下一段序列' if current and current['pending'] else '沒有等待執行的任務')
-        old_groups=[self.groups_list.topLevelItem(i).data(0,Qt.ItemDataRole.UserRole) for i in range(self.groups_list.topLevelItemCount())]
+        from .schedule_group_view import DETAILS
+        old_groups=[self.groups_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.groups_list.count())]
+        selected_group=self.groups_list.currentItem()
+        selected_group=selected_group.data(Qt.ItemDataRole.UserRole) if selected_group else None
         if old_groups!=[g['id'] for g in self.groups]:
             self.groups_list.clear()
             for group in self.groups:
-                entry=QTreeWidgetItem();entry.setData(0,Qt.ItemDataRole.UserRole,group['id']);self.groups_list.addTopLevelItem(entry)
+                entry=QListWidgetItem();entry.setData(Qt.ItemDataRole.UserRole,group['id']);self.groups_list.addItem(entry)
+                if group['id']==selected_group:self.groups_list.setCurrentItem(entry)
         for index,group in enumerate(self.groups):
-            entry=self.groups_list.topLevelItem(index);counts=projected[group['id']]
+            entry=self.groups_list.item(index);counts=projected[group['id']]
             important=next((key for key in ('unconfirmed','cancelling','failed','result_error','preparing','submitted','collecting','running','retained') if counts.get(key)),None)
             status=NAMES[important] if important else (f"{counts.get('complete',0):,} 已完成" if counts.get('complete') else '等待')
             stamp=datetime.fromtimestamp(group['created']).strftime('%m/%d %H:%M')
-            entry.setText(0,f"第 {index+1} 組 · {group['label']}\n{stamp}" if not group['id'].startswith('legacy:') else f"先前排程 · {group['label']}\n{stamp}")
-            entry.setText(1,f"{group['total']:,} 項");entry.setText(2,status);entry.setIcon(3,icon('chevron-right'))
-            entry.setSizeHint(0,QSize(0,max(58,self.fontMetrics().height()*2+16)))
+            name=f'第 {index+1} 組' if not group['id'].startswith('legacy:') else '先前排程'
+            entry.setText(group['label'])
+            entry.setData(DETAILS,(group['label'],group['total'],status,stamp,name))
+            description=f"{name} · {group['label']}\n{group['total']:,} 項 · {status}\n{stamp}"
+            entry.setToolTip(description);entry.setData(Qt.ItemDataRole.AccessibleTextRole,description)
         ids=[r['id'] for r in rows];old=[self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]
         selected=self.list.currentItem();selected=selected.data(Qt.ItemDataRole.UserRole) if selected else None
         self.list.blockSignals(True)
@@ -307,6 +315,7 @@ class SchedulePageContent(QFrame):
         self.pause_button.setToolTip('繼續處理等待項目' if paused else '暫停此預排程')
         self.empty.setVisible(not rows if self.group else not self.groups)
         self.list.setVisible(bool(self.group and rows));self.groups_list.setVisible(bool(not self.group and self.groups))
+        self.view_switch.setVisible(not self.group)
         self.back_button.setVisible(bool(self.group));self.more.setVisible(bool(self.group and rows))
         self.pager.setVisible(bool(self.group));self.previous.setEnabled(self.offset>0)
         self.following.setEnabled(self.offset+self.page_size<materialized)

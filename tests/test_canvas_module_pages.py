@@ -64,13 +64,24 @@ class ModulePageTests(StageFixture):
             store.add('entry',workspace,owner='test-owner',scheduler=scheduler,status='waiting',
                       run='test-run',parent='',label=str(index),saved={})
         page=self.c.flow_cards[scheduler].panel.open_page()
-        self.assertEqual(page.content.groups_list.topLevelItemCount(),1)
+        self.assertEqual(page.content.groups_list.count(),1)
         self.assertEqual(page.content.list.count(),0)
         group=page.content.groups[0]['id']
-        item=page.content.groups_list.topLevelItem(0)
+        item=page.content.groups_list.item(0)
+        QTest.mouseClick(page.content.list_mode,Qt.MouseButton.LeftButton);APP.processEvents()
+        self.assertFalse(page.content.groups_list.grid_mode)
+        self.assertIs(page.content.groups_list.item(0),item)
         QTest.mouseClick(page.content.groups_list.viewport(),Qt.MouseButton.LeftButton,pos=page.content.groups_list.visualItemRect(item).center())
         self.assertEqual(page.content.group,group)
         self.assertEqual(page.content.list.count(),15)
+        QTest.mouseClick(page.content.back_button,Qt.MouseButton.LeftButton);APP.processEvents()
+        self.assertIsNone(page.content.group)
+        self.assertIs(page.content.groups_list.currentItem(),item)
+        self.assertTrue(page.content.list_mode.isChecked())
+        QTest.mouseClick(page.content.card_mode,Qt.MouseButton.LeftButton);APP.processEvents()
+        self.assertTrue(page.content.groups_list.grid_mode)
+        QTest.keyClick(page.content.groups_list,Qt.Key.Key_Return);APP.processEvents()
+        self.assertEqual(page.content.group,group)
         page.finish()
         for index in range(15,235):
             store.add('entry',workspace,owner='test-owner',scheduler=scheduler,status='waiting',
