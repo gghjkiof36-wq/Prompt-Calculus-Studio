@@ -310,6 +310,12 @@ class ChatText(QTextBrowser):
 
     def _start_rich(self):
         from .chat_rich import RichChatView
+        from shiboken6 import isValid
+        focused = QApplication.focusWidget()
+        host = self.nativeParentWidget()
+        handle = host.windowHandle() if host is not None else None
+        native_id = (int(handle.winId()) if handle is not None and focused is not None
+                     and host is not self.window() and host.isAncestorOf(focused) else None)
         self.rich = RichChatView(self)
         self.rich.setGeometry(self.rect())
         self.rich.contentReady.connect(self._rich_ready)
@@ -319,6 +325,14 @@ class ChatText(QTextBrowser):
         self.rich.lower()
         self.viewport().show()
         self.viewport().raise_()
+        # The first browser can replace the native child HWND and move focus
+        # to the next control. Keep typing in the same visible, active host;
+        # never activate a window or restore focus later from a timer.
+        handle = host.windowHandle() if host is not None else None
+        if (native_id is not None and handle is not None and int(handle.winId()) != native_id
+                and isValid(focused) and focused.isVisible() and focused.isEnabled()
+                and QApplication.activeWindow() is self.window()):
+            focused.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def sync_rich_visibility(self):
         from shiboken6 import isValid
@@ -1298,13 +1312,10 @@ class ChatPage(QWidget):
         self._content_host = QWidget(self)
         self._content_host.setObjectName('LocalChatContentHost')
         prepare_native_host(self._content_host)
-        if QApplication.platformName() == 'windows':
-            # A plain-text conversation may acquire its first browser later.
-            # Choose this host's RHI surface before its first native creation.
-            from PySide6.QtQuickWidgets import QQuickWidget
-            self._compositor = QQuickWidget(self._content_host)
-            self._compositor.setFixedSize(0, 0)
-            self._compositor.hide()
+        # Keep an empty/plain conversation on the raster path. Prewarming
+        # this native child as an RHI surface can leave the startup overlay
+        # on screen. Its first real reply browser may upgrade this child
+        # later; the root stays raster.
         frame = QVBoxLayout(self)
         frame.setContentsMargins(0, 0, 0, 0)
         frame.addWidget(self._content_host)

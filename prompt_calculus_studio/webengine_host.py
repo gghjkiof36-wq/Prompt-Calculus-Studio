@@ -41,5 +41,6 @@ def prepare_native_host(view):
         view.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
     finally:
         QCoreApplication.setAttribute(attribute, previous)
-    # Do not force winId(): the first native surface must see the browser's RHI
-    # requirement, rather than first creating an unnecessary raster window.
+    # Do not force winId(): a new browser can choose its RHI surface directly.
+    # A plain Chat host stays raster until its first actual browser is needed;
+    # Qt may replace that child's HWND without promoting the workspace root.

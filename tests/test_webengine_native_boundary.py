@@ -102,9 +102,7 @@ class NativeBrowserBoundaryTests(unittest.TestCase):
         self.wait(lambda: '4' in page._turns)
         body = page._turns['4'].attempts['a4'].content
         self.assertIsNone(body.rich)
-        native_handle = int(page._content_host.winId())
-        if self.window.canvas_hardware_acceleration_active:
-            self.assertEqual(page._content_host.windowHandle().surfaceType(), QSurface.SurfaceType.OpenGLSurface)
+        self.assertEqual(page._content_host.windowHandle().surfaceType(), QSurface.SurfaceType.RasterSurface)
         self.check_shell('plain-chat')
         # A live native text selection intentionally holds the first rich
         # projection behind its fallback, without mocking/disconnecting slots.
@@ -126,7 +124,11 @@ class NativeBrowserBoundaryTests(unittest.TestCase):
         body.setTextCursor(cursor)
         self.wait(lambda: body.rich is not None and body._rich_presented)
         self.assertTrue(body.rich.isVisible())
-        self.assertEqual(int(page._content_host.winId()), native_handle)
+        # Creating the first real browser can replace this child's raster
+        # HWND with an RHI HWND; the workspace root must remain unchanged.
+        native_handle = int(page._content_host.winId())
+        if self.window.canvas_hardware_acceleration_active:
+            self.assertEqual(page._content_host.windowHandle().surfaceType(), QSurface.SurfaceType.OpenGLSurface)
         self.assertFalse(body.testAttribute(Qt.WidgetAttribute.WA_NativeWindow))
         bar = page.scroll.verticalScrollBar()
         bar.setValue(max(0, bar.maximum()//2))

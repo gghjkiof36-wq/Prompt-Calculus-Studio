@@ -965,6 +965,7 @@ class CanvasView(QGraphicsView):
                 if isinstance(child,QAbstractScrollArea) and child.isEnabled():
                     bars=(child.verticalScrollBar(),child.horizontalScrollBar())
                     if any(bar.maximum()>bar.minimum() for bar in bars):
+                        if self.pan_raster.allow_zoom:self.pan_raster.finish_zoom()
                         position=child.viewport().mapFrom(root,point)
                         forwarded=QWheelEvent(QPointF(position),event.globalPosition(),event.pixelDelta(),event.angleDelta(),event.buttons(),event.modifiers(),event.phase(),event.inverted())
                         QApplication.sendEvent(child.viewport(),forwarded)
@@ -977,7 +978,7 @@ class CanvasView(QGraphicsView):
         point=event.position().toPoint();before=self.mapToScene(point)
         anchor=self.transformationAnchor();self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         factor=1.15**(event.angleDelta().y()/120);scale=self.transform().m11();target=max(.12,min(3.,scale*factor))
-        if target!=scale:
+        if target!=scale and event.buttons()==Qt.MouseButton.NoButton:
             self.pan_raster.begin_zoom()
         self._wheel_transform=True
         try:self.scale(target/scale,target/scale)

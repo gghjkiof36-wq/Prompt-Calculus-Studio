@@ -11,25 +11,46 @@ can briefly resample a fully covering backing within a bounded scale range.
 After 120 ms without wheel input, normal painting restores exact text/edges.
 """
 import math
+import weakref
+from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QGraphicsProxyWidget, QWidget
+from shiboken6 import isValid
+
+
+FRAME_BYTES = 32*1024*1024
+ZOOM_FRAMES = 3
+_zoom_owner = None
+
+
+@dataclass(frozen=True)
+class _Backing:
+    image: QImage
+    key: tuple
+    origin: tuple
+    pad: int
 
 
 class PanRasterCache(QObject):
     def __init__(self, view, *, max_bytes=32*1024*1024, overscan=128):
         super().__init__(view)
         self.view = view
-        self.max_bytes = max(0, int(max_bytes))
+        self.max_bytes = min(FRAME_BYTES, max(0, int(max_bytes)))
+        self.max_zoom_bytes = ZOOM_FRAMES*self.max_bytes
         self.overscan = max(0, int(overscan))
         self.active = False
         self.allow_zoom = False
+        self._wheel_interactive = None
         self.zoom_timer = QTimer(self)
         self.zoom_timer.setSingleShot(True)
         self.zoom_timer.timeout.connect(self.finish_zoom)
         self.image = None
         self.captures = self.hits = 0
+        self.archive_hits = 0
+        self._zoom_backings = []
+        self._zoom_scope = None
         self.last_offset = (0, 0)
         self._scene = None
         self._widgets = []
@@ -41,6 +62,9 @@ class PanRasterCache(QObject):
 
     @property
     def byte_count(self):
+        if self._zoom_backings:
+            # The active image aliases one of these entries, never a fourth.
+            return sum(backing.image.sizeInBytes() for backing in self._zoom_backings)
         return self.image.sizeInBytes() if self.image is not None else 0
 
     def begin(self):
@@ -51,19 +75,51 @@ class PanRasterCache(QObject):
 
     def begin_zoom(self):
         """Reuse camera pixels only while wheel input continues, never at rest."""
+        scene = self.view.scene()
+        if getattr(self.view, 'pan', None) is not None or (scene is not None and scene.mouseGrabberItem() is not None):
+            return
+        global _zoom_owner
+        previous = _zoom_owner() if _zoom_owner is not None else None
+        if previous is not None and previous is not self and previous.allow_zoom:
+            try:
+                previous.finish_zoom()
+            except RuntimeError:  # A deleted C++ view can outlive its wrapper.
+                previous._zoom_backings.clear()
+                previous.image = None
+        _zoom_owner = weakref.ref(self)
+        if self._wheel_interactive is None:
+            self._wheel_interactive = self.view.isInteractive()
+            # Qt replays the last mouse move after camera transforms. Hover
+            # changes on embedded controls otherwise discard each wheel frame.
+            # This flag only gates scene input; focus and live updates remain.
+            self.view.setInteractive(False)
         self.allow_zoom = True
         self.begin()
         self.zoom_timer.start(120)
 
     def finish_zoom(self):
+        self._release_zoom_owner()
+        self._restore_interaction()
         self.allow_zoom = False
         if getattr(self.view, 'pan', None) is not None:
             self.invalidate()
         else:
             self.end()
 
+    def _release_zoom_owner(self):
+        global _zoom_owner
+        if _zoom_owner is not None and _zoom_owner() is self:
+            _zoom_owner = None
+
+    def _restore_interaction(self):
+        if self._wheel_interactive is not None:
+            interactive, self._wheel_interactive = self._wheel_interactive, None
+            self.view.setInteractive(interactive)
+
     def end(self):
         was_active = self.active
+        self._release_zoom_owner()
+        self._restore_interaction()
         self.zoom_timer.stop()
         self.allow_zoom = False
         self.active = False
@@ -74,12 +130,54 @@ class PanRasterCache(QObject):
             self.view.viewport().update()
 
     def invalidate(self, *_):
+        # Real scene/widget changes invalidate every scale, including a frame
+        # currently being captured. Camera-only misses keep the other scales.
+        self._zoom_backings.clear()
+        self._zoom_scope = None
+        self._clear_current()
+
+    def _clear_current(self):
         had_image = self.image is not None
         self.image = None
         self._key = self._origin = None
         self._revision += 1
         if self.active and had_image:
             self.view.viewport().update()
+
+    def _zoom_target(self, backing, matrix, key, rect, dpr):
+        if key[:3] != backing.key[:3] or key[5:] != backing.key[5:]:
+            return None
+        ratio_x, ratio_y = matrix.m11()/backing.key[3], matrix.m22()/backing.key[4]
+        x = (matrix.dx()-ratio_x*backing.origin[0])*dpr-backing.pad*ratio_x
+        y = (matrix.dy()-ratio_y*backing.origin[1])*dpr-backing.pad*ratio_y
+        candidate = QRectF(x,y,backing.image.width()*ratio_x,backing.image.height()*ratio_y)
+        if (.75 <= ratio_x <= 1.5 and abs(ratio_x-ratio_y)<1e-9
+                and candidate.contains(QRectF(0,0,math.ceil(rect.width()*dpr),math.ceil(rect.height()*dpr)))):
+            return candidate
+        return None
+
+    def _select_zoom_backing(self, matrix, key, rect, dpr):
+        scope = key[:3], key[5:]
+        if self._zoom_scope != scope:
+            self._zoom_backings.clear()
+            self._zoom_scope = scope
+        for index in range(len(self._zoom_backings)):
+            target = self._zoom_target(self._zoom_backings[index], matrix, key, rect, dpr)
+            if target is not None:
+                backing = self._zoom_backings.pop(index)
+                self._zoom_backings.insert(0, backing)
+                if self.image is not backing.image:
+                    self.archive_hits += 1
+                self.image, self._key = backing.image, backing.key
+                self._origin, self._pad = backing.origin, backing.pad
+                self.hits += 1
+                return target
+        self._clear_current()
+        # Evict BEFORE allocating, bounding both retained and in-flight frames.
+        while self._zoom_backings and (len(self._zoom_backings) >= ZOOM_FRAMES
+                or self.byte_count+self.max_bytes > self.max_zoom_bytes):
+            self._zoom_backings.pop()
+        return None
 
     def _disconnect_scene(self):
         if self._scene is not None:
@@ -128,7 +226,23 @@ class PanRasterCache(QObject):
     def eventFilter(self, watched, event):
         if not self.active:
             return False
+        if not isValid(self.view):
+            # Child destruction events can outlast the QGraphicsView wrapper.
+            self._release_zoom_owner()
+            self._zoom_backings.clear()
+            self.image = None
+            return False
         kind = event.type()
+        if self.allow_zoom and (kind in (
+                QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonDblClick,
+                QEvent.Type.KeyPress, QEvent.Type.ShortcutOverride,
+                QEvent.Type.InputMethod, QEvent.Type.ContextMenu,
+                QEvent.Type.DragEnter, QEvent.Type.TouchBegin)
+                or (kind == QEvent.Type.MouseMove and event.buttons() != Qt.MouseButton.NoButton)):
+            # Restore before Qt dispatches this actual action to scene items.
+            # Returning False keeps clicks, editing, undo and drags intact.
+            self.finish_zoom()
+            return False
         if kind == QEvent.Type.LayoutRequest and watched in (self.view,self.view.viewport()):
             # Camera changes reposition viewport overlays. Those controls are
             # not in view.render's scene backing; their layout is independent.
@@ -185,18 +299,8 @@ class PanRasterCache(QObject):
         key = (rect.width(), rect.height(), dpr, matrix.m11(), matrix.m22(), appearance_key)
         previous_key = self._key
         target = None
-        if (self.allow_zoom and self.image is not None
-                and key[:3] == self._key[:3] and key[5:] == self._key[5:]):
-            ratio_x, ratio_y = matrix.m11()/self._key[3], matrix.m22()/self._key[4]
-            x = (matrix.dx()-ratio_x*self._origin[0])*dpr-self._pad*ratio_x
-            y = (matrix.dy()-ratio_y*self._origin[1])*dpr-self._pad*ratio_y
-            candidate = QRectF(x,y,self.image.width()*ratio_x,self.image.height()*ratio_y)
-            if (.75 <= ratio_x <= 1.5 and abs(ratio_x-ratio_y)<1e-9
-                    and candidate.contains(QRectF(0,0,math.ceil(rect.width()*dpr),math.ceil(rect.height()*dpr)))):
-                target = candidate
-                self.hits += 1
-            else:
-                self.invalidate()
+        if self.allow_zoom:
+            target = self._select_zoom_backing(matrix, key, rect, dpr)
         if target is not None:
             painter.save()
             try:
@@ -213,7 +317,7 @@ class PanRasterCache(QObject):
                 self.hits += 1
             else:
                 self.invalidate()
-        else:
+        elif not self.allow_zoom:
             self.invalidate()
         if self.image is None:
             width, height = math.ceil(rect.width()*dpr), math.ceil(rect.height()*dpr)
@@ -254,6 +358,8 @@ class PanRasterCache(QObject):
                 return False
             self.image, self._key, self._pad = image, key, pad
             self._origin = (matrix.dx(), matrix.dy())
+            if self.allow_zoom:
+                self._zoom_backings.insert(0, _Backing(image, key, self._origin, pad))
             self.captures += 1
             dx = dy = 0
         self.last_offset = (dx, dy)
