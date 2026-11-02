@@ -46,11 +46,11 @@ class NodeDialog(StudioDialog):
         variable_layout.addLayout(row(field('變量',self.mode),None,field('重複次數',self.repeat)))
         variable_layout.addWidget(self.random_repeats);self.random_repeats.setVisible(bool(self.sequence and self.sequence['mode']=='random'))
         form.addWidget(self.variables);self.variables.setVisible(bool(self.sequence and len(self.sequence['groups'])>1))
-        self.index=QSpinBox();self.index.setMinimum(1);self.index.setAccessibleName('內容序號')
+        self.index=QSpinBox();self.index.setMinimum(1);self.index.setWrapping(True);self.index.setAccessibleName('內容序號')
         self.index.setObjectName('PromptPager');self.index.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.index.setAlignment(Qt.AlignmentFlag.AlignCenter);self.index.setFixedWidth(80);self.index.setToolTip('輸入序號切換內容')
-        self.previous=tool('chevron-left','上一組',lambda:self.index.setValue(self.index.value()-1))
-        self.next=tool('chevron-right','下一組',lambda:self.index.setValue(self.index.value()+1))
+        self.previous=tool('chevron-left','上一組',self.index.stepDown)
+        self.next=tool('chevron-right','下一組',self.index.stepUp)
         form.addWidget(label('Prompt','Subtle'))
         self.prompt=QPlainTextEdit();self.prompt.setMinimumHeight(192);form.addWidget(self.prompt,1)
         self.navigation=QWidget();navigation=QVBoxLayout(self.navigation);navigation.setContentsMargins(0,0,0,0)
@@ -115,7 +115,7 @@ class NodeDialog(StudioDialog):
         if self.sequence_field=='sequence':self.value['round_drafts']=self.drafts
         self.prompt.setPlainText(render_body(self.value) if self.sequence_field=='sequence' else render_group(self.active_group))
         self.repeat.setValue(self.active_group['repeat'])
-        self.previous.setEnabled(index>1);self.next.setEnabled(index<len(self.sequence['groups']))
+        self.previous.setEnabled(len(self.sequence['groups'])>1);self.next.setEnabled(len(self.sequence['groups'])>1)
         self.loading=False
 
     def mode_changed(self):

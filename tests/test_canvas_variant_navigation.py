@@ -74,5 +74,67 @@ class CanvasVariantNavigationTests(unittest.TestCase):
         self.assertEqual(comp.render(self.root()),'c');self.click('group_next')
         self.assertEqual(comp.render(self.root()),'a')
 
+    def test_round_editor_wrap_preserves_both_drafts_apply_cancel_and_history(self):
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QPushButton
+        self.add(text('Variant',16,'fixed'));original=copy.deepcopy(self.root())
+        def edit_round(action):
+            errors=[]
+            def operate():
+                dialog=self.w.canvas.active_node_dialog
+                try:action(dialog)
+                except BaseException as exc:errors.append(exc);dialog.reject()
+            key=next(k for k,v in self.w.canvas.entries.items() if v[0]==self.ident)
+            QTimer.singleShot(0,operate);accepted=self.w.canvas.edit(key)
+            if errors:raise errors[0]
+            return accepted
+        def click_button(dialog,text):
+            control=next(b for b in dialog.findChildren(QPushButton) if b.text()==text)
+            QTest.mouseClick(control,Qt.MouseButton.LeftButton)
+        def apply(dialog):
+            self.assertEqual(dialog.index.value(),1);self.assertTrue(dialog.previous.isEnabled())
+            dialog.prompt.setPlainText('edited first');dialog.repeat.setValue(2)
+            QTest.mouseClick(dialog.previous,Qt.MouseButton.LeftButton)
+            self.assertEqual(dialog.index.value(),16);self.assertEqual(dialog.prompt.toPlainText(),'Variant-16')
+            self.assertTrue(dialog.next.isEnabled())
+            dialog.prompt.setPlainText('edited last');dialog.repeat.setValue(3)
+            QTest.mouseClick(dialog.next,Qt.MouseButton.LeftButton)
+            self.assertEqual(dialog.index.value(),1);self.assertEqual(dialog.prompt.toPlainText(),'edited first')
+            self.assertEqual(dialog.repeat.value(),2)
+            QTest.mouseClick(dialog.previous,Qt.MouseButton.LeftButton)
+            self.assertEqual(dialog.prompt.toPlainText(),'edited last');self.assertEqual(dialog.repeat.value(),3)
+            click_button(dialog,'套用')
+        self.assertTrue(edit_round(apply));edited=copy.deepcopy(self.root())
+        self.assertEqual(comp.render(edited),'edited last')
+        self.assertEqual(edited['variants']['start'],original['variants']['start'])
+        self.w.persist();saved=self.w.store.load_current(multi=True)['uses'][self.ident]
+        self.assertEqual(saved['variants'],edited['variants'])
+        def cancel(dialog):
+            self.assertEqual(dialog.index.value(),16);self.assertEqual(dialog.prompt.toPlainText(),'edited last')
+            QTest.mouseClick(dialog.next,Qt.MouseButton.LeftButton)
+            self.assertEqual(dialog.prompt.toPlainText(),'edited first')
+            dialog.prompt.setPlainText('discard');click_button(dialog,'取消')
+        self.assertFalse(edit_round(cancel));self.assertEqual(self.root(),edited)
+        self.w.canvas.undo();self.assertEqual(self.root(),original)
+        self.w.canvas.redo();self.assertEqual(self.root(),edited)
+
+    def test_round_editor_flow_wrap_keeps_overrides_and_single_variant_hidden(self):
+        from prompt_calculus_studio.text_canvas import NodeDialog
+        root=flow('abc','decrement');before=copy.deepcopy(root)
+        dialog=NodeDialog(self.w,root);dialog.show();self.app.processEvents()
+        try:
+            dialog.prompt.setPlainText('first draft')
+            QTest.mouseClick(dialog.previous,Qt.MouseButton.LeftButton)
+            self.assertEqual(dialog.index.value(),3);dialog.prompt.setPlainText('last draft')
+            QTest.mouseClick(dialog.next,Qt.MouseButton.LeftButton)
+            self.assertEqual(dialog.index.value(),1);self.assertEqual(dialog.prompt.toPlainText(),'first draft')
+            drafts=dialog.values()['round_drafts'];rows=root['sequence']['groups']
+            self.assertEqual(drafts,{rows[0]['id']:'first draft',rows[-1]['id']:'last draft'})
+        finally:dialog.reject()
+        self.assertEqual(root,before)
+        single=NodeDialog(self.w,text('Single',1));single.show();self.app.processEvents()
+        self.assertTrue(single.navigation.isHidden());self.assertFalse(single.previous.isEnabled())
+        self.assertFalse(single.next.isEnabled());single.reject()
+
 
 if __name__=='__main__':unittest.main()
