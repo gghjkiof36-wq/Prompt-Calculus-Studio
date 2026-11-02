@@ -676,13 +676,14 @@ class StageRunner(QObject):
             if self.closed:return
             try:
                 from .image_bindings import import_source
-                images=[]
+                images=[];recent=[]
                 for node,i,image in expected:
                     match=next((r for r in rows if r.get('prompt_id')==job['prompt_id'] and str(r.get('node_id'))==node and r.get('image')==image and r.get('path')),None)
                     if not match:raise ValueError('第 '+str(i+1)+' 張指定結果無法讀取。')
                     source=import_source(match['path'],self.window.store.directory);source['reference']=dict(run=run['id'],stage=stage['id'],attempt=attempt['id'],prompt_id=job['prompt_id'],node=node,index=i,
                         round=attempt.get('round'),parent=attempt.get('parent'))
                     images.append(source)
+                    recent.append(copy.deepcopy(match))
                 field=stage.get('text_output');text=None
                 if field:text=job.get('payload',{}).get('prompt',{}).get(field[0],{}).get('inputs',{}).get(field[1])
                 from .generation import profile_text_fields
@@ -714,6 +715,9 @@ class StageRunner(QObject):
                     return
                 self._result_save_errors.discard(attempt['id'])
                 self.collecting.discard(attempt['id'])
+                # Publish only this accepted job's matched outputs to its owner.
+                # Workspace clients deliberately never poll the global feed.
+                if recent:self.client.resultsReceived.emit(recent)
                 if current['workspace']==self.window.state['workspace']:
                     self.remember_preview(attempt,result)
                     self.results[stage['id']]=copy.deepcopy(frame['produced'][stage['id']]) if frame and stage['id'] in frame['produced'] else result

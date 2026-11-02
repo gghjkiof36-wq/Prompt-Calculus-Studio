@@ -192,6 +192,47 @@ class WorkspaceExecutionTests(unittest.TestCase):
         self.finish()
         self.assertIsNone(self.w.scheduler.owner)
 
+    def test_recent_auto_updates_from_owned_receipts_without_refresh_or_global_poll(self):
+        import time
+        from prompt_calculus_studio import recent
+        page=self.a.host.recent;self.w.focus_tab(self.a);self.a.host.show_recent_sheet()
+        self.assertFalse(self.a.host.comfy.receives_unscoped_results)
+        request=self.peer.request
+        def with_foreign_rows(route,data=None,done=None,failed=None,**kwargs):
+            if route.startswith('desktop/results?'):
+                callback=done
+                def received(rows):
+                    foreign=copy.deepcopy(rows[0]);foreign['prompt_id']='foreign-task'
+                    callback([foreign,*rows])
+                done=received
+            return request(route,data,done,failed,**kwargs)
+        self.calls.clear()
+        with patch.object(self.peer,'request',side_effect=with_foreign_rows), \
+                patch.object(recent,'import_image',wraps=recent.import_image) as imports, \
+                patch.object(page,'request_refresh',side_effect=AssertionError('No manual refresh')):
+            selected=None
+            for total in (1,2):
+                self.click(self.a)
+                # Completing A while B has focus must still update only A.
+                self.w.focus_tab(self.b);self.finish()
+                deadline=time.monotonic()+6
+                while page.processing or page.pending or self.a.host.jobs.active or page.refresh_timer.isActive():
+                    self.assertLess(time.monotonic(),deadline,self.errors);QTest.qWait(20)
+                self.assertEqual(self.a.host.catalog.count('recent'),total)
+                self.assertEqual(page.images.count(),total)
+                self.assertEqual(page.counter.text(),f'{total} 張')
+                self.assertEqual(self.b.host.catalog.count('recent'),0)
+                self.assertFalse(self.b.document.execution.received)
+                if selected is None:
+                    page.images.setCurrentRow(0);selected=page.record['id']
+                else:self.assertEqual(page.record['id'],selected)
+            self.tick();QTest.qWait(180)
+            self.assertEqual(imports.call_count,2)
+            self.assertEqual(len(self.a.document.execution.received),2)
+        results=[route for _,route,_ in self.calls if route.startswith('desktop/results')]
+        self.assertEqual(len(results),2);self.assertTrue(all('?prompt_id=' in route for route in results))
+        self.assertTrue(all(r['prompt_id']!='foreign-task' for r in self.a.document.execution.received))
+
     def test_completed_stage_image_updates_visible_and_returning_sibling_view(self):
         from PySide6.QtGui import QColor, QImage
         from prompt_calculus_studio import preview_nodes

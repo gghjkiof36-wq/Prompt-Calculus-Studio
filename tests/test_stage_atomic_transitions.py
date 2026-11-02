@@ -26,7 +26,8 @@ class StageAtomicTransitionsTests(unittest.TestCase):
         self.notices = []
         self.runner = SimpleNamespace(store=self.store, closed=False, collecting=set(), results={},
             _result_save_errors=set(),
-            client=SimpleNamespace(request=lambda *a, **k: self.fail('unexpected request')),
+            client=SimpleNamespace(request=lambda *a, **k: self.fail('unexpected request'),
+                resultsReceived=SimpleNamespace(emit=lambda values:self.publish('recent'))),
             window=SimpleNamespace(state={'workspace': 'w'}, notice=self.notices.append,
                                    store=SimpleNamespace(directory=Path(self.area.name))))
         self.runner.save = lambda run: StageRunner.save(self.runner, run)
@@ -132,11 +133,13 @@ class StageAtomicTransitionsTests(unittest.TestCase):
             self.assertEqual(self.read(self.attempt['id'])['status'], 'submitted')
             self.assertEqual(self.read(self.run['id'])['status'], 'running')
             self.assertEqual(self.runner.collecting, set())
+            self.assertNotIn('recent',self.events)
             self.db.execute('DROP TRIGGER fail_transition')
             self.collect()
         self.assertEqual(requests, ['desktop/results?prompt_id=actual-prompt'] * 2)
         self.assertEqual(self.read(self.run['id'])['stack'][0]['index'], 1)
         self.assertEqual(self.read(self.attempt['id'])['result']['images'][0]['relative'], 'fixture.png')
+        self.assertEqual(self.events.count('recent'),1)
 
     def test_cancelled_result_is_saved_without_advancing_or_restarting(self):
         self.store.update(self.run['id'], status='cancelled')
