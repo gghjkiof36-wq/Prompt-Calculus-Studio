@@ -214,6 +214,43 @@ class CanvasPanCacheTests(unittest.TestCase):
         self.assert_pixels(actual, self.frame(cached=False, dpr=1.)[0])
         too_small.end()
 
+    def test_large_diagonal_pans_extend_edges_without_repainting_reused_content(self):
+        for dpr in (1.,1.25,1.5,2.):
+            with self.subTest(dpr=dpr):
+                self.cache.end();self.view.centerOn(0,0);self.events()
+                h,v=self.view.horizontalScrollBar(),self.view.verticalScrollBar()
+                start=h.value(),v.value();positions=((160,144),(4,4),(-160,156),(8,0))
+                expected=[]
+                # Direct reference renders send widget Paint events. Build
+                # them before the gesture so they cannot invalidate its cache.
+                for dx,dy in positions:
+                    h.setValue(start[0]+dx);v.setValue(start[1]+dy)
+                    expected.append(self.frame(cached=False,dpr=dpr)[0])
+                h.setValue(start[0]);v.setValue(start[1]);self.events();self.cache.begin();self.frame(dpr=dpr)
+                for (dx,dy),reference in zip(positions,expected):
+                    h.setValue(start[0]+dx);v.setValue(start[1]+dy)
+                    before=self.cache.extensions;paints=self.item.paints
+                    actual,used=self.frame(dpr=dpr)
+                    self.assertTrue(used);self.assertEqual(self.cache.extensions,before+1)
+                    self.assertEqual(self.item.paints,paints)
+                    self.assert_pixels(actual,reference,roundoff=True)
+                    self.assertLessEqual(self.cache.byte_count,self.cache.max_bytes)
+                self.edit.setText('Updated after large pan '+str(dpr));self.events()
+                actual,_=self.frame(dpr=dpr)
+                self.assert_pixels(actual,self.frame(cached=False,dpr=dpr)[0],roundoff=True)
+
+    def test_fractional_pan_extension_keeps_the_same_raster_phase(self):
+        initial,_=self.frame(dpr=1.25)
+        h,v=self.view.horizontalScrollBar(),self.view.verticalScrollBar()
+        # A 129-pixel move crosses the backing with a quarter physical pixel
+        # remainder. Returning must retain the original sharp pixels.
+        start=h.value(),v.value()
+        for dx,dy in ((129,133),(261,267),(129,133),(0,0)):
+            h.setValue(start[0]+dx);v.setValue(start[1]+dy)
+            actual,used=self.frame(dpr=1.25)
+            self.assertTrue(used)
+        self.assert_pixels(actual,initial,roundoff=True)
+
     def test_hidden_or_released_view_releases_buffer_and_rotated_view_uses_direct_paint(self):
         self.frame(); self.assertGreater(self.cache.byte_count, 0)
         self.view.hide()

@@ -338,7 +338,7 @@ class FlowCard(TextCard):
         self.init_interaction()
         if self.kind=='stages':self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable,True)
     @property
-    def default_size(self):return (360,210) if self.kind=='schedulers' else (360,245) if self.kind=='stages' else (360,160)
+    def default_size(self):return (320,210) if self.kind=='schedulers' else (360,245) if self.kind=='stages' else (360,160)
     def layout_is_current(self):
         return self.canvas.flow_cards.get(self.key) is self and self.key in self.canvas.data().get(self.kind,{})
     def attach(self):

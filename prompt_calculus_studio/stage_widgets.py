@@ -402,7 +402,8 @@ class SchedulePanel(QFrame):
         self.setObjectName('CanvasModuleBody')
         body=QVBoxLayout(self);body.setContentsMargins(4,8,4,4);body.setSpacing(8)
         self.summary=label('','Subtle',True);body.addWidget(self.summary)
-        self.open_button=button('開啟預排程',self.open_page,'Quiet');body.addWidget(self.open_button)
+        self.open_button=button('開啟預排程',self.open_page);body.addWidget(self.open_button)
+        self.refresh_visual_theme()
         canvas.window.comfy.stateChanged.connect(self.refresh)
         self.refresh()
 
@@ -410,6 +411,9 @@ class SchedulePanel(QFrame):
     def runner(self):return self.canvas.window.comfy.input_flow.chain
 
     def refresh_visual_theme(self):
+        from .canvas_items import canvas_colors
+        from .module_chrome import style_action
+        style_action(self.open_button,canvas_colors(self.canvas),pending=True)
         if self.page is not None and not self.page.closed:self.page.refresh_visual_theme()
 
     def open_page(self):

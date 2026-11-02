@@ -51,11 +51,11 @@ def _populate_pristine(state):
     data['canvases'][canvas].update(name='畫布',position=[0,0],display_size=[1000,740])
     data['outputs'][output]['name']='Prompt 輸出'
     data['clip_inputs'][clip]['name']='CLIP 輸入'
-    scheduler=add_scheduler(result,(2128,0));data['schedulers'][scheduler]['mode']='data'
-    stage=add_stage(result,(2724,0))
-    positions={output:[1096,0],clip:[1672,0],stage:[2724,0],PREVIEW:[3180,0]}
+    scheduler=add_scheduler(result,(1968,0));data['schedulers'][scheduler]['mode']='data'
+    stage=add_stage(result,(2384,0))
+    positions={output:[1096,0],clip:[1512,0],stage:[2384,0],PREVIEW:[2840,0]}
     result.setdefault('text_positions',{}).update(positions)
-    result.setdefault('text_sizes',{}).update({output:[480,740],scheduler:[500,740],clip:[360,180],stage:[360,245],PREVIEW:[660,740]})
+    result.setdefault('text_sizes',{}).update({output:[320,210],scheduler:[320,210],clip:[360,180],stage:[360,245],PREVIEW:[660,740]})
     data['connections']=[]
     connect(result,canvas,output,'text')
     connect(result,output,clip,'clip')

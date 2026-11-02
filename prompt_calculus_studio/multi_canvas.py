@@ -190,7 +190,8 @@ class OutputPanel(QFrame):
         self.setObjectName('CanvasModuleBody')
         body=QVBoxLayout(self);body.setContentsMargins(4,8,4,4);body.setSpacing(8)
         self.summary=label('','Subtle',True);body.addWidget(self.summary)
-        self.open_button=button('開啟 Prompt 輸出',self.open_page,'Quiet');body.addWidget(self.open_button)
+        self.open_button=button('開啟 Prompt 輸出',self.open_page);body.addWidget(self.open_button)
+        self.refresh_visual_theme()
 
     def open_page(self):
         if self.page is not None and not self.page.closed:
@@ -219,12 +220,15 @@ class OutputPanel(QFrame):
     def restore_ratio(self):pass
 
     def refresh_visual_theme(self):
+        from .canvas_items import canvas_colors
+        from .module_chrome import style_action
+        style_action(self.open_button,canvas_colors(self.canvas),pending=True)
         if self.page is not None and not self.page.closed:
             self.page.refresh_visual_theme();self.page.content.refresh_visual_theme()
 
 
 class OutputCard(TextCard):
-    default_size=(360,210)
+    default_size=(320,210)
     def __init__(self,canvas,key):
         super().__init__(canvas); self.key=key; self.module_icon='list-ordered'; self.panel=OutputPanel(canvas,key); self.init_interaction()
     def attach(self):

@@ -48,7 +48,7 @@ class PanRasterCache(QObject):
         self.zoom_timer.setSingleShot(True)
         self.zoom_timer.timeout.connect(self.finish_zoom)
         self.image = None
-        self.captures = self.hits = 0
+        self.captures = self.hits = self.extensions = 0
         self.archive_hits = 0
         self._zoom_backings = []
         self._zoom_scope = None
@@ -290,6 +290,53 @@ class PanRasterCache(QObject):
                 high = middle-1
         return low
 
+    def _extend(self, image, matrix, dpr):
+        """Keep camera pixels and return only the newly exposed physical strips.
+
+        The previous backing and its replacement coexist only during this
+        copy (at most two FRAME_BYTES images). Retained pan memory stays at
+        one frame. Preserve the old raster phase, including fractional DPR,
+        so a glyph crossing a strip boundary is never split across phases.
+        """
+        old=self.image
+        if old is None or self.allow_zoom or image.size()!=old.size():return None
+        dx=round((matrix.dx()-self._origin[0])*dpr)
+        dy=round((matrix.dy()-self._origin[1])*dpr)
+        width,height=image.width(),image.height()
+        if abs(dx)>=width or abs(dy)>=height:return None
+        painter=QPainter(image)
+        try:painter.drawImage(QPointF(dx/dpr,dy/dpr),old)
+        finally:painter.end()
+        exposed=[]
+        if dx:exposed.append(QRect(0 if dx>0 else width+dx,0,abs(dx),height))
+        if dy:exposed.append(QRect(max(dx,0),0 if dy>0 else height+dy,width-abs(dx),abs(dy)))
+        origin=(self._origin[0]+dx/dpr,self._origin[1]+dy/dpr)
+        phase=(origin[0]-matrix.dx(),origin[1]-matrix.dy())
+        return exposed,origin,phase
+
+    def _render_backing(self, image, rect, pad, dpr, extension):
+        view=self.view
+        capture=QPainter(image);capture.setRenderHints(view.renderHints())
+        self._capturing=True
+        try:
+            if extension is None:
+                logical_pad=math.ceil(pad/dpr)
+                source=QRect(-logical_pad,-logical_pad,rect.width()+2*logical_pad,rect.height()+2*logical_pad)
+                target=QRectF(pad/dpr-logical_pad,pad/dpr-logical_pad,source.width(),source.height())
+                view.render(capture,target,source,Qt.AspectRatioMode.IgnoreAspectRatio)
+            else:
+                regions,_,phase=extension
+                offset=QPointF(pad/dpr+phase[0],pad/dpr+phase[1])
+                for region in regions:
+                    clip=QRectF(region.x()/dpr,region.y()/dpr,region.width()/dpr,region.height()/dpr)
+                    source=clip.translated(-offset).toAlignedRect()
+                    target=QRectF(source).translated(offset)
+                    capture.save();capture.setClipRect(clip)
+                    try:view.render(capture,target,source,Qt.AspectRatioMode.IgnoreAspectRatio)
+                    finally:capture.restore()
+        finally:
+            capture.end();self._capturing=False
+
     def paint(self, painter, appearance_key=None):
         """Paint the entire viewport backing, or return False for direct paint."""
         if (not self.active or self._capturing or not painter.worldTransform().isIdentity()
@@ -322,16 +369,20 @@ class PanRasterCache(QObject):
             finally:
                 painter.restore()
             return True
+        extend=False
         if self.image is not None and key == self._key:
             dx = round((matrix.dx()-self._origin[0])*dpr)
             dy = round((matrix.dy()-self._origin[1])*dpr)
             if abs(dx) <= self._pad and abs(dy) <= self._pad:
                 self.hits += 1
             else:
-                self.invalidate()
+                # Camera coverage changed, not scene content. Rebase this
+                # image and render only its newly exposed edges below.
+                extend=not self.allow_zoom
+                if not extend:self.invalidate()
         elif not self.allow_zoom:
             self.invalidate()
-        if self.image is None:
+        if self.image is None or extend:
             width, height = math.ceil(rect.width()*dpr), math.ceil(rect.height()*dpr)
             pad = self._padding(width, height, dpr)
             if pad is None:
@@ -345,31 +396,19 @@ class PanRasterCache(QObject):
                 base = view.palette().base().color()
             base.setAlpha(255)
             image.fill(base)
+            extension=self._extend(image,matrix,dpr) if extend else None
             # Ordinary camera movement can reuse current widget content when
             # recapturing past an edge. Refresh it for a new/invalidated frame.
             refresh_cache = (previous_key is None or previous_key[:3] != key[:3]
                              or previous_key[5] != appearance_key)
-            self._watch_widgets(refresh_cache)
+            if extension is None:self._watch_widgets(refresh_cache)
             revision = self._revision
-            logical_pad = math.ceil(pad/dpr)
-            source = QRect(-logical_pad, -logical_pad,
-                           rect.width()+2*logical_pad, rect.height()+2*logical_pad)
-            # Integer physical padding preserves the viewport's raster phase,
-            # even when DPR does not map the logical overscan to whole pixels.
-            target = QRectF(pad/dpr-logical_pad, pad/dpr-logical_pad,
-                            source.width(), source.height())
-            capture = QPainter(image)
-            capture.setRenderHints(view.renderHints())
-            self._capturing = True
-            try:
-                view.render(capture, target, source, Qt.AspectRatioMode.IgnoreAspectRatio)
-            finally:
-                capture.end()
-                self._capturing = False
+            self._render_backing(image,rect,pad,dpr,extension)
             if revision != self._revision:
                 return False
             self.image, self._key, self._pad = image, key, pad
-            self._origin = (matrix.dx(), matrix.dy())
+            self._origin = extension[1] if extension else (matrix.dx(), matrix.dy())
+            if extension is not None:self.extensions+=1
             if self.allow_zoom:
                 self._zoom_backings.insert(0, _Backing(image, key, self._origin, pad))
             self.captures += 1

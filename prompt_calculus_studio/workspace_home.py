@@ -58,7 +58,7 @@ class WorkspaceHome(QScrollArea):
         self.create_buttons = {}
         from .workspace_commands import NAMES
         for kind, symbol in (('category', 'list'), ('workflow', 'workflow'), ('markdown', 'file-text'), ('chat', 'message-square')):
-            title = '新增' + NAMES[kind]
+            title = '新增 Canvas' if kind == 'workflow' else '新增' + NAMES[kind]
             entry = button(title, lambda checked=False, k=kind: create_file(k), 'WorkspaceCreate')
             entry.setIcon(icon(symbol, 'navigation'))
             entry.setIconSize(QSize(19, 19))

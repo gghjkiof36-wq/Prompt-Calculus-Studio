@@ -936,22 +936,24 @@ class CanvasView(QGraphicsView):
         spacing=28 if self.transform().m11()>=.6 else 112
         xs=range(math.floor(rect.left()/spacing)*spacing,math.ceil(rect.right()),spacing)
         ys=range(math.floor(rect.top()/spacing)*spacing,math.ceil(rect.bottom()),spacing)
-        # Keep a modest margin so small pans/zoom steps reuse the point array,
-        # instead of rebuilding thousands of Python points on every wheel event.
+        # Keep the points local to a reusable grid block. Absolute scene
+        # coordinates made large pans rebuild thousands of Python points as
+        # each block boundary was crossed, even at an unchanged zoom.
         block=spacing*16
         x0=math.floor(xs.start/block)*block; y0=math.floor(ys.start/block)*block
         x1=math.ceil(xs.stop/block)*block; y1=math.ceil(ys.stop/block)*block
-        key=(spacing,x0,y0,x1,y1)
+        key=(spacing,x1-x0,y1-y0)
         if getattr(self,'_grid_key',None)!=key:
             self._grid_key=key
             batches=getattr(self,'_grid_batches',{})
             points=batches.pop(key,None)
             if points is None:
-                points=QPolygonF([QPointF(x,y) for x in range(x0,x1,spacing) for y in range(y0,y1,spacing)])
+                points=QPolygonF([QPointF(x,y) for x in range(0,x1-x0,spacing) for y in range(0,y1-y0,spacing)])
             batches[key]=points
             if len(batches)>4:batches.pop(next(iter(batches)))
             self._grid_batches=batches;self._grid_points=points
         painter.setClipRect(QRectF(xs.start-spacing/2,ys.start-spacing/2,len(xs)*spacing,len(ys)*spacing),Qt.ClipOperation.IntersectClip)
+        painter.translate(x0,y0)
         painter.drawPoints(self._grid_points)
         painter.restore()
 

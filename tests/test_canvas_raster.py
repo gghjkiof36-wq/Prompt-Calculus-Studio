@@ -194,6 +194,20 @@ class CanvasRasterTests(unittest.TestCase):
                 self.assertIs(view._grid_points,points)
                 self.assertLessEqual(len(view._grid_batches),4)
 
+    def test_large_camera_translation_reuses_grid_points_and_preserves_pixels(self):
+        view=SimpleNamespace(canvas=self.canvas,transform=lambda:SimpleNamespace(m11=lambda:.65))
+        base=QRectF(-275,-141,1300,900)
+        def draw(p,rect,dx,dy):
+            p.translate(-dx,-dy)
+            CanvasView.drawBackground(view,p,rect)
+        expected=self.render(lambda p:draw(p,base,0,0),zoom=.65)
+        points=view._grid_points
+        for dx,dy in ((28*16*8,28*16*5),(-28*16*10,28*16*7),(28*16*12,-28*16*9)):
+            with self.subTest(offset=(dx,dy)):
+                actual=self.render(lambda p:draw(p,base.translated(dx,dy),dx,dy),zoom=.65)
+                self.assertEqual(actual,expected)
+                self.assertIs(view._grid_points,points)
+
     def test_background_preserves_partial_render_clip_and_painter_state(self):
         view=SimpleNamespace(canvas=self.canvas,transform=lambda:SimpleNamespace(m11=lambda:1.04))
         image=QImage(360,260,QImage.Format.Format_ARGB32_Premultiplied)

@@ -181,7 +181,10 @@ class CanvasStarterUiTests(unittest.TestCase):
         data=self.canvas.data();sizes=self.window.state['text_sizes'];canvas=data['canvases'][self.refs['canvas']]
         height=canvas['display_size'][1]
         self.assertAlmostEqual(canvas['display_size'][0]/height,1.35,delta=.05)
-        for key in (self.refs['output'],self.refs['scheduler'],PREVIEW):self.assertEqual(sizes[key][1],height)
+        self.assertEqual(sizes[PREVIEW][1],height)
+        for key in (self.refs['output'],self.refs['scheduler']):
+            self.assertLess(sizes[key][0],sizes[self.refs['stage']][0])
+            self.assertLess(sizes[key][1],height/3)
         self.assertGreater(sizes[PREVIEW][0],sizes[self.refs['output']][0])
         self.assertLess(sizes[self.refs['clip']][1],height/3)
         view=self.canvas.view;rect=view.mapFromScene(self.canvas.content_bounds()).boundingRect()
