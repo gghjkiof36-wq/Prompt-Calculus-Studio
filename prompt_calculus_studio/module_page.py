@@ -1,7 +1,7 @@
 """Canvas-local detail pages; the original document remains the edit owner."""
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QKeySequence, QShortcut, QPainter, QColor
-from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QSizePolicy
+from PySide6.QtGui import QPainter, QColor
+from PySide6.QtWidgets import QApplication, QWidget, QFrame, QVBoxLayout, QHBoxLayout, QSizePolicy
 from shiboken6 import isValid
 from .widgets import button, ElidedLabel
 from .ui_icons import icon
@@ -37,9 +37,10 @@ class ModulePage(QFrame):
         self.refresh_visual_theme()
         body.addWidget(prompt_divider())
         body.addWidget(content, 1)
-        self.escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
-        self.escape.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self.escape.activated.connect(self.finish)
+        # The graphics-proxy opener can restore Canvas focus on release.
+        # Handle its page before the host's general Escape shortcut, while
+        # leaving child dialogs, popups and other panes to their own handlers.
+        QApplication.instance().installEventFilter(self)
         canvas._module_page = self
         canvas.installEventFilter(self)
         self.fit()
@@ -91,6 +92,14 @@ class ModulePage(QFrame):
         return True
 
     def eventFilter(self, watched, event):
+        if (not self.closed and event.type() in (QEvent.Type.ShortcutOverride,QEvent.Type.KeyPress)
+                and event.key()==Qt.Key.Key_Escape and isinstance(watched,QWidget)
+                and (watched is self.canvas or self.canvas.isAncestorOf(watched))
+                and QWidget.window(watched) is QWidget.window(self.canvas)
+                and QApplication.activePopupWidget() is None):
+            event.accept()
+            if event.type()==QEvent.Type.KeyPress:self.finish()
+            return True
         if watched is self.canvas:
             if event.type() == QEvent.Type.Resize:
                 self.fit()
@@ -102,6 +111,7 @@ class ModulePage(QFrame):
         if self.closed:
             return
         self.closed = True
+        QApplication.instance().removeEventFilter(self)
         self.canvas.removeEventFilter(self)
         if getattr(self.canvas, '_module_page', None) is self:
             self.canvas._module_page = None

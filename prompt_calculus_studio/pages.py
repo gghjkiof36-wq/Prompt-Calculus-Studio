@@ -548,7 +548,7 @@ class GalleryPage(QFrame):
         self.images.zoomRequested.connect(lambda steps:self.thumbnail_size.setValue(self.thumbnail_size.value()+steps))
         self.images.viewportAboutToResize.connect(self.queue_gallery_layout)
         self.images.viewportResized.connect(self.queue_gallery_layout)
-        self.images.currentItemChanged.connect(self.select); self.images.itemDoubleClicked.connect(lambda item:open_file(self,item.data(Qt.ItemDataRole.UserRole)["path"]))
+        self.images.currentItemChanged.connect(self.select); self.images.itemDoubleClicked.connect(self.view_image)
         self.images.itemSelectionChanged.connect(self.update_selection_summary)
         self.images.itemClicked.connect(lambda item:self.select(item) if not self._detail_open else None)
         self.images.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu); self.images.customContextMenuRequested.connect(self.context)
@@ -1117,6 +1117,34 @@ class GalleryPage(QFrame):
 
     def open_original(self):
         if self.record: open_file(self,self.record["path"])
+
+    def view_image(self,item=None):
+        from .image_viewer import show_image
+        record=item.data(Qt.ItemDataRole.UserRole) if item else self.record
+        if not record or not self.album:return
+        catalog,album,search=self.catalog,self.album,self.search.text().strip()
+        # rows() projects identity/path fields, not full embedded workflows.
+        count=catalog.count('image',album,search=search)
+        records=catalog.rows('image',album,limit=count,search=search)
+        positions={r['id']:i for i,r in enumerate(records)}
+        def selected(ident):
+            if self.catalog is not catalog or self.album!=album or self.search.text().strip()!=search:return
+            index=positions.get(ident)
+            if index is None:return
+            if self.page!=index//60:self.page=index//60;self.refresh()
+            for row_index in range(self.images.count()):
+                target=self.images.item(row_index)
+                if target.data(Qt.ItemDataRole.UserRole)['id']==ident:
+                    self.images.setCurrentItem(target);self.images.scrollToItem(target);break
+        def saved(path):
+            if not catalog.get(album):return
+            created=import_image(path,catalog.store.directory,album)
+            catalog.put('image',created,album)
+            current=catalog.rows('image',album,limit=catalog.count('image',album,search=search),search=search)
+            positions.clear();positions.update((r['id'],i) for i,r in enumerate(current))
+            if self.catalog is catalog and self.album==album:self.refresh()
+        show_image(self.window,record['path'],record.get('name',''),records=records,
+                   selected_id=record['id'],on_select=selected,on_save=saved)
 
     def relink(self):
         if not self.record: return

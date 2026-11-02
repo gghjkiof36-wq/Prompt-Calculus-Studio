@@ -190,7 +190,7 @@ class PreviewTests(unittest.TestCase):
 
     def test_viewer_uses_ninety_percent_and_keeps_controls_inside(self):
         from PySide6.QtWidgets import QApplication,QWidget
-        from PySide6.QtCore import QSize
+        from PySide6.QtCore import QSize,QRectF
         from PySide6.QtGui import QImage
         from prompt_calculus_studio.image_viewer import ImageViewerDialog,viewer_size
         app=QApplication.instance() or QApplication([])
@@ -205,9 +205,10 @@ class PreviewTests(unittest.TestCase):
             available=dialog.screen().availableGeometry()
             self.assertTrue(available.contains(dialog.frameGeometry()))
             point=dialog.close_button.mapTo(dialog,dialog.close_button.rect().center())
-            self.assertTrue(dialog.rect().contains(point));self.assertFalse(dialog.display.pixmap().isNull())
-            self.assertLessEqual(dialog.display.pixmap().height(),dialog.display.height())
-            self.assertLessEqual(dialog.display.pixmap().width(),dialog.display.width());dialog.close();parent.close()
+            self.assertTrue(dialog.rect().contains(point));self.assertFalse(dialog.display.image.isNull())
+            image_rect=dialog.display.view_transform().mapRect(QRectF(0,0,*dialog.display.edits.state.size))
+            self.assertLessEqual(image_rect.height(),dialog.display.height())
+            self.assertLessEqual(image_rect.width(),dialog.display.width());dialog.close();parent.close()
 
 
 if __name__=='__main__':unittest.main()

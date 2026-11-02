@@ -3,13 +3,31 @@ import copy
 from unittest.mock import patch
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QPlainTextEdit
+from PySide6.QtWidgets import QPlainTextEdit,QDialog,QLineEdit,QVBoxLayout
 from stage_fixture import StageFixture, APP
 from prompt_calculus_studio.flow_data import add_scheduler, CAPACITY
 from prompt_calculus_studio.stage_store import StageStore
 
 
 class ModulePageTests(StageFixture):
+    def test_escape_closes_output_and_scheduler_from_canvas_or_editor_focus(self):
+        page=self.open_output();self.c.view.setFocus();APP.processEvents()
+        QTest.keyClick(self.c.view,Qt.Key.Key_Escape)
+        self.assertTrue(page.closed);self.assertIsNone(self.c._module_page)
+        page=self.open_output();page.content.editor.setFocus();APP.processEvents()
+        QTest.keyClick(page.content.editor,Qt.Key.Key_Escape);self.assertTrue(page.closed)
+        keys=[];self.c.commit(lambda s:keys.append(add_scheduler(s)))
+        page=self.c.flow_cards[keys[0]].panel.open_page();self.c.view.setFocus();APP.processEvents()
+        QTest.keyClick(self.c.view,Qt.Key.Key_Escape);self.assertTrue(page.closed)
+        self.assertIsNone(self.c._module_page)
+
+    def test_child_dialog_escape_keeps_underlying_module_page(self):
+        page=self.open_output();dialog=QDialog(page);dialog.setModal(True)
+        editor=QLineEdit(dialog);QVBoxLayout(dialog).addWidget(editor);dialog.show();editor.setFocus();APP.processEvents()
+        QTest.keyClick(editor,Qt.Key.Key_Escape)
+        self.assertFalse(dialog.isVisible());self.assertFalse(page.closed)
+        dialog.deleteLater();page.finish()
+
     def open_output(self):
         panel=self.c.outputs[self.out].panel
         QTest.mouseClick(panel.open_button,Qt.MouseButton.LeftButton)
