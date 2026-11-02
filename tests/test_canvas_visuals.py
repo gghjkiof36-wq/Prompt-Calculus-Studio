@@ -27,6 +27,28 @@ class CanvasVisualTests(unittest.TestCase):
     def tearDown(self):
         self.w.close();self.app.processEvents();self.env.stop();self.tmp.cleanup()
 
+    def test_unchanged_canvas_reuses_colors_but_live_previews_refresh_them(self):
+        from prompt_calculus_studio.canvas_items import canvas_colors
+        from prompt_calculus_studio import theme
+        baseline=canvas_colors(self.canvas)
+        with patch.object(theme,'visual_tokens',wraps=theme.visual_tokens) as resolve:
+            for _ in range(30):
+                colors=canvas_colors(self.canvas)
+                self.assertEqual(colors,baseline)
+                colors['accent']='changed by a caller'
+            self.assertEqual(resolve.call_count,0)
+            self.w.appearance_preview={'visual_palette':'paper','accent':'custom','accent_custom':'#4379a2'}
+            preview=canvas_colors(self.canvas)
+            self.assertEqual(preview['palette'],'paper')
+            self.assertNotEqual(preview['canvas_body'],baseline['canvas_body'])
+            self.assertEqual(resolve.call_count,1)
+            self.w.appearance_preview['accent_custom']='#a24379'
+            self.assertNotEqual(canvas_colors(self.canvas)['accent'],preview['accent'])
+            self.assertEqual(resolve.call_count,2)
+            self.w.appearance_preview.clear()
+            self.assertEqual(canvas_colors(self.canvas),baseline)
+            self.assertEqual(resolve.call_count,3)
+
     def test_live_light_dark_theme_preserves_items_draft_selection_and_view(self):
         from prompt_calculus_studio.drafts import edit
         key=self.refs['output'];self.canvas.commit(lambda state:edit(state,'',key));QTest.qWait(30)
@@ -64,18 +86,24 @@ class CanvasVisualTests(unittest.TestCase):
         document=copy.deepcopy(self.canvas.data());history=copy.deepcopy(self.canvas.undo_stack)
         for palette in ('paper','graphite','mist'):
             self.w.state['settings']['visual_palette']=palette;self.w.apply_theme(preserve_layout=True);QTest.qWait(20)
-            colors=visual_tokens(self.w.state['settings'])
+            from prompt_calculus_studio.canvas_items import canvas_colors
+            colors=canvas_colors(self.canvas)
             cards=(self.canvas.containers[self.refs['canvas']],self.canvas.outputs[self.refs['output']],
                    self.canvas.clips[self.refs['clip']],self.canvas.flow_cards[self.refs['stage']])
             for card in cards:
                 image=QImage(int(card.width),int(card.height),QImage.Format.Format_ARGB32)
                 image.fill(Qt.GlobalColor.transparent);painter=QPainter(image);card.paint(painter,None);painter.end()
                 self.assertEqual(image.pixelColor(8,30).name(),colors['canvas_header'])
-                self.assertEqual(image.pixelColor(8,80).name(),colors['canvas_body'])
+                from prompt_calculus_studio.color_roles import mix
+                body=(mix(colors['canvas_body'],colors['base'],.80)
+                      if card is cards[0] else colors['canvas_body'])
+                self.assertEqual(image.pixelColor(8,80).name(),body)
             panel=self.canvas.outputs[self.refs['output']].panel
-            self.assertEqual(panel.grab().toImage().pixelColor(1,1).name(),colors['canvas_body'])
-            field=panel.editor.viewport().grab().toImage()
-            self.assertEqual(field.pixelColor(20,field.height()-5).name(),colors['canvas_field'])
+            page=panel.open_page();self.app.processEvents()
+            field=page.content.editor.viewport().grab().toImage()
+            # The dedicated sheet uses the shared dialog editor surface.
+            self.assertEqual(field.pixelColor(20,field.height()-5).name(),colors['surface'])
+            page.finish();self.app.processEvents()
             if palette=='paper':
                 self.assertEqual(len({colors[key] for key in ('canvas_header','canvas_body','canvas_field')}),3)
             self.assertEqual(self.canvas.data(),document);self.assertEqual(self.canvas.undo_stack,history)
@@ -83,9 +111,15 @@ class CanvasVisualTests(unittest.TestCase):
     def test_compact_scheduler_pause_keeps_underlying_pause_resume_behavior(self):
         panel=self.canvas.flow_cards[self.refs['scheduler']].panel
         store=panel.runner.store;workspace=self.w.state['workspace'];key=self.refs['scheduler']
-        self.assertFalse(store.scheduler_paused(workspace,key));self.assertTrue(panel.empty.isVisible())
-        panel.pause_button.click();self.assertTrue(store.scheduler_paused(workspace,key));self.assertEqual(panel.pause_button.text(),'繼續')
-        panel.pause_button.click();self.assertFalse(store.scheduler_paused(workspace,key));self.assertEqual(panel.pause_button.text(),'暫停')
+        page=panel.open_page();content=page.content;self.app.processEvents()
+        self.assertFalse(store.scheduler_paused(workspace,key));self.assertTrue(content.empty.isVisible())
+        content.pause_button.click();self.assertTrue(store.scheduler_paused(workspace,key));self.assertEqual(content.pause_button.text(),'全部繼續')
+        page.finish();self.app.processEvents()
+        self.assertIn('已暫停',panel.summary.text())
+        page=panel.open_page();content=page.content
+        content.pause_button.click();self.assertFalse(store.scheduler_paused(workspace,key));self.assertEqual(content.pause_button.text(),'全部暫停')
+        page.finish();self.app.processEvents()
+        self.assertNotIn('已暫停',panel.summary.text())
 
     def test_setup_emphasis_follows_binding_then_stage_without_mutating_document(self):
         from prompt_calculus_studio import clip_flow
@@ -140,7 +174,7 @@ class CanvasVisualTests(unittest.TestCase):
         document=copy.deepcopy(self.w.state)
         self.canvas.clips[self.refs['clip']].panel.refresh()
         self.assertEqual(pending_setup(self.w.state)[0],('clip_inputs',self.refs['clip']))
-        self.assertEqual(self.canvas.clips[self.refs['clip']].panel.binding.text(),'重新綁定 CLIP')
+        self.assertEqual(self.canvas.clips[self.refs['clip']].panel.binding.text(),'重新綁定文字欄位')
         self.assertEqual(self.w.state,document)
 
     def test_light_port_captions_are_deeper_without_recoloring_wires(self):
@@ -249,27 +283,18 @@ class CanvasVisualTests(unittest.TestCase):
         with patch('prompt_calculus_studio.clip_widgets.RoundMenu.open_at') as open_menu:
             bar.more.click();open_menu.assert_called_once()
 
-    def test_setup_badges_fit_when_interface_font_is_large(self):
-        class BadgePainter(QPainter):
-            def __init__(self,image):
-                super().__init__(image);self.badges=[]
-            def drawText(self,*args):
-                if len(args)==3 and args[-1] in ('待設定','已綁定'):
-                    bounds,_,text=args;metrics=QFontMetricsF(self.font(),self.device())
-                    self.badges.append((self.font().pointSizeF(),metrics.horizontalAdvance(text),metrics.height(),bounds))
-                return super().drawText(*args)
+    def test_setup_actions_fit_when_interface_font_is_large(self):
         self.w.state['settings']['ui_size']=18
-        self.w.apply_theme(preserve_layout=True)
-        cards=(self.canvas.clips[self.refs['clip']],self.canvas.flow_cards[self.refs['stage']])
-        for card in cards:
-            surface=QImage(int(card.width),int(card.height),QImage.Format.Format_ARGB32)
-            surface.fill(Qt.GlobalColor.transparent)
-            painter=BadgePainter(surface);card.paint(painter,None);painter.end()
-            self.assertEqual(len(painter.badges),1)
-            points,width,height,bounds=painter.badges[0]
-            self.assertLessEqual(points,11)
-            self.assertLessEqual(width,bounds.width()-8)
-            self.assertLessEqual(height,bounds.height())
+        self.w.apply_theme(preserve_layout=True);self.app.processEvents()
+        clip=self.canvas.clips[self.refs['clip']].panel
+        stage=self.canvas.flow_cards[self.refs['stage']].panel
+        for panel,action in ((clip,clip.binding),(stage,stage.edit_button)):
+            self.assertTrue(action.isVisible())
+            self.assertTrue(panel.rect().contains(action.geometry()))
+            metrics=QFontMetricsF(action.font(),action)
+            icon=action.iconSize().width()+8 if not action.icon().isNull() else 0
+            self.assertLessEqual(metrics.horizontalAdvance(action.text())+icon,action.width()-16)
+            self.assertLessEqual(metrics.height(),action.height())
 
 
 if __name__=='__main__':unittest.main()

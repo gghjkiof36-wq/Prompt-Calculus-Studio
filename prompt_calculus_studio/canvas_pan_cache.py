@@ -305,7 +305,9 @@ class PanRasterCache(QObject):
         width,height=image.width(),image.height()
         if abs(dx)>=width or abs(dy)>=height:return None
         painter=QPainter(image)
-        try:painter.drawImage(QPointF(dx/dpr,dy/dpr),old)
+        try:
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            painter.drawImage(QPointF(dx/dpr,dy/dpr),old)
         finally:painter.end()
         exposed=[]
         if dx:exposed.append(QRect(0 if dx>0 else width+dx,0,abs(dx),height))
@@ -332,12 +334,22 @@ class PanRasterCache(QObject):
                     source=clip.translated(-offset).toAlignedRect()
                     target=QRectF(source).translated(offset)
                     capture.save();capture.setClipRect(clip)
-                    try:view.render(capture,target,source,Qt.AspectRatioMode.IgnoreAspectRatio)
+                    try:
+                        # The overlap was copied already. Clear only exposed
+                        # pixels instead of writing the whole backing twice.
+                        capture.fillRect(clip,self._background_color())
+                        view.render(capture,target,source,Qt.AspectRatioMode.IgnoreAspectRatio)
                     finally:capture.restore()
         finally:
             capture.end();self._capturing=False
 
-    def paint(self, painter, appearance_key=None):
+    def _background_color(self):
+        base=QColor(self.view.backgroundBrush().color())
+        if not base.isValid():base=self.view.palette().base().color()
+        base.setAlpha(255)
+        return base
+
+    def paint(self, painter, appearance_key=None, *, prepare_scene=None):
         """Paint the entire viewport backing, or return False for direct paint."""
         if (not self.active or self._capturing or not painter.worldTransform().isIdentity()
                 or painter.opacity() != 1
@@ -391,12 +403,11 @@ class PanRasterCache(QObject):
             if image.isNull():
                 return False
             image.setDevicePixelRatio(dpr)
-            base = QColor(view.backgroundBrush().color())
-            if not base.isValid():
-                base = view.palette().base().color()
-            base.setAlpha(255)
-            image.fill(base)
+            # Reconcile proxy caches only when scene painting is needed. A
+            # backing hit cannot benefit from scanning every embedded widget.
+            if prepare_scene is not None:prepare_scene()
             extension=self._extend(image,matrix,dpr) if extend else None
+            if extension is None:image.fill(self._background_color())
             # Ordinary camera movement can reuse current widget content when
             # recapturing past an edge. Refresh it for a new/invalidated frame.
             refresh_cache = (previous_key is None or previous_key[:3] != key[:3]

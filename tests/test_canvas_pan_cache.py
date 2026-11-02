@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter, QPen, QTransform, QWheelEvent, QMouseEvent
@@ -280,12 +281,17 @@ class CanvasPanCacheTests(unittest.TestCase):
             self.assertTrue(view.pan_raster.active)
             self.assertIsNotNone(view.pan_raster.image)
             count = item.paints
-            for x in (110, 120, 130):
-                QTest.mouseMove(view.viewport(), QPoint(x, 100)); self.events()
+            from prompt_calculus_studio import canvas_proxy_cache
+            with patch.object(canvas_proxy_cache,'configure',wraps=canvas_proxy_cache.configure) as configure:
+                for x in (110, 120, 130):
+                    QTest.mouseMove(view.viewport(), QPoint(x, 100)); self.events()
+                self.assertEqual(configure.call_count,0)
             self.assertEqual(item.paints, count)
             self.assertGreaterEqual(view.pan_raster.hits, 2)
             count = view.pan_raster.captures
-            item.setBrush(QColor('#e3a563')); self.events()
+            with patch.object(canvas_proxy_cache,'configure',wraps=canvas_proxy_cache.configure) as configure:
+                item.setBrush(QColor('#e3a563')); self.events()
+                self.assertGreater(configure.call_count,0)
             self.assertGreater(view.pan_raster.captures, count)
             paints = item.paints
             QTest.mouseRelease(view.viewport(), Qt.MouseButton.MiddleButton,

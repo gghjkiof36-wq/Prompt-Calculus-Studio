@@ -15,7 +15,16 @@ def canvas_colors(canvas):
     if cached is not None:return dict(cached)
     from .theme import visual_tokens,window_appearance
     from .module_chrome import matte_colors
-    return matte_colors(visual_tokens(window_appearance(canvas.window)))
+    appearance=window_appearance(canvas.window)
+    # These are the inputs consumed by visual_tokens. Keep only the current
+    # palette per Canvas; previews and in-place settings edits change the key.
+    key=tuple((name,appearance[name]) for name in
+              ('visual_palette','accent','accent_custom') if name in appearance)
+    cached=getattr(canvas,'_resolved_colors',None)
+    if cached is None or cached[0]!=key:
+        cached=(key,matte_colors(visual_tokens(appearance)))
+        canvas._resolved_colors=cached
+    return dict(cached[1])
 
 
 def paint_module_surface(painter,outline,colors,header_bottom):
@@ -695,7 +704,11 @@ class CanvasView(QGraphicsView):
     def paintEvent(self,event):
         from .canvas_raster import paint_scope
         from .canvas_proxy_cache import configure
-        configure()
+        prepared=False
+        def prepare_scene():
+            nonlocal prepared
+            if not prepared:
+                configure();prepared=True
         # If a camera backing is unavailable, paint the exact current zoom.
         # Avoid allocating full-card rasters for transient scales.
         # A frame has one appearance. Resolve it once rather than merging
@@ -707,9 +720,10 @@ class CanvasView(QGraphicsView):
                 cache=getattr(self,'pan_raster',None)
                 if cache is not None and cache.active:
                     painter=QPainter(self.viewport())
-                    try:reused=cache.paint(painter,tuple(sorted(self.canvas._paint_colors.items())))
+                    try:reused=cache.paint(painter,tuple(sorted(self.canvas._paint_colors.items())),prepare_scene=prepare_scene)
                     finally:painter.end()
                     if reused:return
+                prepare_scene()
                 super().paintEvent(event)
         finally:self.canvas._paint_colors=previous
 
