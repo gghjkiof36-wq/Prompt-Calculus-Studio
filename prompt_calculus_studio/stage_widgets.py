@@ -11,6 +11,7 @@ from .stage_model import choose,compile_plan
 
 NAMES=dict(waiting='等待',running='執行中',preparing='準備輸入',submitted='已提交',collecting='保存結果',
     complete='完成',paused='已暫停',failed='失敗',unconfirmed='提交未確認',result_error='圖片尚未取得',cancelling='取消待確認',cancelled='已取消',removed='已移除',retained='已保留',retried='已建立新嘗試')
+ACTIVE_GROUP_STATES=('preparing','submitted','collecting','running','unconfirmed','cancelling')
 
 
 def entry_image(item):
@@ -28,8 +29,18 @@ class SequenceDelegate(QStyledItemDelegate):
         opt=QStyleOptionViewItem(option);self.initStyleOption(opt,index);picture=opt.icon;opt.text='';opt.icon=QIcon()
         (opt.widget.style() if opt.widget else QApplication.style()).drawControl(QStyle.ControlElement.CE_ItemViewItem,opt,painter,opt.widget)
         painter.save();painter.setFont(option.font)
+        if index.data(int(Qt.ItemDataRole.UserRole)+3):
+            from .module_chrome import dialog_colors,dialog_context
+            from PySide6.QtGui import QColor,QPen
+            colors=dialog_colors(dialog_context(self.parent())[0])
+            painter.setPen(QPen(QColor(colors['accent']),2));painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(option.rect.adjusted(1,1,-2,-2),5,5)
         selected=bool(option.state & QStyle.StateFlag.State_Selected)
         painter.setPen(option.palette.color(option.palette.ColorRole.HighlightedText if selected else option.palette.ColorRole.Text))
+        if index.data(int(Qt.ItemDataRole.UserRole)+4):
+            from .module_chrome import dialog_colors,dialog_context
+            from PySide6.QtGui import QColor
+            painter.setPen(QColor(dialog_colors(dialog_context(self.parent())[0])['secondary']))
         rect=option.rect.adjusted(10,0,-12,0);line=option.fontMetrics
         status_width=max(100,line.horizontalAdvance('提交未確認')+20)
         painter.drawText(QRect(rect.left(),rect.top(),40,rect.height()),Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight,str(number))
@@ -118,7 +129,8 @@ class StagePanel(QFrame):
         latest=runner.store.latest_stage_status(self.canvas.window.state['workspace'],self.key)
         error=latest['error'] if latest and latest['status'] in ('failed','unconfirmed','result_error') else ''
         if value.get('workflow') and not profile:error=error or '工作流已移除，請重新選擇。'
-        self.status.setText(error);self.status.setVisible(bool(error))
+        from .execution_messages import display_message
+        self.status.setText(display_message(error));self.status.setVisible(bool(error))
 
 
 class SchedulePageContent(QFrame):
@@ -131,9 +143,10 @@ class SchedulePageContent(QFrame):
         self.policy_button=button('輸入取值',self.policies,'Quiet')
         self.policy_button.setParent(self);self.policy_button.hide()
         from .schedule_group_view import ScheduleGroupView
-        self.groups_list=ScheduleGroupView()
-        self.groups_list.itemClicked.connect(lambda item:self.open_group(item.data(Qt.ItemDataRole.UserRole)))
+        self.groups_list=ScheduleGroupView(self)
+        self.groups_list.openRequested.connect(self.open_group)
         self.groups_list.itemActivated.connect(lambda item:self.open_group(item.data(Qt.ItemDataRole.UserRole)))
+        self.groups_list.orderChanged.connect(self.groups_reordered)
         body.addWidget(self.groups_list,1)
         self.list=PendingList(self);self.list.setIconSize(QSize(32,32));self.list.setMinimumHeight(96);self.list.setObjectName('ModuleScheduleList');self.list.setProperty('moduleChoices',True)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff);self.list.setTextElideMode(Qt.TextElideMode.ElideRight)
@@ -184,6 +197,29 @@ class SchedulePageContent(QFrame):
 
     def turn_page(self,direction):
         self.offset=max(0,self.offset+direction*self.page_size);self.refresh()
+
+    def group_menu(self,ident,position):
+        group=next((g for g in self.groups if g['id']==ident),None)
+        if group is None:return
+        menu=RoundMenu(self)
+        menu.addAction('優先執行',lambda:self.batch_action('prioritize',ident)).setEnabled(not group['cancelled'])
+        menu.addAction('恢復執行' if group['bypassed'] else '繞過',lambda:self.batch_action('bypass',ident)).setEnabled(not group['cancelled'])
+        menu.addSeparator()
+        menu.add_destructive_action('取消當前批次',lambda:self.batch_action('cancel',ident)).setEnabled(not group['cancelled'])
+        menu.open_at(position)
+
+    def batch_action(self,action,ident):
+        from . import schedule_batch_actions
+        try:getattr(schedule_batch_actions,action)(self.runner,self.key,ident)
+        except (ValueError,OSError) as exc:self.canvas.window.notice(str(exc))
+        self.refresh()
+
+    def groups_reordered(self):
+        from .schedule_batch_actions import reorder
+        ids=[self.groups_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.groups_list.count())]
+        try:reorder(self.runner,self.key,ids,[g['id'] for g in self.groups])
+        except (ValueError,OSError) as exc:self.canvas.window.notice(str(exc))
+        if not self.dragging:self.refresh()
 
     def toggle_pause(self):
         paused=self.runner.store.scheduler_paused(self.canvas.window.state['workspace'],self.key)
@@ -264,7 +300,7 @@ class SchedulePageContent(QFrame):
         legacy=bool(legacy_edges(self.canvas.window.state,self.key))
         self.legacy_button.setVisible(legacy)
         self.empty.setText('請先整理舊接線' if legacy else '等待供應下一段序列' if current and current['pending'] else '沒有等待執行的任務')
-        from .schedule_group_view import DETAILS
+        from .schedule_group_view import DETAILS,EXECUTING,BYPASSED
         old_groups=[self.groups_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.groups_list.count())]
         selected_group=self.groups_list.currentItem()
         selected_group=selected_group.data(Qt.ItemDataRole.UserRole) if selected_group else None
@@ -276,11 +312,16 @@ class SchedulePageContent(QFrame):
         for index,group in enumerate(self.groups):
             entry=self.groups_list.item(index);counts=projected[group['id']]
             important=next((key for key in ('unconfirmed','cancelling','failed','result_error','preparing','submitted','collecting','running','retained') if counts.get(key)),None)
+            executing=any(counts.get(s,0) for s in ('preparing','submitted','collecting','running'))
             status=NAMES[important] if important else (f"{counts.get('complete',0):,} 已完成" if counts.get('complete') else '等待')
+            if group['cancelled']:status='取消待確認' if any(counts.get(s,0) for s in ACTIVE_GROUP_STATES) else '已取消'
+            elif group['bypassed']:status='執行後繞過' if executing else '已繞過'
             stamp=datetime.fromtimestamp(group['created']).strftime('%m/%d %H:%M')
             name=f'第 {index+1} 組' if not group['id'].startswith('legacy:') else '先前排程'
             entry.setText(group['label'])
             entry.setData(DETAILS,(group['label'],group['total'],status,stamp,name))
+            entry.setData(EXECUTING,executing)
+            entry.setData(BYPASSED,group['bypassed'])
             description=f"{name} · {group['label']}\n{group['total']:,} 項 · {status}\n{stamp}"
             entry.setToolTip(description);entry.setData(Qt.ItemDataRole.AccessibleTextRole,description)
         ids=[r['id'] for r in rows];old=[self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]
@@ -296,6 +337,8 @@ class SchedulePageContent(QFrame):
             caption=(source['name'] if source else item['label'])+(' · '+str(count)+' 張' if count and count>1 else '')
             entry=self.list.item(index);entry.setText(f"{self.offset+index+1} · {caption} · {NAMES.get(statuses[item['id']],item['status'])}")
             entry.setData(int(Qt.ItemDataRole.UserRole)+2,(self.offset+index+1,caption,NAMES.get(statuses[item['id']],item['status'])))
+            entry.setData(int(Qt.ItemDataRole.UserRole)+3,statuses[item['id']] in ('preparing','submitted','collecting','running'))
+            entry.setData(int(Qt.ItemDataRole.UserRole)+4,bool(current and current['bypassed'] and item['status'] in ('waiting','retained')))
             entry.setSizeHint(QSize(0,max(44,self.fontMetrics().height()+22)))
             entry.setToolTip('雙擊查看內容；右鍵處理此項');entry.setFlags(entry.flags() | Qt.ItemFlag.ItemIsDragEnabled if item['status']=='waiting' else entry.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
             image_key=str(source['relative']) if source else ''

@@ -147,7 +147,7 @@ class MaterialModelTests(unittest.TestCase):
                      'b': comp.node('b', ', smile')}, output_order=['a', 'b'])
         s['settings']['separate_selections'] = False
         current = make_snapshot(s)
-        self.assertEqual(current['formatter_version'], 2)
+        self.assertEqual(current['formatter_version'], 3)
         self.assertEqual(current['generated_prompt'], 'red dress, smile')
         legacy = copy.deepcopy(current); legacy.pop('formatter_version')
         with comp.legacy_format():

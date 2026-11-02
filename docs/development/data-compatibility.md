@@ -84,7 +84,7 @@ Stage 最新狀態查詢／索引與未變輪詢優化不刪減歷史。桌面�
 - `content_history.version=1` 保存最多 200 筆／4 MiB 的內容及操作紀錄。素材、文字樹與 output 草稿的 before/after 分開記錄，output 帶 canvas/list scope。還原內容經 Canvas transaction 產生新的歷史；不改外部提交、圖片歷史或非目標輸出。
 - Stage 未套用草稿放同資料庫的附加 `stage_editor_local` 表，按工作區、server、Stage、等待項目分隔。這不是 Stage 執行參數；提醒偏好與草稿保存不會套用或提交生成。
 - Undo 為工作階段內 100 步／約 32 MB 的有界快照。未提交等待項目採紀錄身分與完整值比對，已嘗試／已提交／外部修改不復原成 waiting；成功復原保持原 run 暫停。
-- 新 PNG 快照使用 `formatter_version=2`。無標記的舊快照以舊分隔規則精確重算驗證；新規則不同時，還原保留歷史 final 為手動稿，不拿新版輸出覆寫。portable 快照排除本機預覽路徑、釘選、使用時間及內容歷史。
+- 新 PNG 快照使用 `formatter_version=3`，包含變體的外層子元素，並在權重括號前清理 Tag 邊界逗號。主程式與 ComfyUI 配套須同時更新。無標記／第 1 版與第 2 版快照仍以各自的規則精確驗證；短期本機預覽曾以第 2 版輸出新規則，因此第 2 版只接受任一整套規則完全匹配的主輸出與所有分支，不混用結果、不放寬文字核對。新規則不同時，還原保留歷史 final 為手動稿，包含空字串；不拿新版輸出覆寫。portable 快照排除本機預覽路徑、釘選、使用時間及內容歷史。
 - 舊 `workspace_scenes` 在載入副本內依完整 multi-output→CLIP→flow→Stage 次序升級，原件先備份；再次載入不得製造相同轉換備份。場景遷移不保留 runtime execution-input 或 Stage-result 暫存。
 
 新增資料仍保留既有 `prompt_studio` 儲存與協定名稱。回退使用相容舊程式和原資料副本，不將新版編輯直接交回舊程式。具體已驗條件見[0.8.7 驗證範圍](../releases/0.8.7/validation/alpha.1.md)。

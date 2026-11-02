@@ -608,12 +608,13 @@ class NodeCard(ResizableCard):
                 if index is not None:current['selected']=current['groups'][max(0,min(len(current['groups'])-1,index))]['id']
                 root.pop('supply_cursor',None);root.pop('round_override',None)
                 from .prompt_groups import cursor
-                root['selection_cursor']=dict(signature=pm.signature(root),position=cursor(current,start=current['selected']))
+                root['selection_cursor']=dict(signature=pm.signature(root),position=cursor(current,start=current['selected'],variants=bool(root.get('variants'))))
                 from .state_schema import mark_version
                 mark_version(state)
             self.canvas.commit(apply,label='切換內容')
         if action in ('group_previous','group_next'):
-            change(at+(-1 if action=='group_previous' else 1));return
+            if len(seq['groups'])>1:change((at+(-1 if action=='group_previous' else 1))%len(seq['groups']))
+            return
         if action=='group_mode':
             from .widgets import RoundMenu
             from .ui_icons import icon,MODE_ICONS

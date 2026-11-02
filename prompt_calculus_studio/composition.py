@@ -12,6 +12,20 @@ from contextvars import ContextVar
 MAX_DEPTH = 32
 MAX_NODES = 5000
 _LEGACY_FORMAT = ContextVar('pcs_legacy_composition_format', default=False)
+_FORMAT_VERSION = ContextVar('pcs_composition_format_version', default=3)
+
+
+@contextmanager
+def snapshot_format(version):
+    """Select an exact historical renderer without changing stored content."""
+    token = _FORMAT_VERSION.set(version)
+    try:
+        with legacy_format(version == 1): yield
+    finally: _FORMAT_VERSION.reset(token)
+
+
+def current_format():
+    return 1 if using_legacy_format() else _FORMAT_VERSION.get()
 
 
 @contextmanager
@@ -293,7 +307,7 @@ def effective_nodes(root):
                 for child in root['combination']['modules']:
                     yield from effective_nodes(child)
             return
-        if root.get('variants') and using_legacy_format():return
+        if root.get('variants') and current_format() < 3:return
         for child in root['children']:
             yield from effective_nodes(child)
 
@@ -344,7 +358,7 @@ def render(root, transform=None, *, grouped=None):
         group = selected(root['variants'])
         body = render_group(group, transform)
         text = body
-        if not using_legacy_format():
+        if current_format() >= 3:
             parts = [(body, group_output_kind(group))] if body.strip() else []
             parts.extend((text, output_kind(child)) for child in root['children'] if (text := render(child, transform)))
             text = join_fragments(parts)
@@ -368,7 +382,8 @@ def render(root, transform=None, *, grouped=None):
             text = join_fragments(parts) if len(parts) > 1 else trim_tag_boundary(parts[0][0]) if parts and kind == 'tags' else parts[0][0] if parts else ''
     if result_kind == 'tags' and not using_legacy_format():
         from .prompt_tags import apply
-        text = apply(trim_tag_boundary(text), root.get('disabled_tags', []), root.get('deduplicate', False))
+        text = apply(trim_tag_boundary(text) if current_format() >= 3 else text,
+                     root.get('disabled_tags', []), root.get('deduplicate', False))
     return f"({text}:{root['weight'] / 10:.1f})" if text and result_kind == 'tags' and (grouped or root['weight'] != 10) else text
 
 

@@ -292,6 +292,18 @@ class NativeDesktopTests(unittest.TestCase):
     tearDown=_Fixture.tearDown
     add=_Fixture.add
 
+    def test_native_failure_copy_and_retained_notice_keep_retry_policy(self):
+        from prompt_calculus_studio.execution_messages import display_message
+        runner=self.w.comfy.generation;callbacks=[];errors=[]
+        with patch.object(self.w.comfy,'request',lambda *args,**kwargs:callbacks.append(args)):
+            ident=runner.submit_native(dict(state=dict(workspace=self.w.state['workspace'],multi_output=dict(version=5))),'flow',lambda job:None,errors.append,lambda:True)
+            callbacks[0][3]('模組快照與實際文字不一致。')
+            self.assertEqual(errors,['原生提交未完成：模組快照與實際文字不一致。'])
+            self.assertEqual(len(callbacks),1)
+            self.assertEqual(runner.record(ident)['state'],'unconfirmed')
+        old='原生提交未完成：模組快照與實際文字不一致。；不會自動重送。'
+        self.assertEqual(display_message(old),errors[0])
+
     def test_delayed_native_error_does_not_reopen_terminal_job(self):
         runner=self.w.comfy.generation;callbacks=[]
         with patch.object(self.w.comfy,'request',lambda *args,**kwargs:callbacks.append(args)):

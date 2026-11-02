@@ -175,12 +175,14 @@ def output_kind(root):
     """Do not parse prose hidden inside a composition as tags."""
     if not root.get('enabled', True):
         return 'tags'
-    from .composition import active_overlay
+    from .composition import active_overlay, current_format
     overlay = active_overlay(root)
     if overlay is not None:
         return output_kind(overlay)
     if root.get('sequence') or root.get('combination') or root.get('variants'):
         group = root.get('combination') or selected(root.get('sequence') or root['variants'])
+        if current_format() < 3:
+            return group_output_kind(group)
         own = group_output_kind(group)
         if not root.get('variants'):
             return own  # Conversion drafts outside the active group stay inactive.

@@ -184,7 +184,7 @@ def portable_state(state, selected_only=False):
 def make_snapshot(state, library_id='', library_revision=''):
     clean = portable_state(state, selected_only=True)
     generated = build_prompt(clean)
-    result = dict(schema_version=clean['version'], formatter_version=2, library_id=str(library_id),
+    result = dict(schema_version=clean['version'], formatter_version=3, library_id=str(library_id),
         library_revision=str(library_revision), state=clean, generated_prompt=generated,
         final_prompt=clean['draft'] if clean['draft'] is not None else generated,
         manual_draft=clean['draft'] is not None)
@@ -205,22 +205,26 @@ def validate_snapshot(snapshot):
     if snapshot['schema_version'] != state['version']:
         raise ValueError('快照與組合資料版本不一致。')
     formatter = snapshot.get('formatter_version', 1)
-    if type(formatter) is not int or formatter not in (1, 2):
+    if type(formatter) is not int or formatter not in (1, 2, 3):
         raise ValueError('不支援的流程格式版本。')
-    from .composition import legacy_format
-    with legacy_format(formatter == 1):
-        generated = build_prompt(state)
-        final = state['draft'] if state['draft'] is not None else generated
-        if 'multi_output' in state:
-            from .multi_output import compiled_outputs
-            outputs = compiled_outputs(state)
-    if (snapshot.get('generated_prompt') != generated or snapshot.get('final_prompt') != final
-            or type(snapshot.get('manual_draft')) is not bool
-            or snapshot['manual_draft'] != (state['draft'] is not None)):
-        raise ValueError('模組快照與實際文字不一致。')
-    if 'multi_output' in state:
-        if snapshot.get('outputs')!=outputs: raise ValueError('多輸出快照與實際文字不一致。')
-    return snapshot
+    from .composition import snapshot_format
+    # A local preview briefly emitted the corrected renderer under version 2.
+    # Accept either complete, exact result for those snapshots; never mix the
+    # main prompt from one renderer with output fields from the other.
+    for version in ((2, 3) if formatter == 2 else (formatter,)):
+        with snapshot_format(version):
+            generated = build_prompt(state)
+            final = state['draft'] if state['draft'] is not None else generated
+            if 'multi_output' in state:
+                from .multi_output import compiled_outputs
+                outputs = compiled_outputs(state)
+        if (snapshot.get('generated_prompt') != generated or snapshot.get('final_prompt') != final
+                or type(snapshot.get('manual_draft')) is not bool
+                or snapshot['manual_draft'] != (state['draft'] is not None)):
+            continue
+        if 'multi_output' not in state or snapshot.get('outputs') == outputs:
+            return snapshot
+    raise ValueError('模組快照與實際文字不一致。')
 
 
 def revision(state):
@@ -258,7 +262,7 @@ def _legacy_stage_source(snapshot):
     source=snapshot['state'];data=source.get('multi_output',{})
     canvases=data.get('canvases',{});outputs=data.get('outputs',{})
     functions=source.get('canvas_functions',{})
-    if (snapshot.get('schema_version')!=7 or snapshot.get('formatter_version')!=2
+    if (snapshot.get('schema_version')!=7 or snapshot.get('formatter_version') not in (2,3)
             or data.get('version')!=7 or source.get('selection_view')!='canvas'
             or len(data.get('stages',{}))!=1 or data.get('schedulers')
             or functions.get('images') or functions.get('text_sources')
@@ -304,6 +308,12 @@ def _legacy_stage_source(snapshot):
 def restore_snapshot(current, snapshot):
     """Create a new workspace; preserve library entries and historical text."""
     validate_snapshot(snapshot)
+    historical_render=snapshot.get('formatter_version',1)==1
+    if snapshot.get('formatter_version')==2:
+        historical_render=build_prompt(snapshot['state'])!=snapshot['generated_prompt']
+        if 'multi_output' in snapshot['state']:
+            from .multi_output import compiled_outputs
+            historical_render=historical_render or compiled_outputs(snapshot['state'])!=snapshot['outputs']
     result = copy.deepcopy(current)
     from .workspace_scene import capture,scene
     capture(result)
@@ -399,7 +409,7 @@ def restore_snapshot(current, snapshot):
     from .state_loading import prepare_state
     if 'workspace_scenes' in result:result['workspace_scenes']['items'][workspace['id']]=scene(result)
     result=prepare_state(result,multi='multi_output' in current)
-    if snapshot.get('formatter_version', 1) == 1:
+    if historical_render:
         # Old snapshots are first recomputed using the exact old formatter.
         # Keep their frozen output as a draft if canonical joins now differ.
         # An explicit empty draft is a value and must never be replaced.

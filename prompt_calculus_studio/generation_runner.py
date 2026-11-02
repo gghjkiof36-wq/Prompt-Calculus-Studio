@@ -165,7 +165,7 @@ class GenerationRunner:
             job.setdefault('first_error',str(error))
             job.update(state='failed' if getattr(error,'rejected',False) else 'unconfirmed',error=str(error));self.save(job)
             if job['state']=='failed':self.jobs.pop(ident,None)
-            if valid():failed('原生提交未完成：'+str(error)+'；不會自動重送。')
+            if valid():failed('原生提交未完成：'+str(error))
         def received(result):
             if self.client.stopped:return
             if job['state'] in ('failed','complete'):return

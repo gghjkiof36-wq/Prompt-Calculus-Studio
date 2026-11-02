@@ -651,6 +651,8 @@ class Window(QMainWindow):
         if index>=0: self.workspace.setCurrentIndex(index)
 
     def notice(self,text):
+        from .execution_messages import display_message
+        text=display_message(text)
         had_backup_details=getattr(self,'_backup_notice_text',None) is not None
         self._backup_notice_text=None
         if had_backup_details:

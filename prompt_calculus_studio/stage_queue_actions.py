@@ -4,12 +4,9 @@
 def context(runner,ident):
     item=runner.store.read(ident)
     if not item or item.get('kind')!='entry':raise ValueError('此預排程項目已不存在。')
-    run=runner.store.read(item['run']);entries=runner.store.rows('entry',item['workspace']);ids={ident}
-    while True:
-        children={e['id'] for e in entries if e.get('parent') in ids}
-        if children<=ids:break
-        ids.update(children)
-    attempts=[a for a in runner.store.rows('attempt',owner=item['run']) if a.get('parent') in ids]
+    run=runner.store.read(item['run'])
+    ids={e['id'] for e in runner.store.entry_descendants(item['workspace'],[ident])}
+    attempts=[a for a in runner.store.entry_attempts(item['workspace'],ids) if a['owner']==item['run']]
     return item,run,ids,attempts
 
 
@@ -23,7 +20,7 @@ def can_remove(runner,ident):
         all(not a.get('cancel_requested') and a['status'] in ('complete','failed','cancelled','removed','retried') for a in attempts))
 
 
-def finish_entry(runner,ident,status):
+def finish_entry(runner,ident,status,*,pause=True):
     item,run,ids,attempts=context(runner,ident)
     if item['status'] not in ('waiting','running'):return
     index=next((i for i,f in enumerate(run['stack']) if f.get('kind')=='loop' and f.get('active')==ident),None)
@@ -34,12 +31,12 @@ def finish_entry(runner,ident,status):
             # Partial results of a discarded item must not feed downstream.
             run['stack']=run['stack'][:index+1]
             frame=run['stack'][-1];frame['active']=None;frame['done']+=1;runner.save(run)
-        for entry in runner.store.rows('entry',item['workspace']):
+        for entry in runner.store.entry_descendants(item['workspace'],[ident]):
             if entry['id'] in ids and entry['status'] in ('waiting','running'):runner.store.update(entry['id'],status=status)
         for attempt in attempts:
             if attempt['status'] in ('failed','cancelled'):
                 runner.store.update(attempt['id'],status='removed',previous_status=attempt['status'])
-    if index is not None:runner.pause(run['id'],'此項已結束；其他等待項目保留，按「繼續」接續。')
+    if index is not None and pause:runner.pause(run['id'],'此項已結束；其他等待項目保留，按「繼續」接續。')
     runner.later();runner.notify()
 
 
@@ -59,8 +56,11 @@ def finish_cancel(runner,attempt):
             runner.collect(runner.store.read(attempt['id']),job)
         else:runner.store.update(attempt['id'],status='cancelled',cancel_requested=False)
     elif attempt.get('parent'):
+        from .schedule_batch_actions import cancelled_parent,finish_cancelled_batch
+        batch_parent=cancelled_parent(runner,attempt)
         runner.store.update(attempt['id'],status='cancelled',cancel_requested=False)
-        finish_entry(runner,attempt['parent'],'cancelled')
+        finish_entry(runner,batch_parent['id'] if batch_parent else attempt['parent'],'cancelled',pause=not bool(batch_parent))
+        if batch_parent:finish_cancelled_batch(runner,run['id'])
     else:
         # No schedule boundary: retain the stopped Stage for explicit retry,
         # since downstream cannot continue without its required result.

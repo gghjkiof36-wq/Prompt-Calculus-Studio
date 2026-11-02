@@ -75,6 +75,19 @@ class GroupStoreTests(unittest.TestCase):
             self.store.add('attempt','w','run',parent=entries[0]['id'],status='unconfirmed')
             self.assertFalse(untouched(self.store,values))
 
+    def test_group_order_and_bypass_persist_without_editing_frozen_rows(self):
+        a=[self.entry('a',i) for i in range(2)];b=[self.entry('b',i) for i in range(2)]
+        before=list(self.db.execute("SELECT body,position FROM stage_journal WHERE kind='entry' ORDER BY position"))
+        self.store.reorder_groups('w','q',['b','a'],['a','b'])
+        self.assertEqual(self.store.next_entry('same-owner')['id'],b[0]['id'])
+        self.store.set_batch_control('w','q','b',bypassed=True)
+        self.assertEqual(self.store.next_entry('same-owner')['id'],a[0]['id'])
+        self.assertEqual(list(self.db.execute("SELECT body,position FROM stage_journal WHERE kind='entry' ORDER BY position")),before)
+        reopened=StageStore(self.db)
+        self.assertEqual([g['id'] for g in reopened.schedule_groups('w','q')],['b','a'])
+        self.assertTrue(reopened.schedule_groups('w','q')[0]['bypassed'])
+        with self.assertRaises(ValueError):self.store.reorder_groups('w','q',['a','b'],['a','b'])
+
 
 import test_084_stages as fixture
 from prompt_calculus_studio import multi_output as model
@@ -142,6 +155,127 @@ class GroupExecutionTests(unittest.TestCase):
         children=[e for e in children if e['scheduler']==config['inner']]
         self.assertEqual(len(children),3)
         self.assertTrue(all(e['execution_group']==outer[1]['id'] for e in children))
+
+    def test_priority_changes_next_dispatch_but_not_current_native_job(self):
+        from prompt_calculus_studio.schedule_batch_actions import prioritize
+        key=self.queue(3);store=self.runner.store;first=store.rows('attempt')[0]
+        self.c.commit(lambda s:s['uses']['root'].update(prompt='priority'))
+        self.controls.count.setValue(2);self.click()
+        groups=store.schedule_groups(self.w.state['workspace'],key)
+        prioritize(self.runner,key,groups[1]['id'])
+        self.assertEqual(len(self.executor.submissions),1)
+        self.assertEqual(store.rows('attempt')[0],first)
+        self.executor.finish()
+        self.assertEqual(self.executor.submissions[-1]['prompt']['6']['inputs']['text'],'priority')
+        self.executor.finish();self.executor.finish()
+        self.assertNotEqual(self.executor.submissions[-1]['prompt']['6']['inputs']['text'],'priority')
+
+    def test_bypass_keeps_group_until_restored_and_other_group_runs(self):
+        from prompt_calculus_studio.schedule_batch_actions import bypass
+        key=self.queue(2);store=self.runner.store
+        self.c.commit(lambda s:s['uses']['root'].update(prompt='second'))
+        self.controls.count.setValue(1);self.click()
+        group=store.schedule_groups(self.w.state['workspace'],key)[0]['id']
+        bypass(self.runner,key,group);self.executor.finish()
+        self.assertEqual(self.executor.submissions[-1]['prompt']['6']['inputs']['text'],'second')
+        self.executor.finish();self.assertFalse(self.executor.pending)
+        self.assertTrue(store.schedule_groups(self.w.state['workspace'],key)[0]['bypassed'])
+        bypass(self.runner,key,group);self.runner.pump()
+        self.assertEqual(len(self.executor.submissions),3)
+
+    def test_priority_can_promote_a_future_run_after_current_item_finishes(self):
+        from prompt_calculus_studio.schedule_batch_actions import prioritize
+        from prompt_calculus_studio.stage_model import compile_plan
+        key=self.queue(2);store=self.runner.store
+        self.c.commit(lambda s:s['uses']['root'].update(prompt='future run'))
+        future=self.runner.create_run(compile_plan(self.w.state),1,status='waiting')
+        prioritize(self.runner,key,future['execution_group']);self.runner.pump()
+        self.assertEqual(len(self.executor.submissions),1)
+        self.executor.finish()
+        self.assertEqual(self.executor.submissions[-1]['prompt']['6']['inputs']['text'],'future run')
+        self.executor.finish()
+        from PySide6.QtTest import QTest
+        QTest.qWait(100)
+        self.assertEqual(len(self.executor.submissions),3,dict(notices=self.notices,runs=[(r['status'],r.get('pause_reason'),[(f['kind'],f.get('active'),f.get('job')) for f in r['stack']]) for r in self.runner.runs()],entries=[(r['execution_group'],r['status']) for r in store.rows('entry')]))
+
+    def test_cancel_group_reconciles_current_and_keeps_sibling_batch(self):
+        from prompt_calculus_studio.schedule_batch_actions import cancel
+        key=self.queue(3);store=self.runner.store
+        self.c.commit(lambda s:s['uses']['root'].update(prompt='keep'))
+        self.controls.count.setValue(2);self.click()
+        groups=store.schedule_groups(self.w.state['workspace'],key)
+        siblings=[e for e in store.rows('entry') if e['execution_group']==groups[1]['id']]
+        cancel(self.runner,key,groups[0]['id']);self.runner.pump()
+        self.assertEqual(len(self.executor.cancelled),1)
+        self.assertEqual(self.executor.submissions[-1]['prompt']['6']['inputs']['text'],'keep')
+        self.assertTrue(all(e['status']=='cancelled' for e in store.rows('entry') if e['execution_group']==groups[0]['id']))
+        for e in siblings:self.assertEqual(store.read(e['id'])['saved'],e['saved'])
+        self.executor.finish();self.executor.finish()
+        self.assertEqual(len(self.executor.submissions),3)
+
+    def test_cancel_automatic_feed_does_not_refill_unmaterialized_tail(self):
+        from prompt_calculus_studio.schedule_batch_actions import cancel
+        source,images,config=self.image_batch(count=105);self.click();store=self.runner.store
+        group=store.schedule_groups(self.w.state['workspace'],config['inner'])[0]['id']
+        cancel(self.runner,config['inner'],group);self.runner.pump();self.executor.tick()
+        self.assertEqual(len(self.executor.submissions),1)
+        self.assertFalse(store.schedule_groups(self.w.state['workspace'],config['inner']))
+
+    def test_cancel_releases_own_image_reservation_without_changing_selection(self):
+        from prompt_calculus_studio.schedule_batch_actions import cancel
+        from prompt_calculus_studio.core import SUPPORTED_STATE_VERSIONS
+        self.w.comfy.snapshot_versions=list(SUPPORTED_STATE_VERSIONS)
+        source,images,config=self.image_batch(count=4,outer=True);self.click();store=self.runner.store
+        image=self.w.state['canvas_functions']['images'][source]
+        self.assertIn('supply_reservation',image);index=image['index']
+        group=store.schedule_groups(self.w.state['workspace'],config['outer'])[0]['id']
+        cancel(self.runner,config['outer'],group);self.runner.pump();self.executor.tick()
+        self.assertNotIn('supply_reservation',image);self.assertEqual(image['index'],index)
+        self.assertFalse(store.schedule_groups(self.w.state['workspace'],config['inner']))
+        self.click()
+        self.assertEqual(len(store.entry_summaries(self.w.state['workspace'],config['inner'])),4)
+
+    def test_lost_cancel_reply_does_not_dispatch_future_group_or_resubmit(self):
+        from prompt_calculus_studio.schedule_batch_actions import cancel,prioritize
+        from prompt_calculus_studio.stage_model import compile_plan
+        key=self.queue(2);store=self.runner.store
+        future=self.runner.create_run(compile_plan(self.w.state),1,status='waiting')
+        first=store.schedule_groups(self.w.state['workspace'],key)[0]['id']
+        prioritize(self.runner,key,future['execution_group'])
+        request=self.w.comfy.request;cancel_calls=[]
+        def lose(route,*args,**kw):
+            if route=='workflow/native/cancel':cancel_calls.append(1);kw['failed']('fixture lost cancel reply')
+            else:return request(route,*args,**kw)
+        with patch.object(self.w.comfy,'request',side_effect=lose):
+            cancel(self.runner,key,first);self.runner.pump();self.runner.pump()
+        self.assertEqual(cancel_calls,[1]);self.assertEqual(len(self.executor.submissions),1)
+        self.assertTrue(store.rows('attempt')[0]['cancel_requested'])
+        self.executor.finish(error=True)
+        from PySide6.QtTest import QTest
+        QTest.qWait(100)
+        self.assertEqual(len(self.executor.submissions),2)
+        self.assertFalse(store.rows('attempt')[0]['cancel_requested'])
+
+    def test_cards_and_list_mark_execution_and_reorder_actual_queue(self):
+        from prompt_calculus_studio.stage_widgets import SchedulePageContent
+        from prompt_calculus_studio.schedule_group_view import EXECUTING,BYPASSED
+        key=self.queue(2);self.controls.count.setValue(1);self.click()
+        panel=SchedulePageContent(self.c,key);self.addCleanup(panel.deleteLater)
+        active=panel.groups[0]['id'];other=panel.groups[1]['id']
+        self.assertTrue(panel.groups_list.item(0).data(EXECUTING))
+        self.assertFalse(panel.groups_list.item(1).data(EXECUTING))
+        panel.groups_list.move_row(other,0)
+        self.assertEqual(panel.groups[0]['id'],other)
+        panel.batch_action('bypass',other)
+        self.assertTrue(panel.groups_list.item(0).data(BYPASSED))
+        panel.set_group_view('list')
+        self.assertTrue(panel.groups_list.item(0).data(BYPASSED))
+        self.assertTrue(panel.groups_list.item(1).data(EXECUTING))
+        panel.batch_action('bypass',other)
+        self.assertFalse(panel.groups_list.item(0).data(BYPASSED))
+        panel.open_group(active)
+        from PySide6.QtCore import Qt
+        self.assertTrue(panel.list.item(0).data(int(Qt.ItemDataRole.UserRole)+3))
 
 
 if __name__=='__main__':unittest.main()

@@ -231,9 +231,11 @@ class StageRunner(QObject):
 
     def add_entry(self,run,owner,node,saved,source=None,parent=None,execution_group=None):
         keys=self.scope_keys(run['plan'],node)
-        return self.store.add('entry',run['workspace'],owner,status='waiting',run=run['id'],scheduler=node['key'],stages=keys,
+        group=execution_group or run.get('execution_group') or 'legacy:'+run['id']
+        cancelled=self.store.batch_control(run['workspace'],node['key'],group).get('cancelled')
+        return self.store.add('entry',run['workspace'],owner,status='cancelled' if cancelled else 'waiting',run=run['id'],scheduler=node['key'],stages=keys,
             label=' → '.join(run['plan']['stages'][k]['name'] for k in keys),saved=saved,source=source,parent=parent,error='',
-            execution_group=execution_group or run.get('execution_group') or 'legacy:'+run['id'])
+            execution_group=group)
 
     def check_route(self,run):
         if run['workspace']!=self.window.state['workspace'] or run['server']!=self.client.url:raise ValueError('已切換工作區或 ComfyUI，後續保留並暫停。')
@@ -250,7 +252,10 @@ class StageRunner(QObject):
             if self.applying:return
             if self.apply_queue:self.apply_next();return
             if self.preparing:return
-            for run in self.runs(True):
+            runs=self.runs(True)
+            from .schedule_batch_actions import promote_waiting
+            for run in runs:
+                promote_waiting(self,[run])
                 if run['status']!='running':
                     self.settle(run);continue
                 try:
@@ -273,7 +278,8 @@ class StageRunner(QObject):
         if future:
             paused=any(self.store.scheduler_paused(future['workspace'],key) for key in self.scheduler_keys(future['plan']))
             self.store.update(future['id'],status='paused' if paused else 'running',pause_reason='manual' if paused else '')
-            self.later()
+        # Completion also releases a scheduler slot held ahead of another run.
+        self.later()
 
     def settle(self,run):
         """Consume finished frames without preparing, supplying or submitting work."""
@@ -320,9 +326,12 @@ class StageRunner(QObject):
                 self.fill(run,frame)
                 item=self.store.next_entry(frame['owner'])
                 if not item:
-                    if frame.get('feed') and frame['feed']['next']<frame['feed']['total']:return
+                    if self.store.active_count(run['workspace'],frame['node']['key'],frame['owner']):return
+                    if frame.get('feed') and not frame['feed'].get('cancelled') and frame['feed']['next']<frame['feed']['total']:return
                     self.pop(run,frame['produced']);continue
                 if item['status']!='waiting':return
+                preferred=self.store.preferred_entry(run['workspace'],frame['node']['key'])
+                if preferred and preferred['owner']!=frame['owner']:return
                 self.activate_entry(run,frame,item);continue
             if frame['kind']=='stage':
                 stage=run['plan']['stages'][frame['key']]
@@ -414,6 +423,9 @@ class StageRunner(QObject):
     def fill(self,run,frame):
         feed=frame.get('feed')
         if not feed:return
+        group=frame['ctx'].get('execution_group') or run.get('execution_group') or 'legacy:'+run['id']
+        control=self.store.batch_control(run['workspace'],frame['node']['key'],group)
+        if feed.get('cancelled') or control.get('cancelled') or control.get('bypassed'):return
         if feed.get('plan'):
             return self.fill_supply(run,frame)
         available=max(0,CAPACITY-self.store.active_count(run['workspace'],frame['node']['key'],frame['owner']))

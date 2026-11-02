@@ -1,11 +1,15 @@
 """Text-only cards and compact rows for execution-group navigation."""
-from PySide6.QtCore import Qt, QSize, QRect, QEvent
+from PySide6.QtCore import Qt, QSize, QRect, QEvent, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QListWidget, QStyledItemDelegate, QStyle
 from .module_chrome import dialog_colors, dialog_context
+from .output_order import OutputOrderList
+from .widgets import widget_global_position
 
 
 DETAILS = int(Qt.ItemDataRole.UserRole) + 1
+EXECUTING = int(Qt.ItemDataRole.UserRole) + 2
+BYPASSED = int(Qt.ItemDataRole.UserRole) + 3
 
 
 class ScheduleGroupDelegate(QStyledItemDelegate):
@@ -23,18 +27,24 @@ class ScheduleGroupDelegate(QStyledItemDelegate):
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
         focused = bool(option.state & QStyle.StateFlag.State_HasFocus)
+        executing = bool(index.data(EXECUTING))
+        bypassed = bool(index.data(BYPASSED)) and not executing
         painter.save()
         painter.setClipRect(rect)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
-        if grid or selected or hovered:
-            painter.setBrush(QColor(colors['selected' if selected else 'hover' if hovered else 'surface']))
+        if grid or selected or hovered or executing:
+            background=colors['selected' if selected else 'hover' if hovered else 'surface']
+            if bypassed and not (selected or hovered):
+                from .color_roles import mix
+                background=mix(background,colors['base'],.6)
+            painter.setBrush(QColor(background))
             painter.drawRoundedRect(rect, 8, 8)
         if not grid:
             painter.setPen(QPen(QColor(colors['line']), 1))
             painter.drawLine(rect.left()+14, rect.bottom(), rect.right()-14, rect.bottom())
-        if focused:
-            painter.setPen(QPen(QColor(colors['accent']), 1))
+        if focused or executing:
+            painter.setPen(QPen(QColor(colors['accent'] if executing else colors['line']), 2 if executing else 1))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 8, 8)
         painter.setFont(option.font)
@@ -53,20 +63,22 @@ class ScheduleGroupDelegate(QStyledItemDelegate):
             (count_rect, f'{count:,} 項', 'secondary', Qt.AlignmentFlag.AlignLeft),
             (status_rect, status, 'secondary', Qt.AlignmentFlag.AlignRight),
             (stamp_rect, f'{group} · {stamp}', 'secondary', Qt.AlignmentFlag.AlignLeft)):
-            painter.setPen(QColor(colors[role]))
+            painter.setPen(QColor(colors['secondary' if bypassed else role]))
             painter.drawText(area, alignment|Qt.AlignmentFlag.AlignVCenter,
                              option.fontMetrics.elidedText(text, Qt.TextElideMode.ElideRight, max(1,area.width())))
         painter.restore()
 
 
-class ScheduleGroupView(QListWidget):
-    def __init__(self):
+class ScheduleGroupView(OutputOrderList):
+    openRequested=Signal(str)
+    def __init__(self,panel):
         super().__init__()
+        self.panel=panel;self._did_drag=False
         self.grid_mode = True
         self.setObjectName('ScheduleGroupsList')
         self.setViewMode(self.ViewMode.IconMode)
         self.setResizeMode(self.ResizeMode.Adjust)
-        self.setMovement(self.Movement.Static)
+        self.setMovement(self.Movement.Snap)
         self.setSelectionMode(self.SelectionMode.SingleSelection)
         self.setUniformItemSizes(True)
         self.setSpacing(0)
@@ -76,6 +88,45 @@ class ScheduleGroupView(QListWidget):
         self.setItemDelegate(ScheduleGroupDelegate(self))
         self.setAccessibleName('預排程分組，點選查看組內序列')
         self.reflow()
+
+    def contextMenuEvent(self,event):
+        item=self.itemAt(event.pos())
+        if item:
+            self.setCurrentItem(item)
+            self.panel.group_menu(item.data(Qt.ItemDataRole.UserRole),widget_global_position(self.viewport(),event.pos(),self.panel.canvas.view))
+        event.accept()
+
+    def mousePressEvent(self,event):
+        self._did_drag=False
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self,event):
+        item=self.itemAt(event.position().toPoint())
+        super().mouseReleaseEvent(event)
+        if event.button()==Qt.MouseButton.LeftButton and item and not self._did_drag:
+            self.openRequested.emit(item.data(Qt.ItemDataRole.UserRole))
+
+    def startDrag(self,actions):
+        self._did_drag=True;self.panel.dragging=True
+        try:super().startDrag(actions)
+        finally:self.panel.dragging=False;self.panel.refresh()
+
+    def insertion(self,pos):
+        if not self.grid_mode:return super().insertion(pos)
+        item=self.itemAt(pos)
+        if item is None:return self.count()
+        return self.row(item)+int(pos.x()>self.visualItemRect(item).center().x())
+
+    def paintEvent(self,event):
+        # Grid insertion follows the card's left/right edge, not a full row.
+        if not self.grid_mode:return super().paintEvent(event)
+        QListWidget.paintEvent(self,event)
+        if self._hint is None or not self.count():return
+        rect=self.visualItemRect(self.item(min(self._hint,self.count()-1)))
+        x=rect.left()+1 if self._hint<self.count() else rect.right()-12
+        colors=dialog_colors(dialog_context(self)[0])
+        painter=QPainter(self.viewport());painter.setPen(QPen(QColor(colors['accent']),2))
+        painter.drawLine(x,rect.top()+4,x,rect.bottom()-16)
 
     def set_mode(self, mode):
         self.grid_mode = mode == 'cards'
