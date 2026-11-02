@@ -42,6 +42,34 @@ class ModuleRedesignTests(StageFixture):
         self.assertTrue(edit.hasFocus())
         return edit
 
+    def test_weight_click_reuses_cards_ports_and_preserves_nested_undo_and_manual_draft(self):
+        from prompt_calculus_studio import multi_output, composition as comp
+        child=node('Child','child,')
+        def setup(s):
+            s['uses']['root'].update(children=[child],collapsed=False)
+            container=s['multi_output']['canvases'][self.cid]
+            container['display_size']=[8000,6000];x,y=container['position']
+            s.setdefault('text_positions',{})['root']=[x+24,y+108]
+            for i in range(40):
+                key=f'unchanged-{i}';s['uses'][key]=node(key,'keep,')
+                multi_output.assign(s,key,self.cid)
+                s['text_positions'][key]=[x+800+(i%5)*400,y+200+(i//5)*220]
+            s['draft']='manual stays';s['multi_output']['outputs'][self.out]['draft']='manual stays'
+        self.c.commit(setup)
+        key='root:'+child['id'];before_cards=dict(self.c.cards);before_ports=dict(self.c.ports);before_lines=dict(self.c.lines)
+        undo=len(self.c.undo_stack)
+        self.click_card(self.c.cards[key],self.c.cards[key].plus_rect)
+        self.assertEqual(self.w.state['uses']['root']['children'][0]['weight'],11)
+        self.assertEqual(self.c.cards,before_cards)
+        self.assertEqual(self.c.ports,before_ports);self.assertEqual(self.c.lines,before_lines)
+        self.assertEqual(self.c.cards[key].own,'(child:1.1)')
+        self.assertEqual(self.c.cards['root'].own,comp.render(self.w.state['uses']['root']))
+        self.assertEqual(self.w.state['draft'],'manual stays')
+        self.assertEqual(len(self.c.undo_stack),undo+1)
+        self.c.undo();self.assertEqual(self.w.state['uses']['root']['children'][0]['weight'],10)
+        self.c.redo();self.assertEqual(self.w.state['uses']['root']['children'][0]['weight'],11)
+        self.assertEqual(self.w.state['draft'],'manual stays')
+
     def test_weight_enter_single_transaction_undo_redo_save_reopen(self):
         original = copy.deepcopy(self.w.state['items'])
         count = len(self.c.undo_stack)

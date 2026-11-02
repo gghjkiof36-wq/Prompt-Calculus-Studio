@@ -17,7 +17,10 @@ def project_document(document, runtime_document, state, opening_settings, *, ide
     for key in list(settings):
         if key not in original and settings[key] == (opening_settings or state['settings']).get(key):
             settings.pop(key)
-    result = copy.deepcopy(document)
+    # The payload is replaced below; copying the saved Canvas here only to
+    # discard it makes each weight click pay for the entire document twice.
+    result = copy.deepcopy({key:value for key,value in document.items()
+                            if key not in ('payload','required_features')})
     result['payload'] = fresh['payload']
     result['required_features'] = fresh['required_features']
     referenced = {ref for ref, _, _ in assets.references(result)}

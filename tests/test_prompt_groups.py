@@ -77,6 +77,57 @@ class Groups(unittest.TestCase):
         self.assertEqual(comp.render(root), '(red:1.5)')
         seq['groups'][0]['input'] = 'modules'; self.assertEqual(comp.render(root), original)
 
+    def test_variant_children_follow_selection_weight_and_overlay(self):
+        from prompt_calculus_studio import prompt_materials as pm
+        child=comp.node('Child','child,')
+        root=comp.node('Variant','test,',children=[child]);root['variants']=pm.variants(root)
+        root['weight']=11
+        original=copy.deepcopy(root)
+        self.assertEqual(pm.kind(root),'text')
+        typed=copy.deepcopy(root);typed['material_type']=pm.kind(root);comp.validate_node(typed)
+        self.assertEqual(comp.render(root),'(test, child:1.1)')
+        self.assertEqual(root,original)
+        self.assertIn(child,list(comp.effective_nodes(root)))
+        second=groups.new_group('Second','next,,');root['variants']['groups'].append(second)
+        root['variants']['selected']=second['id']
+        self.assertEqual(comp.render(root),'(next, child:1.1)')
+        child['enabled']=False
+        self.assertEqual(comp.render(root),'(next:1.1)')
+        root['overlays'].append(comp.node('Override','replacement,'))
+        self.assertEqual(comp.render(root),'(replacement:1.1)')
+
+    def test_weighted_group_boundaries_preserve_escaped_commas_and_prose(self):
+        from prompt_calculus_studio import prompt_materials as pm
+        for source,expected in [('test,','(test:1.1)'),('test,,,  ','(test:1.1)'),
+                                (r'test\,',r'(test\,:1.1)'),('red, blue,','(red, blue:1.1)')]:
+            for mode in ('text','variants','combination','sequence'):
+                with self.subTest(source=source,mode=mode):
+                    root=comp.node('Root',source);root['weight']=11
+                    if mode=='variants':root[mode]=pm.variants(root)
+                    elif mode=='combination':root[mode]=groups.new_group('Group',source)
+                    elif mode=='sequence':root[mode]=groups.from_node(root)
+                    self.assertEqual(comp.render(root),expected)
+                    self.assertEqual(root['prompt'],source)
+        root=comp.node('Variant','test,',children=[comp.node('Prose','Keep this,')])
+        root['variants']=pm.variants(root);root['weight']=20;root['children'][0]['content_kind']='text'
+        self.assertEqual(comp.render(root),'test\n\nKeep this,')
+        self.assertEqual(groups.output_kind(root),'text')
+
+    def test_combination_and_flow_active_children_keep_drafts_inactive(self):
+        nested=comp.node('Parent','parent,',children=[comp.node('Child','child,')])
+        for mode in ('combination','sequence'):
+            with self.subTest(mode=mode):
+                root=comp.node('Root','draft',children=[comp.node('Old draft','inactive')])
+                group=groups.new_group('Group',text='direct,',modules=[nested])
+                if mode=='combination':root[mode]=group
+                else:root[mode]=dict(version=1,mode='fixed',start=group['id'],selected=group['id'],groups=[group])
+                self.assertEqual(comp.render(root),'parent, child')
+                self.assertEqual([n['name'] for n in comp.effective_nodes(root)],['Root','Parent','Child'])
+                group['input']='text'
+                self.assertEqual(comp.render(root),'direct')
+                group['input']='modules'
+                self.assertEqual(comp.render(root),'parent, child')
+
     def test_inactive_duplicate_node_id_is_invalid(self):
         root = sample(); child = comp.node('x', 'x')
         for row in root['sequence']['groups'][:2]: row['modules'] = [copy.deepcopy(child)]

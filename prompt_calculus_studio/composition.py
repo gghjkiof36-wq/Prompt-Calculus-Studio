@@ -29,7 +29,7 @@ def using_legacy_format():
 def node(name, prompt='', *, children=None, excludes=None, grouped=False):
     return dict(id=uuid.uuid4().hex, name=name, prompt=prompt, enabled=True,
                 weight=10, children=children or [], overlays=[], excludes=excludes or [], grouped=grouped,
-                collapsed=True, content_kind='tags')
+                collapsed=False, content_kind='tags')
 
 
 def validate_node(root):
@@ -147,12 +147,12 @@ def validate_compositions(state):
 def prototype(item):
     if 'composition' in item:
         root=copy.deepcopy(item['composition'])
-        root['collapsed']=True
+        root['collapsed']=False
         root.setdefault('content_kind',item.get('content_kind','tags'))
         return root
     result = dict(id='source:' + item['id'], name=item['name'], prompt=item['prompt'],
                 enabled=True, weight=10, children=[], overlays=[], excludes=list(item.get('excludes', [])),
-                content_kind=item.get('content_kind', 'tags'), collapsed=True,
+                content_kind=item.get('content_kind', 'tags'), collapsed=False,
                 preview=item.get('preview', ''))
     if 'material_type' in item: result['material_type'] = item['material_type']
     return result
@@ -287,13 +287,13 @@ def effective_nodes(root):
             if group['input'] == 'modules' and not root.get('round_override'):
                 for child in group['modules']:
                     yield from effective_nodes(child)
-            return
-        if root.get('combination'):
+            return  # Outer children are retained conversion drafts.
+        elif root.get('combination'):
             if root['combination']['input'] == 'modules':
                 for child in root['combination']['modules']:
                     yield from effective_nodes(child)
             return
-        if root.get('variants'): return
+        if root.get('variants') and using_legacy_format():return
         for child in root['children']:
             yield from effective_nodes(child)
 
@@ -336,9 +336,18 @@ def render(root, transform=None, *, grouped=None):
         text = render(overlay, transform)
     elif root.get('sequence'):
         text = render_body(root, transform)
-    elif root.get('combination') or root.get('variants'):
-        from .prompt_groups import selected, render_group
-        text = render_group(root.get('combination') or selected(root['variants']), transform)
+    elif root.get('combination'):
+        from .prompt_groups import render_group
+        text = render_group(root['combination'], transform)
+    elif root.get('variants'):
+        from .prompt_groups import selected, render_group, group_output_kind
+        group = selected(root['variants'])
+        body = render_group(group, transform)
+        text = body
+        if not using_legacy_format():
+            parts = [(body, group_output_kind(group))] if body.strip() else []
+            parts.extend((text, output_kind(child)) for child in root['children'] if (text := render(child, transform)))
+            text = join_fragments(parts)
     else:
         kind = 'tags' if using_legacy_format() else root.get('content_kind', 'tags')
         own = transform(root['prompt']) if transform and kind == 'tags' else root['prompt']
@@ -359,7 +368,7 @@ def render(root, transform=None, *, grouped=None):
             text = join_fragments(parts) if len(parts) > 1 else trim_tag_boundary(parts[0][0]) if parts and kind == 'tags' else parts[0][0] if parts else ''
     if result_kind == 'tags' and not using_legacy_format():
         from .prompt_tags import apply
-        text = apply(text, root.get('disabled_tags', []), root.get('deduplicate', False))
+        text = apply(trim_tag_boundary(text), root.get('disabled_tags', []), root.get('deduplicate', False))
     return f"({text}:{root['weight'] / 10:.1f})" if text and result_kind == 'tags' and (grouped or root['weight'] != 10) else text
 
 

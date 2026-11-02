@@ -178,6 +178,14 @@ Canvas 執行列未保存拖曳位置時，單欄預設對齊應用視窗中央�
 - 最近生成詳情及圖片檢視器支援左右按鈕與方向鍵，依打開時的可用序列切換；兩端停用，缺失圖片仍可切到前後項。未變的縮圖投影保留 tile，不重複解碼。
 - 核對入口：`test_canvas_module_pages.py`、`test_schedule_groups.py`、`test_schedule_item_actions.py`、`test_087_queue_history.py`、`test_output_source_lifecycle.py`、`test_recent_overlay.py`。離屏操作／截圖不能替代使用者現行 PCS 視窗的原生流暢度驗收。
 
+### 文字權重、子元素與 Manager 窄欄
+
+- 權重按鈕仍經 `DocumentOperations` 驗證、內容準備、Undo／Redo、保存及 Prompt 同步。只有可見場景已完成更新，且前後投影僅節點權重不同時，才保留既有卡片、連線與控制項，以 `update_output()` 更新文字和尺寸；結構、歸屬、接線或其他欄位變更仍走完整更新。不更新未改的素材目錄及生成選項，也不跳過凍結來源與手動稿保護。
+- 從 Manager 拖到文字卡片時，以實際命中的巢狀卡片為子元素目的地，預覽框標示該卡片；一次交易加入獨立副本並展開目的卡片，原素材不變。空白處保留原新增成員行為；流程／組合的有效模組由其內容頁管理，不能把新內容放進 inactive 轉換草稿。
+- 新增文字及新加入的素材副本預設展開。已保存的收合狀態仍照原文件還原；拖放預量測也必須完整註冊及清除暫時的巢狀卡片，不能污染目前場景。
+- Manager 標頭改為多列後，先通知 `browser_header.updateGeometry()`，再量測父布局；否則首次以窄欄顯示時，父布局可能沿舊 size hint 把搜尋及篩選欄壓扁。這是布局失效通知，不增加輪詢或計時器。
+- 檢查入口：`test_workspace_material_transfer.py` 的窄欄、巢狀拖放、附件、保存與重開案例；`test_canvas_module_redesign.py` 的權重、手動稿及 Undo／Redo 案例。
+
 ### 組合直接輸入的圖片 Prompt 入口
 
 - `GroupEditor` 的「直接輸入」共用頁提供「從圖片匯入…」，內容欄與按鈕都接收單張本機 PNG 拖放。`MetadataPromptImport` 一次捕獲最多 25 MiB 原始 bytes，經 `png_metadata_stream` 與既有 `metadata_sources` 讀取，保留 CRC／壓縮 metadata 上限；不解碼像素、不複製原圖、不連網。

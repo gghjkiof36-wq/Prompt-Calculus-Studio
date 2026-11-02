@@ -49,7 +49,10 @@ class CanvasRev9Tests(unittest.TestCase):
     def add_copy(self):
         old = set(self.w.state['uses'])
         self.assertTrue(self.c.insert_asset_with_destination(self.asset(), QPointF(2240, 340), self.cid))
-        return (set(self.w.state['uses']) - old).pop()
+        key=(set(self.w.state['uses']) - old).pop()
+        self.assertFalse(self.c.cards[key].collapsed)
+        self.c.toggle_collapsed(key)  # These hit-routing cases exercise saved collapsed cards.
+        return key
 
     def card_point(self, card, local, scale=.8):
         view=self.c.view; view.resetTransform(); view.scale(scale,scale); view.centerOn(card)
@@ -91,7 +94,7 @@ class CanvasRev9Tests(unittest.TestCase):
         self.assertEqual(self.c.history_state(),before)
 
     def test_routing_nested_collapsed_card_and_expanded_padding_keep_their_target(self):
-        key=self.add_copy(); child=comp.node('Nested copy','smile')
+        key=self.add_copy(); child=comp.node('Nested copy','smile');child['collapsed']=True
         self.c.commit(lambda state:state['uses'][key].update(collapsed=False,children=[child]))
         child_key=key+':'+child['id']; before=self.c.history_state()
         for target,local in ((child_key,QPointF(70,self.c.cards[child_key].height-10)),

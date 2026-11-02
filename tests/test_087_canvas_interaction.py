@@ -85,13 +85,13 @@ class CanvasInteractionTests(StageFixture):
         self.assertEqual(self.w.state['uses']['root']['prompt'],'red, blue')
         self.c.undo();self.assertFalse(affected_nodes(self.w.state)['root']['all'])
 
-    def test_drop_material_creates_independent_collapsed_copy_with_provenance(self):
+    def test_drop_material_creates_independent_expanded_copy_with_provenance(self):
         asset=dict(name='asset',prompt='smile',module=self.w.state['modules'][0]['id'])
         ids=[];self.c.commit(lambda state:ids.append(materials.save(state,asset)))
         original=copy.deepcopy(materials.item(self.w.state,ids[0]));before=set(self.w.state['uses'])
         self.assertTrue(self.w.add_material_to_canvas(ids[0],canvas_id=self.cid))
         key=(set(self.w.state['uses'])-before).pop();value=self.w.state['uses'][key]
-        self.assertTrue(value['collapsed']);self.assertTrue(value['source_revision'])
+        self.assertFalse(value['collapsed']);self.assertTrue(value['source_revision'])
         self.c.commit(lambda state:materials.edit_canvas(state,key,dict(prompt='new copy')))
         self.assertEqual(materials.item(self.w.state,ids[0])['prompt'],original['prompt'])
         self.c.undo();self.assertEqual(self.w.state['uses'][key]['prompt'],'smile')

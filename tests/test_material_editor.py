@@ -28,7 +28,7 @@ class MaterialModelTests(unittest.TestCase):
         self.assertEqual(materials.item(s, ident)['prompt'], '1girl, red dress,')
         self.assertEqual(s['uses'][b]['prompt'], '1girl, red dress,')
         self.assertNotEqual(s['uses'][a]['id'], s['uses'][b]['id'])
-        self.assertIn('source_revision', s['uses'][a]); self.assertTrue(s['uses'][a]['collapsed'])
+        self.assertIn('source_revision', s['uses'][a]); self.assertFalse(s['uses'][a]['collapsed'])
         history.record(s, before, s, 'Create and edit')
         validate_state(s)
         with tempfile.TemporaryDirectory() as directory:

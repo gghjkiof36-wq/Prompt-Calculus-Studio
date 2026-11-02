@@ -109,8 +109,11 @@ def validate_payload(payload):
 
 def from_state(state, workspace_id=None):
     validate_state_scope(state)
-    candidate = copy.deepcopy(state)
-    target = workspace_id or candidate['workspace']
+    target = workspace_id or state['workspace']
+    # Export owns one detached content copy. Local edit history/dictionaries
+    # are not exported and need not be cloned on every dirty-state check.
+    candidate = copy.deepcopy(state) if target != state['workspace'] else {
+        key:copy.deepcopy(value) for key,value in state.items() if key in CONTENT_STATE}
     if target != candidate['workspace']:
         workspace_scene.upgrade(candidate)
         workspace_scene.switch(candidate, target)
@@ -119,9 +122,8 @@ def from_state(state, workspace_id=None):
     workspace = next((w for w in candidate['workspaces'] if w['id'] == target), None)
     if workspace is None:
         fail('missing', '工作區不存在。')
-    workspace = copy.deepcopy(workspace)
     workspace.pop('history', None)
-    result = {key: copy.deepcopy(value) for key, value in candidate.items() if key in CONTENT_STATE}
+    result = {key: value for key, value in candidate.items() if key in CONTENT_STATE}
     result.update(workspaces=[workspace], workspace=target, dictionary={},
                   settings=content_settings(candidate['settings']))
     modules, items = catalog_references(result)

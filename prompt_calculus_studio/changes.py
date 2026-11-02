@@ -9,6 +9,22 @@ class Change(str,Enum):
     SETTINGS='settings'
     GENERATION='generation'
 
+def node_weights_only(before,after):
+    """Compare scene projections without copying them; only node weights may differ.
+
+    Other fields, node order, nested drafts and routing must still match. Legacy
+    library weights fall back to the ordinary scene rebuild.
+    """
+    if before == after:return True
+    if type(before) is not type(after):return False
+    if isinstance(before,dict):
+        if before.keys()!=after.keys():return False
+        node=all(k in before for k in ('id','prompt','children','overlays','enabled','weight'))
+        return all(node_weights_only(value,after[key]) for key,value in before.items() if not (node and key=='weight'))
+    if isinstance(before,list):
+        return len(before)==len(after) and all(node_weights_only(a,b) for a,b in zip(before,after))
+    return False
+
 def layout_only(before,after):
     """History compatibility: geometry never changes text or output resolution."""
     def content(value):

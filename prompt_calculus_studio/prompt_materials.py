@@ -16,7 +16,8 @@ RUNTIME_FIELDS = {'selection_cursor', 'supply_cursor', 'round_id', 'round_overri
 def kind(value):
     root = value.get('composition', value)
     return root.get('material_type') or value.get('material_type') or (
-        'flow' if root.get('sequence') else 'combination' if root.get('combination') or root.get('children') or root.get('overlays') else 'text')
+        'flow' if root.get('sequence') else 'text' if root.get('variants') else
+        'combination' if root.get('combination') or root.get('children') or root.get('overlays') else 'text')
 
 
 def as_group(root, *, preserve_outer=True):

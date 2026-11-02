@@ -8,6 +8,20 @@ from test_prompt_material_resolution import flow,text
 
 
 class MigrationTests(unittest.TestCase):
+    def test_untyped_variant_with_children_remains_text_and_keeps_saved_collapse(self):
+        state=core.initial_state();state['version']=7
+        root=comp.node('Legacy variant','test,',children=[comp.node('Child','child,')])
+        root.update(variants=pm.variants(root),collapsed=True,weight=11)
+        state['uses']={'variant':root};before=copy.deepcopy(state)
+        migrated=prepare_state(state)
+        self.assertEqual(state,before)
+        restored=migrated['uses']['variant']
+        self.assertEqual(restored['material_type'],'text')
+        self.assertTrue(restored['collapsed'])
+        self.assertEqual(restored['children'][0]['prompt'],'child,')
+        self.assertEqual(comp.render(restored),'(test, child:1.1)')
+        self.assertEqual(prepare_state(migrated),migrated)
+
     def test_legacy_names_ids_body_drafts_weight_exclusions_and_cursor_survive(self):
         state=core.initial_state();item=state['items'][0]
         root=comp.node('舊名稱','cat, cat',children=[comp.node('子項','garden')])

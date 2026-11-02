@@ -86,25 +86,30 @@ class MaterialCopyDrag(QObject):
     def landing(self, view, point):
         canvas = view.canvas
         document = canvas.window.document
-        if document is None or document.kind != 'workflow':return False, None
+        if document is None or document.kind != 'workflow':return False, None, None
         canvas_id = canvas.canvas_at(point)
         # A port, output or another node cannot be mistaken for blank space.
         for item in canvas.view.scene().items(point):
-            while item.parentItem() is not None:item = item.parentItem()
+            while item.parentItem() is not None and getattr(item,'key',None) not in canvas.cards:
+                item = item.parentItem()
             key = getattr(item, 'key', None)
             if key is None:continue
-            if key == canvas_id:return True, canvas_id
-            if key in canvas.cards and canvas_id and multi_output.owner(canvas.window.state, key) == canvas_id:
-                return True, canvas_id
-            return False, None
-        return True, canvas_id
+            if key in canvas.cards and canvas.entries.get(key,(None,None))[0] is not None:
+                owner=multi_output.owner(canvas.window.state,canvas.entries[key][0])
+                value=canvas.cards[key].value
+                if value.get('sequence') or value.get('combination'):
+                    return True,owner,None  # Group bodies are edited in their own content page.
+                return True, owner, key
+            if key == canvas_id:return True, canvas_id, None
+            return False, None, None
+        return True, canvas_id, None
 
     def move(self, view, event):
         self.timer.stop(); self.hover = None
         self.clear()
         if not self.matches(event.mimeData()):event.ignore(); return
         point = view.mapToScene(event.position().toPoint())
-        valid, canvas_id = self.landing(view, point)
+        valid, canvas_id, parent_key = self.landing(view, point)
         if not valid:
             # Enter accepts this gesture, not this particular landing point.
             # Rejecting entry over an output prevents Qt from delivering any
@@ -117,9 +122,13 @@ class MaterialCopyDrag(QObject):
         overlay = self.overlays.get(view)
         if overlay is None:
             overlay = self.overlays[view] = PlacementPreview(view)
-        shape = (view, canvas_id is not None)
-        if shape not in self.sizes:self.sizes[shape] = self.transfer.size(view.canvas, self.root, canvas_id)
-        overlay.present('plus' if canvas_id else 'outline', point, self.sizes[shape])
+        if parent_key:
+            parent=view.canvas.cards[parent_key]
+            overlay.present('outline',parent.scenePos(),(parent.width,parent.height))
+        else:
+            shape = (view, canvas_id is not None)
+            if shape not in self.sizes:self.sizes[shape] = self.transfer.size(view.canvas, self.root, canvas_id)
+            overlay.present('plus' if canvas_id else 'outline', point, self.sizes[shape])
         event.setDropAction(Qt.DropAction.CopyAction)
         event.accept()
 
@@ -128,12 +137,12 @@ class MaterialCopyDrag(QObject):
         self.timer.stop()
         if not self.matches(event.mimeData()):event.ignore(); return
         point = view.mapToScene(event.position().toPoint())
-        valid, canvas_id = self.landing(view, point)
+        valid, canvas_id, parent_key = self.landing(view, point)
         if not valid:event.ignore(); return
         host = view.canvas.window
         try:
             target = self.transfer.target(host.document.path)
-            key = self.transfer.add(self.source, target, canvas_id, point, host)
+            key = self.transfer.add(self.source, target, canvas_id, point, host, parent_key=parent_key)
         except (ValueError, OSError, KeyError) as error:
             self.transfer.error(error)
             key = None

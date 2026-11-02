@@ -165,6 +165,12 @@ def render_group(group, transform=None):
     return result
 
 
+def group_output_kind(group):
+    if group['input'] == 'text':
+        return group.get('content_kind', 'tags')
+    return 'tags' if all(output_kind(c) == 'tags' for c in group['modules']) else 'text'
+
+
 def output_kind(root):
     """Do not parse prose hidden inside a composition as tags."""
     if not root.get('enabled', True):
@@ -175,14 +181,12 @@ def output_kind(root):
         return output_kind(overlay)
     if root.get('sequence') or root.get('combination') or root.get('variants'):
         group = root.get('combination') or selected(root.get('sequence') or root['variants'])
-        if group['input'] == 'text':
-            return group.get('content_kind', 'tags')
-        children = group['modules']
-        own = 'tags'
+        own = group_output_kind(group)
+        if not root.get('variants'):
+            return own  # Conversion drafts outside the active group stay inactive.
     else:
-        children = root.get('children', [])
         own = root.get('content_kind', 'tags')
-    return 'tags' if own == 'tags' and all(output_kind(c) == 'tags' for c in children) else 'text'
+    return 'tags' if own == 'tags' and all(output_kind(c) == 'tags' for c in root.get('children', [])) else 'text'
 
 
 def render_body(root, transform=None):
@@ -191,10 +195,10 @@ def render_body(root, transform=None):
     if (override and override.get('group') == group['id'] and
             override.get('round') == root.get('round_id')):
         text = override['text']
-        return transform(text) if transform and output_kind(root) == 'tags' else text
+        return transform(text) if transform and group_output_kind(group) == 'tags' else text
     if group['id'] in root.get('round_drafts', {}):
         text = root['round_drafts'][group['id']]
-        return transform(text) if transform and output_kind(root) == 'tags' else text
+        return transform(text) if transform and group_output_kind(group) == 'tags' else text
     return render_group(group, transform)
 
 

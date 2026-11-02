@@ -112,7 +112,7 @@ class WorkspaceMaterials(QObject):
         root.update(source_id=source.ident, source_module=source.value['module'],
                     source_document=source.document_id,
                     source_revision=materials.fingerprint(source.value),
-                    content_kind=source.value.get('content_kind', 'tags'), collapsed=True)
+                    content_kind=source.value.get('content_kind', 'tags'), collapsed=False)
         if not root.get('preview'):root['preview'] = source.value.get('preview', '')
         # Read every required attachment before touching the destination. Only
         # known preview fields are copied; no catalog or arbitrary path export.
@@ -140,13 +140,15 @@ class WorkspaceMaterials(QObject):
         # the scene. The temporary entry is removed immediately afterwards.
         from .canvas_items import NodeCard
         key = 'measure:'+uid()
-        canvas.entries[key] = (key, root['id'])
+        keys={key:root['id'],**{key+':'+part['id']:part['id'] for part in composition.walk(root) if part is not root}}
+        canvas.entries.update({entry:(key,ident) for entry,ident in keys.items()})
         try:
             card = NodeCard(canvas, key, copy.deepcopy(root), '模組' if canvas_id else '未分配')
             return card.width, card.height
         finally:
-            canvas.entries.pop(key, None)
-            canvas.cards.pop(key, None)
+            for entry in keys:
+                canvas.entries.pop(entry, None)
+                canvas.cards.pop(entry, None)
 
     def position(self, canvas, root, canvas_id, point=None):
         width, height = self.size(canvas, root, canvas_id)
@@ -189,7 +191,7 @@ class WorkspaceMaterials(QObject):
             if not any(rect.intersects(other) for other in occupied):return candidate
         raise ValueError('附近沒有可用空間，請選擇另一個位置。')
 
-    def add(self, source, target, canvas_id=None, point=None, host=None):
+    def add(self, source, target, canvas_id=None, point=None, host=None, *, parent_key=None):
         created_files = []
         try:
             self.validate_source(source)
@@ -215,7 +217,16 @@ class WorkspaceMaterials(QObject):
             # to avoid every node type, without showing it or changing focus.
             if not canvas.isVisible() and getattr(canvas, '_scene_refresh_pending', True):
                 canvas.refresh(prepare_hidden=True)
-            position = self.position(canvas, root, canvas_id, point)
+            if parent_key is not None:
+                owner,_,parent=canvas.selected_node(host.state,parent_key)
+                if owner not in host.state.get('uses',{}) or multi_output.owner(host.state,owner)!=canvas_id:
+                    raise ValueError('目標文字模塊已變更，請重新拖入。')
+                if parent.get('sequence') or parent.get('combination'):
+                    raise ValueError('請在組合或流程的內容頁加入文字。')
+                key=owner+':'+root['id']
+            else:
+                position = self.position(canvas, root, canvas_id, point)
+                owner=key=uid()
             for name, raw in attachments.items():
                 path = paths.checked(document.data, name)
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -224,8 +235,15 @@ class WorkspaceMaterials(QObject):
                 else:
                     with path.open('xb') as stream: stream.write(raw)
                     created_files.append(path)
-            key = uid()
             def apply(state):
+                if parent_key is not None:
+                    target_owner,target_root,parent=canvas.selected_node(state,parent_key)
+                    if target_owner!=owner or multi_output.owner(state,owner)!=canvas_id:
+                        raise ValueError('目標文字模塊已變更，請重新拖入。')
+                    parent['children'].append(copy.deepcopy(root))
+                    parent.update(grouped=True,collapsed=False)
+                    target_root['grouped']=True
+                    return
                 state.setdefault('uses', {})[key] = copy.deepcopy(root)
                 state.setdefault('output_order', []).append(key)
                 state.setdefault('text_positions', {})[key] = [position.x(), position.y()]
@@ -246,7 +264,7 @@ class WorkspaceMaterials(QObject):
                     return False
             finally:
                 host._material_transfer_reporting = False
-            document.pending_material_uses = getattr(document, 'pending_material_uses', set()) | {key}
+            document.pending_material_uses = getattr(document, 'pending_material_uses', set()) | {owner}
             self.w.autosave.schedule(tab)
             return key
         except (ValueError, OSError, KeyError) as error:

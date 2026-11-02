@@ -356,6 +356,11 @@ class TextCanvas(QWidget):
             self.window.changed('settings', refresh=False)
             return
         if scope=='layout':self.refresh_layout(); self.window.changed('layout',refresh=False); return
+        if getattr(self,'_weight_edit',False):
+            self.window.refresh_builder()
+            self.window.changed('prompt',refresh=False)
+            if hasattr(self.window,'refresh_prompt_editors'):self.window.refresh_prompt_editors()
+            return
         self.window.generation_panel.refresh()
         self.window.refresh_modules(); self.window.refresh_library(); self.window.refresh_builder(); self.window.changed('prompt',refresh=False)
         if hasattr(self.window,'refresh_prompt_editors'):self.window.refresh_prompt_editors()
@@ -611,7 +616,9 @@ class TextCanvas(QWidget):
             weight = max(-1000,min(1000, value if value is not None else weight+delta))
             if legacy: state.setdefault('weights',{})[ident] = weight
             else: part['weight'] = weight
-        self.commit(apply)
+        self._weight_edit=True
+        try:return self.commit(apply)
+        finally:self._weight_edit=False
 
     def weight_dialog(self, key):
         ident, root, part = self.selected_node(copy.deepcopy(self.window.state),key)

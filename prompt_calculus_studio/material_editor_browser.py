@@ -296,6 +296,10 @@ class PromptEditor(QWidget):
                            Qt.AlignmentFlag.AlignRight)
             grid.setColumnStretch(0, 1); grid.setColumnStretch(1, 0)
         self.header_layout.invalidate()
+        # QWidgetItem caches its child's size hint. Reflow can run during a
+        # pane's first show, before Qt delivers the queued LayoutRequest;
+        # invalidate that parent item before measuring the manual browser box.
+        self.browser_header.updateGeometry()
 
     def _column_minimums(self):
         browser = max(280, self.heading_caption.minimumSizeHint().width()+14,

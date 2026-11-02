@@ -24,7 +24,7 @@ class PreviewRuntime(QObject):
         super().__init__()
         # Previewing a node cannot read a user's run history or initiate IO.
         store = SimpleNamespace(rows=lambda *a, **k: [], scheduler_paused=lambda *a: False,
-                                latest_stage_status=lambda *a: None)
+                                latest_stage_status=lambda *a: None, entry_states=lambda *a: [])
         runner = SimpleNamespace(store=store, closed=False, results={},
                                  progress=lambda: '', expansion=lambda *a: '', runs=lambda *a: [])
         self.input_flow = SimpleNamespace(chain=runner)

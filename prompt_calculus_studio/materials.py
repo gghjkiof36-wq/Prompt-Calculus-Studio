@@ -206,7 +206,7 @@ def add_to_canvas(state, ident, canvas_id, position=None):
     reset(root)
     root.update(source_id=source['id'], source_module=source['module'],
                 source_revision=fingerprint(source), content_kind=source.get('content_kind', 'tags'))
-    root['collapsed'] = True
+    root['collapsed'] = False
     key = uid()
     state['version'] = max(3, state['version'])
     state.setdefault('uses', {})[key] = root

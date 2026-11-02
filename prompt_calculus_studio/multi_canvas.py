@@ -562,6 +562,15 @@ class MultiCanvas(TextCanvas):
         page=getattr(self,'_module_page',None)
         if page is not None:page.validate_owner()
         if not hasattr(self,'outputs') or self.refreshing: return
+        if getattr(self,'_weight_edit',False) and not getattr(self,'_scene_refresh_pending',True) and self.isVisible():
+            from .changes import node_weights_only
+            now=self.history_state()
+            if node_weights_only(getattr(self,'_visible_scene_state',None),now):
+                # Keep native cards, selection and ports alive for repeated +/-.
+                # Validation/history still run through the normal transaction.
+                self.update_output()
+                self.last_state=now;self._visible_scene_state=now
+                return
         self._scene_refresh_pending=True
         if hasattr(self,'onboarding'):self.onboarding.refresh()
         self.refreshing=True

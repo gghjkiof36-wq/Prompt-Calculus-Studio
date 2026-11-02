@@ -249,7 +249,7 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
         self.assertIsNone(self.transfer.drag)
         self.assertIsNone(self.transfer.notification)
 
-    def test_drop_over_existing_canvas_text_adds_member_without_moving_or_covering_old_text(self):
+    def test_drop_over_existing_canvas_text_adds_child_with_undo_and_save(self):
         tab = self.target_tab()
         canvas, view = tab.host.canvas, tab.host.canvas.view
         cid = next(iter(canvas.data()['canvases']))
@@ -262,18 +262,68 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
         drag, mime = self.begin_drag()
         self.assertTrue(self.drag_event(view.viewport(), mime, point, QDragEnterEvent).isAccepted())
         self.assertTrue(self.drag_event(view.viewport(), mime, point).isAccepted())
-        self.assertEqual(drag.overlays[view].kind, 'plus')
-        self.assertEqual(drag.overlays[view].box.width(), 24)
+        self.assertEqual(drag.overlays[view].kind, 'outline')
+        original=copy.deepcopy(self.source_tab.host.state['items'])
+        undo=len(canvas.undo_stack)
         self.assertTrue(self.drag_event(view.viewport(), mime, point, QDropEvent).isAccepted())
         drag.finish(); self.transfer.drag = None
         self.events()
         members = canvas.data()['canvases'][cid]['members']
-        self.assertEqual(members[:-1], old_members)
-        key = members[-1]
+        self.assertEqual(members, old_members)
+        root=tab.host.state['uses'][old_members[0]]
+        child=root['children'][-1];key=old_members[0]+':'+child['id']
+        self.assertFalse(root['collapsed']);self.assertFalse(child['collapsed'])
+        self.assertIn(key,canvas.cards)
+        self.assertEqual(child['source_document'],self.source_tab.document.key)
+        self.assertEqual(len(canvas.undo_stack),undo+1)
         for member, pos in old_positions.items():
             self.assertEqual(tab.host.state['text_positions'][member], pos)
-            self.assertFalse(canvas.cards[key].sceneBoundingRect().intersects(canvas.cards[member].sceneBoundingRect()))
-        self.assertEqual(multi_output.owner(tab.host.state, key), cid)
+        self.assertEqual(self.source_tab.host.state['items'],original)
+        canvas.undo();self.events();self.assertNotIn(key,canvas.cards)
+        canvas.redo();self.events();self.assertIn(key,canvas.cards)
+        self.assertTrue(self.w.save_tab(tab))
+        reopened=io.load(self.root,tab.path.name)
+        self.assertEqual(reopened.document['payload']['state']['uses'][old_members[0]]['children'][-1],child)
+
+    def test_nested_variant_drop_targets_child_not_root_and_rejects_stale_owner(self):
+        from prompt_calculus_studio import composition as comp, prompt_materials as pm
+        tab=self.target_tab();canvas=tab.host.canvas;cid=next(iter(canvas.data()['canvases']))
+        root_id=canvas.data()['canvases'][cid]['members'][0]
+        child=comp.node('Variant child','variant,');child['variants']=pm.variants(child)
+        canvas.commit(lambda s:s['uses'][root_id].update(children=[child],collapsed=False))
+        self.events();parent_key=root_id+':'+child['id'];card=canvas.cards[parent_key]
+        drag,mime=self.begin_drag();view=canvas.view
+        scene=card.mapToScene(card.add_rect.center());view.centerOn(scene);self.events()
+        point=view.mapFromScene(scene)
+        self.assertEqual(drag.landing(view,scene),(True,cid,parent_key))
+        self.drag_event(view.viewport(),mime,point,QDragEnterEvent)
+        self.assertTrue(self.drag_event(view.viewport(),mime,point,QDropEvent).isAccepted())
+        drag.finish();self.transfer.drag=None;self.events()
+        saved=tab.host.state['uses'][root_id]['children'][0]
+        self.assertEqual(len(saved['children']),1)
+        self.assertIn(saved['children'][0]['prompt'].rstrip(','),comp.render(saved))
+        before=copy.deepcopy(tab.host.state)
+        self.assertFalse(self.transfer.add(self.capture(),self.transfer.target(tab.path),None,host=tab.host,parent_key=parent_key))
+        self.assertEqual(tab.host.state,before)
+
+    def test_empty_manager_reflow_measures_new_rows_before_first_paint(self):
+        page=self.page
+        page.search.setText('no matching material');self.events()
+        self.assertEqual(page.listing.count(),0)
+        for width in (1100,350,1100,350):
+            # No event processing between reflow and measurement: a newly
+            # shown narrow pane must fit before its deferred LayoutRequest.
+            page._arrange_browser_controls(width)
+            layout=page.browser.layout();layout.invalidate()
+            height=max(layout.totalMinimumSize().height(),layout.totalHeightForWidth(width))
+            self.assertGreaterEqual(height,page.header_layout.totalMinimumSize().height())
+            page.browser.setGeometry(0,0,width,height);layout.activate()
+            for control in (page.search,page.type_filter,page.order):
+                self.assertGreaterEqual(control.height(),control.minimumSizeHint().height())
+        self.w.ensure_split();self.w.pane_split.setSizes([2000,1]);self.events()
+        self.w.move_view(self.source_tab);self.events()
+        for control in (page.search,page.type_filter,page.order):
+            self.assertGreaterEqual(control.height(),control.minimumSizeHint().height())
 
     def test_hover_reveals_only_destination_pane_and_escape_restores_without_writes(self):
         target = self.target_tab()
@@ -361,7 +411,8 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
         point = view.mapFromScene(output.sceneBoundingRect().center())
         self.assertTrue(self.drag_event(view.viewport(), mime, point, QDragEnterEvent).isAccepted())
         self.assertFalse(self.drag_event(view.viewport(), mime, point).isAccepted())
-        target = canvas.cards[old_members[0]].sceneBoundingRect().center()
+        container=canvas.containers[cid]
+        target = container.mapToScene(QPointF(container.width-40,container.height-100))
         view.centerOn(target); self.events(); point = view.mapFromScene(target)
         self.assertTrue(self.drag_event(view.viewport(), mime, point).isAccepted())
         self.assertTrue(self.drag_event(view.viewport(), mime, point, QDropEvent).isAccepted())
@@ -398,7 +449,8 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
         second['repeat'] = 3
         root['variants']['groups'].append(second)
         root['variants'].update(mode='increment', selected=second['id'], random_repeats=False)
-        root.update(weight=15, excludes=['excluded'], disabled_tags=['disabled'], preview='previews/needed.png')
+        root.update(weight=15, excludes=['excluded'], disabled_tags=['disabled'], preview='previews/needed.png',
+                    collapsed=True,children=[composition.node('Nested source','nested content,')])
         image = self.source_tab.document.data/'previews/needed.png'
         image.parent.mkdir(parents=True, exist_ok=True)
         image.write_bytes(b'needed-preview')
@@ -419,6 +471,11 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
         self.assertEqual(placed['weight'], 15)
         self.assertEqual(placed['excludes'], ['excluded'])
         self.assertEqual(placed['disabled_tags'], ['disabled'])
+        self.assertFalse(placed['collapsed'])
+        self.assertEqual(placed['children'][0]['prompt'],'nested content,')
+        canvas=tab.host.canvas;entries=dict(canvas.entries);cards=dict(canvas.cards)
+        self.assertGreater(self.transfer.size(canvas,placed,None)[1],0)
+        self.assertEqual(canvas.entries,entries);self.assertEqual(canvas.cards,cards)
         self.assertNotEqual(placed['id'], root['id'])
         self.w.autosave.flush(tab)
         saved = io.load(self.root, target.path.name).document
@@ -431,6 +488,7 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
         self.events()
         reopened = tab.host.state['uses'][key]
         self.assertEqual(reopened['variants'], expected['variants'])
+        self.assertIn('nested content',composition.render(reopened))
         self.assertEqual((tab.document.data/reopened['preview']).read_bytes(), b'needed-preview')
         self.assertTrue(tab.host.canvas.commit(
             lambda s:s['uses'][key]['variants']['groups'][0].update(text='copy-only edit')))
