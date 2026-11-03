@@ -1,12 +1,12 @@
 """Project-first Agent and global Skill pages in the work-resources area."""
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtWidgets import QFileDialog, QSplitter, QTreeWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, Qt, QTimer
+from PySide6.QtWidgets import QFileDialog, QHeaderView, QSplitter, QTreeWidgetItem, QVBoxLayout, QWidget
 from ..local_ai.service import for_workspace
 from ..ui_icons import icon
-from ..work_resources.reader import column, icon_button
+from ..work_resources.reader import column, icon_button, line
 from .dialogs import plain
 from .editors import AgentEditor, ProjectEditor, listing
-from .skill_details import SkillDetails
+from .skill_details import SkillDetails, skill_version
 from .store import AgentStore
 from .catalog_view import CatalogDelegate
 
@@ -18,23 +18,29 @@ class AgentLibrary(QWidget):
         self.mode, self.query, self.project_id = None, '', None
         self.selected, self.editor, self.store = None, None, None
         self._detail_requested, self._filling, self.order = False, False, 'name'
+        self.selection_timer = QTimer(self)
+        self.selection_timer.setSingleShot(True)
+        self.selection_timer.timeout.connect(self.restore_selection)
         self.back_button = icon_button('back', '返回', self.back)
         self.settings_button = icon_button('settings', '專案設定', self.edit_project)
         self.sort_button = icon_button('arrow-down-up', '排序', self.sort_menu)
         self.page.header_row.insertWidget(0, self.back_button)
         self.page.header_row.insertWidget(self.page.header_row.count()-1, self.settings_button)
-        self.page.header_row.insertWidget(self.page.header_row.count()-1, self.sort_button)
         self.back_button.hide(); self.settings_button.hide(); self.sort_button.hide()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(12)
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.splitter.setChildrenCollapsible(False); self.splitter.setHandleWidth(16)
+        self.splitter.setChildrenCollapsible(False); self.splitter.setHandleWidth(32)
         self.list_panel, left = column()
+        left.setSpacing(16)
+        self.search_row = line(left, self.page.filter, self.page.agent_refresh, self.sort_button)
         self.results = listing(['名稱'], '資源清單')
+        self.results.setObjectName('AgentCatalog')
         self.results.setHeaderHidden(True)
         self.results.setMouseTracking(True)
         self.results.setItemDelegate(CatalogDelegate(self.results))
         self.results.header().setStretchLastSection(True)
+        self.results.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.results.setStyleSheet('QTreeWidget {border:0;background:transparent;}')
         self.results.currentItemChanged.connect(self.selected_item)
         self.results.itemActivated.connect(lambda item: self.selected_item(item))
@@ -49,7 +55,7 @@ class AgentLibrary(QWidget):
         self.details.addWidget(self.skill_details, 1); self.skill_details.hide()
         self.splitter.addWidget(self.list_panel); self.splitter.addWidget(self.detail_panel)
         self.splitter.setStretchFactor(0, 0); self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([260, 660])
+        self.splitter.setSizes([280, 800])
         layout.addWidget(self.splitter, 1)
         self.message = plain(''); self.message.hide(); layout.addWidget(self.message)
         self.workspace.installEventFilter(self)
@@ -94,7 +100,8 @@ class AgentLibrary(QWidget):
             entries = sorted(entries, key=lambda r: ((not r.get('enabled', True)) if self.order == 'enabled' else False, r['name'].casefold()))
             for entry in entries:
                 if self.mode == 'skill':
-                    secondary = entry['description'].replace('\n', ' ')
+                    version = skill_version(entry)
+                    secondary = (f'v{version} · ' if version else '') + f'{len(entry["files"])} 個檔案'
                     status, symbol = (' · 已停用' if not entry['enabled'] else ''), None
                 elif self.project_id:
                     secondary = f'{len(entry["skills"])} 個 Skill'
@@ -105,7 +112,7 @@ class AgentLibrary(QWidget):
                     status, symbol = '', 'folder'
                 row = QTreeWidgetItem([entry['name'] + status + '\n' + secondary])
                 row.setData(0, Qt.ItemDataRole.UserRole, entry['id'])
-                row.setData(0, Qt.ItemDataRole.UserRole+1, (entry['name']+' '+secondary).casefold())
+                row.setData(0, Qt.ItemDataRole.UserRole+1, (entry['name']+' '+entry.get('description', '')+' '+secondary).casefold())
                 row.setToolTip(0, entry['name']+'\n'+secondary)
                 if symbol: row.setIcon(0, icon(symbol))
                 self.results.addTopLevelItem(row)
@@ -130,7 +137,11 @@ class AgentLibrary(QWidget):
         active = self.page.mode != 'files'
         if not active:
             self.back_button.hide(); self.settings_button.hide(); self.sort_button.hide()
+            self.page.header_row.insertWidget(self.page.header_row.count()-1, self.page.filter)
+            self.page.filter.show()
             return
+        if self.search_row.indexOf(self.page.filter) < 0:
+            self.search_row.insertWidget(0, self.page.filter)
         project = self.store.get('projects', self.project_id) if self.store and self.mode == 'agent' and self.project_id else None
         creating_project = isinstance(self.editor, ProjectEditor)
         self.page.title.setText(project['name'] if project else 'Skill' if self.mode == 'skill' else '專案')
@@ -196,6 +207,9 @@ class AgentLibrary(QWidget):
         editor = AgentEditor(self.workspace.data, for_workspace(self.workspace), self.project_id, identity)
         editor.saved.connect(self.agent_saved); editor.cancelled.connect(self.close_detail)
         self.selected = identity; self.reload_rows(); self.attach_editor(editor); self.restore_selection()
+        # A project click replaces the tree during its own selection event.
+        # Restore the Agent selection after that event finishes as well.
+        self.selection_timer.start(0)
         return True
 
     def agent_saved(self, item):
@@ -233,6 +247,8 @@ class AgentLibrary(QWidget):
         root = self.mode == 'agent' and self.project_id is None and not project_form
         show_details = not root and self._detail_requested
         wide = self.width() >= 780
+        self.list_panel.setMinimumWidth(248 if wide else 0)
+        self.list_panel.setMaximumWidth(304 if wide and not root else 16777215)
         self.detail_panel.setVisible(show_details or wide and not root)
         self.list_panel.setVisible(not project_form and (wide or not show_details))
         self.placeholder.setVisible(not show_details)

@@ -3,13 +3,13 @@ from pathlib import Path
 import re
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import QCheckBox, QLineEdit, QPlainTextEdit, QTabWidget, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QFormLayout, QLineEdit, QPlainTextEdit, QSizePolicy, QStackedWidget, QTabWidget, QTextBrowser, QVBoxLayout, QWidget
 
-from ..widgets import ElidedLabel, RoundMenu, button
+from ..widgets import ElidedLabel, RoundMenu, button, panel, scrolling
 from ..work_resources.reader import column, icon_button, line
 from .dialogs import plain
 from .editors import confirm_draft, listing
-from .sources import checked, read_bytes, text_bytes
+from .sources import checked, digest, read_bytes, text_bytes
 from .store import AgentStore
 
 
@@ -17,6 +17,26 @@ class OfflineText(QTextBrowser):
     def loadResource(self, kind, url):
         # Native Markdown renderer, with no network or implicit file reads.
         return None
+
+
+def skill_version(skill):
+    meta = skill.get('metadata', {}).get('metadata', {})
+    version = meta.get('version') if isinstance(meta, dict) else None
+    return str(version) if isinstance(version, (str, int, float)) else ''
+
+
+def presentation(raw):
+    """Read only declared display strings from the already enrolled small file."""
+    import yaml
+    try:
+        if any(isinstance(t, (yaml.AliasToken, yaml.AnchorToken)) for t in yaml.scan(raw)):
+            return {}
+        value = yaml.safe_load(raw)
+        interface = value.get('interface', {}) if isinstance(value, dict) else {}
+        return {key: text.strip() for key, text in interface.items()
+                if key in ('display_name', 'short_description') and isinstance(text, str) and 0 < len(text.strip()) <= 300}
+    except (yaml.YAMLError, AttributeError, RecursionError):
+        return {}
 
 
 class SkillDetails(QWidget):
@@ -32,23 +52,51 @@ class SkillDetails(QWidget):
         self.path, self.raw = None, b''
         self.body = QVBoxLayout(self)
         self.body.setContentsMargins(0, 0, 0, 0)
-        self.body.setSpacing(12)
-        self.name = plain('', 'Heading')
+        self.body.setSpacing(16)
+        self.name = ElidedLabel('')
+        self.name.setObjectName('Heading'); self.name.setMinimumWidth(0)
+        self.name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.enabled = QCheckBox('啟用')
         self.enabled.setAccessibleName('啟用 Skill')
         self.enabled.toggled.connect(self.enable)
         self.more = icon_button('more-horizontal', 'Skill 操作', self.menu)
-        line(self.body, self.name, None, self.enabled, self.more)
-        self.description = plain('')
+        title_row = line(self.body, self.name, self.enabled, self.more)
+        title_row.setStretch(0, 1)
+        self.description = ElidedLabel('')
+        self.description.setMinimumWidth(0)
+        self.description.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.description.setObjectName('Subtle')
         self.body.addWidget(self.description)
+        self.pages = QStackedWidget()
+        overview, summary = column()
+        summary.setSpacing(20)
+        self.read_button = button('查看內容', self.show_reader, 'Quiet')
+        line(summary, plain('詳細資訊', 'Heading'), None, self.read_button)
+        info, rows = panel('SettingsGroup')
+        self.info_form = QFormLayout()
+        self.info_form.setHorizontalSpacing(32); self.info_form.setVerticalSpacing(24)
+        self.info_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        rows.addLayout(self.info_form)
+        self.version = plain('')
+        self.info_form.addRow(plain('版本', 'Subtle'), self.version)
+        self.usage = plain('')
+        self.info_form.addRow(plain('使用方式', 'Subtle'), self.usage)
+        self.file_count = button('', self.show_files, 'Quiet')
+        self.file_count.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.info_form.addRow(plain('檔案', 'Subtle'), self.file_count)
         self.source = ElidedLabel('')
-        self.source.setObjectName('Subtle')
         self.source.setMinimumWidth(0)
-        self.body.addWidget(self.source)
+        self.source.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.info_form.addRow(plain('來源', 'Subtle'), self.source)
+        summary.addWidget(info)
+        summary.addStretch()
+        self.pages.addWidget(scrolling(overview))
+        reader, reading = column()
+        line(reading, button('返回詳情', self.show_overview, 'Quiet'), None)
         self.tabs = QTabWidget()
         self.tabs.setAccessibleName('Skill 內容與附檔')
         self.document, document = column()
-        document.setContentsMargins(0, 12, 0, 0)
+        document.setContentsMargins(0, 16, 0, 0)
         self.document_layout = document
         self.current_file = plain('SKILL.md', 'Subtle')
         self.find = QLineEdit()
@@ -70,14 +118,16 @@ class SkillDetails(QWidget):
         self.files.itemActivated.connect(lambda row: self.open_file(row.text(0)))
         self.tabs.addTab(self.document, '內容')
         self.tabs.addTab(self.files, '附檔')
-        self.body.addWidget(self.tabs, 1)
+        reading.addWidget(self.tabs, 1)
+        self.pages.addWidget(reader)
+        self.body.addWidget(self.pages, 1)
         self.message = plain('')
         self.message.hide()
         self.body.addWidget(self.message)
         self.edit_button = button('編輯副本', self.edit, 'Quiet')
         self.save_button = button('儲存', self.save, 'Primary')
         self.cancel_button = button('取消編輯', self.discard, 'Quiet')
-        line(self.body, None, self.edit_button, self.cancel_button, self.save_button)
+        line(reading, None, self.edit_button, self.cancel_button, self.save_button)
         self.save_button.hide(); self.cancel_button.hide(); self.edit_button.hide()
         self.read_timer = QTimer(self)
         self.read_timer.setSingleShot(True)
@@ -112,20 +162,37 @@ class SkillDetails(QWidget):
         self.clear_editor()
         self.skill = skill
         self.name.setText(skill['name'])
+        self.name.setToolTip(skill['name'])
         self.description.setText(skill['description'])
+        self.description.setToolTip(skill['description'])
         source = Path(skill['source'])
-        self.source.setText(('管理副本' if skill['managed'] else '來源') + ' · ' + source.parent.name + ' / ' + source.name)
+        self.source.setText(source.parent.name + ' / ' + source.name)
         self.source.setToolTip(skill['source'])
+        self.version.setText(skill_version(skill))
+        self.info_form.setRowVisible(self.version, bool(self.version.text()))
+        self.usage.setText('指定使用' if skill.get('manual') else '可自動選用')
+        self.file_count.setText(f'{len(skill["files"])} 個檔案')
         self.enabled.blockSignals(True); self.enabled.setChecked(skill['enabled']); self.enabled.blockSignals(False)
         from PySide6.QtWidgets import QTreeWidgetItem
         self.files.clear()
         for entry in sorted(skill['files'], key=lambda e: (e['path'] != 'SKILL.md', e['path'].casefold())):
             row = QTreeWidgetItem([entry['path'], f'{entry["size"]:,} B'])
             row.setToolTip(0, entry['path']); self.files.addTopLevelItem(row)
-        self.tabs.setTabText(1, f'附檔 · {len(skill["files"])}')
-        self.open_file('SKILL.md')
+        self.tabs.setTabText(1, f'檔案 · {len(skill["files"])}')
+        self.open_file('SKILL.md', reveal=False)
+        self.pages.setCurrentIndex(0)
 
-    def open_file(self, relative):
+    def show_reader(self):
+        self.pages.setCurrentIndex(1)
+
+    def show_files(self):
+        self.show_reader(); self.tabs.setCurrentIndex(1)
+
+    def show_overview(self):
+        if self.can_leave():
+            self.pages.setCurrentIndex(0)
+
+    def open_file(self, relative, *, reveal=True):
         if not self.skill or not self.can_leave():
             return False
         if relative not in {entry['path'] for entry in self.skill['files']}:
@@ -135,6 +202,8 @@ class SkillDetails(QWidget):
         self.path, self.raw = None, b''
         self.current_file.setText(relative); self.find.clear()
         self.tabs.setCurrentIndex(0)
+        if reveal:
+            self.show_reader()
         self.show_error('正在讀取…')
         self.pending = (self.ticket, dict(self.skill), relative)
         self.read_timer.start()
@@ -150,11 +219,25 @@ class SkillDetails(QWidget):
             if str(root) != skill['root']:
                 raise ValueError('技能來源連結已變更，請重新加入。')
             path = checked(root, relative)
-            return path, read_bytes(path)
+            display = {}
+            if relative == 'SKILL.md':
+                entry = next((e for e in skill['files'] if e['path'] == 'agents/openai.yaml' and e['size'] <= 32768), None)
+                if entry:
+                    try:
+                        raw = read_bytes(checked(root, entry['path']), 32768)
+                        if digest(raw) == entry['sha256']:
+                            display = presentation(raw)
+                    except (ValueError, OSError):
+                        pass  # Optional presentation must not hide the selected document.
+            return path, read_bytes(path), display
         def done(result):
             if token != self.ticket:
                 return
-            self.path, self.raw = result
+            self.path, self.raw, display = result
+            if display.get('display_name'):
+                self.name.setText(display['display_name'])
+            if display.get('short_description'):
+                self.description.setText(display['short_description'])
             try:
                 self.render()
             except (ValueError, OSError) as exc:
@@ -216,10 +299,13 @@ class SkillDetails(QWidget):
             return
         identity = self.skill['id']
         token = self.ticket
+        reading = self.pages.currentIndex() == 1
         def done(item):
             self.updated.emit()
             if token == self.ticket and self.skill['id'] == identity:
                 self.select(item)
+                if reading:
+                    self.show_reader()
         self.library.job('正在讀取 Skill…', lambda cancel: AgentStore(self.library.workspace.data).refresh_skill(identity), done)
 
     def edit(self):

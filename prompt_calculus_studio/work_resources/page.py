@@ -156,6 +156,7 @@ class WorkResourcesPage(SourceActions, QWidget):
         self.title.setText({'files': '檔案', 'skill': 'Skill', 'agent': '專案'}[mode])
         self.title.setToolTip('')
         self.content.setMaximumWidth(PREFERRED_CONTENT_WIDTH if mode == 'files' else 1160)
+        self.mode_layout.setSpacing(12 if mode == 'files' else 24)
         self.filter.show(); self.add_button.show()
         self.file_body.setVisible(mode == 'files')
         self.agent_refresh.setVisible(mode != 'files')
@@ -171,8 +172,7 @@ class WorkResourcesPage(SourceActions, QWidget):
             if mode != 'files':
                 self.agent_library.populate(mode, self.filter.text())
             else:
-                for control in (self.agent_library.back_button, self.agent_library.settings_button, self.agent_library.sort_button):
-                    control.hide()
+                self.agent_library.header()
         if mode == 'files':
             self.reset_search()
 

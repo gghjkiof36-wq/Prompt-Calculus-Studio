@@ -10,6 +10,7 @@ from ..widgets import ComboBox, RoundMenu, StudioDialog, button
 from ..work_resources.reader import column, icon_button, line
 from .dialogs import plain
 from .store import AgentStore, pcs_common_rules, pcs_role_rules
+from .catalog_view import CatalogDelegate
 
 
 def confirm_draft(parent, save):
@@ -178,7 +179,7 @@ class AgentEditor(DraftEditor):
         agent = self.store.get('agents', identity) if identity else {}
         if agent and agent['project'] != project:
             raise ValueError('此 Agent 不屬於目前專案。')
-        self.body.addWidget(plain('Agent 設定' if identity else '新增 Agent', 'Heading'))
+        self.body.setSpacing(24)
         self.name = QLineEdit(agent.get('name', ''))
         self.name.setPlaceholderText('Agent 名稱')
         self.name.setAccessibleName('Agent 名稱')
@@ -191,30 +192,35 @@ class AgentEditor(DraftEditor):
         if model_key and self.model.findData(model_key) < 0:
             self.model.addItem('原模型已移除', model_key)
         self.model.setCurrentIndex(max(0, self.model.findData(model_key)))
-        form = QFormLayout()
-        form.setHorizontalSpacing(16)
-        form.setVerticalSpacing(12)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        form.addRow('名稱', self.name)
-        form.addRow('模型', self.model)
-        self.body.addLayout(form)
+        fields, form = column()
+        form.setSpacing(8)
+        name_label = plain('名稱', 'Subtle'); name_label.setBuddy(self.name)
+        model_label = plain('模型', 'Subtle'); model_label.setBuddy(self.model)
+        form.addWidget(name_label); form.addWidget(self.name)
+        form.addSpacing(12)
+        form.addWidget(model_label); form.addWidget(self.model)
+        self.body.addWidget(fields)
         self.sections = QTabWidget()
         skill_page, skill_body = column()
-        skill_body.setContentsMargins(0, 12, 0, 0)
+        skill_body.setContentsMargins(0, 16, 0, 0)
         self.skill_filter = QLineEdit()
         self.skill_filter.setPlaceholderText('搜尋 Skill')
         self.skill_filter.setAccessibleName('搜尋可指派 Skill')
         self.skill_filter.setClearButtonEnabled(True)
         self.skill_count = plain('', 'Subtle')
         line(skill_body, self.skill_filter, self.skill_count)
-        self.skills = listing(['Skill', '用途'], 'Agent 可用 Skill')
-        self.skills.setColumnWidth(0, 200)
+        self.skills = listing(['Skill'], 'Agent 可用 Skill')
+        self.skills.setObjectName('AgentSkillList')
+        self.skills.setHeaderHidden(True)
+        self.skills.setMouseTracking(True)
+        self.skills.setItemDelegate(CatalogDelegate(self.skills))
+        self.skills.setStyleSheet('QTreeWidget {border:0;background:transparent;}')
         self.selected = list(agent.get('skills', []))
         for skill in sorted(self.store.value['skills'], key=lambda s: (s['id'] not in self.selected, s['name'].casefold())):
-            row = QTreeWidgetItem([skill['name'] + (' · 已停用' if not skill['enabled'] else ''), skill['description']])
+            description = skill['description'].replace('\n', ' ')
+            row = QTreeWidgetItem([skill['name'] + (' · 已停用' if not skill['enabled'] else '') + '\n' + description])
             row.setData(0, Qt.ItemDataRole.UserRole, skill['id'])
-            row.setToolTip(0, skill['name'])
-            row.setToolTip(1, skill['description'])
+            row.setToolTip(0, skill['name'] + '\n' + skill['description'])
             row.setFlags(row.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             row.setCheckState(0, Qt.CheckState.Checked if skill['id'] in self.selected else Qt.CheckState.Unchecked)
             self.skills.addTopLevelItem(row)
@@ -256,7 +262,7 @@ class AgentEditor(DraftEditor):
         query = text.strip().casefold()
         for i in range(self.skills.topLevelItemCount()):
             row = self.skills.topLevelItem(i)
-            row.setHidden(query not in (row.text(0) + ' ' + row.text(1)).casefold())
+            row.setHidden(query not in row.text(0).casefold())
 
     def skill_changed(self, row, column):
         key = row.data(0, Qt.ItemDataRole.UserRole)
