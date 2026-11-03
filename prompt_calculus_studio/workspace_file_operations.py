@@ -450,6 +450,14 @@ class WorkspaceFileOperations(QObject):
         w.recent_files = [str(relocate(Path(p), source, target)) for p in w.recent_files]
         w.tree_state.relocate(source, target)
         op.result = target
+        # Retarget resource aliases only after the shared file move commits.
+        if (Path(w.data) / 'work-resources' / 'catalog.sqlite').exists():
+            try:
+                from .work_resources.catalog import Catalog
+                from .work_resources.exports import relocate_copies
+                relocate_copies(Catalog(w.data), source, target)
+            except (ValueError, OSError) as error:
+                w.show_notice('文件已移動，工作資源來源需重新核對：' + str(error))
         return target
 
     def apply_location(self, pages, source, target):

@@ -54,8 +54,9 @@ class OfflinePreview(QTextBrowser):
 
 
 class ConversationImportDialog(StudioDialog):
-    def __init__(self, workspace, directory):
+    def __init__(self, workspace, directory, *, readable=False):
         super().__init__(workspace)
+        self.readable = readable
         self.workspace = workspace
         self.destination = Destination.choose(directory)
         self.pane = workspace.active_pane
@@ -79,7 +80,7 @@ class ConversationImportDialog(StudioDialog):
         drop.setContentsMargins(24, 28, 24, 28)
         drop.setSpacing(16)
         drop.addStretch()
-        drop.addWidget(label('拖入 ZIP 或 JSON', 'Heading'), 0, Qt.AlignmentFlag.AlignHCenter)
+        drop.addWidget(label('拖入 ZIP、JSON 或 Codex JSONL', 'Heading'), 0, Qt.AlignmentFlag.AlignHCenter)
         self.drop_button = button('選擇檔案…', self.choose_source, 'Primary')
         drop.addWidget(self.drop_button, 0, Qt.AlignmentFlag.AlignHCenter)
         drop.addStretch()
@@ -183,7 +184,7 @@ class ConversationImportDialog(StudioDialog):
         urls = mime.urls()
         if len(urls) != 1 or not urls[0].isLocalFile():return None
         path = Path(urls[0].toLocalFile())
-        return path if path.suffix.casefold() in ('.zip', '.json') and path.is_file() else None
+        return path if path.suffix.casefold() in ('.zip', '.json', '.jsonl') and path.is_file() else None
 
     def dragEnterEvent(self, event):
         if not self.job and self.dropped_source(event.mimeData()):event.acceptProposedAction()
@@ -204,7 +205,7 @@ class ConversationImportDialog(StudioDialog):
                 self.split.setSizes([180, 260] if orientation == Qt.Orientation.Vertical else [310, 550])
 
     def choose_source(self):
-        path, _ = QFileDialog.getOpenFileName(self, '選擇對話封存', '', 'ChatGPT 對話 (*.zip *.json)')
+        path, _ = QFileDialog.getOpenFileName(self, '選擇對話封存', '', '對話封存 (*.zip *.json *.jsonl)')
         if path:self.load_source(path)
 
     def load_source(self, path):
@@ -286,12 +287,16 @@ class ConversationImportDialog(StudioDialog):
                     if self.workspace.locations.root_for(result.completed[0]) is None:
                         self.workspace.add_root(self.destination.path)
                     self.workspace.refresh_tree()
-                    if not self.close_when_done:
+                    readable = self.readable or getattr(self.archive, 'format', '') == 'codex'
+                    if not self.close_when_done and (not readable or len(result.completed) == 1 and not result.failed):
                         pane = self.pane if self.pane in self.workspace.panes else self.workspace.active_pane
-                        self.workspace.open_path(result.completed[0], retained=True, new_tab=True, pane=pane)
+                        tab = self.workspace.open_path(result.completed[0], retained=True, new_tab=True, pane=pane)
+                        surface = getattr(getattr(tab, 'widget', None), 'md_surface', None)
+                        if readable and surface is not None:
+                            surface.apply_mode('read', focus=False)
         elif error:
             self.show_status(error)
-            if kind == 'read':self.preview.setPlainText('無法載入這份封存。\n\n'+error+'\n\n請選擇另一份 ZIP／JSON。')
+            if kind == 'read':self.preview.setPlainText('無法載入這份封存。\n\n'+error+'\n\n請選擇另一份 ZIP／JSON／Codex JSONL。')
         elif kind == 'read' and not self.close_when_done:
             self.archive = result
             self.show_contents(True)
@@ -374,7 +379,20 @@ class ConversationImportDialog(StudioDialog):
         if self.completed:return self.accept()
         if self.job or not self.archive or not self.selected():return
         source, selected, destination = self.archive, self.selected(), self.destination
-        self.start_job(lambda cancel, progress: import_selected(source, selected, destination, cancel, progress), 'write')
+        data = self.workspace.data
+        def work(cancel, progress):
+            result = import_selected(source, selected, destination, cancel, progress, readable=self.readable)
+            if self.readable or source.format == 'codex':
+                from .work_resources.catalog import Catalog
+                store = Catalog(data)
+                for path in result.completed:
+                    try:
+                        sid = store.register(path, 'copy', copied_from=str(source.path) + ':' + source.digest)
+                        store.rebuild(sid)
+                    except (ValueError, OSError) as error:
+                        result.failed.append((result.titles[str(path)], str(path), '文件已保存，來源登記未完成：' + str(error)))
+            return result
+        self.start_job(work, 'write')
 
     def reject(self):
         if self.job:

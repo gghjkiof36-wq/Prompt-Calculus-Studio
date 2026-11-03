@@ -220,6 +220,9 @@ class Archive:
     members: tuple
     limits: Limits
     conversation_members: frozenset = frozenset()
+    format: str = ''
+    attachment_root: Path | None = None
+    attachment_identity: tuple | None = None
 
     def verify(self, stream, cancel, *, full=True):
         path, stamp = safe_source(self.path, self.limits)
@@ -248,7 +251,7 @@ class Archive:
 def load_archive(path, cancel=None, progress=lambda text: None, limits=Limits()):
     cancel = cancel or Event()
     path, stamp = safe_source(path, limits)
-    if path.suffix.lower() not in ('.json', '.zip'):raise ValueError('請選擇 ZIP 或 JSON 對話封存。')
+    if path.suffix.lower() not in ('.json', '.zip', '.jsonl'):raise ValueError('請選擇 ZIP、JSON 或 Codex JSONL 對話封存。')
     with pinned_parent(path), reader(path) as stream:
         if identity(os.fstat(stream.fileno())) != stamp:raise ValueError('來源檔案在開啟時被替換。')
         result = parse_archive(stream, path, stamp, fingerprint(stream, cancel), cancel, progress, limits)
@@ -258,6 +261,10 @@ def load_archive(path, cancel=None, progress=lambda text: None, limits=Limits())
 
 def parse_archive(stream, path, stamp, digest, cancel=None, progress=lambda text: None, limits=Limits()):
     """Parse a caller-owned, bounded byte source using the same archive rules."""
+    if path.suffix.lower() == '.jsonl':
+        from .codex_archive import parse
+        item = parse(read_chunks(stream, limits.source, cancel), path, limits, cancel)
+        return Archive(path, stamp, digest, [item], (), limits, format='codex')
     conversations, seen, members, sources = [], set(), (), frozenset()
     nodes = 0
     def add(raw):
@@ -292,7 +299,7 @@ def parse_archive(stream, path, stamp, digest, cancel=None, progress=lambda text
         except (BadZipFile, RuntimeError, NotImplementedError) as error:
             raise ValueError('ZIP 無法讀取：'+str(error)) from error
     else:add(read_chunks(stream, limits.source, cancel))
-    result = Archive(path, stamp, digest, conversations, members, limits, sources)
+    result = Archive(path, stamp, digest, conversations, members, limits, sources, path.suffix.lower().lstrip('.'))
     if not conversations:raise ValueError('封存沒有可匯入的對話。')
     progress(f'已讀取 {len(conversations)} 段對話')
     return result

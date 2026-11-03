@@ -42,7 +42,7 @@ def document(store, row, cancel=None):
     if record['rel'] != row['title']:
         raise ValueError('來源已改名，請重新選取。')
     root = Path(source['path'])
-    if source['kind'] == 'copy':
+    if source['kind'] in ('copy', 'definition'):
         root = root.parent
     raw, _ = read_source(root, record['rel'], root_identity(source), LIMIT, cancel)
     if digest(raw) != row['sha'] or record['sha'] != row['sha']:

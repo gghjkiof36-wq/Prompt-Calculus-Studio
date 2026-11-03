@@ -156,7 +156,25 @@ def branch_files(item, links, limits, cancel=None):
         yield number, part, *output()
 
 
-def index_markdown(item, volumes, warnings, assets, *, single_volume=None):
+def index_markdown(item, volumes, warnings, assets, *, single_volume=None, readable=False):
+    if readable:
+        provider = 'Codex' if 'pcs_codex' in item.raw else item.raw.get('pcs_provider', 'ChatGPT')
+        lines = ['# ' + single_line(item.title), '', '來源：' + single_line(provider), '']
+        if len(volumes) == 1 and single_volume is not None:
+            number, part, _ = volumes[0]
+            prefix = branch_heading(item, number, part).encode('utf-8')
+            if not single_volume.startswith(prefix):
+                raise ValueError('對話內容與分卷不符。')
+            lines.append(single_volume[len(prefix):].decode('utf-8'))
+        else:
+            lines.extend(('## 對話內容', ''))
+            for number, part, name in volumes:
+                lines.append(f'- [分支 {number} · 第 {part} 卷]({quote(name)})')
+        if warnings:
+            lines.extend(('', '## 來源與未轉出內容', ''))
+            lines.extend('- ' + single_line(warning) for warning in dict.fromkeys(warnings))
+        lines.extend(('', '原始來源與匯出記錄保留在此文件的資料夾中。', ''))
+        return '\n'.join(lines).encode('utf-8')
     capture = item.raw.get('pcs_capture')
     if (isinstance(capture, dict) and capture.get('version') == 1
             and capture.get('graph') == 'observed-order' and capture.get('complete') is False):

@@ -89,11 +89,14 @@ class Catalog:
                 db.execute("ALTER TABLE archive ADD COLUMN original_path TEXT NOT NULL DEFAULT ''")
 
     def register(self, value, kind='folder', *, copied_from=None):
-        if kind not in ('folder', 'archive', 'copy'):
+        if kind not in ('folder', 'archive', 'copy', 'definition'):
             raise ValueError('來源類型無效。')
         path = Path(value)
         root = path if kind == 'folder' else path.parent
-        if self.data == path or self.data in path.parents or (kind == 'folder' and path in self.data.parents):
+        if kind == 'definition':
+            if self.base/'definitions' not in path.parents:
+                raise ValueError('管理副本的位置無效。')
+        elif self.data == path or self.data in path.parents or (kind == 'folder' and path in self.data.parents):
             raise ValueError('請選擇獨立的內容資料夾，排除程式內部資料。')
         if kind != 'folder':
             source_io.parts(path.name)
@@ -222,7 +225,8 @@ class Catalog:
             raise ValueError('封存原件與保存版本不符。')
         return raw, row['filename']
 
-    def browse(self, query='', kind='all', offset=0, limit=50, order='name', source='', cancel=None):
+    def browse(self, query='', kind='all', offset=0, limit=50, order='name', source='', cancel=None,
+               *, directory=None, recursive=True):
         """One result per file/conversation, with filtering before pagination."""
         checkpoint(cancel)
         term = '%'+query.strip().replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
@@ -230,9 +234,14 @@ class Catalog:
         WITH entries AS (
           SELECT d.source,d.id item,'' story,'' node,d.sha,d.rel title,s.path location,
                  CASE WHEN s.state LIKE '來源需核對%' THEN '需重新核對' ELSE d.state END state,
-                 'document' kind,d.modified date,d.size size
+                 'document' kind,d.modified date,d.size size,
+                 replace(CASE WHEN s.kind='folder' THEN s.path||'/'||d.rel ELSE s.path END,char(92),'/') absolute_path
           FROM document d JOIN source s ON s.id=d.source
-          WHERE s.removed=0 AND d.state<>'待重建' AND
+          WHERE s.removed=0 AND d.state NOT IN ('待重建','已移除') AND
+            NOT EXISTS(SELECT 1 FROM source c WHERE c.removed=0 AND c.kind='copy' AND s.kind='folder' AND
+                       replace(c.path,char(92),'/')=replace(s.path||'/'||d.rel,char(92),'/') COLLATE NOCASE) AND
+            NOT EXISTS(SELECT 1 FROM source a WHERE a.removed=0 AND a.kind='archive' AND
+                       replace(a.path,char(92),'/')=replace(s.path||'/'||d.rel,char(92),'/') COLLATE NOCASE) AND
             (d.rel LIKE :term ESCAPE '\\' OR s.path LIKE :term ESCAPE '\\' OR
              d.body LIKE :term ESCAPE '\\' OR d.modified LIKE :term ESCAPE '\\')
           UNION ALL
@@ -241,21 +250,29 @@ class Catalog:
                    m.story=t.story AND :query<>'' AND (m.body LIKE :term ESCAPE '\\' OR m.day LIKE :term ESCAPE '\\') LIMIT 1),''),
                  a.sha,coalesce(t.title,a.filename),a.original_path,
                  CASE WHEN a.note<>'' THEN a.note WHEN a.sha=s.current_sha THEN '已匯入' ELSE '先前版本' END,
-                 'archive',a.imported,NULL
+                 'archive',a.imported,NULL,replace(a.original_path,char(92),'/')
           FROM archive a JOIN source s ON s.id=a.source
           LEFT JOIN story t ON t.source=a.source AND t.sha=a.sha
           WHERE s.removed=0 AND (a.filename LIKE :term ESCAPE '\\' OR t.title LIKE :term ESCAPE '\\' OR
             a.original_path LIKE :term ESCAPE '\\' OR a.imported LIKE :term ESCAPE '\\' OR
             EXISTS(SELECT 1 FROM message m WHERE m.source=a.source AND m.sha=a.sha AND m.story=t.story
               AND :query<>'' AND (m.body LIKE :term ESCAPE '\\' OR m.day LIKE :term ESCAPE '\\')))
-        ), filtered AS (SELECT * FROM entries WHERE (:kind='all' OR kind=:kind) AND (:source='' OR source=:source))
+        ), filtered AS (SELECT * FROM entries WHERE
+            (:kind='all' OR kind=:kind AND (:kind<>'document' OR resource_purpose(absolute_path)='document') OR
+             :kind='definitions' AND kind='document' AND resource_purpose(absolute_path)<>'document')
+            AND (:source='' OR source=:source)
+            AND (:directory='' OR substr(absolute_path,1,length(:directory))=:directory COLLATE NOCASE)
+            AND (:recursive OR instr(substr(absolute_path,length(:directory)+1),'/')=0))
         """
         sorting = {'name':'title COLLATE NOCASE,location,item,story',
                    'newest':'date DESC,title COLLATE NOCASE,item,story',
                    'oldest':'date,title COLLATE NOCASE,item,story'}
         args = dict(term=term, query=query.strip(), kind=kind, source=source,
-                    limit=min(max(1,limit),101),offset=max(0,offset))
+                    limit=min(max(1,limit),101),offset=max(0,offset),
+                    directory=Path(directory).as_posix().rstrip('/')+'/' if directory else '',recursive=recursive)
         with connection(self) as db:
+            from .navigation import purpose
+            db.create_function('resource_purpose', 1, purpose, deterministic=True)
             if cancel is not None:
                 db.set_progress_handler(lambda:int(cancel.is_set()),4000)
             try:

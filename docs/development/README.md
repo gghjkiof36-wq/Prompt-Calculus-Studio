@@ -24,7 +24,7 @@ $env:PROMPT_STUDIO_DATA = Join-Path $PWD 'qa/dev-data'
 
 ## 架構與相容性
 
-- [Pre-alpha2 工作資源與固定資料包](work-resources.md)（第二階段的來源、分支、保存與容量）
+- [Pre-alpha2 工作資源與對話轉 Markdown](work-resources.md)（資料夾、來源保留、閱讀與逐份輸出）
 - [Pre-alpha2 合成資源與 MCP 連接](mcp-probe-v1.md)（第一階段、私有宿主條件與共同契約 v1）
 - [Beta3 演示、對話整理與可攜包](markdown-retention.md)（本分支本機增量；人工 ChatGPT 往返，登入另排）
 - [Chrome 對話連接與保存](chrome-connector.md)（本機增量；DOM 範圍、富內容參照、Native Messaging 與回執恢復）

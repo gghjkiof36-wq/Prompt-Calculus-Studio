@@ -12,12 +12,22 @@ class ResourceDelegate(QStyledItemDelegate):
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
         tree = self.parent()
-        hovered = tree.hover_row == index.row()
+        hovered = tree.hover_row == index.row() or tree.file_drag.target_row == index.row()
         if hovered:
             opt.state |= QStyle.StateFlag.State_MouseOver
         opt.features &= ~QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator
         style = opt.widget.style() if opt.widget else QApplication.style()
         style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
+        if tree.file_drag.target_row == index.row():
+            painter.save()
+            painter.setPen(QPen(QColor(tree.colors['accent_outline']), 1))
+            painter.drawLine(opt.rect.topLeft(), opt.rect.topRight())
+            painter.drawLine(opt.rect.bottomLeft(), opt.rect.bottomRight())
+            if index.column() == 0:
+                painter.drawLine(opt.rect.topLeft(), opt.rect.bottomLeft())
+            if index.column() == tree.last_visible_column():
+                painter.drawLine(opt.rect.topRight(), opt.rect.bottomRight())
+            painter.restore()
         checkable = index.column() == 0 and bool(index.flags() & Qt.ItemFlag.ItemIsUserCheckable)
         checked = index.data(Qt.ItemDataRole.CheckStateRole) in (Qt.CheckState.Checked, Qt.CheckState.Checked.value)
         keyboard = tree.hasFocus() and tree.currentIndex().row() == index.row()
@@ -52,7 +62,28 @@ class ResourceList(QTreeWidget):
         self.hover_row = -1
         self.setMouseTracking(True)
         self.setItemDelegate(ResourceDelegate(self))
+        from .file_drag import ResourceFileDrag
+        self.file_drag = ResourceFileDrag(self, parent)
         self.refresh_colors()
+
+    def last_visible_column(self):
+        return next((i for i in reversed(range(self.columnCount())) if not self.isColumnHidden(i)), 0)
+
+    def startDrag(self, _supported):
+        self.file_drag.start()
+
+    def dragEnterEvent(self, event):
+        self.file_drag.enter(event)
+
+    def dragMoveEvent(self, event):
+        self.file_drag.move(event)
+
+    def dragLeaveEvent(self, event):
+        self.file_drag.clear_target()
+        event.accept()
+
+    def dropEvent(self, event):
+        self.file_drag.drop(event)
 
     def refresh_colors(self):
         self.colors = visual_tokens(window_appearance(self))

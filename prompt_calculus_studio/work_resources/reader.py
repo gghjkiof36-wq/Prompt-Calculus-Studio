@@ -237,8 +237,8 @@ class ResourceReader(StudioDialog):
     def selection_changed(self):
         if self.frozen:
             return
-        self.use.setText('勾選此分支' if self.story else
-                         '勾選這段文字' if self.preview.textCursor().hasSelection() else '勾選整份')
+        self.use.setVisible(bool(self.story))
+        self.use.setText('勾選此對話')
 
     def choose(self):
         if self.frozen:
@@ -246,12 +246,5 @@ class ResourceReader(StudioDialog):
             self.page.job('正在核對來源…', lambda cancel: bundles.current_state(self.page.store, ref, cancel),
                           lambda state: self.message.setText(state) if isValid(self) else None)
             return
-        span = None
-        if not self.story:
-            cursor = self.preview.textCursor()
-            if cursor.hasSelection():
-                text = self.preview.toPlainText()
-                span = tuple(self.start + python_position(text, pos)
-                             for pos in (cursor.selectionStart(), cursor.selectionEnd()))
-        self.page.choose_row(self.row, span=span, leaf=self.branches.currentData() if self.story else None)
+        self.page.choose_row(self.row)
         self.message.setText('已勾選')

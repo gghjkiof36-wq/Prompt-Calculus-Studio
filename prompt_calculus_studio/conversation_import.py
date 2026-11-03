@@ -18,7 +18,7 @@ from zipfile import BadZipFile, ZipFile
 from .conversation_archive import Cancelled, MIB, checkpoint, canonical
 from .conversation_markdown import attachment_plan, branch_files, index_markdown
 from .local_documents import paths
-from .local_documents.directory_pin import pinned_parent
+from .local_documents.directory_pin import pinned_parent, pinned_target
 from .local_documents.windows import reader
 from .markdown_source import MAX_BYTES
 
@@ -100,7 +100,7 @@ def asset_hashes(archive, assets, cancel):
 
 
 def import_selected(source, selected, destination, cancel, progress=lambda text: None, *,
-                    operation_id=None, on_started=None, on_reused=None):
+                    operation_id=None, on_started=None, on_reused=None, readable=False):
     if any(callback is not None and not callable(callback) for callback in (on_started, on_reused)):
         raise ValueError('匯入操作記錄接點無效。')
     if operation_id is not None:
@@ -108,6 +108,7 @@ def import_selected(source, selected, destination, cancel, progress=lambda text:
                 r'(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})', operation_id):
             raise ValueError('匯入操作識別格式無效。')
         operation_id = uuid.UUID(operation_id).hex
+    readable = readable or source.format == 'codex'
     result = ImportResult()
     used = 0
     indices = tuple(dict.fromkeys(selected))
@@ -118,11 +119,12 @@ def import_selected(source, selected, destination, cancel, progress=lambda text:
     with pinned_parent(source.path), reader(source.path) as stream, pinned_parent(destination.path/'import.guard'):
         source.verify(stream, cancel)
         root = destination.verify()
-        zipped = ZipFile(stream) if source.path.suffix.lower() == '.zip' else nullcontext(None)
+        zipped = ZipFile(stream) if source.format == 'zip' or source.path.suffix.lower() == '.zip' else nullcontext(None)
         with zipped as archive:
             for position, index in enumerate(indices, 1):
                 folder = None
                 item = source.conversations[index]
+                output_name = safe_title(item.title) + '.md' if readable else '對話.md'
                 operation = operation_id or uuid.uuid4().hex
                 try:
                     checkpoint(cancel)
@@ -131,6 +133,11 @@ def import_selected(source, selected, destination, cancel, progress=lambda text:
                     rendered_item, capture_images = prepare_capture_images(item, cancel)
                     capture_hashes = {name:hashlib.sha256(data).hexdigest() for name, data in capture_images.items()}
                     links, assets, warnings = attachment_plan(source, item, cancel)
+                    codex_images = {}
+                    if 'pcs_codex' in item.raw:
+                        from .codex_archive import prepare_attachments
+                        links, codex_images, missing = prepare_attachments(item, source, cancel)
+                        warnings = [*item.warnings, *missing]
                     hashes = asset_hashes(archive, assets, cancel) if archive else {}
                     digest = hashlib.sha256(canonical([item.digest, hashes])).hexdigest()
                     prefix = safe_title(item.title)+'-'+hashlib.sha256(item.key.encode()).hexdigest()[:12]+'-'+digest[:12]
@@ -140,15 +147,21 @@ def import_selected(source, selected, destination, cancel, progress=lambda text:
                                 on_reused(operation, folder)
                             except Exception as error:
                                 raise RuntimeError('無法記錄既有文件，尚未建立副本。') from error
-                    previous = existing(root, prefix, item.key, digest, on_reused=reuse, capture_hashes=capture_hashes)
+                    previous = None if readable else existing(root, prefix, item.key, digest, on_reused=reuse, capture_hashes=capture_hashes)
                     if previous:
                         result.skipped.append(previous)
                         result.titles[str(previous)] = item.title
                         continue
-                    folder = paths.checked(root, prefix)
-                    if folder.exists():
-                        folder = paths.checked(root, prefix+'-重試-'+uuid.uuid4().hex[:8])
-                    folder.mkdir()  # Exclusive directory creation; never merge.
+                    if readable:
+                        with pinned_target(root, '.pcs/conversation-imports/' + operation,
+                                           create_parents=True) as staged:
+                            staged.mkdir()
+                        folder = staged
+                    else:
+                        folder = paths.checked(root, prefix)
+                        if folder.exists():
+                            folder = paths.checked(root, prefix+'-重試-'+uuid.uuid4().hex[:8])
+                        folder.mkdir()  # Exclusive directory creation; never merge.
                     files, volumes = [], []
                     with pinned_parent(folder/'receipt.guard'):
                         if on_started is not None:
@@ -175,8 +188,14 @@ def import_selected(source, selected, destination, cancel, progress=lambda text:
                         write('匯入開始.json', canonical(dict(version=1, state='started', source_id=item.key,
                                                            content_hash=digest, operation=operation)))
                         write('原始對話.json', json.dumps(item.raw, ensure_ascii=False, indent=2, allow_nan=False).encode())
-                        if assets or capture_images:
+                        if source.format == 'codex':
+                            from .conversation_archive import read_chunks
+                            stream.seek(0)
+                            write('原始封存.jsonl', read_chunks(stream, source.limits.source, cancel))
+                        if assets or capture_images or codex_images:
                             (folder/'assets').mkdir()
+                        for name, data in codex_images.items():
+                            write(name, data)
                         for name, data in capture_images.items():
                             write(name, data)
                         if assets:
@@ -198,12 +217,25 @@ def import_selected(source, selected, destination, cancel, progress=lambda text:
                                 if digest_check.hexdigest() != hashes[member]:raise ValueError('附件讀取時已改變：'+member)
                                 files.append(name)
                         single_volume = None
-                        for number, part, name, content in branch_files(rendered_item, links, source.limits, cancel):
+                        pending_volume = None
+                        def write_volume(name, content):
+                            if readable:
+                                from urllib.parse import quote
+                                content = content.replace('[返回對話索引](對話.md)'.encode(),
+                                    ('[返回對話索引](' + quote(output_name) + ')').encode(), 1)
                             write(name, content)
-                            single_volume = content if not volumes and 'pcs_capture' in item.raw else None
+                        for number, part, name, content in branch_files(rendered_item, links, source.limits, cancel):
+                            if readable and not volumes:
+                                pending_volume = name, content
+                            else:
+                                if pending_volume:
+                                    write_volume(*pending_volume)
+                                    pending_volume = None
+                                write_volume(name, content)
+                            single_volume = content if not volumes and ('pcs_capture' in item.raw or readable) else None
                             volumes.append((number, part, name))
-                        write('對話.md', index_markdown(item, volumes, warnings, assets,
-                                                       single_volume=single_volume))
+                        write(output_name, index_markdown(item, volumes, warnings, assets,
+                                                       single_volume=single_volume, readable=readable))
                         # reader excludes in-place writes; check replacement
                         # identity here instead of hashing the whole ZIP per note.
                         source.verify(stream, cancel, full=False)
@@ -213,12 +245,29 @@ def import_selected(source, selected, destination, cancel, progress=lambda text:
                         receipt = dict(version=1, state='complete', source_id=item.key, operation=operation,
                                        content_hash=digest, original_hash=item.digest,
                                        files=list(files), attachments=hashes, warnings=warnings)
+                        if readable:
+                            receipt['source'] = dict(provider='codex' if source.format == 'codex' else 'pcs' if source.format == 'pcs' else 'chatgpt',
+                                                     path=str(source.path), sha256=source.digest, format=source.format)
                         if capture_images:
                             receipt['capture_images'] = capture_hashes
                             verify_capture_images(folder, receipt, cancel, expected=capture_hashes)
+                        if codex_images:
+                            receipt['codex_images'] = {name: hashlib.sha256(data).hexdigest()
+                                                       for name, data in codex_images.items()}
                         write(RECEIPT, canonical(receipt))
-                    result.completed.append(folder/'對話.md')
-                    result.titles[str(folder/'對話.md')] = item.title
+                    if readable:
+                        from .workspace_file_io import available_targets, rename_exclusive
+                        checkpoint(cancel)
+                        destination.verify()
+                        for target in available_targets(root / safe_title(item.title), folder=True):
+                            try:
+                                rename_exclusive(folder, target)
+                                folder = target
+                                break
+                            except FileExistsError:
+                                continue
+                    result.completed.append(folder/output_name)
+                    result.titles[str(folder/output_name)] = item.title
                 except Cancelled:
                     result.cancelled = True
                     if folder:result.failed.append((item.title, str(folder), '已取消；這個資料夾尚未完成。'))

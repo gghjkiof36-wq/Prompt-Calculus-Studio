@@ -182,6 +182,20 @@ class FileSearchDialog(StudioDialog):
             self.status.setText(str(error));self.status.show()
 
     def open_path(self, path):
+        if Path(path).suffix.lower() in ('.jsonl', '.json', '.zip'):
+            from .conversation_dialog import ConversationImportDialog
+            directory = self.context.destination or self.w.locations.current
+            if directory is None:
+                self.w.choose_root()
+                directory = self.w.locations.current
+            if directory is None:
+                return
+            dialog = ConversationImportDialog(self.w, directory, readable=True)
+            self.w._conversation_import = dialog
+            dialog.show()
+            dialog.load_source(path)
+            self.accept()
+            return
         try:
             path = self.w.locations.file(path)
         except (ValueError, OSError) as error:
@@ -192,5 +206,5 @@ class FileSearchDialog(StudioDialog):
 
     def choose_other(self):
         path, _ = QFileDialog.getOpenFileName(self, '開啟檔案', str(self.w.locations.current or ''),
-                                             'PCS 檔案 (*.pcs-category *.pcs-workflow *.pcs-chat *.md)')
+                                             'PCS 文件與對話封存 (*.pcs-category *.pcs-workflow *.pcs-chat *.md *.jsonl *.json *.zip)')
         if path:self.open_path(path)

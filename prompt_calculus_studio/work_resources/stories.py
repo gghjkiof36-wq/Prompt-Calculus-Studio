@@ -154,7 +154,7 @@ def stories(name, raw, cancel=None):
         for i, rev in enumerate(payload.get('revisions', []), 1):
             result.append(_pcs(doc, rev['id'], rev['turns'], f'{path.stem} · 編輯紀錄 {i}', cancel))
         return result
-    if path.suffix.casefold() not in {'.json', '.zip'}:
+    if path.suffix.casefold() not in {'.json', '.zip', '.jsonl'}:
         raise ValueError('原件已保留，此格式尚未支援分支解析。')
     archive = parse_archive(BytesIO(raw), path, (), digest(raw), cancel, limits=Limits())
     return [_chatgpt(archive, item, cancel) for item in archive.conversations]
