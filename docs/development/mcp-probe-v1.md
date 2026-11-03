@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart LR
-    G["ChatGPT 自訂 MCP"] -. 私有通道待實測 .-> T["OpenAI tunnel-client"]
+    G["ChatGPT 自訂 MCP"] -->|已驗證的私有通道| T["OpenAI tunnel-client"]
     T -->|stdio| B["官方 MCP SDK 轉接程序"]
     C["已測的獨立 SDK 客戶端"] -->|stdio| B
     B -->|指定 ID／Windows 使用者管道| O["隔離 PCS 實例"]
@@ -73,11 +73,11 @@ MCP 轉接與 [ProbeService](../../prompt_calculus_studio/mcp_probe/service.py) 
 
 | 延伸接點 | 對應 PCS 的現況及責任 |
 | --- | --- |
-| LM Studio 作 MCP host | 可將此 stdio server 配給相容宿主。此輪已測宿主為官方 SDK 客戶端；LM Studio 實際連接需另驗。[LM Studio MCP](https://lmstudio.ai/docs/app/mcp) |
+| LM Studio 作 MCP host | 可將此 stdio server 配給相容宿主。本輪已驗證目標 ChatGPT 網頁私人外掛與獨立的官方 SDK 客戶端。LM Studio 本身的連接待另驗。[LM Studio MCP](https://lmstudio.ai/docs/app/mcp) |
 | 模型服務與一般生成 | PCS 的 [LocalAIService.submit／cancel](../../prompt_calculus_studio/local_ai/service.py) 管理工作與請求歸屬，[InferenceRuntime](../../prompt_calculus_studio/local_ai/engine.py) 定義啟動、生成、停止及確認空閒。可選 LM Studio adapter 應在 runtime 工廠接入其公開服務。SDK 使用的服務協定需另外協商 |
 | 工具迴圈與 guard | LM Studio `.act()` 在模型輪與工具執行前有不同接點。模型輪數不等於工具總數，權限、工具次數、取消及交回仍需 PCS 服務控制。將來 PCS 作 MCP client 呼叫其他工具時，才需要這一側。[固定版本 act.ts](https://github.com/lmstudio-ai/lmstudio-js/blob/4b9af903e866808013524eece1e9ceb7a7f18c68/packages/lms-client/src/llm/act.ts) |
 | 前處理與 Tools Provider | 前處理接固定資料包和輸入版本，Tools Provider 提供明確宣告的工具，Generator 才使用生成能力。三者各自有責任。[PromptPreprocessor](https://github.com/lmstudio-ai/lmstudio-js/blob/4b9af903e866808013524eece1e9ceb7a7f18c68/packages/lms-client/src/plugins/processing/PromptPreprocessor.ts) · [ToolsProvider](https://github.com/lmstudio-ai/lmstudio-js/blob/4b9af903e866808013524eece1e9ceb7a7f18c68/packages/lms-client/src/plugins/processing/ToolsProvider.ts) |
 
 上述對照以公開 TypeScript SDK `4b9af903`、Python SDK `16796832` 為參考。兩個 SDK 均為 MIT。採用的是服務邊界與契約，合成路徑由 PCS 自行實作。Windows 工具環境使用官方 MCP Python SDK 1.30.0。這些授權各自適用於所標示的專案。[TS SDK 授權](https://github.com/lmstudio-ai/lmstudio-js/blob/4b9af903e866808013524eece1e9ceb7a7f18c68/LICENSE) · [Python SDK 授權](https://github.com/lmstudio-ai/lmstudio-python/blob/16796832c1665985c73f5a9e938cbf17b40adf02/LICENSE) · [MCP SDK 授權](https://github.com/modelcontextprotocol/python-sdk/blob/main/LICENSE)
 
-[實際程序與宿主相容檢查](../../tests/test_mcp_probe_transport.py)及[資料契約與交易檢查](../../tests/test_mcp_probe_v1.py)使用隔離合成資料。正式 ChatGPT 端到端驗收另需真實宿主的工具回執。
+[實際程序與宿主相容檢查](../../tests/test_mcp_probe_transport.py)及[資料契約與交易檢查](../../tests/test_mcp_probe_v1.py)使用隔離合成資料。正式 ChatGPT 的四次工具呼叫、實例和結果對照及宿主錯誤語義記於[Pre-alpha2 驗收](../releases/0.8.10/validation/pre-alpha.2.md)。
