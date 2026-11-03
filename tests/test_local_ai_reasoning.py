@@ -127,6 +127,76 @@ class ReasoningTransportContracts(unittest.TestCase):
                     max_tokens=1024, temperature=.7, top_p=.95, seed=-1, **expected))
 
 
+class GemmaReasoningTransportContracts(unittest.TestCase):
+    def setUp(self):
+        self.runtime = LlamaRuntime()
+        self.runtime.model = {'id': 'gemma-fixture'}
+        self.runtime.context_size = 4096
+        template = 'synthetic verified Gemma template'
+        profile = patch('prompt_calculus_studio.local_ai.runtime.GEMMA4_TEMPLATE_SHA256',
+                        hashlib.sha256(template.encode()).hexdigest())
+        profile.start(); self.addCleanup(profile.stop)
+        self.props = dict(build_info='b11900-fixture', chat_template=template,
+                          chat_template_caps={'supports_reasoning_effort': False})
+        self.calls = []
+        self.ignore_toggle = False
+        def reply(route, payload=None, **kwargs):
+            self.calls.append((route, copy.deepcopy(payload)))
+            if route == '/props':
+                return self.props
+            if route == '/apply-template':
+                enabled = payload.get('chat_template_kwargs', {}).get('enable_thinking', True)
+                prefix = '<|turn>system\n<|think|><turn|>\n' if enabled or self.ignore_toggle else ''
+                return {'prompt': prefix + '<|turn>user\nHello<turn|>\n<|turn>model\n'}
+            if route == '/tokenize':
+                return {'tokens': list(range(12))}
+            self.fail(route)
+        responder = patch.object(self.runtime, '_json', side_effect=reply)
+        responder.start(); self.addCleanup(responder.stop)
+        self.params = dict(normalize_settings({'max_tokens': 1024}), reasoning=dict(DEFAULT_REASONING))
+
+    def options(self, **changes):
+        self.params['reasoning'] = dict(DEFAULT_REASONING, **changes)
+        return self.runtime._reasoning_options(self.params, Cancellation())
+
+    def test_default_and_explicit_switch_are_separate_from_reasoning_effort(self):
+        self.assertEqual(self.options(), {})
+        self.assertEqual(self.options(enable_thinking=True), {'chat_template_kwargs': {'enable_thinking': True}})
+        count = len(self.calls)
+        self.assertEqual(self.options(enable_thinking=False), {'chat_template_kwargs': {'enable_thinking': False}})
+        self.assertEqual(len(self.calls), count)  # Proved once per owned model load.
+        self.assertEqual(self.options(enable_thinking=True, reasoning_budget_tokens=-1),
+                         {'chat_template_kwargs': {'enable_thinking': True}})
+        with self.assertRaisesRegex(RuntimeError, '思考上限'):
+            self.options(enable_thinking=True, reasoning_budget_tokens=64)
+
+    def test_ignored_switch_unknown_template_or_build_is_rejected(self):
+        self.ignore_toggle = True
+        with self.assertRaisesRegex(RuntimeError, '未套用'):
+            self.options(enable_thinking=True)
+        self.ignore_toggle = False
+        self.props['build_info'] = 'b11899-fixture'
+        with self.assertRaisesRegex(RuntimeError, 'b11900'):
+            self.options(enable_thinking=True)
+        self.props['build_info'] = 'b11900-fixture'
+        self.props['chat_template'] = 'unverified modified template'
+        with self.assertRaisesRegex(RuntimeError, '思考切換'):
+            self.options(enable_thinking=True)
+
+    def test_preflight_and_stream_request_keep_identical_gemma_options(self):
+        messages = [dict(role='user', content='Hello')]
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled):
+                connection = FakeConnection(sse({'delta': {'content': 'answer'}, 'finish_reason': 'stop'}))
+                self.params['reasoning'] = dict(DEFAULT_REASONING, enable_thinking=enabled)
+                with patch('prompt_calculus_studio.local_ai.runtime.validate_model'), patch.object(self.runtime, '_connect', return_value=connection):
+                    self.assertEqual(self.runtime.generate(messages, self.params, Cancellation(), Mock()), ('completed', 'answer'))
+                applied = [payload for route, payload in self.calls if route == '/apply-template'][-1]
+                self.assertEqual(applied, dict(messages=messages, chat_template_kwargs={'enable_thinking': enabled}))
+                self.assertEqual(connection.sent[2]['chat_template_kwargs'], {'enable_thinking': enabled})
+                self.assertNotIn('reasoning_budget_tokens', connection.sent[2])
+
+
 class ReasoningOwnerContracts(unittest.TestCase):
     setUpClass = classmethod(preset_fixture.ModelPresetContracts.setUpClass.__func__)
     setUp = preset_fixture.ModelPresetContracts.setUp

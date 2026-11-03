@@ -24,6 +24,8 @@ from .settings import SAMPLING_KEYS, resolve_runtime
 # Verified against Qwen/Qwen3.5-9B's published template and llama.cpp b11900.
 # Do not infer a model capability from an editable display name or file name.
 QWEN35_TEMPLATE_SHA256 = 'a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715'
+# Actual local Gemma 4 E4B template; on/off rendering verified on b11900.
+GEMMA4_TEMPLATE_SHA256 = '55572b8d3c8342044e25874c73fe5234b661fa0a57a57f6ef75b58e03d7d959a'
 REASONING_BUILD = 'b11900-'
 
 
@@ -242,23 +244,29 @@ class LlamaRuntime:
             self._reasoning_props = props if isinstance(props, dict) else {}
         props = self._reasoning_props
         template = props.get('chat_template', '')
-        known_qwen = (isinstance(template, str) and
-                      hashlib.sha256(template.encode('utf-8')).hexdigest() == QWEN35_TEMPLATE_SHA256)
+        template_hash = hashlib.sha256(template.encode('utf-8')).hexdigest() if isinstance(template, str) else ''
+        known_qwen = template_hash == QWEN35_TEMPLATE_SHA256
+        known_gemma = template_hash == GEMMA4_TEMPLATE_SHA256
         if enabled is None and budget is None and not known_qwen:
             return {}
         build = props.get('build_info', '')
         if not isinstance(build, str) or not build.startswith(REASONING_BUILD):
             raise RuntimeError('此引擎尚未確認支援思考控制。請使用 llama.cpp b11900，或將思考上限設為不限。')
-        if enabled is not None and not known_qwen:
+        if enabled is not None and not (known_qwen or known_gemma):
             raise RuntimeError('此模型尚未確認支援思考切換。請將思考模式設為依模型。')
+        if known_gemma and budget is not None and budget >= 0:
+            raise RuntimeError('此模型尚未確認支援思考上限。請將思考上限設為依模型或不限。')
         probe = [{'role': 'user', 'content': 'Hello'}]
-        if known_qwen and not self._thinking_checked:
+        if (known_qwen or known_gemma) and not self._thinking_checked:
             on = self._json('/apply-template', dict(messages=probe, chat_template_kwargs={'enable_thinking': True}), cancel=cancel)
             off = self._json('/apply-template', dict(messages=probe, chat_template_kwargs={'enable_thinking': False}), cancel=cancel)
-            if (not isinstance(on, dict) or not isinstance(off, dict)
-                    or not isinstance(on.get('prompt'), str) or not isinstance(off.get('prompt'), str)
-                    or not on['prompt'].rstrip().endswith('<think>')
-                    or not off['prompt'].rstrip().endswith('</think>') or on['prompt'] == off['prompt']):
+            valid = (isinstance(on, dict) and isinstance(off, dict)
+                     and isinstance(on.get('prompt'), str) and isinstance(off.get('prompt'), str)
+                     and on['prompt'] != off['prompt'])
+            if valid:
+                valid = (on['prompt'].rstrip().endswith('<think>') and off['prompt'].rstrip().endswith('</think>')) if known_qwen else (
+                    '<|turn>system\n<|think|>' in on['prompt'] and '<|think|>' not in off['prompt'])
+            if not valid:
                 raise RuntimeError('引擎未套用思考模式。請確認模型與引擎版本。')
             self._thinking_checked = True
         options = {}
