@@ -121,9 +121,10 @@ class _InferenceThread(QThread):
                     request, model, messages, params = args
                     pieces = []
                     preparing = False
-                    deadline_timer, timed_out = None, Event()
+                    deadline_timer, timed_out, agent_deadline = None, Event(), None
                     if request.operation == 'agent':
                         from ..local_agents.execution import MAX_SECONDS
+                        agent_deadline = time.monotonic() + MAX_SECONDS
                         def expire():
                             timed_out.set()
                             cancel.cancel()
@@ -162,7 +163,8 @@ class _InferenceThread(QThread):
                                 cancel.check()
                                 return ticket['allow'] is True
                             outcome, detail = run(runtime, messages, params, cancel, request.input['agent'],
-                                                  delta, lambda event: self.activity.emit(request, event), approve)
+                                                  delta, lambda event: self.activity.emit(request, event), approve,
+                                                  deadline=agent_deadline)
                         else:
                             outcome, detail = runtime.generate(messages, params, cancel, delta)
                         cancel.check()

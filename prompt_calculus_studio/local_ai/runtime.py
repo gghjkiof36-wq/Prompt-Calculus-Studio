@@ -401,8 +401,7 @@ class LlamaRuntime:
         self.stop()
         return False
 
-    def tool_turn(self, messages, params, cancel, tools):
-        """One structured tool round, on the same owned server and single slot."""
+    def _tool_options(self, params, cancel, tools, final):
         validate_model(self.model)
         if self._reasoning_props is None:
             self._reasoning_props = self._json('/props', cancel=cancel)
@@ -411,13 +410,29 @@ class LlamaRuntime:
         if caps.get('supports_tools') is not True or caps.get('supports_tool_calls') is not True:
             raise RuntimeError('此模型的聊天模板未支援工具呼叫。請改選支援工具的本地模型。')
         options = self._reasoning_options(params, cancel)
-        tool_options = dict(options, tools=tools, tool_choice='auto', parallel_tool_calls=False)
-        count = self._prompt_tokens(messages, cancel, tool_options)
+        return dict(options, tools=tools, tool_choice='none' if final else 'auto', parallel_tool_calls=False)
+
+    def tool_budget(self, messages, params, cancel, tools, *, final=False):
+        """Count the actual engine template; reuse this exact preflight on send."""
+        cancel.check()
+        options = self._tool_options(params, cancel, tools, final)
+        key = hashlib.sha256(json.dumps([self.model['id'], messages, options], ensure_ascii=False,
+                                      sort_keys=True).encode('utf8')).hexdigest()
+        cached = getattr(self, '_tool_token_cache', None)
+        if cached is None or cached[0] != key:
+            cached = (key, self._prompt_tokens(messages, cancel, options))
+            self._tool_token_cache = cached
+        return dict(input=cached[1], output=params['max_tokens'], capacity=self.context_size)
+
+    def tool_turn(self, messages, params, cancel, tools, *, final=False):
+        """One structured tool round, on the same owned server and single slot."""
+        budget = self.tool_budget(messages, params, cancel, tools, final=final)
+        count = budget['input']
         if count + params['max_tokens'] > self.context_size:
             raise RuntimeError(f'Agent 上下文不足：輸入 {count} tokens，回覆預留 {params["max_tokens"]}，'
                                f'上限 {self.context_size}。請減少規則／讀取內容或調高模型上下文。')
         payload = dict(model=self.model['id'], messages=messages, stream=False,
-                       **{key: params[key] for key in SAMPLING_KEYS}, **tool_options)
+                       **{key: params[key] for key in SAMPLING_KEYS}, **self._tool_options(params, cancel, tools, final))
         value = self._json('/v1/chat/completions', payload, cancel=cancel, timeout=180)
         choices = value.get('choices') if isinstance(value, dict) else None
         if not isinstance(choices, list) or len(choices) != 1:
@@ -443,6 +458,8 @@ class LlamaRuntime:
             ids.add(call['id'])
         if bool(calls) != (reason == 'tool_calls'):
             raise RuntimeError('模型工具回覆狀態不一致。')
+        if final and calls:
+            raise RuntimeError('模型在收尾階段仍要求工具，本輪未完成。')
         return ('limited' if reason == 'length' else 'completed'), dict(role='assistant', content=text, **({'tool_calls': calls} if calls else {}))
 
     def stop(self):
@@ -469,5 +486,6 @@ class LlamaRuntime:
                 self.model, self.settings = None, None
                 self.context_size, self.port, self.key = 0, 0, ''
                 self._reasoning_props, self._thinking_checked, self._budget_checked = None, False, False
+                self._tool_token_cache = None
         if self.alive:
             raise RuntimeError('本地引擎尚未完全停止，仍在清理程序。')

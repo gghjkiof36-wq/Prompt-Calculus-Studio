@@ -66,8 +66,13 @@ class InferenceRuntime(Protocol):
     def generate(self, messages: list[dict], params: dict, cancel: Cancellation,
                  on_delta: Callable[[str], None]) -> tuple[str, str]: ...
 
+    def tool_budget(self, messages: list[dict], params: dict, cancel: Cancellation,
+                    tools: list[dict], *, final: bool = False) -> dict:
+        """Actual template input tokens, output reservation and slot capacity."""
+        ...
+
     def tool_turn(self, messages: list[dict], params: dict, cancel: Cancellation,
-                  tools: list[dict]) -> tuple[str, dict]:
+                  tools: list[dict], *, final: bool = False) -> tuple[str, dict]:
         """Return one formal assistant message, or reject unsupported tools."""
         ...
 

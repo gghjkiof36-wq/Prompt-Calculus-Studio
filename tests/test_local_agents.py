@@ -187,7 +187,11 @@ class AgentCore(unittest.TestCase):
     def test_structured_loop_reads_entry_and_reference_no_text_commands(self):
         class Engine:
             index = 0
-            def tool_turn(self, messages, params, cancel, tools):
+            def tool_budget(self, messages, params, cancel, tools, *, final=False):
+                cancel.check()
+                return dict(input=100, output=512, capacity=8192)
+
+            def tool_turn(self, messages, params, cancel, tools, *, final=False):
                 self.index += 1
                 if self.index <= 2:
                     path = 'SKILL.md' if self.index == 1 else 'references/save.md'

@@ -782,7 +782,17 @@ class ChatDocument(QObject):
             self._attempt['text'] = detail
             self._observe_thinking(suffix, streaming=False)
             target = {'completed': 'complete', 'cancelled': 'stopped', 'limited': 'limited'}[status]
-            self._finish_local(target, '已達最大輸出長度。' if status == 'limited' else '')
+            reason = '已達最大輸出長度。' if status == 'limited' else ''
+            if status == 'limited' and request.operation == 'agent':
+                events = self._attempt.get('agent', {}).get('events', [])
+                budgets = [event for event in events if event['operation'] == 'budget']
+                if budgets:
+                    try:
+                        if any(item.get('final') for item in json.loads(budgets[-1]['content'])):
+                            reason = '已達本輪讀取預算，已保留部分回覆；任務尚未完成。'
+                    except (TypeError, ValueError, AttributeError):
+                        pass
+            self._finish_local(target, reason)
         else:
             self._finish_local('failed', detail or '模型未完成回覆。')
 

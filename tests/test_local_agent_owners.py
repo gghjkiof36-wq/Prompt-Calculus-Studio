@@ -132,6 +132,22 @@ class AgentOwners(unittest.TestCase):
         self.assertEqual(self.a.path.read_bytes(), after)
         self.assertEqual(self.b.payload['turns'], [])
 
+    def test_budget_close_saves_partial_reply_with_correct_reason(self):
+        request = self.send()
+        self.event(request)
+        self.service.activity.emit(request, dict(operation='budget', target='A',
+            content=json.dumps([dict(input=6500, output=512, capacity=8192, final='context reserve')]),
+            sha256='', status='measured', skill=''))
+        self.service.finished.emit(request, 'limited', 'Only the verified portion.')
+        loaded = io.load(self.root, self.a.path.name).document
+        attempt = loaded['payload']['turns'][-1]['attempts'][-1]
+        self.assertEqual(attempt['status'], 'limited')
+        self.assertIn('讀取預算', attempt['reason'])
+        self.assertNotIn('最大輸出長度', attempt['reason'])
+        self.assertEqual(attempt['text'], 'Only the verified portion.')
+        self.assertEqual(attempt['agent']['events'][0]['content'], 'version-one')
+        self.assertEqual(self.b.payload['turns'], [])
+
     def test_read_approval_only_accepts_current_owner(self):
         from threading import Event
         from PySide6.QtCore import Qt
@@ -157,7 +173,11 @@ class AgentOwners(unittest.TestCase):
 
 
 class ToolRuntime(FakeRuntime):
-    def tool_turn(self, messages, params, cancel, tools):
+    def tool_budget(self, messages, params, cancel, tools, *, final=False):
+        cancel.check()
+        return dict(input=100, output=512, capacity=8192)
+
+    def tool_turn(self, messages, params, cancel, tools, *, final=False):
         self.generate_entered.set()
         while not self.generate_release.wait(.01):
             cancel.check()
