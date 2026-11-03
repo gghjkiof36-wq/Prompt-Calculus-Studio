@@ -18,16 +18,6 @@ class ResourceDelegate(QStyledItemDelegate):
         opt.features &= ~QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator
         style = opt.widget.style() if opt.widget else QApplication.style()
         style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
-        if tree.file_drag.target_row == index.row():
-            painter.save()
-            painter.setPen(QPen(QColor(tree.colors['accent_outline']), 1))
-            painter.drawLine(opt.rect.topLeft(), opt.rect.topRight())
-            painter.drawLine(opt.rect.bottomLeft(), opt.rect.bottomRight())
-            if index.column() == 0:
-                painter.drawLine(opt.rect.topLeft(), opt.rect.bottomLeft())
-            if index.column() == tree.last_visible_column():
-                painter.drawLine(opt.rect.topRight(), opt.rect.bottomRight())
-            painter.restore()
         checkable = index.column() == 0 and bool(index.flags() & Qt.ItemFlag.ItemIsUserCheckable)
         checked = index.data(Qt.ItemDataRole.CheckStateRole) in (Qt.CheckState.Checked, Qt.CheckState.Checked.value)
         keyboard = tree.hasFocus() and tree.currentIndex().row() == index.row()
@@ -66,8 +56,23 @@ class ResourceList(QTreeWidget):
         self.file_drag = ResourceFileDrag(self, parent)
         self.refresh_colors()
 
-    def last_visible_column(self):
-        return next((i for i in reversed(range(self.columnCount())) if not self.isColumnHidden(i)), 0)
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        item = self.topLevelItem(self.file_drag.target_row)
+        if item is None:
+            return
+        # Draw once over the completed row; per-cell borders are clipped by
+        # later cell painting and leave gaps at the header and column seams.
+        rect = self.visualItemRect(item)
+        rect.setLeft(1)
+        rect.setRight(self.viewport().width() - 2)
+        rect.adjust(0, 2, 0, -2)
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor(self.colors['accent_outline']), 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(rect, 5, 5)
+        painter.end()
 
     def startDrag(self, _supported):
         self.file_drag.start()
