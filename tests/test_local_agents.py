@@ -229,6 +229,42 @@ class AgentCore(unittest.TestCase):
         self.assertIn('更換 glob', session.execute('search_files', dict(glob='nothing*.py', query='owner')))
         self.assertIn('save.py:1', session.execute('search_files', dict(glob='*.py', query='Changed')))
 
+    def test_project_skill_and_registered_source_remain_separate_after_wrong_tool(self):
+        (self.project / 'SKILL.md').write_text('PROJECT-ONLY', encoding='utf8')
+        reference = self.root / 'extra' / 'SKILL.md'
+        reference.parent.mkdir()
+        reference.write_text('REGISTERED-REFERENCE', encoding='utf8')
+        self.store.save_project('Project', self.project, [(reference, 'reference')], self.agent['project'])
+        session = ReadSession(self.request(), Cancellation())
+        instructions = session.instructions()
+        self.assertIn('read_source with source=0', instructions)
+        self.assertNotIn('REGISTERED-REFERENCE', instructions)
+
+        # A guessed skill path is not remapped to either registered source.
+        with self.assertRaisesRegex(ValueError, 'read_skill'):
+            session.execute('read_file', dict(path='skills/saving/SKILL.md'))
+        missing = session.execute('search_files', dict(glob='skills/**/*.md', query=''))
+        self.assertIn('read_skill', missing)
+        self.assertEqual(session.used, set())
+        self.assertEqual(session.execute('search_files', dict(glob='SKILL.md', query='')), 'SKILL.md')
+        self.assertEqual(session.execute('read_file', dict(path='SKILL.md')), '1: PROJECT-ONLY')
+        self.assertIn('Read references/save.md', session.execute('read_skill', dict(skill=self.skill['id'], path='SKILL.md')))
+        self.assertIn('MARKER-57', session.execute('read_skill', dict(skill='saving', path='references/save.md')))
+        self.assertEqual(session.execute('read_source', dict(source=0)), 'REGISTERED-REFERENCE')
+        self.assertEqual(session.used, {self.skill['id']})
+
+    def test_unknown_skill_attachment_and_source_offer_recovery_without_reading(self):
+        session = ReadSession(self.request(), Cancellation())
+        for name, args, hint in (
+            ('read_skill', dict(skill='skills/saving', path='SKILL.md'), 'list_skills'),
+            ('read_skill', dict(skill='saving', path='saving/SKILL.md'), '技能內相對路徑'),
+            ('read_source', dict(source=3), '來源索引'),
+        ):
+            with self.assertRaisesRegex(ValueError, hint):
+                session.execute(name, args)
+        self.assertEqual(session.events, [])
+        self.assertEqual(session.used, set())
+
     def test_recursive_glob_includes_immediate_children(self):
         from prompt_calculus_studio.local_agents.execution import matches_glob
         for path in ('app/local_documents/io.py','app/local_documents/sub/io.py'):
