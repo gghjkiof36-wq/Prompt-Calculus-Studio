@@ -1,0 +1,4 @@
+# Optional A01 helper environment. PCS provides PySide6 from its normal desktop environment.
+mcp==1.30.0
+pydantic>=2.11,<3
+pywin32==312; sys_platform == "win32"
