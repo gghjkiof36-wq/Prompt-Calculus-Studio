@@ -185,13 +185,16 @@ class SidebarNavigationDelegate(QStyledItemDelegate):
 
 def navigation_entries(section, *, workspace=False):
     """One route map for the page and its inactive sidebar preview."""
+    if workspace and section in ('work_resources', 'local_skills', 'local_agents'):
+        return '工作資源', '返回探索', [('work_resources', '檔案', 'folder'),
+            ('local_skills', 'Skill', 'book-open'), ('local_agents', '專案', 'workflow')]
     explore = ('explore','connector','local_models','work_resources','local_skills','local_agents','civitai','downloads','civitai_settings',
                'comfy','workflows','workflow_manager','models','nodes')
     if section in explore:
         routes = [('workflows','ComfyUI','brand-comfyui'), ('civitai','CivitAI','brand-civitai')]
         if workspace:
-            routes += [('work_resources','工作資源','folder'), ('local_skills','Skill','book-open'),
-                       ('local_agents','Agent','workflow'), ('local_models','本地模型','server'), ('connector','下載紀錄','download')]
+            routes += [('work_resources','工作資源','folder'),
+                       ('local_models','本地模型','server'), ('connector','下載紀錄','download')]
         if section in ('comfy','workflows','workflow_manager','models','nodes'):
             routes += [('models','模型資產','media'), ('nodes','管理與更新','package')]
         elif section in ('civitai','downloads','civitai_settings'):
@@ -383,6 +386,9 @@ class SettingsPage(QWidget):
         self.adapt_navigation(); super().resizeEvent(event)
 
     def return_parent(self):
+        if self.section in ('work_resources', 'local_skills', 'local_agents'):
+            self.window.settings('local_models')
+            return
         self.cancel()
 
     def compact_navigate(self,index):
@@ -501,6 +507,11 @@ class SettingsPage(QWidget):
         self.syncing=False
 
     def open(self,section='interface'):
+        if hasattr(self, 'resources_content') and page_ready(self.resources_content) and section != getattr(self, 'section', None):
+            library = self.resources_content.load().agent_library
+            if library is not None and not library.can_leave():
+                self.configure_navigation(self.section)
+                return
         if section=='explore':
             section='local_models' if hasattr(self,'local_models_content') else 'workflows'
         if section=='connector':self.connector_content.load()

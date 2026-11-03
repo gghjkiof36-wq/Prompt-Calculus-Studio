@@ -66,7 +66,7 @@ class WorkResourcesPage(SourceActions, QWidget):
         self.title = label('工作資源', 'DialogTitle')
         self.agent_refresh = icon_button('refresh', '重新整理', lambda: self.agent_library.refresh())
         self.agent_refresh.hide()
-        line(layout, self.title, None, self.filter, self.agent_refresh, self.add_button)
+        self.header_row = line(layout, self.title, None, self.filter, self.agent_refresh, self.add_button)
         self.mode_layout = layout
         self.file_body, layout = column()
         self.mode_layout.addWidget(self.file_body, 1)
@@ -153,7 +153,10 @@ class WorkResourcesPage(SourceActions, QWidget):
             self.filter.setText(self.mode_queries.get(mode, ''))
             self.filter.blockSignals(False)
         self.mode = mode
-        self.title.setText({'files': '工作資源', 'skill': 'Skill', 'agent': 'Agent'}[mode])
+        self.title.setText({'files': '檔案', 'skill': 'Skill', 'agent': '專案'}[mode])
+        self.title.setToolTip('')
+        self.content.setMaximumWidth(PREFERRED_CONTENT_WIDTH if mode == 'files' else 1160)
+        self.filter.show(); self.add_button.show()
         self.file_body.setVisible(mode == 'files')
         self.agent_refresh.setVisible(mode != 'files')
         self.add_button.setText({'files': '加入檔案', 'agent': '新增 Agent', 'skill': '加入 Skill'}[mode])
@@ -167,6 +170,9 @@ class WorkResourcesPage(SourceActions, QWidget):
             self.agent_library.setVisible(mode != 'files')
             if mode != 'files':
                 self.agent_library.populate(mode, self.filter.text())
+            else:
+                for control in (self.agent_library.back_button, self.agent_library.settings_button, self.agent_library.sort_button):
+                    control.hide()
         if mode == 'files':
             self.reset_search()
 

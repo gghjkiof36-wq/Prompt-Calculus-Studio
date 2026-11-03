@@ -93,6 +93,65 @@ class AgentCore(unittest.TestCase):
         self.assertEqual((self.skill_path / 'SKILL.md').read_bytes(), before)
         self.assertNotEqual(item['revision'], self.store.refresh_skill(item['id'])['revision'])
 
+    def test_two_roles_in_one_project_receive_only_common_and_own_sources(self):
+        paths = {}
+        for name in ('common', 'role03', 'role08'):
+            paths[name] = self.project / (name + '.md')
+            paths[name].write_text('RULE-' + name, encoding='utf8')
+        project = self.store.save_project('PCS', self.project, [(paths['common'], 'rule')], self.agent['project'])
+        common_before = copy.deepcopy(project)
+        a = self.store.save_agent('03', project['id'], 'test-model', [], self.agent['id'],
+                                  sources=[(paths['role03'], 'rule'), (paths['common'], 'reference')])
+        b = self.store.save_agent('08', project['id'], 'test-model', [], sources=[(paths['role08'], 'rule')])
+        self.assertEqual(self.store.value['version'], 2)
+        ar, br = self.store.request(a['id'], 'task', 'auto'), self.store.request(b['id'], 'task', 'auto')
+        self.assertEqual(ReadSession(ar, Cancellation()).sources, ['RULE-common', 'RULE-role03'])
+        self.assertEqual(ReadSession(br, Cancellation()).sources, ['RULE-common', 'RULE-role08'])
+        self.assertEqual(self.store.get('projects', project['id']), common_before)
+        accepted = ReadSession(ar, Cancellation())
+        paths['role03'].write_text('NEW-03', encoding='utf8')
+        with self.assertRaisesRegex(ValueError, '已更新'):
+            ReadSession(ar, Cancellation())
+        self.assertEqual(accepted.sources, ['RULE-common', 'RULE-role03'])
+        self.store.save_agent('renamed', project['id'], 'test-model', [], a['id'])
+        self.assertEqual(self.store.get('agents', a['id'])['sources'], a['sources'])
+
+    def test_legacy_sources_preserved_and_role_extension_requires_v2(self):
+        source = self.project / '03-AGENTS.md'
+        source.write_text('legacy shared source', encoding='utf8')
+        legacy = self.store.save_project('PCS', self.project, [(source, 'rule')], self.agent['project'])
+        before = self.store.path.read_bytes()
+        self.store.reload()
+        self.assertEqual(self.store.path.read_bytes(), before)
+        self.assertEqual(self.store.value['version'], 1)
+        # No filename-based migration of old common rules.
+        self.store.save_agent('03', legacy['id'], 'test-model', [], self.agent['id'], sources=[])
+        self.assertEqual(self.store.value['version'], 1)
+        self.assertEqual(self.store.get('projects', legacy['id']), legacy)
+        self.store.save_agent('03', legacy['id'], 'test-model', [], self.agent['id'], sources=[(source, 'rule')])
+        current = self.store.path.read_bytes()
+        self.assertEqual(json.loads(current)['version'], 2)
+        bad = json.loads(current); bad['version'] = 1
+        self.store.path.write_text(json.dumps(bad), encoding='utf8')
+        with self.assertRaises(ValueError):
+            self.store.reload()
+        self.assertEqual(json.loads(self.store.path.read_bytes()), bad)
+
+    def test_role_merge_limit_and_failed_save_do_not_mutate_registry(self):
+        sources=[]
+        for i in range(25):
+            path = self.project / f'rule-{i}.md'; path.write_text(str(i), encoding='utf8')
+            sources.append((path, 'rule'))
+        self.store.save_project('Project', self.project, sources[:24], self.agent['project'])
+        before, state = self.store.path.read_bytes(), copy.deepcopy(self.store.value)
+        with self.assertRaisesRegex(ValueError, '合計最多 24'):
+            self.store.save_agent('A', self.agent['project'], 'test-model', [], self.agent['id'], sources=sources[24:])
+        with patch('prompt_calculus_studio.local_agents.store.atomic_json', side_effect=OSError('write failed')):
+            with self.assertRaises(OSError):
+                self.store.save_agent('A', self.agent['project'], 'test-model', [], self.agent['id'], sources=sources[:1])
+        self.assertEqual(self.store.path.read_bytes(), before)
+        self.assertEqual(self.store.value, state)
+
     def test_multiple_skill_roles_and_persistence(self):
         second = self.store.add_skill(make_skill(self.root / 'second', 'other'))
         a = self.store.save_agent('A', self.project_record['id'], 'test-model', [self.skill['id'], second['id']], self.agent['id'])

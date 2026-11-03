@@ -19,7 +19,7 @@ class AgentStore:
     def reload(self):
         raw = read_bytes(self.path, 4 * 1024 * 1024) if self.path.exists() else b''
         value = json.loads(raw) if raw else dict(version=1, skills=[], projects=[], agents=[])
-        if not isinstance(value, dict) or set(value) != {'version', 'skills', 'projects', 'agents'} or value['version'] != 1:
+        if not isinstance(value, dict) or set(value) != {'version', 'skills', 'projects', 'agents'} or value['version'] not in (1, 2):
             raise ValueError('本地 Agent 設定版本無法讀取，原檔保留。')
         for key in ('skills', 'projects', 'agents'):
             rows = value[key]
@@ -47,19 +47,29 @@ class AgentStore:
                 if (not isinstance(item['name'], str) or not isinstance(item['cwd'], str) or
                         not Path(item['cwd']).is_absolute() or not isinstance(item['sources'], list) or len(item['sources']) > 24):
                     raise ValueError()
-                for source in item['sources']:
-                    if (source['kind'] not in ('rule', 'reference') or
-                            any(not isinstance(source[k], str) or not source[k] for k in ('path', 'resolved', 'sha256'))):
-                        raise ValueError()
+                self._validate_sources(item['sources'])
             for item in value['agents']:
                 if (any(not isinstance(item[k], str) or not item[k] for k in ('name', 'project', 'model')) or
                         not isinstance(item['skills'], list) or len(item['skills']) > 32 or
                         any(not isinstance(k, str) for k in item['skills'])):
                     raise ValueError()
+                if 'sources' in item:
+                    if value['version'] < 2:
+                        raise ValueError()
+                    self._validate_sources(item['sources'])
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError('本地 Agent 設定內容不完整，原檔保留。') from exc
         self.value, self.revision = value, digest(raw)
         return self
+
+    @staticmethod
+    def _validate_sources(sources):
+        if not isinstance(sources, list) or len(sources) > 24:
+            raise ValueError('規則與參考來源最多 24 份。')
+        for source in sources:
+            if (not isinstance(source, dict) or source['kind'] not in ('rule', 'reference') or
+                    any(not isinstance(source[k], str) or not source[k] for k in ('path', 'resolved', 'sha256'))):
+                raise ValueError('規則與參考來源格式無效。')
 
     def save(self):
         raw = read_bytes(self.path, 4 * 1024 * 1024) if self.path.exists() else b''
@@ -120,10 +130,20 @@ class AgentStore:
         self._put('skills', item)
 
     def _put(self, kind, item):
-        self.value[kind] = [item if r['id'] == item['id'] else r for r in self.value[kind]]
-        if not any(r['id'] == item['id'] for r in self.value[kind]):
-            self.value[kind].append(item)
-        self.save()
+        before = self.value
+        candidate = copy.deepcopy(before)
+        candidate[kind] = [item if r['id'] == item['id'] else r for r in candidate[kind]]
+        if not any(r['id'] == item['id'] for r in candidate[kind]):
+            candidate[kind].append(item)
+        if kind == 'agents' and 'sources' in item:
+            # Old readers reject v2 instead of silently ignoring role rules.
+            candidate['version'] = 2
+        self.value = candidate
+        try:
+            self.save()
+        except (ValueError, OSError):
+            self.value = before
+            raise
 
     def save_project(self, name, cwd, sources, identity=None):
         item = self._project_value(name, cwd, sources, identity)
@@ -134,6 +154,11 @@ class AgentStore:
         root = Path(cwd).expanduser().resolve(strict=True)
         if not root.is_dir() or root == Path(root.anchor) or not isinstance(name, str) or not 1 <= len(name.strip()) <= 120:
             raise ValueError('請填寫專案名稱並選擇工作目錄。')
+        rules = self._capture_sources(sources)
+        return dict(id=identity or str(uuid4()), name=name.strip(), cwd=str(root), sources=rules)
+
+    @staticmethod
+    def _capture_sources(sources):
         if len(sources) > 24:
             raise ValueError('規則與參考來源最多 24 份。')
         rules, seen = [], set()
@@ -141,28 +166,57 @@ class AgentStore:
             item = file_snapshot(path, kind)
             if item['resolved'] not in seen:
                 rules.append(item); seen.add(item['resolved'])
-        return dict(id=identity or str(uuid4()), name=name.strip(), cwd=str(root), sources=rules)
+        return rules
 
-    def save_agent(self, name, project, model, skills, identity=None):
-        self.get('projects', project)
-        item = self._agent_value(name, project, model, skills, identity)
+    def save_agent(self, name, project, model, skills, identity=None, *, sources=None):
+        project_value = self.get('projects', project)
+        item = self._agent_value(name, project, model, skills, identity, sources=sources)
+        self._merged_sources(project_value['sources'], item.get('sources', []))
         self._put('agents', item)
         return item
 
-    def _agent_value(self, name, project, model, skills, identity=None):
+    def _agent_value(self, name, project, model, skills, identity=None, *, sources=None):
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120 or not model:
             raise ValueError('請填寫 Agent 名稱並選擇模型。')
         if len(set(skills)) > 32:
             raise ValueError('一個 Agent 最多選擇 32 個技能。')
         for key in skills:
             self.get('skills', key)
-        return dict(id=identity or str(uuid4()), name=name.strip(), project=project,
+        item = dict(id=identity or str(uuid4()), name=name.strip(), project=project,
                     model=model, skills=list(dict.fromkeys(skills)))
+        previous = self.get('agents', identity) if identity else {}
+        if sources is not None:
+            captured = self._capture_sources(sources)
+            if captured or 'sources' in previous:
+                item['sources'] = captured
+        elif 'sources' in previous:
+            item['sources'] = previous['sources']
+        return item
+
+    @staticmethod
+    def _merged_sources(common, own):
+        """A request contains only common rules and its own role, never siblings."""
+        result, seen = [], {}
+        for source in common + own:
+            key = Path(source['resolved'])
+            if key in seen:
+                previous = seen[key]
+                if previous['sha256'] != source['sha256']:
+                    raise ValueError('專案與 Agent 的來源版本不同，請重新讀取來源。')
+                if source['kind'] == 'rule':
+                    previous['kind'] = 'rule'
+                continue
+            value = copy.deepcopy(source)
+            seen[key] = value; result.append(value)
+        if len(result) > 24:
+            raise ValueError('專案與 Agent 合計最多 24 份規則與參考。')
+        return result
 
     def save_configuration(self, name, model, skills, project_name, cwd, sources, *, identity=None, project_identity=None):
         """Validate both drafts, then replace their shared registry once."""
         project = self._project_value(project_name, cwd, sources, project_identity)
         agent = self._agent_value(name, project['id'], model, skills, identity)
+        self._merged_sources(project['sources'], agent.get('sources', []))
         before = self.value
         candidate = copy.deepcopy(before)
         for kind, item in (('projects', project), ('agents', agent)):
@@ -181,6 +235,9 @@ class AgentStore:
         self.reload()
         agent = self.get('agents', identity)
         project = self.get('projects', agent['project'])
+        # Preserve the accepted v1 execution contract: all effective sources
+        # are explicit in this immutable request, including for old readers.
+        project['sources'] = self._merged_sources(project['sources'], agent.get('sources', []))
         skills = [self.get('skills', key) for key in agent['skills']]
         explicit, selected = [], []
         for token in re.findall(r'(?<!\w)@([^\s,，。!?！？;；]+)', text):
@@ -201,12 +258,23 @@ class AgentStore:
 
 def pcs_rules(root, group='03-1'):
     """Explicit PCS shortcut, not traversal of every Markdown link in a vault."""
+    return pcs_common_rules(root) + pcs_role_rules(root, group)
+
+
+def pcs_common_rules(root):
+    root = Path(root).resolve(strict=True)
+    vault = root / 'obsidian工作區' / '交接管理庫' / '交接管理庫'
+    rules = [root / 'AGENTS.md', vault / 'AGENTS.md', root / 'repository' / 'AGENTS.md']
+    return [(str(p), 'rule') for p in rules if p.is_file()]
+
+
+def pcs_role_rules(root, group):
     root = Path(root).resolve(strict=True)
     vault = root / 'obsidian工作區' / '交接管理庫' / '交接管理庫'
     parent = group.split('-')[0]
     local = vault / '組別' / group / 'AGENTS.md'
     main = vault / '組別' / parent / 'AGENTS.md'
-    rules = [root / 'AGENTS.md', vault / 'AGENTS.md', main, root / 'repository' / 'AGENTS.md']
+    rules = [main]
     if local != main and local.is_file():
         rules.append(local)
     result = [(str(p), 'rule') for p in rules if p.is_file()]
