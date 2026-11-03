@@ -185,12 +185,12 @@ class SidebarNavigationDelegate(QStyledItemDelegate):
 
 def navigation_entries(section, *, workspace=False):
     """One route map for the page and its inactive sidebar preview."""
-    explore = ('explore','connector','local_models','civitai','downloads','civitai_settings',
+    explore = ('explore','connector','local_models','work_resources','civitai','downloads','civitai_settings',
                'comfy','workflows','workflow_manager','models','nodes')
     if section in explore:
         routes = [('workflows','ComfyUI','brand-comfyui'), ('civitai','CivitAI','brand-civitai')]
         if workspace:
-            routes += [('local_models','本地模型','server'), ('connector','下載紀錄','download')]
+            routes += [('work_resources','工作資源','folder'), ('local_models','本地模型','server'), ('connector','下載紀錄','download')]
         if section in ('comfy','workflows','workflow_manager','models','nodes'):
             routes += [('models','模型資產','media'), ('nodes','管理與更新','package')]
         elif section in ('civitai','downloads','civitai_settings'):
@@ -256,6 +256,8 @@ class SettingsPage(QWidget):
         self.connector_content=DeferredToolPage(self.make_connector_page)
         self.add('connector','下載紀錄',self.connector_content)
         if getattr(window,'workspace_owner',None) is not None:
+            self.resources_content=DeferredToolPage(self.make_work_resources_page)
+            self.add('work_resources','工作資源',self.resources_content)
             self.local_models_content=DeferredToolPage(self.make_local_models_page)
             self.add('local_models','對話模型',self.local_models_content)
         self.add('explore','探索',self.make_explore_page())
@@ -315,6 +317,10 @@ class SettingsPage(QWidget):
         from .connector_page import ConnectorPage
         return reading_page(ConnectorPage(self.window))
 
+    def make_work_resources_page(self):
+        from .work_resources.page import WorkResourcesPage
+        return WorkResourcesPage(self.window)
+
     def make_local_models_page(self):
         from .local_ai.model_page import LocalModelPage
         from .local_ai.service import for_workspace
@@ -342,7 +348,7 @@ class SettingsPage(QWidget):
         for i,(key,title,symbol) in enumerate(routes):
             item=QListWidgetItem(title)
             if area=='設定' and i in (1,3) and not self.window.embedded_document:item.setData(Qt.ItemDataRole.UserRole,8)
-            if area=='探索' and i==(3 if getattr(self.window,'workspace_owner',None) is not None else 1) and len(routes)>i+1:
+            if area=='探索' and key==('connector' if getattr(self.window,'workspace_owner',None) is not None else 'civitai') and len(routes)>i+1:
                 item.setData(Qt.ItemDataRole.UserRole,18)
             self.navigation.addItem(item); self.compact_navigation.addItem(title,key)
         selected={'comfy':'workflows','workflow_manager':'workflows','explore':'local_models'}.get(section,section)
@@ -494,6 +500,7 @@ class SettingsPage(QWidget):
         if section=='explore':
             section='local_models' if hasattr(self,'local_models_content') else 'workflows'
         if section=='connector':self.connector_content.load()
+        if section=='work_resources' and hasattr(self,'resources_content'):self.resources_content.load()
         if section=='local_models' and hasattr(self,'local_models_content'):
             self.local_models_content.load().prepare_workspace_show()
         if section in ('appearance','completion','dictionary'):self.ensure_preferences()

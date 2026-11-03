@@ -249,45 +249,50 @@ def load_archive(path, cancel=None, progress=lambda text: None, limits=Limits())
     cancel = cancel or Event()
     path, stamp = safe_source(path, limits)
     if path.suffix.lower() not in ('.json', '.zip'):raise ValueError('請選擇 ZIP 或 JSON 對話封存。')
-    conversations, seen, members, sources = [], set(), (), frozenset()
-    nodes = 0
     with pinned_parent(path), reader(path) as stream:
         if identity(os.fstat(stream.fileno())) != stamp:raise ValueError('來源檔案在開啟時被替換。')
-        digest = fingerprint(stream, cancel)
-        def add(raw):
-            nonlocal nodes
-            value = decode_json(raw)
-            if isinstance(value, dict) and value.get('provider') == 'chatgpt' and 'version' in value and 'messages' in value:
-                from .connector_capture import MAX_CAPTURE_BYTES
-                if len(raw) > MAX_CAPTURE_BYTES:
-                    raise ValueError('擷取資料超過 16 MiB，請減少選取訊息。')
-            for record in records(value):
-                checkpoint(cancel)
-                item = conversation(record, limits)
-                pair = item.key, item.digest
-                if pair not in seen:
-                    nodes += len(item.raw['mapping'])
-                    if nodes > limits.nodes:raise ValueError('封存的訊息節點總數超過 100,000。')
-                    seen.add(pair)
-                    conversations.append(item)
-                    if len(conversations) > limits.conversations:raise ValueError('對話數量超過限制。')
-        progress('正在讀取對話…')
-        if path.suffix.lower() == '.zip':
-            try:
-                with ZipFile(stream) as archive:
-                    entries = zip_members(archive, limits)
-                    sources = frozenset(name for name in entries if re.fullmatch(r'conversations(?:[-_]\d+)?\.json', PurePosixPath(name).name, re.I))
-                    if not sources:raise ValueError('ZIP 裡找不到 conversations.json 或 conversations-數字.json。')
-                    members = tuple(name for name in entries if name not in sources)
-                    for name in sorted(sources):
-                        progress('正在讀取 '+name+'…')
-                        with archive.open(name) as member:
-                            add(read_chunks(member, limits.member, cancel))
-            except (BadZipFile, RuntimeError, NotImplementedError) as error:
-                raise ValueError('ZIP 無法讀取：'+str(error)) from error
-        else:add(read_chunks(stream, limits.source, cancel))
-        result = Archive(path, stamp, digest, conversations, members, limits, sources)
+        result = parse_archive(stream, path, stamp, fingerprint(stream, cancel), cancel, progress, limits)
         result.verify(stream, cancel, full=False)
+    return result
+
+
+def parse_archive(stream, path, stamp, digest, cancel=None, progress=lambda text: None, limits=Limits()):
+    """Parse a caller-owned, bounded byte source using the same archive rules."""
+    conversations, seen, members, sources = [], set(), (), frozenset()
+    nodes = 0
+    def add(raw):
+        nonlocal nodes
+        value = decode_json(raw)
+        if isinstance(value, dict) and value.get('provider') == 'chatgpt' and 'version' in value and 'messages' in value:
+            from .connector_capture import MAX_CAPTURE_BYTES
+            if len(raw) > MAX_CAPTURE_BYTES:
+                raise ValueError('擷取資料超過 16 MiB，請減少選取訊息。')
+        for record in records(value):
+            checkpoint(cancel)
+            item = conversation(record, limits)
+            pair = item.key, item.digest
+            if pair not in seen:
+                nodes += len(item.raw['mapping'])
+                if nodes > limits.nodes:raise ValueError('封存的訊息節點總數超過 100,000。')
+                seen.add(pair)
+                conversations.append(item)
+                if len(conversations) > limits.conversations:raise ValueError('對話數量超過限制。')
+    progress('正在讀取對話…')
+    if path.suffix.lower() == '.zip':
+        try:
+            with ZipFile(stream) as archive:
+                entries = zip_members(archive, limits)
+                sources = frozenset(name for name in entries if re.fullmatch(r'conversations(?:[-_]\d+)?\.json', PurePosixPath(name).name, re.I))
+                if not sources:raise ValueError('ZIP 裡找不到 conversations.json 或 conversations-數字.json。')
+                members = tuple(name for name in entries if name not in sources)
+                for name in sorted(sources):
+                    progress('正在讀取 '+name+'…')
+                    with archive.open(name) as member:
+                        add(read_chunks(member, limits.member, cancel))
+        except (BadZipFile, RuntimeError, NotImplementedError) as error:
+            raise ValueError('ZIP 無法讀取：'+str(error)) from error
+    else:add(read_chunks(stream, limits.source, cancel))
+    result = Archive(path, stamp, digest, conversations, members, limits, sources)
     if not conversations:raise ValueError('封存沒有可匯入的對話。')
     progress(f'已讀取 {len(conversations)} 段對話')
     return result

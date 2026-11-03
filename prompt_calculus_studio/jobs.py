@@ -29,7 +29,7 @@ class Jobs(QObject):
         self.callback = None
         self.error_callback=None
 
-    def start(self, label, function, callback, failed=None, *, finish_accepted=False):
+    def start(self, label, function, callback, failed=None, *, finish_accepted=False, announce=True):
         if self.active:
             self.window.notice("檔案工作仍在處理中，請稍候或取消。")
             return False
@@ -37,7 +37,8 @@ class Jobs(QObject):
         self.callback = callback
         self.error_callback=failed
         self.active.signals.finished.connect(self.finished)
-        self.window.notice(label)
+        if announce:
+            self.window.notice(label)
         self.pool.start(self.active)
         return True
 

@@ -77,7 +77,7 @@ def _native():
     return api, nt
 
 
-def _relative(parent, name, *, guard=False):
+def _relative(parent, name, *, guard=False, read_file=False, sharing=0x3):
     """One component only; never reopen the ancestors by their path names."""
     if not name or name in ('.', '..') or any(c in name for c in '/\\:'):
         raise ValueError('保存資料夾的路徑無效。')
@@ -93,10 +93,10 @@ def _relative(parent, name, *, guard=False):
     # SYNCHRONIZE | FILE_READ_ATTRIBUTES, plus DELETE for the guard or
     # FILE_LIST_DIRECTORY | FILE_TRAVERSE for a directory. Sharing excludes
     # FILE_SHARE_DELETE but permits ordinary child-file writes/replacements.
-    access = 0x100080 | (0x10000 if guard else 0x21)
-    options = 0x200020 | (0x1040 if guard else 0x1)
+    access = 0x100080 | (0x10000 if guard else 0x1 if read_file else 0x21)
+    options = 0x200020 | (0x1040 if guard else 0x40 if read_file else 0x1)
     result = nt.NtCreateFile(ctypes.byref(handle), access, ctypes.byref(attributes),
-        ctypes.byref(status), None, 0x102 if guard else 0, 0x3,
+        ctypes.byref(status), None, 0x102 if guard else 0, sharing,
         2 if guard else 1, options, None, 0)
     if result < 0:
         raise ctypes.WinError(nt.RtlNtStatusToDosError(result))
