@@ -401,6 +401,50 @@ class LlamaRuntime:
         self.stop()
         return False
 
+    def tool_turn(self, messages, params, cancel, tools):
+        """One structured tool round, on the same owned server and single slot."""
+        validate_model(self.model)
+        if self._reasoning_props is None:
+            self._reasoning_props = self._json('/props', cancel=cancel)
+        props = self._reasoning_props
+        caps = props.get('chat_template_caps', {})
+        if caps.get('supports_tools') is not True or caps.get('supports_tool_calls') is not True:
+            raise RuntimeError('此模型的聊天模板未支援工具呼叫。請改選支援工具的本地模型。')
+        options = self._reasoning_options(params, cancel)
+        tool_options = dict(options, tools=tools, tool_choice='auto', parallel_tool_calls=False)
+        count = self._prompt_tokens(messages, cancel, tool_options)
+        if count + params['max_tokens'] > self.context_size:
+            raise RuntimeError(f'Agent 上下文不足：輸入 {count} tokens，回覆預留 {params["max_tokens"]}，'
+                               f'上限 {self.context_size}。請減少規則／讀取內容或調高模型上下文。')
+        payload = dict(model=self.model['id'], messages=messages, stream=False,
+                       **{key: params[key] for key in SAMPLING_KEYS}, **tool_options)
+        value = self._json('/v1/chat/completions', payload, cancel=cancel, timeout=180)
+        choices = value.get('choices') if isinstance(value, dict) else None
+        if not isinstance(choices, list) or len(choices) != 1:
+            raise RuntimeError('模型工具回覆格式無效。')
+        choice = choices[0]
+        if not isinstance(choice, dict):
+            raise RuntimeError('模型工具回覆格式無效。')
+        message, reason = choice.get('message'), choice.get('finish_reason')
+        if not isinstance(message, dict) or message.get('role') != 'assistant' or reason not in ('stop', 'length', 'tool_calls'):
+            raise RuntimeError('模型工具回覆未正常結束。')
+        text = message.get('content') or ''
+        calls = message.get('tool_calls') or []
+        if not isinstance(text, str) or len(text) > 1_000_000 or not isinstance(calls, list) or len(calls) > 8:
+            raise RuntimeError('模型工具回覆過大或格式無效。')
+        ids = set()
+        for call in calls:
+            function = call.get('function') if isinstance(call, dict) else None
+            if (not isinstance(call, dict) or call.get('type') != 'function' or not isinstance(call.get('id'), str)
+                    or not 1 <= len(call['id']) <= 128 or call['id'] in ids or not isinstance(function, dict)
+                    or not isinstance(function.get('name'), str) or len(function['name']) > 128
+                    or not isinstance(function.get('arguments'), str) or len(function['arguments']) > 8192):
+                raise RuntimeError('模型工具參數格式無效。')
+            ids.add(call['id'])
+        if bool(calls) != (reason == 'tool_calls'):
+            raise RuntimeError('模型工具回覆狀態不一致。')
+        return ('limited' if reason == 'length' else 'completed'), dict(role='assistant', content=text, **({'tool_calls': calls} if calls else {}))
+
     def stop(self):
         process, job = self.process, self.job
         # Do not drop ownership until the child is known to have exited.

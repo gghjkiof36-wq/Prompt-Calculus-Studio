@@ -53,7 +53,7 @@ class WorkResourcesPage(SourceActions, QWidget):
         self.outer.addStretch()
         self.outer.addWidget(self.content, 1)
         self.outer.addStretch()
-        self.add_button = button('加入檔案', self.add_menu, 'Primary')
+        self.add_button = button('加入檔案', self.add_current, 'Primary')
         self.manage = icon_button('more-horizontal', '管理來源', self.manage_sources)
         self.filter = QLineEdit()
         self.filter.setPlaceholderText('搜尋名稱或內容')
@@ -62,7 +62,15 @@ class WorkResourcesPage(SourceActions, QWidget):
         self.filter.setMaximumWidth(320)
         self.filter.setMinimumWidth(120)
         self.filter.addAction(icon('search'), QLineEdit.ActionPosition.LeadingPosition)
-        line(layout, label('工作資源', 'DialogTitle'), None, self.filter, self.add_button)
+        self.mode = ComboBox()
+        self.mode.setAccessibleName('工作資源模式')
+        for title, value in [('檔案', 'files'), ('Agent', 'agent'), ('Skill', 'skill')]:
+            self.mode.addItem(title, value)
+        line(layout, label('工作資源', 'DialogTitle'), self.mode, None, self.filter, self.add_button)
+        self.mode_layout = layout
+        self.file_body, layout = column()
+        self.mode_layout.addWidget(self.file_body, 1)
+        self.agent_library = None
         self.kind = ComboBox()
         self.kind.setAccessibleName('檔案篩選')
         for title, value in [('全部檔案', 'all'), ('文件', 'document'), ('對話', 'archive'), ('規則與定義', 'definitions')]:
@@ -125,7 +133,32 @@ class WorkResourcesPage(SourceActions, QWidget):
         self.filter.textChanged.connect(self.reset_search)
         self.results.toggleSelection.connect(self.toggle_highlighted)
         QShortcut(QKeySequence.StandardKey.Find, self).activated.connect(self.filter.setFocus)
+        self.mode.currentIndexChanged.connect(self.set_mode)
+        self.mode.setCurrentIndex(max(0, self.mode.findData(getattr(self.workspace, 'work_resources_mode', 'files'))))
         self.reset_search()
+
+    def add_current(self):
+        if self.mode.currentData() == 'files':
+            self.add_menu()
+        else:
+            self.agent_library.add()
+
+    def set_mode(self):
+        mode = self.mode.currentData()
+        self.workspace.work_resources_mode = mode
+        self.file_body.setVisible(mode == 'files')
+        self.add_button.setText({'files': '加入檔案', 'agent': '新增 Agent', 'skill': '加入 Skill'}[mode])
+        self.filter.setPlaceholderText('搜尋名稱或內容' if mode == 'files' else '搜尋名稱或用途')
+        if mode != 'files' and self.agent_library is None:
+            from ..local_agents.page import AgentLibrary
+            self.agent_library = AgentLibrary(self)
+            self.mode_layout.addWidget(self.agent_library, 1)
+        if self.agent_library is not None:
+            self.agent_library.setVisible(mode != 'files')
+            if mode != 'files':
+                self.agent_library.populate(mode, self.filter.text())
+        if mode == 'files':
+            self.reset_search()
 
     @staticmethod
     def key(row):
@@ -194,6 +227,10 @@ class WorkResourcesPage(SourceActions, QWidget):
         self.job('正在重新整理…', work, done)
 
     def reset_search(self, *_):
+        if self.mode.currentData() != 'files':
+            if self.agent_library is not None:
+                self.agent_library.populate(self.mode.currentData(), self.filter.text())
+            return
         self.offset = 0
         self.ticket += 1
         self.search_pending = True

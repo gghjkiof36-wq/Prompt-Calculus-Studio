@@ -13,16 +13,16 @@ class OutsideSource(ValueError):
     pass
 
 
-def parts(relative):
+def parts(relative, *, allow_hidden=False):
     names = paths.relative_parts(relative)
-    if any(name.startswith('.') for name in names):
+    if not allow_hidden and any(name.startswith('.') for name in names):
         raise OutsideSource('不讀取隱藏檔案或內部資料夾。')
     return names
 
 
-def local_folder(value):
+def local_folder(value, *, allow_hidden=False):
     path = Path(value)
-    if any(p.startswith('.') for p in path.parts):
+    if not allow_hidden and any(p.startswith('.') for p in path.parts):
         raise OutsideSource('不讀取隱藏資料夾或其子目錄。')
     if not path.is_absolute() or '..' in path.parts or path == Path(path.anchor):
         raise OutsideSource('請選擇本機資料夾，範圍不能是整個磁碟。')
@@ -32,10 +32,10 @@ def local_folder(value):
 
 
 @contextmanager
-def directory(root, relative='', expected=None):
+def directory(root, relative='', expected=None, *, allow_hidden=False):
     """Deny ancestor rename and pin the last directory against reparse changes."""
-    root = local_folder(root)
-    nested = parts(relative) if relative else []
+    root = local_folder(root, allow_hidden=allow_hidden)
+    nested = parts(relative, allow_hidden=allow_hidden) if relative else []
     directory_path = root.joinpath(*nested)
     names = [*root.parts[1:], *nested]
     with ExitStack() as handles:
@@ -68,9 +68,9 @@ def directory(root, relative='', expected=None):
 
 
 @contextmanager
-def verified_stream(root, relative, expected=None):
-    names = parts(relative)
-    with directory(root, '/'.join(names[:-1]), expected) as (parent, folder, _):
+def verified_stream(root, relative, expected=None, *, allow_hidden=False):
+    names = parts(relative, allow_hidden=allow_hidden)
+    with directory(root, '/'.join(names[:-1]), expected, allow_hidden=allow_hidden) as (parent, folder, _):
         if os.name == 'nt':
             import msvcrt
             api, _ = pin._native()
@@ -104,8 +104,8 @@ def verified_stream(root, relative, expected=None):
                 raise OutsideSource('來源在讀取期間已改變，請重新整理。')
 
 
-def read_source(root, relative, expected=None, limit=8*1024*1024, cancel=None):
-    with verified_stream(root, relative, expected) as (stream, info):
+def read_source(root, relative, expected=None, limit=8*1024*1024, cancel=None, *, allow_hidden=False):
+    with verified_stream(root, relative, expected, allow_hidden=allow_hidden) as (stream, info):
         if info.st_size > limit:
             raise ValueError(f'檔案超過 {limit // 1024 // 1024} MiB。')
         raw = read_chunks(stream, limit, cancel)

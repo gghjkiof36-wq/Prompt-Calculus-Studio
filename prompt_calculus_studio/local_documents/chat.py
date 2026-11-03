@@ -17,8 +17,11 @@ def empty():
 
 
 def validate_payload(payload):
-    if not isinstance(payload, dict) or set(payload) - {'draft_attachments', 'revisions'} != {'version', 'draft', 'system_prompt', 'turns'} or type(payload['version']) is not int or payload['version'] != 1:
+    if not isinstance(payload, dict) or set(payload) - {'draft_attachments', 'revisions', 'agent_id'} != {'version', 'draft', 'system_prompt', 'turns'} or type(payload['version']) is not int or payload['version'] != 1:
         fail('unsupported', '不支援此對話版本。')
+    if 'agent_id' in payload:
+        from .chat_agent import validate_binding
+        validate_binding(payload['agent_id'])
     if not isinstance(payload['draft'], str) or len(payload['draft']) > MAX_TEXT:
         fail('limit', '對話草稿過長。')
     if not isinstance(payload['system_prompt'], str) or len(payload['system_prompt']) > MAX_TEXT:
@@ -66,8 +69,11 @@ def _validate_turns(turns, *, seen=None, terminal_context=False):
         if not isinstance(turn['attempts'], list) or len(turn['attempts']) > 100:
             fail('limit', '此訊息的回覆次數過多。')
         for attempt in turn['attempts']:
-            if not isinstance(attempt, dict) or set(attempt) - {'reasoning', 'thinking_seconds'} != {'id', 'request', 'model', 'model_name', 'profile_epoch', 'parameters', 'system_prompt', 'context', 'text', 'status', 'reason'}:
+            if not isinstance(attempt, dict) or set(attempt) - {'reasoning', 'thinking_seconds', 'agent'} != {'id', 'request', 'model', 'model_name', 'profile_epoch', 'parameters', 'system_prompt', 'context', 'text', 'status', 'reason'}:
                 fail('invalid', '對話回覆格式無效。')
+            if 'agent' in attempt:
+                from .chat_agent import validate_evidence
+                validate_evidence(attempt['agent'])
             ident(attempt['id']); ident(attempt['request'])
             if not identifier(attempt['profile_epoch']) or not isinstance(attempt['status'], str) or attempt['status'] not in STATES:
                 fail('invalid', '對話回覆狀態無效。')
@@ -144,6 +150,12 @@ def sync_features(document):
     from .chat_attachments import sync_feature
     sync_feature(document)
     features = document['required_features']
+    from .chat_agent import FEATURE as AGENT_FEATURE
+    if document['payload'].get('agent_id') or _has_attempt_field(document['payload'], 'agent'):
+        if AGENT_FEATURE not in features:
+            features.append(AGENT_FEATURE)
+    elif AGENT_FEATURE in features:
+        features.remove(AGENT_FEATURE)
     if 'revisions' in document['payload']:
         if REVISION_FEATURE not in features:
             features.append(REVISION_FEATURE)
@@ -230,6 +242,8 @@ def branch_payload(payload, turn_id, attempt_id=None):
     prefix = payload['turns'][:position] + [dict(selected, attempts=attempts)]
     result = dict(version=payload['version'], draft='', system_prompt=payload['system_prompt'],
                   turns=copy.deepcopy(prefix))
+    if payload.get('agent_id'):
+        result['agent_id'] = payload['agent_id']
     if 'revisions' in payload:
         result['revisions'] = copy.deepcopy(payload['revisions'])
     validate_payload(result)

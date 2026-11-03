@@ -84,7 +84,7 @@ def validate(document):
             revision.get('parent') == revision.get('id')):
         fail('invalid', '文件修訂無效。')
     features = document.get('required_features', [])
-    if (not isinstance(features, list) or any(feature not in (LIBRARY_FEATURE, 'pcs.chat.v1', 'pcs.chat-attachments.v1', 'pcs.chat-revisions.v1', 'pcs.chat-reasoning.v1', 'pcs.chat-timing.v1') for feature in features)
+    if (not isinstance(features, list) or any(feature not in (LIBRARY_FEATURE, 'pcs.chat.v1', 'pcs.chat-attachments.v1', 'pcs.chat-revisions.v1', 'pcs.chat-reasoning.v1', 'pcs.chat-timing.v1', 'pcs.chat-agent.v1') for feature in features)
             or len(features) != len(set(features))):
         fail('unsupported', '文件需要尚未支援的必要語義。')
     if (document['kind'] == 'chat') != ('pcs.chat.v1' in features):
@@ -106,6 +106,11 @@ def validate(document):
     if ((document['kind'] == 'chat' and has_fields(document['payload']))
             != (ATTACHMENT_FEATURE in features)):
         fail('invalid', '對話附件必要語義標記不一致。')
+    from .chat import _has_attempt_field
+    from .chat_agent import FEATURE as AGENT_FEATURE
+    if ((document['kind'] == 'chat' and bool(document['payload'].get('agent_id') or _has_attempt_field(document['payload'], 'agent')))
+            != (AGENT_FEATURE in features)):
+        fail('invalid', '對話 Agent 必要語義標記不一致。')
     state = document['payload'].get('state')
     has_library = document['kind'] == 'workflow' and isinstance(state, dict) and LIBRARY_FIELD in state
     if has_library != (LIBRARY_FEATURE in features):

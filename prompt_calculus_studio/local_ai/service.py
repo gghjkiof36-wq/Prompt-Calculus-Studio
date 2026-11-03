@@ -6,7 +6,7 @@ import hashlib
 import json
 from http.client import HTTPException
 from queue import Empty, Queue
-from threading import Event, Lock
+from threading import Event, Lock, Timer
 import time
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
@@ -41,6 +41,8 @@ class _InferenceThread(QThread):
     status = Signal(object)
     text = Signal(object, str)
     result = Signal(object, str, str)
+    activity = Signal(object, object)
+    review = Signal(object, object)
 
     def __init__(self, parent=None, *, runtime_factory: RuntimeFactory = LlamaRuntime):
         super().__init__(parent)
@@ -119,6 +121,15 @@ class _InferenceThread(QThread):
                     request, model, messages, params = args
                     pieces = []
                     preparing = False
+                    deadline_timer, timed_out = None, Event()
+                    if request.operation == 'agent':
+                        from ..local_agents.execution import MAX_SECONDS
+                        def expire():
+                            timed_out.set()
+                            cancel.cancel()
+                        deadline_timer = Timer(MAX_SECONDS, expire)
+                        deadline_timer.daemon = True
+                        deadline_timer.start()
 
                     def delta(text):
                         cancel.check()
@@ -137,13 +148,34 @@ class _InferenceThread(QThread):
                             preparing = False
                         self._publish(runtime, 'generating')
                         cancel.check()
-                        outcome, detail = runtime.generate(messages, params, cancel, delta)
+                        if request.operation == 'agent':
+                            from ..local_agents.execution import run
+                            def approve(action):
+                                ticket = {'action': action, 'done': Event(), 'allow': False}
+                                self.review.emit(request, ticket)
+                                deadline = time.monotonic() + 120
+                                while not ticket['done'].wait(.1):
+                                    cancel.check()
+                                    if time.monotonic() > deadline:
+                                        ticket['done'].set()
+                                        return False
+                                cancel.check()
+                                return ticket['allow'] is True
+                            outcome, detail = run(runtime, messages, params, cancel, request.input['agent'],
+                                                  delta, lambda event: self.activity.emit(request, event), approve)
+                        else:
+                            outcome, detail = runtime.generate(messages, params, cancel, delta)
                         cancel.check()
                     except Exception as exc:
-                        if cancel.event.is_set() or isinstance(exc, Cancelled):
+                        if timed_out.is_set():
+                            outcome, detail = 'error', '本輪 Agent 已達時間上限，請縮小問題範圍後重試。'
+                        elif cancel.event.is_set() or isinstance(exc, Cancelled):
                             outcome, detail = 'cancelled', ''.join(pieces)
                         else:
                             outcome, detail = 'error', _display_error(exc)
+                    finally:
+                        if deadline_timer is not None:
+                            deadline_timer.cancel()
                     # Even an error may leave server-side inference running.
                     # An idle slot or confirmed child exit is the release point.
                     if preparing:
@@ -215,6 +247,8 @@ class LocalAIService(QObject):
     must still check its document scope and retain already emitted deltas.
     """
     changed = Signal()
+    activity = Signal(object, object)
+    review = Signal(object, object)
     delta = Signal(object, str)
     finished = Signal(object, str, str)
 
@@ -428,6 +462,8 @@ class LocalAIService(QObject):
             worker.status.connect(self._on_status, Qt.ConnectionType.QueuedConnection)
             worker.text.connect(self._on_delta, Qt.ConnectionType.QueuedConnection)
             worker.result.connect(self._on_result, Qt.ConnectionType.QueuedConnection)
+            worker.activity.connect(self._on_activity, Qt.ConnectionType.QueuedConnection)
+            worker.review.connect(self._on_review, Qt.ConnectionType.QueuedConnection)
             worker.finished.connect(self._on_thread_finished, Qt.ConnectionType.QueuedConnection)
             self._worker = worker
             worker.start()
@@ -524,12 +560,13 @@ class LocalAIService(QObject):
     def validate_submission(self, request):
         """Read-only preflight. No reservation, signals, worker or model load."""
         if (not isinstance(request, ServiceRequest) or request.service != 'local_ai'
-                or request.operation not in ('chat', 'text_assist')):
+                or request.operation not in ('chat', 'text_assist', 'agent')):
             raise ValueError('本地對話請求格式無效。')
         if not (self.can_submit if request.operation == 'chat' else self.can_accept):
             raise ValueError('請先選擇模型，並等待目前操作完成。')
         payload = request.input
-        if not isinstance(payload, dict) or set(payload) - {'reasoning'} != {'messages', 'model', 'params'}:
+        optional = {'reasoning', 'agent'} if request.operation == 'agent' else {'reasoning'}
+        if not isinstance(payload, dict) or set(payload) - optional != {'messages', 'model', 'params'}:
             raise ValueError('本地對話請求缺少訊息、模型或參數。')
         model = next((m for m in self.models if m['id'] == payload['model']), None)
         if model is None or (request.operation == 'chat' and payload['model'] != self.selected_model):
@@ -540,6 +577,11 @@ class LocalAIService(QObject):
         if 'reasoning' in payload:
             params['reasoning'] = normalize_reasoning(payload['reasoning'], max_tokens=params['max_tokens'])
         messages = validate_messages(payload['messages'])
+        if request.operation == 'agent':
+            from ..local_agents.execution import validate_request
+            agent = validate_request(payload.get('agent'))
+            if agent['agent']['model'] != payload['model']:
+                raise ValueError('Agent 的模型與本輪快照不一致。')
         resolve_runtime(params['runtime_path'])
         validate_model(model)
         return model, messages, params
@@ -635,6 +677,18 @@ class LocalAIService(QObject):
     def _on_delta(self, request, text):
         if self._active == request:
             self.delta.emit(request, text)
+
+    @Slot(object, object)
+    def _on_activity(self, request, event):
+        if self._active == request:
+            self.activity.emit(request, event)
+
+    @Slot(object, object)
+    def _on_review(self, request, ticket):
+        if self._active == request:
+            self.review.emit(request, ticket)
+        else:
+            ticket['done'].set()
 
     @Slot(object, str, str)
     def _on_result(self, request, status, detail):

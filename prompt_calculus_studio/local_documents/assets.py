@@ -88,8 +88,22 @@ def external_dependencies(document):
 def unsupported_paths(document):
     result = []
     known = {ref for ref, _, _ in references(document)}
+    inert = set()
+    if document['kind'] == 'chat':
+        from .chat_agent import validate_evidence
+        payload = document['payload']
+        for history in (payload, *payload.get('revisions', [])):
+            for turn in history['turns']:
+                for attempt in turn['attempts']:
+                    if 'agent' in attempt:
+                        # Provenance is an inert transcript, never a portable
+                        # attachment or permission to fetch local files.
+                        validate_evidence(attempt['agent'])
+                        inert.add(id(attempt['agent']))
 
     def walk(value, location='payload'):
+        if id(value) in inert:
+            return
         if isinstance(value, list):
             for i, child in enumerate(value):
                 walk(child, f'{location}/{i}')

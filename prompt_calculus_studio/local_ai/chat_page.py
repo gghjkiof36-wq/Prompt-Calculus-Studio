@@ -703,6 +703,10 @@ class ChatAttempt(QFrame):
         self.retry_icon_button.setAccessibleName('重新生成這則回覆')
         self.content = ChatText()
         self.content.setAccessibleName('模型回覆')
+        self.agent_evidence = button('', self._show_agent_evidence, 'Quiet')
+        self.agent_evidence.hide()
+        self._agent_evidence = None
+        layout.addWidget(self.agent_evidence, 0, Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self.content)
         self.error_frame = QFrame()
         self.error_frame.setObjectName('ChatErrorFrame')
@@ -737,6 +741,13 @@ class ChatAttempt(QFrame):
         self._thinking_copy_reset.timeout.connect(self._reset_thinking_copy)
 
     def update_attempt(self, attempt, index, total, model_names):
+        self._agent_evidence = attempt.get('agent')
+        self.agent_evidence.setVisible(bool(self._agent_evidence))
+        if self._agent_evidence:
+            events = self._agent_evidence['events']
+            names = list(dict.fromkeys(e['target'].split('/')[0] for e in events if e['operation'] == 'read_skill'))
+            count = sum(e['status'] == 'read' for e in events)
+            self.agent_evidence.setText(('、'.join(names) if names else '本地 Agent') + f' · {count} 次讀取')
         self._attempt_id = attempt.get('id', '')
         self._status = attempt.get('status', '')
         self._raw = attempt.get('text', '')
@@ -791,6 +802,11 @@ class ChatAttempt(QFrame):
         menu.addAction('另存為 Markdown…', lambda: self.exportMarkdownRequested.emit(self._attempt_id))
         menu.open_for(self.more_button)
         self._reply_menu = menu
+
+    def _show_agent_evidence(self):
+        if self._agent_evidence:
+            from ..local_agents.dialogs import show_evidence
+            show_evidence(self, self._agent_evidence)
 
     def _reset_copy(self):
         self.copy_button.setIcon(icon('copy', size=16))
@@ -975,7 +991,7 @@ class ChatTurn(QFrame):
 
     def update_turn(self, turn, model_names, tokens):
         signature = (turn['id'], turn.get('text', ''), tuple(
-            tuple(attempt.get(key, '') for key in ('id', 'text', 'status', 'reason', 'model', 'model_name', 'thinking_seconds'))
+            tuple(attempt.get(key, '') for key in ('id', 'text', 'status', 'reason', 'model', 'model_name', 'thinking_seconds')) + (len(attempt.get('agent', {}).get('events', [])),)
             for attempt in turn.get('attempts', [])), tuple(model_names.items()),
             tuple((item.get('id'), item.get('name'), item.get('size')) for item in turn.get('attachments', [])))
         if signature == self._display_signature:
@@ -1336,6 +1352,8 @@ class ChatPage(QWidget):
         self.retry_action.triggered.connect(self._retry)
         self.settings_action = QAction('模型設定…', self)
         self.settings_action.triggered.connect(self.open_settings)
+        self.agent_action = QAction('協作設定…', self)
+        self.agent_action.triggered.connect(self.open_agent_settings)
         self.column = QVBoxLayout()
         self.column.setContentsMargins(0, 0, 0, 0)
         self.column.setSpacing(12)
@@ -1763,7 +1781,10 @@ class ChatPage(QWidget):
             self.composer._fit_height()
         models = self.service.models
         model_names = {model['id']: model['name'] for model in models}
-        self.model_button.set_model(model_names.get(self.service.selected_model, ''))
+        agent = getattr(self.chat_document, 'agent_record', None)
+        current_model = agent['model'] if agent else self.service.selected_model
+        self.model_button.set_model(model_names.get(current_model, ''))
+        self.agent_action.setText('協作設定 · ' + agent['name'] if agent else '協作設定…')
         present = set()
         follow = self._follow_output
         self._rendering = True
@@ -1813,11 +1834,12 @@ class ChatPage(QWidget):
         attachments = getattr(self.chat_document, 'draft_attachments', [])
         self.attachments.sync(attachments, busy=importing or busy)
         self.add_button.setEnabled(not busy and not importing and state != 'closed')
-        ready = self.service.can_submit
+        ready = self.service.can_accept if self.chat_document.payload.get('agent_id') else self.service.can_submit
         editing = self._editing_turn_id is not None
         edit_locked = self.chat_document.edit_locked
         self.add_button.setEnabled(not busy and not importing and not edit_locked and state != 'closed')
-        self.model_button.setEnabled(state != 'closed')
+        self.model_button.setEnabled(state != 'closed' and not self.chat_document.payload.get('agent_id'))
+        self.agent_action.setEnabled(not busy)
         self.stop_button.setVisible(bool(busy))
         self.stop_button.setEnabled(bool(busy) and state not in {'stopping', 'unloading'})
         self.send_button.setVisible(not busy)
@@ -1937,6 +1959,26 @@ class ChatPage(QWidget):
         menu.addAction(self.export_action)
         menu.addSeparator()
         menu.addAction(self.settings_action)
+        menu.addAction(self.agent_action)
+        identity = self.chat_document.payload.get('agent_id')
+        if identity:
+            from ..local_agents.store import AgentStore
+            try:
+                store = AgentStore(self.workspace.data)
+                agent = store.get('agents', identity)
+                skills = [store.get('skills', key) for key in agent['skills']]
+                skills = [s for s in skills if s['enabled'] and s['invocable']]
+                if skills:
+                    submenu = menu.addMenu('指定 Skill')
+                    for skill in skills:
+                        duplicate = sum(s['name'] == skill['name'] for s in skills) > 1
+                        token = skill['id'] if duplicate else skill['name']
+                        action = submenu.addAction(skill['name'] + (' · ' + skill['id'][:8] if duplicate else ''))
+                        action.setToolTip(skill['description'])
+                        action.setEnabled(not self.chat_document.busy)
+                        action.triggered.connect(lambda checked=False, name=token: self.composer.insertPlainText('@' + name + ' '))
+            except (ValueError, OSError):
+                pass  # The binding panel displays the unavailable registration.
         menu.open_for(self.more_button, align_right=True)
         self._actions_menu = menu
 
@@ -1981,6 +2023,15 @@ class ChatPage(QWidget):
 
     def open_settings(self):
         self._add_model()
+
+    def open_agent_settings(self):
+        from ..local_agents.dialogs import BindingDialog
+        try:
+            dialog = BindingDialog(self)
+            dialog.open()
+            self._agent_dialog = dialog
+        except (ValueError, OSError) as exc:
+            self._approval_error(str(exc))
 
     def _export(self):
         if self.composing or self.has_uncommitted_draft:

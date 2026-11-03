@@ -37,6 +37,7 @@ class ChatDocument(QObject):
         self.document, self.receipt = loaded.document, loaded.receipt
         self.key = self.document['document_id']
         self.payload = copy.deepcopy(self.document['payload'])
+        self._agent_cache = ('', None)
         self.baseline = copy.deepcopy(self.payload)
         self.data = self.path.parent
         self.views = weakref.WeakSet()
@@ -73,6 +74,59 @@ class ChatDocument(QObject):
         self.service = for_workspace(workspace)
         self.service.delta.connect(self._delta)
         self.service.finished.connect(self._finished)
+        if hasattr(self.service, 'activity'):
+            self.service.activity.connect(self._agent_activity)
+            self.service.review.connect(self._agent_review)
+
+    def set_agent(self, identity):
+        if self.busy or self._disposed or self.attachments_busy or self.edit_locked or not self.flush_views():
+            return False
+        if identity:
+            from ..local_agents.store import AgentStore
+            AgentStore(self.workspace.data).get('agents', identity)
+            self.payload['agent_id'] = identity
+        else:
+            self.payload.pop('agent_id', None)
+        self._agent_cache = '', None
+        self._edited()
+        return self.save()
+
+    @property
+    def agent_record(self):
+        identity = self.payload.get('agent_id', '')
+        if identity != self._agent_cache[0]:
+            from ..local_agents.store import AgentStore
+            try:
+                record = AgentStore(self.workspace.data).get('agents', identity) if identity else None
+            except (ValueError, OSError):
+                record = {'id': identity, 'name': 'Agent 已移除', 'model': ''}
+            self._agent_cache = identity, record
+        return self._agent_cache[1]
+
+    @Slot(object, object)
+    def _agent_activity(self, request, event):
+        if not self._owns(request) or 'agent' not in self._attempt:
+            return
+        self._attempt['agent']['events'].append(copy.deepcopy(event))
+        try:
+            from ..local_documents.chat_agent import validate_evidence
+            validate_evidence(self._attempt['agent'])
+        except ValueError:
+            self._attempt['agent']['events'].pop()
+            self.stop(reason='本輪讀取紀錄已達保存上限。', status='limited')
+            return
+        self.dirty = True
+        self.refresh_timer.start()
+        if not self.checkpoint_timer.isActive() and not self.error:
+            self.checkpoint_timer.start()
+
+    @Slot(object, object)
+    def _agent_review(self, request, ticket):
+        if not self._owns(request):
+            ticket['done'].set()
+            return
+        from ..local_agents.dialogs import request_read_approval
+        request_read_approval(self, request, ticket)
 
     @property
     def title(self):
@@ -564,11 +618,17 @@ class ChatDocument(QObject):
                 raise ValueError('請先輸入訊息。')
             if any(item['kind'] == 'image' for item in source_attachments):
                 raise ValueError(attachments.IMAGE_UNSUPPORTED)
-            if not self.service.selected_model:
+            agent_input = None
+            if source_payload.get('agent_id'):
+                from ..local_agents.store import AgentStore
+                agent_input = AgentStore(self.workspace.data).request(source_payload['agent_id'], text,
+                                                                      self.service.approval_mode)
+                self._agent_cache = source_payload['agent_id'], agent_input['agent']
+            model = agent_input['agent']['model'] if agent_input else self.service.selected_model
+            if not model:
                 raise ValueError('請先選擇本機模型。')
-            if not self.service.can_submit:
+            if not (self.service.can_accept if agent_input else self.service.can_submit):
                 raise ValueError('請等待目前操作完成，再傳送訊息。')
-            model = self.service.selected_model
             settings = copy.deepcopy(self.service.settings_for_model(model))
             model_preset = self.service.model_preset(model)
             default_prompt = model_preset['system_prompt']
@@ -594,11 +654,14 @@ class ChatDocument(QObject):
                            system_prompt=effective_prompt, context=refs,
                            text='', status='receiving', reason='')
             request_input = dict(messages=messages, model=model, params=settings)
+            if agent_input:
+                request_input['agent'] = agent_input
+                attempt['agent'] = dict(request=copy.deepcopy(agent_input), events=[])
             if reasoning is not None:
                 attempt['reasoning'] = copy.deepcopy(reasoning)
                 request_input['reasoning'] = copy.deepcopy(reasoning)
             self.serial += 1
-            request = ServiceRequest('local_ai', 'chat', request_id=attempt['request'],
+            request = ServiceRequest('local_ai', 'agent' if agent_input else 'chat', request_id=attempt['request'],
                                      scope=dict(document_id=self.key, owner_epoch=self.owner_epoch,
                                                 revision=self.serial, user_message_id=turn['id'],
                                                 attempt_id=attempt['id']),
@@ -817,4 +880,7 @@ class ChatDocument(QObject):
         self.refresh_timer.stop()
         self.service.delta.disconnect(self._delta)
         self.service.finished.disconnect(self._finished)
+        if hasattr(self.service, 'activity'):
+            self.service.activity.disconnect(self._agent_activity)
+            self.service.review.disconnect(self._agent_review)
         return True

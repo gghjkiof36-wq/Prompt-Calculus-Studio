@@ -24,6 +24,8 @@ $env:PROMPT_STUDIO_DATA = Join-Path $PWD 'qa/dev-data'
 
 ## 架構與相容性
 
+- [Pre-alpha2 本地 Skill 與 Agent](local-agents.md)（角色綁定、唯讀工具、保存歸屬及目前模型限制）
+- [本地 AI 與自有引擎](local-inference-architecture.md)（普通聊天、模型設定與共用單槽）
 - [Pre-alpha2 工作資源與對話轉 Markdown](work-resources.md)（資料夾、來源保留、閱讀與逐份輸出）
 - [Pre-alpha2 合成資源與 MCP 連接](mcp-probe-v1.md)（第一階段、私有宿主條件與共同契約 v1）
 - [Beta3 演示、對話整理與可攜包](markdown-retention.md)（本分支本機增量；人工 ChatGPT 往返，登入另排）
