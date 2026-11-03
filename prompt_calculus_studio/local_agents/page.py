@@ -1,12 +1,10 @@
-"""Agent/Skill modes within Work resources, sharing its reading column."""
+"""Agent and Skill destinations sharing the resources reading column."""
 from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog, QHeaderView, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from ..local_ai.service import for_workspace
-from ..widgets import button
-from ..work_resources.reader import line, icon_button
 from .store import AgentStore
 from .dialogs import AgentDialog, SkillDialog, plain
 
@@ -20,23 +18,26 @@ class AgentLibrary(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
-        self.refresh_button = icon_button('refresh', '重新整理', self.refresh)
-        line(layout, None, self.refresh_button)
         self.results = QTreeWidget()
         self.results.setRootIsDecorated(False)
         self.results.setUniformRowHeights(True)
         self.results.setHeaderLabels(['名稱', '用途／專案', '狀態'])
-        self.results.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.results.header().setStretchLastSection(False)
+        self.results.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         self.results.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.results.setColumnWidth(2, 100)
+        self.results.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.results.setColumnWidth(0, 230)
+        self.results.setColumnWidth(2, 112)
         self.results.itemActivated.connect(self.open_item)
         self.results.setAlternatingRowColors(False)
-        self.results.setStyleSheet('QTreeWidget {border:0;background:transparent;} QTreeWidget::item {padding:12px 8px;}')
+        self.results.setStyleSheet('QTreeWidget {border:0;background:transparent;} QTreeWidget::item {padding:10px 8px;} QHeaderView::section {background:transparent;padding:8px;}')
         layout.addWidget(self.results, 1)
         self.message = plain('')
         layout.addWidget(self.message)
 
     def populate(self, mode=None, query=None):
+        current = self.results.currentItem()
+        selected = current.data(0, Qt.ItemDataRole.UserRole) if current is not None else None
         self.mode = mode or self.mode
         self.query = self.query if query is None else query
         self.results.clear()
@@ -56,7 +57,10 @@ class AgentLibrary(QWidget):
                 row.setToolTip(0, item.get('source', item['name']))
                 row.setToolTip(1, description)
                 self.results.addTopLevelItem(row)
-            self.message.setText('尚未加入 Skill' if not rows and self.mode == 'skill' else '尚未設定 Agent' if not rows else '')
+                if item['id'] == selected:
+                    self.results.setCurrentItem(row)
+            self.message.setText(('尚未加入 Skill' if self.mode == 'skill' else '尚未設定 Agent') if not rows else
+                                 '沒有符合的結果' if not self.results.topLevelItemCount() else '')
         except (ValueError, OSError) as exc:
             self.message.setText(str(exc))
 

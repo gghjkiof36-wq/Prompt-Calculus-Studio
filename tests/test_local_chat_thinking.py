@@ -40,6 +40,31 @@ class ThinkingPresentationContracts(unittest.TestCase):
                 self.assertFalse(final.has_thinking)
                 self.assertEqual(final.answer, prefix)
 
+    def test_gemma_channel_stream_boundaries_and_literal_examples(self):
+        for opening in ('<|channel>thought\n', '<|channel>thought\r\n'):
+            closing = '<channel|>'
+            source = opening + '推理🙂' + closing + '答案'
+            for offset in range(1, len(source) + 1):
+                with self.subTest(opening=opening, offset=offset):
+                    parsed = split_thinking(source[:offset], receiving=True)
+                    if offset < len(opening):
+                        self.assertTrue(parsed.pending_open)
+                        self.assertEqual(parsed.answer, '')
+                        self.assertEqual(split_thinking(source[:offset]).answer, source[:offset])
+                    elif offset < source.index(closing) + len(closing):
+                        self.assertTrue(parsed.has_thinking)
+                        self.assertNotIn('<', parsed.thinking)
+                        self.assertEqual(parsed.answer, '')
+                    else:
+                        self.assertTrue(parsed.closed)
+                        self.assertEqual(parsed.closing_tag, closing)
+                        self.assertEqual(parsed.thinking, '推理🙂')
+                        self.assertEqual(parsed.answer, source[:offset].split(closing, 1)[1])
+            self.assertEqual(split_thinking(opening + '未完成<channel').thinking, '未完成<channel')
+            for literal in ('```text\n' + source + '\n```', '    ' + source, '> ' + source,
+                            '說明：' + source, '<|channel>thoughtful\n文字', '<|channel>final\n答案'):
+                self.assertEqual(split_thinking(literal, receiving=True).answer, literal)
+
     def test_unterminated_thinking_stays_readable_without_answer(self):
         for source in ('<think>尚在思考', '<think>尚在思考</thi', '<think>'):
             with self.subTest(source=source):

@@ -85,6 +85,30 @@ class ThinkingElapsedOwnerContracts(unittest.TestCase):
             clock.return_value = 150.; self.service.complete(request, attempt['text'])
             self.assertEqual(attempt['thinking_seconds'], 0.)
 
+    def test_gemma_channel_freezes_at_matching_close_and_preserves_saved_response(self):
+        with self.clock() as clock:
+            clock.return_value = 100.; request = self._send()
+            attempt = self.owner._attempt; ident = attempt['id']
+            clock.return_value = 110.; self.emit(request, '<|chan')
+            clock.return_value = 113.; self.emit(request, 'nel>thought\nwork')
+            self.assertEqual(self.owner.thinking_elapsed_seconds(ident), 3.)
+            clock.return_value = 115.; self.emit(request, ' literal </think> is not the close')
+            self.assertNotIn('thinking_seconds', attempt)
+            clock.return_value = 118.; self.emit(request, '<chan')
+            clock.return_value = 120.; self.emit(request, 'nel|>answer')
+            self.assertEqual(attempt['thinking_seconds'], 10.)
+            original = attempt['text']
+            clock.return_value = 140.; self.service.complete(request, original)
+            self.assertEqual(attempt['thinking_seconds'], 10.)
+        saved = io.load(self.path.parent, self.path.name).document
+        self.assertEqual(saved['payload']['turns'][0]['attempts'][0]['text'], original)
+        reopened = type(self.owner)(self.path, self.workspace)
+        try:
+            self.assertEqual(reopened.thinking_elapsed_seconds(ident), 10.)
+            self.assertEqual(reopened.payload['turns'][0]['attempts'][0]['text'], original)
+        finally:
+            reopened.dispose()
+
     def test_stop_error_limit_and_complete_freeze_unclosed_thinking(self):
         for terminal in ('stop', 'error', 'limited', 'completed'):
             with self.subTest(terminal=terminal), self.clock() as clock:

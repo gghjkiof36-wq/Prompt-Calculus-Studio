@@ -185,12 +185,13 @@ class SidebarNavigationDelegate(QStyledItemDelegate):
 
 def navigation_entries(section, *, workspace=False):
     """One route map for the page and its inactive sidebar preview."""
-    explore = ('explore','connector','local_models','work_resources','civitai','downloads','civitai_settings',
+    explore = ('explore','connector','local_models','work_resources','local_skills','local_agents','civitai','downloads','civitai_settings',
                'comfy','workflows','workflow_manager','models','nodes')
     if section in explore:
         routes = [('workflows','ComfyUI','brand-comfyui'), ('civitai','CivitAI','brand-civitai')]
         if workspace:
-            routes += [('work_resources','工作資源','folder'), ('local_models','本地模型','server'), ('connector','下載紀錄','download')]
+            routes += [('work_resources','工作資源','folder'), ('local_skills','Skill','book-open'),
+                       ('local_agents','Agent','workflow'), ('local_models','本地模型','server'), ('connector','下載紀錄','download')]
         if section in ('comfy','workflows','workflow_manager','models','nodes'):
             routes += [('models','模型資產','media'), ('nodes','管理與更新','package')]
         elif section in ('civitai','downloads','civitai_settings'):
@@ -258,6 +259,9 @@ class SettingsPage(QWidget):
         if getattr(window,'workspace_owner',None) is not None:
             self.resources_content=DeferredToolPage(self.make_work_resources_page)
             self.add('work_resources','工作資源',self.resources_content)
+            # Direct destinations share one lazy controller and its file jobs.
+            self.index['local_skills']=self.index['work_resources']
+            self.index['local_agents']=self.index['work_resources']
             self.local_models_content=DeferredToolPage(self.make_local_models_page)
             self.add('local_models','對話模型',self.local_models_content)
         self.add('explore','探索',self.make_explore_page())
@@ -500,7 +504,8 @@ class SettingsPage(QWidget):
         if section=='explore':
             section='local_models' if hasattr(self,'local_models_content') else 'workflows'
         if section=='connector':self.connector_content.load()
-        if section=='work_resources' and hasattr(self,'resources_content'):self.resources_content.load()
+        if section in ('work_resources','local_skills','local_agents') and hasattr(self,'resources_content'):
+            self.resources_content.load().set_mode({'work_resources':'files','local_skills':'skill','local_agents':'agent'}[section])
         if section=='local_models' and hasattr(self,'local_models_content'):
             self.local_models_content.load().prepare_workspace_show()
         if section in ('appearance','completion','dictionary'):self.ensure_preferences()

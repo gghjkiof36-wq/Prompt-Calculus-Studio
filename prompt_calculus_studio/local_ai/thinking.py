@@ -7,8 +7,11 @@ separate mutable buffer and cannot leak into the displayed text for one frame.
 from dataclasses import dataclass
 
 
-_OPEN = '<think>'
-_CLOSE = '</think>'
+_ENVELOPES = (
+    ('<think>', '</think>'),
+    ('<|channel>thought\n', '<channel|>'),
+    ('<|channel>thought\r\n', '<channel|>'),
+)
 
 
 @dataclass(frozen=True)
@@ -18,6 +21,7 @@ class ThinkingParts:
     has_thinking: bool = False
     closed: bool = False
     pending_open: bool = False
+    closing_tag: str = ''
 
 
 def _leading_content(text: str) -> str:
@@ -35,24 +39,28 @@ def _leading_content(text: str) -> str:
 
 
 def split_thinking(text: str, *, receiving: bool = False) -> ThinkingParts:
-    """Recognize one exact leading ``<think>`` block, never tags in prose.
+    """Recognize one exact leading reasoning block, never tags in prose.
 
     In-flight prefixes of delimiters stay hidden until they are disambiguated.
     A terminal incomplete opening tag is ordinary text; an incomplete closing
     tag remains part of the readable thinking text. No source bytes are edited.
     """
     body = _leading_content(text)
-    if not body.startswith(_OPEN):
-        if receiving and body and _OPEN.startswith(body):
+    envelope = next(((opening, closing) for opening, closing in _ENVELOPES
+                     if body.startswith(opening)), None)
+    if envelope is None:
+        if receiving and body and any(opening.startswith(body) for opening, _ in _ENVELOPES):
             return ThinkingParts(pending_open=True)
         return ThinkingParts(answer=text)
-    content = body[len(_OPEN):]
-    end = content.find(_CLOSE)
+    opening, closing = envelope
+    content = body[len(opening):]
+    end = content.find(closing)
     if end >= 0:
-        return ThinkingParts(content[:end].strip('\r\n'), content[end + len(_CLOSE):].strip('\r\n'), True, True)
+        return ThinkingParts(content[:end].strip('\r\n'), content[end + len(closing):].strip('\r\n'),
+                             True, True, closing_tag=closing)
     if receiving:
-        for size in range(min(len(_CLOSE) - 1, len(content)), 0, -1):
-            if content.endswith(_CLOSE[:size]):
+        for size in range(min(len(closing) - 1, len(content)), 0, -1):
+            if content.endswith(closing[:size]):
                 content = content[:-size]
                 break
-    return ThinkingParts(thinking=content.strip('\r\n'), has_thinking=True)
+    return ThinkingParts(thinking=content.strip('\r\n'), has_thinking=True, closing_tag=closing)

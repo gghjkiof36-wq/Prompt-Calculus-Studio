@@ -126,6 +126,11 @@ class AgentStore:
         self.save()
 
     def save_project(self, name, cwd, sources, identity=None):
+        item = self._project_value(name, cwd, sources, identity)
+        self._put('projects', item)
+        return item
+
+    def _project_value(self, name, cwd, sources, identity=None):
         root = Path(cwd).expanduser().resolve(strict=True)
         if not root.is_dir() or root == Path(root.anchor) or not isinstance(name, str) or not 1 <= len(name.strip()) <= 120:
             raise ValueError('請填寫專案名稱並選擇工作目錄。')
@@ -136,22 +141,41 @@ class AgentStore:
             item = file_snapshot(path, kind)
             if item['resolved'] not in seen:
                 rules.append(item); seen.add(item['resolved'])
-        item = dict(id=identity or str(uuid4()), name=name.strip(), cwd=str(root), sources=rules)
-        self._put('projects', item)
-        return item
+        return dict(id=identity or str(uuid4()), name=name.strip(), cwd=str(root), sources=rules)
 
     def save_agent(self, name, project, model, skills, identity=None):
         self.get('projects', project)
+        item = self._agent_value(name, project, model, skills, identity)
+        self._put('agents', item)
+        return item
+
+    def _agent_value(self, name, project, model, skills, identity=None):
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120 or not model:
             raise ValueError('請填寫 Agent 名稱並選擇模型。')
         if len(set(skills)) > 32:
             raise ValueError('一個 Agent 最多選擇 32 個技能。')
         for key in skills:
             self.get('skills', key)
-        item = dict(id=identity or str(uuid4()), name=name.strip(), project=project,
+        return dict(id=identity or str(uuid4()), name=name.strip(), project=project,
                     model=model, skills=list(dict.fromkeys(skills)))
-        self._put('agents', item)
-        return item
+
+    def save_configuration(self, name, model, skills, project_name, cwd, sources, *, identity=None, project_identity=None):
+        """Validate both drafts, then replace their shared registry once."""
+        project = self._project_value(project_name, cwd, sources, project_identity)
+        agent = self._agent_value(name, project['id'], model, skills, identity)
+        before = self.value
+        candidate = copy.deepcopy(before)
+        for kind, item in (('projects', project), ('agents', agent)):
+            candidate[kind] = [item if r['id'] == item['id'] else r for r in candidate[kind]]
+            if not any(r['id'] == item['id'] for r in candidate[kind]):
+                candidate[kind].append(item)
+        self.value = candidate
+        try:
+            self.save()
+        except (ValueError, OSError):
+            self.value = before
+            raise
+        return copy.deepcopy(agent)
 
     def request(self, identity, text, approval):
         self.reload()

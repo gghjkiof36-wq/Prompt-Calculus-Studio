@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QLineEdit,
-    QListWidget, QListWidgetItem, QPlainTextEdit, QTreeWidget, QTreeWidgetItem)
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFileDialog, QFormLayout, QHeaderView, QLineEdit,
+    QListWidget, QListWidgetItem, QPlainTextEdit, QSizePolicy, QTabWidget, QTreeWidget, QTreeWidgetItem)
 
-from ..widgets import ComboBox, RoundMenu, StudioDialog, button, label
-from ..work_resources.reader import line
+from ..widgets import ComboBox, ElidedLabel, RoundMenu, StudioDialog, button, label
+from ..work_resources.reader import column, icon_button, line
 from .store import AgentStore, pcs_rules
 from .sources import checked, read_bytes
 
@@ -23,9 +23,10 @@ class AgentDialog(StudioDialog):
     def __init__(self, parent, data, service, identity=None):
         super().__init__(parent)
         self.setWindowTitle('Agent 設定' if identity else '新增 Agent')
-        self.resize(760, 730)
+        self.resize(780, 680)
         self.store, self.service = AgentStore(data), service
         self.identity = identity
+        self._project_key, self._project_drafts = None, {}
         agent = self.store.get('agents', identity) if identity else {}
         self.name = QLineEdit(agent.get('name', ''))
         self.name.setPlaceholderText('例如：本地 03-1')
@@ -41,69 +42,165 @@ class AgentDialog(StudioDialog):
         form = QFormLayout()
         form.setHorizontalSpacing(16)
         form.setVerticalSpacing(12)
-        for title, control in [('名稱', self.name), ('模型', self.model), ('專案', self.project)]:
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        for title, control in [('名稱', self.name), ('模型', self.model)]:
             control.setAccessibleName('Agent ' + title)
             form.addRow(title, control)
+        self.project.setAccessibleName('Agent 專案')
+        project_row, project_layout = column()
+        self.edit_project = icon_button('pencil', '編輯專案名稱與位置', self.toggle_project_details)
+        self.edit_project.setCheckable(True)
+        line(project_layout, self.project, self.edit_project)
+        form.addRow('專案', project_row)
         self.body.addLayout(form)
+        self.project_path = ElidedLabel('')
+        self.project_path.setObjectName('Subtle')
+        self.project_path.setMinimumWidth(0)
+        self.project_path.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        project_layout.addWidget(self.project_path)
         self.project_name = QLineEdit()
         self.project_name.setPlaceholderText('專案名稱')
+        self.project_name.setAccessibleName('專案名稱')
         self.cwd = QLineEdit()
         self.cwd.setReadOnly(True)
         self.cwd.textChanged.connect(self.cwd.setToolTip)
         self.cwd.setPlaceholderText('選擇實際工作目錄')
         self.cwd.setAccessibleName('Agent 工作目錄')
-        line(self.body, self.project_name, self.cwd, button('選擇…', self.pick_project, 'Quiet'))
-        line(self.body, plain('規則與參考', 'SectionTitle'), None,
-             button('PCS 組別…', self.pcs_preset, 'Quiet'),
-             button('加入…', self.add_source_menu, 'Quiet'), button('移除', self.remove_source, 'Quiet'))
+        self.project_details, details = column()
+        details_form = QFormLayout()
+        details_form.setHorizontalSpacing(16)
+        details_form.setVerticalSpacing(12)
+        details_form.addRow('專案名稱', self.project_name)
+        folder_row, folder_layout = column()
+        line(folder_layout, self.cwd, button('選擇…', self.pick_project, 'Quiet'))
+        details_form.addRow('工作目錄', folder_row)
+        # Keep the two forms on the same input edge when project details open.
+        form_labels = [layout.itemAt(i, QFormLayout.ItemRole.LabelRole).widget()
+                       for layout in (form, details_form) for i in range(layout.rowCount())]
+        label_width = max(item.sizeHint().width() for item in form_labels)
+        for item in form_labels:
+            item.setMinimumWidth(label_width)
+        details.addLayout(details_form)
+        self.body.addWidget(self.project_details)
+        self.sections = QTabWidget()
+        self.sections.setAccessibleName('Agent 技能與專案來源')
+        self.skills_page, skills_layout = column()
+        self.sources_page, sources_layout = column()
+        self.sections.addTab(self.skills_page, 'Skill')
+        self.sections.addTab(self.sources_page, '專案規則與參考')
+        self.body.addWidget(self.sections, 1)
+        self.skill_filter = QLineEdit()
+        self.skill_filter.setPlaceholderText('搜尋 Skill')
+        self.skill_filter.setAccessibleName('搜尋可用 Skill')
+        self.skill_filter.setClearButtonEnabled(True)
+        self.skill_count = plain('', 'Subtle')
+        line(skills_layout, self.skill_filter, None, self.skill_count)
+        self.remove_source_button = icon_button('trash', '移除選取來源', self.remove_source)
+        self.project_sharing = plain('', 'Subtle')
+        line(sources_layout, self.project_sharing, None, button('加入…', self.add_source_menu, 'Quiet'), self.remove_source_button)
         self.sources = QTreeWidget()
-        self.sources.setHeaderLabels(['用途', '來源'])
+        self.sources.setAccessibleName('專案規則與參考來源')
+        self.sources.setHeaderLabels(['來源', '用途'])
         self.sources.setRootIsDecorated(False)
-        self.sources.setMinimumHeight(112)
-        self.sources.setStyleSheet('QTreeWidget::item {padding:5px 6px; min-height:24px;}')
-        self.sources.setColumnWidth(0, 78)
-        self.body.addWidget(self.sources, 1)
-        self.body.addWidget(plain('可用 Skill', 'SectionTitle'))
+        self.sources.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.sources.setUniformRowHeights(True)
+        self.sources.setStyleSheet('QTreeWidget {border:0;background:transparent;} QTreeWidget::item {padding:8px 6px; min-height:24px;}')
+        self.sources.header().setStretchLastSection(False)
+        self.sources.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.sources.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.sources.setColumnWidth(1, 78)
+        sources_layout.addWidget(self.sources, 1)
+        self.sources.itemSelectionChanged.connect(self.update_counts)
         self.skills = QListWidget()
-        self.skills.setMinimumHeight(100)
-        self.skills.setStyleSheet('QListWidget::item {padding:6px 8px; min-height:24px;}')
+        self.skills.setAccessibleName('Agent 可用 Skill')
+        self.skills.setUniformItemSizes(True)
+        self.skills.setStyleSheet('QListWidget {border:0;background:transparent;} QListWidget::item {padding:10px 8px; min-height:24px;}')
         for skill in self.store.value['skills']:
             item = QListWidgetItem(skill['name'] + (' · 已停用' if not skill['enabled'] else ''))
             item.setData(Qt.ItemDataRole.UserRole, skill['id'])
+            item.setData(Qt.ItemDataRole.UserRole + 1, skill['description'])
             item.setToolTip(skill['description'] + '\n' + skill['source'])
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked if skill['id'] in agent.get('skills', []) else Qt.CheckState.Unchecked)
             self.skills.addItem(item)
-        self.body.addWidget(self.skills, 1)
+        skills_layout.addWidget(self.skills, 1)
+        self.skills.itemChanged.connect(self.update_counts)
+        self.skill_filter.textChanged.connect(self.filter_skills)
         self.message = plain('')
+        self.message.hide()
         self.body.addWidget(self.message)
         line(self.body, None, button('取消', self.reject, 'Quiet'), button('儲存', self.save, 'Primary'))
         self.project.currentIndexChanged.connect(self.load_project)
         self.project.setCurrentIndex(max(0, self.project.findData(agent.get('project', ''))))
         self.load_project()
 
+    def toggle_project_details(self):
+        expanded = self.edit_project.isChecked() or not self.project.currentData()
+        self.project_details.setVisible(expanded)
+        self.project_path.setVisible(not expanded)
+
+    def update_counts(self):
+        if not hasattr(self, 'skills'):
+            return
+        selected = sum(self.skills.item(i).checkState() == Qt.CheckState.Checked for i in range(self.skills.count()))
+        self.skill_count.setText(f'已選 {selected}')
+        self.sections.setTabText(1, f'專案規則與參考 · {self.sources.topLevelItemCount()}')
+        self.remove_source_button.setEnabled(bool(self.sources.selectedItems()))
+
+    def filter_skills(self, text):
+        query = text.strip().casefold()
+        for i in range(self.skills.count()):
+            item = self.skills.item(i)
+            item.setHidden(query not in (item.text() + ' ' + item.data(Qt.ItemDataRole.UserRole + 1)).casefold())
+
+    def show_error(self, text):
+        self.message.setText(text)
+        self.message.setVisible(bool(text))
+
     def load_project(self):
+        if self._project_key is not None:
+            self._project_drafts[self._project_key] = dict(name=self.project_name.text(), cwd=self.cwd.text(),
+                sources=[dict(path=self.sources.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole)[0],
+                              kind=self.sources.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole)[1])
+                         for i in range(self.sources.topLevelItemCount())])
         key = self.project.currentData()
         self.sources.clear()
-        project = self.store.get('projects', key) if key else {}
+        project = self._project_drafts.get(key)
+        if project is None:
+            project = self.store.get('projects', key) if key else {}
+        self._project_key = key
+        shared = sum(item['project'] == key and item['id'] != self.identity for item in self.store.value['agents']) if key else 0
+        self.project_sharing.setText(f'修改會影響共用此專案的另 {shared} 個 Agent。' if shared else '')
+        self.project_sharing.setVisible(bool(shared))
+        self.edit_project.setToolTip('編輯專案名稱與位置' + (f'（與另 {shared} 個 Agent 共用）' if shared else ''))
         self.project_name.setText(project.get('name', ''))
         self.cwd.setText(project.get('cwd', ''))
+        self.project_path.setText(project.get('cwd', ''))
+        self.project_path.setToolTip(project.get('cwd', ''))
+        self.edit_project.setChecked(False)
+        self.edit_project.setEnabled(bool(key))
+        self.toggle_project_details()
         for item in project.get('sources', []):
             self.add_source_row(item['path'], item['kind'])
+        self.update_counts()
 
     def add_source_row(self, path, kind):
         if any(self.sources.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole)[0] == path for i in range(self.sources.topLevelItemCount())):
             return
         display = Path(path).parent.name + ' / ' + Path(path).name
-        item = QTreeWidgetItem(['規則' if kind == 'rule' else '參考', display])
-        item.setToolTip(1, path)
+        item = QTreeWidgetItem([display, '規則' if kind == 'rule' else '參考'])
+        item.setToolTip(0, path)
         item.setData(0, Qt.ItemDataRole.UserRole, (path, kind))
         self.sources.addTopLevelItem(item)
+        self.update_counts()
 
     def pick_project(self):
         folder = QFileDialog.getExistingDirectory(self, '選擇專案工作目錄', self.cwd.text())
         if folder:
             self.cwd.setText(folder)
+            self.project_path.setText(folder)
+            self.project_path.setToolTip(folder)
             if not self.project_name.text():
                 self.project_name.setText(Path(folder).name)
 
@@ -112,6 +209,8 @@ class AgentDialog(StudioDialog):
         for title, kind in [('規則文件', 'rule'), ('參考文件', 'reference')]:
             action = menu.addAction(title)
             action.triggered.connect(lambda checked=False, k=kind: self.add_source(k))
+        menu.addSeparator()
+        menu.addAction('PCS 組別…', self.pcs_preset)
         menu.open_for(self.sender())
         self.source_menu = menu
 
@@ -123,6 +222,7 @@ class AgentDialog(StudioDialog):
     def remove_source(self):
         for item in self.sources.selectedItems():
             self.sources.takeTopLevelItem(self.sources.indexOfTopLevelItem(item))
+        self.update_counts()
 
     def pcs_preset(self):
         # Explicit shortcut. No scanning all group directories or handoff history.
@@ -138,7 +238,7 @@ class AgentDialog(StudioDialog):
             candidates = [Path(self.cwd.text()), *Path(self.cwd.text()).parents]
             root = next((p for p in candidates if (p / 'obsidian工作區' / '交接管理庫' / '交接管理庫').is_dir()), None)
             if root is None:
-                self.message.setText('請先選擇 PCS 的實際工作樹。')
+                self.show_error('請先選擇 PCS 的實際工作樹。')
             else:
                 for path, kind in pcs_rules(root, name):
                     self.add_source_row(path, kind)
@@ -154,12 +254,15 @@ class AgentDialog(StudioDialog):
             if not 1 <= len(self.name.text().strip()) <= 120 or not self.model.currentData():
                 raise ValueError('請填寫 Agent 名稱並選擇本地模型。')
             sources = [self.sources.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole) for i in range(self.sources.topLevelItemCount())]
-            project = self.store.save_project(self.project_name.text(), self.cwd.text(), sources, self.project.currentData() or None)
             skills = [self.skills.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.skills.count())
                       if self.skills.item(i).checkState() == Qt.CheckState.Checked]
-            self.store.save_agent(self.name.text(), project['id'], self.model.currentData(), skills, self.identity)
-        except (ValueError, OSError) as exc:
-            self.message.setText(str(exc)); return False
+            self.store.save_configuration(self.name.text(), self.model.currentData(), skills,
+                self.project_name.text(), self.cwd.text(), sources,
+                identity=self.identity, project_identity=self.project.currentData() or None)
+        except ValueError as exc:
+            self.show_error(str(exc)); return False
+        except OSError as exc:
+            self.show_error(f'無法確認儲存結果，請重新開啟設定確認。\n{exc}'); return False
         self.accept()
         return True
 
@@ -291,8 +394,7 @@ class BindingDialog(StudioDialog):
 
     def manage(self):
         workspace = self.document.workspace
-        workspace.work_resources_mode = 'agent'
-        workspace.open_route('explore', 'work_resources')
+        workspace.open_route('explore', 'local_agents')
         self.accept()
 
     def apply(self):

@@ -62,11 +62,11 @@ class WorkResourcesPage(SourceActions, QWidget):
         self.filter.setMaximumWidth(320)
         self.filter.setMinimumWidth(120)
         self.filter.addAction(icon('search'), QLineEdit.ActionPosition.LeadingPosition)
-        self.mode = ComboBox()
-        self.mode.setAccessibleName('工作資源模式')
-        for title, value in [('檔案', 'files'), ('Agent', 'agent'), ('Skill', 'skill')]:
-            self.mode.addItem(title, value)
-        line(layout, label('工作資源', 'DialogTitle'), self.mode, None, self.filter, self.add_button)
+        self.mode, self.mode_queries = 'files', {}
+        self.title = label('工作資源', 'DialogTitle')
+        self.agent_refresh = icon_button('refresh', '重新整理', lambda: self.agent_library.refresh())
+        self.agent_refresh.hide()
+        line(layout, self.title, None, self.filter, self.agent_refresh, self.add_button)
         self.mode_layout = layout
         self.file_body, layout = column()
         self.mode_layout.addWidget(self.file_body, 1)
@@ -133,22 +133,32 @@ class WorkResourcesPage(SourceActions, QWidget):
         self.filter.textChanged.connect(self.reset_search)
         self.results.toggleSelection.connect(self.toggle_highlighted)
         QShortcut(QKeySequence.StandardKey.Find, self).activated.connect(self.filter.setFocus)
-        self.mode.currentIndexChanged.connect(self.set_mode)
-        self.mode.setCurrentIndex(max(0, self.mode.findData(getattr(self.workspace, 'work_resources_mode', 'files'))))
         self.reset_search()
 
     def add_current(self):
-        if self.mode.currentData() == 'files':
+        if self.mode == 'files':
             self.add_menu()
         else:
             self.agent_library.add()
 
-    def set_mode(self):
-        mode = self.mode.currentData()
-        self.workspace.work_resources_mode = mode
+    def set_mode(self, mode):
+        if mode not in ('files', 'skill', 'agent'):
+            raise ValueError('未知的工作資源頁面。')
+        if mode != self.mode:
+            self.mode_queries[self.mode] = self.filter.text()
+            self.search_timer.stop()
+            self.ticket += 1
+            self.search_pending = False
+            self.filter.blockSignals(True)
+            self.filter.setText(self.mode_queries.get(mode, ''))
+            self.filter.blockSignals(False)
+        self.mode = mode
+        self.title.setText({'files': '工作資源', 'skill': 'Skill', 'agent': 'Agent'}[mode])
         self.file_body.setVisible(mode == 'files')
+        self.agent_refresh.setVisible(mode != 'files')
         self.add_button.setText({'files': '加入檔案', 'agent': '新增 Agent', 'skill': '加入 Skill'}[mode])
-        self.filter.setPlaceholderText('搜尋名稱或內容' if mode == 'files' else '搜尋名稱或用途')
+        self.filter.setPlaceholderText({'files':'搜尋名稱或內容', 'skill':'搜尋名稱或用途', 'agent':'搜尋名稱或專案'}[mode])
+        self.filter.setAccessibleName({'files':'搜尋工作資源', 'skill':'搜尋 Skill', 'agent':'搜尋 Agent'}[mode])
         if mode != 'files' and self.agent_library is None:
             from ..local_agents.page import AgentLibrary
             self.agent_library = AgentLibrary(self)
@@ -227,9 +237,9 @@ class WorkResourcesPage(SourceActions, QWidget):
         self.job('正在重新整理…', work, done)
 
     def reset_search(self, *_):
-        if self.mode.currentData() != 'files':
+        if self.mode != 'files':
             if self.agent_library is not None:
-                self.agent_library.populate(self.mode.currentData(), self.filter.text())
+                self.agent_library.populate(self.mode, self.filter.text())
             return
         self.offset = 0
         self.ticket += 1
@@ -257,6 +267,9 @@ class WorkResourcesPage(SourceActions, QWidget):
         self.reset_search()
 
     def search(self):
+        if self.mode != 'files':
+            self.search_pending = False
+            return
         if self.jobs.active or self.results.file_drag.ops:
             self.search_pending = True
             return

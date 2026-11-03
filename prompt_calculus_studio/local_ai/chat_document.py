@@ -163,6 +163,7 @@ class ChatDocument(QObject):
         self._thinking_started = self._thinking_prefix_started = None
         self._thinking_tail = ''
         self._thinking_scan_done = False
+        self._thinking_close = ''
 
     def _freeze_thinking_clock(self, now=None):
         if self._attempt is not None and self._thinking_started is not None:
@@ -184,10 +185,10 @@ class ChatDocument(QObject):
             # Scan only the newly received text plus a possible split closing
             # tag, rather than reparsing a growing thinking block per token.
             tail = self._thinking_tail + chunk
-            if '</think>' in tail:
+            if self._thinking_close in tail:
                 self._freeze_thinking_clock(now)
             else:
-                self._thinking_tail = tail[-7:]
+                self._thinking_tail = tail[-(len(self._thinking_close) - 1):]
             return
         if not streaming and self._thinking_prefix_started is None:
             return  # A final-only result does not establish a stream duration.
@@ -199,7 +200,8 @@ class ChatDocument(QObject):
         elif parts.has_thinking:
             self._thinking_started = self._thinking_prefix_started if self._thinking_prefix_started is not None else now
             self._thinking_prefix_started = None
-            self._thinking_tail = self._attempt['text'][-7:]
+            self._thinking_close = parts.closing_tag
+            self._thinking_tail = self._attempt['text'][-(len(self._thinking_close) - 1):]
             if parts.closed:
                 self._freeze_thinking_clock(now)
         elif self._attempt['text'].lstrip('\ufeff').strip():

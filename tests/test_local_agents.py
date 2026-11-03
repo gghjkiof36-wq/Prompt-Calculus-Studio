@@ -38,6 +38,52 @@ class AgentCore(unittest.TestCase):
     def request(self, text='inspect saving'):
         return self.store.request(self.agent['id'], text, 'auto')
 
+    def configuration(self, **changes):
+        values = dict(name='Changed agent', model='test-model', skills=[self.skill['id']],
+                      project_name='Changed project', cwd=self.project, sources=[],
+                      identity=self.agent['id'], project_identity=self.project_record['id'])
+        values.update(changes)
+        return self.store.save_configuration(**values)
+
+    def test_configuration_validation_does_not_partially_save_project(self):
+        skills = [self.skill['id']] + [self.store.add_skill(make_skill(self.root/f'skill-{i}', f'skill-{i}'))['id']
+                                      for i in range(32)]
+        before, state = self.store.path.read_bytes(), copy.deepcopy(self.store.value)
+        with self.assertRaisesRegex(ValueError, '32'):
+            self.configuration(skills=skills)
+        self.assertEqual(self.store.path.read_bytes(), before)
+        self.assertEqual(self.store.value, state)
+        with self.assertRaises((OSError, ValueError)):
+            self.configuration(sources=[(str(self.project/'missing.md'), 'rule')])
+        self.assertEqual(self.store.path.read_bytes(), before)
+        self.assertEqual(self.store.value, state)
+
+    def test_configuration_one_write_preserves_other_agents_and_order(self):
+        from prompt_calculus_studio.local_agents import store as module
+        second = self.store.save_agent('B', self.agent['project'], 'test-model', [])
+        with patch.object(module, 'atomic_json', wraps=module.atomic_json) as write:
+            self.configuration()
+        self.assertEqual(write.call_count, 1)
+        fresh = AgentStore(self.root/'data')
+        self.assertEqual(fresh.get('projects', self.project_record['id'])['name'], 'Changed project')
+        self.assertEqual(fresh.get('agents', self.agent['id'])['name'], 'Changed agent')
+        self.assertEqual(fresh.value['agents'][1], second)
+
+    def test_configuration_failure_and_revision_conflict_keep_original(self):
+        before, state = self.store.path.read_bytes(), copy.deepcopy(self.store.value)
+        with patch('prompt_calculus_studio.local_agents.store.atomic_json', side_effect=OSError('write failed')):
+            with self.assertRaisesRegex(OSError, 'write failed'):
+                self.configuration()
+        self.assertEqual(self.store.path.read_bytes(), before)
+        self.assertEqual(self.store.value, state)
+        concurrent = AgentStore(self.root/'data')
+        concurrent.save_agent('Other edit', self.agent['project'], 'test-model', [], self.agent['id'])
+        changed = self.store.path.read_bytes()
+        with self.assertRaisesRegex(ValueError, '其他頁面'):
+            self.configuration()
+        self.assertEqual(self.store.path.read_bytes(), changed)
+        self.assertEqual(self.store.value, state)
+
     def test_complete_copy_preserves_original_and_unknown_metadata(self):
         before = (self.skill_path / 'SKILL.md').read_bytes()
         item = self.store.add_skill(self.skill_path, managed=True)
