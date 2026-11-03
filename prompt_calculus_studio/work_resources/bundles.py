@@ -51,7 +51,12 @@ def document(store, row, cancel=None):
 
 
 def select_document(store, row, span=None, cancel=None):
-    raw, path = document(store, row, cancel)
+    raw, _ = document(store, row, cancel)
+    return document_selection(row, raw, span)
+
+
+def document_selection(row, raw, span=None):
+    """Form a selection from an already verified read (also used for batch selection)."""
     start, end = 0, len(raw)
     if span is not None:
         left, right = span
@@ -66,6 +71,47 @@ def select_document(store, row, span=None, cancel=None):
                title=row['title'], range=[start,end], unit='byte', total_bytes=len(raw),
                scope='全文' if span is None else '選取文字', excluded_bytes=len(raw)-(end-start), notes=[])
     return Selection(canonical(ref), raw[start:end])
+
+
+def materialize(store, picks, cancel=None):
+    """Resolve checked metadata only on save, reading each selected source once."""
+    if sum(len(pick.get('spans') or pick.get('leaves') or [None]) for pick in picks) > MAX_SELECTIONS:
+        raise ValueError('每個組合最多保存 512 項，請減少勾選項目。')
+    selections = {}
+    archives = {}
+    size = count = 0
+    def append(index, selection):
+        nonlocal size, count
+        size += len(selection.content) + len(selection.reference)
+        count += 1
+        if count > MAX_SELECTIONS or size > CAPACITY:
+            raise ValueError('這個組合太大，請減少勾選項目或縮小文字範圍。')
+        selections.setdefault(index, []).append(selection)
+    for index, pick in enumerate(picks):
+        checkpoint(cancel)
+        row = pick['row']
+        if row['kind'] == 'document':
+            raw, _ = document(store, row, cancel)
+            for span in pick.get('spans') or [None]:
+                append(index, document_selection(row, raw, span))
+        else:
+            archives.setdefault((row['source'], row['sha']), []).append((index, pick))
+    for (source, version), group in archives.items():
+        checkpoint(cancel)
+        raw, name = store.original(source, version, cancel)
+        parsed = {story.key: story for story in stories(name, raw, cancel)}
+        del raw
+        for index, pick in group:
+            checkpoint(cancel)
+            row = pick['row']
+            story = parsed.get(row['story'])
+            if story is None:
+                raise ValueError('此版本找不到選取的對話。')
+            story = replace(story, origin=(source, row['item'], version))
+            for leaf in pick.get('leaves') or [story.current]:
+                append(index, select_branch(row, story, leaf))
+        del parsed
+    return [selection for index in range(len(picks)) for selection in selections[index]]
 
 
 def load_story(store, row, cancel=None):
@@ -205,6 +251,23 @@ def saved(store):
         except (ValueError,OSError,KeyError,TypeError):
             continue
     return sorted(records, reverse=True)
+
+
+def saved_rows(store, cancel=None):
+    """Read collection summaries once; browsing never loads all saved contents."""
+    result = []
+    with directory(store.bundles, expected=store.bundles_id):
+        candidates = [p.name for p in store.bundles.iterdir() if re.fullmatch('[0-9a-f]{32}',p.name)]
+    for key in candidates:
+        checkpoint(cancel)
+        try:
+            record,_ = open_bundle(store,key,cancel,contents=False)
+            result.append(dict(kind='bundle',item=key,title=record['title'],date=record['saved'],
+                size=record['content_bytes'],count=len(record['selections']),state='已保存',location='',
+                source='',sha='',story='',node=''))
+        except (ValueError,OSError,KeyError,TypeError):
+            continue
+    return result
 
 
 def export_original(store, row, destination, expected, cancel=None):

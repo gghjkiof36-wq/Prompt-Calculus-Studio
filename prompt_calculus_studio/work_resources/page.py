@@ -1,74 +1,37 @@
-"""Explore → Work resources. Originals, working copies and frozen packs have separate actions."""
+"""A single resource list: find, check, save. Reading is always on demand."""
+from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
-from collections import Counter
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem,
-    QMenu, QPlainTextEdit, QSizePolicy, QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtCore import Qt, QTimer, QSize
+from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QHeaderView,
+    QLineEdit, QTreeWidgetItem, QVBoxLayout, QWidget)
+from shiboken6 import isValid
 
-from ..conversation_archive import decode_json
 from ..job_outcomes import JobOutcome
-from ..management_reading import PREFERRED_CONTENT_WIDTH, READING_MARGIN, READING_NARROW_MARGIN
-from ..markdown_source import SourceLedger, python_position, utf16_position
-from ..widgets import ComboBox, button, label
+from ..management_reading import READING_MARGIN, READING_NARROW_MARGIN
+from ..widgets import InputDialog, RoundMenu, button, label
+from ..ui_icons import icon
 from . import bundles
-from .catalog import Catalog, now
-from .stories import Story
+from .actions import SourceActions
+from .catalog import Catalog
+from .reader import ResourceReader, column, line, icon_button
+from .list_view import ResourceList
+
+PAGE_SIZE = 50
 
 
-def column(parent=None):
-    widget = QWidget(parent)
-    body = QVBoxLayout(widget)
-    body.setContentsMargins(0, 0, 0, 0)
-    body.setSpacing(8)
-    return widget, body
+def display_date(value):
+    if 'T' not in value:
+        return value
+    try:
+        return datetime.fromisoformat(value.replace('Z', '+00:00')).astimezone().strftime('%Y-%m-%d %H:%M')
+    except ValueError:
+        return value[:16]
 
 
-def line(layout, *widgets):
-    row = QHBoxLayout()
-    row.setContentsMargins(0, 0, 0, 0)
-    for widget in widgets:
-        if widget is None:
-            row.addStretch()
-        else:
-            row.addWidget(widget)
-    layout.addLayout(row)
-    return row
-
-
-def viewer(name):
-    view = QPlainTextEdit()
-    view.setObjectName('ResourcePreview')
-    view.setReadOnly(True)
-    view.setAccessibleName(name)
-    view.setPlaceholderText(name)
-    return view
-
-
-def conversation_text(messages, focused=''):
-    chunks = []
-    position = 0
-    focus = None
-    labels = {'user':'你','assistant':'助理','system':'系統','tool':'工具','developer':'開發者'}
-    for msg in messages:
-        if msg['role'] == 'root':
-            continue
-        part = f"{labels.get(msg['role'],msg['role'])}  ·  {msg['message_id']}\n{msg['text']}\n\n"
-        if msg['node_id'] == focused:
-            focus = position
-        chunks.append(part)
-        position += len(part)
-    return ''.join(chunks), focus
-
-
-def content_text(ref, raw):
-    if ref['kind'] == 'branch':
-        return conversation_text(decode_json(raw)['messages'])[0]
-    return raw.decode('utf-8-sig')
-
-
-class WorkResourcesPage(QWidget):
+class WorkResourcesPage(SourceActions, QWidget):
     def __init__(self, host):
         super().__init__()
         self.host = host
@@ -78,143 +41,128 @@ class WorkResourcesPage(QWidget):
         self.jobs.became_idle.connect(self.on_idle)
         self.offset = self.ticket = 0
         self.search_pending = False
-        self.library_pending = ''
-        self.current = self.story = self.raw = None
-        self.selections = []
-        self.saved_record = None
-        self.narrow = self.detail_open = False
-        self.outer = QHBoxLayout(self)
+        self.source_id = ''
+        self.source_rows = self.store.sources()
+        self.picks = {}
+        self.saved_cache = None
+        self.group = None
+        self.reader = None
+        self.shown_rows = []
+        self.total = 0
+        self.order = 'name'
+        self.current_kind = 'all'
+        self.outer = QVBoxLayout(self)
         self.outer.setContentsMargins(READING_MARGIN, READING_MARGIN, READING_MARGIN, READING_MARGIN)
-        center, body = column()
-        center.setMaximumWidth(PREFERRED_CONTENT_WIDTH)
-        self.outer.addStretch(); self.outer.addWidget(center,1); self.outer.addStretch()
-        self.add_button = button('加入來源', self.add_menu, 'Primary')
-        line(body, label('工作資源','DialogTitle'), None, self.add_button)
-        self.tabs = QTabWidget()
-        body.addWidget(self.tabs,1)
-        self.make_browser()
-        self.make_draft()
-        self.make_library()
+        self.outer.setSpacing(12)
+        self.add_button = button('加入檔案', self.add_menu, 'Primary')
+        self.manage = icon_button('more-horizontal', '管理來源', self.manage_sources)
+        self.filter = QLineEdit()
+        self.filter.setPlaceholderText('搜尋名稱或內容')
+        self.filter.setClearButtonEnabled(True)
+        self.filter.setAccessibleName('搜尋工作資源')
+        self.filter.setMaximumWidth(320)
+        self.filter.setMinimumWidth(120)
+        self.filter.addAction(icon('search'), QLineEdit.ActionPosition.LeadingPosition)
+        line(self.outer, label('工作資源', 'DialogTitle'), None, self.filter, self.add_button)
+        self.sort = icon_button('arrow-down-up', '排序：名稱', self.sort_menu)
+        self.refresh = icon_button('refresh', '重新整理', self.refresh_list)
+        self.kind_buttons = {}
+        self.kind_group = QButtonGroup(self)
+        for title, value in [('全部檔案', 'all'), ('文件', 'document'), ('對話', 'archive'), ('已存組合', 'bundle')]:
+            control = button(title, lambda _=False, kind=value: self.set_kind(kind), 'Navigation')
+            control.setCheckable(True)
+            control.setChecked(value == self.current_kind)
+            self.kind_group.addButton(control)
+            self.kind_buttons[value] = control
+        line(self.outer, *self.kind_buttons.values(), None, self.sort, self.refresh, self.manage)
+        self.back_button = icon_button('back', '返回所有檔案', self.go_back)
+        self.context = label('', 'SectionTitle')
+        self.context.setTextFormat(Qt.TextFormat.PlainText)
+        self.context.setWordWrap(True)
+        self.breadcrumb, breadcrumb = column()
+        line(breadcrumb, self.back_button, self.context, None)
+        self.outer.addWidget(self.breadcrumb)
+        self.breadcrumb.hide()
+        self.results = ResourceList(self)
+        self.results.setObjectName('ResourceList')
+        self.results.setAccessibleName('工作資源清單')
+        self.results.setRootIsDecorated(False)
+        self.results.setUniformRowHeights(True)
+        self.results.setAlternatingRowColors(False)
+        self.results.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.results.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.results.setHeaderLabels(['', '名稱', '來源', '更新時間'])
+        self.results.setIconSize(QSize(20, 20))
+        self.results.header().setObjectName('ResourceHeader')
+        self.results.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        for col, width in [(0, 34), (2, 200), (3, 152)]:
+            self.results.header().setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+            self.results.setColumnWidth(col, width)
+        self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.results.customContextMenuRequested.connect(self.context_menu)
+        self.results.itemActivated.connect(self.open_hit)
+        self.results.itemChanged.connect(self.item_checked)
+        self.outer.addWidget(self.results, 1)
+        self.empty = label('', 'Muted', True)
+        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.outer.addWidget(self.empty)
+        self.empty.hide()
+        self.previous = icon_button('chevron-left', '上一頁', lambda: self.turn(-1))
+        self.next = icon_button('chevron-right', '下一頁', lambda: self.turn(1))
+        self.page_number = label('', 'Muted')
+        self.clear = icon_button('close', '清除勾選', self.clear_selection)
+        self.save = button('保存組合', self.save_selection, 'Primary')
+        line(self.outer, self.page_number, self.previous, self.next, None, self.clear, self.save)
+        self.clear.hide()
+        self.save.hide()
         self.status = label('', 'Muted', True)
         self.status.setTextFormat(Qt.TextFormat.PlainText)
-        self.cancel_button = button('取消處理',self.cancel_job,'Quiet')
-        line(body,self.status,None,self.cancel_button)
+        self.cancel_button = button('取消處理', self.cancel_job, 'Quiet')
+        self.status_row, status_layout = column()
+        line(status_layout, self.status, None, self.cancel_button)
+        self.outer.addWidget(self.status_row)
+        self.status_row.hide()
         self.cancel_button.hide()
         self.search_timer = QTimer(self)
-        self.search_timer.setInterval(180)
         self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(180)
         self.search_timer.timeout.connect(self.search)
         self.filter.textChanged.connect(self.reset_search)
-        self.sources.currentIndexChanged.connect(self.reset_search)
-        self.tabs.currentChanged.connect(self.tab_changed)
-        self.reload_sources()
+        self.results.toggleSelection.connect(self.toggle_highlighted)
+        shortcut = QShortcut(QKeySequence.StandardKey.Find, self)
+        shortcut.activated.connect(self.filter.setFocus)
         self.reset_search()
 
-    def make_browser(self):
-        page, layout = column()
-        self.tabs.addTab(page,'來源')
-        self.sources = ComboBox()
-        self.sources.setAccessibleName('來源範圍')
-        self.sources.setMinimumWidth(0)
-        self.sources.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed)
-        self.manage = button('管理',self.manage_menu,'Quiet')
-        line(layout,self.sources,self.manage)
-        self.filter = QLineEdit()
-        self.filter.setPlaceholderText('搜尋檔名、來源、日期或內文')
-        self.filter.setClearButtonEnabled(True)
-        layout.addWidget(self.filter)
-        self.panes = QHBoxLayout()
-        self.panes.setSpacing(12)
-        layout.addLayout(self.panes,1)
-        self.list_pane, left = column()
-        self.results = QListWidget()
-        self.results.setAccessibleName('來源結果')
-        self.results.itemActivated.connect(self.open_hit)
-        self.results.itemClicked.connect(self.open_hit)
-        left.addWidget(self.results,1)
-        self.previous = button('上一頁', lambda:self.turn(-1),'Quiet')
-        self.next = button('下一頁', lambda:self.turn(1),'Quiet')
-        self.page_number = label('','Muted')
-        line(left,self.previous,None,self.page_number,None,self.next)
-        self.detail, right = column()
-        self.go_back = button('返回',self.back,'Quiet')
-        self.heading = label('預覽','SectionTitle')
-        self.heading.setTextFormat(Qt.TextFormat.PlainText)
-        self.heading.setWordWrap(True)
-        line(right,self.go_back,self.heading,None)
-        self.scope = label('','Muted',True)
-        self.scope.setTextFormat(Qt.TextFormat.PlainText)
-        right.addWidget(self.scope)
-        self.branches = ComboBox()
-        self.branches.setAccessibleName('對話分支')
-        self.branches.currentIndexChanged.connect(self.show_branch)
-        right.addWidget(self.branches)
-        self.preview = viewer('來源原文')
-        right.addWidget(self.preview,1)
-        self.preview_back = button('上一段',lambda:self.slice_preview(-1),'Quiet')
-        self.preview_next = button('下一段',lambda:self.slice_preview(1),'Quiet')
-        line(right,self.preview_back,None,self.preview_next)
-        self.actions = button('開啟／副本',self.file_menu,'Quiet')
-        self.add = button('加入資料包',self.add_selection,'Primary')
-        line(right,self.actions,None,self.add)
-        self.panes.addWidget(self.list_pane,2); self.panes.addWidget(self.detail,3)
-        self.clear_detail()
+    @staticmethod
+    def key(row):
+        return row['kind'], row['source'], row['item'], row['sha'], row['story']
 
-    def make_draft(self):
-        page, body = column()
-        self.tabs.addTab(page,'本次資料包')
-        self.pack_name = QLineEdit()
-        self.pack_name.setPlaceholderText('資料包名稱')
-        self.pack_name.setMaxLength(160)
-        self.pack_name.setText('工作資料包')
-        body.addWidget(self.pack_name)
-        self.draft_list = QListWidget()
-        self.draft_list.setAccessibleName('已選範圍')
-        self.draft_list.currentRowChanged.connect(self.show_draft)
-        body.addWidget(self.draft_list,1)
-        self.draft_detail = viewer('選取內容與排除範圍')
-        body.addWidget(self.draft_detail,1)
-        self.capacity = label('','Muted',True)
-        self.drop = button('移除',self.drop_selection,'Quiet')
-        self.save = button('保存資料包',self.save_draft,'Primary')
-        body.addWidget(self.capacity)
-        line(body,self.drop,None,self.save)
-        self.pack_name.textChanged.connect(self.measure)
-        self.measure()
+    @staticmethod
+    def selectable(row):
+        return (row['kind'] == 'document' and row['state'] == '可用' or
+                row['kind'] == 'archive' and bool(row['story']))
 
-    def make_library(self):
-        page, body = column()
-        self.tabs.addTab(page,'已保存')
-        self.library = ComboBox()
-        self.library.setAccessibleName('已保存資料包')
-        self.library.currentIndexChanged.connect(self.read_pack)
-        body.addWidget(self.library)
-        self.saved_items = QListWidget()
-        self.saved_items.setAccessibleName('資料包項目')
-        self.saved_items.currentRowChanged.connect(self.show_saved)
-        body.addWidget(self.saved_items,1)
-        self.saved_detail = viewer('保存的原文')
-        body.addWidget(self.saved_detail,2)
-        self.compare = button('核對目前來源',self.check_current,'Quiet')
-        line(body,None,self.compare)
-
-    def say(self,text):
+    def say(self, text):
         self.status.setText(text)
+        self.status_row.setVisible(bool(text))
 
-    def job(self,title,work,done):
+    def job(self, title, work, done):
         if self.jobs.active:
-            self.say('目前工作仍在處理中。')
+            self.say('正在處理，請稍候。')
             return False
         self.say(title)
         self.cancel_button.show()
         def success(value):
+            if not isValid(self) or self.host.closing:
+                return
             self.cancel_button.hide()
             self.say('')
             done(value)
         def failed(error):
-            self.cancel_button.hide()
-            self.say(error)
-        return self.jobs.start(title,work,success,failed,announce=False)
+            if isValid(self):
+                self.cancel_button.hide()
+                self.say(error)
+        return self.jobs.start(title, work, success, failed, announce=False)
 
     def cancel_job(self):
         if self.jobs.active:
@@ -222,96 +170,51 @@ class WorkResourcesPage(QWidget):
             self.say('正在取消…')
 
     def on_idle(self):
-        if self.search_pending and self.tabs.currentIndex()==0:
+        if self.search_pending:
             self.search_timer.start(0)
-        elif self.library_pending and self.tabs.currentIndex()==2:
-            action=self.library_pending
-            self.library_pending=''
-            (self.list_packs if action=='list' else self.read_pack)()
 
-    def menu(self,control,options):
-        popup = QMenu(self)
-        popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        for text, action in options:
-            popup.addAction(text, action)
-        popup.popup(control.mapToGlobal(control.rect().bottomLeft()))
+    def clear_group(self):
+        self.group = None
 
-    def add_menu(self):
-        self.menu(self.add_button,[('引用資料夾',lambda:self.choose('folder')),('匯入對話封存',lambda:self.choose('archive'))])
-
-    def manage_menu(self):
-        sid = self.sources.currentData()
-        if not sid:
-            self.say('請先選取一個來源。')
-            return
-        self.menu(self.manage,[('重建索引',lambda:self.rebuild(sid)),('重新指定位置',lambda:self.choose(self.store.source(sid)['kind'],sid)),
-                               ('移出清單',lambda:self.remove_source(sid))])
-
-    def choose(self,kind,sid=None):
-        value = (QFileDialog.getExistingDirectory(self,'選擇來源資料夾') if kind=='folder' else
-                 QFileDialog.getOpenFileName(self,'選擇來源檔案','','對話封存 (*.zip *.json *.pcs-chat *.jsonl);;所有檔案 (*)')[0])
-        if value:
-            self.add_source(value,kind,sid)
-
-    def add_source(self,path,kind,sid=None):
-        try:
-            if sid:
-                self.store.relink(sid,path)
-            else:
-                sid = self.store.register(path,kind)
-            self.tabs.setCurrentIndex(0)
-            self.reload_sources(sid)
-            self.rebuild(sid)
-        except (ValueError,OSError) as error:
-            self.say(str(error))
-
-    def remove_source(self,sid):
-        self.store.remove(sid)
-        self.reload_sources()
+    def set_kind(self, kind):
+        self.current_kind = kind
+        self.kind_buttons[kind].setChecked(True)
+        self.clear_group()
+        if kind == 'bundle':
+            self.source_id = ''
+        self.filter.clear()
         self.reset_search()
 
-    def rebuild(self,sid):
-        def done(_):
-            selected=self.sources.currentData()
-            self.reload_sources(selected)
-            self.reset_search()
-            self.say(self.store.source(sid)['state'])
-        self.job('正在建立索引…', lambda cancel:JobOutcome.completed(self.store.rebuild(sid,cancel)), done)
+    def refresh_list(self):
+        self.saved_cache = None
+        self.source_rows = self.store.sources()
+        self.reset_search()
 
-    def reload_sources(self,selected=''):
-        self.sources.blockSignals(True)
-        self.sources.clear()
-        self.sources.addItem('全部來源','')
-        sources=self.store.sources()
-        names=Counter(Path(src['path']).name.casefold() for src in sources)
-        for src in sources:
-            path = Path(src['path'])
-            title = path.name
-            if names[title.casefold()]>1:
-                title += ' · '+path.parent.name
-            if src['kind']=='copy':
-                title = '管理副本 · '+path.name
-            self.sources.addItem(title,src['id'])
-            self.sources.setItemData(self.sources.count()-1,src['state']+'\n'+str(path),Qt.ItemDataRole.ToolTipRole)
-        self.sources.setCurrentIndex(max(0,self.sources.findData(selected)))
-        self.sources.blockSignals(False)
-        self.manage.setEnabled(bool(self.sources.currentData()))
-
-    def reset_search(self,*_):
+    def reset_search(self, *_):
         self.offset = 0
         self.ticket += 1
-        self.manage.setEnabled(bool(self.sources.currentData()))
-        self.results.clear()
-        self.clear_detail()
-        self.back()
         self.search_pending = True
         self.search_timer.start()
 
-    def turn(self,step):
-        self.offset = max(0,self.offset+50*step)
+    def turn(self, step):
+        self.offset = max(0, self.offset + PAGE_SIZE * step)
         self.ticket += 1
-        self.clear_detail()
         self.search()
+
+    def sort_menu(self):
+        popup = RoundMenu(self)
+        popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        for title, order in [('名稱排序', 'name'), ('最新在前', 'newest'), ('最舊在前', 'oldest')]:
+            action = popup.addAction(title, lambda _=False, value=order: self.set_order(value))
+            action.setCheckable(True)
+            action.setChecked(order == self.order)
+        self.popup = popup
+        popup.open_for(self.sort)
+
+    def set_order(self, order):
+        self.order = order
+        self.sort.setToolTip('排序：' + {'name': '名稱', 'newest': '最新在前', 'oldest': '最舊在前'}[order])
+        self.reset_search()
 
     def search(self):
         if self.jobs.active:
@@ -319,317 +222,266 @@ class WorkResourcesPage(QWidget):
             return
         self.search_pending = False
         owner = self.ticket
-        sid,query,offset = self.sources.currentData() or '',self.filter.text(),self.offset
-        def done(rows):
+        query, kind = self.filter.text().strip(), self.current_kind
+        offset, order, source = self.offset, self.order, self.source_id
+        group, cache = self.group, self.saved_cache
+        def work(cancel):
+            saved = None
+            if group:
+                rows = [dict(kind='snapshot', item=str(i), title=ref['title'], date=group['record']['saved'],
+                         state=ref['scope'], scope=ref['scope'], source=ref['source'], sha=ref['version'],
+                         story=ref.get('story', ''), location='', ref=ref, node='')
+                        for i, ref in enumerate(group['record']['selections'])]
+            elif kind == 'bundle':
+                saved = cache if cache is not None else bundles.saved_rows(self.store, cancel)
+                rows = saved
+            else:
+                rows, total = self.store.browse(query, kind, offset, PAGE_SIZE, order, source, cancel)
+                return rows, total, None
+            rows = [row for row in rows if query.casefold() in (row['title'] + ' ' + row['date'] + ' ' + row['location']).casefold()]
+            rows = sorted(rows, key=lambda row: (row['title'].casefold(), row['item']) if order == 'name'
+                          else (row['date'], row['title'].casefold(), row['item']), reverse=order == 'newest')
+            return rows[offset:offset + PAGE_SIZE], len(rows), saved
+        def done(result):
+            rows, total, saved = result
             if owner != self.ticket:
                 return
-            self.results.clear()
-            for row in rows[:50]:
-                prefix = '訊息 · ' if row['kind']=='message' else ''
-                title = prefix+row['title']
-                location = row['location']
-                sub = (row['node']+' · ' if row['node'] else '')+Path(location).name+' · '+row['state']
-                item = QListWidgetItem(title+'\n'+sub)
-                item.setToolTip(location+'\n'+row['title']+'\n'+row['sha'])
-                item.setData(Qt.ItemDataRole.UserRole,row)
-                self.results.addItem(item)
-            self.page_number.setText(f'{offset+1}–{offset+min(50,len(rows))}' if rows else '沒有結果')
-            self.previous.setEnabled(offset>0); self.next.setEnabled(len(rows)>50)
-            if not rows and sid:
-                self.say(self.store.source(sid)['state'])
-        self.job('正在搜尋…',lambda cancel:self.store.results(sid,query,offset,51,cancel),done)
-
-    def clear_detail(self):
-        self.current = self.story = self.raw = None
-        self.heading.setText('預覽')
-        self.scope.clear(); self.preview.clear(); self.branches.hide()
-        self.preview_back.hide(); self.preview_next.hide()
-        self.actions.setEnabled(False); self.add.setEnabled(False)
-
-    def open_hit(self,item):
-        row = item.data(Qt.ItemDataRole.UserRole)
-        if not row or self.jobs.active:
-            return
-        self.clear_detail()
-        self.current = row
-        self.detail_open = True
-        self.arrange()
-        self.heading.setText(row['title'])
-        self.scope.setText(row['state']+' · '+row['location'])
-        if row['kind']!='document':
-            self.actions.setEnabled(True)
-        if not row['story'] and row['kind']!='document':
-            return
-        def done(result):
-            if self.current != row:
+            if saved is not None:
+                self.saved_cache = saved
+            self.shown_rows, self.total = rows, total
+            if not rows and offset and total:
+                self.offset = (total - 1) // PAGE_SIZE * PAGE_SIZE
+                self.search_pending = True
                 return
-            if isinstance(result,Story):
-                self.story = result
-                self.branches.blockSignals(True)
-                self.branches.clear()
-                for i,leaf in enumerate(result.branches,1):
-                    suffix = ' · 目前' if leaf==result.current else ''
-                    self.branches.addItem(f'分支 {i} · {leaf}'+suffix,leaf)
-                selected = result.branch_for(row['node']) if row['node'] else result.current
-                self.branches.setCurrentIndex(max(0,self.branches.findData(selected)))
-                self.branches.blockSignals(False)
-                self.branches.show()
-                self.show_branch()
+            self.render_rows()
+        self.job('正在讀取清單…', work, done)
+
+    def scope(self, row):
+        if row['kind'] == 'bundle':
+            return f'{row["count"]} 項'
+        if row['kind'] == 'snapshot':
+            return row['scope']
+        pick = self.picks.get(self.key(row), {})
+        if row['kind'] == 'archive':
+            leaves = pick.get('leaves')
+            return f'{len(leaves)} 個分支' if leaves else '目前分支' if row['story'] else '無法讀取'
+        spans = pick.get('spans')
+        return f'{len(spans)} 段文字' if spans else '全文' if row['state'] == '可用' else row['state']
+
+    def render_rows(self):
+        self.results.blockSignals(True)
+        self.results.clear()
+        sources = {row['id']: row for row in self.source_rows}
+        for row in self.shown_rows:
+            location = row['location']
+            name = row['title']
+            if row['kind'] == 'document':
+                rel = Path(name)
+                name = rel.name
+                src = sources.get(row['source'])
+                root = Path(src['path'] if src else location)
+                location = str(root / rel.parent) if not src or src['kind'] == 'folder' else str(root.parent)
+            src = sources.get(row['source'])
+            origin = Path(src['path']).name if src else Path(location).name if location else ''
+            if row['kind'] == 'document' and str(Path(row['title']).parent) != '.':
+                origin += ' / ' + str(Path(row['title']).parent)
+            if row['kind'] == 'bundle':
+                origin = f'{row["count"]} 項'
+            item = QTreeWidgetItem(['', name, origin, display_date(row['date'])])
+            item.setIcon(1, icon({'document': 'file-text', 'archive': 'message-square',
+                                 'bundle': 'folder', 'snapshot': 'file-text'}[row['kind']]))
+            item.setData(0, Qt.ItemDataRole.UserRole, row)
+            item.setToolTip(1, row['title'] + '\n' + self.scope(row))
+            item.setToolTip(2, location)
+            if self.selectable(row):
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(0, Qt.CheckState.Checked if self.key(row) in self.picks else Qt.CheckState.Unchecked)
+            self.results.addTopLevelItem(item)
+        self.results.blockSignals(False)
+        self.page_number.setText(f'{self.offset + 1}–{self.offset + len(self.shown_rows)} / {self.total:,} 項' if self.total else '0 項')
+        self.previous.setEnabled(self.offset > 0)
+        self.next.setEnabled(self.offset + PAGE_SIZE < self.total)
+        self.empty.setVisible(not self.total)
+        self.empty.setText('沒有符合的項目' if self.filter.text() else
+                           '尚未保存組合。勾選檔案後，按「保存組合」。' if self.current_kind == 'bundle' else
+                           '加入資料夾或匯入對話封存，即可在這裡勾選內容。')
+        self.update_context()
+        self.update_selection()
+
+    def update_context(self):
+        grouped = bool(self.group)
+        self.results.headerItem().setText(2, '項目' if self.current_kind == 'bundle' and not grouped else '來源')
+        self.results.headerItem().setText(3, '保存時間' if self.current_kind == 'bundle' else '更新時間')
+        self.breadcrumb.setVisible(grouped or bool(self.source_id))
+        self.back_button.setToolTip('返回已存組合' if grouped else '返回所有檔案')
+        if grouped:
+            self.context.setText(self.group['record']['title'])
+        else:
+            source = next((s for s in self.source_rows if s['id'] == self.source_id), None)
+            self.context.setText(Path(source['path']).name if source else '')
+        self.filter.setPlaceholderText('搜尋組合內的項目' if grouped else
+                                      '搜尋組合名稱' if self.current_kind == 'bundle' else '搜尋名稱或內容')
+        self.arrange()
+
+    def choose_row(self, row, *, span=None, leaf=None):
+        key = self.key(row)
+        pick = self.picks.setdefault(key, {'row': dict(row)})
+        if span is not None:
+            spans = set(pick.get('spans', []))
+            spans.add(tuple(span))
+            merged = []
+            for start, end in sorted(spans):
+                if merged and start <= merged[-1][1]:
+                    merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+                else:
+                    merged.append((start, end))
+            pick['spans'] = merged
+        elif leaf:
+            pick['leaves'] = list(dict.fromkeys([*pick.get('leaves', []), leaf]))
+        else:
+            pick.pop('spans', None)
+            pick.pop('leaves', None)
+        self.update_selection()
+
+    def item_checked(self, item, column):
+        if column != 0:
+            return
+        row = item.data(0, Qt.ItemDataRole.UserRole)
+        if not row or not self.selectable(row):
+            return
+        if item.checkState(0) == Qt.CheckState.Checked:
+            if self.key(row) not in self.picks:
+                self.choose_row(row)
+        else:
+            self.picks.pop(self.key(row), None)
+        self.update_selection()
+
+    def update_selection(self):
+        self.results.blockSignals(True)
+        for index in range(self.results.topLevelItemCount()):
+            item = self.results.topLevelItem(index)
+            row = item.data(0, Qt.ItemDataRole.UserRole)
+            name = Path(row['title']).name if row['kind'] == 'document' else row['title']
+            pick = self.picks.get(self.key(row), {})
+            if pick.get('spans') or pick.get('leaves'):
+                name += ' · ' + self.scope(row)
+            item.setText(1, name)
+            item.setToolTip(1, row['title'] + '\n' + self.scope(row))
+            if self.selectable(row):
+                selected = self.key(row) in self.picks
+                item.setCheckState(0, Qt.CheckState.Checked if selected else Qt.CheckState.Unchecked)
+        self.results.blockSignals(False)
+        count = len(self.picks)
+        self.clear.setVisible(bool(count))
+        self.save.setVisible(bool(count))
+        self.save.setText(f'保存組合 · {count}')
+
+    def toggle_highlighted(self):
+        rows = [item.data(0, Qt.ItemDataRole.UserRole) for item in self.results.selectedItems()]
+        rows = [row for row in rows if self.selectable(row)]
+        clear = rows and all(self.key(row) in self.picks for row in rows)
+        for row in rows:
+            if clear:
+                self.picks.pop(self.key(row), None)
             else:
-                self.raw,path = result
-                self.actions.setEnabled(True)
-                self.add.setEnabled(True)
-                ledger=SourceLedger(self.raw)
-                self.set_preview(ledger.text_of(ledger.pieces))
-                self.scope.setText(f'{path.parent.name} · {len(self.raw):,} bytes · 版本 {row["sha"][:12]}')
-                self.scope.setToolTip(str(path)+'\n'+row['sha'])
-        self.job('正在讀取來源…', lambda cancel:bundles.document(self.store,row,cancel) if row['kind']=='document'
-                 else bundles.load_story(self.store,row,cancel),done)
+                self.picks.setdefault(self.key(row), {'row': dict(row)})
+        self.update_selection()
 
-    def show_branch(self,*_):
-        leaf = self.branches.currentData()
-        if not self.story or not leaf:
-            self.add.setEnabled(False)
+    def clear_selection(self):
+        self.picks.clear()
+        self.update_selection()
+
+    def context_menu(self, position):
+        item = self.results.itemAt(position)
+        if item is None:
             return
-        msgs = self.story.selected(leaf)
-        text,focus = conversation_text(msgs,self.current['node'])
-        self.set_preview(text, focus or 0)
-        self.scope.setText(f'{len(msgs)} 個節點 · {self.current["sha"][:12]}')
-        self.add.setEnabled(True)
+        row = item.data(0, Qt.ItemDataRole.UserRole)
+        options = [('檢視內容', lambda: self.open_row(row))]
+        if row['kind'] in ('document', 'archive'):
+            options += self.file_options(row)
+        self.menu(self.results, options, self.results.viewport().mapToGlobal(position))
 
-    def set_preview(self,text,position=0):
-        self.preview_text = text
-        self.preview_start = (position//60000)*60000
-        self.slice_preview(0,position)
+    def open_hit(self, item, *_):
+        self.open_row(item.data(0, Qt.ItemDataRole.UserRole))
 
-    def slice_preview(self,step,position=None):
-        self.preview_start += 60000*step
-        text = self.preview_text[self.preview_start:self.preview_start+60000]
-        self.preview.setPlainText(text)
-        self.preview_back.setVisible(self.preview_start>0)
-        self.preview_next.setVisible(len(self.preview_text)>self.preview_start+len(text))
-        if position is not None:
-            cursor=self.preview.textCursor()
-            cursor.setPosition(utf16_position(text,position-self.preview_start))
-            self.preview.setTextCursor(cursor)
-            self.preview.centerCursor()
+    def close_reader(self):
+        if self.reader is not None and isValid(self.reader):
+            self.reader.close()
+        self.reader = None
 
-    def file_menu(self):
-        if not self.current:
-            return
-        if self.current['kind']!='document':
-            self.menu(self.actions,[('匯出封存原件',self.export_original)])
-            return
-        src = self.store.source(self.current['source'])
-        actions = [('開啟原文分頁',self.open_original)]
-        if src['kind']=='copy':
-            actions.append(('編輯管理副本',self.edit_copy))
-        if Path(self.current['title']).suffix.casefold()=='.md':
-            actions.append(('複製到工作區',self.copy))
-        self.menu(self.actions,actions)
-
-    def export_original(self):
-        destination=QFileDialog.getExistingDirectory(self,'選擇保存原件的資料夾')
-        if not destination:
-            return
-        row=dict(self.current)
-        from ..retained_files import directory_identity
-        ident=directory_identity(destination)
-        self.job('正在保存封存原件…',lambda cancel:JobOutcome.completed(
-            bundles.export_original(self.store,row,destination,ident,cancel)),lambda path:self.say('原件已保存於 '+str(path)))
-
-    def open_original(self):
-        row = dict(self.current)
-        def done(result):
-            if self.current != row or not self.isVisible():
-                return
-            raw,path = result
-            from ..workspace_shell import Tab
-            from .catalog import token
-            view=viewer(str(path))
-            view.setPlainText(raw.decode('utf-8-sig'))
-            view.setToolTip(str(path))
-            self.workspace.add_tab(Tab('reference:'+token(),path.name+' · 原文',view,True),replace_current=False)
-        self.job('正在核對原件…',lambda cancel:bundles.document(self.store,row,cancel),done)
-
-    def edit_copy(self):
-        row = dict(self.current)
-        self.open_managed(row)
-
-    def open_managed(self,row):
-        # Keep the leaf non-replaceable throughout the ordinary Markdown open,
-        # including path matching, buffer construction and recovery handling.
-        from .source_io import verified_stream
-        from .catalog import root_identity
-        from ..conversation_archive import fingerprint
-        try:
-            src = self.store.source(row['source'])
-            if src['kind']!='copy':
-                raise ValueError('請先建立管理副本。')
-            path = Path(src['path'])
-            with verified_stream(path.parent,path.name,root_identity(src)) as (stream,_):
-                if fingerprint(stream,None)!=row['sha']:
-                    raise ValueError('管理副本已變更，請重建索引。')
-                self.workspace.open_path(path,True)
-        except (ValueError,OSError) as error:
-            self.say(str(error))
-
-    def copy(self):
-        row = dict(self.current)
-        destination = self.workspace.locations.current
-        if not destination:
-            self.say('請先在工作區選擇內容資料夾。');return
-        from ..retained_files import directory_identity
-        try:
-            identity=directory_identity(destination)
-        except (OSError,ValueError) as error:
-            self.say(str(error))
-            return
-        def done(result):
-            path,sid = result
-            self.workspace.refresh_tree()
-            if self.current == row and self.isVisible() and self.workspace.locations.current == destination:
-                self.reload_sources(sid)
+    def open_row(self, row):
+        owner = self.ticket
+        if row['kind'] == 'bundle':
+            def done(result):
+                if owner != self.ticket:
+                    return
+                self.group = {'record': result[0], 'contents': result[1]}
+                self.filter.clear()
                 self.reset_search()
-                rows=self.store.results(sid)
-                if rows:self.open_managed(rows[0])
-        self.job('正在建立管理副本…',lambda cancel:JobOutcome.completed(
-            bundles.copy_markdown(self.store,row,destination,cancel,expected=identity)),done)
-
-    def add_selection(self):
-        if not self.current:
+            self.job('正在開啟組合…', lambda cancel: bundles.open_bundle(self.store, row['item'], cancel), done)
             return
-        row = dict(self.current)
-        if self.story:
-            self.append_selection(bundles.select_branch(row,self.story,self.branches.currentData()))
+        if row['kind'] == 'snapshot':
+            if self.group:
+                self.show_reader(row, None, frozen=(row['ref'], self.group['contents'][int(row['item'])]))
             return
-        cursor = self.preview.textCursor()
-        span = None
-        if cursor.hasSelection():
-            text = self.preview_text[self.preview_start:self.preview_start+60000]
-            span = tuple(self.preview_start+python_position(text,p) for p in (cursor.selectionStart(),cursor.selectionEnd()))
-        self.job('正在固定選取範圍…',lambda cancel:bundles.select_document(self.store,row,span,cancel),
-                 lambda result:self.append_selection(result) if self.current==row else None)
-
-    def append_selection(self,selection):
-        if selection in self.selections:
-            self.say('此範圍已在資料包中。');return
-        try:
-            bundles.prepared([*self.selections,selection], key='0'*32, title=self.pack_name.text() or '工作資料包', created=now())
-        except ValueError as error:
-            self.say(str(error))
+        if row['kind'] == 'archive' and not row['story']:
+            self.say(row['state'])
             return
-        self.selections.append(selection)
-        self.draft_list.addItem(selection.ref['title']+' · '+selection.ref['scope'])
-        self.draft_list.setCurrentRow(len(self.selections)-1)
-        self.measure()
-        self.say(f'已加入資料包 · {len(self.selections)} 項')
+        def done(loaded):
+            if owner == self.ticket and self.isVisible():
+                self.show_reader(row, loaded)
+        self.job('正在開啟內容…', lambda cancel: bundles.document(self.store, row, cancel)
+                 if row['kind'] == 'document' else bundles.load_story(self.store, row, cancel), done)
 
-    def measure(self,*_):
-        if not self.selections:
-            self.capacity.setText('尚未選取內容'); self.drop.setEnabled(False); self.save.setEnabled(False)
-        else:
-            self.drop.setEnabled(True)
-            try:
-                _,size=bundles.prepared(self.selections,key='0'*32,title=self.pack_name.text(),created=now())
-                self.capacity.setText(f'{len(self.selections)} 項 · 含清單 {size:,} bytes ／ 64 MiB')
-                self.capacity.setToolTip('包含選取內容與來源清單。此階段尚未檢查模型容量。')
-                self.save.setEnabled(True)
-            except ValueError as error:
-                self.capacity.setText(str(error)); self.save.setEnabled(False)
-        self.tabs.setTabText(1,'本次資料包'+(f' · {len(self.selections)}' if self.selections else ''))
+    def show_reader(self, row, loaded, **kwargs):
+        self.close_reader()
+        self.reader = ResourceReader(self, row, loaded, **kwargs)
+        self.reader.show()
 
-    def show_item(self,view,ref,raw):
-        detail = (f"位元組 {ref['range'][0]}–{ref['range'][1]}（結尾不含） · 排除 {ref['excluded_bytes']:,} bytes"
-                  if ref['kind']=='document' else f"分支 {ref['leaf']} · {ref['nodes']} 個節點 · 排除 {ref['excluded_nodes']} 個節點")
-        notes = '\n'.join(ref['notes'])
-        view.setPlainText(f"{ref['title']} · {ref['version'][:12]}\n{detail}\n{notes}\n\n"+content_text(ref,raw))
+    def go_back(self):
+        self.clear_group()
+        self.source_id = ''
+        self.filter.clear()
+        self.reset_search()
 
-    def show_draft(self,index):
-        if 0<=index<len(self.selections):
-            item=self.selections[index]
-            self.show_item(self.draft_detail,item.ref,item.content)
-        else:
-            self.draft_detail.clear()
-
-    def drop_selection(self):
-        i=self.draft_list.currentRow()
-        if i>=0:
-            self.selections.pop(i); self.draft_list.takeItem(i); self.show_draft(self.draft_list.currentRow()); self.measure()
-
-    def save_draft(self):
-        chosen=tuple(self.selections)
-        title=self.pack_name.text()
+    def save_selection(self):
+        if not self.picks or self.jobs.active:
+            return
+        chosen = deepcopy(self.picks)
+        title, accepted = InputDialog.getText(self, '保存組合', f'為勾選的 {len(chosen)} 項內容命名', '')
+        if not accepted:
+            return
+        if not title.strip() or len(title) > 160:
+            self.say('請輸入 1 至 160 字的組合名稱。')
+            return
+        def work(cancel):
+            selected = bundles.materialize(self.store, list(chosen.values()), cancel)
+            return JobOutcome.completed(bundles.save(self.store, selected, title, cancel))
         def done(key):
-            if tuple(self.selections)==chosen:
-                self.selections.clear(); self.draft_list.clear(); self.measure()
-            self.requested_pack=key
-            self.tabs.setCurrentIndex(2)
-        self.job('正在保存資料包…',lambda cancel:JobOutcome.completed(bundles.save(self.store,chosen,title,cancel)),done)
-
-    def tab_changed(self,i):
-        if i==0:
+            # New selections made while saving belong to the next operation.
+            for identity, value in chosen.items():
+                if self.picks.get(identity) == value:
+                    self.picks.pop(identity)
+            self.saved_cache = None
+            self.clear_group()
+            self.source_id = ''
+            self.set_kind('bundle')
+            self.filter.clear()
+            self.set_order('newest')
             self.reset_search()
-        elif i==2:
-            self.list_packs()
-
-    def list_packs(self):
-        if self.jobs.active:
-            self.library_pending='list'
-            return
-        self.library_pending=''
-        def done(rows):
-            self.library.blockSignals(True);self.library.clear()
-            for date,title,key in rows:
-                self.library.addItem(title+' · '+date[:10],key)
-            index=self.library.findData(getattr(self,'requested_pack',None))
-            self.library.setCurrentIndex(max(0,index))
-            self.library.blockSignals(False)
-            self.read_pack()
-        if not self.jobs.active:
-            self.job('正在讀取已保存資料包…',lambda cancel:bundles.saved(self.store),done)
-
-    def read_pack(self,*_):
-        key=self.library.currentData()
-        self.saved_record=None; self.saved_items.clear(); self.saved_detail.clear(); self.compare.setEnabled(False)
-        if not key:return
-        if self.jobs.active:
-            self.library_pending='read'
-            return
-        def done(result):
-            if self.library.currentData()!=key:return
-            self.saved_record=result
-            for ref in result[0]['selections']:
-                self.saved_items.addItem(ref['title']+' · '+ref['scope'])
-            self.saved_items.setCurrentRow(0)
-            self.compare.setEnabled(True)
-        self.job('正在核對資料包…',lambda cancel:bundles.open_bundle(self.store,key,cancel),done)
-
-    def show_saved(self,index):
-        if self.saved_record and index>=0:
-            record,raw=self.saved_record
-            self.show_item(self.saved_detail,record['selections'][index],raw[index])
-
-    def check_current(self):
-        i=self.saved_items.currentRow()
-        if self.saved_record and i>=0:
-            record=self.saved_record
-            ref=record[0]['selections'][i]
-            self.job('正在核對來源…',lambda cancel:bundles.current_state(self.store,ref,cancel),
-                     lambda state:self.say(state) if record is self.saved_record and i==self.saved_items.currentRow() else None)
-
-    def back(self):
-        self.detail_open=False
-        self.arrange()
+            self.update_selection()
+            self.say(f'已保存「{title.strip()}」')
+        self.job('正在保存組合…', work, done)
 
     def arrange(self):
-        self.list_pane.setVisible(not self.narrow or not self.detail_open)
-        self.detail.setVisible(not self.narrow or self.detail_open)
-        self.go_back.setVisible(self.narrow)
+        width = self.width()
+        self.results.setColumnHidden(0, bool(self.group) or self.current_kind == 'bundle')
+        self.results.setColumnHidden(2, width < 760)
+        self.results.setColumnHidden(3, width < 580)
 
-    def resizeEvent(self,event):
+    def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.narrow=event.size().width()<760
-        margin=READING_NARROW_MARGIN if self.narrow else READING_MARGIN
-        self.outer.setContentsMargins(margin,margin,margin,margin)
-        self.arrange()
+        margin = READING_NARROW_MARGIN if event.size().width() < 760 else READING_MARGIN
+        self.outer.setContentsMargins(margin, margin, margin, margin)
+        if hasattr(self, 'results'):
+            self.arrange()

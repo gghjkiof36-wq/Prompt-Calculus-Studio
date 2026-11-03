@@ -222,6 +222,55 @@ class Catalog:
             raise ValueError('封存原件與保存版本不符。')
         return raw, row['filename']
 
+    def browse(self, query='', kind='all', offset=0, limit=50, order='name', source='', cancel=None):
+        """One result per file/conversation, with filtering before pagination."""
+        checkpoint(cancel)
+        term = '%'+query.strip().replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
+        sql = """
+        WITH entries AS (
+          SELECT d.source,d.id item,'' story,'' node,d.sha,d.rel title,s.path location,
+                 CASE WHEN s.state LIKE '來源需核對%' THEN '需重新核對' ELSE d.state END state,
+                 'document' kind,d.modified date,d.size size
+          FROM document d JOIN source s ON s.id=d.source
+          WHERE s.removed=0 AND d.state<>'待重建' AND
+            (d.rel LIKE :term ESCAPE '\\' OR s.path LIKE :term ESCAPE '\\' OR
+             d.body LIKE :term ESCAPE '\\' OR d.modified LIKE :term ESCAPE '\\')
+          UNION ALL
+          SELECT a.source,a.object,coalesce(t.story,''),
+                 coalesce((SELECT m.node FROM message m WHERE m.source=a.source AND m.sha=a.sha AND
+                   m.story=t.story AND :query<>'' AND (m.body LIKE :term ESCAPE '\\' OR m.day LIKE :term ESCAPE '\\') LIMIT 1),''),
+                 a.sha,coalesce(t.title,a.filename),a.original_path,
+                 CASE WHEN a.note<>'' THEN a.note WHEN a.sha=s.current_sha THEN '已匯入' ELSE '先前版本' END,
+                 'archive',a.imported,NULL
+          FROM archive a JOIN source s ON s.id=a.source
+          LEFT JOIN story t ON t.source=a.source AND t.sha=a.sha
+          WHERE s.removed=0 AND (a.filename LIKE :term ESCAPE '\\' OR t.title LIKE :term ESCAPE '\\' OR
+            a.original_path LIKE :term ESCAPE '\\' OR a.imported LIKE :term ESCAPE '\\' OR
+            EXISTS(SELECT 1 FROM message m WHERE m.source=a.source AND m.sha=a.sha AND m.story=t.story
+              AND :query<>'' AND (m.body LIKE :term ESCAPE '\\' OR m.day LIKE :term ESCAPE '\\')))
+        ), filtered AS (SELECT * FROM entries WHERE (:kind='all' OR kind=:kind) AND (:source='' OR source=:source))
+        """
+        sorting = {'name':'title COLLATE NOCASE,location,item,story',
+                   'newest':'date DESC,title COLLATE NOCASE,item,story',
+                   'oldest':'date,title COLLATE NOCASE,item,story'}
+        args = dict(term=term, query=query.strip(), kind=kind, source=source,
+                    limit=min(max(1,limit),101),offset=max(0,offset))
+        with connection(self) as db:
+            if cancel is not None:
+                db.set_progress_handler(lambda:int(cancel.is_set()),4000)
+            try:
+                rows = [dict(row) for row in db.execute(sql+'SELECT *,count(*) OVER() AS total FROM filtered ORDER BY '+
+                        sorting.get(order,sorting['name'])+' LIMIT :limit OFFSET :offset',args)]
+                total = rows[0]['total'] if rows else (
+                    db.execute(sql+'SELECT count(*) FROM filtered',args).fetchone()[0] if offset else 0)
+                for row in rows:
+                    row.pop('total')
+                checkpoint(cancel)
+                return rows,total
+            except sqlite3.OperationalError:
+                checkpoint(cancel)
+                raise
+
     def results(self, sid='', query='', offset=0, limit=50, cancel=None):
         # Literal matching keeps %, _ and quotation marks ordinary search text.
         term = '%'+query.strip().replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'

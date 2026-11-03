@@ -317,6 +317,10 @@ def stylesheet(settings):
     QListView::item:hover {{ background:{t['hover']}; }}
     QListView::item:selected:hover {{ background:{t['selected']}; }}
     QTreeWidget::item {{ padding:0; border:none; background:transparent; }}
+    QTreeWidget#ResourceList::item {{ padding:9px 8px; border:0; border-bottom:1px solid {t['divider']}; }}
+    QTreeWidget#ResourceList::item:hover {{ background:{t['hover']}; }}
+    QTreeWidget#ResourceList::item:selected {{ background:{t['selected']}; color:{t['text']}; }}
+    QHeaderView#ResourceHeader::section {{ background:transparent; color:{t['secondary']}; padding:8px; border:0; }}
     QFrame#PcsComboContainer {{ background:transparent; border:0; padding:0; }}
     QAbstractItemView#CompletionPopup, QAbstractItemView#ComboPopup, QComboBox QAbstractItemView {{ background:transparent; border:1px solid transparent; border-radius:12px; padding:6px; color:{t['text']}; selection-background-color:{t['selected']}; selection-color:{t['text']}; outline:0; }}
     QAbstractItemView#CompletionPopup::item, QAbstractItemView#ComboPopup::item,
