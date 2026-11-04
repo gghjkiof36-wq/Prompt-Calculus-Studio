@@ -1,57 +1,56 @@
 # Prompt Calculus Studio (PCS)
 
-Keep Markdown notes, reusable prompts and Canvas workflows locally. Save ChatGPT conversations as editable documents, then arrange text, images and parameters for your own ComfyUI workflows.
+Keep notes, prompts, conversations, and project resources on your computer. Chat with your own models, use documents and Skills as references, and bring text and materials into Canvas workflows for ComfyUI.
 
-[繁體中文](README.md) · [Getting started](docs/guide/workspace-089.md) · [Documentation](docs/README.md) · [Beta3 release notes](docs/releases/0.8.9/beta.3.md) (guides in Chinese)
+[繁體中文](README.md) · [Getting started](docs/guide/workspace-0810.md) · [Documentation](docs/README.md) · [Pre-alpha2 changes](docs/releases/0.8.10/pre-alpha.2.md)
 
-## What it does
+## What you can do
 
-- Save selected ChatGPT messages through the Chrome extension, send them to PCS or download JSON/Markdown, and find saved files in download history.
-- Edit Markdown with source and reading views side by side, formulas, tables, images, outlines, search, links and version history. Ctrl+V retains available formatting; Ctrl+Shift+V pastes plain text.
-- Import selected conversations from local ChatGPT ZIP/JSON files with branches and identifiable attachments. Check the original questions and answers, then export a folder or ZIP.
-- Reuse prompt variants, combinations and flows; Canvas copies remain separate from library originals.
-- Bind CLIP fields and Stage workflow parameters, run Canvas documents in order, and retain task records and selection progress locally.
-
-Notes, prompt editing and copying work without ComfyUI. Image generation requires your own backend, models and workflows. Keep PCS, ComfyUI and the workflow browser page open.
+- **Write and read notes:** View Markdown source and rendered content side by side, with math, tables, images, outlines, search, links, and revision history. Rewrite a selection or draft with a local model, then review and keep the result.
+- **Save and organize conversations:** Save selected ChatGPT messages with the Chrome extension. Import ChatGPT ZIP/JSON, Codex JSONL, or PCS conversations and export individual Markdown documents with their sources and available attachments.
+- **Manage local models and chats:** Register GGUF files, configure context, thinking, and GPU settings, and save attachments, message versions, branches, and timing in `.pcs-chat` documents.
+- **Use Skills and Agents by project:** Add files and Skills under Work Resources, set project rules and Agent roles, and use them in chat to search and read configured sources. Inspect the reading record, or submit a task through the Windows command-line tool and retrieve its draft.
+- **Reuse prompts and run workflows:** Organize prompt variants, compositions, and flows, then connect CLIP and Stage modules on a Canvas to your own ComfyUI models and workflows.
 
 ## This release
 
-Beta3 adds Chrome conversation saving, citation cards and portable document exports. It improves formulas, tables, recovery for missing files and saving under a new name. Tutorials include 59 editable prompt materials, eight note templates, and formula and Markdown references. Optional cherry blossom, rain and snow effects are available in settings. See the [full release notes](docs/releases/0.8.9/beta.3.md).
+Pre-alpha2 adds Work Resources, Skills, projects, Agents, and local task delegation. It improves conversation-to-Markdown export, chat typography and reply controls, long rich-text streams, and repeated opening and closing of Prompt and Canvas views. [Release notes](docs/releases/0.8.10/pre-alpha.2.md) · [Work Resources guide](docs/guide/work-resources.md).
 
 ## Download and start
 
-Use **[0.8.9 Beta3](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta.3)**, a prerelease.
+Download **[0.8.10 Pre-alpha2](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.10-pre-alpha.2)** (preview).
 
-- `PCS-v0.8.9-Beta3-source.zip`: source application, welcome page, tutorials, materials, templates and matching ComfyUI extensions.
-- `PCS-v0.8.9-Beta3-Chrome-Connector.zip`: Chrome extension and Windows connection tools for saving to PCS.
-- `PCS-v0.8.9-Beta3-ComfyUI.zip`: universal ComfyUI extension.
-- `PCS-v0.8.9-Beta3-ComfyUI-legacy-0.39.2.zip` or `PCS-v0.8.9-Beta3-ComfyUI-modern-0.40.0.zip`: alternative compatibility profiles; install one copy only.
-- `SHA256SUMS.txt`: download checksums.
+| File | Purpose |
+|---|---|
+| `PCS-v0.8.10-Pre-alpha2-source.zip` | Application source, lessons, materials, templates, and matching ComfyUI packages |
+| `PCS-v0.8.10-Pre-alpha2-Chrome-Connector.zip` | Chrome 0.2.7 extension and Windows connection tools |
+| `PCS-v0.8.10-Pre-alpha2-ComfyUI.zip` | General ComfyUI package |
+| `PCS-v0.8.10-Pre-alpha2-ComfyUI-legacy-0.39.2.zip`, `PCS-v0.8.10-Pre-alpha2-ComfyUI-modern-0.40.0.zip` | Compatibility profiles; choose one package |
+| `SHA256SUMS.txt` | Download integrity checksums |
 
-The PCS application is distributed as source; **no PCS Windows executable is publicly provided**. Install 64-bit Python 3.12 on Windows, extract the source archive and open PowerShell beside `run.py`:
+The application is distributed as source. Install 64-bit Python 3.12 for Windows, extract the full source package, and open PowerShell beside `run.py`:
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe run.py --v0.8.9-beta.3
 ```
 
-The first installation downloads dependencies. Afterwards, double-click `Start.cmd`. Follow the [Chrome setup](docs/guide/chrome-connector.md) to install its connection tools and load the extension. For image generation, install one matching ComfyUI extension, restart the backend and refresh the workflow browser page.
+Then double-click **`Start.vbs`**. The initial setup downloads dependencies; startup logs are saved under `logs`. For a terminal session, run `.\.venv\Scripts\python.exe run.py --v0.8.10-pre-alpha.2`.
 
-## First use and upgrades
+For local AI, provide a GGUF model and a supported `llama-server` using the [model setup guide](docs/guide/local-ai.md). Follow the [Chrome connection steps](docs/guide/chrome-connector.md) to save web conversations, or the [ComfyUI guide](docs/guide/comfyui-compatibility.md) to connect image-generation workflows.
 
-The welcome document links to tutorials for notes, prompt materials, combinations, flows and Canvas. Closing it leaves it closed after restart; saved tabs are restored. Copy tutorials first if you want to keep their initial content.
+## First use and updates
 
-New documents live in `files`; settings, recovery data and task records live in `data`. Adding a local folder edits files in their original locations. Keep the old application and both data folders when upgrading, try copies first, and avoid running both versions against the same data. See [startup and existing data](docs/guide/workspace-089.md) and [saving and exports](docs/guide/markdown-retention.md).
+Start with `歡迎使用.md` for editable notes, materials, and Canvas lessons. Documents default to `files`; settings and internal records go in `data`. Added folders are edited at their original locations. Keep your previous program and data, try the new version with copies, and use one version at a time for shared data. [Startup and existing data](docs/guide/workspace-0810.md).
 
 ## Before using
 
-- Chrome captures messages already loaded on the page; selecting all does not include history the site has not loaded.
-- Complex charts and widgets may retain only static images, text or source links. Formula characters lost in older data cannot be recovered through display changes.
-- Not all Obsidian plugins are supported. This release does not run an LLM automatically; ChatGPT editing uses manual copying and pasting.
-- Imported records, attachments, PNG metadata, recovery data and backups can contain private content. [Inspect before sharing](docs/guide/data-backup-privacy.md).
+- Agent analysis and citations can contain errors, especially in long tasks. Review the sources. Skills currently supply reading material and guidance.
+- Local AI handles one task at a time. External delegation currently uses Windows commands; direct ChatGPT/Claude task integration is in development.
+- Chrome saves messages already loaded on the page. Charts and attachments are retained according to the content available.
+- Conversations, reading records, attachments, and backups can contain private information. [Check before sharing](docs/guide/data-backup-privacy.md).
 
-[Current limits](docs/releases/0.8.9/validation/beta.3.md) · [Release history](docs/releases/0.8.9/README.md) · [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+[Validation notes](docs/releases/0.8.10/validation/pre-alpha.2.md) · [Release history](docs/releases/README.md) · [Issues](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/issues) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 ## License
 

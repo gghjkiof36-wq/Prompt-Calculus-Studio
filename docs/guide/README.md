@@ -1,11 +1,13 @@
 # 使用指南
 
-適用：0.8.9 Beta2 · [專案首頁](../../README.md) · [完整文件目錄](../README.md)
+適用：0.8.10 Pre-alpha2 · [專案首頁](../../README.md) · [完整文件目錄](../README.md)
 
-第一次使用，先讀[分頁工作區與 Markdown](workspace-089.md)，再依需要整理 Prompt 或接上 ComfyUI。部分主題圖仍保留當時版本標示；現行入口以 0.8.9 指南為準。
+第一次使用，先讀[啟動與更新](workspace-0810.md)，再依需要整理文件、設定本機模型或接上 ComfyUI。
 
 | 想做的事 | 指南 |
 |---|---|
+| 專案、Skill、Agent 與本機委派 | [工作資源](work-resources.md) |
+| GGUF 模型、對話與 Markdown 文字協作 | [本機 AI](local-ai.md) |
 | 分頁、Markdown、文件與資料位置 | [0.8.9 工作區](workspace-089.md) |
 | 貼上保留格式、從 ZIP／JSON 挑選對話匯入 | [貼上與對話匯入](markdown-import.md) |
 | 下載、安裝、啟動與更新 | [開始使用](getting-started.md) |
@@ -23,6 +25,6 @@
 | 處理安裝、連線與生成問題 | [疑難排解](troubleshooting.md) |
 | 了解專案及第三方授權 | [授權說明](licensing.md) |
 
-版本變更見[0.8.9 版本主頁](../releases/0.8.9/README.md)，目前的已知限制與驗證範圍見[Beta 紀錄](../releases/0.8.9/validation/beta.2.md)。
+版本變更見[0.8.10 版本主頁](../releases/0.8.10/README.md)，驗證範圍見[Pre-alpha2 紀錄](../releases/0.8.10/validation/pre-alpha.2.md)。
 
 [Prompt Editor：素材、資料夾與畫布副本](prompt-editor.md)
