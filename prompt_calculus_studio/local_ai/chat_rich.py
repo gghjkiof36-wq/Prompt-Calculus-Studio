@@ -14,6 +14,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngin
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from .chat_render import project_chat
+from .chat_typography import body_families, CODE_FAMILIES
 
 ASSETS = Path(__file__).resolve().parents[1] / 'assets' / 'markdown'
 _shared = None
@@ -143,7 +144,8 @@ class RichChatView(QWebEngineView):
         colors = {key: tokens[key] for key in ('text', 'secondary', 'surface', 'accent', 'info', 'selected')}
         colors['border'] = tokens['divider']
         self.payload = dict(version=self.version, html=projection.body, math=projection.math,
-                            colors=colors, light=tokens['scheme'] == 'light', font=font.family(),
+                            colors=colors, light=tokens['scheme'] == 'light',
+                            fonts=body_families(font), code_fonts=list(CODE_FAMILIES),
                             size=font.pixelSize() if font.pixelSize() > 0 else round(font.pointSizeF() * 96 / 72))
         if self.ready:
             self.page().runJavaScript('window.refreshChat && window.refreshChat()')

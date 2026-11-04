@@ -8,7 +8,9 @@
     measuring = true;
     requestAnimationFrame(() => {
       measuring = false;
-      bridge.presented(current, Math.ceil(root.getBoundingClientRect().height));
+      const contentHeight = Math.ceil(root.getBoundingClientRect().height);
+      document.documentElement.classList.toggle('long-reply', contentHeight > 19998);
+      bridge.presented(current, contentHeight);
     });
   }
   function apply(data) {
@@ -17,7 +19,9 @@
     for (const [key, value] of Object.entries(data.colors || {}))
       document.documentElement.style.setProperty('--' + key, value);
     document.documentElement.classList.toggle('light', !!data.light);
-    document.body.style.fontFamily = data.font;
+    const families = names => names.map(name => JSON.stringify(name)).join(',') + ',sans-serif';
+    document.body.style.fontFamily = families(data.fonts || []);
+    document.documentElement.style.setProperty('--chat-code-font', families(data.code_fonts || []));
     document.body.style.fontSize = data.size + 'px';
     if (window.getSelection()?.toString()) { pending = data; return; }
     pending = null;

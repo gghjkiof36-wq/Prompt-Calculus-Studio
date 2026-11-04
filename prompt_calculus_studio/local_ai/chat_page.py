@@ -6,12 +6,12 @@ import weakref
 from PySide6.QtCore import Qt, QTimer, Signal, QSignalBlocker, QSize, QEvent, QRectF, QRect, QPoint, QEasingCurve
 from PySide6.QtGui import (
     QAction, QColor, QInputMethodEvent, QTextBlockFormat, QTextCharFormat, QTextCursor,
-    QTextDocument, QTextOption, QBrush, QLinearGradient, QPainter, QPen, QCursor,
+    QTextDocument, QTextOption, QBrush, QLinearGradient, QPainter, QPen, QCursor, QRegion, QFont,
 )
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLineEdit, QPlainTextEdit,
     QPushButton, QSizePolicy, QTextBrowser, QVBoxLayout, QWidget, QWidgetAction,
-    QAbstractScrollArea, QStyleOptionButton,
+    QAbstractScrollArea, QStyleOptionButton, QGridLayout,
 )
 
 from ..theme import font_pixels, visual_tokens
@@ -25,6 +25,7 @@ from ..workspace_ambient import system_motion_enabled
 from .thinking import split_thinking
 from .approval_picker import ApprovalButton
 from .attachment_strip import AttachmentStrip, mime_attachments
+from .chat_typography import body_families, CODE_FAMILIES
 
 
 ATTEMPT_LABELS = {
@@ -188,6 +189,7 @@ class ChatText(QTextBrowser):
         self._rich_presented = False
         self._rich_ready_height = None
         self._reserved_height = None
+        self._reading_bottom = None
         self.selectionChanged.connect(self._selection_changed)
 
     def loadResource(self, resource_type, url):
@@ -214,6 +216,9 @@ class ChatText(QTextBrowser):
                     return
         self._setting_text = True
         try:
+            font = QFont(self.font())
+            font.setFamilies(body_families(font))
+            self.document().setDefaultFont(font)
             if markdown:
                 features = (QTextDocument.MarkdownFeature.MarkdownDialectGitHub |
                             QTextDocument.MarkdownFeature.MarkdownNoHTML)
@@ -235,8 +240,8 @@ class ChatText(QTextBrowser):
             cursor.setPosition(block.position())
             formatting = block.blockFormat()
             code = formatting.nonBreakableLines()
-            formatting.setLineHeight(135, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
-            formatting.setTopMargin(0)
+            formatting.setLineHeight(150 if code else 155, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
+            formatting.setTopMargin(24 if formatting.headingLevel() and block.previous().isValid() else 0)
             formatting.setBottomMargin(3 if block.textList() else 12)
             if code:
                 previous, following = block.previous(), block.next()
@@ -250,10 +255,23 @@ class ChatText(QTextBrowser):
                     formatting.setBackground(QColor(self._tokens['field']))
                 cursor.select(QTextCursor.SelectionType.BlockUnderCursor)
                 characters = QTextCharFormat()
-                characters.setFontFamilies(['Cascadia Code', 'Consolas', 'monospace'])
+                characters.setFontFamilies(list(CODE_FAMILIES))
                 cursor.mergeCharFormat(characters)
                 cursor.clearSelection()
             cursor.setBlockFormat(formatting)
+            # Qt's Markdown reader assigns its own fixed-pitch default to inline
+            # code. Correct that display font too, without touching source text.
+            fragment = block.begin()
+            while not fragment.atEnd():
+                item = fragment.fragment()
+                if item.isValid() and item.charFormat().fontFixedPitch():
+                    cursor.setPosition(item.position())
+                    cursor.setPosition(item.position() + item.length(), QTextCursor.MoveMode.KeepAnchor)
+                    characters = QTextCharFormat()
+                    characters.setFontFamilies(list(CODE_FAMILIES))
+                    cursor.mergeCharFormat(characters)
+                    cursor.clearSelection()
+                fragment += 1
             block = block.next()
         cursor.endEditBlock()
 
@@ -278,7 +296,7 @@ class ChatText(QTextBrowser):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self.rich is not None:
-            self.rich.setGeometry(self.rect())
+            self._clip_rich()
         self._fit_height()
 
     def event(self, event):
@@ -286,7 +304,7 @@ class ChatText(QTextBrowser):
         # QAbstractScrollArea forwards resizeEvent from its viewport. Once the
         # native viewport is hidden, track the actual outer widget instead.
         if event.type() == QEvent.Type.Resize and getattr(self, 'rich', None) is not None:
-            self.rich.setGeometry(self.rect())
+            self._clip_rich()
         return result
 
     def showEvent(self, event):
@@ -317,7 +335,7 @@ class ChatText(QTextBrowser):
         native_id = (int(handle.winId()) if handle is not None and focused is not None
                      and host is not self.window() and host.isAncestorOf(focused) else None)
         self.rich = RichChatView(self)
-        self.rich.setGeometry(self.rect())
+        self._clip_rich()
         self.rich.contentReady.connect(self._rich_ready)
         self.rich.page().selectionChanged.connect(self.sync_rich_visibility)
         # Keep a stable native projection until the first rich frame arrives.
@@ -371,8 +389,21 @@ class ChatText(QTextBrowser):
         self.setFixedHeight(height)
         self.viewport().hide()
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.rich.setGeometry(self.rect())
+        self._clip_rich()
         self.rich.raise_()
+
+    def set_reading_bottom(self, bottom):
+        self._reading_bottom = max(0, bottom)
+        self._clip_rich()
+
+    def _clip_rich(self):
+        if self.rich is not None:
+            # A browser texture can composite over a raster sibling on Windows.
+            # QWidget masks do not clip that RHI texture. Bound the browser's
+            # actual viewport at the input instead; ChatText and the HTML root
+            # retain their full measured height, so the outer scroll is stable.
+            height = self.height() if self._reading_bottom is None else min(self.height(), self._reading_bottom)
+            self.rich.setGeometry(0, 0, self.width(), height)
 
     def apply_appearance(self, tokens):
         self._tokens = tokens
@@ -1390,7 +1421,15 @@ class ChatPage(QWidget):
         self.scroll.verticalScrollBar().rangeChanged.connect(self._scroll_range_changed)
         self.scroll.verticalScrollBar().sliderPressed.connect(self._cancel_history_anchor)
         self.scroll.verticalScrollBar().actionTriggered.connect(self._cancel_history_anchor)
-        self.column.addWidget(self.scroll, 1)
+        # Share the full reading viewport with the floating composer. A separate
+        # footer would clip every reply along a solid, full-width horizontal edge.
+        self.reading_area = QWidget()
+        self.reading_area.setObjectName('ChatReadingHost')
+        reading_layout = QGridLayout(self.reading_area)
+        reading_layout.setContentsMargins(0, 0, 0, 0)
+        reading_layout.setSpacing(0)
+        reading_layout.addWidget(self.scroll, 0, 0)
+        self.column.addWidget(self.reading_area, 1)
 
         self.composer_host = QWidget()
         self.composer_host.setObjectName('ChatReadingHost')
@@ -1467,10 +1506,13 @@ class ChatPage(QWidget):
         self.dismiss_error.setAccessibleName('關閉錯誤提示')
         error_layout.addWidget(self.dismiss_error)
         footer_column.insertWidget(0, self.error_frame, 0, Qt.AlignmentFlag.AlignLeft)
-        self.column.addWidget(self.composer_host)
+        reading_layout.addWidget(self.composer_host, 0, 0, Qt.AlignmentFlag.AlignBottom)
+        self.composer_host.installEventFilter(self)
+        self.composer_column.installEventFilter(self)
         self.column.addStretch(1)
         document.changed.connect(self._schedule_refresh)
         self.service.changed.connect(self._schedule_refresh)
+        QApplication.instance().focusChanged.connect(self._keep_control_visible)
         owner_ref, view_ref = weakref.ref(document), weakref.ref(self)
         self.destroyed.connect(lambda: owner_ref().release_edit(view_ref()) if owner_ref() is not None else None)
         self.apply_appearance(workspace.display_settings())
@@ -1655,12 +1697,29 @@ class ChatPage(QWidget):
         # fixed composer on the same reading axis as the scroll viewport.
         self._fit_reading_columns()
         self._sync_user_hover()
+        reading_bottom = self.composer_frame.mapTo(self, QPoint()).y()
         for turn in self._turns.values():
             for attempt in turn.attempts.values():
-                attempt.content.sync_rich_visibility()
-                attempt.thinking_content.sync_rich_visibility()
+                for content in (attempt.content, attempt.thinking_content):
+                    content.set_reading_bottom(reading_bottom - content.mapTo(self, QPoint()).y())
+                    content.sync_rich_visibility()
+        self.composer_host.raise_()
+
+    def _keep_control_visible(self, _old, focused):
+        if (not self.isVisible() or focused is None or not self.transcript.isAncestorOf(focused)
+                or not isinstance(focused, (QPushButton, QPlainTextEdit))):
+            return
+        bottom = focused.mapTo(self, QPoint(0, focused.height())).y()
+        limit = self.composer_frame.mapTo(self, QPoint()).y() - 12
+        if bottom > limit:
+            self._follow_output = False
+            bar = self.scroll.verticalScrollBar()
+            bar.setValue(bar.value() + bottom - limit)
 
     def eventFilter(self, watched, event):
+        if watched in (getattr(self, 'composer_host', None), getattr(self, 'composer_column', None)) and event.type() in (
+                QEvent.Type.Resize, QEvent.Type.Move, QEvent.Type.LayoutRequest):
+            self._visibility_timer.start(0)
         if watched is self.scroll.viewport():
             kind = event.type()
             if kind in (QEvent.Type.HoverEnter, QEvent.Type.HoverMove, QEvent.Type.MouseMove):
@@ -1674,6 +1733,8 @@ class ChatPage(QWidget):
         if position is None:
             position = viewport.mapFromGlobal(QCursor.pos())
         inside = self.isVisible() and viewport.isVisible() and viewport.rect().contains(position)
+        if inside and self.composer_host.mask().contains(self.composer_host.mapFrom(viewport, position)):
+            inside = False
         for turn in self._turns.values():
             top = turn.user_group.mapTo(viewport, QPoint(0, 0)).y()
             # Include the reserved action row and a small surrounding band;
@@ -1687,9 +1748,14 @@ class ChatPage(QWidget):
 
     def _fit_reading_columns(self):
         margin = READING_NARROW_MARGIN if self.width() < 900 else READING_MARGIN
-        self.transcript_row.setContentsMargins(margin, 0, margin, 0)
+        # Leave room for the last reply/actions to scroll above the composer,
+        # including an expanded draft or attachments. Empty side gutters still
+        # belong to the transcript for painting, selection and wheel input.
+        bottom = self.composer_host.height() + 24 if self.scroll.isVisible() else 0
+        self.transcript_row.setContentsMargins(margin, 0, margin, bottom)
         gutter = self.scroll.verticalScrollBar().width() if self.scroll.verticalScrollBar().isVisible() else 0
         self.composer_row.setContentsMargins(margin, 0, margin + gutter, 0)
+        self.composer_host.setMask(QRegion(self.composer_column.geometry()))
         if hasattr(self, 'error_frame'):
             _fit_error_frame(self.error_frame, self.error_label, self.composer_column.width(), 32)
 
@@ -1766,6 +1832,7 @@ class ChatPage(QWidget):
         self.history_button.setText(f'載入較早的訊息 · 尚有 {earlier} 則')
         self.empty_heading.setVisible(not turns)
         self.scroll.setVisible(bool(turns))
+        self.column.setStretch(self.column.indexOf(self.reading_area), 1 if turns else 0)
         self.column.setStretch(0, 0 if turns else 1)
         self.column.setStretch(self.column.count() - 1, 0 if turns else 1)
         draft = payload.get('draft', '')
@@ -2059,6 +2126,7 @@ class ChatPage(QWidget):
         title_size = font_pixels(ui_size + 9)
         control_font = font_pixels(max(10, ui_size - 1))
         model_font = font_pixels(max(9, ui_size - 2))
+        reading_font = font_pixels(ui_size + 1)
         control_height = max(32, round(control_font + 12))
         for control in (self.send_button, self.stop_button, self.add_button):
             control.setFixedSize(control_height, control_height)
@@ -2074,10 +2142,10 @@ class ChatPage(QWidget):
             QFrame#ChatUser {{ background:{tokens['surface']}; border:0; border-radius:16px; }}
             QFrame#ChatEditFrame {{ background:{tokens['surface']}; border:1px solid {tokens['divider']}; border-radius:16px; }}
             QFrame#ChatEditFrame QPushButton {{ padding:3px 12px; font-size:{control_font}px; }}
-            QPlainTextEdit#ChatMessageEditor {{background:transparent; border:0; padding:4px;}}
+            QPlainTextEdit#ChatMessageEditor {{background:transparent; border:0; padding:4px; font-size:{reading_font}px;}}
             QFrame#ChatComposerFrame {{ background:{tokens['surface']}; border:1px solid {tokens['divider']}; border-radius:24px; }}
-            QPlainTextEdit#ChatComposer {{ background:transparent; border:0; padding:4px; }}
-            QTextBrowser#ChatText {{ padding:0; color:{tokens['text']}; }}
+            QPlainTextEdit#ChatComposer {{ background:transparent; border:0; padding:4px; font-size:{reading_font}px; }}
+            QTextBrowser#ChatText {{ padding:0; color:{tokens['text']}; font-size:{reading_font}px; }}
             QLabel#ChatEmptyTitle {{ font-size:{title_size}px; font-weight:500; color:{tokens['text']}; }}
             QPushButton#ChatModelButton {{ background:{tokens['raised']}; color:{tokens['text']}; border:0; border-radius:{control_height//2}px; padding:0 10px; font-size:{model_font}px; }}
             QPushButton#ChatModelButton:hover {{ background:{tokens['hover']}; }}
