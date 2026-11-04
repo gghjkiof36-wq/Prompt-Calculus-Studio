@@ -56,6 +56,30 @@ class ChatReadingLayout(unittest.TestCase):
         self.assertEqual(self.page.composer.toPlainText(), draft)
         self.assertEqual(self.doc.payload['draft'], draft)
 
+    def test_reply_buttons_are_not_clipped_and_footer_gap_is_bounded(self):
+        # A row with default 9px layout margins can place a 30px button below
+        # its 30px parent. Checking only the parent against the composer misses it.
+        for width, draft in ((1200, ''), (620, '\n'.join(['草稿'] * 10))):
+            with self.subTest(width=width):
+                self.page.resize(width, 800)
+                self.page.composer.setPlainText(draft)
+                self.page._follow_output = True
+                QTest.qWait(80)
+                self.page._scroll_to_bottom()
+                QTest.qWait(40)
+                latest = self.page._turns['4'].attempts['a4']
+                for control in (latest.copy_button, latest.retry_icon_button,
+                                latest.branch_button, latest.more_button):
+                    self.assertTrue(latest.actions.rect().contains(control.geometry()),
+                                    (control.accessibleName(), control.geometry(), latest.actions.rect()))
+                    self.assertEqual(control.visibleRegion().boundingRect(), control.rect())
+                controls_bottom = max(control.mapTo(self.page, QPoint(0, control.height())).y()
+                                      for control in (latest.copy_button, latest.retry_icon_button,
+                                                      latest.branch_button, latest.more_button))
+                gap = self.page.composer_frame.mapTo(self.page, QPoint()).y() - controls_bottom
+                self.assertGreaterEqual(gap, 16)
+                self.assertLessEqual(gap, 32)
+
     def test_empty_to_conversation_keeps_draft_and_composer_visible(self):
         self.doc.payload['turns'] = []
         self.doc.payload['draft'] = '尚未送出的文字'

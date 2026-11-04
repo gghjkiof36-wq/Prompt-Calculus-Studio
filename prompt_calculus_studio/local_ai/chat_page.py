@@ -750,7 +750,11 @@ class ChatAttempt(QFrame):
         layout.addWidget(self.error_frame, 0, Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self.heading)
         self.actions = QWidget()
-        self.actions.setLayout(row(self.copy_button, self.retry_icon_button, self.branch_button, self.more_button, None))
+        actions_layout = row(self.copy_button, self.retry_icon_button, self.branch_button, self.more_button, None)
+        # This is a compact 30px row. Platform-default layout margins would
+        # place the buttons partly outside it, clipping both icons and hover.
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        self.actions.setLayout(actions_layout)
         self.actions.setMinimumHeight(30)
         actions_policy = self.actions.sizePolicy()
         actions_policy.setRetainSizeWhenHidden(True)
@@ -1399,7 +1403,7 @@ class ChatPage(QWidget):
         self.transcript.setObjectName('ChatTranscript')
         self.transcript.setMaximumWidth(READING_CONTENT_WIDTH)
         self.messages = QVBoxLayout(self.transcript)
-        self.messages.setContentsMargins(0, 20, 0, 20)
+        self.messages.setContentsMargins(0, 20, 0, 0)
         self.messages.setSpacing(32)
         self.history_button = button('載入較早的訊息', self._load_earlier, 'Quiet')
         self.messages.addWidget(self.history_button, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -1751,7 +1755,9 @@ class ChatPage(QWidget):
         # Leave room for the last reply/actions to scroll above the composer,
         # including an expanded draft or attachments. Empty side gutters still
         # belong to the transcript for painting, selection and wheel input.
-        bottom = self.composer_host.height() + 24 if self.scroll.isVisible() else 0
+        # ChatTurn already contributes 12px after its actions. Add another
+        # 12px here, rather than stacking three independent footer paddings.
+        bottom = self.composer_host.height() + 12 if self.scroll.isVisible() else 0
         self.transcript_row.setContentsMargins(margin, 0, margin, bottom)
         gutter = self.scroll.verticalScrollBar().width() if self.scroll.verticalScrollBar().isVisible() else 0
         self.composer_row.setContentsMargins(margin, 0, margin + gutter, 0)
