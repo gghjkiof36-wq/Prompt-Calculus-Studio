@@ -192,6 +192,30 @@ class WorkspaceExecutionTests(unittest.TestCase):
         self.finish()
         self.assertIsNone(self.w.scheduler.owner)
 
+    def test_repeated_view_close_and_reopen_keeps_accepted_job_and_saved_result(self):
+        self.click(self.a)
+        document, host = self.a.document, self.a.host
+        owner, token = document.execution, document.runtime_token
+        job = next(iter(host.comfy.generation.jobs.values()))
+        prompt_id = job['prompt_id']
+        current = self.a
+        for _ in range(3):
+            self.assertTrue(self.w.close_tab(self.w.index_of(current.key),
+                pane=self.w.pane_for(current), make_home=False))
+            self.app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            current = self.w.open_path(document.path, new_tab=True)
+            self.assertIs(current.host, host)
+            self.assertIs(document.execution, owner)
+            self.assertEqual(document.runtime_token, token)
+            self.assertEqual(owner.client.generation.record(job['id'])['prompt_id'], prompt_id)
+            self.assertEqual(len(self.peer.submissions), 1)
+        self.finish()
+        self.assertEqual(owner.client.generation.record(job['id'])['state'], 'complete')
+        self.assertTrue(document.save(), document.error)
+        self.assertEqual(len(self.peer.submissions), 1)
+        self.assertIsNone(self.w.scheduler.owner)
+        self.assertEqual(document.hosts, [host])
+
     def test_recent_auto_updates_from_owned_receipts_without_refresh_or_global_poll(self):
         import time
         from prompt_calculus_studio import recent

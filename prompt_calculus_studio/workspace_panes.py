@@ -334,13 +334,16 @@ class WorkspacePanes:
                     document.prepare()
                     self.close_recovery.restore_document(document)
                     self.documents.append(document)
-                host = EmbeddedHost(document.data, document, workspace=self)
-                host.bind_workspace(self)
-                host.comfy.stateChanged.connect(self.refresh_connection)
+                host = document.take_parked_host()
+                if host is None:
+                    host = EmbeddedHost(document.data, document, workspace=self)
+                    host.bind_workspace(self)
+                    host.comfy.stateChanged.connect(self.refresh_connection)
                 page = QWidget()
                 layout = QVBoxLayout(page)
                 layout.setContentsMargins(0, 0, 0, 0)
                 layout.addWidget(host)
+                host.show()
                 if document.kind == 'category':
                     page._workspace_minimum_width = host.prompt_editor.workspace_minimum_width
                 page._prepare_workspace_show = (host.canvas.present if document.kind == 'workflow'
@@ -457,8 +460,7 @@ class WorkspacePanes:
         if tab.host:
             # Keep the document's execution owner alive after its last view.
             # No focus change or view close cancels accepted work.
-            tab.host.hide()
-            tab.host.setParent(self)
+            tab.document.park_host(tab.host, self)
         elif tab.document and tab.document.kind == 'chat':
             if not any(t is not tab and t.document is tab.document for t in self.all_pages()):
                 if tab.document.dispose() is False:

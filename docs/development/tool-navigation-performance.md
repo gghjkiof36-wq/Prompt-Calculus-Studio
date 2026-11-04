@@ -39,3 +39,22 @@ python tools/measure_tool_navigation.py --source <來源資料夾> --out <全新
 回歸涵蓋首次／回訪與父容器穩定性、未預載工具頁、圖片變更／遺失／重建與單頁保留上限、搜尋／選取、工作區設定、Canvas 模式的圖片還原與空白手動稿／Undo／Redo、分頁拖曳、F2 與鍵盤焦點、提示文字、選單、動畫中途反向及關閉。
 
 本機原始量測及背景截圖留在 `qa-private/tool-performance-20261018/`，交付數字、固定提交、BAT 與尚未通過項目由同輪交接 checkpoint 記錄。測試通過與原生操作接受分開標示。
+
+## Pre-alpha2：重開文件的資源上限（2026-11-04）
+
+`WorkspacePanes.dispose_page` 原本保留每個關閉的 `EmbeddedHost`，但 `open_path` 每次重開又建一份。`DesktopDocument.hosts` 因此累積完整編輯器；共享內容更新仍遍歷那些已關視圖。現由文件維護 `parked_hosts`：關頁保留原 execution、store 與待完成工作，重開取回可用視圖；同時存在的分頁／分割視圖仍各有獨立 host。已進入關閉流程的 host 不重新啟用。正常反覆重開的 host 數以該文件同時開啟視圖的最高數量為限，不以歷次開頁總數增長；這不是清除所有已開文件 owner 的策略。
+
+`DocumentTabs.decorate` 換上 PCS 關閉按鈕後，另以 `deleteLater` 釋放被替換的原生按鈕。[Qt 6.11 的 setTabButton 契約](https://doc.qt.io/qt-6.11/qtabbar.html#setTabButton) 只隱藏舊元件，保留 parent 不會立即釋放它。
+
+同機 Qt 6.11.2 offscreen，固定合成 Prompt／Canvas 各暖身一次，再 3 批各 10 次開關，每批回原狀態等 30 秒。每次開頁包括固定 15 ms 事件等待，不能當原生實際上屏時間。修前／修後以相同 fixture 比較：
+
+| 指標 | 修前 | 修後 |
+| --- | ---: | ---: |
+| Prompt 重開中位數 / p95 | 692 / 1189 ms | 102 / 118 ms |
+| Canvas 重開中位數 / p95 | 570 / 923 ms | 82 / 90 ms |
+| Prompt 內容同步中位數 | 53 ms | 1.15 ms |
+| Canvas 內容同步中位數 | 105 ms | 2.78 ms |
+| 每份文件最後 host 數 | 31 | 1 |
+| Qt 程序最後 widget / timer 數 | 18041 / 867 | 698 / 57 |
+
+修後暖身及每批結束的 widget／timer 數均為 698／57；private bytes 約 92.8→94.1 MiB，修前約 92.5→595.6 MiB。此數字只涵蓋這個 Qt 測試程序；不能推及全天、大量不同文件、GPU 或所有延遲均低於 100 ms。原始樣本、途中反例與固定來源由當輪性能交接索引。新增回歸檢查重開、分割視圖、關閉中的 host、被替換按鈕，以及已受理任務的原 ID／保存結果。

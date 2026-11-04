@@ -324,8 +324,13 @@ class DocumentTabs(QWidget):
             self.bar.preview_keys.add(key)
         close = self.bar.tabButton(index, QTabBar.ButtonPosition.RightSide)
         if not isinstance(close, TabCloseButton):
+            previous = close
             close = TabCloseButton(self.bar)
             self.bar.setTabButton(index, QTabBar.ButtonPosition.RightSide, close)
+            # QTabBar only hides a replaced button; release its unused native
+            # control now instead of retaining one for every opened tab.
+            if previous is not None:
+                previous.deleteLater()
         close.setAccessibleName('關閉「'+title+'」')
         lines = [path] if path else []
         if dirty:

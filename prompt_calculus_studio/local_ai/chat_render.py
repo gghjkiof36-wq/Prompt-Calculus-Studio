@@ -105,15 +105,30 @@ def project_chat(text):
         return table if table is not None else '<pre class="unknown">' + html.escape(source) + '</pre>'
     md.add_render_rule('html_block', block_html)
 
+    # Share setup within this projection only. Stream updates must not rebuild
+    # the formatter stylesheet for every code block or retain closed replies.
+    formatter = None
+    lexers = {}
+
     def fence(self, tokens, i, options, env):
+        nonlocal formatter
         token = tokens[i]
         language = token.info.strip().split(' ', 1)[0][:80]
         code = token.content
         index = len(result.codes)
         result.codes.append(code)
         try:
-            painted = (highlight(code, get_lexer_by_name(language), HtmlFormatter(nowrap=True))
-                       if language and len(code) <= MAX_HIGHLIGHT_CHARS else html.escape(code))
+            if language and len(code) <= MAX_HIGHLIGHT_CHARS:
+                lexer = lexers.get(language)
+                if lexer is None:
+                    lexer = get_lexer_by_name(language)
+                    if len(lexers) < 32:
+                        lexers[language] = lexer
+                if formatter is None:
+                    formatter = HtmlFormatter(nowrap=True)
+                painted = highlight(code, lexer, formatter)
+            else:
+                painted = html.escape(code)
         except Exception:
             painted = html.escape(code)
         return (f'<section class="code"><header><span>{html.escape(language or "純文字")}</span>'

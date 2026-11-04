@@ -17,6 +17,24 @@ def png_uri(width=1, height=1):
 
 
 class ChatRenderContracts(unittest.TestCase):
+    def test_many_code_blocks_share_setup_but_keep_independent_tokens_and_copy(self):
+        from prompt_calculus_studio.local_ai import chat_render
+        from pygments import highlight
+        from pygments.formatters import HtmlFormatter
+        from pygments.lexers import get_lexer_by_name
+        codes = [('python', 's = """unfinished\n'), ('python', 'print(42)\n'),
+                 ('json', '{"n": 42}\n'), ('python', 'x = "<script>"\n')]
+        source = '\n'.join('```'+language+'\n'+code+'```\n' for language, code in codes)
+        with patch.object(chat_render, 'HtmlFormatter', wraps=HtmlFormatter) as formatter, \
+                patch.object(chat_render, 'get_lexer_by_name', wraps=get_lexer_by_name) as lexer:
+            value = project_chat(source)
+            self.assertEqual(formatter.call_count, 1)
+            self.assertEqual(lexer.call_count, 2)
+        self.assertEqual(value.codes, [code for _, code in codes])
+        for index, (language, code) in enumerate(codes):
+            self.assertIn('pcs-chat:copy/'+str(index), value.body)
+            self.assertIn(highlight(code, get_lexer_by_name(language), HtmlFormatter(nowrap=True)), value.body)
+
     def test_fenced_code_is_escaped_and_copy_keeps_exact_source(self):
         source = '<script>alert(1)</script>\n<img src="file:///C:/secret.png">\n'
         value = project_chat('```html\n' + source + '```')

@@ -36,6 +36,7 @@ class DesktopDocument(QObject):
         self.data = Path(session_root) / (self.key + '-' + uuid.uuid4().hex[:8])
         self.host = None
         self.hosts = []
+        self.parked_hosts = []
         self.state = None
         self.history = {}
         self.refreshing = False
@@ -98,6 +99,21 @@ class DesktopDocument(QObject):
         if self.runtimes is not None:
             self.runtimes.remember(self)
         self.update_dirty()
+
+    def take_parked_host(self):
+        """Reopen a closed view without creating another full editor tree."""
+        for position, host in enumerate(self.parked_hosts):
+            if not host.closing and not host.__dict__.get('_close_completed', False):
+                return self.parked_hosts.pop(position)
+        return None
+
+    def park_host(self, host, workspace):
+        # The execution owner can still reach this view while its tab is shut.
+        # Keep that owner, store and pending work; reuse the view on reopening.
+        host.hide()
+        host.setParent(workspace)
+        if host not in self.parked_hosts:
+            self.parked_hosts.append(host)
 
     def flush_views(self):
         # Forms keep their explicit confirmation boundary. Switching views or

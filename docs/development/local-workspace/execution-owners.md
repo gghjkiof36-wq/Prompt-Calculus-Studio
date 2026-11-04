@@ -21,6 +21,8 @@ Stage pump、輸入套用與 Queue／Direct dispatch 在取出項目之前取得
 
 收到 queued 回執、按取消、斷線、關分頁或另存均不代表執行結束。`generation_jobs`、`work_queue`、已送出 input apply 與輔助原生操作只要仍待確認，就保留執行權。確定未送出的本機拒絕或明確後端拒絕不產生未知任務。
 
+Pre-alpha2 的文件重開沿用 `DesktopDocument.parked_hosts` 中仍可用的視圖，避免重複建立完整介面。停放／取回只改視圖容器，不換 execution、runtime token、client、store 或已受理的 operation／prompt ID；活著的其它視圖與導覽快取不進停放池。進入關閉收尾的 host 不再取回。Save As 仍對所有 host 改接新 owner，舊任務保留在原 executor；整個工作區關閉時才走原有 owner 收尾與失敗保護。相關資源測量見 [工具頁性能](../tool-navigation-performance.md)。
+
 重開時掃描全部 owner，包括沒有恢復分頁的文件。用原 operation／prompt ID 查詢結果；從不因恢復而重送。尚未執行的 Stage 保留並暫停，需明確繼續。多份歷史未知任務可以同時查證，但查證前不開始新的執行。
 
 「任務紀錄」集中列出工作區文件及另存前任務，可查詢或停止後續流程。已分離的紀錄不提供繼續／重試入口，避免從舊內容發起新任務；重新執行由開啟的文件明確開始。
