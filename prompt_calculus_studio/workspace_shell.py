@@ -214,6 +214,11 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         self.workspace_ready = True
         from .connector_service import connector_for
         connector_for(self)
+        from .local_agents.delegation import delegation_for
+        try:
+            delegation_for(self)
+        except (ValueError, OSError) as error:
+            self.show_notice('本機委派尚未啟用：' + str(error))
 
     def read_navigation_json(self, name):
         try:
@@ -1322,11 +1327,16 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
             return
         if connector:
             connector.closing = True
+        delegation = getattr(self, 'agent_delegation', None)
+        if delegation:
+            delegation.closing = True
         try:
             self._close_workspace_event(event)
         except Exception:
             if connector:
                 connector.closing = False
+            if delegation:
+                delegation.closing = False
             local_ai = getattr(self, 'local_ai', None)
             if local_ai is not None:
                 local_ai.resume_after_close_abort()
@@ -1337,6 +1347,11 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 local_ai.resume_after_close_abort()
         if event.isAccepted():
             self.performance_monitor.shutdown()
+        if delegation:
+            if event.isAccepted():
+                delegation.shutdown()
+            else:
+                delegation.closing = False
         if connector:
             if event.isAccepted():
                 connector.stop()

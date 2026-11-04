@@ -457,10 +457,10 @@ class ChatDocument(QObject):
             return False
         return self._accept_checkpoint(job)
 
-    def send(self, text):
+    def send(self, text, *, before_submit=None):
         if self.edit_locked:
             return False
-        return self._submit(text, retry=False)
+        return self._submit(text, retry=False, before_submit=before_submit)
 
     def retry(self, turn_id=None):
         if self.edit_locked or not self.payload['turns'] or turn_id is not None and self.payload['turns'][-1]['id'] != turn_id:
@@ -608,7 +608,7 @@ class ChatDocument(QObject):
             turn_id=turn_id, attempt_id=attempt_id)
         return schema.validate(branched)
 
-    def _submit(self, text, *, retry, edited_payload=None, edit_view=None, edited_turn_id=None):
+    def _submit(self, text, *, retry, edited_payload=None, edit_view=None, edited_turn_id=None, before_submit=None):
         if (self.busy or self._disposed or self.attachments_busy or not self.flush_views()
                 or self.edit_locked and (edited_payload is None or not self._edit_allowed(edit_view, edited_turn_id))):
             return False
@@ -733,6 +733,16 @@ class ChatDocument(QObject):
                 return False
             if not self._owns(request):
                 return False
+            if before_submit is not None:
+                # Internal admission receipt: the normal input save above must
+                # succeed, and this hook must finish before the worker starts.
+                try:
+                    before_submit(request)
+                except (ValueError, OSError, KeyError, TypeError) as error:
+                    self._finish_local('failed', str(error))
+                    return False
+                if not self._owns(request):
+                    return False
             self.notice = ''
             self._generation_started = monotonic()
             if not self.service.submit(request):

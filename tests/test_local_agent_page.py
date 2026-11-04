@@ -50,6 +50,62 @@ class AgentWindowTests(unittest.TestCase):
     def skill_idle(self, detail):
         self.wait(lambda: not self.page.jobs.active and detail.pending is None and not detail.read_timer.isActive())
 
+    def test_delegation_action_is_separate_from_project_save_cancel(self):
+        from prompt_calculus_studio.local_agents.delegation import delegation_for
+        with patch.dict(os.environ, {'PCS_AGENT_DISCOVERY': str(self.base/'delegate-discovery')}):
+            library = self.mode('agent')
+            project = AgentStore(self.w.data).save_project('委派測試', self.root, [])
+            library.reload_rows(); self.select(library, project['id'])
+            service = delegation_for(self.w)
+            before = AgentStore(self.w.data).path.read_bytes()
+            self.assertNotIn(project['id'], service.enabled)
+            self.click(library.delegation_button)
+            self.assertIn(project['id'], service.enabled)
+            self.assertEqual(library.delegation_button.text(), '停止本機委派')
+            self.click(library.settings_button)
+            self.assertTrue(library.delegation_button.isHidden())
+            library.editor.name.setText('取消的名稱')
+            with patch('prompt_calculus_studio.local_agents.editors.confirm_draft', return_value='discarded'):
+                self.click(library.editor.cancel_button)
+            self.assertEqual(AgentStore(self.w.data).path.read_bytes(), before)
+            self.assertIn(project['id'], service.enabled)
+            self.click(library.delegation_button)
+            self.assertNotIn(project['id'], service.enabled)
+            self.assertFalse(service.receiver.server.isListening())
+
+    def test_delegation_background_tab_focus_shared_owner_and_last_close(self):
+        from test_local_delegation import ControlledService
+        from test_local_agent_owners import register
+        from prompt_calculus_studio.local_agents.delegation import delegation_for
+        with patch.dict(os.environ, {'PCS_AGENT_DISCOVERY': str(self.base/'delegate-discovery')}):
+            service = self.w.local_ai = ControlledService(self.w)
+            _, _, agent = register(self.w.data, self.base, 'fixture')
+            delegation = delegation_for(self.w)
+            delegation.set_enabled(agent['project'], True)
+            self.w.new_tab()
+            current = self.w.active_pane.strip.bar.currentIndex()
+            original = self.w.active_pane.strip.bar.tabData(current)
+            service.read_document = lambda: io.load(self.root, self.w.documents[-1].path.name).document
+            result = delegation.submit(agent['project'], agent['id'], 'read rule', 'background')
+            self.assertEqual(self.w.active_pane.strip.bar.tabData(current), original)
+            self.assertEqual(self.w.active_pane.strip.bar.currentIndex(), current)
+            tab = next(t for t in self.w.all_pages() if t.path == Path(result['path']))
+            self.assertTrue(tab.retained)
+            self.assertIs(self.w.open_path(tab.path, retained=True), tab)
+            duplicate = self.w.duplicate_view(tab)
+            self.assertIs(duplicate.document, tab.document)
+            self.assertTrue(self.w.close_tab(self.w.index_of(duplicate.key), pane=self.w.pane_for(duplicate)))
+            self.assertEqual(service.cancelled, [])
+            self.assertTrue(self.w.close_tab(self.w.index_of(tab.key), pane=self.w.pane_for(tab)))
+            self.assertEqual(service.cancelled, [result['request_id']])
+            service.complete(service.submitted[0], '', 'cancelled')
+            self.app.processEvents()
+            self.assertEqual(delegation.status(result['task_id'])['state'], 'stopped')
+            self.assertEqual(len(service.submitted), 1)
+            delegation.set_enabled(agent['project'], False)
+            # Restore the normal inactive service for the shell's shutdown path.
+            self.w.local_ai = None
+
     def test_context_sidebar_history_search_and_narrow_layout(self):
         from prompt_calculus_studio.settings_page import navigation_entries
         self.assertEqual([r[0] for r in navigation_entries('work_resources', workspace=True)[2]],

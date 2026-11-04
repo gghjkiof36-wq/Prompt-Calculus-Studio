@@ -137,6 +137,10 @@ def discover_instances(directory: Path | None = None) -> list[dict]:
 
 
 def pipe_request(pipe_name: str, request: dict, timeout: float = PIPE_TIMEOUT_SECONDS) -> dict:
+    return exchange_pipe(pipe_name, request, timeout, pattern=_PIPE_NAME, max_bytes=MAX_PIPE_BYTES)
+
+
+def exchange_pipe(pipe_name: str, request: dict, timeout: float, *, pattern, max_bytes: int) -> dict:
     """Exchange one LF-delimited JSON document with Qt's byte-mode named pipe.
 
     Overlapped Win32 I/O gives reads and writes the same bounded deadline. The
@@ -144,10 +148,10 @@ def pipe_request(pipe_name: str, request: dict, timeout: float = PIPE_TIMEOUT_SE
     """
     if os.name != "nt":
         raise ConnectorError("platform_unavailable", "此連線工具需要 Windows。")
-    if not _PIPE_NAME.fullmatch(pipe_name):
+    if not pattern.fullmatch(pipe_name):
         raise ConnectorError("invalid_instance", "PCS 連線設定不正確。")
     raw = _json_bytes(request) + b"\n"
-    if len(raw) > MAX_PIPE_BYTES:
+    if len(raw) > max_bytes:
         raise ConnectorError("request_too_large", "傳送內容超過大小限制。")
 
     class Overlapped(ctypes.Structure):
@@ -240,7 +244,7 @@ def pipe_request(pipe_name: str, request: dict, timeout: float = PIPE_TIMEOUT_SE
             if not count:
                 raise ConnectorError("instance_unavailable", "PCS 連線已中斷。")
             received.extend(buffer.raw[:count])
-            if len(received) > MAX_PIPE_BYTES:
+            if len(received) > max_bytes:
                 raise ConnectorError("response_too_large", "PCS 回應超過大小限制。")
             if b"\n" in received:
                 line, _, extra = received.partition(b"\n")

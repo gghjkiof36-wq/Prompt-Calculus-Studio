@@ -3,6 +3,7 @@ from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtWidgets import QFileDialog, QHeaderView, QSplitter, QTreeWidgetItem, QVBoxLayout, QWidget
 from ..local_ai.service import for_workspace
 from ..ui_icons import icon
+from ..widgets import button
 from ..work_resources.reader import column, icon_button, line
 from .dialogs import plain
 from .editors import AgentEditor, ProjectEditor, listing
@@ -23,9 +24,12 @@ class AgentLibrary(QWidget):
         self.selection_timer.timeout.connect(self.restore_selection)
         self.back_button = icon_button('back', '返回', self.back)
         self.settings_button = icon_button('settings', '專案設定', self.edit_project)
+        self.delegation_button = button('啟用本機委派', self.toggle_delegation)
+        self.delegation_button.hide()
         self.sort_button = icon_button('arrow-down-up', '排序', self.sort_menu)
         self.page.header_row.insertWidget(0, self.back_button)
         self.page.header_row.insertWidget(self.page.header_row.count()-1, self.settings_button)
+        self.page.header_row.insertWidget(self.page.header_row.count()-1, self.delegation_button)
         self.back_button.hide(); self.settings_button.hide(); self.sort_button.hide()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(12)
@@ -137,6 +141,7 @@ class AgentLibrary(QWidget):
         active = self.page.mode != 'files'
         if not active:
             self.back_button.hide(); self.settings_button.hide(); self.sort_button.hide()
+            self.delegation_button.hide()
             self.page.header_row.insertWidget(self.page.header_row.count()-1, self.page.filter)
             self.page.filter.show()
             return
@@ -151,6 +156,11 @@ class AgentLibrary(QWidget):
         self.page.filter.setPlaceholderText('搜尋 Skill' if self.mode == 'skill' else '搜尋 Agent' if project else '搜尋專案')
         self.page.filter.setVisible(not creating_project)
         self.settings_button.setVisible(active and project is not None and not creating_project)
+        self.delegation_button.setVisible(project is not None and not creating_project)
+        if project:
+            enabled = project['id'] in getattr(getattr(self.workspace, 'agent_delegation', None), 'enabled', ())
+            self.delegation_button.setText('停止本機委派' if enabled else '啟用本機委派')
+            self.delegation_button.setToolTip('本機委派已啟用' if enabled else '允許本機主代理向此專案的 Agent 交辦工作')
         self.sort_button.setVisible(active and self.mode == 'skill')
         self.back_button.setVisible(active and (project is not None or creating_project or self.width() < 780 and self._detail_requested))
         self.page.agent_refresh.setVisible(active and not creating_project)
@@ -220,6 +230,18 @@ class AgentLibrary(QWidget):
         editor = ProjectEditor(self.workspace.data, None if new else self.project_id)
         editor.saved.connect(self.project_saved); editor.cancelled.connect(self.close_detail)
         self.attach_editor(editor)
+
+    def toggle_delegation(self):
+        if self.project_id is None:
+            return
+        from .delegation import delegation_for
+        try:
+            service = delegation_for(self.workspace)
+            service.set_enabled(self.project_id, self.project_id not in service.enabled)
+            self.show_error('')
+        except (ValueError, OSError) as exc:
+            self.show_error(exc)
+        self.header()
 
     def project_saved(self, item):
         self.project_id = item['id']; self.selected = None

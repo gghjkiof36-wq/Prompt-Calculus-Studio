@@ -31,6 +31,8 @@ Skill／Agent 搜尋及排序跟隨左側清單，欄寬隨視窗調整；長名
 | `local_agents/navigation.py` | 使用 Python AST 取得真實宣告與行段，不執行程式，也不把宣告誤稱為呼叫關係。 |
 | `local_agents/transcript.py` | 送模型的去重、逐字節錄及答案階段投影；完整原始工具結果另行保存。 |
 | `local_documents/chat_agent.py` | `pcs.chat-agent.v1` 的綁定及回覆證據格式；保存與重開沿既有文件 writer。 |
+| `local_agents/delegation.py`、`delegation_store.py` | 專案 opt-in、任務去重與固定 attempt 回執；建立普通背景聊天，與既有 owner／模型服務共用保存與停止。 |
+| `local_agents/delegation_protocol.py`、`delegation_server.py`、`tools/pcs_agent.py` | 獨立同使用者本機通道及命令；Chrome 的命令、發現與連接識別保持分開，只共用具時限 pipe 傳輸。 |
 
 每次請求獨立取得角色設定；不以修改共用 `configure_model` 來切換角色。工作執行緒在開始使用前核對並讀入規則及技能附檔，來源若與已接受版本不同則拒絕；讀入後來源改動不回寫當輪內容。專案檔案按需讀取，每份記實際內容及雜湊。來源規則、原本的對話指示和一般讀取結果分開組裝。
 
@@ -63,6 +65,32 @@ Skill／Agent 搜尋及排序跟隨左側清單，欄寬隨視窗調整；長名
 強制收尾一律保留 `limited`，原因顯示為讀取預算不足，不能因為產生了文字就標完成。一般輸出長度耗盡的原因維持原樣。此機制只保證有界停止與紀錄，不能判斷模型的程式理解正確。工具收尾的協定依 [llama.cpp 固定版本 server 文件](https://github.com/ggml-org/llama.cpp/blob/74b104c9ba5717116b7e65e0cd35397778653304/tools/server/README.md)，仍以實際模型模板能力及回執為準。
 
 新增相依為固定 `PyYAML==6.0.3`。解析拒絕重複鍵、別名及不支援的型別；完整原文與未知中繼欄位保留。對 Codex 的 `agents/openai.yaml`，`allow_implicit_invocation: false` 映射為僅限明確指定；這不代表完整重現其他宿主的全部技能功能。
+
+## 本機委派（第四階段第一批）
+
+在工作資源進入已保存的專案，按「啟用本機委派」，才開放該專案及其中的既有 Agent。這是獨立即時操作，不受專案設定表單的儲存／取消控制；預設關閉。按「停止本機委派」立即撤回該專案的新工作與結果讀取，定向停止其委派工作，保留普通聊天與已保存的文件。最後一個專案停用時關閉接收端；再次啟用會換新的連接識別。
+
+原主代理透過下列命令轉交工作；命令本身不啟動 PCS 或模型。請先在來源工作樹執行 `python tools/pcs_agent.py instances`，用回傳的實例 ID 呼叫 `catalog`，再使用實際專案與 Agent ID，不猜名稱。`catalog.availability` 表示共用工作槽是否空閒；模型與角色設定仍在提交時核對。
+
+```text
+python tools/pcs_agent.py catalog --instance INSTANCE_ID
+python tools/pcs_agent.py submit --instance INSTANCE_ID --project PROJECT_ID --agent AGENT_ID --key UNIQUE_KEY --task-file task.txt
+python tools/pcs_agent.py status --instance INSTANCE_ID --task-id TASK_ID
+python tools/pcs_agent.py result --instance INSTANCE_ID --task-id TASK_ID
+python tools/pcs_agent.py stop --instance INSTANCE_ID --task-id TASK_ID
+```
+
+`--task-file` 為 UTF-8 工作文字，亦可用 `--task`。一項工作固定一個重送識別碼；同碼同輸入查回原任務，不再建立聊天或推理，異內容拒絕。即使 Agent 後來移動或刪除，仍可在原專案保持啟用且存在時查同一筆。外部命令不能改模型、工作目錄、Skill、來源或工具核准模式，也不能指定任意輸出位置。
+
+首次受理會在該工作區內容根建立「本地委派 - Agent 名稱 - 短識別碼.pcs-chat」，遇到同名文件排他另取可用名稱；背景分頁不奪焦點。輸入和任務對應都保存後才提交同一 `LocalAIService`。普通聊天或其他委派占用工作槽時明確拒絕，不接受後排隊或再啟動引擎。主動開檔共用普通文件 owner；關掉最後一個視圖沿既有停止規則。查進度與取結果不開新頁，也不重送。
+
+原工具核准模式與期限保持有效；外部只能查等待狀態或停止，不能代替使用者核准。現有已登記規則／Skill 快照仍在工具核准前讀取；每次詢問限制的是工具內容交付，不能解讀為核准前完全未讀來源。停止先回「停止中」，收到服務確認後才回終態。
+
+`result` 提供固定 attempt 的草稿、實際來源事件、設定身分與保存回執，永遠標示待覆核。正式草稿與模型聲稱的引用不等於已驗證正確；來源清單只依實際工具／規則事件。之後編輯或繼續原聊天、改名、修改模型設定，不更換同 ID 的成果。重新開啟 PCS 可查原結果，中斷任務不自動再跑；保存不確定或失敗會明示，保留可取得的候選。
+
+設定及任務回執放在該工作區 `data/local_delegation`；原 Agent 登記格式及聊天 writer 不改版。預設發現資料位於 `%LOCALAPPDATA%/PromptCalculusStudio/AgentDelegation/instances`，隔離驗證可用 `PCS_AGENT_DISCOVERY` 指定獨立目錄。連接識別不列於命令輸出或成果。這是 Windows 同使用者 pipe，沒有雲端驗證或跨宿主身分保證。
+
+單次命令最多 64 KiB，工作文字最多 16,000 字元，結果最多 2 MiB；草稿最多 256 KiB、實際來源事件最多 768 KiB，截斷有旗標。結果不傳模型隱藏思考、wire 或內部投影紀錄；完整普通聊天仍依原機制保存。這批不包含正式 ChatGPT MCP／Claude 接入、多任務排隊或無人覆核採用。
 
 ## 驗證範圍
 
