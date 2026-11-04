@@ -155,13 +155,17 @@ class _InferenceThread(QThread):
                                 ticket = {'action': action, 'done': Event(), 'allow': False}
                                 self.review.emit(request, ticket)
                                 deadline = time.monotonic() + 120
-                                while not ticket['done'].wait(.1):
+                                try:
+                                    while not ticket['done'].wait(.1):
+                                        cancel.check()
+                                        if time.monotonic() > deadline:
+                                            return False
                                     cancel.check()
-                                    if time.monotonic() > deadline:
-                                        ticket['done'].set()
-                                        return False
-                                cancel.check()
-                                return ticket['allow'] is True
+                                    return ticket['allow'] is True
+                                finally:
+                                    # Cancellation can precede delivery to the
+                                    # owner, so a dialog cannot own this cleanup.
+                                    ticket['done'].set()
                             outcome, detail = run(runtime, messages, params, cancel, request.input['agent'],
                                                   delta, lambda event: self.activity.emit(request, event), approve,
                                                   deadline=agent_deadline)

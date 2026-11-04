@@ -123,7 +123,7 @@ class ChatDocument(QObject):
     @Slot(object, object)
     def _agent_review(self, request, ticket):
         if not self._owns(request):
-            ticket['done'].set()
+            # This is a broadcast; another document still owns the decision.
             return
         from ..local_agents.dialogs import request_read_approval
         request_read_approval(self, request, ticket)

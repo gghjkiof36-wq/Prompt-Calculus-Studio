@@ -78,6 +78,8 @@ def show_evidence(parent, evidence):
 
 
 def request_read_approval(document, request, ticket):
+    if ticket['done'].is_set():
+        return
     from PySide6.QtWidgets import QWidget
     parent = document.workspace if isinstance(document.workspace, QWidget) else None
     dialog = StudioDialog(parent)
@@ -90,8 +92,10 @@ def request_read_approval(document, request, ticket):
     dialog.body.addWidget(plain(action.scope['arguments']))
     line(dialog.body, None, button('拒絕', dialog.reject, 'Quiet'), button('允許本次', dialog.accept, 'Primary'))
     def done(result):
-        ticket['allow'] = result == dialog.DialogCode.Accepted and document._owns(request)
-        ticket['done'].set()
+        # An expired or cancelled decision cannot be changed by a late click.
+        if not ticket['done'].is_set():
+            ticket['allow'] = result == dialog.DialogCode.Accepted and document._owns(request)
+            ticket['done'].set()
         timer.stop()
     timer = QTimer(dialog)
     timer.setInterval(200)
