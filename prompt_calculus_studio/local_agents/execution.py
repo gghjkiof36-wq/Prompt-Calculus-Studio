@@ -387,7 +387,6 @@ def run(runtime, messages, params, cancel, request, on_delta, notify, approve=No
     original = copy.deepcopy(history)
     transcript = ToolTranscript()
     measurements = []
-    checked_references = False
     try:
         for round_index in range(MAX_ROUNDS):
             session.check()
@@ -430,25 +429,6 @@ def run(runtime, messages, params, cancel, request, on_delta, notify, approve=No
             calls = message.get('tool_calls') or []
             if not calls:
                 content = message.get('content') or ''
-                unread = session.skill_reads.unread_references()
-                inspected = session.used and any(e['operation'] == 'read_file' for e in session.events)
-                if (unread or inspected) and not checked_references and not final and outcome == 'completed':
-                    checked_references = True
-                    # Templates such as Qwen allow system only at the beginning.
-                    # This bounded host reminder grants no permissions and is not
-                    # a semantic verdict. Keep it in the same tool/read budget.
-                    check = dict(role='user', content=(
-                        'Host read check（同一任務的最後核對，不是新授權）：\n'
-                        + ('Skill 正文提及但尚未讀取的檔案：\n' + '\n'.join(unread[:32]) + '\n' if unread else '')
-                        + '先按原 Skill 條件補讀必需或適用的附檔，條件不符的不用讀；使用同一 Skill 的 read_skill，'
-                        '不能以檔名或自己知道的格式代替正文。\n'
-                        '再對照實際來源逐項檢查草稿：每個要求與限制是否都有交代？原句的發言者、確定程度、'
-                        '更正或分支關係是否保持原意？提案不等於決定，未同意不等於明確拒絕，未選分支不等於時間上的撤回。'
-                        '引用請直接使用工具提供的檔名與行號，不自行重數；確認引用行確實含該敘述。\n'
-                        '提供修正後的完整答案，遵循 Skill 格式，缺證據就說明；不要只回報核對動作或聲稱已獲外部驗證。'))
-                    history.extend([message, check])
-                    session.audit('projection', 'skill-read-check', json.dumps(check, ensure_ascii=False), status='model-view')
-                    continue
                 on_delta(content)
                 if request['explicit'] and not set(request['explicit']).issubset(session.used):
                     raise ValueError('模型未讀取指定技能，這次尚未完成技能任務。')

@@ -58,8 +58,3 @@ class SkillReads:
                 + '\nUse read_skill with this same Skill and the exact folder-relative path. '
                 'Read unconditional requirements and applicable conditional references before using them. '
                 'A listed file has not been read merely because it is available. Do not read irrelevant attachments.')
-
-    def unread_references(self):
-        return [self.skills[identity]['name'] + '/' + path
-                for identity, paths in self.files.items() for path in paths
-                if (identity, path) not in self.read and self.referenced(identity, path)]

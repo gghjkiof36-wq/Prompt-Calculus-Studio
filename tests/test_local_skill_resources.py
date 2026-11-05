@@ -69,30 +69,31 @@ class SkillResources(unittest.TestCase):
         self.assertNotIn('Host Skill', entry['content'])
         self.assertIn('MARKER-57', engine.histories[2][-1]['content'])
 
-    def test_unread_reference_gets_one_check_and_recovered_draft_only_is_delivered(self):
-        engine = Engine(read('SKILL.md'), answer('premature'), read('references/save.md'), answer('revised'))
-        self.assertEqual(self.execute(engine), ('completed', 'revised'))
-        self.assertEqual(self.deltas, ['revised'])
-        self.assertIn('Host read check', engine.histories[2][-1]['content'])
-        self.assertEqual(sum(e['target'] == 'skill-read-check' for e in self.events), 1)
+    def test_unread_reference_is_never_fabricated_as_read(self):
+        engine = Engine(read('SKILL.md'), answer('Model draft requiring external review'))
+        self.execute(engine)
+        self.assertEqual(len(engine.histories), 2)
+        reads = [e['target'] for e in self.events if e['operation'] == 'read_skill']
+        self.assertEqual(reads, ['saving/SKILL.md'])
+        self.assertNotIn('MARKER-57', json.dumps(engine.histories))
 
-    def test_project_evidence_has_copyable_citations_and_one_bounded_review(self):
+    def test_project_evidence_has_copyable_citations_without_rewriting_raw_receipts(self):
         engine = Engine(read('SKILL.md'), read('references/save.md'), read('save.py', name='read_file'),
-                        answer('first draft'), answer('final draft'))
+                        answer('final draft'))
         self.assertEqual(self.execute(engine), ('completed', 'final draft'))
         self.assertIn('save.py:2:     validate()', engine.histories[3][-1]['content'])
         raw = next(e for e in self.events if e['operation'] == 'read_file')['content']
         self.assertIn('2:     validate()', raw)
         self.assertNotIn('save.py:', raw)
         self.assertEqual(self.deltas, ['final draft'])
-        self.assertEqual(sum(e['target'] == 'skill-read-check' for e in self.events), 1)
+        self.assertEqual(len(engine.histories), 4)
 
     def test_optional_reference_is_not_automatically_read_or_required(self):
         with (self.skill_path/'SKILL.md').open('a', encoding='utf8') as stream:
             stream.write('\nFor translation only, use references/translate.md.')
         (self.skill_path/'references/translate.md').write_text('UNRELATED-TRANSLATION', encoding='utf8')
         self.store.refresh_skill(self.skill['id'])
-        engine = Engine(read('SKILL.md'), read('references/save.md'), answer(), answer('No translation requested'))
+        engine = Engine(read('SKILL.md'), read('references/save.md'), answer('No translation requested'))
         self.assertEqual(self.execute(engine)[0], 'completed')
         reads = [e['target'] for e in self.events if e['operation'] == 'read_skill']
         self.assertEqual(reads, ['saving/SKILL.md', 'saving/references/save.md'])
@@ -126,9 +127,8 @@ class SkillResources(unittest.TestCase):
     def test_unsupported_attachment_is_failed_not_read(self):
         (self.skill_path/'references/save.md').write_bytes(b'\x00binary')
         self.store.refresh_skill(self.skill['id'])
-        # One readiness reminder cannot convert failed content into evidence.
         with self.assertRaisesRegex(ValueError, '參考讀取未完成'):
-            self.execute(Engine(read('SKILL.md'), read('references/save.md'), answer('unsupported'), answer('unsupported')))
+            self.execute(Engine(read('SKILL.md'), read('references/save.md'), answer('unsupported')))
         self.assertEqual([e['target'] for e in self.events if e['operation'] == 'read_skill'], ['saving/SKILL.md'])
 
     def test_read_budget_rejection_never_marks_entry_as_delivered(self):
