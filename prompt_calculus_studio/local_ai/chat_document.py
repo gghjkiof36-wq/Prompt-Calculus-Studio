@@ -795,6 +795,14 @@ class ChatDocument(QObject):
             self._observe_thinking(suffix, streaming=False)
             target = {'completed': 'complete', 'cancelled': 'stopped', 'limited': 'limited'}[status]
             reason = '已達最大輸出長度。' if status == 'limited' else ''
+            if status == 'limited' and request.operation == 'chat':
+                from .thinking import split_thinking
+                parts = split_thinking(detail)
+                thinking_enabled = self._attempt.get('reasoning', {}).get('enable_thinking') is not False
+                if thinking_enabled and parts.has_thinking and not parts.answer.strip():
+                    reason = '已達回覆上限，模型尚未產生正文。可在模型設定關閉思考，或提高回覆上限後重試。'
+                else:
+                    reason = '已達回覆上限，已保留收到的內容。可在模型設定提高回覆上限後重試。'
             if status == 'limited' and request.operation == 'agent':
                 events = self._attempt.get('agent', {}).get('events', [])
                 budgets = [event for event in events if event['operation'] == 'budget']

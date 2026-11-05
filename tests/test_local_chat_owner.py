@@ -187,6 +187,22 @@ class LocalChatOwnerContracts(unittest.TestCase):
         self.assertEqual((attempt['status'], attempt['reason']), ('failed', '合成模型準備失敗'))
         self.assertEqual(attempt['text'], '')
 
+    def test_output_limit_explains_missing_answer_without_changing_saved_text(self):
+        for raw, missing in (('<think>尚在分析', True),
+                             ('<think>分析完畢</think>', True),
+                             ('<think>分析完畢</think>部分回答', False),
+                             ('普通回答尚未寫完', False)):
+            with self.subTest(raw=raw):
+                self.service.state = 'ready'  # FakeService has no worker to reset it.
+                request = self._send()
+                self.service.delta.emit(request, raw)
+                self.service.finished.emit(request, 'limited', raw)
+                attempt = io.load(self.root, self.path.name).document['payload']['turns'][-1]['attempts'][-1]
+                self.assertEqual(attempt['status'], 'limited')
+                self.assertEqual(attempt['text'], raw)
+                self.assertEqual('尚未產生正文' in attempt['reason'], missing)
+                self.assertIn('模型設定', self.owner.notice)
+
     def test_dispose_during_preparation_cancels_and_disconnects_late_output(self):
         self.service.state = 'unloaded'
         self.service.prepare_on_submit = True

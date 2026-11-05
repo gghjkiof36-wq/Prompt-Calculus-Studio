@@ -86,13 +86,21 @@ class ReasoningTransportContracts(unittest.TestCase):
     def test_unknown_model_keeps_default_and_budget_requires_reasoning_template(self):
         self.props['chat_template'] = 'another model'
         self.assertEqual(self.options(), {})
-        with self.assertRaisesRegex(RuntimeError, '思考切換'):
-            self.options(enable_thinking=False)
+        self.assertEqual(self.options(enable_thinking=False), {'chat_template_kwargs': {'enable_thinking': False}})
         self.assertEqual(self.options(reasoning_budget_tokens=64), {'reasoning_budget_tokens': 64})
         self.runtime._budget_checked = False
         self.unknown_thinking = False
         with self.assertRaisesRegex(RuntimeError, '思考上限'):
             self.options(reasoning_budget_tokens=64)
+
+    def test_unlisted_template_can_toggle_but_ignored_control_is_rejected(self):
+        self.props['chat_template'] = self.template + '\n{# Converted metadata #}'
+        self.assertEqual(self.options(), {})  # No invented default for a new template.
+        self.assertEqual(self.options(enable_thinking=True), {'chat_template_kwargs': {'enable_thinking': True}})
+        self.runtime._thinking_checked = False
+        self.ignore_toggle = True
+        with self.assertRaisesRegex(RuntimeError, '未套用'):
+            self.options(enable_thinking=False)
 
     def test_open_prefill_without_detectable_reasoning_end_is_not_budget_support(self):
         self.props['chat_template'] = 'template with an open prefill only'
@@ -170,7 +178,7 @@ class GemmaReasoningTransportContracts(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, '思考上限'):
             self.options(enable_thinking=True, reasoning_budget_tokens=64)
 
-    def test_ignored_switch_unknown_template_or_build_is_rejected(self):
+    def test_ignored_switch_or_build_is_rejected_but_compatible_template_can_toggle(self):
         self.ignore_toggle = True
         with self.assertRaisesRegex(RuntimeError, '未套用'):
             self.options(enable_thinking=True)
@@ -180,8 +188,7 @@ class GemmaReasoningTransportContracts(unittest.TestCase):
             self.options(enable_thinking=True)
         self.props['build_info'] = 'b11900-fixture'
         self.props['chat_template'] = 'unverified modified template'
-        with self.assertRaisesRegex(RuntimeError, '思考切換'):
-            self.options(enable_thinking=True)
+        self.assertEqual(self.options(enable_thinking=True), {'chat_template_kwargs': {'enable_thinking': True}})
 
     def test_preflight_and_stream_request_keep_identical_gemma_options(self):
         messages = [dict(role='user', content='Hello')]

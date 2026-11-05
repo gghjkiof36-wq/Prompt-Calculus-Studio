@@ -3,7 +3,7 @@ import copy
 from types import SimpleNamespace
 import unittest
 
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
@@ -94,15 +94,21 @@ class ChatReplyControlsUI(unittest.TestCase):
         self.assertTrue(old.isVisible())
         self.doc.busy = False
         raw = self.doc.payload['turns'][0]['attempts'][-1]
-        for status in ('stopped', 'failed'):
+        for status in ('stopped', 'failed', 'limited'):
             with self.subTest(status=status):
-                raw.update(status=status, thinking_seconds=7.3, reason='fixture failure' if status == 'failed' else '生成已停止')
+                raw.update(status=status, thinking_seconds=7.3, reason={
+                    'failed': 'fixture failure', 'stopped': '生成已停止',
+                    'limited': '已達回覆上限，模型尚未產生正文。可在模型設定關閉思考，或提高回覆上限後重試。',
+                }[status])
                 self.change()
                 self.assertTrue(self.turn.history_button.isVisible())
                 self.assertTrue(current.retry_icon_button.isVisible())
                 self.assertTrue(current.copy_button.isVisible())
                 self.assertTrue(current.branch_button.isVisible())
-                self.assertEqual(current.error_frame.isVisible(), status == 'failed')
+                self.assertEqual(current.error_frame.isVisible(), status in {'failed', 'limited'})
+                if status == 'limited':
+                    self.assertEqual(current.reason.text(), raw['reason'])
+                    self.assertTrue(current.reason.wordWrap())
         self.assertFalse(self.page._elapsed_timer.isActive())
 
     def test_no_previous_reply_has_no_history_icon_or_empty_header_row(self):
@@ -136,6 +142,22 @@ class ChatReplyControlsUI(unittest.TestCase):
         QTest.keyClick(history, Qt.Key.Key_Space)
         self.assertTrue(history.isChecked())
         self.assertTrue(self.turn.attempts['a0'].isVisible())
+
+    def test_limit_reason_reflows_when_window_becomes_narrower(self):
+        raw = self.doc.payload['turns'][0]['attempts'][-1]
+        raw.update(status='limited', text='<think>尚在分析',
+                   reason='已達回覆上限，模型尚未產生正文。可在模型設定關閉思考，或提高回覆上限後重試。')
+        self.page.resize(960, 700)
+        self.change()
+        self.page.resize(560, 700)
+        QTest.qWait(100)
+        current = self.turn.attempts['a2']
+        viewport = self.page.scroll.viewport()
+        right = current.error_frame.mapTo(viewport, QPoint(current.error_frame.width(), 0)).x()
+        self.assertTrue(current.error_frame.isVisible())
+        self.assertLessEqual(right, viewport.width())
+        self.assertGreaterEqual(current.reason.height(), current.reason.heightForWidth(current.reason.width()))
+        self.assertEqual(current.reason.text(), raw['reason'])
 
     def test_receiving_and_finished_controls_keep_the_same_reserved_height(self):
         for previous in (False, True):

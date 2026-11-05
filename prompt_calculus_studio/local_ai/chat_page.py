@@ -817,10 +817,17 @@ class ChatAttempt(QFrame):
         self.more_button.setVisible(not receiving and bool(parts.answer.strip()) and bool(self._attempt_id))
         self.content.setVisible(bool(parts.answer.strip()))
         self.content.set_content(parts.answer)
-        failed = attempt.get('status') == 'failed'
-        self.reason.setText(attempt.get('reason') or '生成失敗，請重試。')
+        status = attempt.get('status')
+        fallback = '已達回覆上限，已保留收到的內容。' if status == 'limited' else '生成失敗，請重試。'
+        self.reason.setText(attempt.get('reason') or fallback)
+        limited = status == 'limited'
+        if self.error_frame.property('limited') != limited:
+            self.error_frame.setProperty('limited', limited)
+            self.error_frame.style().unpolish(self.error_frame)
+            self.error_frame.style().polish(self.error_frame)
+            self.error_frame.update()
         _fit_error_frame(self.error_frame, self.reason, self.width())
-        self.error_frame.setVisible(failed)
+        self.error_frame.setVisible(status in {'failed', 'limited'})
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1726,6 +1733,8 @@ class ChatPage(QWidget):
             self._visibility_timer.start(0)
         if watched is self.scroll.viewport():
             kind = event.type()
+            if kind == QEvent.Type.Resize:
+                self._visibility_timer.start(0)
             if kind in (QEvent.Type.HoverEnter, QEvent.Type.HoverMove, QEvent.Type.MouseMove):
                 self._sync_user_hover(event.position().toPoint())
             elif kind in (QEvent.Type.Leave, QEvent.Type.HoverLeave):
@@ -1759,6 +1768,14 @@ class ChatPage(QWidget):
         # 12px here, rather than stacking three independent footer paddings.
         bottom = self.composer_host.height() + 12 if self.scroll.isVisible() else 0
         self.transcript_row.setContentsMargins(margin, 0, margin, bottom)
+        # Limit reply notices from the viewport, not the previous reply width.
+        # Otherwise their fixed minimum can keep the entire transcript wider
+        # than a newly narrowed window, preventing any child resize/reflow.
+        available = max(1, min(READING_CONTENT_WIDTH, self.scroll.viewport().width() - 2 * margin))
+        for turn in self._turns.values():
+            for attempt in turn.attempts.values():
+                if not attempt.error_frame.isHidden():
+                    _fit_error_frame(attempt.error_frame, attempt.reason, available)
         gutter = self.scroll.verticalScrollBar().width() if self.scroll.verticalScrollBar().isVisible() else 0
         self.composer_row.setContentsMargins(margin, 0, margin + gutter, 0)
         self.composer_host.setMask(QRegion(self.composer_column.geometry()))
@@ -2161,6 +2178,7 @@ class ChatPage(QWidget):
             QPushButton#ChatSend:focus {{ border:2px solid {tokens['text']}; }}
             QPushButton#ChatSend:disabled {{ background:{tokens['raised']}; }}
             QFrame#ChatErrorFrame {{background:{error_tint};border:1px solid {tokens['error']};border-radius:10px;}}
+            QFrame#ChatErrorFrame[limited="true"] {{background:{tokens['surface']};border-color:{tokens['divider']};}}
             QLabel#ChatError {{ color:{tokens['text']};background:transparent;border:0; }}
         ''')
         for turn in self._turns.values():

@@ -252,22 +252,24 @@ class LlamaRuntime:
         build = props.get('build_info', '')
         if not isinstance(build, str) or not build.startswith(REASONING_BUILD):
             raise RuntimeError('此引擎尚未確認支援思考控制。請使用 llama.cpp b11900，或將思考上限設為不限。')
-        if enabled is not None and not (known_qwen or known_gemma):
-            raise RuntimeError('此模型尚未確認支援思考切換。請將思考模式設為依模型。')
         if known_gemma and budget is not None and budget >= 0:
             raise RuntimeError('此模型尚未確認支援思考上限。請將思考上限設為依模型或不限。')
         probe = [{'role': 'user', 'content': 'Hello'}]
-        if (known_qwen or known_gemma) and not self._thinking_checked:
+        if (known_qwen or known_gemma or enabled is not None) and not self._thinking_checked:
             on = self._json('/apply-template', dict(messages=probe, chat_template_kwargs={'enable_thinking': True}), cancel=cancel)
             off = self._json('/apply-template', dict(messages=probe, chat_template_kwargs={'enable_thinking': False}), cancel=cancel)
             valid = (isinstance(on, dict) and isinstance(off, dict)
                      and isinstance(on.get('prompt'), str) and isinstance(off.get('prompt'), str)
                      and on['prompt'] != off['prompt'])
             if valid:
-                valid = (on['prompt'].rstrip().endswith('<think>') and off['prompt'].rstrip().endswith('</think>')) if known_qwen else (
+                # Probe the model's actual template, as llama.cpp does when
+                # detecting thinking support. A conversion/comment change must
+                # not disable an otherwise working control. Keep automatic
+                # budget defaults restricted to the previously verified profile.
+                valid = (on['prompt'].rstrip().endswith('<think>') and off['prompt'].rstrip().endswith('</think>')) or (
                     '<|turn>system\n<|think|>' in on['prompt'] and '<|think|>' not in off['prompt'])
             if not valid:
-                raise RuntimeError('引擎未套用思考模式。請確認模型與引擎版本。')
+                raise RuntimeError('此模型未套用思考模式。請將思考模式設為依模型，或確認模型與引擎版本。')
             self._thinking_checked = True
         options = {}
         if enabled is not None:
