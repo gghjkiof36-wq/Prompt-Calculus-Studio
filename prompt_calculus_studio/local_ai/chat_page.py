@@ -791,11 +791,14 @@ class ChatAttempt(QFrame):
         self.actions.setVisible(not receiving or self._has_history_control)
         parts = split_thinking(self._raw, receiving=receiving)
         self._answer, self._thinking_text = parts.answer, parts.thinking
+        empty_answer = self._status == 'complete' and not parts.answer.strip()
         if parts.has_thinking and not self._has_thinking:
-            self.thinking_toggle.setChecked(receiving)
-        # Collapse once at the lifecycle boundary, not on later refreshes.
+            self.thinking_toggle.setChecked(receiving or empty_answer)
+        # A normal stop can still contain only reasoning (including an unclosed
+        # envelope). Keep that content reachable without relabeling it as an
+        # answer. Change disclosure once, not on later refreshes/manual toggles.
         if self._last_receiving is True and not receiving:
-            self.thinking_toggle.setChecked(False)
+            self.thinking_toggle.setChecked(empty_answer)
         self._last_receiving = receiving
         self._has_thinking = parts.has_thinking
         self.thinking.setVisible(parts.has_thinking)
@@ -819,15 +822,19 @@ class ChatAttempt(QFrame):
         self.content.set_content(parts.answer)
         status = attempt.get('status')
         fallback = '已達回覆上限，已保留收到的內容。' if status == 'limited' else '生成失敗，請重試。'
+        if empty_answer:
+            fallback = ('模型已停止，但尚無正文。可查看思考內容或重試。' if parts.has_thinking
+                        else '模型沒有回傳內容。請重試。')
         self.reason.setText(attempt.get('reason') or fallback)
-        limited = status == 'limited'
+        # Both cases use the existing neutral incomplete-output presentation.
+        limited = status == 'limited' or empty_answer
         if self.error_frame.property('limited') != limited:
             self.error_frame.setProperty('limited', limited)
             self.error_frame.style().unpolish(self.error_frame)
             self.error_frame.style().polish(self.error_frame)
             self.error_frame.update()
         _fit_error_frame(self.error_frame, self.reason, self.width())
-        self.error_frame.setVisible(status in {'failed', 'limited'})
+        self.error_frame.setVisible(status in {'failed', 'limited'} or empty_answer)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

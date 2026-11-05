@@ -177,6 +177,63 @@ class ChatReplyControlsUI(unittest.TestCase):
                 self.change()
                 self.assertEqual(current.actions.height(), before)
 
+    def test_normal_stop_without_answer_preserves_visible_reasoning_and_original(self):
+        raw = self.doc.payload['turns'][0]['attempts'][-1]
+        raw.update(status='receiving', text='<think>目前方案預算未附，因此無法計算差額。')
+        self.doc.busy = True
+        self.change()
+        current = self.turn.attempts['a2']
+        self.assertFalse(current.error_frame.isVisible())
+        raw['status'] = 'complete'
+        self.doc.busy = False
+        before = copy.deepcopy(self.doc.payload)
+        self.change()
+        self.assertTrue(current.error_frame.isVisible())
+        self.assertTrue(current.thinking_toggle.isChecked())
+        self.assertTrue(current.thinking_body.isVisible())
+        self.assertFalse(current.content.isVisible())
+        self.assertIn('尚無正文', current.reason.text())
+        self.assertTrue(current.error_frame.property('limited'))
+        QTest.mouseClick(current.copy_button, Qt.MouseButton.LeftButton)
+        self.assertEqual(self.app.clipboard().text(), raw['text'])
+        QTest.mouseClick(current.thinking_toggle, Qt.MouseButton.LeftButton)
+        self.change()
+        self.assertFalse(current.thinking_toggle.isChecked())
+        self.assertEqual(self.doc.payload, before)
+        self.page.close()
+        reopened = ChatPage(self.doc, SimpleNamespace(display_settings=lambda: dict(ui_size=12)))
+        try:
+            reopened.resize(560, 700)
+            reopened.show()
+            QTest.qWait(60)
+            saved = reopened._turns['one'].attempts['a2']
+            self.assertTrue(saved.error_frame.isVisible())
+            self.assertTrue(saved.thinking_toggle.isChecked())
+            self.assertEqual(self.doc.payload, before)
+        finally:
+            reopened.close()
+            reopened.deleteLater()
+
+    def test_empty_stop_offers_retry_without_warning_on_normal_or_literal_answers(self):
+        raw = self.doc.payload['turns'][0]['attempts'][-1]
+        retried = []
+        self.doc.retry = lambda turn_id: retried.append(turn_id)
+        for text, empty in (('', True), ('  \n', True), ('<think>思考完成</think>\n', True),
+                            ('<|channel>thought\n思考完成<channel|>', True),
+                            ('<think>思考完成</think>正常答覆', False),
+                            ('`<think>` 是標記。', False), ('普通文字', False)):
+            with self.subTest(text=text):
+                raw.update(status='complete', text=text)
+                self.change()
+                current = self.turn.attempts['a2']
+                self.assertEqual(current.error_frame.isVisible(), empty)
+                self.assertEqual(current.content.isVisible(), not empty)
+                self.assertTrue(current.retry_icon_button.isVisible())
+                self.assertEqual(current.copy_button.isEnabled(), bool(text.strip()))
+                if empty:
+                    QTest.mouseClick(current.retry_icon_button, Qt.MouseButton.LeftButton)
+        self.assertEqual(retried, ['one'] * 4)
+
 
 if __name__ == '__main__':
     unittest.main()
