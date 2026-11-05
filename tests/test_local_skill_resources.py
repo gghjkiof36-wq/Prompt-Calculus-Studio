@@ -29,6 +29,8 @@ class Engine:
         return dict(input=100, output=512, capacity=8192)
 
     def tool_turn(self, history, *args, **kwargs):
+        if any(m['role'] == 'system' for m in history[1:]):
+            raise RuntimeError('System message must be at the beginning.')
         self.histories.append(copy.deepcopy(history))
         return 'completed', next(self.turns)
 
@@ -72,6 +74,17 @@ class SkillResources(unittest.TestCase):
         self.assertEqual(self.execute(engine), ('completed', 'revised'))
         self.assertEqual(self.deltas, ['revised'])
         self.assertIn('Host read check', engine.histories[2][-1]['content'])
+        self.assertEqual(sum(e['target'] == 'skill-read-check' for e in self.events), 1)
+
+    def test_project_evidence_has_copyable_citations_and_one_bounded_review(self):
+        engine = Engine(read('SKILL.md'), read('references/save.md'), read('save.py', name='read_file'),
+                        answer('first draft'), answer('final draft'))
+        self.assertEqual(self.execute(engine), ('completed', 'final draft'))
+        self.assertIn('save.py:2:     validate()', engine.histories[3][-1]['content'])
+        raw = next(e for e in self.events if e['operation'] == 'read_file')['content']
+        self.assertIn('2:     validate()', raw)
+        self.assertNotIn('save.py:', raw)
+        self.assertEqual(self.deltas, ['final draft'])
         self.assertEqual(sum(e['target'] == 'skill-read-check' for e in self.events), 1)
 
     def test_optional_reference_is_not_automatically_read_or_required(self):

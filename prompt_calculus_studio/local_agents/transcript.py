@@ -33,7 +33,9 @@ class ToolTranscript:
                     if colon and number.isdecimal() and key in self.lines:
                         omitted.append(self.lines[key])
                     else:
-                        rows.append(line)
+                        # Supply a copyable citation on each source line. Raw
+                        # read receipts keep their original number/text layout.
+                        rows.append(path + ':' + line if colon and number.isdecimal() else line)
                 body = '\n'.join(rows)
                 if omitted:
                     body = '[Overlapping lines already shown in ' + ', '.join(dict.fromkeys(omitted)) + '.]\n' + body
@@ -46,6 +48,7 @@ class ToolTranscript:
             if event['operation'] == 'read_file':
                 path = event['target'].rsplit(':', 1)[0]
                 for line in body.splitlines():
+                    line = line.removeprefix(path + ':')
                     number, colon, text = line.partition(': ')
                     if colon and number.isdecimal():
                         self.lines[(path, event['sha256'], number, text)] = evidence_id
