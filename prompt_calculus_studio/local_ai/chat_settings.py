@@ -112,14 +112,16 @@ class ModelPresetPanel(QWidget):
         for name, field in (('回覆上限（tokens）', self.max_tokens), ('溫度', self.temperature), ('Top P', self.top_p), ('隨機種子', self.seed)):
             field.setAccessibleName(name); generation.addRow(name, field)
         generation_body.addLayout(generation)
+        generation_body.addWidget(label('回覆上限包含思考與正文；思考越長，留給正文的空間越少。', 'Subtle', True))
         self.thinking_mode = ComboBox()
         for text, value in (('依模型', None), ('開啟', True), ('關閉', False)):
             self.thinking_mode.addItem(text, value)
         self.thinking_mode.setAccessibleName('思考模式')
         self.thinking_budget_mode = ComboBox()
-        for text, value in (('依模型', 'default'), ('不限', 'unlimited'), ('自訂', 'custom')):
+        for text, value in (('PCS 預設', 'default'), ('不另設上限', 'unlimited'), ('自訂', 'custom')):
             self.thinking_budget_mode.addItem(text, value)
         self.thinking_budget_mode.setAccessibleName('思考上限模式')
+        self.thinking_budget_mode.setToolTip('PCS 預設：已驗證的 Qwen3.5 模板最多使用 512 tokens 思考，其他模板沿用引擎設定。\n不另設上限：思考仍受回覆上限限制。')
         self.thinking_budget = ModelSettingsPanel._spin(0, 262144, 128)
         self.thinking_budget.setValue(512); self.thinking_budget.setSuffix(' tokens')
         self.thinking_budget.setAccessibleName('思考上限')
@@ -130,7 +132,7 @@ class ModelPresetPanel(QWidget):
         self.thinking_controls.setLayout(thinking); generation_body.addWidget(self.thinking_controls)
         self.thinking_mode.currentIndexChanged.connect(self._sync_thinking_controls)
         self.thinking_budget_mode.currentIndexChanged.connect(self._sync_thinking_controls)
-        self.max_tokens.setToolTip('回覆上限須小於上下文容量，為輸入保留空間。')
+        self.max_tokens.setToolTip('思考與正文共用這個額度。回覆上限須小於上下文容量，為輸入保留空間。')
         self.message = label('', 'Subtle', True); self.message.setAccessibleName('模型預設保存狀態'); layout.addWidget(self.message)
         self.apply_button = button('儲存模型設定', self.apply, 'Primary')
         self.reload_button = button('重新讀取', self.reload, 'Quiet')
