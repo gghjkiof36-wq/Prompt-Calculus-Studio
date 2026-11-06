@@ -295,11 +295,41 @@ class ReasoningOwnerContracts(unittest.TestCase):
                 self.assertEqual(owner.payload, before)
                 self.assertEqual(chat.context_references(owner.payload), refs)
         attempt['text'] = '<think>done</think>Answer'
-        self.assertEqual(chat.context_messages(owner.payload, 'next')[1]['content'], attempt['text'])
+        self.assertEqual(chat.context_messages(owner.payload, 'next')[1]['content'], 'Answer')
         attempt['text'] = '```xml\n<think>literal example\n```'
         self.assertEqual(chat.context_messages(owner.payload, 'next')[1]['content'], attempt['text'])
         attempt['text'] = 'partial ordinary answer'
         self.assertEqual(chat.context_messages(owner.payload, 'next')[1]['content'], attempt['text'])
+
+    def test_model_switch_sends_answer_only_and_keeps_raw_history_and_thinking_on(self):
+        policy = dict(enable_thinking=True, reasoning_budget_tokens=-1)
+        self.configure_reasoning(self.a, policy)
+        self.configure_reasoning(self.b, policy)
+        owner = self.owner_fixture()
+        original_generate = self.runtime.generate
+        raw = '<think>old internal work</think>\n\n目前採用方案 B。'
+
+        def first_reply(messages, params, cancel, on_delta):
+            original_generate(messages, params, cancel, lambda _text: None)
+            on_delta(raw)
+            return 'completed', raw
+
+        with patch.object(self.runtime, 'generate', side_effect=first_reply):
+            self.assertTrue(owner.send('記住目前採用方案 B。'))
+            self.wait_for(lambda: not owner.busy and self.service.state == 'ready')
+        first = copy.deepcopy(owner.payload['turns'][0])
+        self.assertTrue(self.service.select_model(self.b['id']))
+        self.assertTrue(owner.send('目前採用什麼方案？'))
+        self.wait_for(lambda: not owner.busy and self.service.state == 'ready')
+        model, messages, params = self.runtime.generations[-1]
+        self.assertEqual(model, self.b['id'])
+        self.assertEqual([m['content'] for m in messages],
+                         ['記住目前採用方案 B。', '目前採用方案 B。', '目前採用什麼方案？'])
+        self.assertEqual(params['reasoning'], policy)
+        saved = schema.decode(owner.path.read_bytes())
+        self.assertEqual(saved['payload']['turns'][0], first)
+        self.assertEqual(first['attempts'][0]['text'], raw)
+        self.assertEqual(chat.context_messages(saved['payload'], '再問一次')[1]['content'], '目前採用方案 B。')
 
     def test_completed_open_think_tag_is_preserved_as_literal_context(self):
         owner = self.owner_fixture()

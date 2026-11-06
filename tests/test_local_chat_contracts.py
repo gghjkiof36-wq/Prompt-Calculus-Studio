@@ -144,6 +144,49 @@ class ChatSchemaContracts(unittest.TestCase):
             chat.context_messages(payload, '下一題')
         self.assertEqual(payload, before)
 
+    def test_prior_reasoning_is_not_replayed_but_saved_branch_and_formatting_survive(self):
+        body = '    answer_code()\n\n| 項目 | 狀態 |\n| --- | --- |\n| 自動發布 | 尚未同意  |'
+        for opening, closing in (('<think>', '</think>'), ('<|channel>thought\n', '<channel|>')):
+            for status in ('complete', 'stopped', 'interrupted', 'failed', 'limited'):
+                with self.subTest(opening=opening, status=status):
+                    document = fixture()
+                    raw = opening + 'prior thought only' + closing + '\n\n' + body
+                    item = document['payload']['turns'][0]['attempts'][0]
+                    item.update(text=raw, status=status)
+                    document['payload']['revisions'] = []
+                    chat.sync_features(document)
+                    restored = schema.decode(schema.encode(document))
+                    before = copy.deepcopy(restored)
+                    refs = chat.context_references(restored['payload'], retry=True)
+                    messages = chat.context_messages(restored['payload'], '重試問題', retry=True)
+                    self.assertEqual(messages[-2], dict(role='assistant', content=body))
+                    self.assertEqual(chat.context_references(restored['payload'], retry=True), refs)
+                    self.assertEqual(restored, before)
+                    clone = identity.duplicate(restored).document
+                    self.assertEqual(clone['payload']['turns'][0]['attempts'][0]['text'], raw)
+                    self.assertEqual(chat.context_messages(clone['payload'], '重試問題', retry=True)[-2]['content'], body)
+
+    def test_literal_tags_and_disabled_thinking_are_not_removed_from_history(self):
+        for raw, enabled in (('<think>literal</think>example', False),
+                             ('```xml\n<think>literal</think>\n```', True),
+                             ('Here is <think>literal</think> text.', True)):
+            with self.subTest(raw=raw, enabled=enabled):
+                document = fixture()
+                item = document['payload']['turns'][0]['attempts'][0]
+                item.update(text=raw, reasoning=dict(enable_thinking=enabled, reasoning_budget_tokens=None))
+                before = copy.deepcopy(document)
+                messages = chat.context_messages(document['payload'], '重試問題', retry=True)
+                self.assertEqual(messages[-2]['content'], raw)
+                self.assertEqual(document, before)
+
+    def test_closed_reasoning_without_answer_does_not_invent_an_assistant_message(self):
+        document = fixture()
+        document['payload']['turns'][0]['attempts'][0]['text'] = '<think>done thinking</think>\n \n'
+        before = copy.deepcopy(document)
+        messages = chat.context_messages(document['payload'], '重試問題', retry=True)
+        self.assertEqual([m['role'] for m in messages], ['system', 'user', 'user'])
+        self.assertEqual(document, before)
+
     def test_context_references_select_latest_terminal_answer_and_are_independent(self):
         payload = fixture()['payload']
         first = payload['turns'][0]

@@ -1,4 +1,4 @@
-"""View-only separation of a leading model reasoning envelope.
+"""Separation of a leading model reasoning envelope without changing its source.
 
 The persisted response remains the source of truth. This parser consumes the
 whole accumulated response, so tags split across streamed chunks need no

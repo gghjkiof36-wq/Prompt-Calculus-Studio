@@ -251,7 +251,7 @@ def branch_payload(payload, turn_id, attempt_id=None):
 
 
 def context_messages(payload, text, *, retry=False):
-    """Freeze the latest terminal answer, including an explicitly stopped partial."""
+    """Freeze terminal answer text without replaying prior reasoning envelopes."""
     history = payload['turns'][:-1] if retry else payload['turns']
     messages = []
     from .chat_attachments import message
@@ -263,14 +263,23 @@ def context_messages(payload, text, *, retry=False):
         if answer is not None and answer['text']:
             from ..local_ai.thinking import split_thinking
             parts = split_thinking(answer['text'])
+            content = answer['text']
+            reasoning_enabled = answer.get('reasoning', {}).get('enable_thinking') is not False
+            # A new model may not recognize the previous model's reasoning
+            # delimiters. Project the visible answer here; keep the stored raw
+            # response and its reference intact for display, export and retry.
+            if reasoning_enabled and parts.closed:
+                content = parts.answer
+                if not content.strip():
+                    continue
             # Only an unfinished reasoning-enabled attempt can still be inside
             # its reasoning envelope. A completed or thinking-disabled answer
             # may use an opening tag literally; preserve that text as context.
             unfinished_reasoning = (answer['status'] in {'stopped', 'interrupted', 'failed', 'limited'}
-                                    and answer.get('reasoning', {}).get('enable_thinking') is not False
+                                    and reasoning_enabled
                                     and parts.has_thinking and not parts.closed)
             if not unfinished_reasoning:
-                messages.append(dict(role='assistant', content=answer['text']))
+                messages.append(dict(role='assistant', content=content))
     attachments = payload['turns'][-1].get('attachments', []) if retry else payload.get('draft_attachments', [])
     messages.append(dict(role='user', content=message(text, attachments)))
     return messages

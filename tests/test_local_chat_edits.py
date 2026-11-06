@@ -22,6 +22,9 @@ from test_local_chat_contracts import attempt, uid
 from test_local_chat_owner import FakeView, FakeWorkspace
 
 
+ANSWER = '**回答**\n```py\nx = "\\n"\n```'
+
+
 class RevisionSchemaContracts(unittest.TestCase):
     def revision_document(self):
         value = conversation()
@@ -65,7 +68,8 @@ class RevisionSchemaContracts(unittest.TestCase):
         schema.encode(value)
         messages = chat.context_messages(dict(payload, turns=payload['turns'][:2]), '接著問')
         self.assertEqual([m['role'] for m in messages], ['user', 'assistant', 'user', 'user'])
-        self.assertEqual(messages[1]['content'], RAW)
+        self.assertEqual(messages[1]['content'], ANSWER)
+        self.assertEqual(partial['attempts'][0]['text'], RAW)
         copy_value = identity.duplicate(value).document
         schema.validate(copy_value)
         self.assertEqual(copy_value['payload']['turns'][-1]['attempts'][0]['context'][1]['attempt_id'], '')
@@ -261,7 +265,7 @@ class RevisionOwnerContracts(unittest.TestCase):
         self.owner.set_draft('接著送出')
         self.assertTrue(self.owner.send('接著送出'), self.owner.notice)
         new = self.service.submitted[-1]
-        self.assertEqual(new.input['messages'][-2], dict(role='assistant', content=RAW))
+        self.assertEqual(new.input['messages'][-2], dict(role='assistant', content=ANSWER))
         self.assertEqual(self.owner.payload['turns'][-1]['attempts'][0]['context'][-1]['attempt_id'], old.scope['attempt_id'])
         before = copy.deepcopy(self.owner.payload)
         self.service.delta.emit(old, '遲到片段')
