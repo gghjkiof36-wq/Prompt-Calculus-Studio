@@ -45,6 +45,37 @@ class AgentCore(unittest.TestCase):
         values.update(changes)
         return self.store.save_configuration(**values)
 
+    def test_unassigned_skills_have_no_lookup_tools_but_project_reads_still_work(self):
+        self.configuration(skills=[])
+        request = self.request('read save.py')
+        session = ReadSession(request, Cancellation())
+        self.assertEqual({t['function']['name'] for t in session.tools}, {'read_file', 'search_files'})
+        self.assertNotIn('Available skills', session.instructions())
+        self.assertNotIn('Use the Skill output format', session.instructions())
+        with self.assertRaisesRegex(ValueError, '工具名稱'):
+            session.execute('list_skills', dict(query=''))
+        self.assertIn('def save()', session.execute('read_file', dict(path='save.py')))
+
+        class Engine:
+            def tool_budget(engine, messages, params, cancel, tools, **kwargs):
+                self.assertEqual(tools, session.tools)
+                return dict(input=500, output=512, capacity=8192)
+            def tool_turn(engine, messages, params, cancel, tools, **kwargs):
+                self.assertEqual(tools, session.tools)
+                return 'completed', dict(role='assistant', content='answer')
+        self.assertEqual(run(Engine(), [dict(role='user', content='task')], {}, Cancellation(), request,
+                             lambda _: None, lambda _: None), ('completed', 'answer'))
+
+    def test_registered_skills_and_sources_keep_their_tools_and_guidance(self):
+        source = self.root/'reference.md'; source.write_text('Reference', encoding='utf8')
+        self.configuration(sources=[(str(source), 'reference')])
+        session = ReadSession(self.request(), Cancellation())
+        self.assertEqual({t['function']['name'] for t in session.tools},
+                         {'read_file', 'search_files', 'list_skills', 'read_skill', 'read_source'})
+        self.assertIn('Available skills', session.instructions())
+        self.assertIn('read_source with source=0', session.instructions())
+        self.assertEqual(session.execute('read_source', dict(source=0)), 'Reference')
+
     def test_configuration_validation_does_not_partially_save_project(self):
         skills = [self.skill['id']] + [self.store.add_skill(make_skill(self.root/f'skill-{i}', f'skill-{i}'))['id']
                                       for i in range(32)]
@@ -254,6 +285,9 @@ class AgentCore(unittest.TestCase):
         self.assertEqual(session.used, {self.skill['id']})
 
     def test_unknown_skill_attachment_and_source_offer_recovery_without_reading(self):
+        source = self.root / 'reference.md'
+        source.write_text('Registered reference', encoding='utf8')
+        self.configuration(sources=[(str(source), 'reference')])
         session = ReadSession(self.request(), Cancellation())
         for name, args, hint in (
             ('read_skill', dict(skill='skills/saving', path='SKILL.md'), 'list_skills'),

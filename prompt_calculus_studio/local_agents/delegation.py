@@ -10,7 +10,7 @@ from ..local_documents.paths import root_path
 from ..workspace_file_io import available_targets, named_path
 from .store import AgentStore
 from .delegation_protocol import DelegationError, fingerprint
-from .delegation_store import TaskStore, TERMINAL, attempt_in, now, result_of
+from .delegation_store import TaskStore, TERMINAL, attempt_in, now, result_of, task_summary
 
 
 def conversation_path(root, agent_name, task_id):
@@ -95,10 +95,22 @@ class DelegationService(QObject):
         projects = [p for p in registry.value['projects'] if p['id'] in self.enabled]
         ids = {p['id'] for p in projects}
         service = getattr(self.workspace, 'local_ai', None)
+        skills = {s['id']: s for s in registry.value['skills']}
+        agents = []
+        for agent in registry.value['agents']:
+            if agent['project'] not in ids:
+                continue
+            agents.append(dict(id=agent['id'], name=agent['name'], project_id=agent['project'],
+                               model=agent['model'], capabilities=['text_response', 'read_project_files'],
+                               skills=[dict(id=s['id'], name=s['name'], description=s['description'],
+                                            explicit_only=s['manual'])
+                                       for key in agent['skills'] if (s := skills.get(key)) and s['enabled']]))
         return dict(availability='busy' if service is not None and not service.can_accept else 'ready',
                     projects=[dict(id=p['id'], name=p['name'], delegation_enabled=True) for p in projects],
-                    agents=[dict(id=a['id'], name=a['name'], project_id=a['project'], model=a['model'])
-                            for a in registry.value['agents'] if a['project'] in ids])
+                    agents=agents,
+                    contract=dict(single_task=True, recursive_delegation=False, writes=False,
+                                  approval='owned_by_chat', result_requires_independent_review=True,
+                                  role_configuration_checked_at_submit=True))
 
     def dispatch(self, request):
         if not self.ready:
@@ -147,13 +159,15 @@ class DelegationService(QObject):
         document['payload']['agent_id'] = agent_id
         chat.sync_features(document)
         record = dict(version=1, task_id=task_id, input_hash=signature, project_id=project_id,
-                      agent_id=agent_id, state='preparing', created_at=now(), document_id=document['document_id'],
+                      agent_id=agent_id, agent_name=agent['name'], task=task,
+                      state='preparing', created_at=now(), document_id=document['document_id'],
                       path=str(target), turn_id='', attempt_id='', request_id='', scope={}, result=None)
         # Durable admission precedes file publication and any inference. A crash
         # after this point is interrupted, never an invitation to repeat work.
         self.store.write(record)
         context = dict(record=record, owner=None, attempt=None, ended=False, ticket=None, settled=False)
         self.active[task_id] = context
+        self.changed.emit()
         try:
             for candidate in available_targets(target, limit=100):
                 record['path'] = str(candidate)
@@ -194,6 +208,7 @@ class DelegationService(QObject):
         except (ValueError, OSError, KeyError, TypeError, RuntimeError) as exc:
             context['ended'] = True
             self.freeze(context, fallback='save_failed', error=str(exc))
+        self.changed.emit()
         return self.status(task_id)
 
     def review(self, request, ticket):
@@ -201,6 +216,7 @@ class DelegationService(QObject):
         if context is not None and not ticket['done'].is_set():
             # Observation only. The original document owns the approval dialog.
             context['ticket'] = ticket
+            self.changed.emit()
 
     def context_for(self, request):
         return next((c for c in self.active.values() if not c.get('settled')
@@ -220,6 +236,7 @@ class DelegationService(QObject):
         if context.get('settled'):
             return
         context['record']['state'] = 'stopping'
+        self.changed.emit()
         owner, request_id = context['owner'], context['record']['request_id']
         if owner is not None and owner._request is not None and owner._request.request_id == request_id:
             owner.stop()
@@ -268,6 +285,7 @@ class DelegationService(QObject):
         context['settled'] = True
         context['ticket'] = None
         self.persist(context)
+        self.changed.emit()
 
     def persist(self, context):
         record = context['record']
@@ -283,12 +301,13 @@ class DelegationService(QObject):
             self.error = record['error']
             self.workspace.show_notice(self.error)
 
-    def get(self, task_id):
+    def get(self, task_id, *, local=False):
         context = self.active.get(task_id)
         record = context['record'] if context else self.store.read(task_id)
         if record is None:
             raise DelegationError('unknown_task', '找不到這個委派任務。')
-        self.allowed(record['project_id'])
+        if not local:
+            self.allowed(record['project_id'])
         if context and context.get('settled'):
             self.persist(context)
         elif context and context['ended']:
@@ -301,13 +320,15 @@ class DelegationService(QObject):
         return record
 
     def summary(self, record):
-        return {key: copy.deepcopy(record.get(key)) for key in
-                ('task_id', 'project_id', 'agent_id', 'state', 'path', 'document_id', 'turn_id', 'attempt_id', 'request_id', 'error')}
+        return task_summary(record)
 
     def status(self, task_id):
-        record = self.get(task_id)
+        return self.current_summary(self.get(task_id))
+
+    def current_summary(self, record):
+        """Project an already loaded receipt without reopening files or inference."""
         response = self.summary(record)
-        context = self.active.get(task_id)
+        context = self.active.get(record['task_id'])
         if context and not context.get('settled') and not context['ended']:
             ticket = context['ticket']
             owner = context['owner']

@@ -78,11 +78,18 @@ class AgentClient:
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='PCS 本機唯讀委派')
+    parser = argparse.ArgumentParser(
+        description='PCS 本機唯讀委派：在已授權工作內依 catalog 的角色與 Skill 選擇交辦。',
+        epilog='流程：instances → catalog → submit → status → result → 主代理獨立覆核。'
+               '同一工作重送時沿用 --key；查詢不重跑。complete 只表示子任務結束，'
+               '須核對 saved、草稿與實際證據後才可向使用者報完成。')
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('instances', help='查詢已啟用的 PCS 工作區')
-    for command in ('catalog', 'submit', 'status', 'stop', 'result'):
-        part = sub.add_parser(command)
+    descriptions = dict(catalog='查看可用專案、角色、Skill 說明與能力界線',
+                        submit='交辦一項工作，取得固定任務 ID', status='查詢同一任務進度，不重新執行',
+                        stop='停止指定的委派工作', result='取得已保存的原始草稿與證據，交主代理覆核')
+    for command, description in descriptions.items():
+        part = sub.add_parser(command, help=description)
         part.add_argument('--instance', required=True)
         if command == 'submit':
             part.add_argument('--project', required=True)

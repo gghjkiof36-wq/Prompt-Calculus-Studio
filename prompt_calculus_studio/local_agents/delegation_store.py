@@ -1,6 +1,7 @@
 """Bounded task receipts; ordinary .pcs-chat remains the conversation owner."""
 import copy
 import json
+import os
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -12,6 +13,13 @@ from .delegation_protocol import TASK_ID, DelegationError, encode, fingerprint
 RECORD_LIMIT = 4 * 1024 * 1024
 SOURCE_OPERATIONS = {'rule', 'read_skill', 'read_source', 'read_file', 'search_files', 'list_skills', 'tool_error'}
 TERMINAL = {'complete', 'stopped', 'failed', 'limited', 'interrupted', 'save_failed'}
+
+
+def task_summary(record):
+    """Small projection for discovery/UI; never include hidden reasoning or wire."""
+    keys = ('task_id', 'project_id', 'agent_id', 'agent_name', 'task', 'state', 'path',
+            'document_id', 'turn_id', 'attempt_id', 'request_id', 'error', 'created_at')
+    return {key: copy.deepcopy(record.get(key)) for key in keys}
 
 
 def now():
@@ -94,6 +102,24 @@ class TaskStore:
 
     def save_settings(self, projects):
         atomic_json(self.checked(self.settings_path), dict(version=1, projects=sorted(projects)))
+
+    def recent(self, project_id, limit=100):
+        """Read recent receipts on the file worker, returning only list metadata."""
+        directory = self.checked(self.directory/'tasks')
+        if not directory.exists():
+            return []
+        with os.scandir(directory) as entries:
+            files = [(e.stat(follow_symlinks=False).st_mtime_ns, Path(e.name).stem)
+                     for e in entries if e.is_file(follow_symlinks=False)
+                     and e.name.endswith('.json') and TASK_ID.fullmatch(Path(e.name).stem)]
+        rows = []
+        for _, task_id in sorted(files, reverse=True):
+            record = self.read(task_id)
+            if record is not None and record['project_id'] == project_id:
+                rows.append(task_summary(record))
+                if len(rows) >= limit:
+                    break
+        return rows
 
     def path(self, task_id):
         if not isinstance(task_id, str) or not TASK_ID.fullmatch(task_id):

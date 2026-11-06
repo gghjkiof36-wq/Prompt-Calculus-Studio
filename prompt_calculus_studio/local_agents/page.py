@@ -24,7 +24,7 @@ class AgentLibrary(QWidget):
         self.selection_timer.timeout.connect(self.restore_selection)
         self.back_button = icon_button('back', '返回', self.back)
         self.settings_button = icon_button('settings', '專案設定', self.edit_project)
-        self.delegation_button = button('啟用本機委派', self.toggle_delegation)
+        self.delegation_button = button('委派工作', self.open_tasks)
         self.delegation_button.hide()
         self.sort_button = icon_button('arrow-down-up', '排序', self.sort_menu)
         self.page.header_row.insertWidget(0, self.back_button)
@@ -158,9 +158,7 @@ class AgentLibrary(QWidget):
         self.settings_button.setVisible(active and project is not None and not creating_project)
         self.delegation_button.setVisible(project is not None and not creating_project)
         if project:
-            enabled = project['id'] in getattr(getattr(self.workspace, 'agent_delegation', None), 'enabled', ())
-            self.delegation_button.setText('停止本機委派' if enabled else '啟用本機委派')
-            self.delegation_button.setToolTip('本機委派已啟用' if enabled else '允許本機主代理向此專案的 Agent 交辦工作')
+            self.delegation_button.setToolTip('查看委派進度、結果與本機委派設定')
         self.sort_button.setVisible(active and self.mode == 'skill')
         self.back_button.setVisible(active and (project is not None or creating_project or self.width() < 780 and self._detail_requested))
         self.page.agent_refresh.setVisible(active and not creating_project)
@@ -231,17 +229,11 @@ class AgentLibrary(QWidget):
         editor.saved.connect(self.project_saved); editor.cancelled.connect(self.close_detail)
         self.attach_editor(editor)
 
-    def toggle_delegation(self):
-        if self.project_id is None:
-            return
-        from .delegation import delegation_for
-        try:
-            service = delegation_for(self.workspace)
-            service.set_enabled(self.project_id, self.project_id not in service.enabled)
-            self.show_error('')
-        except (ValueError, OSError) as exc:
-            self.show_error(exc)
-        self.header()
+    def open_tasks(self):
+        if self.project_id is None or not self.can_leave(): return
+        from .delegation_view import DelegationTasks
+        self.selected = None; self.restore_selection()
+        self.attach_editor(DelegationTasks(self))
 
     def project_saved(self, item):
         self.project_id = item['id']; self.selected = None

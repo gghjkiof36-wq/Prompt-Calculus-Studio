@@ -117,6 +117,32 @@ class DelegationContracts(unittest.TestCase):
     def result(self, task_id):
         return self.delegation.receiver.dispatch(self.command('result', task_id=task_id))
 
+    def test_catalog_exposes_registered_skills_and_review_contract(self):
+        result = self.delegation.catalog()
+        agent = result['agents'][0]
+        self.assertEqual(agent['skills'][0]['description'], 'Find saving flow')
+        self.assertIn('read_project_files', agent['capabilities'])
+        self.assertTrue(result['contract']['result_requires_independent_review'])
+        self.assertFalse(result['contract']['recursive_delegation'])
+        self.assertFalse(result['contract']['writes'])
+        self.assertNotIn('token', result)
+
+    def test_recent_tasks_are_project_scoped_and_keep_original_task_identity(self):
+        first = self.submit(task='Extract the exact name from this short note.')
+        self.finish()
+        store = AgentStore(self.workspace.data)
+        store.save_agent('Renamed role', self.project, self.agent['model'], [], self.agent['id'])
+        row, = self.delegation.store.recent(self.project)
+        self.assertEqual(row['task_id'], first['task_id'])
+        self.assertEqual(row['agent_name'], self.agent['name'])
+        self.assertEqual(row['task'], 'Extract the exact name from this short note.')
+        self.assertNotIn('result', row)
+        self.assertEqual(self.delegation.store.recent('other-project'), [])
+        self.delegation.set_enabled(self.project, False)
+        self.assertEqual(self.delegation.get(first['task_id'], local=True)['state'], 'complete')
+        with self.assertRaises(DelegationError):
+            self.result(first['task_id'])
+
     def test_admission_saved_identity_and_duplicate_never_repeat(self):
         first = self.submit()
         self.assertEqual(len(self.open_calls), 1)

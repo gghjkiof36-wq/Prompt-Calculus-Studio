@@ -60,8 +60,10 @@ class AgentWindowTests(unittest.TestCase):
             before = AgentStore(self.w.data).path.read_bytes()
             self.assertNotIn(project['id'], service.enabled)
             self.click(library.delegation_button)
+            self.assertNotIn(project['id'], service.enabled)
+            self.click(library.editor.toggle)
             self.assertIn(project['id'], service.enabled)
-            self.assertEqual(library.delegation_button.text(), '停止本機委派')
+            self.assertEqual(library.editor.toggle.text(), '停止本機委派')
             self.click(library.settings_button)
             self.assertTrue(library.delegation_button.isHidden())
             library.editor.name.setText('取消的名稱')
@@ -70,8 +72,66 @@ class AgentWindowTests(unittest.TestCase):
             self.assertEqual(AgentStore(self.w.data).path.read_bytes(), before)
             self.assertIn(project['id'], service.enabled)
             self.click(library.delegation_button)
+            self.click(library.editor.toggle)
             self.assertNotIn(project['id'], service.enabled)
             self.assertFalse(service.receiver.server.isListening())
+
+    def test_delegated_work_visible_stoppable_and_saved_result_not_verified(self):
+        from test_local_delegation import ControlledService
+        from test_local_agent_owners import register
+        from prompt_calculus_studio.local_agents.delegation import delegation_for
+        with patch.dict(os.environ, {'PCS_AGENT_DISCOVERY': str(self.base/'delegate-discovery')}):
+            service = self.w.local_ai = ControlledService(self.w)
+            service.models = []
+            _, _, agent = register(self.w.data, self.base, 'fixture')
+            delegation = delegation_for(self.w)
+            delegation.set_enabled(agent['project'], True)
+            library = self.mode('agent'); self.select(library, agent['project'])
+            self.click(library.delegation_button)
+            view = library.editor
+            self.wait(lambda: not view.loading and not view.pending)
+            self.assertTrue(view.empty.isVisible())
+            self.picture('delegation-empty')
+            service.read_document = lambda: io.load(self.root, self.w.documents[-1].path.name).document
+            first = delegation.submit(agent['project'], agent['id'], '請計算 17 + 26。', 'visible')
+            self.wait(lambda: first['task_id'] in view.rows)
+            self.assertEqual(view.task.toPlainText(), '請計算 17 + 26。')
+            self.assertTrue(view.stop_button.isVisible())
+            from types import SimpleNamespace
+            ticket = dict(done=threading.Event(), allow=False,
+                          action=SimpleNamespace(operation='read_file', arguments={}))
+            with patch('prompt_calculus_studio.local_agents.dialogs.request_read_approval'):
+                service.review.emit(service.submitted[-1], ticket)
+            self.wait(lambda: view.rows[first['task_id']]['state'] == 'waiting_approval')
+            self.assertIn('等待核准', view.detail.text())
+            self.assertFalse(ticket['allow'])
+            self.picture('delegation-waiting-approval')
+            self.click(view.stop_button)
+            self.assertEqual(service.cancelled, [first['request_id']])
+            self.assertEqual(view.rows[first['task_id']]['state'], 'stopping')
+            service.complete(service.submitted[-1], 'partial', 'cancelled')
+            self.wait(lambda: view.rows[first['task_id']]['state'] == 'stopped')
+            self.assertFalse(view.stop_button.isVisible())
+            second = delegation.submit(agent['project'], agent['id'], '請計算 1 + 1。', 'visible-complete')
+            service.complete(service.submitted[-1], '<think>private</think>2')
+            self.wait(lambda: view.rows.get(second['task_id'], {}).get('state') == 'complete')
+            item = next(view.results.topLevelItem(i) for i in range(view.results.topLevelItemCount())
+                        if view.results.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole) == second['task_id'])
+            view.results.setCurrentItem(item)
+            self.assertEqual(item.text(1), '結果待覆核')
+            self.w.resize(760, 790); self.app.processEvents()
+            self.assertTrue(view.open_button.isVisible())
+            self.assertTrue(view.toggle.isVisible())
+            self.picture('delegation-completed-narrow')
+            self.click(view.toggle)  # Local history stays readable after external access is revoked.
+            self.click(view.open_button)
+            self.assertEqual(len(service.submitted), 2)
+            library = self.mode('agent')
+            library.open_tasks(); view = library.editor
+            self.wait(lambda: not view.loading and not view.pending)
+            self.assertEqual(set(view.rows), {first['task_id'], second['task_id']})
+            self.assertEqual(len(service.submitted), 2)
+            self.w.local_ai = None
 
     def test_delegation_background_tab_focus_shared_owner_and_last_close(self):
         from test_local_delegation import ControlledService
