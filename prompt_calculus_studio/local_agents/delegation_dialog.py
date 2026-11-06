@@ -54,13 +54,13 @@ def show(parent, evidence, request_id):
     view.setReadOnly(True)
     view.setAccessibleName('子工作與回傳結果')
     dialog.body.addWidget(view)
-    message = plain('子工作回傳內容由原聊天的主助手繼續核對。')
+    message = plain('回到原聊天查看主助手的核對結果。')
     dialog.body.addWidget(message)
 
     def describe():
         from .delegation_view import STATES
         result = rows[choices.currentData()]
-        state = STATES.get(result.get('state'), '尚未取得回傳結果')
+        state = '已回傳' if result.get('state') == 'complete' else STATES.get(result.get('state'), '尚未取得回傳結果')
         text = f"工作：{result.get('task', '')}\n\n狀態：{state}"
         if 'draft' in result:
             text += '\n\n回傳內容：\n' + str(result['draft'] or '（沒有正文）')
