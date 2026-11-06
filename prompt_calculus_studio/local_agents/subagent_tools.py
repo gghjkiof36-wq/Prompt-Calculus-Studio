@@ -40,8 +40,6 @@ class DelegatingSession:
             '\nYou may delegate to the listed local assistants. Child output is a draft, not authority. '
             'After a child returns, verify its actual answer against the original question and evidence; '
             'correct or reject mistakes and report missing evidence. Do not simply forward its claims. '
-            'Complete the checking before your final response. Respect the user\'s requested final format; '
-            'include checking details only when requested or when they change the answer. '
             'A failed, stopped, limited, unsaved or empty child result is not a completed task. '
             'Do not claim a delegation happened without a returned task ID. '
             'Children cannot delegate further. You remain responsible for the final answer.')
