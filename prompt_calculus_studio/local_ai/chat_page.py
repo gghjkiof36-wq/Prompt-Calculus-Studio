@@ -776,13 +776,17 @@ class ChatAttempt(QFrame):
         self._thinking_copy_reset.timeout.connect(self._reset_thinking_copy)
 
     def update_attempt(self, attempt, index, total, model_names):
-        self._agent_evidence = attempt.get('agent')
+        self._agent_evidence = attempt.get('agent', attempt.get('delegation'))
+        self._delegation_request = attempt.get('request', '')
         self.agent_evidence.setVisible(bool(self._agent_evidence))
         if self._agent_evidence:
+            from ..local_agents.delegation_dialog import summary
             events = self._agent_evidence['events']
             names = list(dict.fromkeys(e['target'].split('/')[0] for e in events if e['operation'] == 'read_skill'))
             count = sum(e['status'] == 'read' for e in events)
-            self.agent_evidence.setText(('、'.join(names) if names else '本地 Agent') + f' · {count} 次讀取')
+            delegated = summary(self._agent_evidence, attempt.get('status') == 'receiving')
+            self.agent_evidence.setText(delegated or ('、'.join(names) if names else '本地 Agent') + f' · {count} 次讀取')
+            self.agent_evidence.setVisible(bool(delegated or attempt.get('agent')))
         self._attempt_id = attempt.get('id', '')
         self._status = attempt.get('status', '')
         self._raw = attempt.get('text', '')
@@ -854,6 +858,10 @@ class ChatAttempt(QFrame):
 
     def _show_agent_evidence(self):
         if self._agent_evidence:
+            from ..local_agents.delegation_dialog import children, show
+            if children(self._agent_evidence):
+                show(self, self._agent_evidence, self._delegation_request)
+                return
             from ..local_agents.dialogs import show_evidence
             show_evidence(self, self._agent_evidence)
 
@@ -1040,7 +1048,8 @@ class ChatTurn(QFrame):
 
     def update_turn(self, turn, model_names, tokens):
         signature = (turn['id'], turn.get('text', ''), tuple(
-            tuple(attempt.get(key, '') for key in ('id', 'text', 'status', 'reason', 'model', 'model_name', 'thinking_seconds')) + (len(attempt.get('agent', {}).get('events', [])),)
+            tuple(attempt.get(key, '') for key in ('id', 'text', 'status', 'reason', 'model', 'model_name', 'thinking_seconds')) +
+            (len(attempt.get('agent', {}).get('events', [])), len(attempt.get('delegation', {}).get('events', [])))
             for attempt in turn.get('attempts', [])), tuple(model_names.items()),
             tuple((item.get('id'), item.get('name'), item.get('size')) for item in turn.get('attachments', [])))
         if signature == self._display_signature:

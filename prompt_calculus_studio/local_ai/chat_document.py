@@ -105,14 +105,17 @@ class ChatDocument(QObject):
 
     @Slot(object, object)
     def _agent_activity(self, request, event):
-        if not self._owns(request) or 'agent' not in self._attempt:
+        if not self._owns(request):
             return
-        self._attempt['agent']['events'].append(copy.deepcopy(event))
+        ledger = self._attempt.get('agent', self._attempt.get('delegation'))
+        if ledger is None:
+            return
+        ledger['events'].append(copy.deepcopy(event))
         try:
             from ..local_documents.chat_agent import validate_evidence
-            validate_evidence(self._attempt['agent'])
+            validate_evidence(ledger)
         except ValueError:
-            self._attempt['agent']['events'].pop()
+            ledger['events'].pop()
             self.stop(reason='本輪讀取紀錄已達保存上限。', status='limited')
             return
         self.dirty = True
@@ -457,10 +460,11 @@ class ChatDocument(QObject):
             return False
         return self._accept_checkpoint(job)
 
-    def send(self, text, *, before_submit=None):
+    def send(self, text, *, before_submit=None, parent_request=None, allow_delegation=True):
         if self.edit_locked:
             return False
-        return self._submit(text, retry=False, before_submit=before_submit)
+        return self._submit(text, retry=False, before_submit=before_submit,
+                            parent_request=parent_request, allow_delegation=allow_delegation)
 
     def retry(self, turn_id=None):
         if self.edit_locked or not self.payload['turns'] or turn_id is not None and self.payload['turns'][-1]['id'] != turn_id:
@@ -608,7 +612,8 @@ class ChatDocument(QObject):
             turn_id=turn_id, attempt_id=attempt_id)
         return schema.validate(branched)
 
-    def _submit(self, text, *, retry, edited_payload=None, edit_view=None, edited_turn_id=None, before_submit=None):
+    def _submit(self, text, *, retry, edited_payload=None, edit_view=None, edited_turn_id=None, before_submit=None,
+                parent_request=None, allow_delegation=True):
         if (self.busy or self._disposed or self.attachments_busy or not self.flush_views()
                 or self.edit_locked and (edited_payload is None or not self._edit_allowed(edit_view, edited_turn_id))):
             return False
@@ -629,8 +634,11 @@ class ChatDocument(QObject):
             model = agent_input['agent']['model'] if agent_input else self.service.selected_model
             if not model:
                 raise ValueError('請先選擇本機模型。')
-            if not (self.service.can_accept if agent_input else self.service.can_submit):
+            available = (self.service.can_accept_child(parent_request) if parent_request is not None
+                         else self.service.can_accept if agent_input else self.service.can_submit)
+            if not available:
                 raise ValueError('請等待目前操作完成，再傳送訊息。')
+            submit = (lambda request: self.service.submit_child(parent_request, request)) if parent_request else self.service.submit
             settings = copy.deepcopy(self.service.settings_for_model(model))
             model_preset = self.service.model_preset(model)
             default_prompt = model_preset['system_prompt']
@@ -659,6 +667,12 @@ class ChatDocument(QObject):
             if agent_input:
                 request_input['agent'] = agent_input
                 attempt['agent'] = dict(request=copy.deepcopy(agent_input), events=[])
+            if allow_delegation and parent_request is None:
+                from ..local_agents.delegation import chat_catalog
+                catalog = chat_catalog(self.workspace, source_payload.get('agent_id'))
+                if catalog:
+                    request_input['delegation'] = catalog
+                    attempt['delegation'] = dict(request=dict(agents=copy.deepcopy(catalog)), events=[])
             if reasoning is not None:
                 attempt['reasoning'] = copy.deepcopy(reasoning)
                 request_input['reasoning'] = copy.deepcopy(reasoning)
@@ -703,7 +717,7 @@ class ChatDocument(QObject):
                     return False
                 self.notice = ''
                 self._generation_started = monotonic()
-                if not self.service.submit(request):
+                if not submit(request):
                     if self._owns(request):
                         self._generation_started = self._generation_elapsed = None
                         self._finish_local('failed', self.service.error or '引擎未接受訊息，請確認模型狀態後重試。')
@@ -745,7 +759,7 @@ class ChatDocument(QObject):
                     return False
             self.notice = ''
             self._generation_started = monotonic()
-            if not self.service.submit(request):
+            if not submit(request):
                 if self._owns(request):
                     self._generation_started = self._generation_elapsed = None
                     if not retry and source_attachments:
@@ -803,13 +817,14 @@ class ChatDocument(QObject):
                     reason = '已達回覆上限，模型尚未產生正文。可在模型設定關閉思考，或提高回覆上限後重試。'
                 else:
                     reason = '已達回覆上限，已保留收到的內容。可在模型設定提高回覆上限後重試。'
-            if status == 'limited' and request.operation == 'agent':
-                events = self._attempt.get('agent', {}).get('events', [])
+            if status == 'limited' and (request.operation == 'agent' or request.input.get('delegation')):
+                events = self._attempt.get('agent', self._attempt.get('delegation', {})).get('events', [])
                 budgets = [event for event in events if event['operation'] == 'budget']
                 if budgets:
                     try:
                         if any(item.get('final') for item in json.loads(budgets[-1]['content'])):
-                            reason = '已達本輪讀取預算，已保留部分回覆；任務尚未完成。'
+                            reason = ('已達本輪工作預算，已保留部分回覆；任務尚未完成。' if request.input.get('delegation')
+                                      else '已達本輪讀取預算，已保留部分回覆；任務尚未完成。')
                     except (TypeError, ValueError, AttributeError):
                         pass
             self._finish_local(target, reason)

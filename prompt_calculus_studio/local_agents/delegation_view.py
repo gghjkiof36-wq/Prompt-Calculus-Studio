@@ -56,7 +56,7 @@ class DelegationTasks(QWidget):
     def update_toggle(self):
         enabled = self.project_id in self.service.enabled
         self.toggle.setText('停止本機委派' if enabled else '啟用本機委派')
-        self.toggle.setToolTip('停止此專案的委派並撤回外部存取' if enabled else '允許本機主代理交辦工作')
+        self.toggle.setToolTip('停止此專案的委派並撤回外部存取' if enabled else '允許聊天主助手及本機主代理交辦工作')
 
     def toggle_enabled(self):
         try:

@@ -204,11 +204,11 @@ class AgentReviewOwnership(unittest.TestCase):
         self.assertEqual(self.b.path.read_bytes(), self.other_bytes)
 
     def test_expired_ticket_cannot_be_approved_late(self):
-        # Advance only the service's clock; the real Qt worker and 120 s branch
+        # Advance only the approval clock; the real Qt worker and 120 s branch
         # run normally without waiting two minutes or changing product limits.
         offset = [0.]
         clock = SimpleNamespace(monotonic=lambda: time.monotonic()+offset[0], sleep=time.sleep)
-        with patch('prompt_calculus_studio.local_ai.service.time', clock):
+        with patch('prompt_calculus_studio.local_ai.nested_inference.time', clock):
             self.send()
             first = self.pending(0)
             old_dialog = self.a._approval_dialog

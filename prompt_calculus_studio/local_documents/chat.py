@@ -69,11 +69,14 @@ def _validate_turns(turns, *, seen=None, terminal_context=False):
         if not isinstance(turn['attempts'], list) or len(turn['attempts']) > 100:
             fail('limit', '此訊息的回覆次數過多。')
         for attempt in turn['attempts']:
-            if not isinstance(attempt, dict) or set(attempt) - {'reasoning', 'thinking_seconds', 'agent'} != {'id', 'request', 'model', 'model_name', 'profile_epoch', 'parameters', 'system_prompt', 'context', 'text', 'status', 'reason'}:
+            if not isinstance(attempt, dict) or set(attempt) - {'reasoning', 'thinking_seconds', 'agent', 'delegation'} != {'id', 'request', 'model', 'model_name', 'profile_epoch', 'parameters', 'system_prompt', 'context', 'text', 'status', 'reason'}:
                 fail('invalid', '對話回覆格式無效。')
             if 'agent' in attempt:
                 from .chat_agent import validate_evidence
                 validate_evidence(attempt['agent'])
+            if 'delegation' in attempt:
+                from .chat_agent import validate_evidence
+                validate_evidence(attempt['delegation'])
             ident(attempt['id']); ident(attempt['request'])
             if not identifier(attempt['profile_epoch']) or not isinstance(attempt['status'], str) or attempt['status'] not in STATES:
                 fail('invalid', '對話回覆狀態無效。')
@@ -156,6 +159,11 @@ def sync_features(document):
             features.append(AGENT_FEATURE)
     elif AGENT_FEATURE in features:
         features.remove(AGENT_FEATURE)
+    if _has_attempt_field(document['payload'], 'delegation'):
+        if 'pcs.chat-delegation.v1' not in features:
+            features.append('pcs.chat-delegation.v1')
+    elif 'pcs.chat-delegation.v1' in features:
+        features.remove('pcs.chat-delegation.v1')
     if 'revisions' in document['payload']:
         if REVISION_FEATURE not in features:
             features.append(REVISION_FEATURE)

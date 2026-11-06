@@ -43,6 +43,7 @@ class _InferenceThread(QThread):
     result = Signal(object, str, str)
     activity = Signal(object, object)
     review = Signal(object, object)
+    nested = Signal(object, object, object)
 
     def __init__(self, parent=None, *, runtime_factory: RuntimeFactory = LlamaRuntime):
         super().__init__(parent)
@@ -122,7 +123,7 @@ class _InferenceThread(QThread):
                     pieces = []
                     preparing = False
                     deadline_timer, timed_out, agent_deadline = None, Event(), None
-                    if request.operation == 'agent':
+                    if request.operation == 'agent' or request.input.get('delegation'):
                         from ..local_agents.execution import MAX_SECONDS
                         agent_deadline = time.monotonic() + MAX_SECONDS
                         def expire():
@@ -149,26 +150,18 @@ class _InferenceThread(QThread):
                             preparing = False
                         self._publish(runtime, 'generating')
                         cancel.check()
-                        if request.operation == 'agent':
+                        if request.operation == 'agent' or request.input.get('delegation'):
                             from ..local_agents.execution import run
-                            def approve(action):
-                                ticket = {'action': action, 'done': Event(), 'allow': False}
-                                self.review.emit(request, ticket)
-                                deadline = time.monotonic() + 120
-                                try:
-                                    while not ticket['done'].wait(.1):
-                                        cancel.check()
-                                        if time.monotonic() > deadline:
-                                            return False
-                                    cancel.check()
-                                    return ticket['allow'] is True
-                                finally:
-                                    # Cancellation can precede delivery to the
-                                    # owner, so a dialog cannot own this cleanup.
-                                    ticket['done'].set()
-                            outcome, detail = run(runtime, messages, params, cancel, request.input['agent'],
-                                                  delta, lambda event: self.activity.emit(request, event), approve,
-                                                  deadline=agent_deadline)
+                            from .nested_inference import approval, invoke
+                            delegation = None
+                            if request.input.get('delegation'):
+                                delegation = (request.input['delegation'],
+                                    lambda agent, task, call_id: invoke(self, runtime, request, model, params,
+                                        cancel, agent_deadline, agent, task, call_id))
+                            outcome, detail = run(runtime, messages, params, cancel, request.input.get('agent'),
+                                                  delta, lambda event: self.activity.emit(request, event),
+                                                  approval(self, request, cancel), deadline=agent_deadline,
+                                                  delegation=delegation)
                         else:
                             outcome, detail = runtime.generate(messages, params, cancel, delta)
                         cancel.check()
@@ -265,6 +258,8 @@ class LocalAIService(QObject):
         self._worker = None
         self._epoch = 0
         self._active = None
+        self._nested = self._child_cancel = self._child_payload = None
+        self._child_admission = self._delegate_handler = None
         self._cancel = None
         self._loaded_model = ''
         self._loaded_settings = None
@@ -470,6 +465,7 @@ class LocalAIService(QObject):
             worker.result.connect(self._on_result, Qt.ConnectionType.QueuedConnection)
             worker.activity.connect(self._on_activity, Qt.ConnectionType.QueuedConnection)
             worker.review.connect(self._on_review, Qt.ConnectionType.QueuedConnection)
+            worker.nested.connect(self._on_nested, Qt.ConnectionType.QueuedConnection)
             worker.finished.connect(self._on_thread_finished, Qt.ConnectionType.QueuedConnection)
             self._worker = worker
             worker.start()
@@ -563,15 +559,17 @@ class LocalAIService(QObject):
         self.changed.emit()
         return True
 
-    def validate_submission(self, request):
+    def validate_submission(self, request, *, parent_request=None):
         """Read-only preflight. No reservation, signals, worker or model load."""
         if (not isinstance(request, ServiceRequest) or request.service != 'local_ai'
                 or request.operation not in ('chat', 'text_assist', 'agent')):
             raise ValueError('本地對話請求格式無效。')
-        if not (self.can_submit if request.operation == 'chat' else self.can_accept):
+        if not (self.can_accept_child(parent_request) if parent_request is not None
+                else self.can_submit if request.operation == 'chat' else self.can_accept):
             raise ValueError('請先選擇模型，並等待目前操作完成。')
         payload = request.input
         optional = {'reasoning', 'agent'} if request.operation == 'agent' else {'reasoning'}
+        optional.add('delegation')
         if not isinstance(payload, dict) or set(payload) - optional != {'messages', 'model', 'params'}:
             raise ValueError('本地對話請求缺少訊息、模型或參數。')
         model = next((m for m in self.models if m['id'] == payload['model']), None)
@@ -588,6 +586,11 @@ class LocalAIService(QObject):
             agent = validate_request(payload.get('agent'))
             if agent['agent']['model'] != payload['model']:
                 raise ValueError('Agent 的模型與本輪快照不一致。')
+        if 'delegation' in payload:
+            from ..local_agents.subagent_tools import validate_catalog
+            validate_catalog(payload['delegation'])
+            if parent_request is not None or request.operation == 'text_assist':
+                raise ValueError('子工作不能再次委派。')
         resolve_runtime(params['runtime_path'])
         validate_model(model)
         return model, messages, params
@@ -611,6 +614,10 @@ class LocalAIService(QObject):
         return True
 
     def cancel(self, request_id):
+        if self._nested is not None and self._nested.request_id == request_id:
+            self._child_cancel.cancel()
+            self.changed.emit()
+            return True
         if self._active is None or self._active.request_id != request_id:
             return False
         if self._cancel is not None:
@@ -618,6 +625,45 @@ class LocalAIService(QObject):
         self.state = 'stopping'
         self.changed.emit()
         return True
+
+    def can_accept_child(self, parent_request):
+        return bool(parent_request is not None and self._child_admission == parent_request
+                    and self._active == parent_request and self._nested is None and not self._closing
+                    and self._cancel is not None and not self._cancel.event.is_set())
+
+    def submit_child(self, parent_request, request):
+        """Reserve a child inside the owning worker command, never queue behind its parent."""
+        try:
+            model, messages, params = self.validate_submission(request, parent_request=parent_request)
+            if request.operation != 'agent':
+                raise ValueError('子工作必須使用已登記的本地角色。')
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            return self._fail(exc)
+        self._nested = request
+        self._child_cancel = self._cancel.child()
+        self._child_payload = request, model, messages, params
+        return True
+
+    @Slot(object, object, object)
+    def _on_nested(self, parent_request, command, ticket):
+        """GUI admission/result handoff. Parent ownership is checked again at delivery."""
+        try:
+            if (ticket.get('abandoned') or self._active != parent_request or self._closing
+                    or self._cancel is None or self._cancel.event.is_set() or self._delegate_handler is None):
+                raise ValueError('原對話已停止，未接受新的子工作。')
+            self._child_admission = parent_request
+            result = self._delegate_handler(parent_request, command)
+            ticket['response'] = dict(result=result)
+            if command['command'] == 'submit' and self._nested is not None:
+                ticket['response'].update(execution=self._child_payload, cancel=self._child_cancel)
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+            ticket['error'] = str(exc)
+        finally:
+            self._child_admission = None
+            if ticket.get('abandoned') and self._nested is not None:
+                self._child_cancel.cancel()
+                self._on_result(self._nested, 'cancelled', '')
+            ticket['done'].set()
 
     def shutdown(self):
         """Nonblocking. Wait for inference and discovery workers to exit.
@@ -681,23 +727,30 @@ class LocalAIService(QObject):
 
     @Slot(object, str)
     def _on_delta(self, request, text):
-        if self._active == request:
+        if request in (self._active, self._nested):
             self.delta.emit(request, text)
 
     @Slot(object, object)
     def _on_activity(self, request, event):
-        if self._active == request:
+        if request in (self._active, self._nested):
             self.activity.emit(request, event)
 
     @Slot(object, object)
     def _on_review(self, request, ticket):
-        if self._active == request:
+        if request in (self._active, self._nested):
             self.review.emit(request, ticket)
         else:
             ticket['done'].set()
 
     @Slot(object, str, str)
     def _on_result(self, request, status, detail):
+        if self._nested == request:
+            if self._cancel is not None:
+                self._cancel.release_child(self._child_cancel)
+            self._nested = self._child_cancel = self._child_payload = None
+            self.finished.emit(request, status, detail)
+            self.changed.emit()
+            return
         if self._active != request:
             return
         self._active = None
@@ -712,6 +765,8 @@ class LocalAIService(QObject):
         worker = self.sender()
         if worker is not self._worker:
             return
+        if self._nested is not None:
+            self._on_result(self._nested, 'error', '子工作意外停止，已保留收到的內容。')
         if self._active is not None:
             request = self._active
             self._active = None

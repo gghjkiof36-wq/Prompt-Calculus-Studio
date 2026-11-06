@@ -52,6 +52,7 @@ class DelegationService(QObject):
             self._service = for_workspace(self.workspace)
             self._service.review.connect(self.review)
             self._service.finished.connect(self.finished)
+            self._service._delegate_handler = self.handle_nested
         return self._service
 
     def set_enabled(self, project_id, enabled):
@@ -132,7 +133,7 @@ class DelegationService(QObject):
             return dict(self.summary(record), result=copy.deepcopy(record.get('result')))
         return self.status(record['task_id'])
 
-    def submit(self, project_id, agent_id, task, key):
+    def submit(self, project_id, agent_id, task, key, *, parent_request=None):
         self.allowed(project_id)
         task_id = fingerprint(key)
         signature = fingerprint(dict(project_id=project_id, agent_id=agent_id, task=task))
@@ -148,7 +149,9 @@ class DelegationService(QObject):
             raise DelegationError('unknown_agent', '找不到這個 Agent。') from None
         if agent['project'] != project_id:
             raise DelegationError('wrong_project', '這個 Agent 不屬於指定專案。')
-        if not self.service.can_accept:
+        available = (self.service.can_accept_child(parent_request) if parent_request is not None
+                     else self.service.can_accept)
+        if not available:
             raise DelegationError('busy', '本地模型正在處理其他工作，請完成後再交辦。')
         # Validate the registered role before creating a document. Actual request
         # and model settings are still frozen by ChatDocument at submission.
@@ -162,6 +165,9 @@ class DelegationService(QObject):
                       agent_id=agent_id, agent_name=agent['name'], task=task,
                       state='preparing', created_at=now(), document_id=document['document_id'],
                       path=str(target), turn_id='', attempt_id='', request_id='', scope={}, result=None)
+        if parent_request is not None:
+            record.update(parent_document_id=parent_request.scope['document_id'],
+                          parent_request_id=parent_request.request_id)
         # Durable admission precedes file publication and any inference. A crash
         # after this point is interrupted, never an invitation to repeat work.
         self.store.write(record)
@@ -196,7 +202,7 @@ class DelegationService(QObject):
                 # The public result is projected separately and never returns it.
                 self.store.write(record)
 
-            if not owner.send(task, before_submit=accepted):
+            if not owner.send(task, before_submit=accepted, parent_request=parent_request, allow_delegation=False):
                 if context['attempt'] is None and owner.payload['turns']:
                     turn = owner.payload['turns'][0]
                     if turn['attempts']:
@@ -210,6 +216,30 @@ class DelegationService(QObject):
             self.freeze(context, fallback='save_failed', error=str(exc))
         self.changed.emit()
         return self.status(task_id)
+
+    def handle_nested(self, parent_request, command):
+        """Called only by the owning LocalAIService's GUI handoff."""
+        if command['command'] == 'submit':
+            from .subagent_tools import MAX_TASK
+            catalog = parent_request.input.get('delegation', [])
+            role = next((a for a in catalog if a['id'] == command['agent_id']), None)
+            if (role is None or not isinstance(command['task'], str) or not command['task'].strip()
+                    or len(command['task']) > MAX_TASK or self.service.approval_mode == 'off'):
+                raise ValueError('本輪未允許這個本地助理或工作。')
+            key = 'chat:' + parent_request.request_id + ':' + str(command['call_id'])
+            result = self.submit(role['project_id'], role['id'], command['task'], key,
+                                 parent_request=parent_request)
+            record = self.get(result['task_id'], local=True)
+        elif command['command'] == 'result':
+            record = self.get(command['task_id'], local=True)
+        else:
+            raise ValueError('子工作命令無效。')
+        if record.get('parent_request_id') != parent_request.request_id:
+            raise ValueError('子工作不屬於原對話的這一輪。')
+        result = dict(self.summary(record), result=copy.deepcopy(record.get('result')))
+        if command['command'] == 'result' and record['state'] not in TERMINAL:
+            raise ValueError('子工作尚未完成保存，不能當作完成結果。')
+        return result
 
     def review(self, request, ticket):
         context = self.context_for(request)
@@ -240,9 +270,11 @@ class DelegationService(QObject):
         owner, request_id = context['owner'], context['record']['request_id']
         if owner is not None and owner._request is not None and owner._request.request_id == request_id:
             owner.stop()
-        elif request_id and self.service._active is not None and self.service._active.request_id == request_id:
+        elif request_id and any(r is not None and r.request_id == request_id
+                                for r in (self.service._active, getattr(self.service, '_nested', None))):
             self.service.cancel(request_id)
-        if self.service._active is None or self.service._active.request_id != request_id:
+        if not any(r is not None and r.request_id == request_id
+                   for r in (self.service._active, getattr(self.service, '_nested', None))):
             context['ended'] = True
             self.freeze(context, fallback='stopped')
 
@@ -349,3 +381,20 @@ def delegation_for(workspace):
     if getattr(workspace, 'agent_delegation', None) is None:
         workspace.agent_delegation = DelegationService(workspace)
     return workspace.agent_delegation
+
+
+def chat_catalog(workspace, main_agent=None):
+    """Expose only opted-in roles. Merely opening/sending a normal chat loads no model."""
+    service = for_workspace(workspace)
+    if getattr(service, 'approval_mode', 'off') == 'off' or not TaskStore(workspace.data).settings():
+        return []
+    delegation = delegation_for(workspace)
+    roles = delegation.catalog()['agents']
+    if main_agent:
+        own = AgentStore(workspace.data).get('agents', main_agent)
+        roles = [a for a in roles if a['project_id'] == own['project'] and a['id'] != main_agent]
+    if roles:
+        from .subagent_tools import validate_catalog
+        validate_catalog(roles)
+        delegation.service  # Connect the existing owners before the worker can request a child.
+    return roles

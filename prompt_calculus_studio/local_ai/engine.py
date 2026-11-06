@@ -16,6 +16,20 @@ class Cancellation:
         self.event = Event()
         self._lock = Lock()
         self._socket = None
+        self._children = set()
+
+    def child(self):
+        child = Cancellation()
+        with self._lock:
+            self._children.add(child)
+            cancelled = self.event.is_set()
+        if cancelled:
+            child.cancel()
+        return child
+
+    def release_child(self, child):
+        with self._lock:
+            self._children.discard(child)
 
     def check(self):
         if self.event.is_set():
@@ -37,6 +51,9 @@ class Cancellation:
         self.event.set()
         with self._lock:
             sock = self._socket
+            children = tuple(self._children)
+        for child in children:
+            child.cancel()
         if sock is not None:
             try:
                 sock.shutdown(socket.SHUT_RDWR)

@@ -78,14 +78,50 @@ def validate_request(value):
     return copy.deepcopy(value)
 
 
-class ReadSession:
-    def __init__(self, request, cancel, notify=lambda event: None, approve=None, *, deadline=None):
-        self.request = validate_request(request)
+class ToolSession:
+    """Common accounting for chat tools and the existing project-read session."""
+    def __init__(self, cancel, notify=lambda event: None, approve=None, *, deadline=None):
         self.cancel, self.notify, self.approve = cancel, notify, approve
         self.start = time.monotonic()
         self.deadline = self.start + MAX_SECONDS if deadline is None else deadline
         self.total = self.calls = 0
         self.read_exhausted = False
+        self.events, self.tools, self.used = [], [], set()
+        self.skill_reads = SkillReads({}, {})
+        self.label = '聊天助手'
+
+    def check(self):
+        self.cancel.check()
+        if time.monotonic() >= self.deadline:
+            raise ValueError('本輪讀取已達時間上限，請縮小問題範圍。')
+
+    def record(self, operation, target, content, *, sha='', status='read', skill=''):
+        size = len(content.encode('utf-8'))
+        if self.total + size > MAX_READ:
+            self.read_exhausted = True
+            raise ValueError('本輪讀取已達 512 KiB 上限，請縮小問題範圍。')
+        self.total += size
+        self.audit(operation, target, content, sha=sha, status=status, skill=skill)
+        return content
+
+    def audit(self, operation, target, content, *, sha='', status='read', skill=''):
+        event = dict(operation=operation, target=target, content=content, sha256=sha,
+                     status=status, skill=skill)
+        self.events.append(event)
+        self.notify(event)
+
+    def instructions(self):
+        return 'Answer the user accurately in their language and requested format. Use only declared tools.'
+
+    def execute(self, name, arguments):
+        raise ValueError('工具名稱或參數無效。')
+
+
+class ReadSession(ToolSession):
+    def __init__(self, request, cancel, notify=lambda event: None, approve=None, *, deadline=None):
+        super().__init__(cancel, notify, approve, deadline=deadline)
+        self.request = validate_request(request)
+        self.label = request['agent']['name']
         self.events, self.cache, self.skill_files = [], {}, {}
         self.cache_events, self.symbol_cache = {}, {}
         self.used = set()
@@ -119,26 +155,6 @@ class ReadSession:
                       and (t['function']['name'] != 'read_source' or self.sources)]
         self.policy = ApprovalPolicy(Capability(t['function']['name'], False, False,
             lambda action: action.scope.get('project') == str(self.project), auto_read=True) for t in self.tools)
-
-    def check(self):
-        self.cancel.check()
-        if time.monotonic() >= self.deadline:
-            raise ValueError('本輪讀取已達時間上限，請縮小問題範圍。')
-
-    def record(self, operation, target, content, *, sha='', status='read', skill=''):
-        size = len(content.encode('utf-8'))
-        if self.total + size > MAX_READ:
-            self.read_exhausted = True
-            raise ValueError('本輪讀取已達 512 KiB 上限，請縮小問題範圍。')
-        self.total += size
-        self.audit(operation, target, content, sha=sha, status=status, skill=skill)
-        return content
-
-    def audit(self, operation, target, content, *, sha='', status='read', skill=''):
-        event = dict(operation=operation, target=target, content=content, sha256=sha,
-                     status=status, skill=skill)
-        self.events.append(event)
-        self.notify(event)
 
     def instructions(self):
         project = self.request['project']
@@ -385,15 +401,20 @@ class ReadSession:
         return self.record('search_files', mode + ' / ' + pattern + ' / ' + query, relocated + ('\n'.join(results) or empty))
 
 
-def run(runtime, messages, params, cancel, request, on_delta, notify, approve=None, *, deadline=None):
-    session = ReadSession(request, cancel, notify, approve, deadline=deadline)
+def run(runtime, messages, params, cancel, request, on_delta, notify, approve=None, *, deadline=None,
+        delegation=None):
+    session = (ReadSession(request, cancel, notify, approve, deadline=deadline) if request is not None
+               else ToolSession(cancel, notify, approve, deadline=deadline))
+    if delegation is not None:
+        from .subagent_tools import DelegatingSession
+        session = DelegatingSession(session, *delegation)
     instructions = session.instructions()
     history = copy.deepcopy(messages)
     if history[0]['role'] == 'system':
         history[0]['content'] = instructions + '\n\nConversation instructions:\n' + history[0]['content']
     else:
         history.insert(0, {'role': 'system', 'content': instructions})
-    session.audit('accepted', request['agent']['name'], instructions, sha=digest(instructions.encode()), status='accepted')
+    session.audit('accepted', session.label, instructions, sha=digest(instructions.encode()), status='accepted')
     original = copy.deepcopy(history)
     transcript = ToolTranscript()
     measurements = []
@@ -440,7 +461,7 @@ def run(runtime, messages, params, cancel, request, on_delta, notify, approve=No
             if not calls:
                 content = message.get('content') or ''
                 on_delta(content)
-                if request['explicit'] and not set(request['explicit']).issubset(session.used):
+                if request and request['explicit'] and not set(request['explicit']).issubset(session.used):
                     raise ValueError('模型未讀取指定技能，這次尚未完成技能任務。')
                 if session.skill_reads.unresolved:
                     raise ValueError('Skill 參考讀取未完成，已保留待覆核草稿：' + '、'.join(session.skill_reads.unresolved.values()))
@@ -460,7 +481,8 @@ def run(runtime, messages, params, cancel, request, on_delta, notify, approve=No
                 name, arguments = call['function']['name'], None
                 try:
                     arguments = json.loads(call['function']['arguments'])
-                    result = session.execute(name, arguments)
+                    result = (session.delegate(arguments, call['id']) if name == 'delegate_task' and delegation is not None
+                              else session.execute(name, arguments))
                 except (ValueError, OSError) as exc:
                     session.skill_reads.failed(name, arguments)
                     result = '工具未完成：' + str(exc)
@@ -475,4 +497,4 @@ def run(runtime, messages, params, cancel, request, on_delta, notify, approve=No
                 views.append(view)
             session.audit('projection', f'round {round_index+1}', json.dumps(views, ensure_ascii=False), status='model-view')
     finally:
-        session.audit('budget', request['agent']['name'], json.dumps(measurements, ensure_ascii=False), status='measured')
+        session.audit('budget', session.label, json.dumps(measurements, ensure_ascii=False), status='measured')
