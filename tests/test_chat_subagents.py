@@ -306,6 +306,20 @@ class ChatSubagents(unittest.TestCase):
         main = self.store.save_agent('Main', self.agent['project'], self.model['id'], [])
         self.assertEqual([a['id'] for a in chat_catalog(self.workspace, main['id'])], [self.agent['id']])
 
+    def test_failed_gui_handoff_after_admission_settles_the_unstarted_child(self):
+        handler = self.delegation.service._delegate_handler
+        def fail_after_admission(request, command):
+            result = handler(request, command)
+            if command['command'] == 'submit':
+                raise ValueError('synthetic handoff failure after admission')
+            return result
+        self.service._delegate_handler = fail_after_admission
+        self.send(); self.complete()
+        self.assertIsNone(self.service._nested)
+        self.assertFalse(self.runtime.child_entered.is_set())
+        self.assertEqual(self.receipt()['state'], 'failed')
+        self.assertFalse(self.owners[-1].busy)
+
 
 class LinkedCancellation(unittest.TestCase):
     def test_child_only_and_parent_cancellation(self):

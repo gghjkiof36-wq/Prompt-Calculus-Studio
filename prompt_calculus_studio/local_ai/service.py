@@ -647,6 +647,7 @@ class LocalAIService(QObject):
     @Slot(object, object, object)
     def _on_nested(self, parent_request, command, ticket):
         """GUI admission/result handoff. Parent ownership is checked again at delivery."""
+        previous_child = self._nested
         try:
             if (ticket.get('abandoned') or self._active != parent_request or self._closing
                     or self._cancel is None or self._cancel.event.is_set() or self._delegate_handler is None):
@@ -660,9 +661,11 @@ class LocalAIService(QObject):
             ticket['error'] = str(exc)
         finally:
             self._child_admission = None
-            if ticket.get('abandoned') and self._nested is not None:
+            if ((ticket.get('abandoned') or ticket.get('error'))
+                    and self._nested is not None and self._nested is not previous_child):
                 self._child_cancel.cancel()
-                self._on_result(self._nested, 'cancelled', '')
+                self._on_result(self._nested, 'error' if ticket.get('error') else 'cancelled',
+                                ticket.get('error', ''))
             ticket['done'].set()
 
     def shutdown(self):
