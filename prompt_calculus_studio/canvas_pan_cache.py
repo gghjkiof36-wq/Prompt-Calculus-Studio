@@ -15,7 +15,7 @@ import weakref
 from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRect, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QImage, QPainter
+from PySide6.QtGui import QColor, QImage, QPainter, QRegion, QTransform
 from PySide6.QtWidgets import QGraphicsProxyWidget, QWidget
 from shiboken6 import isValid
 
@@ -55,9 +55,13 @@ class PanRasterCache(QObject):
         self.last_offset = (0, 0)
         self._scene = None
         self._widgets = []
+        self._widget_proxies = {}
+        self._dirty_proxies = set()
         self._key = self._origin = None
         self._pad = self._revision = 0
         self._capturing = False
+        self._dirty = QRegion()
+        self.repairs = 0
         view.installEventFilter(self)
         view.viewport().installEventFilter(self)
 
@@ -148,9 +152,32 @@ class PanRasterCache(QObject):
         self._zoom_scope = None
         self._clear_current()
 
+    def _scene_changed(self, regions):
+        # Keep pan pixels outside actual scene damage. Zoom archives have
+        # different transforms; retain the conservative invalidation for them.
+        # Qt also emits an empty list after proxy/view paints with no damage.
+        # A real scene.update() supplies the scene rectangle (tested below).
+        if not regions:return
+        if self.image is None or self.allow_zoom or self._capturing:
+            self.invalidate()
+            return
+        dpr=self._key[2]
+        transform=QTransform(self._key[3]*dpr,0,0,self._key[4]*dpr,
+                             self._origin[0]*dpr+self._pad,self._origin[1]*dpr+self._pad)
+        for rect in regions:
+            if rect.isEmpty():
+                self.invalidate();return
+            dirty=transform.mapRect(rect).adjusted(-2,-2,2,2).toAlignedRect().intersected(self.image.rect())
+            self._dirty |= QRegion(dirty)
+        # Bound region bookkeeping as well as pixel storage.
+        if self._dirty.rectCount()>64:self._dirty=QRegion(self._dirty.boundingRect())
+        if not self._dirty.isEmpty():self.view.viewport().update()
+
     def _clear_current(self):
         had_image = self.image is not None
         self.image = None
+        self._dirty = QRegion()
+        self._dirty_proxies.clear()
         self._key = self._origin = None
         self._revision += 1
         if self.active and had_image:
@@ -194,7 +221,7 @@ class PanRasterCache(QObject):
     def _disconnect_scene(self):
         if self._scene is not None:
             try:
-                self._scene.changed.disconnect(self.invalidate)
+                self._scene.changed.disconnect(self._scene_changed)
             except (RuntimeError, TypeError):
                 pass
         self._scene = None
@@ -206,7 +233,7 @@ class PanRasterCache(QObject):
             self.invalidate()
             self._scene = scene
             if scene is not None:
-                scene.changed.connect(self.invalidate)
+                scene.changed.connect(self._scene_changed)
 
     def _unwatch_widgets(self):
         for widget in self._widgets:
@@ -215,6 +242,7 @@ class PanRasterCache(QObject):
             except RuntimeError:
                 pass
         self._widgets = []
+        self._widget_proxies = {}
 
     def _watch_widgets(self, refresh_cache):
         # Only rescan on a capture, never on a buffer hit. Widget-only updates
@@ -231,9 +259,18 @@ class PanRasterCache(QObject):
                     # Reapplying the same mode clears the old target pixmaps.
                     item.setCacheMode(item.CacheMode.DeviceCoordinateCache)
                 root = item.widget()
-                self._widgets.extend([root, *root.findChildren(QWidget)])
+                widgets=[root, *root.findChildren(QWidget)]
+                self._widgets.extend(widgets)
+                self._widget_proxies.update((widget,item) for widget in widgets)
         for widget in self._widgets:
             widget.installEventFilter(self)
+
+    def _widget_changed(self, widget):
+        proxy=self._widget_proxies.get(widget)
+        if proxy is None or not isValid(proxy):
+            self.invalidate();return
+        self._dirty_proxies.add(proxy)
+        self._scene_changed([proxy.sceneBoundingRect()])
 
     def eventFilter(self, watched, event):
         if not self.active:
@@ -266,14 +303,17 @@ class PanRasterCache(QObject):
                       QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange,
                       QEvent.Type.EnabledChange, QEvent.Type.DynamicPropertyChange,
                       QEvent.Type.LayoutRequest, QEvent.Type.ChildAdded):
-            self.invalidate()
+            if watched in self._widget_proxies:
+                self._widget_changed(watched)
+                if kind==QEvent.Type.ChildAdded:self._watch_widgets(False)
+            else:self.invalidate()
         elif kind in (QEvent.Type.UpdateRequest, QEvent.Type.UpdateLater,
                       QEvent.Type.Hide, QEvent.Type.Show) and watched in self._widgets:
             # Viewport update requests also come from camera movement; only
             # embedded widget requests imply changed scene content.
-            self.invalidate()
+            self._widget_changed(watched)
         elif kind == QEvent.Type.Paint and watched in self._widgets and not self._capturing:
-            self.invalidate()
+            self._widget_changed(watched)
         return False
 
     def _padding(self, width, height, dpr):
@@ -369,6 +409,18 @@ class PanRasterCache(QObject):
             return False
         key = (rect.width(), rect.height(), dpr, matrix.m11(), matrix.m22(), appearance_key)
         previous_key = self._key
+        if self.image is not None and key==self._key and not self._dirty.isEmpty():
+            dirty,self._dirty=self._dirty,QRegion()
+            phase=(self._origin[0]-matrix.dx(),self._origin[1]-matrix.dy())
+            if prepare_scene is not None:prepare_scene()
+            for proxy in self._dirty_proxies:
+                if isValid(proxy) and proxy.cacheMode()==proxy.CacheMode.DeviceCoordinateCache:
+                    proxy.setCacheMode(proxy.CacheMode.DeviceCoordinateCache)
+            self._dirty_proxies.clear()
+            revision=self._revision
+            self._render_backing(self.image,rect,self._pad,dpr,(list(dirty),self._origin,phase))
+            if revision!=self._revision:return False
+            self.captures+=1;self.repairs+=1
         target = None
         if self.allow_zoom:
             target = self._select_zoom_backing(matrix, key, rect, dpr)
