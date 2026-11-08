@@ -62,7 +62,9 @@ class RasterCache:
 # Many small cards at fractional display scaling need several subpixel
 # phases each. The former 256-entry cap evicted them before the next pan
 # frame even when only a fraction of the byte budget was occupied.
-LAYERS = RasterCache(max_entries=2048)
+# Text content excludes child/empty body areas; 128 MiB accommodates the
+# measured 120-card working set plus camera phases, with a hard LRU ceiling.
+LAYERS = RasterCache(max_bytes=128 * 1024 * 1024, max_entries=2048)
 # Large container shadows must not evict the text cards during a fractional
 # pan. Oversized shadows use the original vectors, with no image allocation.
 SHADOWS = RasterCache(max_bytes=8 * 1024 * 1024, max_entry_bytes=512 * 1024)
@@ -113,17 +115,31 @@ def paint_scope(reuse=True):
         _reuse_enabled = previous
 
 
-def paint_cached(painter, key, bounds, draw, cache=LAYERS):
-    if not _reuse_enabled:
-        draw(painter)
-        return
-    transform = painter.deviceTransform()
-    sx, sy = transform.m11(), transform.m22()
+def paint_context(painter):
+    """Resolve device/font state for layers with the same transform and font."""
+    if not _reuse_enabled:return False
+    transform=painter.deviceTransform()
+    sx,sy=transform.m11(),transform.m22()
     if (not transform.isAffine() or transform.m12() or transform.m21()
-            or sx <= 0 or sy <= 0 or painter.opacity() != 1
-            or painter.compositionMode() != QPainter.CompositionMode.CompositionMode_SourceOver):
+            or sx<=0 or sy<=0 or painter.opacity()!=1
+            or painter.compositionMode()!=QPainter.CompositionMode.CompositionMode_SourceOver):
+        return False
+    device=painter.device();font=painter.font()
+    return (transform,sx,sy,device.logicalDpiX(),device.logicalDpiY(),
+            device.devicePixelRatioF(),painter.renderHints(),font,font.key())
+
+
+def paint_cached(painter, key, bounds, draw, cache=LAYERS, *, admit_first=False, context=None):
+    """Use admit_first for stable layers that must not alternate raster/vector.
+
+    Gesture callers can still suppress admission with paint_scope(False).
+    Other transient layers retain second-use admission and vector fallback.
+    """
+    if context is None:context=paint_context(painter)
+    if context is False:
         draw(painter)
         return
+    transform,sx,sy,dpi_x,dpi_y,dpr,hints,font,font_key=context
     rect = transform.mapRect(bounds)
     left, top = math.floor(rect.left()), math.floor(rect.top())
     width, height = math.ceil(rect.right()) - left, math.ceil(rect.bottom()) - top
@@ -133,15 +149,12 @@ def paint_cached(painter, key, bounds, draw, cache=LAYERS):
         draw(painter)
         return
     dx, dy = transform.dx() - left, transform.dy() - top
-    device = painter.device()
-    dpi = device.logicalDpiX(), device.logicalDpiY()
-    dpr = device.devicePixelRatioF()
+    dpi = dpi_x,dpi_y
     token = (key, width, height, round(sx, 9), round(sy, 9),
-             round(dx, 6), round(dy, 6), dpi, dpr, painter.renderHints().value,
-             painter.font().key())
+             round(dx, 6), round(dy, 6), dpi, dpr, hints.value,font_key)
     image = cache.get(token)
     if image is None:
-        if not cache.recurring(token):
+        if not admit_first and not cache.recurring(token):
             draw(painter)
             return
         image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
@@ -156,8 +169,8 @@ def paint_cached(painter, key, bounds, draw, cache=LAYERS):
         image.setDotsPerMeterY(round(dpi[1] / .0254))
         local = QPainter(image)
         try:
-            local.setRenderHints(painter.renderHints())
-            local.setFont(painter.font())
+            local.setRenderHints(hints)
+            local.setFont(font)
             local.setPen(painter.pen())
             local.setBrush(painter.brush())
             local.setWorldTransform(QTransform(sx/dpr, 0, 0, sy/dpr, dx/dpr, dy/dpr))

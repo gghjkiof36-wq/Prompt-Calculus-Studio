@@ -29,7 +29,7 @@ class PaintedItem(QGraphicsRectItem):
 
 class GridView(QGraphicsView):
     def drawBackground(self, painter, rect):
-        painter.fillRect(rect, QColor('#242829'))
+        painter.fillRect(rect, QColor(getattr(self,'background','#242829')))
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         pen = QPen(QColor('#58645b'), 1); pen.setCosmetic(True)
@@ -186,6 +186,54 @@ class CanvasPanCacheTests(unittest.TestCase):
         actual, _ = self.frame()
         self.assertIs(self.cache._scene, new_scene)
         self.assert_pixels(actual, self.frame(cached=False)[0])
+
+    def test_scene_damage_repairs_in_place_without_painting_unrelated_item(self):
+        other=PaintedItem(QRectF(160,70,35,35))
+        other.setBrush(QColor('#6b8290'));self.scene.addItem(other);self.events()
+        self.frame();self.events();self.frame()  # Drain initial proxy/scene setup damage.
+        backing=self.cache.image;count=other.paints;repairs=self.cache.repairs
+        self.item.setBrush(QColor('#d2b066'));self.events()
+        count=other.paints  # Ordinary viewport paints are independent of the backing.
+        actual,used=self.frame()
+        self.assertTrue(used)
+        self.assertIs(self.cache.image,backing)
+        self.assertEqual(self.cache.repairs,repairs+1)
+        self.assertEqual(other.paints,count)
+        self.assert_pixels(actual,self.frame(cached=False)[0])
+
+    def test_moved_or_removed_item_clears_old_pixels_in_partial_backing(self):
+        self.frame()
+        self.item.setPos(40,20);self.events()
+        moved,_=self.frame()
+        self.assertGreater(self.cache.repairs,0)
+        self.assert_pixels(moved,self.frame(cached=False)[0])
+        self.frame()  # Direct reference rendering can invalidate live proxies.
+        self.scene.removeItem(self.item);self.events()
+        removed,_=self.frame()
+        self.assert_pixels(removed,self.frame(cached=False)[0])
+
+    def test_explicit_scene_update_still_repaints_changed_background(self):
+        original,_=self.frame();self.events();self.frame()
+        before=self.cache.captures
+        self.view.background='#483732'
+        self.scene.update();self.events()
+        actual,_=self.frame()
+        self.assertGreater(self.cache.captures,before)
+        self.assertNotEqual(actual,original)
+        self.assert_pixels(actual,self.frame(cached=False)[0])
+
+    def test_partial_damage_after_pan_preserves_fractional_zoom_and_dpr_phase(self):
+        for dpr,zoom in ((1,.77),(1.25,1.04),(2,.6)):
+            with self.subTest(dpr=dpr,zoom=zoom):
+                self.cache.end();self.view.setTransform(QTransform.fromScale(zoom,zoom))
+                self.view.centerOn(0,0);self.events();self.cache.begin()
+                self.frame(dpr=dpr);self.events();self.frame(dpr=dpr)
+                bar=self.view.horizontalScrollBar();bar.setValue(bar.value()+4)
+                self.frame(dpr=dpr)
+                self.item.setBrush(QColor('#a35b70'));self.events()
+                actual,_=self.frame(dpr=dpr)
+                self.assert_pixels(actual,self.frame(cached=False,dpr=dpr)[0],roundoff=True)
+                self.assertLessEqual(self.cache.byte_count,self.cache.max_bytes)
 
     def test_viewport_controls_are_not_part_of_the_scene_snapshot(self):
         actual, _ = self.frame(dpr=1.)

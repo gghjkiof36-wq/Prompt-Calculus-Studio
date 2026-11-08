@@ -522,6 +522,7 @@ class MultiCanvas(TextCanvas):
         if self.output in removed:self.output=None
     def update_output(self):
         from .canvas_exclusions import affected_nodes
+        previous_affected=getattr(self,'affected_nodes',{})
         self.affected_nodes=affected_nodes(self.window.state)
         # Runtime supply cursors advance without an edit/undo transaction.
         # NodeCard retains a presentation copy, so repainting alone leaves both
@@ -532,7 +533,7 @@ class MultiCanvas(TextCanvas):
             value=comp.find(root,node_id) if root else None
             if value is not None and node.value!=value:
                 node.value=copy.deepcopy(value);node.own=comp.render(value);node.layout_card()
-            else:node.update()
+            elif previous_affected.get(key,{})!=self.affected_nodes.get(key,{}):node.update()
         if not hasattr(self,'outputs'): return
         if hasattr(self,'onboarding'):self.onboarding.refresh()
         self.prune_cards()

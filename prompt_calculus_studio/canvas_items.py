@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (QGraphicsObject, QGraphicsItem, QGraphicsProxyWid
     QGraphicsView, QGraphicsScene, QFrame, QRubberBand, QAbstractScrollArea, QApplication, QStyle, QStyleOption, QWidget, QToolTip)
 from . import composition as comp
 from . import prompt_materials as pm
+from .canvas_raster import paint_cached, paint_context, paint_recorded
+from .module_chrome import visual_bounds
 
 
 def canvas_colors(canvas):
@@ -326,7 +328,6 @@ class TextCard(ResizableCard):
         if self.saved_sizes: self.canvas.window.split.setSizes(self.saved_sizes)
 
     def boundingRect(self):
-        from .module_chrome import visual_bounds
         return visual_bounds(self.width,self.height)
     def shape(self):
         path=QPainterPath();path.addRoundedRect(QRectF(0,0,self.width,self.height),16,16);return path
@@ -491,6 +492,9 @@ class NodeCard(ResizableCard):
         font=self.canvas.font();font.setBold(True)
         self.title_text,self.title_rect,header=header_rects(self.width,self.value['name'],font,False,self.header_extra)
         self.collapse_rect=header['collapse'];self.more_rect=header['more']
+        bottom=max(self.header_height,44,*(r.bottom() for r in self.actions().values()))
+        self._content_bounds=self.boundingRect()
+        self._content_bounds.setBottom(min(self._content_bounds.bottom(),bottom+2))
         if propagate and self.parentItem(): self.parentItem().layout_card()
         self.update()
 
@@ -501,7 +505,6 @@ class NodeCard(ResizableCard):
         return result
 
     def boundingRect(self):
-        from .module_chrome import visual_bounds
         return visual_bounds(self.width,self.height)
     def shape(self):
         path=QPainterPath();path.addRoundedRect(QRectF(0,0,self.width,self.height),12,12);return path
@@ -512,28 +515,35 @@ class NodeCard(ResizableCard):
         colors=canvas_colors(self.canvas)
         affected=getattr(self.canvas,'affected_nodes',{}).get(self.key,{})
         active=getattr(self.canvas.window,'_material_editor_session',{}).get('active')
-        from .canvas_raster import paint_cached
-        key=('text-surface',self.width,self.height,tuple(sorted(colors.items())),self.group_bar.top(),self.group_bar.height(),
+        font=self.canvas.font();painter.setFont(font)
+        context=paint_context(painter)
+        colors_key=getattr(self.canvas,'_paint_colors_key',None)
+        if colors_key is None:colors_key=frozenset(colors.items())
+        key=('text-surface',self.width,self.height,colors_key,self.group_bar.top(),self.group_bar.height(),
              self.muted,self.parentItem() is not None,self.isSelected(),
              bool(affected),bool(affected.get('all')),self.key in getattr(self.canvas,'active_keys',set()),
              active==('canvas',self.key,self.canvas.window.state.get('workspace')))
-        paint_cached(painter,key,self.boundingRect(),lambda target:self._paint_surface(target,colors,affected))
+        paint_cached(painter,key,self.boundingRect(),lambda target:self._paint_surface(target,colors,affected),
+                     admit_first=True,context=context)
         # Keep native glyph rasterization at the current transform while
         # reusing unchanged layout/icon commands across pan/zoom frames.
-        from .canvas_raster import paint_recorded
         seq=pm.sequence(self.value)
-        sequence=(seq['mode'],seq['selected'],tuple(g['id'] for g in seq['groups'])) if seq else None
-        content=(self.width,self.height,tuple(sorted(colors.items())),self.canvas.font().key(),
+        sequence=(seq['mode'],next(i for i,g in enumerate(seq['groups']) if g['id']==seq['selected']),
+                  len(seq['groups'])) if seq else None
+        content=(self.width,colors_key,context[-1] if context else font.key(),
                  self.value['name'],self.value['weight'],self.own,self.status,self.collapsed,
-                 self.muted,self.hot,self.pressed,self.drop_size,self.drop_y,
+                 self.muted,self.hot,self.pressed,self.drop_size,
                  self.header_extra,self.body_top,self.prompt_width,self.text_height,
                  getattr(self,'weight_editor',None) is not None,sequence)
         if self.drop_size:
             # The live drop overlay uses device-dependent dashed strokes.
             self._paint_content(painter,colors)
         else:
-            paint_cached(painter,('text-content',content),self.boundingRect(),
-                lambda target:paint_recorded(target,self,content,lambda p:self._paint_content(p,colors)))
+            # Child cards paint themselves. Do not allocate transparent text
+            # rasters covering the parent's entire child area or resized body.
+            paint_cached(painter,('text-content',content),self._content_bounds,
+                lambda target:paint_recorded(target,self,content,lambda p:self._paint_content(p,colors)),
+                admit_first=True,context=context)
 
     def _paint_surface(self,painter,colors,affected):
         border=colors['secondary'] if self.muted or affected.get('all') else '#d4ac51' if affected else colors['canvas_line']
@@ -684,17 +694,17 @@ class CanvasView(QGraphicsView):
     def scale(self,sx,sy):
         if sx==1 and sy==1:return
         self._cancel_wheel_backing()
-        self._raster_direct_until=time.monotonic()+.12
+        self._raster_direct_until=time.monotonic()+.12 if getattr(self,'_wheel_transform',False) else 0
         super().scale(sx,sy);self.transformChanged.emit()
 
     def resetTransform(self):
         self._cancel_wheel_backing()
-        self._raster_direct_until=time.monotonic()+.12
+        self._raster_direct_until=0
         super().resetTransform();self.transformChanged.emit()
 
     def setTransform(self,matrix,combine=False):
         self._cancel_wheel_backing()
-        self._raster_direct_until=time.monotonic()+.12
+        self._raster_direct_until=time.monotonic()+.12 if getattr(self,'_wheel_transform',False) else 0
         super().setTransform(matrix,combine);self.transformChanged.emit()
 
     def _cancel_wheel_backing(self):
@@ -715,7 +725,11 @@ class CanvasView(QGraphicsView):
         # A frame has one appearance. Resolve it once rather than merging
         # workspace settings and deriving the palette for every port/card.
         previous=getattr(self.canvas,'_paint_colors',None)
+        previous_key=getattr(self.canvas,'_paint_colors_key',None)
         self.canvas._paint_colors=canvas_colors(self.canvas)
+        colors_key=frozenset(self.canvas._paint_colors.items())
+        if getattr(self.canvas,'_raster_colors_key',None)!=colors_key:self.canvas._raster_colors_key=colors_key
+        self.canvas._paint_colors_key=self.canvas._raster_colors_key
         try:
             with paint_scope(time.monotonic()>=getattr(self,'_raster_direct_until',0)):
                 cache=getattr(self,'pan_raster',None)
@@ -726,7 +740,9 @@ class CanvasView(QGraphicsView):
                     if reused:return
                 prepare_scene()
                 super().paintEvent(event)
-        finally:self.canvas._paint_colors=previous
+        finally:
+            self.canvas._paint_colors=previous
+            self.canvas._paint_colors_key=previous_key
 
     def hideEvent(self,event):
         cache=getattr(self,'pan_raster',None)

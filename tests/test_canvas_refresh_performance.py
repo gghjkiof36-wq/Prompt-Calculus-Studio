@@ -92,6 +92,18 @@ class StyleEvents(QObject):
 
 
 class CanvasRefreshStyleTests(StageFixture):
+    def test_unchanged_runtime_broadcast_does_not_dirty_text_cards(self):
+        from prompt_calculus_studio.canvas_items import NodeCard
+        self.c.update_output()
+        with patch.object(NodeCard,'update') as update:
+            self.c.update_output()
+            update.assert_not_called()
+        key=next(iter(self.c.cards))
+        with patch('prompt_calculus_studio.canvas_exclusions.affected_nodes',return_value={key:{'all':True}}):
+            with patch.object(self.c.cards[key],'update') as update:
+                self.c.update_output()
+                update.assert_called_once()
+
     def panels(self):
         return [card.panel for card in [*self.c.outputs.values(),*self.c.clips.values(),
             *self.c.flow_cards.values(),*self.c.functions.cards.values(),self.c.preview_card] if card is not None]

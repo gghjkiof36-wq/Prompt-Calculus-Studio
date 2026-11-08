@@ -101,9 +101,9 @@ class CanvasRasterTests(unittest.TestCase):
             self.render(lambda p: self.card.paint(p, None), offset=(24, 24))
             self.render(lambda p: self.card.paint(p, None), offset=(28, 28))
             self.render(lambda p: self.card.paint(p, None), offset=(32, 32))
-            self.assertEqual(draw.call_count, 2)
+            self.assertEqual(draw.call_count, 1)  # First stable paint already uses the raster path.
             self.render(lambda p: self.card.paint(p, None), zoom=1.0, offset=(28, 28))
-            self.assertEqual(draw.call_count, 3)
+            self.assertEqual(draw.call_count, 2)
 
     def test_content_commands_reuse_across_zoom_without_scaling_text_bitmaps(self):
         original = self.card._paint_content
@@ -151,14 +151,30 @@ class CanvasRasterTests(unittest.TestCase):
             self.render(lambda p: self.card.paint(p, None))
             draw.assert_not_called()
 
-    def test_one_time_zoom_levels_do_not_allocate_disposable_card_images(self):
+    def test_transient_zoom_scope_does_not_allocate_disposable_card_images(self):
         with patch.object(LAYERS, 'put', wraps=LAYERS.put) as put:
-            for zoom in (.71, .77, .83, .91, 1.03, 1.11):
-                self.render(lambda p: self.card.paint(p, None),zoom)
+            with paint_scope(False):  # CanvasView suppresses admissions during camera zoom.
+                for zoom in (.71, .77, .83, .91, 1.03, 1.11):
+                    self.render(lambda p: self.card.paint(p, None),zoom)
             put.assert_not_called()
         cache=RasterCache(max_entries=4)
         for i in range(10): cache.recurring(i)
         self.assertEqual(len(cache.pending),4)
+
+    def test_content_raster_excludes_children_and_empty_resized_body(self):
+        self.card.requested_size=[450,1800];self.card.layout_card()
+        self.render(lambda p:self.card.paint(p,None),zoom=.6,dpr=1)
+        layers=[image for token,image in LAYERS.entries.items() if token[0][0]=='text-content']
+        self.assertEqual(len(layers),1)
+        self.assertLess(layers[0].height(),150)
+        self.assertLessEqual(LAYERS.byte_count,LAYERS.max_bytes)
+
+    def test_cold_and_warm_card_edges_do_not_shift_at_point_six(self):
+        for dpr in (1,1.25):
+            LAYERS.clear();SHADOWS.clear()
+            cold=self.render(lambda p:self.card.paint(p,None),zoom=.6,dpr=dpr)
+            warm=self.render(lambda p:self.card.paint(p,None),zoom=.6,dpr=dpr)
+            self.assert_pixels_close(cold,warm)
 
     def test_zoom_paint_scope_avoids_cache_allocation_and_restores_reuse(self):
         with patch.object(LAYERS, 'put', wraps=LAYERS.put) as put:
