@@ -36,6 +36,39 @@ class StageStore:
         if workspace is not None:sql+=' AND workspace=?';args.append(workspace)
         return [json.loads(row[0]) for row in self.db.execute(sql+' ORDER BY position',args)]
 
+    def has_open_runs(self,workspace):
+        return self.db.execute("SELECT 1 FROM stage_journal WHERE kind='run' AND workspace=? AND json_extract(body,'$.status') NOT IN ('complete','cancelled') LIMIT 1",(workspace,)).fetchone() is not None
+
+    def progress_runs(self,workspace):
+        """Read progress fields, not the frozen scenes inside every frame."""
+        rows=self.db.execute("""SELECT json_extract(r.body,'$.id','$.server','$.plan','$.status','$.message'),
+            (SELECT json_group_array(json_object('kind',json_extract(f.value,'$.kind'),
+                'key',json_extract(f.value,'$.key'),'owner',json_extract(f.value,'$.owner'),
+                'done',json_extract(f.value,'$.done'),'feed',CASE WHEN json_type(f.value,'$.feed')='object' AND json_extract(f.value,'$.feed')!='{}'
+                    THEN json_object('total',json_extract(f.value,'$.feed.total')) ELSE NULL END))
+             FROM json_each(r.body,'$.stack') f)
+            FROM stage_journal r WHERE kind='run' AND workspace=?
+            AND json_extract(body,'$.status') NOT IN ('complete','cancelled') ORDER BY position""",(workspace,))
+        result=[]
+        for header,frames in rows:
+            ident,server,plan,status,message=json.loads(header)
+            result.append(dict(id=ident,server=server,plan=plan,status=status,message=message,stack=json.loads(frames)))
+        return result
+
+    def entry_count(self,owner):
+        return self.db.execute("SELECT COUNT(*) FROM stage_journal WHERE kind='entry' AND owner=?",(owner,)).fetchone()[0]
+
+    def attempt_heads(self):
+        """Polling needs ownership/status; capture is read only on completion or seeds."""
+        rows=self.db.execute("""SELECT json_extract(a.body,'$.id','$.workspace','$.owner','$.stage','$.status',
+                '$.created','$.round','$.parent','$.cancel_requested'),
+            EXISTS(SELECT 1 FROM json_each(a.body,'$.snapshot_state.multi_output.stages') s
+                WHERE s.key=json_extract(a.body,'$.stage') AND json_type(s.value,'$.parameters') NOT IN ('null'))
+            FROM stage_journal a WHERE kind='attempt' AND json_extract(body,'$.status') IN ("""+
+            ','.join('?' for _ in ACTIVE)+') ORDER BY position',ACTIVE)
+        fields=('id','workspace','owner','stage','status','created','round','parent','cancel_requested')
+        return [dict(zip(fields,json.loads(header)),has_parameters=bool(parameters)) for header,parameters in rows]
+
     def latest_stage_status(self,workspace,stage):
         """Paint status without fetching or sorting complete prompt/image snapshots."""
         row=self.db.execute("""SELECT json_extract(body,'$.status'),json_extract(body,'$.error')
@@ -273,11 +306,30 @@ class StageStore:
             try:yield
             finally:self.transaction_depth-=1
 
-    def add(self,kind,workspace,owner='',**values):
+    def add(self,kind,workspace,owner='',*,_captured=False,_return_record=True,**values):
+        if _captured:
+            item=dict(id=uuid.uuid4().hex,kind=kind,workspace=workspace,owner=owner,created=time.time(),**values)
+            body=json.dumps(item,ensure_ascii=False)
+            self._insert(item,body)
+            return json.loads(body) if _return_record else item['id']
         item=dict(id=uuid.uuid4().hex,kind=kind,workspace=workspace,owner=owner,created=time.time(),**copy.deepcopy(values))
+        return self._insert(item)
+
+    def add_captured(self,kind,workspace,owner='',*,_return_record=True,**values):
+        """Serialize synchronous capture once, then detach its returned record.
+
+        Unlike add(), this path takes read-only JSON data from the interpreter.
+        Serialization freezes it before control can yield; decoding the stored
+        body gives the caller ownership without deep-copying the document first.
+        Write-only callers can request just the ID to avoid decoding a record
+        they would immediately discard. The serialized row is identical.
+        """
+        return self.add(kind,workspace,owner,_captured=True,_return_record=_return_record,**values)
+
+    def _insert(self,item,body=None):
         with self.transaction():
             self.db.execute('INSERT INTO stage_journal VALUES (?,?,?,?,(SELECT COALESCE(MAX(position),0)+1 FROM stage_journal),?)',
-                (item['id'],kind,workspace,owner,json.dumps(item,ensure_ascii=False)))
+                (item['id'],item['kind'],item['workspace'],item['owner'],body if body is not None else json.dumps(item,ensure_ascii=False)))
         return item
 
     def update(self,ident,**values):

@@ -318,7 +318,7 @@ class InputRunner:
         self.store.set_control(owner,paused=True)
 
     def has_work(self):
-        if self.window.state.get('multi_output',{}).get('version',0)>=7:return bool(self.chain.runs(True) or self.chain.applying or self.chain.apply_queue)
+        if self.window.state.get('multi_output',{}).get('version',0)>=7:return bool(self.chain.has_runs() or self.chain.applying or self.chain.apply_queue)
         return bool(self.chain.current() or self.direct.busy() or self.current and self.current['route']['workspace']==self.window.state['workspace'] or
                     any(r['route']['workspace']==self.window.state['workspace'] for r in self.store.rows()) or
                     any(c.get('credits',0) or c.get('active') for _,c in self.local_controls()))

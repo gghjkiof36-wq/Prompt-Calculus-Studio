@@ -14,6 +14,66 @@ from .flow_data import image_list
 MAX_SOURCE_BYTES = 25 * 1024 * 1024
 
 
+def execution_state(state, suppliers=()):
+    """Copy the branches projection writes; all other document data is read-only.
+
+    This view is local to synchronous capture/prepare, never an editable document.
+    In particular, history, libraries and inactive workspaces are not projected.
+    Supplier progress is the only operation here that edits existing roots.
+    """
+    result=dict(state)
+    result['uses']=dict(state.get('uses',{}))
+    if 'text_positions' in state:result['text_positions']=dict(state['text_positions'])
+    data=result['multi_output']=dict(state['multi_output'])
+    data['canvases']={k:dict(v,members=list(v['members'])) for k,v in data['canvases'].items()}
+    functions=dict(state.get('canvas_functions',{}))
+    if 'canvas_functions' in state:result['canvas_functions']=functions
+    if 'images' in functions:functions['images']={k:dict(v) for k,v in functions['images'].items()}
+    if 'text_sources' in functions:
+        functions['text_sources']={k:dict(v) for k,v in functions['text_sources'].items()}
+    if 'generation' in state:result['generation']=dict(state['generation'])
+    from .prompt_sources import source
+    for key in suppliers:
+        definition=source(result,key)
+        if definition:
+            root=copy.deepcopy(definition['root'])
+            if key.startswith('use:'):result['uses'][key[4:]]=root
+            else:functions['text_sources'][key]['root']=root
+    return result
+
+
+def execution_scene(state):
+    """Read-only scene for immediate journaling; workspace_scene.load owns edits."""
+    from .workspace_scene import FIELDS
+    result={k:state[k] for k in FIELDS if k in state}
+    result['generation_local']={k:v for k,v in state.get('generation',{}).items() if k!='profiles'}
+    return result
+
+
+def progress_backup(state, suppliers):
+    """Rollback the branches synchronous supply acceptance can change.
+
+    Reservation edits supplier cursors; save replaces the active scene and
+    output's list cache; result projection replaces derived roots/canvases.
+    Libraries, histories and unrelated roots are read-only in this boundary.
+    """
+    result=execution_state(state,suppliers)
+    data=result['multi_output']
+    data['outputs']=copy.deepcopy(data['outputs'])
+    if 'workspace_scenes' in state:
+        result['workspace_scenes']=dict(state['workspace_scenes'],items=dict(state['workspace_scenes']['items']))
+    return result
+
+
+def copy_context(context):
+    """Fork mutable execution maps; captured inputs and scenes stay read-only."""
+    saved=context.get('saved')
+    shared=[context.get('scene'),saved]
+    result=copy.deepcopy(context,{id(value):value for value in shared if value is not None})
+    if saved is not None:result['saved']=merge_saved(saved,{},borrow=True)
+    return result
+
+
 def _capture_source(path):
     # Raw I/O bounds actual reads, including short reads and a growing file.
     blocks=[];remaining=MAX_SOURCE_BYTES+1
@@ -48,9 +108,10 @@ def _project_source(path, digest, readers):
             item['content_error'] = str(exc)
 
 
-def project(state,directory,results=None,source_values=None,readers=None):
+def project(state,directory,results=None,source_values=None,readers=None,*,execution=False):
     from .composition_image import source_path
-    state=copy.deepcopy(state);state['_stage_results']=copy.deepcopy(results or {})
+    state=execution_state(state) if execution else copy.deepcopy(state)
+    state['_stage_results']=copy.deepcopy(results or {})
     images=state.get('canvas_functions',{}).get('images',{})
     for key,settings in (readers or {}).items():
         if key in images:
@@ -93,7 +154,7 @@ def project(state,directory,results=None,source_values=None,readers=None):
 
 def sync_result_view(state,directory,results):
     """Refresh derived Canvas content without persisting runtime task results."""
-    projected=project(state,directory,results);changed=False
+    projected=project(state,directory,results,execution=True);changed=False
     for key,value in projected.get('canvas_functions',{}).get('images',{}).items():
         current=state['canvas_functions']['images'][key]
         if incoming(state,key,'image') or current.get('stage_reference'):
@@ -113,7 +174,7 @@ def sync_result_view(state,directory,results):
     return changed
 
 
-def capture(state,plan,keys,directory,policies=None,per_round=False):
+def capture(state,plan,keys,directory,policies=None,per_round=False,*,borrow=False):
     """A deferred upstream reference is never replaced with the last preview."""
     saved=dict(values={},inputs={},batches={},source_positions={},readers={})
     from .stage_parameters import capture as capture_parameters
@@ -139,8 +200,8 @@ def capture(state,plan,keys,directory,policies=None,per_round=False):
                 from .flow_data import canvas_ids
                 output=state['multi_output']['outputs'].get(item.get('origin',{}).get('output',source))
                 if output:
-                    item.setdefault('origin',{})['canvas_records']={cid:dict(canvas=copy.deepcopy(state['multi_output']['canvases'][cid]),
-                        roots={rid:copy.deepcopy(state['uses'][rid]) for rid in state['multi_output']['canvases'][cid]['members']}) for cid in canvas_ids(output)}
+                    item.setdefault('origin',{})['canvas_records']={cid:dict(canvas=state['multi_output']['canvases'][cid] if borrow else copy.deepcopy(state['multi_output']['canvases'][cid]),
+                        roots={rid:state['uses'][rid] if borrow else copy.deepcopy(state['uses'][rid]) for rid in state['multi_output']['canvases'][cid]['members']}) for cid in canvas_ids(output)}
             saved['values'][binding['key']]=item
         scheduler=stage['scheduler']
         if scheduler:
@@ -166,25 +227,27 @@ def capture(state,plan,keys,directory,policies=None,per_round=False):
     return saved
 
 
-def merge_saved(outer,inner):
-    result=copy.deepcopy(outer)
+def merge_saved(outer,inner,*,borrow=False):
+    scene=outer.get('scene')
+    result=dict(outer) if borrow else copy.deepcopy(outer,{id(scene):scene} if scene is not None else {})
     for kind in ('values','inputs','batches','source_positions','readers','parameters','parameter_overrides','parameter_profiles'):
-        result.setdefault(kind,{}).update(copy.deepcopy(inner.get(kind,{})))
+        if borrow:result[kind]=dict(outer.get(kind,{}),**inner.get(kind,{}))
+        else:result.setdefault(kind,{}).update(copy.deepcopy(inner.get(kind,{})))
     return result
 
 
 def prepare_state(runner,run,stage,context,source_values=None):
     from .multi_output import new_output
     from .composition_image import freeze_image_source
-    live=runner.window.state;state=copy.deepcopy(live)
+    live=runner.window.state;state=dict(live)
     # Route comes from the queued definition; native graphs stay live.
-    saved=context.get('saved',{});state['_execution_inputs']=copy.deepcopy(saved.get('inputs',{}))
-    state=project(state,runner.window.store.directory,context.get('results'),source_values,saved.get('readers'))
+    saved=context.get('saved',{});state['_execution_inputs']=saved.get('inputs',{})
+    state=project(state,runner.window.store.directory,context.get('results'),source_values,saved.get('readers'),execution=True)
     # PNG metadata follows the saved text, including its original module structure.
     for value in [*saved.get('values',{}).values(),*saved.get('inputs',{}).values()]:
         for cid,record in value.get('origin',{}).get('canvas_records',{}).items():
             if cid in state['multi_output']['canvases']:
-                state['multi_output']['canvases'][cid]=copy.deepcopy(record['canvas']);state['uses'].update(copy.deepcopy(record['roots']))
+                state['multi_output']['canvases'][cid]=dict(record['canvas']);state['uses'].update(record['roots'])
     data=state['multi_output'];texts=[];images=[];foreign={};text_views={}
     for binding in stage['bindings']:
         source=binding['source'];kind=binding['kind'];target=binding['target'];value=saved.get('values',{}).get(binding['key'])

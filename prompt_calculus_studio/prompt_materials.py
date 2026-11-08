@@ -226,16 +226,19 @@ def cycle_length(root):
     return remaining(sequence(root), position(root)) if sequence(root) else None
 
 
-def resolve(root, *, rng=None):
+def resolve(root, *, rng=None, _owned=None):
     """Resolve one use and advance only the descendants actually used this time."""
     from . import prompt_groups as groups
     from .composition import active_overlay
-    current, following = copy.deepcopy(root), copy.deepcopy(root)
+    # The parent already cloned each descendant into both result trees. Reuse
+    # those owned subtrees during recursion rather than cloning them again.
+    current, following = _owned if _owned is not None else (copy.deepcopy(root), copy.deepcopy(root))
     if not root.get('enabled', True): return current, following
     overlay = active_overlay(root)
     if overlay is not None:
         at = next(i for i, v in enumerate(root['overlays']) if v['id'] == overlay['id'])
-        current['overlays'][at], following['overlays'][at] = resolve(overlay, rng=rng)
+        current['overlays'][at], following['overlays'][at] = resolve(overlay, rng=rng,
+            _owned=(current['overlays'][at],following['overlays'][at]))
         return current, following
     field = 'sequence' if root.get('sequence') else 'variants' if root.get('variants') else None
     if field:
@@ -252,23 +255,28 @@ def resolve(root, *, rng=None):
             next_group = next(g for g in following[field]['groups'] if g['id'] == group_id)
             # A manual current-round replacement is the actual selected value.
             if not current.get('round_override') and group['input'] == 'modules':
-                for i, module in enumerate(group['modules']):
-                    group['modules'][i], next_group['modules'][i] = resolve(module, rng=rng)
+                original=next(g for g in root[field]['groups'] if g['id']==group_id)
+                for i, module in enumerate(original['modules']):
+                    group['modules'][i], next_group['modules'][i] = resolve(module, rng=rng,
+                        _owned=(group['modules'][i],next_group['modules'][i]))
             following.pop('round_override', None); following.pop('round_id', None)
             following.get('round_drafts', {}).pop(group_id, None)
         else:
             from .composition import current_format
             if current_format() >= 3:
                 for i, child in enumerate(root.get('children', [])):
-                    current['children'][i], following['children'][i] = resolve(child, rng=rng)
+                    current['children'][i], following['children'][i] = resolve(child, rng=rng,
+                        _owned=(current['children'][i],following['children'][i]))
         return current, following
     if root.get('combination'):
         if root['combination']['input'] == 'modules':
             for i, module in enumerate(root['combination']['modules']):
-                current['combination']['modules'][i], following['combination']['modules'][i] = resolve(module, rng=rng)
+                current['combination']['modules'][i], following['combination']['modules'][i] = resolve(module, rng=rng,
+                    _owned=(current['combination']['modules'][i],following['combination']['modules'][i]))
     else:
         for i, child in enumerate(root.get('children', [])):
-            current['children'][i], following['children'][i] = resolve(child, rng=rng)
+            current['children'][i], following['children'][i] = resolve(child, rng=rng,
+                _owned=(current['children'][i],following['children'][i]))
     return current, following
 
 

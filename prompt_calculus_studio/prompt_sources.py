@@ -125,7 +125,9 @@ def build(state, ids, *, count=None, restart=False, count_only=False, shared=Non
             if restart: pm.reset(root)
             batched = not key.startswith('use:') and definition['supply'] == 'batch'
             specs[key] = dict(kind='text', root=root, batch=batched, signature=signature(root))
-            working[key] = copy.deepcopy(root)
+            # resolve() never edits its input; the first working root can be
+            # the already detached plan definition instead of a second clone.
+            working[key] = root
             if batched:
                 length = definition['limit'] if definition.get('count_mode') == 'specified' else pm.cycle_length(root)
                 lengths.append(length)
@@ -145,7 +147,7 @@ def build(state, ids, *, count=None, restart=False, count_only=False, shared=Non
             if batched: length = len(items); lengths.append(length)
         if shared is not None and not count_only:
             shared[key] = dict(spec=copy.deepcopy(specs[key]), length=length, records=[],
-                               following=copy.deepcopy(working.get(key)), committed=0)
+                               following=working.get(key), committed=0)
     total = groups.paired_length(lengths, count)
     if not total: raise ValueError('來源已供應完畢，請選擇下一個起點。')
     if count_only:return total

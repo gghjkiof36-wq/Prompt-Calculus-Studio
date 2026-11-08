@@ -35,12 +35,13 @@ def history_projection(state, fields):
     return result
 
 
-def load(state,value):
+def load(state,value,*,readonly=False):
+    """Load an editable copy, or borrow fields for synchronous validation only."""
     for key in FIELDS:state.pop(key,None)
-    state.update({k:copy.deepcopy(value[k]) for k in FIELDS if k in value})
+    state.update({k:value[k] if readonly else copy.deepcopy(value[k]) for k in FIELDS if k in value})
     profiles=state.get('generation',{}).get('profiles',[])
     state['generation']=dict(mode='txt2img',chosen={},source=None,**{})
-    state['generation'].update(copy.deepcopy(value.get('generation_local',{})),profiles=profiles)
+    state['generation'].update(value.get('generation_local',{}) if readonly else copy.deepcopy(value.get('generation_local',{})),profiles=profiles)
     state.pop('_execution_inputs',None)
 
 
@@ -108,5 +109,5 @@ def validate(state):
         if view is not None and (not isinstance(view,list) or len(view)!=3 or any(type(n) not in (int,float) or not math.isfinite(n) for n in view) or not .05<=view[0]<=10):
             raise ValueError('工作區檢視位置無效。')
         projected=dict(state);projected.pop('workspace_scenes')
-        load(projected,entry);projected['workspace']=key
+        load(projected,entry,readonly=True);projected['workspace']=key
         validate_state(projected)
