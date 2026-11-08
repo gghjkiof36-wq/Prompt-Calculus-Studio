@@ -709,7 +709,7 @@ class PromptEditor(QWidget):
         if self.preview_id != ident: self.preview_variant_id = None
         self.preview_id = ident; self.preview_name.setText(value['name'])
         if hasattr(self, 'add_canvas_button'):
-            self.add_canvas_button.setVisible(pm.kind(value) == 'text')
+            self.add_canvas_button.setVisible(True)
         self.refresh_preview_content(value)
         image_path = preview_path(self.window.store, value.get('preview'))
         has_image = bool(image_path)
@@ -805,6 +805,8 @@ class PromptEditor(QWidget):
     def _dialog_finished(self, dialog):
         self.active_dialog = None; self.refresh(); self.listing.setFocus()
         dialog.deleteLater()
+        owner=getattr(self.window,'workspace_owner',None)
+        if owner is not None:owner.material_transfer.schedule_sync()
 
     def export_state(self):
         return self.active_dialog.form.export_state() if self.active_dialog else None

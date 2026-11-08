@@ -22,7 +22,7 @@
 
 - **同文件共用內容，不同文件各有 owner。** 視圖可以有各自的選取、縮放與呈現；素材原件與使用副本保持獨立。另存不把舊的在途工作轉給新文件，見[本機文件決策](local-workspace/ADR-001.md)及[執行歸屬](local-workspace/execution-owners.md)。
 - **空稿、順序和歷史都是資料。** 保留手動空字串 `''` 與未編輯 `None` 的差別、綁定、輸出順序、Undo／Redo、原文與保存重開結果。新增介面不能只驗證畫面上的最後字串。
-- **來源參照不等於持續同步。** 素材副本、Stage 來源、Markdown 相依各依既有明確操作更新；不能因相同名稱或 ID 就覆寫另一份內容。
+- **來源參照不等於持續同步。** 普通素材副本、Stage 來源、Markdown 相依各依既有明確操作更新；不能因同名覆寫另一份內容。組合文字成員的同步是明確例外，由 `material_links` 保存來源基準及身分對照，沿原內容交易進行三方合併，見[資料契約](data-compatibility.md#組合文字成員同步)。
 - **共享核心保持無 Qt。** [releases.py 的 SHARED_MODULES](../../prompt_calculus_studio/releases.py) 決定組裝時複製到 ComfyUI 的原始模組。新增依賴要追到傳遞 import；修改來源，不手改生成的 `shared/` 副本。內容交易核心也保持無 Qt，但不是因此自動列入組裝清單。
 
 ## 背景結果：接受之前再核對目前狀態
@@ -60,6 +60,13 @@ git show 'c8f9011c7244c6654e2b3cc73154ca5cc2a6e3a9:docs/development/navigation-f
 ```
 
 `unknowns.md` 保留該版本未覆蓋邊界。缺少此文件提交時，使用本頁、[擴充接點](extension-boundaries-20261023.md)及目標原碼，不將舊地圖冒稱為新版。後續地圖維護只補實際改動的模組、介面、資料流及依賴；原固定快照保留。
+
+## 文字變體、組合與預排程接點
+
+- `composition.content_children` 讓畫布顯示、加入與移除操作指向實際有效的組合成員／流程當前組，不把轉型保留稿畫成目前內容；`prompt_materials.resolve` 依相同內容規則推進巢狀變體。
+- Manager 的文字、組合、流程共用既有 WorkspaceMaterials 複製交易與跨頁拖放；不同類型不另建傳輸管線。
+- `material_links` 保持 Qt-free；同文件由 `materials.save` 處理，跨文件由文件層協調。render、refresh、Stage 執行及歷史重建都不查來源或偷偷改寫副本。編輯中暫緩、按來源版本處理、循環阻擋及正常 Undo 構成同步邊界。
+- 預排程卡與完整頁共用暫停／繼續命令；卡片讀 `StageStore.schedule_groups` 的輕量統計，不讀取每項凍結內容。當前組優先顯示正在執行的項目，即使已要求略過／取消仍保留到執行結束；只計算其他可等待派送的組，不把保留紀錄當成佇列。
 
 ## 按風險選驗證
 

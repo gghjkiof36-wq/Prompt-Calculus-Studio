@@ -109,7 +109,7 @@ def definition(value):
     if isinstance(value, list): return [definition(v) for v in value]
     if not isinstance(value, dict): return value
     return {k: definition(v) for k, v in value.items()
-            if k not in RUNTIME_FIELDS and k != 'selected'}
+            if k not in RUNTIME_FIELDS and k not in ('selected', 'member_link')}
 
 
 def signature(root):
@@ -170,6 +170,9 @@ def migrate(state):
 
 def validate(root, visit, depth):
     from .prompt_groups import validate as validate_sequence
+    if 'member_link' in root:
+        from .material_links import validate as validate_link
+        validate_link(root['member_link'])
     material_type = root.get('material_type')
     if material_type is not None and material_type not in TYPES:
         raise ValueError('素材類型不支援，原資料保留。')
@@ -253,6 +256,11 @@ def resolve(root, *, rng=None):
                     group['modules'][i], next_group['modules'][i] = resolve(module, rng=rng)
             following.pop('round_override', None); following.pop('round_id', None)
             following.get('round_drafts', {}).pop(group_id, None)
+        else:
+            from .composition import current_format
+            if current_format() >= 3:
+                for i, child in enumerate(root.get('children', [])):
+                    current['children'][i], following['children'][i] = resolve(child, rng=rng)
         return current, following
     if root.get('combination'):
         if root['combination']['input'] == 'modules':

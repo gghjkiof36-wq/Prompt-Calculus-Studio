@@ -3,7 +3,7 @@ import copy
 import json
 from PySide6.QtCore import Qt,QTimer,QSize,QEvent,QRect
 from PySide6.QtGui import QIcon,QImageReader,QPixmap
-from PySide6.QtWidgets import QFrame,QVBoxLayout,QListWidget,QListWidgetItem,QPlainTextEdit,QDialog,QLineEdit,QWidget,QStyledItemDelegate,QStyleOptionViewItem,QStyle,QApplication
+from PySide6.QtWidgets import QFrame,QVBoxLayout,QListWidget,QListWidgetItem,QPlainTextEdit,QDialog,QLineEdit,QWidget,QStyledItemDelegate,QStyleOptionViewItem,QStyle,QApplication,QProgressBar
 from .widgets import label,button,row,ComboBox,StudioDialog,RoundMenu,dialog_buttons,widget_global_position
 from .workflow_binding import WorkflowBindingDialog
 from .output_order import OutputOrderList
@@ -12,6 +12,20 @@ from .stage_model import choose,compile_plan
 NAMES=dict(waiting='等待',running='執行中',preparing='準備輸入',submitted='已提交',collecting='保存結果',
     complete='完成',paused='已暫停',failed='失敗',unconfirmed='提交未確認',result_error='圖片尚未取得',cancelling='取消待確認',cancelled='已取消',removed='已移除',retained='已保留',retried='已建立新嘗試')
 ACTIVE_GROUP_STATES=('preparing','submitted','collecting','running','unconfirmed','cancelling')
+
+
+def scheduler_action(canvas,key,method):
+    """Both scheduler surfaces use the same persisted pause/resume boundary."""
+    runner=canvas.window.comfy.input_flow.chain
+    workspace=canvas.window.state['workspace']
+    if method in ('pause','resume'):
+        runner.store.set_scheduler_paused(workspace,key,method=='pause')
+    for ident in runner.store.scheduler_runs(workspace,key):
+        if method=='resume':
+            try:runner.check_route(runner.store.read(ident))
+            except ValueError:continue
+        getattr(runner,method)(ident)
+    canvas.window.comfy.stateChanged.emit()
 
 
 def entry_image(item):
@@ -406,14 +420,7 @@ class SchedulePageContent(QFrame):
 
     def action(self,method):
         try:
-            if method in ('pause','resume'):
-                self.runner.store.set_scheduler_paused(self.canvas.window.state['workspace'],self.key,method=='pause')
-            runs=self.runner.store.scheduler_runs(self.canvas.window.state['workspace'],self.key)
-            for ident in runs:
-                if method=='resume':
-                    try:self.runner.check_route(self.runner.store.read(ident))
-                    except ValueError:continue
-                getattr(self.runner,method)(ident)
+            scheduler_action(self.canvas,self.key,method)
             self.refresh()
         except ValueError as exc:self.canvas.window.notice(str(exc))
 
@@ -445,7 +452,11 @@ class SchedulePanel(QFrame):
         self.setObjectName('CanvasModuleBody')
         body=QVBoxLayout(self);body.setContentsMargins(4,8,4,4);body.setSpacing(8)
         self.summary=label('','Subtle',True);body.addWidget(self.summary)
-        self.open_button=button('開啟預排程',self.open_page);body.addWidget(self.open_button)
+        self.progress=QProgressBar();self.progress.setTextVisible(False);self.progress.setFixedHeight(6)
+        self.progress.setAccessibleName('當前組別完成進度');body.addWidget(self.progress)
+        self.open_button=button('開啟預排程',self.open_page)
+        self.pause_button=button('',self.toggle_pause);self.pause_button.setFixedWidth(40)
+        controls=row(self.open_button,self.pause_button);controls.setStretch(0,1);body.addLayout(controls)
         self.refresh_visual_theme()
         canvas.window.comfy.stateChanged.connect(self.refresh)
         self.refresh()
@@ -456,8 +467,27 @@ class SchedulePanel(QFrame):
     def refresh_visual_theme(self):
         from .canvas_items import canvas_colors
         from .module_chrome import style_action
-        style_action(self.open_button,canvas_colors(self.canvas),pending=True)
+        colors=canvas_colors(self.canvas)
+        style_action(self.open_button,colors,pending=True)
+        style_action(self.pause_button,colors,pending=True)
+        self.progress.setStyleSheet('QProgressBar { border: 0; border-radius: 3px; background: '+colors['canvas_inset']+'; }'
+            'QProgressBar::chunk { border-radius: 3px; background: '+colors['accent']+'; }')
+        self.refresh_pause()
         if self.page is not None and not self.page.closed:self.page.refresh_visual_theme()
+
+    def refresh_pause(self):
+        from .canvas_items import canvas_colors
+        from .ui_icons import icon
+        paused=self.runner.store.scheduler_paused(self.canvas.window.state['workspace'],self.key)
+        name='繼續' if paused else '暫停'
+        self.pause_button.setIcon(icon('play' if paused else 'pause',canvas_colors(self.canvas)['text']))
+        self.pause_button.setAccessibleName(name+'預排程');self.pause_button.setToolTip(name+'預排程')
+
+    def toggle_pause(self):
+        paused=self.runner.store.scheduler_paused(self.canvas.window.state['workspace'],self.key)
+        try:scheduler_action(self.canvas,self.key,'resume' if paused else 'pause')
+        except ValueError as exc:self.canvas.window.notice(str(exc))
+        self.refresh()
 
     def open_page(self):
         if self.page is not None and not self.page.closed:
@@ -479,11 +509,20 @@ class SchedulePanel(QFrame):
         if value is None:
             if self.page is not None:self.page.finish()
             return
-        from collections import Counter
-        counts=Counter(self.runner.entry_status(item) for item in self.runner.store.entry_states(state['workspace'],self.key))
-        text=' · '.join(str(count)+' 項'+NAMES.get(status,status) for status,count in counts.items()) or '沒有等待執行的任務'
-        if self.runner.store.scheduler_paused(state['workspace'],self.key):text='已暫停 · '+text
+        groups=self.runner.store.schedule_groups(state['workspace'],self.key)
+        queued=[g for g in groups if not g['cancelled'] and not g['bypassed']
+                and (g['pending'] or g['counts'].get('waiting'))]
+        current=next((g for g in groups if g['counts'].get('running')),queued[0] if queued else None)
+        text='沒有等待執行的任務'
+        if current:
+            complete=current['counts'].get('complete',0);total=current['total']
+            text=f'{complete}/{total} 已完成'
+            waiting=sum(g['id']!=current['id'] for g in queued)
+            if waiting:text+=f'．{waiting} 組佇列中'
+            self.progress.setRange(0,max(1,total));self.progress.setValue(complete)
+        self.progress.setVisible(current is not None)
         self.summary.setText(text)
+        self.refresh_pause()
         if self.page is not None and not self.page.closed:self.page.heading.setText(value['name'])
 
 

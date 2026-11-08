@@ -40,6 +40,27 @@ def outputs(state, plan):
 
 
 class ResolutionTests(unittest.TestCase):
+    def test_nested_variants_advance_with_independent_repeats_and_inactive_children_stay(self):
+        root = text('parent', 2)
+        child = text('child', 3); child['variants']['groups'][0]['repeat'] = 2
+        grandchild = text('leaf', 2, 'decrement')
+        child['children'] = [grandchild]
+        disabled = text('disabled', 2); disabled['enabled'] = False
+        root['children'] = [child, disabled]
+        original = copy.deepcopy(root)
+        values = []
+        for _ in range(4):
+            current, root = pm.resolve(root)
+            values.append(comp.render(current))
+        self.assertEqual(values, ['parent-1, child-1, leaf-1', 'parent-2, child-1, leaf-2',
+                                  'parent-1, child-2, leaf-1', 'parent-2, child-3, leaf-2'])
+        self.assertEqual(root['children'][1], original['children'][1])
+        state, keys = state_with(canvas=original)
+        plan = supply.build(state, keys, count=1)
+        self.assertEqual(outputs(state, plan), [[values[0]]])
+        supply.reserve(state, plan)
+        self.assertEqual(comp.render(state['uses']['canvas']), values[1])
+
     def test_canvas_independent_cycles_do_not_end_or_cartesian_expand(self):
         for size in (5, 20):
             canvas = pm.new('combination', '畫布組合')

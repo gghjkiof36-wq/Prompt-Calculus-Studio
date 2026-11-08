@@ -597,7 +597,7 @@ class TextCanvas(QWidget):
                 if old_key in state.get('text_sizes',{}): state['text_sizes'][target_id+':'+new['id']]=state['text_sizes'][old_key]
             if root is part: comp.remove_usage(state,source_id)
             else: comp.container(root,part['id']).remove(part)
-            parent['grouped']=True; target_root['grouped']=True; parent['children'].append(moved)
+            parent['grouped']=True; target_root['grouped']=True; comp.append_child(parent,moved)
         return self.commit(apply)
 
     def add_root(self, state, root, module_id=None):
@@ -668,7 +668,7 @@ class TextCanvas(QWidget):
                 # Adding a child promotes even a previously plain Tag to a module.
                 comp.usage_root(state,self.root_id,True)['grouped'] = True
                 if self.path: current['grouped'] = True
-                current['children'].append(copy.deepcopy(value)); key=self.root_id+':'+value['id']
+                comp.append_child(current,copy.deepcopy(value)); key=self.root_id+':'+value['id']
             if isinstance(position,QPointF): state.setdefault('text_positions',{})[key]=[position.x(),position.y()]
             added.append(key)
         success=self.commit(apply)
@@ -686,7 +686,10 @@ class TextCanvas(QWidget):
         dialog = NodeDialog(self.window)
         self.active_node_dialog=dialog
         try: accepted=dialog.exec()==QDialog.DialogCode.Accepted
-        finally: self.active_node_dialog=None
+        finally:
+            self.active_node_dialog=None
+            owner=getattr(self.window,'workspace_owner',None)
+            if owner is not None:owner.material_transfer.schedule_sync()
         if not accepted: return False
         value = comp.node(dialog.name.text().strip()); value.update(dialog.values())
         value['grouped'] = True
@@ -762,7 +765,10 @@ class TextCanvas(QWidget):
         dialog.use_id=ident;dialog.node_id=node_id
         self.active_node_dialog=dialog
         try: accepted=dialog.exec()==QDialog.DialogCode.Accepted
-        finally: self.active_node_dialog=None
+        finally:
+            self.active_node_dialog=None
+            owner=getattr(self.window,'workspace_owner',None)
+            if owner is not None:owner.material_transfer.schedule_sync()
         if not accepted:return False
         def apply(state):
             item_id, root, part = self.selected_node(state, key)
@@ -810,11 +816,9 @@ class TextCanvas(QWidget):
                 if root['id'] in ids:
                     comp.remove_usage(state,ident)
                     continue
-                def prune(parent):
-                    for field in ('children','overlays'):
-                        parent[field]=[n for n in parent[field] if n['id'] not in ids]
-                        for child in parent[field]: prune(child)
-                prune(root)
+                for part in list(comp.walk(root)):
+                    if part['id'] in ids and comp.find(root,part['id']) is not None:
+                        comp.container(root,part['id']).remove(part)
             for index in temporary:
                 if index<len(state['temporary']): state['temporary'].pop(index)
         self.commit(apply)

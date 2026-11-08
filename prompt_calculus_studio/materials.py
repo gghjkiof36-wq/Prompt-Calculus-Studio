@@ -98,6 +98,8 @@ def save(state, value):
         state['items'].append(result)
     else:
         state['items'][state['items'].index(current)] = result
+    from .material_links import sync_local
+    sync_local(state,{current['id']:current} if current else {})
     from .prompt_groups import mark_version
     mark_version(state)
     return result['id']

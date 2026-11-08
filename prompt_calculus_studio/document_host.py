@@ -186,6 +186,8 @@ class DesktopDocument(QObject):
         self.last_editor = host
         self.refresh_timer.start(0)
         self.update_dirty()
+        owner=getattr(host,'workspace_owner',None)
+        if owner is not None:owner.material_transfer.schedule_sync()
 
     def refresh_views(self):
         self.refreshing = True

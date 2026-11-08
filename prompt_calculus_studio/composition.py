@@ -275,8 +275,11 @@ def container(root, ident):
 def clone_node(root):
     validate_node(root)
     result = copy.deepcopy(root)
+    mapping={part['id']:uuid.uuid4().hex for part in walk(result)}
     for part in walk(result):
-        part['id'] = uuid.uuid4().hex
+        part['id'] = mapping[part['id']]
+        if part.get('member_link'):
+            part['member_link']['ids']={key:mapping.get(value,value) for key,value in part['member_link']['ids'].items()}
     from .prompt_materials import signature
     for part in walk(result):
         if part.get('selection_cursor'):part['selection_cursor']['signature']=signature(part)
@@ -285,6 +288,29 @@ def clone_node(root):
 
 def active_overlay(root):
     return next((n for n in reversed(root['overlays']) if n['enabled']), None)
+
+
+def content_children(root):
+    """The editable body, excluding inactive conversion and direct-text drafts."""
+    if root.get('sequence'):
+        from .prompt_groups import selected
+        group = selected(root['sequence'])
+        return group['modules'] if group['input'] == 'modules' and not root.get('round_override') else []
+    if root.get('combination'):
+        group = root['combination']
+        return group['modules'] if group['input'] == 'modules' else []
+    return root['children']
+
+
+def append_child(root, child):
+    if root.get('sequence') or root.get('combination'):
+        from .prompt_groups import selected
+        group = selected(root['sequence']) if root.get('sequence') else root['combination']
+        if group['input'] != 'modules' or root.get('round_override'):
+            raise ValueError('目前使用直接輸入的內容，請先在素材編輯中切回模塊。')
+        group['modules'].append(child)
+    else:
+        root['children'].append(child)
 
 
 def effective_nodes(root):

@@ -425,7 +425,7 @@ class NodeCard(ResizableCard):
         ident=canvas.entries[key][0]
         active=comp.active_overlay(value)
         if ident is not None and not self.collapsed:
-            for index,part in enumerate(value['children']+value['overlays']):
+            for index,part in enumerate(comp.content_children(value)+value['overlays']):
                 overlay=part in value['overlays']
                 inactive=muted or not value['enabled'] or not part['enabled'] or (part is not active if overlay else bool(active))
                 title='覆蓋中' if overlay and part is active else '覆蓋未生效' if overlay else f'{index+1} · 元素'

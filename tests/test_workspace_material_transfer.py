@@ -48,6 +48,96 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
     def capture(self):
         return self.transfer.capture(self.page, self.ident)
 
+    def test_member_sync_across_documents_preserves_target_undo_and_reopen(self):
+        from prompt_calculus_studio import composition as comp,prompt_materials as pm,material_links as links
+        source=materials.item(self.source_tab.host.state,self.ident)
+        combo=pm.new('combination','Linked combination')
+        member=links.linked_copy(source)
+        member.update(source_id=source['id'],source_module=source['module'],source_revision=materials.fingerprint(source))
+        combo['combination']['modules']=[member]
+        combo_id=[]
+        def create(state):
+            combo_id.append(materials.save(state,dict(name='Linked combination',module=source['module'],prompt='',
+                material_type='combination',composition=combo)))
+        self.assertTrue(self.source_tab.host.canvas.commit(create));self.events()
+        captured=self.transfer.capture(self.page,combo_id[0]);tab=self.target_tab()
+        key=self.transfer.add(captured,self.transfer.target(tab.path));self.events()
+        before=comp.render(tab.host.state['uses'][key])
+        value=copy.deepcopy(materials.item(self.source_tab.host.state,self.ident));value['prompt']='source changed'
+        self.assertTrue(self.source_tab.host.canvas.commit(lambda state:materials.save(state,value)));self.events()
+        self.assertEqual(comp.render(tab.host.state['uses'][key]),'source changed')
+        target_member=tab.host.state['uses'][key]['combination']['modules'][0]
+        self.assertEqual(target_member[links.FIELD]['document'],self.source_tab.document.key)
+        tab.host.canvas.undo();self.events();self.assertEqual(comp.render(tab.host.state['uses'][key]),before)
+        unrelated=copy.deepcopy(next(v for v in self.source_tab.host.state['items'] if v['id'] not in (self.ident,combo_id[0])))
+        unrelated['name']+=' unrelated'
+        self.assertTrue(self.source_tab.host.canvas.commit(lambda state:materials.save(state,unrelated)));self.events()
+        self.assertEqual(comp.render(tab.host.state['uses'][key]),before)
+        self.source_tab.host.canvas.undo();self.events()
+        tab.host.canvas.redo();self.events();self.assertEqual(comp.render(tab.host.state['uses'][key]),'source changed')
+        self.source_tab.host.canvas.undo();self.events();self.assertEqual(comp.render(tab.host.state['uses'][key]),before)
+        self.source_tab.host.canvas.redo();self.events();self.assertEqual(comp.render(tab.host.state['uses'][key]),'source changed')
+        self.assertTrue(self.w.save_tab(self.source_tab));self.assertTrue(self.w.save_tab(tab))
+        saved=copy.deepcopy(tab.host.state['uses'][key]);self.w.close_tab(self.w.index_of(tab.key));self.events()
+        reopened=self.w.open_path(tab.path,True,new_tab=True);self.events()
+        self.assertEqual(reopened.host.state['uses'][key],saved)
+        # A second source edit reaches the reopened document, with its own Undo.
+        value['prompt']='after reopen'
+        self.assertTrue(self.source_tab.host.canvas.commit(lambda state:materials.save(state,value)));self.events()
+        self.assertEqual(comp.render(reopened.host.state['uses'][key]),'after reopen')
+        from PySide6.QtCore import QTimer
+        canvas=reopened.host.canvas
+        member_key=key+':'+reopened.host.state['uses'][key]['combination']['modules'][0]['id']
+        errors=[]
+        def during_edit():
+            dialog=canvas.active_node_dialog
+            try:
+                dialog.prompt.setPlainText('cancelled local draft')
+                value['prompt']='changed while editing'
+                self.assertTrue(self.source_tab.host.canvas.commit(lambda state:materials.save(state,value)))
+                self.events()
+                self.assertEqual(comp.render(reopened.host.state['uses'][key]),'after reopen')
+            except BaseException as error:errors.append(error)
+            finally:dialog.reject()
+        QTimer.singleShot(0,during_edit)
+        self.assertFalse(canvas.edit(member_key));self.events()
+        if errors:raise errors[0]
+        self.assertEqual(comp.render(reopened.host.state['uses'][key]),'changed while editing')
+
+    def test_combination_and_flow_use_real_list_drag_and_keep_inner_controls(self):
+        from prompt_calculus_studio import composition as comp, prompt_materials as pm
+        from test_prompt_material_resolution import text,flow
+        tab=self.target_tab();canvas=tab.host.canvas;view=canvas.view
+        for kind in ('combination','flow'):
+            with self.subTest(kind=kind):
+                root=pm.new(kind,kind) if kind=='combination' else flow('ab')
+                group=root['combination'] if kind=='combination' else root['sequence']['groups'][0]
+                group.update(input='modules',modules=[text('Inner',3)])
+                value=copy.deepcopy(materials.item(self.source_tab.host.state,self.ident))
+                value.update(name=kind,material_type=kind,composition=root,prompt=comp.render(root))
+                self.assertTrue(self.source_tab.host.canvas.commit(lambda state:materials.save(state,value)))
+                self.page.set_browser_category('@material-type:'+kind);self.page.refresh();self.events()
+                listing=self.page.listing;listing.setCurrentRow(0)
+                self.assertEqual(listing.currentItem().data(Qt.ItemDataRole.UserRole),self.ident)
+                self.w.focus_tab(tab);self.events();view.centerOn(5000,3000);self.events()
+                point=view.viewport().rect().center();before=set(tab.host.state['uses'])
+                def execute(native,*args):
+                    mime=native.mimeData();self.assertTrue(mime.hasFormat(MIME))
+                    self.assertTrue(self.drag_event(view.viewport(),mime,point,QDragEnterEvent).isAccepted())
+                    self.assertTrue(self.drag_event(view.viewport(),mime,point,QDropEvent).isAccepted())
+                    return Qt.DropAction.CopyAction
+                with patch.object(QDrag,'exec',execute):listing.startDrag(Qt.DropAction.CopyAction)
+                self.events();added=set(tab.host.state['uses'])-before;self.assertEqual(len(added),1)
+                key=added.pop();placed=tab.host.state['uses'][key]
+                self.assertEqual(pm.kind(placed),kind);self.assertEqual(comp.render(placed),'Inner-1')
+                self.assertTrue(canvas.cards[key].parts[0].group_rects)
+                canvas.cards[key].parts[0].group_action('group_next');self.events()
+                self.assertEqual(comp.render(tab.host.state['uses'][key]),'Inner-2')
+                self.assertEqual(comp.render(materials.item(self.source_tab.host.state,self.ident)['composition']),'Inner-1')
+                self.assertTrue(self.w.save_tab(tab));canvas.undo();self.events()
+                self.assertEqual(comp.render(tab.host.state['uses'][key]),'Inner-1')
+                canvas.redo();self.events();self.assertEqual(comp.render(tab.host.state['uses'][key]),'Inner-2')
+
     def target_tab(self):
         tab = self.w.open_path(self.root/'Street.pcs-workflow', True, new_tab=True)
         self.events()

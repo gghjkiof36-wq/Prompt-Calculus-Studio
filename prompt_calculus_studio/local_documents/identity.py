@@ -51,6 +51,8 @@ def _root(root, mapping):
             mapping.setdefault(part['combination']['id'], fresh())
     for part in parts:
         part['id'] = mapping[part['id']]
+        if part.get('member_link'):
+            part['member_link']['ids']={key:mapping.get(value,value) for key,value in part['member_link']['ids'].items()}
         for name in ('sequence', 'variants'):
             sequence = part.get(name)
             if sequence:
@@ -117,6 +119,16 @@ def duplicate(document, *, id_maps=None, document_id=None):
             item['module'] = owned[item['module']]
             if item.get('composition'):
                 item['composition'] = tree(item['composition'], f'item/{old_id}')
+        from ..material_links import members,remap
+        for item in payload['items']:
+            if not item.get('composition'):continue
+            for member in members(item['composition']):
+                link=member.get('member_link')
+                if not link or link.get('document') is not None or link['item'] not in owned:continue
+                source_map=maps.get('item/'+link['item'],{})
+                link['base']=remap(link['base'],source_map)
+                link['ids']={source_map.get(key,key):value for key,value in link['ids'].items()}
+                link['item']=owned[link['item']]
     else:
         state = candidate['payload']['state']
         workspace = state['workspaces'][0]

@@ -604,8 +604,8 @@ class GroupEditor(MaterialPickerMixin,QWidget):
         self.fit_picker()
 
     def add_material(self, ident):
-        item = materials.item(self.host.state, ident); node = comp.clone_node(comp.prototype(item))
-        pm.reset(node)
+        from .material_links import linked_copy
+        item = materials.item(self.host.state, ident); node = linked_copy(item)
         node.update(source_id=ident, source_module=item['module'], source_revision=materials.fingerprint(item))
         self.current_group['modules'].append(node)
         self.refresh_modules(); self.changed.emit()

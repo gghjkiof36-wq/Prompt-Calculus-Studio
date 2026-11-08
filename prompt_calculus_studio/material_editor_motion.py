@@ -34,12 +34,10 @@ class EditorMaterialList(StackedCardListMixin,MaterialList):
         transfer=getattr(owner,'material_transfer',None)
         if transfer:
             from .workspace_material_drag import MaterialCopyDrag
-            from . import materials, prompt_materials
             ident=current.data(Qt.ItemDataRole.UserRole)
-            if prompt_materials.kind(materials.item(self.owner.window.state,ident))=='text':
-                try:transfer.drag=MaterialCopyDrag(transfer,self.owner,ident)
-                except ValueError as error:
-                    transfer.error(error); self.category_drag=None; return
+            try:transfer.drag=MaterialCopyDrag(transfer,self.owner,ident)
+            except ValueError as error:
+                transfer.error(error); self.category_drag=None; return
         try:super().startDrag(actions)
         finally:
             if transfer and transfer.drag:

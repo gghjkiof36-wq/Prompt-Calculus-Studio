@@ -1,9 +1,10 @@
-"""Document-bound text placement; a single transaction and the normal writer."""
+"""Document-bound material placement; a single transaction and the normal writer."""
 import copy
+from weakref import WeakKeyDictionary
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QPointF, QRectF
+from PySide6.QtCore import QObject, QPointF, QRectF, QTimer
 
 from . import composition, materials, prompt_materials, multi_output
 from .core import uid
@@ -32,6 +33,63 @@ class WorkspaceMaterials(QObject):
         self.w = workspace
         self.drag = None
         self.notification = None
+        self.link_versions = WeakKeyDictionary()
+        self.link_timer=QTimer(self);self.link_timer.setSingleShot(True)
+        self.link_timer.timeout.connect(self.sync_members)
+
+    def schedule_sync(self):
+        self.link_timer.start(0)
+
+    @staticmethod
+    def editing(document):
+        return any(getattr(getattr(h,'prompt_editor',None),'active_dialog',None) is not None
+                   or getattr(getattr(h,'canvas',None),'active_node_dialog',None) is not None
+                   for h in document.hosts)
+
+    def sync_members(self):
+        """Update open documents through their normal, undoable content writer."""
+        from . import material_links as links
+        documents=[d for d in self.w.documents if d.kind in ('category','workflow')
+                   and getattr(getattr(d,'host',None),'canvas',None) is not None and not d.error]
+        sources={}
+        for document in documents:
+            if self.editing(document):continue
+            for item in document.state.get('items',[]):
+                if prompt_materials.kind(item)=='text':sources[(document.key,item['id'])]=(item,document.key)
+        for document in documents:
+            if self.editing(document):continue
+            catalog={item['id']:item for item in document.state.get('items',[])}
+            def lookup(member):
+                link=member.get(links.FIELD,{})
+                ident=link.get('item',member.get('source_id'));owner=link.get('document',member.get('source_document'))
+                if owner:return sources.get((owner,ident),(None,None))
+                if ident in catalog:return catalog[ident],None
+                candidates=[value for (_,key),value in sources.items() if key==ident
+                            and value[0]['module']==member.get('source_module')]
+                return candidates[0] if len(candidates)==1 else (None,None)
+            observed=self.link_versions.get(document,{})
+            versions={}
+            for root in links.roots(document.state):
+                for member in links.members(root):
+                    item,owner=lookup(member)
+                    if item:versions[(owner or document.key,item['id'])]=materials.fingerprint(item)
+            changes={key:value for key,value in versions.items() if observed.get(key)!=value}
+            if not changes:continue
+            def changed_source(member):
+                item,owner=lookup(member)
+                return (item,owner) if item and (owner or document.key,item['id']) in changes else (None,None)
+            candidate=copy.deepcopy(document.state)
+            try:
+                changed=links.sync(candidate,changed_source,dependencies=lookup)
+                # A target Undo alone must not reapply the same source revision.
+                if changed:
+                    def apply(state):links.sync(state,changed_source,dependencies=lookup)
+                    if document.host.canvas.commit(apply,label='同步組合素材'):
+                        self.link_versions[document]={**observed,**changes}
+                        tab=next((t for t in self.w.all_pages() if t.document is document),None)
+                        if tab:self.w.autosave.schedule(tab)
+                else:self.link_versions[document]={**observed,**changes}
+            except (ValueError,KeyError) as error:self.error(error)
 
     def error(self, reason):
         if self.notification is None:
@@ -42,10 +100,8 @@ class WorkspaceMaterials(QObject):
     def capture(self, page, ident):
         document = page.window.document
         if document not in self.w.documents or page.active_dialog:
-            raise ValueError('請先完成或取消文字模塊的編輯。')
+            raise ValueError('請先完成或取消素材的編輯。')
         value = materials.item(document.state, ident)
-        if prompt_materials.kind(value) != 'text':
-            raise ValueError('目前只支援加入文字模塊。')
         return MaterialSource(document, document.key, ident, copy.deepcopy(value))
 
     def validate_source(self, source):
@@ -113,6 +169,13 @@ class WorkspaceMaterials(QObject):
                     source_document=source.document_id,
                     source_revision=materials.fingerprint(source.value),
                     content_kind=source.value.get('content_kind', 'tags'), collapsed=False)
+        from .material_links import members,FIELD,bind
+        catalog={item['id']:item for item in source.document.state.get('items',[])}
+        for member in members(root):
+            if FIELD not in member and member.get('source_id') in catalog:
+                bind(member,catalog[member['source_id']],source.document_id)
+            if member.get(FIELD) and not member[FIELD].get('document'):
+                member[FIELD]['document']=source.document_id
         if not root.get('preview'):root['preview'] = source.value.get('preview', '')
         # Read every required attachment before touching the destination. Only
         # known preview fields are copied; no catalog or arbitrary path export.

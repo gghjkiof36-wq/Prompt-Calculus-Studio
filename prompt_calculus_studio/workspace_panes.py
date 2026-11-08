@@ -353,6 +353,7 @@ class WorkspacePanes:
                 key = 'view:'+uuid.uuid4().hex
                 tab = Tab(key, path.stem, page, retained, document, path, host=host)
                 PageObserver(self,tab)
+                self.material_transfer.schedule_sync()
             return self.add_tab(tab, replace_current=not new_tab and not background, pane=pane, background=background)
         except (ValueError, OSError, KeyError) as error:
             self.last_open_error = str(error)

@@ -9,8 +9,6 @@ from .widgets import RoundMenu
 def add_entry(page, menu, ident):
     owner = getattr(page.window, 'workspace_owner', None)
     if owner is None or getattr(page.window, 'document', None) is None:return
-    from . import materials, prompt_materials
-    if prompt_materials.kind(materials.item(page.window.state, ident)) != 'text':return
     submenu = menu.addMenu('加入Canvas…')
     submenu.addAction('選擇 Canvas 文件').setEnabled(False)
     controller = MaterialMenu(page, ident, submenu)
