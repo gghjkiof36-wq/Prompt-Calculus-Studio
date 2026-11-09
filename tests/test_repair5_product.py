@@ -90,7 +90,7 @@ class RecentSheetTests(unittest.TestCase):
         from prompt_calculus_studio.window import Window
         from prompt_calculus_studio.recent_overlay import RecentOverlay
         root = Path(__file__).resolve().parents[1]
-        with tempfile.TemporaryDirectory(dir=root/'qa') as directory, patch('prompt_calculus_studio.comfy_client.ComfyClient.request'):
+        with tempfile.TemporaryDirectory() as directory, patch('prompt_calculus_studio.comfy_client.ComfyClient.request'):
             window = Window(Path(directory)/'data')
             window.state['settings']['online'] = False
             window.resize(1000, 700)
@@ -142,7 +142,7 @@ class ModelLibraryTests(unittest.TestCase):
         from prompt_calculus_studio.core import Storage
         from prompt_calculus_studio.media import Catalog, model_root, copy_model, scan_models
         root = Path(__file__).resolve().parents[1]
-        with tempfile.TemporaryDirectory(dir=root/'qa') as directory:
+        with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             models = base/'models'
             loras = models/'loras'

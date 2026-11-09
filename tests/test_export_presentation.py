@@ -22,7 +22,7 @@ APP=QApplication.instance() or QApplication([])
 
 class ExportPresentationTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'qa')
+        self.tmp=tempfile.TemporaryDirectory()
         self.w=Window(Path(self.tmp.name)/'data')
         self.w.state['settings'].update(material='solid',online=False)
         self.w.resize(1280,800); self.w.show()

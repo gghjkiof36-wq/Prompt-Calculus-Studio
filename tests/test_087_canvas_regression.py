@@ -1,5 +1,6 @@
 """Additional bounded Canvas gestures, window modes and saved workspace views."""
 import copy
+from _dialog_driver import drive_dialog
 import sys
 from unittest.mock import patch
 from PySide6.QtCore import Qt,QPoint,QPointF,QRectF
@@ -54,7 +55,7 @@ class CanvasRegressionTests(StageFixture):
         connections=copy.deepcopy(self.c.data()['connections']);stack=len(self.c.undo_stack)
         self.c.view.resetTransform();self.c.view.scale(.7,.7);self.c.view.centerOn(5000,4730);QTest.qWait(10)
         self.c.view.scene().clearSelection();container.setSelected(True);self.c.clips[self.clip].setSelected(True)
-        point=self.c.view.mapFromScene(container.mapToScene(QPointF(100,20)));end=point+QPoint(84,49)
+        point=self.c.view.mapFromScene(container.mapToScene(QPointF(container.width/2,20)));end=point+QPoint(84,49)
         QTest.mousePress(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
         QTest.mouseMove(self.c.view.viewport(),end,10)
         QTest.mouseRelease(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=end);QTest.qWait(20)
@@ -86,7 +87,11 @@ class CanvasRegressionTests(StageFixture):
         self.w.remember_canvas_view();outer=list(self.w.state['canvas_view'])
         self.c.open_editor(self.cid);QTest.qWait(20);editor=self.c.editor_page
         editor.view.resetTransform();editor.view.scale(1.19,1.19);editor.view.centerOn(310,390)
-        editor.edit_text('root');editor.prompt_editor.prompt.setPlainText('pending before switching')
+        from prompt_calculus_studio.text_canvas import NodeDialog
+        def save(dialog):
+            dialog.prompt.setPlainText('pending before switching')
+            dialog.accept()
+        drive_dialog(lambda:editor.edit_text('root'),NodeDialog,save)
         editor.save_view();inside=list(editor.data()['edit_view'])
         self.w.change_workspace(other);QTest.qWait(20)
         self.assertEqual(self.w.state['workspace'],other);self.assertIsNone(self.c.editor_page)
@@ -95,7 +100,9 @@ class CanvasRegressionTests(StageFixture):
         self.assertAlmostEqual(self.c.view.transform().m11(),outer[0],places=6)
         self.assertLess((self.c.view.mapToScene(self.c.view.viewport().rect().center())-QPointF(*outer[1:])).manhattanLength()*outer[0],3)
         self.assertEqual(self.c.data()['canvases'][self.cid]['edit_view'],inside)
-        self.w.close();APP.processEvents()
+        from _qt_cleanup import close_window
+        close_window(self.w)
+        self.executor.close()
         self.w=Window(self.tmp.name);self.c=self.w.canvas;self.w.show();QTest.qWait(25)
         self.assertEqual(self.w.state['workspace'],original)
         self.assertEqual(self.w.state['uses']['root']['prompt'],'pending before switching')

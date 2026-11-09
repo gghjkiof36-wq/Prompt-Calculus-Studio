@@ -1,4 +1,6 @@
+from _qt_cleanup import close_window
 import copy
+from prompt_calculus_studio.canvas_items import canvas_colors
 import os
 import sys
 import tempfile
@@ -84,11 +86,11 @@ class PaintObserver(QObject):
 
 class ParagraphAndIsolationUiTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'qa'); self.w=Window(Path(self.tmp.name)/'data')
+        self.tmp=tempfile.TemporaryDirectory(); self.w=Window(Path(self.tmp.name)/'data')
         self.w.state['settings'].update(online=False,material='solid'); self.w.apply_theme()
         self.w.resize(1280,900); self.w.show(); APP.processEvents()
 
-    def tearDown(self): self.w.close(); APP.processEvents(); self.tmp.cleanup()
+    def tearDown(self): close_window(self.w); self.tmp.cleanup()
 
     def fill_both(self):
         item=self.w.state['items'][0]; self.w.state['selections']={item['module']:[item['id']]}
@@ -97,25 +99,15 @@ class ParagraphAndIsolationUiTests(unittest.TestCase):
         self.w.enter_canvas(); self.w.canvas.insert_asset(self.w.state['items'][1]); self.w.canvas.add_tag('simple background')
         self.w.canvas.fit(); APP.processEvents(); return list_prompt
 
-    def test_default_checkbox_cancel_and_toggle_keep_choices_and_drafts(self):
-        dialog=SettingsDialog(self.w); self.assertTrue(dialog.separate_selections.isChecked())
-        dialog.separate_selections.setChecked(False); dialog.reject(); self.assertTrue(self.w.state['settings']['separate_selections'])
-        list_prompt=self.fill_both(); expected='(1girl, white shirt:1.0),\n\n(simple background:1.0)'
-        self.assertEqual(self.w.final.toPlainText(),expected); self.assertEqual(len(self.w.canvas.cards),2)
-        self.w.final.setPlainText('canvas manual'); self.w.leave_canvas(); self.assertEqual(self.w.final.toPlainText(),list_prompt)
-        self.w.final.setPlainText('list manual'); self.w.enter_canvas(); self.assertEqual(self.w.final.toPlainText(),'canvas manual')
-        picks=copy.deepcopy(self.w.state['selections']); uses=copy.deepcopy(self.w.state['uses'])
-        dialog=SettingsDialog(self.w); dialog.separate_selections.setChecked(False); dialog.save()
-        self.w.leave_canvas(); self.assertEqual(self.w.final.toPlainText(),'canvas manual')
-        self.assertIn('red dress',build_prompt(self.w.state)); self.assertIn('white shirt',build_prompt(self.w.state))
-        dialog=SettingsDialog(self.w); dialog.separate_selections.setChecked(True); dialog.save()
-        self.assertEqual(self.w.final.toPlainText(),'list manual')
-        self.assertEqual(self.w.state['selections'],picks); self.assertEqual(self.w.state['uses'],uses)
-        self.assertEqual(build_prompt(self.w.state),list_prompt)
-        self.w.enter_canvas(); self.assertEqual(build_prompt(self.w.state),expected)
-        self.assertEqual(self.w.final.toPlainText(),'canvas manual')
-        self.w.persist(); stored=self.w.store.load(); self.assertTrue(stored['settings']['separate_selections'])
-        self.assertEqual(stored['selection_view'],'canvas'); self.assertEqual(stored['uses'],uses)
+    def test_editor_navigation_preserves_canvas_choices_and_draft(self):
+        self.fill_both();expected='(1girl, white shirt:1.0),\n\n(simple background:1.0)'
+        self.assertEqual(self.w.final.toPlainText(),expected)
+        self.w.final.setPlainText('canvas manual');uses=copy.deepcopy(self.w.state['uses'])
+        self.w.leave_canvas();self.assertIs(self.w.surface_stack.currentWidget(),self.w.prompt_editor)
+        self.w.enter_canvas();self.assertEqual(self.w.final.toPlainText(),'canvas manual')
+        self.assertEqual(self.w.state['uses'],uses);self.assertEqual(build_prompt(self.w.state),expected)
+        self.w.persist();stored=self.w.store.load()
+        self.assertEqual(stored['uses'],uses);self.assertEqual(stored['draft'],'canvas manual')
 
     def test_copy_run_snapshot_and_clear_use_current_view_paragraphs(self):
         list_prompt=self.fill_both(); expected=self.w.final.toPlainText(); self.assertIn('\n\n',expected)
@@ -129,14 +121,16 @@ class ParagraphAndIsolationUiTests(unittest.TestCase):
         client.ready=False; client.run_id=''
         self.w.final.setPlainText('canvas draft'); self.w.state['settings']['confirm_clear_draft']=False; self.w.regenerate()
         self.assertIn('\n\n',self.w.final.toPlainText())
-        self.w.leave_canvas(); self.assertEqual(self.w.final.toPlainText(),list_prompt)
-        snap=client.snapshot(); self.assertEqual(snap['state']['uses'],{}); self.assertEqual(snap['final_prompt'],list_prompt)
+        current=self.w.final.toPlainText();self.w.leave_canvas()
+        self.assertIs(self.w.surface_stack.currentWidget(),self.w.prompt_editor)
+        self.w.enter_canvas();snap=client.snapshot()
+        self.assertEqual(snap['final_prompt'],current);self.assertEqual(self.w.final.toPlainText(),current)
 
     def test_reorder_then_view_switch_preserves_hidden_order(self):
         self.fill_both(); keys=list(self.w.state['uses']); mid=next(iter(self.w.state['selections']))
         self.w.reorder_builder(('use',keys[0]),('use',keys[1]),True)
         self.assertEqual(output_groups(self.w.state),list(reversed(keys)))
-        self.w.leave_canvas(); self.assertEqual(output_groups(self.w.state),[mid,'__temporary_group__'])
+        self.w.leave_canvas();self.assertIs(self.w.surface_stack.currentWidget(),self.w.prompt_editor)
         self.w.enter_canvas(); self.assertEqual(output_groups(self.w.state),list(reversed(keys)))
 
     def test_canvas_fills_content_edges_with_compact_header_and_floating_status(self):
@@ -157,9 +151,8 @@ class ParagraphAndIsolationUiTests(unittest.TestCase):
             self.assertTrue(status.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents))
             self.assertGreater(self.w.canvas_connection_status.width(),50)
         self.w.notice(''); self.assertFalse(status.isVisible())
-        self.w.leave_canvas(); self.assertTrue(self.w.library_panel.isVisible())
-        self.assertIs(self.w.surface_stack.currentWidget(),self.w.list_shell)
-        self.assertGreater(self.w.list_shell.layout().contentsMargins().left(),0)
+        self.w.leave_canvas();self.assertIs(self.w.surface_stack.currentWidget(),self.w.prompt_editor)
+        self.assertTrue(self.w.prompt_editor.isVisible());self.assertFalse(self.w.canvas.isVisible())
 
     def test_drag_pan_resize_and_zoom_repaint_visible_background(self):
         self.fill_both(); view=self.w.canvas.view; observer=PaintObserver(view.viewport())
@@ -180,7 +173,7 @@ class ParagraphAndIsolationUiTests(unittest.TestCase):
         # Background painting must replace arbitrary previous pixels opaquely.
         image=QImage(240,180,QImage.Format.Format_ARGB32); image.fill(QColor('#ff00ff'))
         painter=QPainter(image); view.drawBackground(painter,image.rect()); painter.end()
-        for x,y in ((15,15),(135,91),(239,179)): self.assertEqual(image.pixelColor(x,y),QColor('#17191e'))
+        for x,y in ((15,15),(135,91),(239,179)): self.assertEqual(image.pixelColor(x,y),QColor(canvas_colors(self.w.canvas)['canvas_background']))
         view.viewport().removeEventFilter(observer)
 
 if __name__=='__main__': unittest.main()

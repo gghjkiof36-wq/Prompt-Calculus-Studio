@@ -1,5 +1,7 @@
+from _qt_cleanup import close_window
 """Affected Canvas ownership and copy-editor contracts, isolated Qt only."""
 import copy
+from _dialog_driver import drive_dialog
 import os
 import tempfile
 import unittest
@@ -9,7 +11,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QEvent, QPointF, Qt, QTimer
 from PySide6.QtGui import QHelpEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialogButtonBox, QToolTip
+from PySide6.QtWidgets import QApplication, QDialogButtonBox, QToolTip, QPushButton
 from prompt_calculus_studio import composition as comp, materials, multi_output as model
 from prompt_calculus_studio.core import DEFAULT_SETTINGS
 from prompt_calculus_studio.extension_page import ExtensionPage
@@ -41,7 +43,7 @@ class CanvasRev9Tests(unittest.TestCase):
         self.c.commit(create)
 
     def tearDown(self):
-        self.w.close(); APP.processEvents()
+        close_window(self.w)
 
     def asset(self):
         return materials.item(self.w.state, self.asset_id)
@@ -136,14 +138,15 @@ class CanvasRev9Tests(unittest.TestCase):
         card=self.c.cards[key]; point=self.card_point(card,QPointF(card.width/2,card.height-24))
         timer=QTimer(self.w); timer.setInterval(10)
         def cancel():
-            dialog=getattr(self.c,'active_node_dialog',None)
+            dialog=APP.activeModalWidget()
+            from prompt_calculus_studio.text_canvas import NodeDialog
+            if not isinstance(dialog,NodeDialog):return
             if dialog is None or dialog in seen: return
             seen.append(dialog)
             try:
                 opened.append((dialog.windowTitle(),dialog.use_id))
                 dialog.prompt.setPlainText('cancelled local edit')
-                QTest.mouseClick(dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Cancel),
-                                 Qt.MouseButton.LeftButton)
+                QTest.mouseClick(next(b for b in dialog.findChildren(QPushButton) if b.text()=='取消'),Qt.MouseButton.LeftButton)
             except BaseException as error:
                 errors.append(error)
                 if dialog: dialog.reject()
@@ -153,29 +156,20 @@ class CanvasRev9Tests(unittest.TestCase):
             self.double_click(point); QTest.qWait(25); timer.stop()
             add.assert_not_called(); quick.assert_not_called(); functions.assert_not_called()
         if errors: raise errors[0]
-        self.assertEqual(opened,[('編輯當次模組',key)])
+        self.assertEqual(opened,[('編輯文字模組',key)])
         self.assertEqual(self.c.history_state(),before); self.assertEqual(self.asset()['prompt'],'red dress')
 
     def edit_dialog(self, canvas, key, *, save):
-        errors = []
-        def input_and_close():
-            try:
-                dialog = canvas.active_node_dialog
-                self.assertEqual(dialog.use_id, key.split(':')[0])
-                dialog.name.setText('Local copy')
-                dialog.prompt.setFocus(); dialog.prompt.selectAll(); QTest.keyClicks(dialog.prompt, 'blue dress')
-                dialog.weight.setValue(1.7); dialog.enabled.setChecked(False)
-                dialog.excludes.setPlainText('red dress\nsmile')
-                buttons = dialog.findChild(QDialogButtonBox)
-                choice = QDialogButtonBox.StandardButton.Save if save else QDialogButtonBox.StandardButton.Cancel
-                QTest.mouseClick(buttons.button(choice), Qt.MouseButton.LeftButton)
-            except BaseException as error:
-                errors.append(error)
-                canvas.active_node_dialog.reject()
-        QTimer.singleShot(0, input_and_close)
-        result = canvas.edit(key)
-        if errors: raise errors[0]
-        return result
+        from prompt_calculus_studio.text_canvas import NodeDialog
+        def input_and_close(dialog):
+            self.assertEqual(dialog.use_id,key.split(':')[0])
+            dialog.name.setText('Local copy')
+            dialog.prompt.setFocus();dialog.prompt.selectAll();QTest.keyClicks(dialog.prompt,'blue dress')
+            dialog.weight.setValue(1.7);dialog.enabled.setChecked(False)
+            dialog.excludes.setPlainText('red dress\nsmile')
+            choice='套用' if save else '取消'
+            QTest.mouseClick(next(b for b in dialog.findChildren(QPushButton) if b.text()==choice),Qt.MouseButton.LeftButton)
+        return drive_dialog(lambda:canvas.edit(key),NodeDialog,input_and_close)
 
     def test_fixed_destination_wins_over_position_and_copy_is_independent(self):
         first = self.add_copy(); second = self.add_copy()
@@ -280,7 +274,7 @@ class CanvasRev9Tests(unittest.TestCase):
         targets=[(self.c.cards[key],QPointF(80,45)),
                  (self.c.cards[key],self.c.cards[key].weight_rect.center()),
                  (self.c.containers[self.cid],QPointF(100,22)),
-                 (self.c.flow_cards[stage],self.c.flow_cards[stage].actions()['size'].center())]
+                 (self.c.flow_cards[stage],QPointF(100,22))]
         before=self.c.history_state()
         for card,local in targets:
             view=self.c.view;view.resetTransform();view.centerOn(card);APP.processEvents()
@@ -292,6 +286,20 @@ class CanvasRev9Tests(unittest.TestCase):
             QTest.qWait(5)
             self.assertFalse(QToolTip.isVisible());self.assertEqual(card.boundingRect(),size)
         self.assertEqual(self.c.history_state(),before)
+        from prompt_calculus_studio.widgets import RoundMenu
+        for card in (self.c.cards[key],self.c.containers[self.cid],self.c.flow_cards[stage]):
+            menus=[]
+            with patch.object(RoundMenu,'open_at',lambda menu,*_:menus.append(menu)):
+                position=self.c.view.viewport().mapToGlobal(self.c.view.viewport().rect().center())
+                if card is self.c.containers[self.cid]:self.c.container_menu(self.cid,position)
+                else:card.open_menu(position)
+            self.assertEqual(len(menus),1)
+            actions={action.text():action for action in menus[0].actions()}
+            self.assertIn('調整模組尺寸…',actions);self.assertIn('恢復自動尺寸',actions)
+            with patch.object(card.canvas,'size_dialog') as resize,patch.object(card.canvas,'reset_size') as reset:
+                actions['調整模組尺寸…'].trigger();resize.assert_called_once_with(card.key)
+                actions['恢復自動尺寸'].trigger();reset.assert_called_once_with(card.key)
+            menus[0].close();menus[0].deleteLater()
 
 
 if __name__ == '__main__': unittest.main()

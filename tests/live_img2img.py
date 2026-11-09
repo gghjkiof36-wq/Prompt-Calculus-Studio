@@ -35,7 +35,7 @@ def profile():
         '2':dict(class_type='PromptStudioTestFixture',inputs=dict(image=['1',0],text='test')),
         '3':dict(class_type='PreviewImage',inputs=dict(images=['2',0]))})
 
-with tempfile.TemporaryDirectory(dir=ROOT/'qa') as folder:
+with tempfile.TemporaryDirectory() as folder:
     path=Path(folder); source=path/'source.png'; other=path/'other.png'
     for file,color in ((source,0xff426a92),(other,0xff8c7350)):
         image=QImage(64,48,QImage.Format.Format_RGB32); image.fill(color); image.save(str(file))

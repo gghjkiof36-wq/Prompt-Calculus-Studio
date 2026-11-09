@@ -58,7 +58,7 @@ class CanvasInteractionTests(StageFixture):
         self.assertFalse(self.executor.submissions)
 
     def test_embedded_editor_copy_delete_undo_remain_text_operations(self):
-        panel=self.c.outputs[self.out].panel;editor=panel.editor
+        panel=self.c.outputs[self.out].panel;page=panel.open_page();editor=page.content.editor
         self.c.view.centerOn(self.c.outputs[self.out]);editor.setFocus();editor.setPlainText('private draft')
         editor.selectAll();QTest.keyClick(editor,Qt.Key.Key_C,Qt.KeyboardModifier.ControlModifier)
         self.assertEqual(QApplication.clipboard().text(),'private draft')

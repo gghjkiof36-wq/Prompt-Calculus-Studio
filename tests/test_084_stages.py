@@ -55,7 +55,7 @@ class StageTests(unittest.TestCase):
         self.assertEqual(self.runner.store.read(entry['id'])['status'],'running')
         from prompt_calculus_studio.stage_widgets import SchedulePageContent
         summary=self.c.flow_cards[schedule[0]].panel;summary.refresh()
-        self.assertIn('提交未確認',summary.summary.text())
+        self.assertEqual(summary.summary.text(),'0/1 已完成')
         self.assertNotIn('執行中',summary.summary.text())
         panel=SchedulePageContent(self.c,schedule[0]);panel.refresh();panel.open_group(entry['execution_group'])
         self.assertIn('提交未確認',panel.list.item(0).text());self.assertNotIn('執行中',panel.list.item(0).text())

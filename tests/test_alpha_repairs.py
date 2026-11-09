@@ -20,7 +20,7 @@ APP=QApplication.instance() or QApplication([])
 
 class MediaRepairTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory(dir=ROOT/'qa'); self.root=Path(self.temp.name)
+        self.temp=tempfile.TemporaryDirectory(); self.root=Path(self.temp.name)
         self.old=self.root/'old'; self.new=self.root/'new'; self.old.mkdir(); self.new.mkdir()
         self.image=self.old/'originals/albums/one/image.png'; self.image.parent.mkdir(parents=True)
         picture=QImage(64,48,QImage.Format.Format_RGB32); picture.fill(Qt.GlobalColor.blue); picture.save(str(self.image))
@@ -57,7 +57,7 @@ class MediaRepairTests(unittest.TestCase):
 
 class InterfaceRepairTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory(dir=ROOT/'qa'); self.root=Path(self.temp.name)
+        self.temp=tempfile.TemporaryDirectory(); self.root=Path(self.temp.name)
         self.window=Window(self.root/'data'); self.window.state['settings'].update(online=False,material='solid'); self.window.apply_theme()
         self.window.resize(1440,900); self.window.show(); self.window.set_interface_mode('canvas'); QTest.qWait(30)
     def tearDown(self):

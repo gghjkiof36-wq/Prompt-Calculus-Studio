@@ -1,5 +1,6 @@
 """Independent Canvas review regressions using synthetic/offscreen Qt only."""
 import copy
+from _dialog_driver import drive_dialog
 import unittest
 from unittest.mock import patch
 from PySide6.QtCore import Qt, QPoint, QPointF
@@ -24,7 +25,7 @@ class CanvasReviewTests(StageFixture):
         child=next(card for key,card in self.c.cards.items() if key.startswith('root:'))
         self.c.view.resetTransform();self.c.view.scale(.7,.7);self.c.view.centerOn(4900,4730);QTest.qWait(10)
         self.c.view.scene().clearSelection();container.setSelected(True);child.setSelected(True)
-        point=self.c.view.mapFromScene(container.mapToScene(QPointF(100,20)));child_key=child.key
+        point=self.c.view.mapFromScene(container.mapToScene(QPointF(container.width/2,20)));child_key=child.key
         before=QPointF(child.scenePos());relative=QPointF(child.pos());stack=len(self.c.undo_stack)
         QTest.mousePress(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
         group=self.c.view.interaction.group
@@ -94,7 +95,7 @@ class CanvasReviewTests(StageFixture):
         self.c.view.scene().clearSelection();container.setSelected(True);child.setSelected(True)
         before=copy.deepcopy(self.w.state)
         geometry={k:(QPointF(c.scenePos()),QPointF(c.pos()),c.width,c.height) for k,c in self.c.cards.items()}
-        container_pos=QPointF(container.pos());point=self.c.view.mapFromScene(container.mapToScene(QPointF(100,20)))
+        container_pos=QPointF(container.pos());point=self.c.view.mapFromScene(container.mapToScene(QPointF(container.width/2,20)))
         with patch('prompt_calculus_studio.content_history.record',side_effect=ValueError('synthetic rejection')):
             QTest.mousePress(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
             QTest.mouseMove(self.c.view.viewport(),point+QPoint(70,35),10)
@@ -102,14 +103,22 @@ class CanvasReviewTests(StageFixture):
         self.assertEqual(self.w.state,before);self.assertEqual(container.pos(),container_pos)
         for k,c in self.c.cards.items():self.assertEqual((c.scenePos(),c.pos(),c.width,c.height),geometry[k])
 
-    def test_clean_visible_editor_follows_undo_redo(self):
-        self.w.edit_canvas_material('root');QTest.qWait(10);editor=self.w.material_sidebar
+    def test_modal_editor_save_follows_undo_redo_on_reopen(self):
+        from prompt_calculus_studio.text_canvas import NodeDialog
         before=self.w.state['uses']['root']['prompt']
-        self.c.commit(lambda s:s['uses']['root'].update(prompt='edited through document'))
-        self.assertEqual(editor.prompt.toPlainText(),'edited through document')
-        self.c.undo();self.assertEqual(editor.prompt.toPlainText(),before)
-        self.c.redo();self.assertEqual(editor.prompt.toPlainText(),'edited through document')
-        self.assertFalse(editor.dirty);self.assertFalse(self.executor.submissions)
-
+        depth=len(self.c.undo_stack)
+        def save(dialog):
+            self.assertEqual(dialog.prompt.toPlainText(),before)
+            dialog.prompt.setPlainText('edited through document');dialog.accept()
+        drive_dialog(lambda:self.w.edit_canvas_material('root'),NodeDialog,save)
+        self.assertEqual(self.w.state['uses']['root']['prompt'],'edited through document')
+        self.assertEqual(len(self.c.undo_stack),depth+1)
+        for operation,expected in ((self.c.undo,before),(self.c.redo,'edited through document')):
+            operation()
+            def inspect(dialog):
+                self.assertEqual(dialog.prompt.toPlainText(),expected);dialog.reject()
+            drive_dialog(lambda:self.w.edit_canvas_material('root'),NodeDialog,inspect)
+            self.assertEqual(self.w.state['uses']['root']['prompt'],expected)
+        self.assertFalse(self.executor.submissions)
 
 if __name__=='__main__':unittest.main(verbosity=2)

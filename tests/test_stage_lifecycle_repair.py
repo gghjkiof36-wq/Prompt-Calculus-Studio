@@ -183,7 +183,8 @@ class StageLifecycleTests(StageTests):
         self.click();self.assertEqual(len(self.executor.submissions),1)
         self.assertEqual(self.runner.current()['status'],'paused')
         panel=self.c.flow_cards[key].panel
-        QTest.mouseClick(next(b for b in panel.findChildren(QPushButton) if b.text()=='繼續'),Qt.MouseButton.LeftButton);QTest.qWait(40)
+        self.assertEqual(panel.pause_button.text(),'繼續')
+        QTest.mouseClick(panel.pause_button,Qt.MouseButton.LeftButton);QTest.qWait(40)
         self.assertEqual(len(self.executor.submissions),2,self.notices);self.executor.finish()
         self.click();self.assertEqual(len(self.executor.submissions),3,self.notices);self.executor.finish()
 
@@ -224,13 +225,18 @@ class StageLifecycleTests(StageTests):
         from unittest.mock import patch
         menus=[]
         stage,key=self.queue();panel=self.c.flow_cards[key].panel;panel.refresh()
-        self.assertTrue(panel.policy_button.isHidden())
-        with patch('prompt_calculus_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):panel.more_actions()
+        self.assertFalse(hasattr(panel,'policy_button'))
+        self.assertTrue(panel.open_button.isVisible())
+        page=panel.open_page()
+        with patch('prompt_calculus_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):page.content.more_actions()
         self.assertNotIn('輸入取值',[a.text() for a in menus[-1].actions()])
+        page.finish()
         self.c.remove_flow_node('schedulers',key);stage,key=self.queue(stage,scope=True)
         panel=self.c.flow_cards[key].panel;panel.refresh()
-        with patch('prompt_calculus_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):panel.more_actions()
+        page=panel.open_page()
+        with patch('prompt_calculus_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):page.content.more_actions()
         self.assertIn('輸入取值',[a.text() for a in menus[-1].actions()])
+        page.finish()
 
 # unittest discovery otherwise repeats every inherited test from StageTests.
 def load_tests(loader,tests,pattern):

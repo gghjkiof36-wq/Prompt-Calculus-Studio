@@ -1,3 +1,4 @@
+from _qt_cleanup import close_window
 import copy,json,os,sys,tempfile,unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]; sys.path[:0]=[str(ROOT/'vendor'),str(ROOT)]
@@ -48,11 +49,11 @@ class WorkflowImportTests(unittest.TestCase):
 
 class FunctionTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'qa'); self.root=Path(self.tmp.name)
+        self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name)
         self.w=Window(self.root/'data'); self.w.state['settings'].update(online=False,material='solid'); self.w.apply_theme(); self.w.show()
         self.w.set_interface_mode('canvas'); QTest.qWait(35); self.c=self.w.canvas
         self.image=self.root/'來源.png'; picture=QImage(320,240,QImage.Format.Format_RGB32); picture.fill(0xff426078); picture.save(str(self.image))
-    def tearDown(self): self.w.close(); APP.processEvents(); self.tmp.cleanup()
+    def tearDown(self): close_window(self.w); self.tmp.cleanup()
     def tags(self):
         self.c.add_tag('1girl'); self.c.add_tag('smile'); return list(self.w.state['uses'])
     def test_drag_nested_module_out_to_canvas_then_undo_and_reload(self):
@@ -107,19 +108,6 @@ class FunctionTests(unittest.TestCase):
         self.c.clear_drop_preview(); self.assertEqual(target.height,height)
         self.c.nest(child,parent); nested=next(k for k in self.c.cards if ':' in k); before=copy.deepcopy(self.w.state)
         self.assertFalse(self.c.nest(parent,nested)); self.assertEqual(self.w.state,before)
-    def test_standalone_image_docking_uses_saved_workflow_and_detach_keeps_image(self):
-        self.w.generation_panel.save_profile(workflow('txt2img')); self.w.generation_panel.save_profile(workflow())
-        self.w.generation_panel.mode.setCurrentIndex(0); self.w.final.setPlainText('keep current prompt')
-        key=self.c.functions.add_image(path=self.image,position=QPointF(700,200))
-        self.assertEqual(self.w.state['generation']['mode'],'txt2img')
-        self.c.functions.attach(key); profile=active_profile(self.w.state)
-        self.assertEqual(profile['mode'],'img2img'); self.assertEqual(self.w.state['generation']['source']['name'],'來源.png')
-        self.assertEqual(self.w.final.toPlainText(),'keep current prompt')
-        payload=submission(profile,make_snapshot(self.w.state),self.w.state['generation']['source'],'prompt_studio/source.png')
-        self.assertEqual(payload['prompt']['4']['inputs']['image'],'prompt_studio/source.png')
-        self.assertEqual(payload['prompt']['2']['inputs']['text'],'keep current prompt')
-        self.c.functions.attach(key,False); self.assertEqual(self.w.state['generation']['mode'],'txt2img')
-        self.assertIsNone(self.w.state['generation']['source']); self.assertIsNotNone(self.c.functions.data()['images'][key]['source'])
     def test_drop_picture_creates_independent_card_and_survives_reopen(self):
         self.w.final.setPlainText('manual'); mime=QMimeData(); mime.setUrls([QUrl.fromLocalFile(str(self.image))])
         point=QPoint(30,40); enter=QDragEnterEvent(point,Qt.DropAction.CopyAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier)
@@ -127,7 +115,7 @@ class FunctionTests(unittest.TestCase):
         drop=QDropEvent(QPointF(point),Qt.DropAction.CopyAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier); APP.sendEvent(self.c.view.viewport(),drop)
         self.assertEqual(len(self.c.functions.data()['images']),1); self.assertEqual(self.w.final.toPlainText(),'manual')
         self.assertNotEqual(self.w.state.get('generation',{}).get('mode'),'img2img'); validate_state(self.w.state)
-        self.w.close(); APP.processEvents(); self.w=Window(self.root/'data'); self.w.show(); QTest.qWait(60)
+        close_window(self.w); self.w=Window(self.root/'data'); self.w.show(); QTest.qWait(60)
         self.assertEqual(len(self.w.canvas.functions.cards),1)
     def test_empty_preview_has_no_dead_thumbnail_or_save_controls(self):
         record=import_image(self.image,self.w.store.directory,''); record['path']=str(self.root/'deleted.png'); self.w.catalog.put('recent',record)
@@ -176,9 +164,39 @@ class FunctionTests(unittest.TestCase):
         enter=QDragEnterEvent(point,Qt.DropAction.CopyAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier); APP.sendEvent(target,enter)
         drop=QDropEvent(QPointF(point),Qt.DropAction.CopyAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier); APP.sendEvent(target,drop)
         self.assertEqual(active_profile(self.w.state)['mode'],'img2img'); self.assertEqual(self.w.final.toPlainText(),'preserved'); self.assertIn('已匯入圖生圖',target.feedback.text())
-    def test_palette_search_shrinks_after_long_text(self):
-        palette=CanvasPalette(self.c,None); palette.show(); QTest.qWait(20)
-        short=palette.query.height(); palette.query.setPlainText('long tag '*100); self.assertGreater(palette.query.height(),short)
-        palette.query.clear(); self.assertEqual(palette.query.height(),short); palette.reject()
+    def test_palette_search_is_single_line_and_clearing_restores_results(self):
+        palette=CanvasPalette(self.c,None);palette.show();QTest.qWait(20)
+        try:
+            count=palette.assets.count();height=palette.search.height()
+            palette.search.setText('long tag '*100)
+            self.assertEqual(palette.search.height(),height);self.assertEqual(palette.assets.count(),0)
+            palette.search.clear();self.assertEqual(palette.assets.count(),count)
+        finally:palette.reject()
+
+
+import stage_fixture as current_fixture
+
+
+class CurrentFunctionTests(current_fixture.StageFixture):
+    def test_standalone_image_attach_keeps_mode_prompt_and_detached_source(self):
+        image=Path(self.tmp.name)/'source.png'
+        picture=QImage(320,240,QImage.Format.Format_RGB32);picture.fill(0xff426078);self.assertTrue(picture.save(str(image)))
+        self.w.generation_panel.mode.setCurrentIndex(0);self.w.final.setPlainText('keep current prompt')
+        profile=copy.deepcopy(active_profile(self.w.state))
+        key=self.c.functions.add_image(path=image,position=QPointF(1700,1200))
+        self.assertIsNotNone(key,self.notices)
+        source=copy.deepcopy(self.c.functions.data()['images'][key]['source'])
+        self.c.functions.attach(key)
+        self.assertEqual(self.w.state['generation']['mode'],'txt2img')
+        self.assertEqual(active_profile(self.w.state),profile)
+        self.assertEqual(self.w.final.toPlainText(),'keep current prompt')
+        self.assertIn((key,self.out,'image'),[(e['source'],e['destination'],e['kind']) for e in self.c.data()['connections']])
+        self.assertEqual(self.c.functions.data()['images'][key]['source'],source)
+        self.c.functions.attach(key,False)
+        self.assertEqual(self.w.state['generation']['mode'],'txt2img')
+        self.assertEqual(self.w.final.toPlainText(),'keep current prompt')
+        self.assertNotIn((key,self.out,'image'),[(e['source'],e['destination'],e['kind']) for e in self.c.data()['connections']])
+        self.assertEqual(self.c.functions.data()['images'][key]['source'],source)
+        self.assertFalse(self.executor.submissions)
 
 if __name__=='__main__': unittest.main()

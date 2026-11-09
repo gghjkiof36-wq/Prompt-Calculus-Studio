@@ -26,7 +26,7 @@ class ExtensionPageTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=ROOT/'qa')
+        self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.comfy = self.root/'ComfyUI'; (self.comfy/'custom_nodes').mkdir(parents=True)
         (self.comfy/'main.py').write_text('# inert fixture')

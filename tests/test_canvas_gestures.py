@@ -14,7 +14,7 @@ APP=QApplication.instance() or QApplication([])
 
 class CanvasGestureTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory(dir=ROOT/'qa'); self.directory=Path(self.temp.name)/'data'
+        self.temp=tempfile.TemporaryDirectory(); self.directory=Path(self.temp.name)/'data'
         self.w=Window(self.directory); self.w.state['settings'].update(online=False,material='solid'); self.w.apply_theme()
         self.w.resize(1440,950); self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(40)
         self.c=self.w.canvas; self.tree=self.w.selected; self.view=self.c.view

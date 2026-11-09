@@ -15,7 +15,7 @@ SHELL=shutil.which('powershell.exe')
 @unittest.skipUnless(os.name=='nt' and SHELL,'Windows PowerShell required')
 class DeploymentTests(unittest.TestCase):
     def setUp(self):
-        tmp=tempfile.TemporaryDirectory(dir=ROOT/'qa');self.addCleanup(tmp.cleanup);self.root=Path(tmp.name)
+        tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup);self.root=Path(tmp.name)
         # A child powershell.exe must use its own 5.1 modules, not the calling
         # tool's PowerShell 7 module path. This changes this subprocess only.
         self.env={**os.environ,'PSModulePath':str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/Modules')}

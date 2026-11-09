@@ -114,7 +114,7 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
 
 class DesktopUiTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'qa'); self.window=Window(self.tmp.name)
+        self.tmp=tempfile.TemporaryDirectory(); self.window=Window(self.tmp.name)
         self.window.state['settings']['material']='solid'; self.window.apply_theme(); self.window.show(); APP.processEvents()
     def tearDown(self):
         self.window.close(); APP.processEvents(); self.window.deleteLater(); APP.processEvents(); self.tmp.cleanup()
@@ -168,7 +168,7 @@ class DesktopUiTests(unittest.TestCase):
     def test_nested_album_original_is_in_portable_backup(self):
         data=self.window.store.directory; original=data/'originals'/'albums'/'one'/'image.png'
         original.parent.mkdir(parents=True); png(original,{'prompt':{'test':1}})
-        with tempfile.TemporaryDirectory(dir=ROOT/'qa') as other:
+        with tempfile.TemporaryDirectory() as other:
             archive=Path(other)/'backup.zip'
             archive_data(data,data/'studio.sqlite3',archive)
             with zipfile.ZipFile(archive) as zipped:

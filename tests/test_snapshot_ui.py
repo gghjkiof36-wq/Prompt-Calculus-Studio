@@ -19,7 +19,7 @@ APP=QApplication.instance() or QApplication([])
 
 class SnapshotUiTests(unittest.TestCase):
     def test_restore_button_keeps_current_library_and_backs_up_current_draft(self):
-        with tempfile.TemporaryDirectory(dir=ROOT/'qa') as folder:
+        with tempfile.TemporaryDirectory() as folder:
             window=Window(folder)
             item=window.state['items'][0]
             window.state['selections']={item['module']:[item['id']]}
@@ -42,7 +42,7 @@ class SnapshotUiTests(unittest.TestCase):
             window.close()
 
     def test_cancel_restore_has_no_effect(self):
-        with tempfile.TemporaryDirectory(dir=ROOT/'qa') as folder:
+        with tempfile.TemporaryDirectory() as folder:
             window=Window(folder); original=copy.deepcopy(window.state)
             window.gallery.record={'metadata':{'raw':{'prompt_studio':{'schema_version':1,'bindings':[
                 {'node_id':'2','snapshot':make_snapshot(window.state)}]}}}}
@@ -52,7 +52,7 @@ class SnapshotUiTests(unittest.TestCase):
             window.close()
 
     def test_png_restore_has_undo_and_redo_and_keeps_empty_manual_draft(self):
-        with tempfile.TemporaryDirectory(dir=ROOT/'qa') as folder:
+        with tempfile.TemporaryDirectory() as folder:
             window=Window(folder)
             snapshot=make_snapshot(window.state)
             # A migrated pre-Canvas selection must survive Undo, including

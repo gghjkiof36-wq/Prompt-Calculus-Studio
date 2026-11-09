@@ -4,6 +4,7 @@ No test fabricates a completed desktop job or invokes ChainRunner.collect as a
 completion shortcut. The fake executor replaces ComfyUI/GPU only.
 """
 import copy
+from _qt_cleanup import close_window
 import tempfile
 import unittest
 from pathlib import Path
@@ -127,7 +128,12 @@ class StageFixture(unittest.TestCase):
         self.executor=ChainExecutor(self.w,Path(self.tmp.name)/'executor');self.runner=self.w.comfy.input_flow.chain
         self.controls=self.c.execution_bar.controls
 
-    def tearDown(self):self.w.close();APP.processEvents()
+    def tearDown(self):
+        try:
+            close_window(self.w)
+        finally:
+            for executor in self.w.__dict__.get("_test_receipt_executors", []):
+                executor.close()
 
     def click(self):
         self.controls.refresh();self.assertTrue(self.controls.run_button.isEnabled())

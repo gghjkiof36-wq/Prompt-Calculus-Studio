@@ -21,7 +21,7 @@ APP=QApplication.instance() or QApplication([])
 
 class ExportUiTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'qa'); self.root=Path(self.tmp.name)
+        self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name)
         self.w=Window(self.root/'data'); self.errors=[]; self.w.error=self.errors.append
         self.w.state['settings']['material']='solid'; self.w.apply_theme(); self.w.show(); APP.processEvents()
 

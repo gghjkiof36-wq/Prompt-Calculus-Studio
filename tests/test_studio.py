@@ -29,7 +29,7 @@ QFontDatabase.addApplicationFont("C:/Windows/Fonts/msjh.ttc")
 class CoreTests(unittest.TestCase):
     def test_appearance_preferences_validate_and_load_old_data(self):
         s=initial_state(); s["settings"].pop("acrylic_transparency"); s["settings"].pop("confirm_clear_draft")
-        with tempfile.TemporaryDirectory(dir=ROOT/"qa") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             store=Storage(directory); store.save(s); loaded=store.load(); store.close()
         self.assertEqual(loaded["settings"]["acrylic_transparency"],61)
         self.assertTrue(loaded["settings"]["confirm_clear_draft"])
@@ -46,7 +46,7 @@ class CoreTests(unittest.TestCase):
         reorder_output(s,("group",pose["module"]),("group",first["module"]))
         self.assertEqual(build_prompt(s),"white wall,\nstanding, hands behind back,\n1girl, red dress")
         self.assertEqual(s["modules"],modules)
-        with tempfile.TemporaryDirectory(dir=ROOT/"qa") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             store=Storage(directory); store.save(s); restored=store.load(); store.close()
             self.assertEqual(output_groups(restored),output_groups(s)); self.assertEqual(build_prompt(restored),build_prompt(s))
 
@@ -87,20 +87,20 @@ class CoreTests(unittest.TestCase):
         self.assertIsNone(current_token("(red dress:1.2)",9))
 
     def test_storage_roundtrip_backup(self):
-        with tempfile.TemporaryDirectory(dir=ROOT/"qa") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             store=Storage(directory); s=initial_state(); store.save(s); self.assertEqual(store.load()["items"],s["items"])
             self.assertTrue(store.backup().is_file()); store.cache("a",[{"value":"apple"}]); self.assertEqual(store.cached("a")[0]["value"],"apple"); store.close()
 
 class FileTests(unittest.TestCase):
     def test_cancelled_scan_does_not_return_partial_catalog(self):
-        with tempfile.TemporaryDirectory(dir=ROOT/"qa") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); (root/"loras").mkdir(); (root/"loras"/"a.safetensors").write_bytes(b"test")
             cancel=threading.Event(); cancel.set()
             with self.assertRaisesRegex(ValueError,"已取消"): scan_models(root,cancel)
 
     def test_zip_backup_and_owned_original_relocation(self):
         from prompt_calculus_studio.backup import archive_data
-        with tempfile.TemporaryDirectory(dir=ROOT/"qa") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); path=root/"image.png"; image=QImage(64,64,QImage.Format.Format_RGB32); image.fill(Qt.GlobalColor.red); image.save(str(path))
             store=Storage(root/"data"); store.save(initial_state()); catalog=Catalog(store)
             record=import_image(path,store.directory,"album",copy_original=True); catalog.put("album",dict(id="album",name="Album")); catalog.put("image",record,"album")
@@ -114,14 +114,14 @@ class FileTests(unittest.TestCase):
             self.assertNotIn("metadata",restored_catalog.rows("image","album")[0]); restored.close(); store.close()
 
     def test_familiar_artist_is_available_without_network(self):
-        with tempfile.TemporaryDirectory(dir=ROOT/"qa") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             store=Storage(directory)
             store.use("w","apple_caramel",dict(value="apple_caramel",category=1,source="Danbooru"))
             self.assertEqual(store.familiar("w","ap",True)[0]["value"],"apple_caramel")
             self.assertEqual(store.familiar("different_workspace","ap",True),[]); store.close()
 
     def test_safe_scan_copy_and_unchanged_fingerprint(self):
-        with tempfile.TemporaryDirectory(dir=ROOT/"qa") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)/"models"; (root/"loras").mkdir(parents=True)
             source=Path(directory)/"a.safetensors"; source.write_bytes(b"test-model")
             target=Path(copy_model(source,root,"loras")); rows=scan_models(root)
@@ -132,7 +132,7 @@ class FileTests(unittest.TestCase):
             with self.assertRaises(ValueError): checked_model(root,target,rows[0])
 
     def test_metadata_link_preview_and_manual_provenance(self):
-        with tempfile.TemporaryDirectory(dir=ROOT/"qa") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/"test.png"; img=QImage(640,480,QImage.Format.Format_RGB32); img.fill(Qt.GlobalColor.darkGray)
             graph={"3":{"class_type":"KSampler","inputs":{"cfg":5.5,"steps":22,"seed":12,"positive":["6",0]}},"6":{"class_type":"CLIPTextEncode","inputs":{"text":"1girl, white wall"}}}
             img.setText("prompt",json.dumps(graph)); img.save(str(path))
@@ -149,7 +149,7 @@ class FileTests(unittest.TestCase):
 
 class UiTests(unittest.TestCase):
     def setUp(self):
-        self.directory=tempfile.TemporaryDirectory(dir=ROOT/"qa")
+        self.directory=tempfile.TemporaryDirectory()
         self.window=Window(self.directory.name); self.window.state["settings"]["online"]=False; self.window.show(); APP.processEvents()
         self.errors=[]; self.window.error=self.errors.append
 

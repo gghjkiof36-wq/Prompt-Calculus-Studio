@@ -1,0 +1,86 @@
+[
+  {
+    "test_ids": ["test_stage_click_regression.ClickRegressionTests.test_two_clicks_without_event_loop_create_only_one_batch"],
+    "reason": "B: 兩次點擊之間沒有事件迴圈時，整批重複排入；entry、送出、生成都應等於 N。",
+    "fix_in": "Q1（第一批第 9 項）",
+    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
+    "match": "Q1 duplicate batch"
+  },
+  {
+    "test_ids": ["test_canvas_module_redesign.ModuleRedesignTests.test_function_picker_previews_are_read_only_and_share_real_cards"],
+    "reason": "S0-4e: 產品 module_preview 的 store 缺 schedule_groups，預排程預覽為 None。",
+    "fix_in": "第一批第 4 項",
+    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
+    "match": "None is not an instance of"
+  },
+  {
+    "test_ids": ["test_canvas_module_redesign.ModuleRedesignTests.test_function_picker_previews_are_read_only_and_share_real_cards", "test_canvas_visual_batch.CanvasVisualBatchTests.test_all_real_previews_keep_legible_scale_and_fit_their_width"],
+    "reason": "S0-4e: 上述產品預覽錯誤由 Qt 回呼傳至 tearDown；保留錯誤斷言。",
+    "fix_in": "第一批第 4 項",
+    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
+    "match": "schedule_groups"
+  },
+  {
+    "test_ids": ["test_canvas_rev9.CanvasRev9Tests.test_routing_nested_collapsed_card_and_expanded_padding_keep_their_target"],
+    "reason": "6B: 摺疊子卡片下緣命中父卡片；保留原斷言。",
+    "fix_in": "第一批第 6 項",
+    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
+    "match": " is not "
+  },
+  {
+    "test_ids": ["test_stage_lifecycle_repair.StageLifecycleTests.test_explicit_pause_survives_empty_queue_without_leaving_completed_run_open"],
+    "reason": "5B: 暫停後的主按鈕須顯示繼續。",
+    "fix_in": "第一批第 5 項",
+    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
+    "match": "繼續"
+  },
+  {
+    "test_ids": ["test_canvas_rev9.CanvasRev9Tests.test_module_hover_help_never_opens_a_tip_or_changes_card_geometry"],
+    "reason": "5B: 每張卡片的更多選單提供調整模組尺寸與恢復自動尺寸；保留 hover 幾何斷言。",
+    "fix_in": "第一批第 5 項",
+    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
+    "match": "調整模組尺寸"
+  },
+  {
+    "test_ids": ["test_canvas_visual_batch.CanvasVisualBatchTests.test_scheduler_management_keeps_the_existing_commands"],
+    "reason": "預排程卡的管理按鈕將併入更多選單；此件只登記原失敗。",
+    "fix_in": "第一批第 5 項",
+    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
+    "match": "0 != 1"
+  },
+  {
+    "test_ids": ["test_canvas_functions.FunctionTests.test_drop_picture_creates_independent_card_and_survives_reopen"],
+    "reason": "Q8a: 合成拖放事件未新增圖片卡，等待使用者以試用版實測。",
+    "fix_in": "Q8a 使用者實測後判定",
+    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
+    "match": "0 != 1"
+  },
+  {
+    "test_ids": ["test_stage_parameter_pipeline.StageParameterPipelineTests.test_nested_twelve_images_two_outer_items_inherit_original_parameters_on_refill", "test_stage_parameter_pipeline.StageParameterPipelineTests.test_two_tasks_keep_cfg_three_four_while_native_unspecified_fields_stay_live"],
+    "reason": "S0-3 P2: 視窗關閉後縮圖工作仍可能占用 studio.sqlite3 或縮圖。",
+    "fix_in": "H-LIFE（第一批第 3 項）",
+    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
+    "match": "[WinError 32]"
+  },
+  {
+    "test_ids": ["test_release_089.Release089Tests.test_launchers_and_shared_identity_are_current"],
+    "reason": "release_089:39 的 SHARED_MODULES == 35 過時；本件保留斷言。",
+    "fix_in": "S1（第一批第 2 項）",
+    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
+    "match": "36 != 35"
+  },
+  {
+    "test_ids": ["test_canvas_visuals.CanvasVisualTests.test_compact_scheduler_pause_keeps_underlying_pause_resume_behavior"],
+    "reason": "使用者已決定排程空時顯示「沒有等待執行的項目」；產品 stage_widgets 仍為「沒有等待執行的任務」。",
+    "fix_in": "預排程卡片（第一批第 5 項）",
+    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
+    "match": "沒有等待執行的項目"
+  },
+  {
+    "test_ids": ["test_canvas_popup_layers.CanvasPopupLayersTests.test_scheduler_pause_and_resume_match_save_material_action"],
+    "reason": "切換到淺色主題後，預排程卡的暫停按鈕仍保留深色樣式，其他卡片按鈕已更新。",
+    "fix_in": "預排程卡片（第一批第 5 項）",
+    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
+    "match": "background:#191c1e"
+  }
+]

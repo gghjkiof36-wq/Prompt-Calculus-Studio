@@ -65,7 +65,7 @@ class GenerationCoreTests(unittest.TestCase):
             with self.assertRaises(ValueError): uploaded_image(dict(name=name,subfolder=''))
 
     def test_direct_submission_gets_verified_metadata_with_exact_inputs(self):
-        with tempfile.TemporaryDirectory(dir=ROOT/'qa') as folder:
+        with tempfile.TemporaryDirectory() as folder:
             service=Service(Path(folder)/'service',folder,folder); state=initial_state(); state['draft']='landscape'
             profile=workflow(); source=dict(name='test.png',sha256='a'*64,width=512,height=512)
             payload=submission(profile,make_snapshot(state),source,'prompt_studio/test.png')
@@ -82,7 +82,7 @@ class GenerationUiTests(unittest.TestCase):
         # Current Canvas execution is covered separately by test_workflow_flow.
         mode=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'0'})
         mode.start(); self.addCleanup(mode.stop)
-        self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'qa'); self.root=Path(self.tmp.name)
+        self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name)
         self.w=Window(self.root/'data'); self.w.state['settings'].update(online=False,material='solid'); self.w.apply_theme()
         self.w.resize(1440,900); self.w.show(); APP.processEvents()
         self.image=self.root/'source.png'; self.other=self.root/'other.png'

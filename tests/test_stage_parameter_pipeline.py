@@ -1,6 +1,7 @@
 """Real Qt Run events through native receipts/history/assets; executor is a fixture."""
 import copy
 import unittest
+from unittest.mock import patch
 from PySide6.QtTest import QTest
 import test_084_stages as stage_tests
 from stage_parameter_fixture import add_samplers,intention
@@ -46,7 +47,9 @@ class StageParameterPipelineTests(unittest.TestCase):
         for rows in self.executor.results.values():
             metadata=png_metadata(rows[0]['path']);self.assertIn(metadata['raw']['prompt']['35']['inputs']['cfg'],(3,4))
 
+    @patch("prompt_calculus_studio.stage_runner.CAPACITY", 10)
     def test_nested_twelve_images_two_outer_items_inherit_original_parameters_on_refill(self):
+        from prompt_calculus_studio.stage_runner import CAPACITY
         _,_,parts=self.image_batch(count=12,outer=True);stage=parts['stage'];profile=self.parameters('B')
         self.c.commit(lambda s:s['multi_output']['stages'][stage].update(parameters=intention(profile,value=3)))
         self.click();self.click()
@@ -56,7 +59,7 @@ class StageParameterPipelineTests(unittest.TestCase):
         self.c.commit(lambda s:s['multi_output']['stages'][stage].update(parameters=intention(profile,value=7)))
         for i in range(24):
             self.assertTrue(self.executor.pending,(i,self.notices));self.executor.finish()
-            self.assertLessEqual(sum(e['scheduler']==parts['inner'] for e in self.runner.store.rows('entry',active=True)),10)
+            self.assertLessEqual(sum(e['scheduler']==parts['inner'] for e in self.runner.store.rows('entry',active=True)),CAPACITY)
         self.assertEqual([p['prompt']['35']['inputs']['cfg'] for p in self.executor.submissions],[3]*12+[4]*12,self.notices)
         self.assertIsNone(self.runner.current(),self.notices)
         child=[e for e in self.runner.store.rows('entry') if e['scheduler']==parts['inner']]

@@ -97,18 +97,20 @@ class InputRunnerTests(unittest.TestCase):
         self.assertEqual([self.text(i) for i in range(3)],['image 1','image 2','image 3'])
         self.finish();self.finish();self.assertEqual(len(self.submits),3)
 
+    @patch("prompt_calculus_studio.input_runner.CAPACITY", 10)
     def test_large_folder_window_refill_paired_images_and_edit_time(self):
+        from prompt_calculus_studio.input_runner import CAPACITY
         self.images(13);self.schedule();target=add_image_input(self.state)
         self.state['generation']['profiles'][0]['graph']['20']=dict(class_type='LoadImage',inputs={'image':'original.png'})
         self.state['multi_output']['image_inputs'][target].update(workflow='flow',node='20')
         image_port=endpoint(self.sid,'image1');connect(self.state,'__source_images',image_port,'image');connect(self.state,image_port,target,'image')
-        self.runner.execute();self.assertEqual(len(self.runner.store.rows(self.sid))+self.runner.direct_count(self.runner.store.scoped(self.sid)),10)
-        self.runner.execute();self.assertEqual(len(self.runner.store.rows(self.sid))+self.runner.direct_count(self.runner.store.scoped(self.sid)),10)
+        self.runner.execute();self.assertEqual(len(self.runner.store.rows(self.sid))+self.runner.direct_count(self.runner.store.scoped(self.sid)),CAPACITY)
+        self.runner.execute();self.assertEqual(len(self.runner.store.rows(self.sid))+self.runner.direct_count(self.runner.store.scoped(self.sid)),CAPACITY)
         # Fill does not move the visible canvas/source to item ten.
         self.assertEqual(self.state['canvas_functions']['images']['__source_images']['index'],0)
         for i in range(13):
             self.assertEqual(self.text(),'image '+str(i+1));self.assertEqual(self.submits[-1]['images'][0]['image'],'input/'+str(i+1)+'.png')
-            self.assertLessEqual(len(self.runner.store.rows(self.sid))+self.runner.direct_count(self.runner.store.scoped(self.sid)),10);self.finish()
+            self.assertLessEqual(len(self.runner.store.rows(self.sid))+self.runner.direct_count(self.runner.store.scoped(self.sid)),CAPACITY);self.finish()
         self.assertEqual(len(self.submits),13);self.assertEqual(len(self.runner.store.rows(self.sid)),0)
 
     def test_pause_no_refill_click_does_not_resume_and_restart_preserves(self):

@@ -4,6 +4,7 @@ The ComfyUI executor is a local fixture; no GPU or user data is used. Tests neve
 set a desktop job's terminal state or call InputRunner.finished directly.
 """
 import copy
+from _qt_cleanup import close_window
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,7 +16,7 @@ from prompt_calculus_studio.window import Window
 from prompt_calculus_studio import multi_output as model,clip_flow
 from prompt_calculus_studio.composition import node
 from prompt_calculus_studio.flow_data import add_scheduler,endpoint
-from test_comfy_integration import Service
+from _receipt_service import ReceiptService
 from test_multi_output import workflow
 
 APP=QApplication.instance() or QApplication([])
@@ -23,7 +24,8 @@ APP=QApplication.instance() or QApplication([])
 
 class ReceiptExecutor:
     def __init__(self,window,root):
-        self.w=window;self.client=window.comfy;self.service=Service(root/'service',root,root)
+        self.w=window;self.client=window.comfy;self.service=ReceiptService(root/'service',root,root)
+        window.__dict__.setdefault('_test_receipt_executors', []).append(self)
         self.native=self.service.native_queue;self.pending={};self.history={};self.submissions=[]
         self.live=dict(session='fixture-tab',epoch=0,identity=dict(workflow='flow',path='',frontend_id='native-A'),
                        client_id='fixture-web',ready=True,bindings_protocol=1,navigation_protocol=1,apply_protocol=1)
@@ -35,6 +37,9 @@ class ReceiptExecutor:
         from prompt_calculus_studio.core import SUPPORTED_STATE_VERSIONS
         self.client.snapshot_versions=list(SUPPORTED_STATE_VERSIONS);self.client.direct_supported=True
         self.client.stateChanged.emit()
+
+    def close(self):
+        self.service.close()
 
     def request(self,route,data=None,done=None,failed=None,**kwargs):
         try:
@@ -121,7 +126,12 @@ class RuntimeRepairTests(unittest.TestCase):
         self.executor=ReceiptExecutor(self.w,Path(self.tmp.name)/'executor')
         self.controls=self.c.execution_bar.controls;self.controls.refresh()
 
-    def tearDown(self):self.w.close();APP.processEvents()
+    def tearDown(self):
+        try:
+            close_window(self.w)
+        finally:
+            for executor in self.w.__dict__.get("_test_receipt_executors", []):
+                executor.close()
 
     def click(self):
         self.controls.refresh();self.assertTrue(self.controls.run_button.isEnabled())
@@ -224,12 +234,14 @@ class RuntimeRepairTests(unittest.TestCase):
         self.c.commit(setup);self.executor.graph['10']=dict(class_type='LoadImage',inputs={'image':'old.png'})
         return key,sources,created[0] if created else None
 
+    @patch("prompt_calculus_studio.input_runner.CAPACITY", 10)
     def test_twelve_image_buffer_refills_and_keeps_text_image_pairs(self):
+        from prompt_calculus_studio.input_runner import CAPACITY
         key,sources,sid=self.image_batch(12,True);self.click();runner=self.w.comfy.input_flow
-        self.assertEqual(len(runner.store.rows(sid))+runner.direct_count(runner.store.scoped(sid)),10)
-        self.click();self.assertEqual(len(runner.store.rows(sid))+runner.direct_count(runner.store.scoped(sid)),10)
+        self.assertEqual(len(runner.store.rows(sid))+runner.direct_count(runner.store.scoped(sid)),CAPACITY)
+        self.click();self.assertEqual(len(runner.store.rows(sid))+runner.direct_count(runner.store.scoped(sid)),CAPACITY)
         for _ in range(12):
-            self.assertLessEqual(len(runner.store.rows(sid))+runner.direct_count(runner.store.scoped(sid)),10);self.executor.finish()
+            self.assertLessEqual(len(runner.store.rows(sid))+runner.direct_count(runner.store.scoped(sid)),CAPACITY);self.executor.finish()
         payloads=self.executor.submissions;self.assertEqual(len(payloads),12,self.notices)
         self.assertEqual([p['prompt']['6']['inputs']['text'] for p in payloads],[f'image {i+1}' for i in range(12)])
         for source,payload in zip(sources,payloads):self.assertIn(source['sha256'],payload['prompt']['10']['inputs']['image'])

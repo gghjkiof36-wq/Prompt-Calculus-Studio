@@ -25,7 +25,7 @@ def jpegchunk(kind,data): return b'\xff'+bytes([kind])+struct.pack('>H',len(data
 
 class CleanExportTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'qa'); self.root=Path(self.tmp.name); self.source=self.root/'masters'; self.source.mkdir(); self.output=self.root/'share'; self.output.mkdir()
+        self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name); self.source=self.root/'masters'; self.source.mkdir(); self.output=self.root/'share'; self.output.mkdir()
 
     def tearDown(self): self.tmp.cleanup()
 

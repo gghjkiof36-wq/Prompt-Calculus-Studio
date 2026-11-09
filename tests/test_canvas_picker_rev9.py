@@ -1,5 +1,7 @@
+from _qt_cleanup import close_window
 """Real Qt local-module picker events with isolated data and no services."""
 import copy
+from _dialog_driver import drive_dialog
 import os
 import sys
 import tempfile
@@ -56,7 +58,7 @@ class PickerRev9Tests(unittest.TestCase):
     def tearDown(self):
         if self.p: self.p.reject()
         self.w.completion.timer.stop(); self.w.completion.tasks.clear(); self.w.completion.active = None
-        self.pool.stop(); self.w.close(); APP.processEvents(); APP.clipboard().clear()
+        self.pool.stop(); close_window(self.w); APP.clipboard().clear()
         self.network.stop(); self.env.stop(); self.hook.stop(); self.temp.cleanup()
         self.requests.assert_not_called()
         self.assertEqual(self.errors, [], 'Qt callback exceptions were captured')
@@ -87,6 +89,8 @@ class PickerRev9Tests(unittest.TestCase):
         self.assertTrue(self.p.empty.isVisible()); self.assertEqual(self.p.empty.text(),'此分類尚無素材')
         self.assertTrue(self.p.assets.isHidden()); self.assertTrue(self.p.new_button.isVisible())
         self.select(materials.item(self.w.state,self.unclassified)['module'])
+        self.assertNotIn('@uncategorized',self.p.modules.order_ids())
+        self.assertEqual(self.p.get_browser_category(),None)
         self.assertIn(self.unclassified,[self.p.assets.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.p.assets.count())])
         self.assertNotIn('@functions',[self.p.modules.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.p.modules.count())])
         self.assertEqual(self.c.history_state(),before); self.assertEqual(self.asset_api.call_count,0)
@@ -96,7 +100,7 @@ class PickerRev9Tests(unittest.TestCase):
         self.assertEqual(self.p.findChildren(QLineEdit),[self.p.search])
         self.assertEqual(self.p.findChildren(QScrollArea),[])
         self.assertEqual(set(self.p.findChildren(QPushButton)),{self.p.close_button,self.p.new_button})
-        for removed in ('query','scope','lookup_toggle','lookup_pane','lookup_status','suggestions',
+        for removed in ('query','lookup_toggle','lookup_pane','lookup_status','suggestions',
                         'submit_button','search_all','category_manage','material_button'):
             self.assertFalse(hasattr(self.p,removed),removed)
         self.assertEqual(self.p.modules.contextMenuPolicy(),Qt.ContextMenuPolicy.DefaultContextMenu)
@@ -266,16 +270,17 @@ class PickerRev9Tests(unittest.TestCase):
             self.w.state['items']=[item for item in original_items if item['module'] not in unclassified]
             before=copy.deepcopy((self.w.state['modules'],self.w.state['items']))
             self.p.populate_categories(); self.p.set_browser_category('@uncategorized')
-            self.assertEqual(self.p.get_browser_category(),'@uncategorized')
-            self.assertEqual(self.w._material_browser_category,'@uncategorized')
-            self.assertEqual(self.p.assets.count(),0)
+            self.assertEqual(self.p.get_browser_category(),None)
+            self.assertEqual(self.w._material_browser_category,None)
+            self.assertNotIn('@uncategorized',self.p.modules.order_ids())
             self.assertEqual((self.w.state['modules'],self.w.state['items']),before)
             actual=materials.add_category(self.w.state,'未分類')
             self.p.populate_categories()
-            self.assertEqual(self.p.get_browser_category(),actual)
-            self.assertEqual(self.w._material_browser_category,actual)
-            self.p.set_browser_category(None); self.assertIsNone(self.p.get_browser_category())
-            self.p.set_browser_category('@uncategorized'); self.assertEqual(self.p.get_browser_category(),actual)
+            self.assertEqual(self.p.get_browser_category(),None)
+            self.assertEqual(self.w._material_browser_category,None)
+            self.p.set_browser_category(None);self.assertEqual(self.p.get_browser_category(),None)
+            self.p.set_browser_category('@uncategorized');self.assertEqual(self.p.get_browser_category(),None)
+            self.assertNotIn(actual,self.p.modules.order_ids())
         finally:
             self.w.state['modules']=original_modules; self.w.state['items']=original_items
             self.p.populate_categories(); self.p.set_browser_category(self.cat)
@@ -286,20 +291,21 @@ class PickerRev9Tests(unittest.TestCase):
         finally: self.w.state['workspace']=before
 
     def test_blank_dialog_cancel_stays_and_preserves_data_and_destination(self):
-        self.c.add_new_with_destination=self.actual_new
-        self.w.persist()
-        before=copy.deepcopy(self.w.state); shown=[]
-        def cancel_blank():
-            dialog=self.c.active_node_dialog
-            shown.append(dialog.windowTitle())
-            dialog.name.setText('取消不得新增'); dialog.prompt.setPlainText('temporary edits')
-            dialog.reject()
-        QTimer.singleShot(30,cancel_blank)
+        from prompt_calculus_studio.text_canvas import NodeDialog
+        self.c.add_new_with_destination=self.actual_new;self.w.persist()
+        before=copy.deepcopy(self.w.state);shown=[]
         QTest.mouseClick(self.p.new_button,Qt.MouseButton.LeftButton)
+        self.assertTrue(self.p.import_menu.isVisible());self.assertIsNone(APP.activeModalWidget())
+        action=next(a for a in self.p.import_menu.actions() if a.text()=='新增臨時文字模塊')
+        self.p.import_menu.close()
+        def cancel_blank(dialog):
+            shown.append(dialog.windowTitle());dialog.name.setText('取消不得新增')
+            dialog.prompt.setPlainText('temporary edits');dialog.reject()
+        drive_dialog(action.trigger,NodeDialog,cancel_blank)
         self.assertEqual(shown,['新增畫布模組'])
-        self.assertTrue(self.p.isVisible()); self.assertFalse(self.p.inserted)
+        self.assertTrue(self.p.isVisible());self.assertFalse(self.p.inserted)
         self.assertEqual(self.p.destination_id,self.a)
-        self.assertEqual(self.w.state,before); self.assertEqual(self.asset_api.call_count,0)
+        self.assertEqual(self.w.state,before);self.assertEqual(self.asset_api.call_count,0)
 
     def test_autosave_while_browsing_does_not_create_history_and_undo_survives(self):
         from prompt_calculus_studio import workspace_scene

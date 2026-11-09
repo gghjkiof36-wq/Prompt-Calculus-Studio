@@ -22,7 +22,7 @@ class InterfaceTests(unittest.TestCase):
         # caller's mode. New CLIP flows have dedicated multi-Canvas tests.
         mode=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'0'})
         mode.start(); self.addCleanup(mode.stop)
-        self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'qa'); self.root=Path(self.tmp.name)
+        self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name)
         self.w=Window(self.root/'data'); self.w.state['settings'].update(online=False,material='solid'); self.w.apply_theme(); self.w.show(); QTest.qWait(40)
     def tearDown(self): self.w.close(); APP.processEvents(); self.tmp.cleanup()
 

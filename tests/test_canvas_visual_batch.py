@@ -33,7 +33,7 @@ class CanvasVisualBatchTests(StageFixture):
         dialog=FunctionPicker(self.c,QPointF(2100,1200));dialog.show();QTest.qWait(20)
         try:
             before=copy.deepcopy(self.c.data());count=len(self.c.undo_stack)
-            item=dialog.list.item(2)
+            item=next(dialog.list.item(i) for i in range(dialog.list.count()) if dialog.list.item(i).data(Qt.ItemDataRole.UserRole)=='clip')
             point=dialog.list.visualItemRect(item).center()
             # Offscreen has no OS cursor routing. Deliver the real Qt move to
             # the viewport, which still resolves the item and emits itemEntered.

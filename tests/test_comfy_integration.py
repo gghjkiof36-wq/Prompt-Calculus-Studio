@@ -46,7 +46,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertTrue(all(row['prompt_id']=='task' and row['node_id']=='9' for row in result))
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(dir=ROOT / 'qa')
+        self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         for name in ('output', 'temp', 'saved', 'library'): (self.root / name).mkdir()

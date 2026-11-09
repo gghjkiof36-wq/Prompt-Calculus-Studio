@@ -91,7 +91,7 @@ class EffectiveWorkflowTests(unittest.TestCase):
 class EffectiveStorageTests(unittest.TestCase):
     def setUp(self):
         root=Path(__file__).resolve().parents[1]
-        self.directory=tempfile.TemporaryDirectory(dir=root/'qa')
+        self.directory=tempfile.TemporaryDirectory()
         self.store=Storage(self.directory.name)
         self.state=initial_state()
         scope=dict(library=str(uuid.uuid5(uuid.NAMESPACE_URL,str((self.store.directory/'studio.sqlite3').resolve()).casefold())),
@@ -162,7 +162,7 @@ class EffectiveSubmissionTests(unittest.TestCase):
         marker=payload['extra_data']['extra_pnginfo']['prompt_studio_request']
         self.assertEqual({v['text'] for v in marker['source_texts']},{'eyes, blue'})
         original=copy.deepcopy(marker['snapshot'])
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]/'qa') as directory:
+        with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); service=Service(root/'service',root/'output',root/'temp')
             result=service.prepare_prompt(payload)['extra_data']['extra_pnginfo']['prompt_studio']
         self.assertEqual(result['problems'],[])

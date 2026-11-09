@@ -1,4 +1,6 @@
+from _qt_cleanup import close_window
 import copy
+from prompt_calculus_studio.core import SUPPORTED_STATE_VERSIONS
 import json
 import os
 import sys
@@ -84,14 +86,14 @@ class UsageTests(unittest.TestCase):
 
 class CanvasRefinementUiTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'qa'); self.w=Window(Path(self.tmp.name)/'data')
+        self.tmp=tempfile.TemporaryDirectory(); self.w=Window(Path(self.tmp.name)/'data')
         self.w.state['settings'].update(online=False,material='solid'); self.w.apply_theme()
         self.w.state['settings']['separate_selections']=False
         self.w.resize(1440,1000); self.w.show(); self.w.enter_canvas(); APP.processEvents()
         self.canvas=self.w.canvas
 
     def tearDown(self):
-        self.w.close(); APP.processEvents(); self.tmp.cleanup()
+        close_window(self.w); self.tmp.cleanup()
 
     def add(self):
         self.canvas.insert_asset(self.w.state['items'][0]); APP.processEvents()
@@ -156,29 +158,36 @@ class CanvasRefinementUiTests(unittest.TestCase):
         self.w.leave_canvas(); self.w.enter_canvas(); self.assertGreaterEqual(self.canvas.output.width,800)
         self.w.persist(); self.assertEqual(self.w.store.load()['text_sizes'],self.w.state['text_sizes'])
 
-    def test_add_child_hover_press_feedback_and_flat_output_order(self):
-        a=self.add(); b=self.add(); self.canvas.fit(); APP.processEvents(); card=self.canvas.cards[a]
-        point=self.point(card,card.add_rect.center())
-        QTest.mouseMove(self.canvas.view.viewport(),point); APP.processEvents(); self.assertEqual(card.hot,'add')
-        QTest.mousePress(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=point); self.assertEqual(card.pressed,'add')
-        def add(palette):
-            self.assertEqual(palette.canvas.current()['name'],self.w.state['uses'][a]['name'])
-            palette.query.setPlainText('smile'); palette.submit_tag();self.assertIn('已加入',self.w.canvas_status.text())
-            return QDialog.DialogCode.Accepted
-        with patch.object(CanvasPalette,'exec',add):
-            QTest.mouseRelease(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=point); QTest.qWait(25)
-        self.assertEqual(self.w.state['uses'][a]['children'][0]['prompt'],'smile')
-        self.assertEqual(self.w.state['uses'][b]['children'],[]); self.assertIn('已加入',self.w.canvas_status.text())
-        self.assertEqual(self.w.selected.topLevelItemCount(),2)
-        self.w.selected.setCurrentItem(self.w.selected.topLevelItem(0)); QTest.keyClick(self.w.selected,Qt.Key.Key_Down,Qt.KeyboardModifier.ControlModifier)
-        self.assertEqual(output_groups(self.w.state),[b,a]); self.assertTrue(build_prompt(self.w.state).endswith('smile:1.0)'))
 
     def test_legacy_database_migration_is_backed_up_and_reopens(self):
         old=legacy(); self.w.store.save(old); self.w.state=self.w.store.load_current()
         self.w.current_module=self.w.state.get('current_module'); self.w.refresh_builder(); self.w.persist()
         backups=list(self.w.store.directory.glob('before-import-*.sqlite3')); self.assertTrue(backups)
         self.assertEqual(build_prompt(self.w.state),'(1girl, red eyes:1.3)')
-        self.assertEqual(self.w.store.load()['version'],3); self.assertEqual(self.w.state['draft'],'keep manual')
+        self.assertEqual(self.w.store.load()['version'],SUPPORTED_STATE_VERSIONS[-1]); self.assertEqual(self.w.state['draft'],'keep manual')
         self.assertNotEqual(self.w.current_module,'old-canvas')
+
+
+import stage_fixture as current_fixture
+from prompt_calculus_studio import multi_output as model
+
+
+class CurrentPickerRefinementTests(current_fixture.StageFixture):
+    def test_add_child_hover_press_feedback_and_output_order(self):
+        self.c.commit(lambda state:state['uses']['root'].update(collapsed=False))
+        card=self.c.cards['root'];view=self.c.view;view.resetTransform();view.centerOn(card);APP.processEvents()
+        point=view.mapFromScene(card.mapToScene(card.actions()['add'].center()))
+        QTest.mouseMove(view.viewport(),point);APP.processEvents();self.assertEqual(card.hot,'add')
+        QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=point);self.assertEqual(card.pressed,'add')
+        before=self.c.history_state();QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(20)
+        palette=self.w.active_material_picker;self.assertIsInstance(palette,CanvasPalette)
+        asset=next(a for a in self.w.state['items'] if a['prompt']=='smile')
+        palette.set_browser_category(asset['module']);palette.search.setText(asset['name'])
+        self.assertTrue(palette.restore_selection(palette.assets,asset['id']));palette.insert()
+        self.assertEqual([n['prompt'] for n in self.w.state['uses']['root']['children']],['smile'])
+        self.assertIn('smile',model.compile_output(self.w.state,self.out)['final_prompt'])
+        after=self.c.history_state();self.c.undo();self.assertEqual(self.c.history_state(),before)
+        self.c.redo();self.assertEqual(self.c.history_state(),after)
+
 
 if __name__=='__main__': unittest.main()

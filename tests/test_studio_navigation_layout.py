@@ -21,7 +21,7 @@ for font in ('msjh.ttc','msjhbd.ttc','segoeui.ttf'):
 
 class StudioNavigationLayoutTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'qa')
+        self.tmp=tempfile.TemporaryDirectory()
         self.transport=patch('prompt_calculus_studio.comfy_client.ComfyClient.request',return_value=None)
         self.transport.start()
         self.w=Window(Path(self.tmp.name)/'data')

@@ -175,7 +175,9 @@ class QueueTests(unittest.TestCase):
 
     def test_png_source_roundtrip_preserves_draft_and_live_workspace(self):
         work=self.capture()
-        before=copy.deepcopy(self.snapshot['state'])
+        from prompt_calculus_studio.state_loading import prepare_state
+        before=prepare_state(copy.deepcopy(self.snapshot['state']),multi=True)
+        original=copy.deepcopy(before)
         result=self.run_submit(work)
         history=self.completed_history(result,work)
         filename=history[result['prompt_id']]['outputs']['9']['images'][0]['filename']
@@ -183,9 +185,12 @@ class QueueTests(unittest.TestCase):
         bindings=image_snapshots(metadata)
         self.assertEqual(bindings[0]['snapshot'],work['snapshot'])
         restored=restore_snapshot(before,bindings[0]['snapshot'])
-        self.assertEqual(before,self.snapshot['state'])
+        self.assertEqual(before,original)
         self.assertEqual(restored['workspaces'][:-1],before['workspaces'])
         self.assertEqual(restored['draft'],before['draft'])
+        roots=restored['workspaces'][-1]['uses']
+        self.assertTrue(roots)
+        self.assertEqual({root['material_type'] for root in roots.values()},{'text'})
         self.assertEqual(metadata['raw']['prompt_studio']['generation']['queue_revision'],work['sha256'])
 
     def test_sqlite_claim_is_atomic_sort_remove_and_reopen_do_not_requeue_success(self):

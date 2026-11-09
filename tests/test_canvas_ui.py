@@ -1,4 +1,6 @@
+from _qt_cleanup import close_window
 import copy
+from _dialog_driver import drive_dialog
 import os
 import sys
 import tempfile
@@ -22,7 +24,7 @@ APP = QApplication.instance() or QApplication([])
 
 class CanvasUiTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(dir=ROOT/'qa')
+        self.tmp = tempfile.TemporaryDirectory()
         self.w = Window(Path(self.tmp.name)/'data'); self.w.state['settings']['online'] = False
         self.w.state['settings']['separate_selections'] = False
         self.w.state['settings']['material'] = 'solid'; self.w.apply_theme()
@@ -32,7 +34,7 @@ class CanvasUiTests(unittest.TestCase):
         self.w.refresh_builder(); self.canvas = self.w.canvas
 
     def tearDown(self):
-        self.w.close(); APP.processEvents(); self.tmp.cleanup()
+        close_window(self.w); self.tmp.cleanup()
 
     def test_view_switch_and_move_preserve_output_and_sidebar(self):
         before = build_prompt(self.w.state); modules = copy.deepcopy(self.w.state['modules'])
@@ -51,7 +53,8 @@ class CanvasUiTests(unittest.TestCase):
             root = c.instance(state, self.ident); root['prompt'] = '1girl'
             root['children'].append(c.node('眼睛', 'red eyes'))
         self.canvas.commit(prepare)
-        self.assertTrue(list(self.w.store.directory.glob('before-import-*.sqlite3')))
+        self.assertFalse(list(self.w.store.directory.glob('before-import-*.sqlite3')),
+                         'Current-version edits do not trigger migration backups')
         root = self.w.state['instances'][self.ident]; eyes = root['children'][0]
         self.canvas.commit(lambda s: c.instance(s,self.ident)['children'][0]['overlays'].append(c.node('眼罩','blindfold')))
         self.assertEqual(self.w.final.toPlainText(), '1girl, blindfold')
@@ -71,24 +74,14 @@ class CanvasUiTests(unittest.TestCase):
         self.assertFalse(self.canvas.undo_stack)
         self.canvas.undo(); self.assertIn('independent edit', build_prompt(self.w.state))
 
-    def test_new_root_double_click_creates_data_and_persists(self):
-        self.w.enter_canvas(); APP.processEvents()
-        def accept(dialog):
-            dialog.name.setText('新群組'); dialog.prompt.setPlainText('raw,  prompt'); dialog.weight.setValue(1.2)
-            return QDialog.DialogCode.Accepted
-        def choose_new(palette):
-            self.assertGreater(palette.modules.count(),1); palette.new_module()
-            return QDialog.DialogCode.Accepted
-        with patch.object(NodeDialog, 'exec', accept), patch.object(CanvasPalette,'exec',choose_new):
-            QTest.mouseClick(self.canvas.view.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(12,12))
-            QTest.mouseDClick(self.canvas.view.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(12,12))
-            QTest.mouseRelease(self.canvas.view.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(12,12))
-            QTest.qWait(30)
-        self.assertIn('(raw,  prompt:1.2)', self.w.final.toPlainText())
-        validate_state(self.w.state); self.w.persist()
-        stored = self.w.store.load()
-        self.assertEqual(build_prompt(stored), build_prompt(self.w.state))
-        self.assertTrue(stored['text_positions'])
+    def test_blank_double_click_does_not_create_material(self):
+        self.w.enter_canvas();APP.processEvents();before=copy.deepcopy(self.w.state)
+        with patch.object(NodeDialog,'exec') as editor:
+            QTest.mouseDClick(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=QPoint(12,12))
+            QTest.mouseRelease(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=QPoint(12,12));QTest.qWait(20)
+            editor.assert_not_called()
+        self.assertEqual(self.w.state,before)
+        self.w.persist();self.assertEqual(build_prompt(self.w.store.load()),build_prompt(before))
 
     def test_canvas_occupies_window_without_list_columns_and_text_is_shared(self):
         self.w.state['selections']={}; self.w.refresh_builder(); self.w.enter_canvas(); APP.processEvents()
@@ -144,62 +137,7 @@ class CanvasUiTests(unittest.TestCase):
         self.assertEqual(len(self.w.state['uses']), 2)
         self.canvas.undo(); self.assertEqual(list(self.w.state['uses']), [combined])
 
-    def test_direct_tags_form_requested_modules_without_wires_or_single_selection_loss(self):
-        self.w.state['selections']={}; self.w.refresh_builder(); self.w.enter_canvas(); APP.processEvents()
-        def add_tags(*tags):
-            for tag in tags:
-                palette=CanvasPalette(self.canvas,None); palette.show(); APP.processEvents()
-                try:
-                    palette.query.setPlainText(tag); palette.query.setFocus()
-                    QTest.keyClick(palette.query,Qt.Key.Key_Return); APP.processEvents()
-                    self.assertEqual(palette.query.toPlainText(),'')
-                    self.assertFalse(palette.isVisible())
-                finally: palette.reject()
-        add_tags('1girl')
-        girl=next(iter(self.w.state['uses']))
-        self.canvas.enter(girl)
-        self.assertIn(girl,self.canvas.cards)
-        add_tags('red clothes','red eyes','long hair','smile','dancing')
-        self.canvas.home(); add_tags('simple background')
-        background=list(self.w.state['uses'])[-1]
-        self.assertNotEqual(girl,background); self.canvas.enter(background); add_tags('white background')
-        expected='(1girl, red clothes, red eyes, long hair, smile, dancing:1.0),\n\n(simple background, white background:1.0)'
-        self.assertEqual(self.w.final.toPlainText(),expected)
-        self.assertEqual(self.canvas.output.editor.toPlainText(),expected)
-        self.assertFalse(any(isinstance(i,QGraphicsPathItem) for i in self.canvas.view.scene().items()))
-        self.canvas.open_root(girl)
-        dancing=self.w.state['uses'][girl]['children'][-1]
-        self.canvas.toggle(girl+':'+dancing['id'])
-        self.assertNotIn('dancing',self.w.final.toPlainText())
-        self.canvas.toggle(girl+':'+dancing['id']); self.assertEqual(self.w.final.toPlainText(),expected)
-        self.assertFalse(any(m.get('canvas_library') for m in self.w.state['modules']))
-        self.assertFalse(any(i['id']==girl for i in self.w.state['items']))
-        self.w.leave_canvas(); self.assertEqual(self.w.final.toPlainText(),expected)
-        self.w.persist(); self.assertEqual(build_prompt(self.w.store.load()),expected)
 
-    def test_canvas_candidate_acceptance_and_saved_asset_copy(self):
-        self.w.state['selections']={}; self.w.refresh_builder(); self.w.enter_canvas(); APP.processEvents()
-        palette=CanvasPalette(self.canvas,None); palette.show(); APP.processEvents()
-        try:
-            palette.query.setPlainText('微笑'); palette.query.setFocus(); QTest.keyClick(palette.query,Qt.Key.Key_End); APP.processEvents()
-            palette.query.service.lookup()
-            self.assertTrue(palette.query.candidates)
-            label=next(iter(palette.query.candidates))
-            self.assertEqual(palette.query.candidates[label][1]['source'],'自訂字典')
-            palette.query.insert_completion(label); APP.processEvents()
-            self.assertEqual(self.w.final.toPlainText(),'(smile:1.0)')
-            self.assertEqual(palette.query.toPlainText(),'')
-            self.assertFalse(palette.isVisible())
-            palette=CanvasPalette(self.canvas,None); palette.show(); APP.processEvents()
-            palette.query.setPlainText('long'); palette.query.setFocus(); QTest.keyClick(palette.query,Qt.Key.Key_End); APP.processEvents()
-            palette.query.display(palette.query.context(),[dict(value='long_hair',category=0,count=123,source='Danbooru')])
-            palette.query.insert_completion(next(iter(palette.query.candidates)))
-            self.assertEqual(self.w.final.toPlainText(),'(smile:1.0),\n\n(long hair:1.0)')
-        finally: palette.reject()
-        before=copy.deepcopy(self.w.state['items'][0]); self.canvas.insert_asset(before)
-        self.assertEqual(self.w.state['items'][0],before)
-        self.assertTrue(self.w.final.toPlainText().endswith('(1girl, red dress:1.0)'))
-        self.canvas.undo(); self.assertEqual(self.w.final.toPlainText(),'(smile:1.0),\n\n(long hair:1.0)')
 
     def test_root_instance_edits_survive_prototype_change_and_reopen(self):
         self.canvas.commit(lambda s: c.instance(s,self.ident).update(prompt='current use'))
@@ -231,29 +169,6 @@ class CanvasUiTests(unittest.TestCase):
             event=QContextMenuEvent(QContextMenuEvent.Reason.Mouse,QPoint(15,15),view.viewport().mapToGlobal(QPoint(15,15)))
             QApplication.sendEvent(view.viewport(),event); menu.assert_called_once()
 
-    def test_single_asset_click_and_inline_double_click_keep_all_modules_visible(self):
-        self.w.enter_canvas(); APP.processEvents()
-        palette=CanvasPalette(self.canvas,None); palette.show(); APP.processEvents()
-        palette.query.setPlainText(self.asset['name']); APP.processEvents()
-        row=palette.assets.item(0); self.assertIsNotNone(row)
-        QTest.mouseClick(palette.assets.viewport(),Qt.MouseButton.LeftButton,pos=palette.assets.visualItemRect(row).center())
-        self.assertEqual(palette.result(),QDialog.DialogCode.Accepted)
-        added=next(iter(self.w.state['uses']))
-        before=self.canvas.cards[added].height
-        def insert(popup):
-            self.assertEqual(popup.canvas.current()['name'],self.asset['name'])
-            popup.query.setPlainText('smile'); popup.submit_tag()
-            return QDialog.DialogCode.Accepted
-        card=self.canvas.cards[added]; position=self.canvas.view.mapFromScene(card.mapToScene(QPointF(40,25)))
-        with patch.object(CanvasPalette,'exec',insert):
-            QTest.mouseDClick(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=position); QTest.qWait(20)
-        root=self.w.state['uses'][added]; child=root['children'][0]
-        self.assertIn(self.ident,self.canvas.cards); self.assertIn(added,self.canvas.cards)
-        self.assertGreater(self.canvas.cards[added].height,before)
-        nested=self.canvas.cards[added+':'+child['id']]
-        self.assertIs(nested.parentItem(),self.canvas.cards[added])
-        self.assertTrue(self.canvas.cards[added].boundingRect().contains(nested.mapRectToParent(nested.boundingRect())))
-        self.assertIsNone(self.canvas.root_id)
 
     def test_delete_children_parent_and_editing_text_are_separate(self):
         self.canvas.commit(lambda s:c.instance(s,self.ident).update(children=[c.node('A','smile'),c.node('B','dancing')]))
@@ -294,9 +209,7 @@ class CanvasUiTests(unittest.TestCase):
         with patch.object(self.w,'new_item') as save:
             click(self.w.save_prompt); save.assert_called_once_with(build_prompt(self.w.state))
         self.w.leave_canvas(); APP.processEvents()
-        self.assertIs(self.w.split.widget(2),self.w.builder_scroll)
-        self.assertIs(self.w.builder_scroll.widget(),self.w.builder_panel)
-        self.assertIsNone(self.canvas.output.proxy.widget())
+        self.assertIs(self.w.surface_stack.currentWidget(),self.w.prompt_editor)
         self.w.enter_canvas(); APP.processEvents()
         self.assertIs(self.canvas.output.proxy.widget(),self.w.builder_panel)
         self.assertEqual(self.w.final.toPlainText(),build_prompt(self.w.state))
@@ -306,10 +219,12 @@ class CanvasUiTests(unittest.TestCase):
         self.assertFalse(self.w.canvas_connect.isVisible()); self.assertFalse(self.w.canvas_backup.isVisible())
         self.assertIn('data',self.w.settings_page.index)
         self.assertEqual(list(self.w.studio_navigation.entries),['canvas','media','explore','export','settings'])
-        self.assertTrue(all(not entry.icon().isNull() for entry,_ in self.w.studio_navigation.entries.values()))
+        self.assertTrue(all(entry.text() for entry,_ in self.w.studio_navigation.entries.values()))
         self.w.studio_navigation.entries['export'][0].click(); APP.processEvents()
         self.assertIs(self.w.canvas_content.currentWidget(),self.w.clean_export); self.assertFalse(self.canvas.isVisible())
-        self.w.return_to_prompt(); APP.processEvents(); self.assertTrue(self.canvas.isVisible())
+        self.w.studio_navigation.entries['canvas'][0].click();APP.processEvents()
+        self.assertIs(self.w.surface_stack.currentWidget(),self.w.prompt_editor)
+        self.w.enter_canvas();APP.processEvents();self.assertTrue(self.canvas.isVisible())
         self.assertIs(self.canvas.output.proxy.widget(),self.w.builder_panel)
 
     def test_existing_run_count_stop_and_copy_work_inside_output(self):
@@ -344,6 +259,64 @@ class CanvasUiTests(unittest.TestCase):
         self.w.state['settings']['ui_size']=18; self.w.apply_theme(); APP.processEvents()
         self.canvas.refresh(); APP.processEvents()
         self.assertTrue(self.canvas.output.boundingRect().contains(self.canvas.output.proxy.geometry()))
+
+
+
+import stage_fixture as current_fixture
+from prompt_calculus_studio import multi_output as model
+
+
+class CurrentPickerUiTests(current_fixture.StageFixture):
+    def choose_asset(self,palette,asset):
+        palette.set_browser_category(asset['module']);palette.search.setText(asset['name'])
+        self.assertTrue(palette.restore_selection(palette.assets,asset['id']))
+        item=palette.assets.currentItem();palette.assets.scrollToItem(item);APP.processEvents()
+        QTest.mouseClick(palette.assets.viewport(),Qt.MouseButton.LeftButton,pos=palette.assets.visualItemRect(item).center())
+        self.assertTrue(palette.inserted)
+
+    def test_category_search_and_saved_asset_copy_preserve_original(self):
+        asset=copy.deepcopy(self.w.state['items'][0]);before=self.c.history_state()
+        point=self.c.containers[self.cid].pos()+QPointF(60,150)
+        palette=self.c.palette(point);self.choose_asset(palette,asset)
+        added=set(self.w.state['uses'])-set(before['uses']);self.assertEqual(len(added),1)
+        ident=added.pop();self.assertEqual(self.w.state['uses'][ident]['prompt'],asset['prompt'])
+        self.assertEqual(model.owner(self.w.state,ident),self.cid)
+        self.assertEqual(self.w.state['items'][0],asset)
+        self.c.undo();self.assertEqual(self.c.history_state(),before)
+
+    def test_blank_text_and_nested_insert_keep_order_and_undo(self):
+        before=self.c.history_state();point=self.c.containers[self.cid].pos()+QPointF(60,150)
+        palette=self.c.palette(point)
+        def save(dialog):
+            dialog.name.setText('new root');dialog.prompt.setPlainText('new prompt');dialog.accept()
+        drive_dialog(palette.new_module,NodeDialog,save)
+        root=(set(self.w.state['uses'])-set(before['uses'])).pop()
+        palette=self.c.palette(target=root)
+        def child(dialog):
+            dialog.name.setText('child');dialog.prompt.setPlainText('nested prompt');dialog.accept()
+        drive_dialog(palette.new_module,NodeDialog,child)
+        self.assertEqual([n['prompt'] for n in self.w.state['uses'][root]['children']],['nested prompt'])
+        self.assertEqual(self.w.state['uses']['root'],before['uses']['root'])
+        rendered=model.compile_output(self.w.state,self.out)['final_prompt']
+        self.assertIn('new prompt',rendered);self.assertIn('nested prompt',rendered)
+        self.c.undo();self.assertEqual(self.w.state['uses'][root]['children'],[])
+        self.c.redo();self.assertEqual(model.compile_output(self.w.state,self.out)['final_prompt'],rendered)
+        self.w.persist();self.assertEqual(self.w.store.load()['uses'],self.w.state['uses'])
+
+    def test_single_asset_click_and_add_child_keep_existing_modules(self):
+        point=self.c.containers[self.cid].pos()+QPointF(60,150)
+        asset=self.w.state['items'][0];before=set(self.w.state['uses'])
+        palette=self.c.palette(point);self.choose_asset(palette,asset)
+        root=(set(self.w.state['uses'])-before).pop()
+        if self.c.cards[root].collapsed:self.c.toggle_collapsed(root)
+        palette=self.c.palette(target=root)
+        child_asset=next(a for a in self.w.state['items'] if a['prompt']=='smile')
+        self.choose_asset(palette,child_asset)
+        child=self.w.state['uses'][root]['children'][0]
+        self.assertEqual(child['prompt'],'smile');self.assertIn('root',self.c.cards)
+        nested=self.c.cards[root+':'+child['id']]
+        self.assertIs(nested.parentItem(),self.c.cards[root])
+        self.assertTrue(self.c.cards[root].boundingRect().contains(nested.mapRectToParent(nested.boundingRect())))
 
 
 if __name__ == '__main__': unittest.main()

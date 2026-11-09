@@ -48,9 +48,10 @@ class PickerFolderTests(unittest.TestCase):
 
     def test_editor_order_folder_aggregate_search_empty_and_read_only(self):
         self.folders(); self.p.reject(); self.w.leave_canvas()
-        expected=self.w.prompt_editor.categories.order_ids()
         self.w.enter_canvas(); self.open(); before = self.c.history_state()
-        self.assertEqual(self.p.modules.order_ids(), expected)
+        from prompt_calculus_studio.material_scope import MaterialScope
+        expected=[r['id'] for r in MaterialScope(self.w.state,include_uncategorized=False).rows if r['visible']]
+        self.assertEqual(self.p.modules.order_ids(),expected)
         self.click_row(self.fid)
         expected = {v['id'] for v in self.w.state['items'] if v['module'] in (self.cat, self.other_cat)}
         self.assertEqual(set(self.ids()), expected)

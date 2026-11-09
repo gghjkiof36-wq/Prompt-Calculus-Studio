@@ -55,16 +55,16 @@ class CanvasPopupLayersTests(StageFixture):
         palette.show();QTest.qWait(25)
         before=copy.deepcopy(self.w.state);undo=len(self.c.undo_stack)
         sample=palette.surface.pos()+QPoint(18,18)
-        initial=palette.grab().toImage().pixelColor(sample)
+        initial=self.w.grab().toImage().pixelColor(palette.mapTo(self.w,sample))
         seen=[];errors=[]
         def inspect():
             dialog=APP.activeModalWidget()
             try:
                 self.assertIsInstance(dialog,NodeDialog)
-                self.assertIs(dialog.parentWidget(),palette)
+                self.assertIs(dialog.parentWidget(),self.w)
                 self.assertIsNotNone(dialog._backdrop)
                 self.assertTrue(dialog._backdrop.isVisible())
-                dimmed=palette.grab().toImage().pixelColor(sample)
+                dimmed=self.w.grab().toImage().pixelColor(palette.mapTo(self.w,sample))
                 self.assertLess(dimmed.lightness(),initial.lightness())
                 editor=dialog.findChild(QFrame,'DialogSurface')
                 self.assertNotEqual(editor.palette().window().color(),dialog.prompt.palette().base().color())
@@ -74,10 +74,13 @@ class CanvasPopupLayersTests(StageFixture):
             finally:dialog.reject()
         QTimer.singleShot(30,inspect)
         try:
-            QTest.mouseClick(palette.new_button,Qt.MouseButton.LeftButton);QTest.qWait(30)
+            QTest.mouseClick(palette.new_button,Qt.MouseButton.LeftButton)
+            self.assertTrue(palette.import_menu.isVisible())
+            action=next(a for a in palette.import_menu.actions() if a.text()=='新增臨時文字模塊')
+            palette.import_menu.close();action.trigger();QTest.qWait(30)
             self.assertFalse(errors,errors);self.assertEqual(seen,[True])
-            self.assertTrue(palette.isVisible());self.assertIs(APP.activeModalWidget(),palette)
-            self.assertEqual(palette.grab().toImage().pixelColor(sample),initial)
+            self.assertTrue(palette.isVisible());self.assertIsNone(APP.activeModalWidget())
+            self.assertEqual(self.w.grab().toImage().pixelColor(palette.mapTo(self.w,sample)),initial)
             self.assertEqual(self.w.state,before);self.assertEqual(len(self.c.undo_stack),undo)
         finally:palette.reject();palette.deleteLater()
 
@@ -124,18 +127,19 @@ class CanvasPopupLayersTests(StageFixture):
         from prompt_calculus_studio.flow_data import add_scheduler
         keys=[];self.c.commit(lambda state:keys.append(add_scheduler(state)))
         panel=self.c.flow_cards[keys[0]].panel
-        save=self.c.outputs[self.out].panel.save_material
+        save=self.c.outputs[self.out].panel.open_button
         self.assertEqual(panel.pause_button.styleSheet(),save.styleSheet())
         QTest.mouseClick(panel.pause_button,Qt.MouseButton.LeftButton);QTest.qWait(10)
-        self.assertEqual(panel.pause_button.text(),'繼續')
+        self.assertEqual(panel.pause_button.accessibleName(),'繼續預排程')
         self.assertTrue(panel.runner.store.scheduler_paused(self.w.state['workspace'],keys[0]))
         self.assertEqual(panel.pause_button.styleSheet(),save.styleSheet())
         QTest.mouseClick(panel.pause_button,Qt.MouseButton.LeftButton);QTest.qWait(10)
-        self.assertEqual(panel.pause_button.text(),'暫停')
+        self.assertEqual(panel.pause_button.accessibleName(),'暫停預排程')
         self.assertFalse(panel.runner.store.scheduler_paused(self.w.state['workspace'],keys[0]))
         from prompt_calculus_studio.canvas_items import canvas_colors
         for palette in ('paper','graphite'):
             self.w.state['settings']['visual_palette']=palette;self.w.apply_theme(preserve_layout=True)
+            panel=self.c.flow_cards[keys[0]].panel;save=self.c.outputs[self.out].panel.open_button
             self.assertEqual(panel.pause_button.styleSheet(),save.styleSheet())
             self.assertEqual(save.palette().button().color(),QColor(canvas_colors(self.c)['surface']))
 

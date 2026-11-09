@@ -249,19 +249,19 @@ class CanvasMouseButtonTests(StageFixture):
         self.c.undo();self.assertEqual(self.c.clips[self.clip].pos(),before)
         self.c.redo();self.assertLess((self.c.clips[self.clip].pos()-expected).manhattanLength(),.01)
 
-    def test_embedded_text_and_button_own_viewport_clicks(self):
-        card=self.c.outputs[self.out];panel=card.panel;editor=panel.editor
-        self.view.centerOn(card);QTest.qWait(5)
-        def point(widget):
-            local=widget.mapTo(panel,widget.rect().center())
-            return self.view.mapFromScene(card.proxy.mapToScene(QPointF(local)))
-        edit_point=point(editor.viewport());before=QPointF(card.pos())
-        QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier,edit_point)
+    def test_output_entry_and_page_editor_own_clicks(self):
+        card=self.c.outputs[self.out];panel=card.panel
+        self.view.centerOn(card);QTest.qWait(5);before=QPointF(card.pos())
+        local=panel.open_button.mapTo(panel,panel.open_button.rect().center())
+        point=self.view.mapFromScene(card.proxy.mapToScene(QPointF(local)))
+        QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(5)
+        self.assertIsNotNone(panel.page)
+        editor=panel.page.content.editor
+        QTest.mouseClick(editor.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier)
         self.assertTrue(editor.hasFocus());self.assertIsNone(self.view.box_start);self.assertIsNone(self.view.interaction.box)
         QTest.keyClick(editor,Qt.Key.Key_A,Qt.KeyboardModifier.ControlModifier);QTest.keyClicks(editor,'manual text')
         self.assertEqual(self.c.data()['outputs'][self.out]['draft'],'manual text')
-        QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=point(panel.preview_toggle));QTest.qWait(5)
-        self.assertTrue(self.c.data()['outputs'][self.out]['preview_collapsed'])
+        panel.page.finish()
         self.assertEqual(card.pos(),before);self.assertIsNone(self.view.pan)
 
     def test_ports_keep_connection_and_context_operations_with_selected_cards(self):

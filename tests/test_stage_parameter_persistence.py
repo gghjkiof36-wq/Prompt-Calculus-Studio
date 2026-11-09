@@ -194,9 +194,8 @@ class StageParameterRestartTests(unittest.TestCase):
         stage_tests.StageTests.setUp(self)
 
     def tearDown(self):
-        from stage_fixture import APP
-        self.w.close()
-        APP.processEvents()
+        from stage_fixture import StageFixture
+        StageFixture.tearDown(self)
 
     def stages(self):
         import test_084_stages as stage_tests
@@ -238,8 +237,7 @@ class StageParameterRestartTests(unittest.TestCase):
         run_ids = {row['id'] for row in self.runner.runs(True)}
         self.assertTrue(run_ids)
         self.assertEqual(self.executor.submissions, [])
-        self.w.close()
-        APP.processEvents()
+        self.tearDown()
         self.w = Window(self.tmp.name)
         self.w.comfy.timer.stop()
         self.w.comfy.enabled = False
@@ -282,7 +280,14 @@ class StageParameterRestartTests(unittest.TestCase):
         bindings = image_snapshots(png_metadata(path))
         self.assertEqual(len(bindings), 1)
         target = Window(str(Path(self.tmp.name) / 'png-target'))
-        self.addCleanup(target.close)
+        def close_target():
+            from _qt_cleanup import close_window
+            try:
+                close_window(target)
+            finally:
+                for executor in target.__dict__.get('_test_receipt_executors', []):
+                    executor.close()
+        self.addCleanup(close_target)
         target.comfy.timer.stop()
         target.comfy.enabled = False
         target.state['settings']['online'] = False

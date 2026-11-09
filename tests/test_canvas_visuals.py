@@ -115,7 +115,7 @@ class CanvasVisualTests(unittest.TestCase):
         self.assertFalse(store.scheduler_paused(workspace,key));self.assertTrue(content.empty.isVisible())
         content.pause_button.click();self.assertTrue(store.scheduler_paused(workspace,key));self.assertEqual(content.pause_button.text(),'全部繼續')
         page.finish();self.app.processEvents()
-        self.assertIn('已暫停',panel.summary.text())
+        self.assertEqual(panel.summary.text(),'沒有等待執行的項目')
         page=panel.open_page();content=page.content
         content.pause_button.click();self.assertFalse(store.scheduler_paused(workspace,key));self.assertEqual(content.pause_button.text(),'全部暫停')
         page.finish();self.app.processEvents()

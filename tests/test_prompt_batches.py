@@ -44,10 +44,12 @@ class BatchExecutionTests(unittest.TestCase):
                 self.assertEqual(comp.render(self.w.state['uses']['root']),'1-4')
                 self.assertEqual(len(self.runner.store.rows('entry')),30 if scheduled else 0)
 
+    @patch("prompt_calculus_studio.stage_runner.CAPACITY", 10)
     def test_capacity_refill_uses_original_canvas_and_definition_cursor_survives_reopen(self):
+        from prompt_calculus_studio.stage_runner import CAPACITY
         config=self.setup_batch(length=13)
         self.click()
-        self.assertEqual(len(self.runner.store.rows('entry')),10)
+        self.assertEqual(len(self.runner.store.rows('entry')),CAPACITY)
         source=supply.source(self.w.state,config['reader'])
         self.assertEqual(comp.render(self.w.state['uses']['root']),'1-2')
         self.assertEqual(comp.render(source['root']),'a')
@@ -114,7 +116,9 @@ class BatchExecutionTests(unittest.TestCase):
         self.assertEqual(self.submitted_texts(),['a\n1-1']*2)
         self.assertEqual(supply.source(self.w.state,config['reader'])['root'],before)
 
+    @patch("prompt_calculus_studio.stage_runner.CAPACITY", 10)
     def test_reopen_pauses_then_refills_original_batch_without_resampling(self):
+        from prompt_calculus_studio.stage_runner import CAPACITY
         from prompt_calculus_studio.stage_runner import StageRunner
         config=self.setup_batch(length=13);self.click();run=self.runner.current()
         self.runner.close();self.w.comfy.input_flow.chain=self.runner=StageRunner(self.w.comfy.input_flow)

@@ -24,7 +24,7 @@ def wait(predicate):
 token=api('config')['token']; session='canvas-sync-test-'+uuid.uuid4().hex
 assert not api('desktop/status')['ready'],'Do not take an existing browser lease'
 lease=api('desktop/claim',dict(session=session,target='Isolated protocol consumer'))['lease']
-with tempfile.TemporaryDirectory(dir=ROOT/'qa') as folder:
+with tempfile.TemporaryDirectory() as folder:
     w=Window(Path(folder)); w.state['settings']['online']=False
     try:
         w.set_interface_mode('canvas'); w.canvas.add_tag('landscape, soft light')
