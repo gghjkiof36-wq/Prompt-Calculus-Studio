@@ -18,6 +18,11 @@ B1-7 納入 `test_workspace_ambient.py`（`WORKSPACE` 清單）：固定 60 幀�
 
 ## 借用資料監看
 
+`test_storage_save_dedup.py` 驗證同步合併存檔、外層提交可見性、衍生草稿／場景
+寫回、JSON body 位元組、驗證次數與原地歷史修改的反例；Qt 排入案例在最終
+save 注入錯誤，檢查 0 筆 entry、游標／已存文件不變及下一次點擊恢復 N 筆。
+它納入一般及 `--borrow-guard` 快速套件，時間上限不變。
+
 `test_storage_transactions.py` 納入共用連線交易回歸：另一條 SQLite 連線確認
 每個寫入點在外層失敗時不可見、交易外立即提交；保留三層巢狀中被捕捉例外的
 既有語意，並驗證提交後回呼、persist 恢復副本、resume 與排序管理的整批回滾。

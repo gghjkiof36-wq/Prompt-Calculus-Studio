@@ -100,29 +100,50 @@ Storage 建立的連線攜帶同一個交易管理物件；`StageStore(db).trans
 `Storage.save(commit=True)`、cache／usage 寫入、StageStore 的新增、更新、
 排序、參數編輯、複製及保留項目恢復，以及 Catalog 的資料列寫入都使用此入口。
 最近生成的裁切及相簿刪除也透過 Catalog 的 Storage 進入；它們不另行直接提交。
-在交易外呼叫仍於本次呼叫內立即提交，沒有合併存檔、計時器或背景序列化。
+在交易外呼叫仍於本次呼叫內立即提交，沒有計時器或背景序列化。
 開庫 schema／備份初始化及工作流版本核對的 `BEGIN IMMEDIATE` 保留其原有專用
 流程；原始 `db.commit()`／`with db` 不是可在本入口內混用的新寫入介面。
 
 `Window.persist()` 仍立刻呼叫 save，但用 `after_commit` 清除原本的
-`close_cache['local-state']`；在外層交易內回傳 True 只表示同步寫入已完成，
-最終耐久性仍由外層決定。外層失敗保留恢復副本。`resume()` 的保留 entry、
+`close_cache['local-state']`；在外層交易內回傳 True 表示 save 已接受請求，
+最終寫入及耐久性仍由同步範圍與外層決定。成功提交後取消同一個待執行的自動
+存檔計時器；若後來的編輯重新啟動計時器，保留它。外層失敗保留恢復副本。
+`resume()` 的保留 entry、
 所有 scheduler 暫停旗標及 run 狀態在同一交易內恢復，成功後才通知與安排派送。
 排序管理的多個 owner reorder 與移除亦在同一交易；移除呼叫鏈的
 `stage_queue_actions.finish_entry` 加入同一深度，套用成功後才建立 queue Undo。
 
-### 後續存檔去重的接點
+### 同步合併存檔與驗證去重
 
 `StageRunner.accepting()`、派送與結果收集已透過 StageStore 共用此邊界。
-後續合併存檔須在最外層離開**之前**，同一同步區段內呼叫
-`Storage.save(..., commit=False)`，不能放到 `after_commit` 或計時器。
-`commit=False` 只放棄自行提交，仍立即同步、驗證及序列化。
+`accepting()` 在交易內開啟 `Storage.coalesce_saves()`，巢狀範圍共用待存請求。
+同一 state 的多次 save 合併；有待存文件時，結尾的 persist 也納入同一範圍，
+保留視圖位置與恢復副本清除。合併範圍離開時先同步呼叫
+`Storage.save(..., commit=False)`，驗證、序列化並寫入，然後才離開交易。
+最後寫入丟錯會穿過 accepting 的文件／journal 回復；沒有讓出事件迴圈。
+`commit=False` 本身只放棄自行提交，只有明確的合併範圍才延後寫入；合併範圍
+必須在 managed transaction 內，不能跨過事件迴圈、計時器或背景工作。
 `after_commit` 適合保存成功的清除／通知；它不是待存文件佇列。
 
-`save()` 仍會改寫 active output 的 `draft`／`draft_base` 或 `list_draft`、
-`list_state`，並覆寫 `workspace_scenes.items[workspace]`。這些同步甚至可能
-發生在驗證失敗之前，並不由資料庫回滾；拆分同步與序列化、驗證去重及擴大
-文件回復範圍留待後續實作。借用資料的同步序列化時點與上述所有權限制持續有效。
+`save()` 先呼叫 `synchronize_document()`，改寫 active output 的
+`draft`／`draft_base` 或 `list_draft`、`list_state`，並深複製目前場景至
+`workspace_scenes.items[workspace]`。即使合併，這一步仍立即執行，保留中間
+讀取者看到的衍生資料；最終 flush 再同步一次。這些寫回可在驗證失敗前發生，
+仍由 accepting 的既有備份還原。沒有擴大其回復範圍。
+
+序列化寫入在 `_write_document()`。外層 `validate_state()` 驗證共用素材、設定、
+工作流與 content_history；`workspace_scene.validate()` 只驗場景欄位及其參照。
+共用尾端驗證仍在第一個場景的原位置執行一次，保留多項錯誤的回報優先順序。
+save 剛產生的目前場景是已驗 live 欄位的深複本，省去重驗這些欄位，但仍檢查
+場景容器、檢視位置及版本；一般 validate_state 不信任舊的目前場景快取。
+
+content_history 每次都驗證：既有合併編輯可原地修改最後一筆，單靠 journal／
+尾筆 identity 與筆數無法失效。容量檢查產生的 JSON 只在本次同步 save 重用，
+以相同編碼器接回原插入順序與空白；沒有跨次快取或格式變更。場景深複製保留，
+沒有假設所有讀取者都先 capture。借用資料的同步序列化時點持續有效。
+
+[存檔去重回歸](../../tests/test_storage_save_dedup.py) 鎖住 body、衍生寫回、
+驗證反例、巢狀提交、計時器與最終寫入失敗後再次點擊的行為。
 
 [交易回歸](../../tests/test_storage_transactions.py) 用另一條連線確認提交可見性，
 涵蓋內外層寫入、三層與捕捉例外、回呼／提交失敗、persist 恢復副本，以及

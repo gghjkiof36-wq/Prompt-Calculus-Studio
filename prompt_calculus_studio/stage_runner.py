@@ -10,7 +10,7 @@ import json
 import sqlite3
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from urllib.parse import quote
 from PySide6.QtCore import QObject,QTimer
 from .stage_store import StageStore
@@ -143,8 +143,16 @@ class StageRunner(QObject):
         before=None
         if document and not self.store.transaction_depth:
             before=(copy.deepcopy(self.window.state) if suppliers is None else progress_backup(self.window.state,suppliers))
+        storage=getattr(self.window,'store',None)
         try:
-            with self.store.transaction():yield
+            with self.store.transaction(), (storage.coalesce_saves() if storage is not None else nullcontext(False)) as saving:
+                yield
+                # Include the pending UI autosave in this same acceptance. Its
+                # view capture and recovery-cache cleanup still use persist;
+                # the actual write is flushed before the transaction exits.
+                persist=getattr(self.window,'persist',None)
+                if saving and storage.save_pending and persist is not None:
+                    if not persist():raise OSError('資料儲存失敗。')
         except Exception:
             if before is not None:
                 self.window.state.clear();self.window.state.update(before)

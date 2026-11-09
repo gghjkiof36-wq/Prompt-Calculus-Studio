@@ -32,12 +32,16 @@ def _digest(value):
 
 
 def validate(state):
+    """Validate every call; return the checked JSON for immediate save reuse."""
     journal = state.get('content_history')
     if journal is None:
         return
     if not isinstance(journal, dict) or journal.get('version') != 1 or not isinstance(journal.get('entries'), list):
         raise ValueError('內容歷史版本不支援，原資料保留。')
-    if len(journal['entries']) > LIMIT or len(json.dumps(journal, ensure_ascii=False).encode('utf-8')) > BYTE_LIMIT:
+    if len(journal['entries']) > LIMIT:
+        raise ValueError('內容歷史超過容量限制。')
+    serialized=json.dumps(journal, ensure_ascii=False)
+    if len(serialized.encode('utf-8')) > BYTE_LIMIT:
         raise ValueError('內容歷史超過容量限制。')
     for entry in journal['entries']:
         if (not isinstance(entry, dict) or not isinstance(entry.get('id'), str)
@@ -58,6 +62,7 @@ def validate(state):
                     if saved is not None and ((saved.get('draft') is not None and not isinstance(saved['draft'], str))
                                                or not isinstance(saved.get('draft_base', ''), str)):
                         raise ValueError('輸出歷史草稿無效。')
+    return serialized
 
 
 def _targets(state):

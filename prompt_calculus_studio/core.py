@@ -66,42 +66,61 @@ def local_address(value):
 
 
 def validate_state(state):
-    if not isinstance(state, dict) or type(state.get("version")) is not int or state.get("version") not in SUPPORTED_STATE_VERSIONS:
-        raise ValueError("不支援的備份版本。")
-    ids = set()
-    for name in ("modules", "items", "workspaces"):
-        if not isinstance(state.get(name), list):
-            raise ValueError(f"缺少 {name} 清單。")
-        for entry in state[name]:
-            if not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or not entry["id"] or entry["id"] in ids:
-                raise ValueError("項目 ID 缺少或重複。")
-            ids.add(entry["id"])
-            if not isinstance(entry.get("name"), str) or not entry["name"].strip():
-                raise ValueError("名稱不能空白。")
+    """Validate the whole document, including inactive workspace scenes."""
+    return _validate_state(state)
+
+
+def _validate_state(state, *, scene_only=False, shared_tail=None, captured_scene=None, history_json=None):
+    # Scene projections borrow already checked catalogs/settings/history. Keep
+    # the original check order, including the shared tail at the first scene's
+    # tail, so documents with multiple faults report the same first error.
+    if shared_tail is None:
+        checked = False
+        def shared_tail():
+            nonlocal checked
+            if not checked:
+                from .material_navigation import validate as validate_navigation
+                validate_navigation(state)
+                checked = True
+    if not scene_only:
+        if not isinstance(state, dict) or type(state.get("version")) is not int or state.get("version") not in SUPPORTED_STATE_VERSIONS:
+            raise ValueError("不支援的備份版本。")
+        ids = set()
+        for name in ("modules", "items", "workspaces"):
+            if not isinstance(state.get(name), list):
+                raise ValueError(f"缺少 {name} 清單。")
+            for entry in state[name]:
+                if not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or not entry["id"] or entry["id"] in ids:
+                    raise ValueError("項目 ID 缺少或重複。")
+                ids.add(entry["id"])
+                if not isinstance(entry.get("name"), str) or not entry["name"].strip():
+                    raise ValueError("名稱不能空白。")
     modules = {m["id"]: m for m in state["modules"]}
-    library = state.get('library_categories', [])
-    if (not isinstance(library, list) or any(not isinstance(key, str) or key not in modules for key in library)
-            or len(library) != len(set(library))):
-        raise ValueError('匯入素材庫的分類參照無效。')
-    positions=state.get('category_positions',{})
-    if not isinstance(positions,dict) or any(not isinstance(key,str) or not key or type(value) is not int
-            or not 0<=value<=1000000 for key,value in positions.items()):
-        raise ValueError('快照分類位置無效。')
+    if not scene_only:
+        library = state.get('library_categories', [])
+        if (not isinstance(library, list) or any(not isinstance(key, str) or key not in modules for key in library)
+                or len(library) != len(set(library))):
+            raise ValueError('匯入素材庫的分類參照無效。')
+        positions=state.get('category_positions',{})
+        if not isinstance(positions,dict) or any(not isinstance(key,str) or not key or type(value) is not int
+                or not 0<=value<=1000000 for key,value in positions.items()):
+            raise ValueError('快照分類位置無效。')
     items = {i["id"]: i for i in state["items"]}
-    for m in modules.values():
-        if m.get("mode") not in ("single", "multiple"):
-            raise ValueError("選擇模式必須是 single 或 multiple。")
-        if type(m.get('canvas_library',False)) is not bool:
-            raise ValueError('Canvas 素材分類格式無效。')
-    for item in items.values():
-        from .materials import validate_fields
-        validate_fields(item)
-        if item.get("module") not in modules or not isinstance(item.get("prompt"), str) or (not item["prompt"].strip() and 'composition' not in item):
-            raise ValueError("提示詞內容或所屬模組無效。")
-        if not isinstance(item.get("aliases"), list) or any(not isinstance(a,str) for a in item["aliases"]) or not isinstance(item.get("notes"), str):
-            raise ValueError("別名或備註格式無效。")
-        if not isinstance(item.get('excludes',[]),list) or any(not isinstance(t,str) or not t.strip() for t in item.get('excludes',[])):
-            raise ValueError('自動停用 Tag 清單格式無效。')
+    if not scene_only:
+        for m in modules.values():
+            if m.get("mode") not in ("single", "multiple"):
+                raise ValueError("選擇模式必須是 single 或 multiple。")
+            if type(m.get('canvas_library',False)) is not bool:
+                raise ValueError('Canvas 素材分類格式無效。')
+        for item in items.values():
+            from .materials import validate_fields
+            validate_fields(item)
+            if item.get("module") not in modules or not isinstance(item.get("prompt"), str) or (not item["prompt"].strip() and 'composition' not in item):
+                raise ValueError("提示詞內容或所屬模組無效。")
+            if not isinstance(item.get("aliases"), list) or any(not isinstance(a,str) for a in item["aliases"]) or not isinstance(item.get("notes"), str):
+                raise ValueError("別名或備註格式無效。")
+            if not isinstance(item.get('excludes',[]),list) or any(not isinstance(t,str) or not t.strip() for t in item.get('excludes',[])):
+                raise ValueError('自動停用 Tag 清單格式無效。')
     def selections_valid(picks):
         if not isinstance(picks, dict):
             raise ValueError("選擇內容必須是物件。")
@@ -116,22 +135,24 @@ def validate_state(state):
     weights = state.get("weights", {})
     if not isinstance(weights, dict) or any(not isinstance(k, str) or type(v) is not int or not -1000 <= v <= 1000 for k, v in weights.items()):
         raise ValueError("素材權重格式無效。")
-    for w in state["workspaces"]:
-        owners=w.get('canvas_owners',{})
-        if not isinstance(owners,dict) or any(not isinstance(k,str) or (v is not None and not isinstance(v,str)) for k,v in owners.items()): raise ValueError('固定模組的畫布歸屬格式無效。')
-        if not isinstance(w.get('weights',{}),dict) or any(not isinstance(k,str) or type(v) is not int or not -1000<=v<=1000 for k,v in w.get('weights',{}).items()):
-            raise ValueError('工作區權重格式無效。')
-        if not isinstance(w.get("fixed"), list) or any(not isinstance(m,str) or m not in modules for m in w["fixed"]):
-            raise ValueError("工作區固定模組無效。")
-        selections_valid(w.get("picks"))
+    if not scene_only:
+        for w in state["workspaces"]:
+            owners=w.get('canvas_owners',{})
+            if not isinstance(owners,dict) or any(not isinstance(k,str) or (v is not None and not isinstance(v,str)) for k,v in owners.items()): raise ValueError('固定模組的畫布歸屬格式無效。')
+            if not isinstance(w.get('weights',{}),dict) or any(not isinstance(k,str) or type(v) is not int or not -1000<=v<=1000 for k,v in w.get('weights',{}).items()):
+                raise ValueError('工作區權重格式無效。')
+            if not isinstance(w.get("fixed"), list) or any(not isinstance(m,str) or m not in modules for m in w["fixed"]):
+                raise ValueError("工作區固定模組無效。")
+            selections_valid(w.get("picks"))
     if not state["workspaces"] or state.get("workspace") not in {w["id"] for w in state["workspaces"]}:
         raise ValueError("目前工作區不存在。")
     if state.get("draft") is not None and not isinstance(state["draft"], str):
         raise ValueError("手動稿格式錯誤。")
-    if not isinstance(state.get("draft_base", ""), str) or not isinstance(state.get("settings"), dict):
+    if not isinstance(state.get("draft_base", ""), str) or (not scene_only and not isinstance(state.get("settings"), dict)):
         raise ValueError("設定格式錯誤。")
-    if not isinstance(state.get("dictionary"), dict) or any(not isinstance(k,str) or not isinstance(v,str) or not k.strip() or not v.strip() for k,v in state["dictionary"].items()):
-        raise ValueError("中文字典必須是非空白的文字對照。")
+    if not scene_only:
+        if not isinstance(state.get("dictionary"), dict) or any(not isinstance(k,str) or not isinstance(v,str) or not k.strip() or not v.strip() for k,v in state["dictionary"].items()):
+            raise ValueError("中文字典必須是非空白的文字對照。")
     if not isinstance(state.get("temporary", []), list) or any(not isinstance(v, str) for v in state.get("temporary", [])):
         raise ValueError("臨時片段格式無效。")
     before=state.get("temporary_before")
@@ -150,68 +171,70 @@ def validate_state(state):
             any(not isinstance(mid,str) or mid not in set(modules)|set(state.get('uses',{}))|{TEMPORARY_GROUP} for mid in order) or
             len(order)!=len(set(order))):
         raise ValueError("輸出群組順序無效。")
-    for key, allowed in {"density":("comfortable","compact"), "material":("solid","mica","acrylic","clear"),
-                         "accent":ACCENT_NAMES, "visual_palette":('graphite','mist','paper'), "formatter":("spaces","original"),
-                         "translator":("dictionary","google"), "interface_mode":('ask','list','canvas'),
-                         "connection_style":('curve','straight','orthogonal')}.items():
-        if settings.get(key, DEFAULT_SETTINGS[key]) not in allowed:
-            raise ValueError(f"設定 {key} 無效。")
-    if not valid_hex(settings.get("accent_custom", DEFAULT_CUSTOM_ACCENT)):
-        raise ValueError("自訂重點色色碼無效。")
-    for key in ("ui_size", "prompt_size"):
-        value = settings.get(key, DEFAULT_SETTINGS[key])
-        if type(value) is not int or not 9 <= value <= 22:
-            raise ValueError("字體大小必須介於 9 和 22 pt。")
-    sidebar_width=settings.get('context_sidebar_width',DEFAULT_SETTINGS['context_sidebar_width'])
-    if type(sidebar_width) is not int or not 220<=sidebar_width<=480:
-        raise ValueError('側欄寬度必須介於 220 和 480。')
-    gallery_columns=settings.get('gallery_columns',DEFAULT_SETTINGS['gallery_columns'])
-    if type(gallery_columns) is not int or not 8<=gallery_columns<=20:
-        raise ValueError('圖片橫排數量必須介於 8 和 20。')
-    count=settings.get('comfy_count',1)
-    if 'comfy_url' in settings: local_address(settings['comfy_url'])
-    if type(settings.get('comfy_enabled',False)) is not bool: raise ValueError('ComfyUI 連線設定必須是布林值。')
-    if type(count) is not int or not 1<=count<=RUN_COUNT_LIMIT: raise ValueError(f'運行次數須介於 1–{RUN_COUNT_LIMIT:,}。')
-    for material in ('acrylic','mica','clear'):
-        transparency=settings.get(material+'_transparency',DEFAULT_SETTINGS[material+'_transparency'])
-        if type(transparency) is not int or not 0 <= transparency <= 100:
-            raise ValueError("透明度必須介於 0 和 100%。")
-    menu_transparency=settings.get('menu_transparency',DEFAULT_SETTINGS['menu_transparency'])
-    if type(menu_transparency) is not int or not 0<=menu_transparency<=50:
-        raise ValueError('選單透明度必須介於 0 和 50%。')
-    for key in ("online", "artist_prefix", "confirm_clear_draft", "separate_selections", "search_cache", "hide_connections"):
-        if type(settings.get(key, DEFAULT_SETTINGS[key])) is not bool:
-            raise ValueError(f"設定 {key} 必須是布林值。")
-    palette=settings.get('canvas_palette',{})
-    if not isinstance(palette,dict): raise ValueError('素材面板尺寸無效。')
-    for key,length,minimum in (('size',2,1),('columns',3,0)):
-        if key in palette and (not isinstance(palette[key],list) or len(palette[key])!=length or any(type(v) is not int or not minimum<=v<=100000 for v in palette[key])):
-            raise ValueError('素材面板尺寸無效。')
-    position=settings.get('execution_bar_position',[.5,1.])
-    if not isinstance(position,list) or len(position)!=2 or any(type(v) not in (int,float) or not 0<=v<=1 for v in position): raise ValueError('執行列位置無效。')
-    for key in ("font_family", "model_root"):
-        if not isinstance(settings.get(key, DEFAULT_SETTINGS[key]), str):
-            raise ValueError(f"設定 {key} 必須是文字。")
-    categories = settings.get("model_categories", DEFAULT_SETTINGS["model_categories"])
-    if not isinstance(categories,list) or any(not isinstance(v,str) or not v.strip() for v in categories):
-        raise ValueError("模型分類格式無效。")
-    scopes=settings.get('model_category_types',{})
-    if not isinstance(scopes,dict) or any(not isinstance(k,str) or not isinstance(v,list) or any(not isinstance(t,str) for t in v) for k,v in scopes.items()):
-        raise ValueError('模型分類適用類型格式無效。')
-    for item in state["items"]:
-        if not isinstance(item.get("preview",""),str): raise ValueError("預覽圖片路徑格式無效。")
-    from .content_history import validate as validate_content_history
-    validate_content_history(state)
-    for workspace in state["workspaces"]:
-        if not isinstance(workspace.get("parameters",{}),dict) or any(not isinstance(v,str) for v in workspace.get("parameters",{}).values()):
-            raise ValueError("工作區建議參數格式無效。")
-        history=workspace.get("history",[])
-        if not isinstance(history,list) or any(not isinstance(v,dict) or not isinstance(v.get("parameters"),dict) or not isinstance(v.get("time"),(int,float)) or not isinstance(v.get("note",""),str) for v in history):
-            raise ValueError("工作區參數歷史格式無效。")
-    validate_compositions(state)
+    if not scene_only:
+        for key, allowed in {"density":("comfortable","compact"), "material":("solid","mica","acrylic","clear"),
+                             "accent":ACCENT_NAMES, "visual_palette":('graphite','mist','paper'), "formatter":("spaces","original"),
+                             "translator":("dictionary","google"), "interface_mode":('ask','list','canvas'),
+                             "connection_style":('curve','straight','orthogonal')}.items():
+            if settings.get(key, DEFAULT_SETTINGS[key]) not in allowed:
+                raise ValueError(f"設定 {key} 無效。")
+        if not valid_hex(settings.get("accent_custom", DEFAULT_CUSTOM_ACCENT)):
+            raise ValueError("自訂重點色色碼無效。")
+        for key in ("ui_size", "prompt_size"):
+            value = settings.get(key, DEFAULT_SETTINGS[key])
+            if type(value) is not int or not 9 <= value <= 22:
+                raise ValueError("字體大小必須介於 9 和 22 pt。")
+        sidebar_width=settings.get('context_sidebar_width',DEFAULT_SETTINGS['context_sidebar_width'])
+        if type(sidebar_width) is not int or not 220<=sidebar_width<=480:
+            raise ValueError('側欄寬度必須介於 220 和 480。')
+        gallery_columns=settings.get('gallery_columns',DEFAULT_SETTINGS['gallery_columns'])
+        if type(gallery_columns) is not int or not 8<=gallery_columns<=20:
+            raise ValueError('圖片橫排數量必須介於 8 和 20。')
+        count=settings.get('comfy_count',1)
+        if 'comfy_url' in settings: local_address(settings['comfy_url'])
+        if type(settings.get('comfy_enabled',False)) is not bool: raise ValueError('ComfyUI 連線設定必須是布林值。')
+        if type(count) is not int or not 1<=count<=RUN_COUNT_LIMIT: raise ValueError(f'運行次數須介於 1–{RUN_COUNT_LIMIT:,}。')
+        for material in ('acrylic','mica','clear'):
+            transparency=settings.get(material+'_transparency',DEFAULT_SETTINGS[material+'_transparency'])
+            if type(transparency) is not int or not 0 <= transparency <= 100:
+                raise ValueError("透明度必須介於 0 和 100%。")
+        menu_transparency=settings.get('menu_transparency',DEFAULT_SETTINGS['menu_transparency'])
+        if type(menu_transparency) is not int or not 0<=menu_transparency<=50:
+            raise ValueError('選單透明度必須介於 0 和 50%。')
+        for key in ("online", "artist_prefix", "confirm_clear_draft", "separate_selections", "search_cache", "hide_connections"):
+            if type(settings.get(key, DEFAULT_SETTINGS[key])) is not bool:
+                raise ValueError(f"設定 {key} 必須是布林值。")
+        palette=settings.get('canvas_palette',{})
+        if not isinstance(palette,dict): raise ValueError('素材面板尺寸無效。')
+        for key,length,minimum in (('size',2,1),('columns',3,0)):
+            if key in palette and (not isinstance(palette[key],list) or len(palette[key])!=length or any(type(v) is not int or not minimum<=v<=100000 for v in palette[key])):
+                raise ValueError('素材面板尺寸無效。')
+        position=settings.get('execution_bar_position',[.5,1.])
+        if not isinstance(position,list) or len(position)!=2 or any(type(v) not in (int,float) or not 0<=v<=1 for v in position): raise ValueError('執行列位置無效。')
+        for key in ("font_family", "model_root"):
+            if not isinstance(settings.get(key, DEFAULT_SETTINGS[key]), str):
+                raise ValueError(f"設定 {key} 必須是文字。")
+        categories = settings.get("model_categories", DEFAULT_SETTINGS["model_categories"])
+        if not isinstance(categories,list) or any(not isinstance(v,str) or not v.strip() for v in categories):
+            raise ValueError("模型分類格式無效。")
+        scopes=settings.get('model_category_types',{})
+        if not isinstance(scopes,dict) or any(not isinstance(k,str) or not isinstance(v,list) or any(not isinstance(t,str) for t in v) for k,v in scopes.items()):
+            raise ValueError('模型分類適用類型格式無效。')
+        for item in state["items"]:
+            if not isinstance(item.get("preview",""),str): raise ValueError("預覽圖片路徑格式無效。")
+        from .content_history import validate as validate_content_history
+        serialized_history=validate_content_history(state)
+        if history_json is not None:history_json.append(serialized_history)
+        for workspace in state["workspaces"]:
+            if not isinstance(workspace.get("parameters",{}),dict) or any(not isinstance(v,str) for v in workspace.get("parameters",{}).values()):
+                raise ValueError("工作區建議參數格式無效。")
+            history=workspace.get("history",[])
+            if not isinstance(history,list) or any(not isinstance(v,dict) or not isinstance(v.get("parameters"),dict) or not isinstance(v.get("time"),(int,float)) or not isinstance(v.get("note",""),str) for v in history):
+                raise ValueError("工作區參數歷史格式無效。")
+    validate_compositions(state, scene_only=scene_only)
     if 'generation' in state:
         from .generation import validate_generation
-        validate_generation(state['generation'])
+        validate_generation(state['generation'], profiles_validated=scene_only)
     if 'canvas_functions' in state:
         from .generation import validate_canvas_functions
         validate_canvas_functions(state['canvas_functions'])
@@ -221,16 +244,22 @@ def validate_state(state):
         validate_multi(state)
     if 'workspace_scenes' in state:
         from .workspace_scene import validate as validate_scenes
-        validate_scenes(state)
-    from .material_navigation import validate as validate_navigation
-    validate_navigation(state)
+        validate_scenes(state, shared_tail=shared_tail, captured_scene=captured_scene)
+    shared_tail()
+    # When save just captured the live scene, each scene (including that exact
+    # live copy) has already checked the shared and local version requirements.
+    # Their union cannot introduce a higher requirement; do not walk them again.
+    if captured_scene is None:_validate_state_version(state)
+    return state
+
+
+def _validate_state_version(state):
     from .prompt_groups import requires_version_five
     if state['version'] < 5 and requires_version_five(state):
         raise ValueError('流程與局部 Tag 設定需要第 5 版資料格式，原資料保留。')
     from .state_schema import required_version
     if state['version'] < required_version(state):
         raise ValueError(f'這些功能需要第 {required_version(state)} 版資料格式，原資料保留。')
-    return state
 
 
 TEMPORARY_GROUP = "__temporary_group__"
@@ -547,6 +576,7 @@ class Storage:
             self.db.execute("CREATE TABLE IF NOT EXISTS usage (workspace TEXT, tag TEXT, count INTEGER, last REAL, PRIMARY KEY(workspace,tag))")
             self.db.execute("CREATE TABLE IF NOT EXISTS accepted (workspace TEXT, tag TEXT, body TEXT, last REAL, PRIMARY KEY(workspace,tag))")
         self.cache_epoch=0; self.cache_enabled=True
+        self._pending_saves = None
 
     @property
     def transaction_depth(self):
@@ -577,23 +607,89 @@ class Storage:
         state.setdefault("temporary", [])
         return state
 
-    def save(self, state, *, commit=True):
-        """Synchronize and serialize state, joining any outer transaction.
+    @property
+    def save_pending(self):
+        return bool(self._pending_saves)
+
+    @contextmanager
+    def coalesce_saves(self):
+        """Batch saves only inside a caller-owned synchronous transaction.
+
+        Nested scopes share requests, just as they share the transaction. Flush
+        through save(commit=False) before returning to that transaction; never
+        retain borrowed state across an event-loop turn or an after_commit hook.
+        The caller must propagate flush failures through its rollback boundary.
+        """
+        if not self.transaction_depth:
+            raise RuntimeError('Save coalescing requires a managed transaction.')
+        outer = self._pending_saves is None
+        if outer:self._pending_saves = {}
+        try:
+            yield outer
+            if outer:
+                pending, self._pending_saves = self._pending_saves, None
+                for state in pending.values():self.save(state, commit=False)
+        finally:
+            if outer:self._pending_saves = None
+
+    def synchronize_document(self, state):
+        """Write derived draft/list caches and the active scene into state.
 
         Mutates the active multi_output output's draft/draft_base (or list_draft)
         and list_state, then replaces workspace_scenes.items[workspace] with the
         current scene when present. These writes occur even if validation or
-        persistence later fails. commit=False leaves commit ownership to the
-        caller; it does not defer capture, validation or serialization.
+        persistence later fails; accepting owns their in-memory rollback.
         """
         if 'multi_output' in state:
             from .multi_output import capture_current
             capture_current(state)
         from .workspace_scene import capture
         capture(state)
-        validate_state(state)
+
+    def save(self, state, *, commit=True):
+        """Synchronize, validate and write within the shared transaction.
+
+        commit=False only delegates commit ownership. Explicit coalesce_saves
+        scopes keep synchronization eager (intermediate readers still see it),
+        but validate/serialize the final state once before the scope returns.
+        """
+        self.synchronize_document(state)
+        if self._pending_saves is not None:
+            # Reinsert to retain last-save order if a caller saves multiple states.
+            self._pending_saves.pop(id(state), None)
+            self._pending_saves[id(state)] = state
+            return
+        self._write_document(state, commit=commit)
+
+    def _write_document(self, state, *, commit):
+        # The immediately captured active scene duplicates validated live fields.
+        # Keep the deep copy for existing readers; only omit duplicate checking.
+        captured = (state.get('workspace_scenes', {}).get('items', {}).get(state.get('workspace'))
+                    if isinstance(state,dict) else None)
+        history_json=[]
+        _validate_state(state, captured_scene=captured, history_json=history_json)
+        body=self._serialize_document(state, history_json[0])
         with self.transaction() if commit else nullcontext():
-            self.db.execute("INSERT OR REPLACE INTO document VALUES (1,?)", (json.dumps(state, ensure_ascii=False),))
+            self.db.execute("INSERT OR REPLACE INTO document VALUES (1,?)", (body,))
+
+    @staticmethod
+    def _serialize_document(state, history_json):
+        """Reuse the journal JSON produced by this call's capacity validation.
+
+        This is not an identity cache: in-place history edits are revalidated on
+        every save. Encode the two surrounding dict slices with the same JSON
+        encoder to preserve key conversion, insertion order and whitespace.
+        """
+        if history_json is None:return json.dumps(state, ensure_ascii=False)
+        before={};after={};target=before
+        for key,value in state.items():
+            if key=='content_history':target=after
+            else:target[key]=value
+        parts=[]
+        if before:parts.append(json.dumps(before, ensure_ascii=False)[1:-1])
+        parts.append('"content_history": '+history_json)
+        if after:parts.append(json.dumps(after, ensure_ascii=False)[1:-1])
+        return '{'+', '.join(parts)+'}'
 
     def load_current(self, *, multi=False):
         """Desktop load boundary; keep raw load for historical inspection/export."""

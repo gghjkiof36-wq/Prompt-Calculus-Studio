@@ -294,12 +294,12 @@ def accept_effective_profile(profile,operation):
     return candidate,copy.deepcopy(receipt)
 
 
-def validate_generation(value):
+def validate_generation(value, *, profiles_validated=False):
     if not isinstance(value,dict) or value.get('mode') not in MODES or not isinstance(value.get('profiles'),list) or len(value['profiles'])>50:
         raise ValueError('生成設定無效。')
     profiles={}
     for profile in value['profiles']:
-        validate_profile(profile)
+        if not profiles_validated:validate_profile(profile)
         if profile['id'] in profiles: raise ValueError('工作流 ID 重複。')
         profiles[profile['id']]=profile
     chosen=value.get('chosen',{})

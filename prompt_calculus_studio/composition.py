@@ -107,18 +107,19 @@ def validate_node(root):
     return root
 
 
-def validate_compositions(state):
+def validate_compositions(state, *, scene_only=False):
     items = {i['id']: i for i in state['items']}
     instances = state.get('instances', {})
     if not isinstance(instances, dict) or any(k not in items for k in instances):
         raise ValueError('當次組合引用不存在的素材。')
-    for item in items.values():
-        if 'composition' in item:
-            validate_node(item['composition'])
+    if not scene_only:
+        for item in items.values():
+            if 'composition' in item:
+                validate_node(item['composition'])
     for root in instances.values():
         validate_node(root)
     occupied = {i['id'] for field in ('modules', 'items', 'workspaces') for i in state[field]}
-    for owner in [state, *state['workspaces']]:
+    for owner in [state] if scene_only else [state, *state['workspaces']]:
         uses = owner.get('uses', {})
         if not isinstance(uses, dict) or len(uses) > MAX_NODES:
             raise ValueError('模組使用內容格式無效。')
@@ -135,12 +136,13 @@ def validate_compositions(state):
         fixed_uses=owner.get('fixed_uses',[])
         if not isinstance(fixed_uses,list) or any(not isinstance(k,str) for k in fixed_uses):
             raise ValueError('固定模組使用資料無效。')
-    for workspace in state['workspaces']:
-        saved = workspace.get('instances', {})
-        if not isinstance(saved, dict) or any(k not in items for k in saved):
-            raise ValueError('工作區組合引用不存在的素材。')
-        for root in saved.values():
-            validate_node(root)
+    if not scene_only:
+        for workspace in state['workspaces']:
+            saved = workspace.get('instances', {})
+            if not isinstance(saved, dict) or any(k not in items for k in saved):
+                raise ValueError('工作區組合引用不存在的素材。')
+            for root in saved.values():
+                validate_node(root)
     positions = state.get('text_positions', {})
     if not isinstance(positions, dict) or len(positions) > 50000:
         raise ValueError('Canvas 排列資料無效。')

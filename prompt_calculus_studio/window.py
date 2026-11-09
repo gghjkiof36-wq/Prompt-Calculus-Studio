@@ -752,6 +752,11 @@ class Window(QMainWindow):
             self.remember_canvas_view()
             self.store.save(self.state)
             self.store.after_commit(lambda cache=self.close_cache: cache.clear('local-state'))
+            timer=getattr(self,'save_timer',None)
+            if timer is not None:
+                # Do not cancel a later edit's newly restarted autosave timer.
+                self.store.after_commit(lambda timer=timer,pending=timer.timerId():
+                    timer.stop() if timer.timerId()==pending else None)
             return True
         except Exception as exc:
             if not quiet:self.notice('資料儲存失敗：'+str(exc))

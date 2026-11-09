@@ -15,7 +15,7 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-STAGE = '''storage_transactions stage_atomic_transitions stage_capture_isolation stage_image_snapshot
+STAGE = '''storage_transactions storage_save_dedup stage_atomic_transitions stage_capture_isolation stage_image_snapshot
 material_cursor_upgrade queue_metadata 087_queue_history stage_refresh_projection
 variant_composition_queue stage_parameter_persistence native_queue
 stage_status_performance material_links prompt_groups prompt_material_resolution

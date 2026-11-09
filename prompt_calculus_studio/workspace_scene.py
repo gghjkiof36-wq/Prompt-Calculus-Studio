@@ -97,8 +97,16 @@ def create(state,name,duplicate=False):
     return ident
 
 
-def validate(state):
-    from .core import validate_state
+def validate(state, *, shared_tail=None, captured_scene=None):
+    """Check scene fields against the outer validator's shared document data.
+
+    captured_scene is only supplied by Storage immediately after capture. Its
+    fields have already been checked as the live scene; its view and version
+    checks still run here in the original order. Public validation never trusts
+    an existing active-scene cache.
+    """
+    from .core import _validate_state, _validate_state_version
+    if shared_tail is None:shared_tail=lambda:None
     value=state['workspace_scenes'];ids={w['id'] for w in state['workspaces']}
     if not isinstance(value,dict) or value.get('version')!=1 or not isinstance(value.get('items'),dict) or set(value['items'])!=ids:
         raise ValueError('工作區畫布資料不完整或版本不支援。')
@@ -110,4 +118,8 @@ def validate(state):
             raise ValueError('工作區檢視位置無效。')
         projected=dict(state);projected.pop('workspace_scenes')
         load(projected,entry,readonly=True);projected['workspace']=key
-        validate_state(projected)
+        if entry is captured_scene and key == state['workspace']:
+            if shared_tail is not None:shared_tail()
+            _validate_state_version(projected)
+        else:
+            _validate_state(projected,scene_only=True,shared_tail=shared_tail)
