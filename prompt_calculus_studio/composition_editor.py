@@ -7,7 +7,8 @@ from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QFrame,QGraphicsV
     QColorDialog,QScrollArea,QLabel,QAbstractItemView,QGraphicsProxyWidget,QRubberBand)
 from .widgets import button,label,row,StudioDialog,dialog_buttons,RoundMenu
 from .text_canvas import TextCanvas
-from .composition_image import document,layer,resize_layer,validate_image,render_image,PreviewCache
+from .composition_image import document,layer,resize_layer,validate_image
+from .composition_render import render_image,PreviewCache
 from .canvas_items import NodeCard
 from .theme import visual_tokens
 from . import composition as comp

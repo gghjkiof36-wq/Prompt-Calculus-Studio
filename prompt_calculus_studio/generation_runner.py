@@ -76,7 +76,7 @@ class GenerationRunner:
         if 'multi_output' in snapshot['state']:
             from .multi_output import bound_texts
             bound_texts(snapshot['state'],profile)
-            from .composition_image import freeze_source
+            from .composition_render import freeze_source
             source=freeze_source(snapshot['state'],self.window.store.directory,optional=True)
             if source and not image_target(profile): raise ValueError('圖片無法載入工作流：請先綁定可接收圖片的 LoadImage 欄位。')
             snapshot['state']['generation']['source']=copy.deepcopy(source)

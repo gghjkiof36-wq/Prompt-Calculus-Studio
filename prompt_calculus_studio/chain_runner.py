@@ -47,7 +47,7 @@ class ChainRunner:
 
     def validate_inputs(self,plan):
         from .flow_data import resolve,channel
-        from .composition_image import freeze_image_source
+        from .composition_render import freeze_image_source
         state=self.flow.context()
         for stage in plan['stages']:
             for m in stage['texts']:

@@ -49,7 +49,7 @@ class QueueRunner:
     def enqueue_current(self):
         from .workflow_flow import execution_profiles
         from .workflow_runner import image_sources, bound_sources
-        from .composition_image import freeze_image_source
+        from .composition_render import freeze_image_source
         self.require_connection()
         if self.preparing:
             raise ValueError('正在保存工作快照，請稍候。')

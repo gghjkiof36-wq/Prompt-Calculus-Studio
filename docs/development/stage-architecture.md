@@ -52,6 +52,8 @@ Canvas 模塊按責任區分來源、組合、轉換、綁定、執行、排程�
 
 Canvas 配置屬工作區與 Undo；`stage_journal` 屬執行紀錄；生成回執沿用原有紀錄。三者不能互相替代。狀態恢復集中於載入邊界，PNG 不含工作佇列。舊 `chain_*` 與早期排程仍保留相容读取用途，v7 主路徑使用 Stage；無 Stage 不得回退到舊生成旁路。
 
-共享模組可在無 Qt 環境匯入與處理資料，包匯入測試核對這個邊界。桌面圖片光柵化另於呼叫時載入 Qt，擴充服務不使用該分支。原生瀏覽器頁面是目前 ComfyUI 介面的實作限制，不應變成所有未來模塊的前置條件。
+共享模組可在無 Qt 環境匯入與處理資料。目前工作樹的圖片邊界分為 [composition_image](../../prompt_calculus_studio/composition_image.py)（純資料、驗證與來源路徑）及桌面專用的 [composition_render](../../prompt_calculus_studio/composition_render.py)（`PreviewCache`、`render_image`、`freeze_image_source`、`freeze_source`）。桌面模組不列入 `SHARED_MODULES`，共用模組不轉發桌面符號。[邊界測試](../../tests/test_shared_core_boundary.py) 檢查任意深度的 Qt 匯入與清單封閉性，並在封鎖 Qt 的子程序實際呼叫共用圖片函式；包匯入測試繼續核對組裝結果。
+
+拆分保留繪製與凍結來源的回傳格式及 `originals/generation/` 路徑；`freeze_image_source` 每次經 `render_image` 新建預覽快取，編輯器與外層畫布各自持有的快取不變。原生瀏覽器頁面是目前 ComfyUI 介面的實作限制，不應變成所有未來模塊的前置條件。
 
 操作見 [使用說明](../releases/0.8.4/development/stage.md)，遷移見 [資料相容](data-compatibility.md)。

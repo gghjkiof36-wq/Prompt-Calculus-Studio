@@ -54,7 +54,8 @@ class LegacyColorRoleTests(unittest.TestCase):
             scene.removeItem(proxy);proxy.setWidget(None);proxy_panel.deleteLater()
 
     def test_image_editor_theme_changes_leave_brush_and_layer_colors_intact(self):
-        from prompt_calculus_studio.composition_image import document,layer,render_image
+        from prompt_calculus_studio.composition_image import document,layer
+        from prompt_calculus_studio.composition_render import render_image
         cid=next(iter(self.w.canvas.containers));drawing=document(120,80)
         shape=layer('rect',10,10,60,45);shape.update(fill='#bc412d',stroke='#124b88');drawing['layers'].append(shape)
         self.w.canvas.commit(lambda state:state['multi_output']['canvases'][cid].update(image=drawing))

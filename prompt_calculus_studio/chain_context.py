@@ -18,7 +18,7 @@ def apply_root(state,plan,root,directory):
 
 
 def context(runner,run,item):
-    from .composition_image import freeze_image_source
+    from .composition_render import freeze_image_source
     from .multi_output import new_output,connect
     state=runner.flow.context();stage=run['plan']['stages'][item['stage']]
     profile=next((p for p in state['generation']['profiles'] if p['id']==stage['workflow']),None)

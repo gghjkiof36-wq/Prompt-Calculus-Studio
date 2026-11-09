@@ -7,7 +7,8 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from prompt_calculus_studio.window import Window
 from prompt_calculus_studio import multi_output as model
-from prompt_calculus_studio.composition_image import freeze_source,canvas_document,render_image
+from prompt_calculus_studio.composition_image import canvas_document
+from prompt_calculus_studio.composition_render import freeze_source,render_image
 from prompt_calculus_studio.core import validate_state,Storage
 from prompt_calculus_studio.workflow_transfer import apply_transfer
 from test_multi_output import workspace,workflow

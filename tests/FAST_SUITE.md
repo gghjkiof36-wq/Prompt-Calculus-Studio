@@ -8,6 +8,8 @@
 
 `--output` 必須是尚不存在的目錄。預設清單來自 B1-S0 的 F-PROPOSAL：19 個 stage／queue 檔、B 的雙擊回歸、21 個 canvas 檔，最後執行 `test_084_stages` 的三個重開、暫停／繼續案例。清單與精簡案例完整 id 在 `fast_suite.py` 的 `STAGE`、`CANVAS`、`QUICK_STAGES`。單檔 120 秒，整套上限 360 秒。
 
+另納入 `test_shared_core_boundary.py`：掃描共用模組任意深度的 Qt 匯入與同套件依賴封閉性，以合成反例自查，並在封鎖 Qt 的子程序呼叫共用圖片資料函式。共享清單由此契約驗證，不寫死模組數量。
+
 預設快速套件不能關閉看門狗或將單檔上限提高至 120 秒以上；只有明確使用 `--files`／`--file-list` 的診斷執行可調整。
 
 執行器使用 unittest discovery（`-s tests -p <filename>` 等價方式），先加入明確指定的 vendor、checkout 與 tests 路徑。它設定 `QT_QPA_PLATFORM=offscreen`，並為每個程序設定獨立的 `PROMPT_STUDIO_DATA`、`TEMP`、`TMP`、`TMPDIR`。不使用使用者資料，也不啟動 ComfyUI 或 GPU。
@@ -76,6 +78,6 @@ S0-4a 的舊 picker 在 setUp 就呼叫已刪除的 `toggle_lookup`／`query`，
 - CAPACITY 測試以 patch 將對應 runner 的上限設為 10，資料量大於上限並實際完成／補入；初始、後續序號、總數與參數繼承皆有斷言，不只把預期數字改成 100。
 - work_queue 的 PNG 還原先 prepare_state，保留原工作區與空白草稿比較，再驗證輸入未變及新工作區根節點的 material_type 全為 text。
 - Q8b 在現行圖片卡實際連接／斷開，驗證模式、profile、prompt、來源均保留且不送出。Q8a 的拖放失敗保留。
-- visual_batch 用 id 找 clip；rev9 的子卡片命中斷言及 release_089 的 `==35` 不改。
+- visual_batch 用 id 找 clip；rev9 的子卡片命中斷言不改。release_089 過時的 `==35` 已隨圖片繪製模組拆分移除，改由上述共用邊界測試驗證清單，對應的 known_failures 項目也已刪除。
 
-本輪沒有修改產品程式、資料格式或架構；程式導航圖無須變更。已知失敗清單不是產品修復證據，完整驗收以任務輸出目錄的實測報告為準。
+B1-S0 沒有修改產品程式、資料格式或架構；當時程式導航圖無須變更。後續圖片模組拆分的責任入口見 [架構設計參考](../docs/development/architecture-reference.md)。已知失敗清單不是產品修復證據，完整驗收以任務輸出目錄的實測報告為準。

@@ -63,13 +63,6 @@
     "match": "[WinError 32]"
   },
   {
-    "test_ids": ["test_release_089.Release089Tests.test_launchers_and_shared_identity_are_current"],
-    "reason": "release_089:39 的 SHARED_MODULES == 35 過時；本件保留斷言。",
-    "fix_in": "S1（第一批第 2 項）",
-    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
-    "match": "36 != 35"
-  },
-  {
     "test_ids": ["test_canvas_visuals.CanvasVisualTests.test_compact_scheduler_pause_keeps_underlying_pause_resume_behavior"],
     "reason": "使用者已決定排程空時顯示「沒有等待執行的項目」；產品 stage_widgets 仍為「沒有等待執行的任務」。",
     "fix_in": "預排程卡片（第一批第 5 項）",

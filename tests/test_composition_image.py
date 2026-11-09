@@ -6,7 +6,8 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt,QPointF
 from PySide6.QtGui import QImage,QColor
 from PySide6.QtTest import QTest
-from prompt_calculus_studio.composition_image import document,layer,render_image,freeze_source,PreviewCache,validate_image
+from prompt_calculus_studio.composition_image import document,layer,validate_image
+from prompt_calculus_studio.composition_render import render_image,freeze_source,PreviewCache
 from prompt_calculus_studio.window import Window
 from prompt_calculus_studio import multi_output as model
 from prompt_calculus_studio.snapshots import make_snapshot,restore_snapshot

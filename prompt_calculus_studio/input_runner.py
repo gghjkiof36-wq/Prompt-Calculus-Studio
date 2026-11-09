@@ -155,7 +155,7 @@ class InputRunner:
         return [(owner,self.store.control(owner)) for owner, in self.store.db.execute('SELECT owner FROM input_queue_control')]
 
     def capture(self,state,scheduler):
-        from .composition_image import freeze_image_source
+        from .composition_render import freeze_image_source
         return capture_inputs(state,scheduler,lambda context,key:freeze_image_source(context,self.window.store.directory,key))
 
     def next_item(self):

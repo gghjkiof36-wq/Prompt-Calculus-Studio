@@ -191,7 +191,7 @@ def capture(state,plan,keys,directory,policies=None,per_round=False,*,borrow=Fal
                 image=state.get('canvas_functions',{}).get('images',{}).get(node)
                 if image is not None:saved['readers'][node]={k:copy.deepcopy(image[k]) for k in ('output_node','text_field','input_index','stage_reference','prompt_choice') if k in image}
             if future:continue
-            from .composition_image import freeze_image_source
+            from .composition_render import freeze_image_source
             if binding['kind']=='image' and source in state['multi_output']['canvases']:
                 from .flow_data import value
                 item=value('image',freeze_image_source(state,directory,source))
@@ -238,7 +238,7 @@ def merge_saved(outer,inner,*,borrow=False):
 
 def prepare_state(runner,run,stage,context,source_values=None):
     from .multi_output import new_output
-    from .composition_image import freeze_image_source
+    from .composition_render import freeze_image_source
     live=runner.window.state;state=dict(live)
     # Route comes from the queued definition; native graphs stay live.
     saved=context.get('saved',{});state['_execution_inputs']=saved.get('inputs',{})

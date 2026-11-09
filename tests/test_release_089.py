@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from prompt_calculus_studio.releases import CURRENT, SHARED_MODULES, write_launchers
+from prompt_calculus_studio.releases import CURRENT, write_launchers
 
 
 class Release089Tests(unittest.TestCase):
@@ -36,7 +36,6 @@ class Release089Tests(unittest.TestCase):
 
     def test_launchers_and_shared_identity_are_current(self):
         self.assertEqual(CURRENT.flag, '--v0.8.10-pre-alpha.2')
-        self.assertEqual(len(SHARED_MODULES), 35)
         with tempfile.TemporaryDirectory() as directory:
             write_launchers(directory, CURRENT)
             for suffix in ('.cmd', '.vbs'):

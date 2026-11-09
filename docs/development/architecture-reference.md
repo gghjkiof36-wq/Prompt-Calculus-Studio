@@ -15,6 +15,7 @@
 | ComfyUI／Stage 執行 | [DocumentExecution](../../prompt_calculus_studio/document_execution.py) 與[既有執行歸屬](local-workspace/execution-owners.md) | 執行權、journal 及回執跟著 runtime owner，不能隨焦點分頁轉移；連線成功不代表工作流能力已相容。 |
 | 新增外部服務 | [service_adapters](../../prompt_calculus_studio/service_adapters.py)；現有範例 [CivitAIBrowseAdapter](../../prompt_calculus_studio/civitai_adapter.py) | 封套凍結輸入並核對完整 request；各服務保留自己的傳輸、認證和回應限制。封套不承擔排程、重試或目的文件的新鮮度判斷。 |
 | Stage 圖片內容推導 | [stage_context.project](../../prompt_calculus_studio/stage_context.py) → [image_source](../../prompt_calculus_studio/image_source.py)／[pnginfo](../../prompt_calculus_studio/pnginfo.py) | 一次操作共用驗證過的 bytes 與 metadata，Reader 的 choice、來源及可變輸出各自獨立。 |
+| 畫布圖片資料與桌面繪製（目前工作樹） | [composition_image](../../prompt_calculus_studio/composition_image.py) → 純資料與來源路徑；[composition_render](../../prompt_calculus_studio/composition_render.py) → 預覽與凍結來源 | 桌面編輯器、畫布與 runner 直接匯入繪製模組；共用核心只依賴資料模組，沒有反向匯入或轉發。 |
 
 例如新增「整理選中 Prompt」：先凍結目前文件、選取與版本，取得候選後再核對目的內容；使用者採用時，以該文件的一次 `commit(..., merge_key=None)` 寫入，再由原保存流程處理落盤。Markdown 的本機「文字協作」已依同一原則接到 `buffer.apply(captured_snapshot, [SourceEdit])`：完整文件作上下文，選區改寫或文末起稿先預覽，按保留才提交一次可復原編輯，不把閱讀頁 HTML 寫回原文。Prompt 整理與通用 skill 執行仍屬規劃。
 
@@ -23,7 +24,7 @@
 - **同文件共用內容，不同文件各有 owner。** 視圖可以有各自的選取、縮放與呈現；素材原件與使用副本保持獨立。另存不把舊的在途工作轉給新文件，見[本機文件決策](local-workspace/ADR-001.md)及[執行歸屬](local-workspace/execution-owners.md)。
 - **空稿、順序和歷史都是資料。** 保留手動空字串 `''` 與未編輯 `None` 的差別、綁定、輸出順序、Undo／Redo、原文與保存重開結果。新增介面不能只驗證畫面上的最後字串。
 - **來源參照不等於持續同步。** 普通素材副本、Stage 來源、Markdown 相依各依既有明確操作更新；不能因同名覆寫另一份內容。組合文字成員的同步是明確例外，由 `material_links` 保存來源基準及身分對照，沿原內容交易進行三方合併，見[資料契約](data-compatibility.md#組合文字成員同步)。
-- **共享核心保持無 Qt。** [releases.py 的 SHARED_MODULES](../../prompt_calculus_studio/releases.py) 決定組裝時複製到 ComfyUI 的原始模組。新增依賴要追到傳遞 import；修改來源，不手改生成的 `shared/` 副本。內容交易核心也保持無 Qt，但不是因此自動列入組裝清單。
+- **共享核心保持無 Qt。** [releases.py 的 SHARED_MODULES](../../prompt_calculus_studio/releases.py) 決定組裝時複製到 ComfyUI 的原始模組。新增依賴要追到傳遞 import，包括函式內的相對與同套件絕對匯入；清單必須封閉。`composition_image` 只提供資料、驗證與來源路徑，`PreviewCache`、`render_image`、`freeze_image_source` 及 `freeze_source` 位於桌面專用的 `composition_render`，不列入清單，也不從共用模組轉發。[邊界測試](../../tests/test_shared_core_boundary.py) 以 AST、合成反例與封鎖 Qt 的子程序呼叫鎖住此契約。修改來源，不手改生成的 `shared/` 副本。內容交易核心也保持無 Qt，但不是因此自動列入組裝清單。
 
 ## 背景結果：接受之前再核對目前狀態
 

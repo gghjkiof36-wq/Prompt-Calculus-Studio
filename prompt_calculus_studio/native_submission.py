@@ -4,7 +4,7 @@ from .snapshots import make_snapshot
 
 
 def prepare(client,state,workflow,valid,submit,failed,image_values=None):
-    from .composition_image import freeze_image_source
+    from .composition_render import freeze_image_source
     from .workflow_runner import image_sources
     directory=client.window.store.directory
     profile=next(p for p in state['generation']['profiles'] if p['id']==workflow)

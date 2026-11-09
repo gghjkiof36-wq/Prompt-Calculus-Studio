@@ -695,7 +695,8 @@ class MultiCanvas(TextCanvas):
             self._scene_refresh_pending=False
         finally: self.refreshing=False
     def refresh_image_previews(self):
-        from .composition_image import render_image,PreviewCache,canvas_document
+        from .composition_image import canvas_document
+        from .composition_render import render_image,PreviewCache
         import json
         if not hasattr(self,'composition_cache'): self.composition_cache=PreviewCache(); self.preview_signatures={}
         state=self.window.state

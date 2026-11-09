@@ -6,7 +6,7 @@ from pathlib import Path
 from .workflow_flow import execution_profiles,ORDER_CARD
 from .multi_output import bound_texts
 from .generation import submission,image_target,uploaded_image
-from .composition_image import freeze_image_source
+from .composition_render import freeze_image_source
 
 
 def image_sources(state,profile):
