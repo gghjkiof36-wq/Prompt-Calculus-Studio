@@ -12,6 +12,8 @@
 
 B1-3B 納入 `test_stage_run_controls.py`（暫停後主按鈕、plan／工作區／服務隔離、關閉重開與選單取消）及 `test_canvas_card_menus.py`（13 種卡片尺寸對話框、選單入口與面板保留項目）。原有六分鐘與單檔上限不變。
 
+B1-7 納入 `test_workspace_ambient.py`（`WORKSPACE` 清單）：固定 60 幀的 Canvas／文字頁 paint 計數、輸入與焦點、全域幾何、通知避讓、暫停與頂層視窗生命週期。Qt 6.11 offscreen 外掛顯示非 ToolTip 視窗時會忽略禁止焦點旗標而自動啟用；fixture 僅在 offscreen 對特效設定 `WA_DontShowOnScreen`，仍由真實 QWidget backing store 派送 paintEvent，不模擬 paint／焦點結果。原生桌面的輸入穿透、啟用、疊放、跨螢幕 DPI 與 OpenGL 合成仍須另驗；此屬性不進產品。
+
 預設快速套件不能關閉看門狗或將單檔上限提高至 120 秒以上；只有明確使用 `--files`／`--file-list` 的診斷執行可調整。
 
 執行器使用 unittest discovery（`-s tests -p <filename>` 等價方式），先加入明確指定的 vendor、checkout 與 tests 路徑。它設定 `QT_QPA_PLATFORM=offscreen`，並為每個程序設定獨立的 `PROMPT_STUDIO_DATA`、`TEMP`、`TMP`、`TMPDIR`。不使用使用者資料，也不啟動 ComfyUI 或 GPU。

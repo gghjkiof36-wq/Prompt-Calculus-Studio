@@ -1347,6 +1347,7 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 local_ai.resume_after_close_abort()
         if event.isAccepted():
             self.performance_monitor.shutdown()
+            self.ambient.shutdown()
         if delegation:
             if event.isAccepted():
                 delegation.shutdown()

@@ -5,9 +5,10 @@ import random
 import sys
 import time
 
-from PySide6.QtCore import QEvent, QPointF, QRect, Qt, QTimer
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QRegion
 from PySide6.QtWidgets import QApplication, QWidget
+from shiboken6 import isValid
 
 
 EFFECTS = (('關閉', 'off'), ('櫻花', 'sakura'), ('下雨', 'rain'), ('雪花', 'snow'))
@@ -34,8 +35,18 @@ class Particle:
 
 class WorkspaceAmbient(QWidget):
     def __init__(self, workspace):
-        super().__init__(workspace.workspace_stack)
+        # A translucent child dirties the backing store of the content below
+        # every particle. An owned tool window has its own backing store and
+        # lets the window system composite it without repainting that content.
+        super().__init__(workspace, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint
+                         | Qt.WindowType.WindowTransparentForInput
+                         | Qt.WindowType.WindowDoesNotAcceptFocus)
         self.workspace = workspace
+        self.surface = workspace.workspace_stack
+        self._closed = False
+        self._syncing = False
+        self._window_handle = None
+        self._notice_region = QRegion()
         self.effect = 'off'
         self.reduced = False
         self.system_motion = system_motion_enabled()
@@ -47,14 +58,21 @@ class WorkspaceAmbient(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setStyleSheet('#WorkspaceAmbient { background: transparent; border: none; }')
         self.timer = QTimer(self)
         self.timer.setInterval(33)
         self.timer.timeout.connect(self.advance)
-        workspace.installEventFilter(self)
-        self.parentWidget().installEventFilter(self)
-        self.parentWidget().currentChanged.connect(self.sync)
+        # Ancestor moves matter too: layout/sidebar changes can move the
+        # surface without moving or resizing the main window.
+        ancestor = self.surface
+        while ancestor is not None:
+            ancestor.installEventFilter(self)
+            ancestor = ancestor.parentWidget()
+        workspace.notification.installEventFilter(self)
+        workspace.destroyed.connect(self.owner_destroyed)
+        self.surface.currentChanged.connect(self.sync)
         QApplication.instance().applicationStateChanged.connect(self.sync)
         self.hide()
 
@@ -65,6 +83,7 @@ class WorkspaceAmbient(QWidget):
         if effect != self.effect:
             self.effect = effect
             self.particles.clear()
+            self.update()  # Clear the previous effect's pixels in our backing store.
         self.reduced = bool(appearance['reduce_motion'])
         light = visual_tokens(appearance)['scheme'] == 'light'
         colors = {'sakura': '#b46683' if light else '#e8b7c9',
@@ -74,28 +93,80 @@ class WorkspaceAmbient(QWidget):
         self.sync()
 
     def sync(self, *_):
-        self.setGeometry(self.parentWidget().rect())
-        active = (self.effect != 'off' and not self.reduced and self.system_motion
-                  and self.workspace.isVisible() and not self.workspace.isMinimized()
-                  and self.workspace.isActiveWindow())
-        self.setVisible(active)
-        if active:
-            self.raise_()
-            self.workspace.notification.raise_()
-            if not self.timer.isActive():
-                self.last_frame = time.monotonic()
-                self.timer.start()
-        else:
-            self.timer.stop()
-        if self.effect == 'off':
-            self.particles.clear()
+        if self._closed or self._syncing or not isValid(self.workspace):
+            return
+        self._syncing = True
+        try:
+            handle = self.workspace.windowHandle()
+            if handle is not None and handle is not self._window_handle:
+                self._window_handle = handle
+                handle.screenChanged.connect(self.sync)
+            self.setGeometry(QRect(self.surface.mapToGlobal(QPoint()), self.surface.size()))
+            self.sync_notice()
+            active = (self.effect != 'off' and not self.reduced and self.system_motion
+                      and self.workspace.isVisible() and not self.workspace.isMinimized()
+                      and self.workspace.isActiveWindow())
+            self.setVisible(active)
+            if active:
+                if not self.timer.isActive():
+                    self.last_frame = time.monotonic()
+                    self.timer.start()
+            else:
+                self.timer.stop()
+            if self.effect == 'off':
+                self.particles.clear()
+        finally:
+            self._syncing = False
+
+    def sync_notice(self):
+        notice = self.workspace.notification
+        region = (QRegion(QRect(notice.mapTo(self.surface, QPoint()), notice.size()))
+                  if notice.isVisible() else QRegion())
+        if region != self._notice_region:
+            dirty = self._notice_region | region
+            self._notice_region = region
+            # Clear existing petals as soon as a notice appears/moves, even
+            # when none of those petals intersects the next animation update.
+            self.update(dirty)
+
+    def raise_(self):
+        # WorkspaceSurface still raises decoration after relaying out pages.
+        # Never let that legacy call lift our native window above a popup.
+        if (not self._closed and isValid(self.workspace) and self.isVisible()
+                and self.workspace.isActiveWindow()
+                and QApplication.activePopupWidget() is None
+                and QApplication.activeModalWidget() is None):
+            super().raise_()
+
+    def shutdown(self):
+        if self._closed:
+            return
+        self._closed = True
+        self.timer.stop()
+        self.close()
+        self.deleteLater()
+
+    def owner_destroyed(self):
+        # QObject ownership will delete this window and its timer next. Do not
+        # close a native window here: that can dispatch activation events back
+        # through a workspace whose C++ destructor is already running.
+        self._closed = True
+        self.timer.stop()
 
     def eventFilter(self, watched, event):
+        if self._closed or not isValid(self.workspace):
+            return False
         kind = event.type()
+        if watched is self.workspace.notification:
+            if kind in (QEvent.Type.Show, QEvent.Type.Hide, QEvent.Type.Move, QEvent.Type.Resize):
+                self.sync_notice()
+            return False
         if watched is self.workspace and kind == QEvent.Type.ActivationChange:
             self.system_motion = system_motion_enabled()
-        if kind in (QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.Hide,
-                    QEvent.Type.WindowStateChange, QEvent.Type.ActivationChange):
+        if kind in (QEvent.Type.Move, QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.Hide,
+                    QEvent.Type.WindowStateChange, QEvent.Type.ActivationChange,
+                    QEvent.Type.WinIdChange, QEvent.Type.ScreenChangeInternal,
+                    QEvent.Type.DevicePixelRatioChange):
             self.sync()
         return False
 
@@ -138,6 +209,7 @@ class WorkspaceAmbient(QWidget):
         if self.effect == 'off':
             return
         painter = QPainter(self)
+        painter.setClipRegion(QRegion(self.rect()).subtracted(self._notice_region))
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         color = QColor(self.color)
         color.setAlphaF(.19 if self.effect == 'rain' else .32)
