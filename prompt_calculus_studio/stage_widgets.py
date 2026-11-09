@@ -170,8 +170,6 @@ class SchedulePageContent(QFrame):
         self.empty=label('沒有等待執行的任務','Subtle',True);self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setMinimumHeight(56);body.addWidget(self.empty,1)
         self.pause_button=button('全部暫停',self.toggle_pause,'Quiet')
-        self.more=button('管理',self.manage,'Quiet')
-        self.more.setAccessibleName('管理預排程');self.more.setToolTip('拖曳排列等待項目')
         self.legacy_button=button('整理舊接線',self.convert_wiring,'Quiet');body.insertWidget(0,self.legacy_button)
         history=self.history=button('歷史',lambda:show_history(canvas.window),'Quiet');history.setAccessibleName('歷史');history.setToolTip('歷史')
         from .ui_icons import icon
@@ -185,7 +183,7 @@ class SchedulePageContent(QFrame):
         self.view_switch=QWidget();self.view_switch.setLayout(row(self.card_mode,self.list_mode))
         self.view_switch.layout().setContentsMargins(0,0,0,0);self.view_switch.layout().setSpacing(2)
         self.set_group_view(getattr(canvas,'_schedule_group_view_mode','cards'))
-        body.insertLayout(0,row(self.back_button,self.summary,None,self.view_switch,history,self.more,self.pause_button))
+        body.insertLayout(0,row(self.back_button,self.summary,None,self.view_switch,history,self.pause_button))
         self.range_label=label('','Subtle')
         self.previous=button('上一頁',lambda:self.turn_page(-1),'Quiet')
         self.following=button('下一頁',lambda:self.turn_page(1),'Quiet')
@@ -256,7 +254,7 @@ class SchedulePageContent(QFrame):
         cancel.setEnabled(any(r['status']=='running' for r in self.runner.store.entry_states(self.canvas.window.state['workspace'],self.key)))
         menu.addSeparator()
         all_runs=menu.addAction('取消整個預排程的所有流程',lambda:self.action('cancel'));all_runs.setEnabled(bool(self.groups))
-        menu.open_for(anchor or self.more,None if anchor else self.canvas.view)
+        menu.open_for(anchor or self.pause_button)
 
     def item_menu(self,ident,position):
         item=self.runner.store.read(ident)
@@ -373,7 +371,7 @@ class SchedulePageContent(QFrame):
         self.empty.setVisible(not rows if self.group else not self.groups)
         self.list.setVisible(bool(self.group and rows));self.groups_list.setVisible(bool(not self.group and self.groups))
         self.view_switch.setVisible(not self.group)
-        self.back_button.setVisible(bool(self.group));self.more.setVisible(bool(self.group and rows))
+        self.back_button.setVisible(bool(self.group))
         self.pager.setVisible(bool(self.group));self.previous.setEnabled(self.offset>0)
         self.following.setEnabled(self.offset+self.page_size<materialized)
         suffix=f" · {current['pending']:,} 項待供應" if current and current['pending'] else ''
@@ -502,6 +500,39 @@ class SchedulePanel(QFrame):
         content.groups_list.setFocus()
         return self.page
 
+    def add_menu_actions(self,menu):
+        workspace=self.canvas.window.state['workspace']
+        groups=self.runner.store.schedule_groups(workspace,self.key)
+        manage=menu.addMenu('管理');manage.setEnabled(bool(groups))
+        for index,group in enumerate(groups):
+            manage.addAction(f"第 {index+1} 組 · {group['label']}",lambda checked=False,ident=group['id']:self.manage_group(ident))
+        from .scheduler_wiring import legacy_edges
+        if legacy_edges(self.canvas.window.state,self.key):
+            menu.addAction('整理舊接線',lambda:self.open_page().content.convert_wiring())
+        if self.canvas.data()['schedulers'].get(self.key,{}).get('mode')=='stage':
+            menu.addAction('輸入取值',lambda:self.open_page().content.policies())
+        current=menu.addAction('取消目前項目',self.cancel_current)
+        current.setEnabled(any(r['status']=='running' for r in self.runner.store.entry_states(workspace,self.key)))
+        cancel=menu.addAction('取消整個預排程的所有流程',self.cancel_all)
+        cancel.setEnabled(bool(groups))
+
+    def manage_group(self,ident):
+        content=self.open_page().content
+        content.open_group(ident)
+        if content.group==ident:content.manage()
+
+    def cancel_current(self):
+        ident=next((r['id'] for r in self.runner.store.entry_states(self.canvas.window.state['workspace'],self.key)
+                    if r['status']=='running'),None)
+        if ident:
+            try:self.runner.cancel_current(ident)
+            except ValueError as exc:self.canvas.window.notice(str(exc))
+
+    def cancel_all(self):
+        try:scheduler_action(self.canvas,self.key,'cancel')
+        except ValueError as exc:self.canvas.window.notice(str(exc))
+        self.refresh()
+
     def refresh(self):
         state=self.canvas.window.state
         if self.runner.closed:return
@@ -513,7 +544,7 @@ class SchedulePanel(QFrame):
         queued=[g for g in groups if not g['cancelled'] and not g['bypassed']
                 and (g['pending'] or g['counts'].get('waiting'))]
         current=next((g for g in groups if g['counts'].get('running')),queued[0] if queued else None)
-        text='沒有等待執行的任務'
+        text='沒有等待執行的項目'
         if current:
             complete=current['counts'].get('complete',0);total=current['total']
             text=f'{complete}/{total} 已完成'

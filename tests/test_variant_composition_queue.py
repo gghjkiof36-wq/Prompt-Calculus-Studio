@@ -67,12 +67,12 @@ class ScheduleCardTests(unittest.TestCase):
         from prompt_calculus_studio.flow_data import add_scheduler
         keys=[];self.assertTrue(self.c.commit(lambda state:keys.append(add_scheduler(state))))
         key=keys[0];panel=self.c.flow_cards[key].panel;store=self.runner.store;workspace=self.w.state['workspace']
-        self.assertEqual(panel.summary.text(),'沒有等待執行的任務')
+        self.assertEqual(panel.summary.text(),'沒有等待執行的項目')
         self.assertTrue(panel.progress.isHidden())
         QTest.mouseClick(panel.pause_button,Qt.MouseButton.LeftButton)
         self.assertTrue(store.scheduler_paused(workspace,key))
         self.assertEqual(panel.pause_button.accessibleName(),'繼續預排程')
-        self.assertEqual(panel.summary.text(),'沒有等待執行的任務')
+        self.assertEqual(panel.summary.text(),'沒有等待執行的項目')
         QTest.mouseClick(panel.pause_button,Qt.MouseButton.LeftButton)
         self.assertFalse(store.scheduler_paused(workspace,key))
         entries=[]
@@ -93,7 +93,7 @@ class ScheduleCardTests(unittest.TestCase):
         panel.refresh();self.assertEqual(panel.summary.text(),'9/10 已完成')
         self.assertEqual((panel.progress.value(),panel.progress.maximum()),(9,10))
         store.update(entries[-1]['id'],status='complete');panel.refresh()
-        self.assertEqual(panel.summary.text(),'沒有等待執行的任務');self.assertTrue(panel.progress.isHidden())
+        self.assertEqual(panel.summary.text(),'沒有等待執行的項目');self.assertTrue(panel.progress.isHidden())
         store.add('entry',workspace,'owner',run='synthetic',scheduler=key,execution_group='retained',
             label='Stopped',status='retained',saved={})
-        panel.refresh();self.assertEqual(panel.summary.text(),'沒有等待執行的任務')
+        panel.refresh();self.assertEqual(panel.summary.text(),'沒有等待執行的項目')

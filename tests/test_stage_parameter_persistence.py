@@ -227,7 +227,9 @@ class StageParameterRestartTests(unittest.TestCase):
         queue = add_scheduler(self.w.state)
         self.c.commit(lambda state: multi_output.connect(state, stage, queue + '::flow', 'flow'))
         self.runner.store.set_scheduler_paused(self.w.state['workspace'], queue, True)
-        self.click()
+        # Paused main-button clicks now resume. Queue both fixture items in
+        # one explicit batch, then preserve the original restart assertions.
+        self.controls.count.setValue(2)
         self.click()
         entries = self.runner.store.rows('entry')
         self.assertEqual(len(entries), 2, self.notices)

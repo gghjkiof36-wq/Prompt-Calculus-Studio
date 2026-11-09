@@ -141,7 +141,11 @@ class CanvasPopupLayersTests(StageFixture):
             self.w.state['settings']['visual_palette']=palette;self.w.apply_theme(preserve_layout=True)
             panel=self.c.flow_cards[keys[0]].panel;save=self.c.outputs[self.out].panel.open_button
             self.assertEqual(panel.pause_button.styleSheet(),save.styleSheet())
-            self.assertEqual(save.palette().button().color(),QColor(canvas_colors(self.c)['surface']))
+            # These compact openers already use the pending field role, not
+            # the old full-size Save Material surface role.
+            expected=QColor(canvas_colors(self.c)['module_field'])
+            self.assertEqual(save.palette().button().color(),expected)
+            self.assertEqual(panel.pause_button.palette().button().color(),expected)
 
     def test_editor_placeholder_contrast_and_disposal_leave_no_orphan_shade(self):
         from PySide6.QtGui import QPalette

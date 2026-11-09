@@ -53,7 +53,8 @@ class ExecutionBarPresentationTests(unittest.TestCase):
                             self.configure(palette,size,width,active);self.controls.count.setValue(100)
                             self.assertTrue(self.w.canvas.view.viewport().rect().contains(self.bar.geometry()))
                             visible=[self.bar.handle,self.controls.count,self.controls.run_button,self.controls.stop]
-                            visible+=[self.bar.more] if self.bar.compact else [self.controls.activity]
+                            self.assertFalse(hasattr(self.bar,'more'))
+                            if not self.bar.compact:visible.append(self.controls.activity)
                             boxes=[]
                             for control in visible:
                                 box=QRect(control.mapTo(self.bar,QPoint()),control.size())
@@ -103,9 +104,13 @@ class ExecutionBarPresentationTests(unittest.TestCase):
             next(a for a in menus[0].actions() if a.text().startswith('取消此工作區全部流程')).trigger()
             self.assertEqual(stop.call_args.args,(True,))
             self.configure(width=640,active=True)
-            menu=self.bar.tools_menu()
+            menus=[]
+            with patch('prompt_calculus_studio.widgets.RoundMenu.open_at',lambda menu,*_:menus.append(menu)):
+                next(iter(self.w.canvas.clips.values())).open_menu(QPoint())
+            menu=menus[0]
             next(action for action in menu.actions() if action.text().startswith('任務紀錄')).trigger()
             self.assertEqual(history.call_count,2)
+            menu.deleteLater()
             self.assertIn('3 個活動任務',self.controls.activity.accessibleName())
         from prompt_calculus_studio import stage_model
         stage_model.add(self.w.state);self.controls.refresh()

@@ -44,8 +44,6 @@ class SourcePanel(QFrame):
         self.choose=SourceMenuButton('選擇圖片');self.choose.clicked.connect(self.source_menu)
         self.attach_button=button('接到 Prompt',self.toggle_attachment,'Quiet')
         body.addWidget(self.choose);body.addWidget(self.attach_button)
-        self.management=button('圖片管理',self.toggle_management,'Quiet')
-        self.management.setCheckable(True);body.addWidget(self.management)
         self.source_controls=QFrame();controls=QVBoxLayout(self.source_controls);controls.setContentsMargins(0,0,0,0)
         controls.setSpacing(10)
         self.list_button=button('圖片清單',lambda:edit_list(self))
@@ -71,8 +69,6 @@ class SourcePanel(QFrame):
         self.pause_button.setIcon(icon('play' if self.pause_button.property('feedPaused') else 'pause',colors['text']))
         for control,name in ((self.previous,'上一張'),(self.next,'下一張')):
             control.setAccessibleName(name);control.setToolTip(name);control.setFixedWidth(36)
-        expanded=not self.owner.data()['images'][self.key].get('management_collapsed',True)
-        self.management.setIcon(icon('chevron-down' if expanded else 'chevron-right',colors['secondary']))
 
     def toggle_management(self):
         value=self.owner.data()['images'][self.key]
@@ -162,7 +158,6 @@ class SourcePanel(QFrame):
         self.supply_row.setVisible(enhanced and value.get('iterate',False))
         self.supply.blockSignals(True);self.supply.setCurrentIndex(self.supply.findData(value.get('supply','batch')));self.supply.blockSignals(False)
         expanded=not value.get('management_collapsed',True)
-        self.management.setVisible(enhanced);self.management.setChecked(expanded)
         self.source_controls.setVisible(enhanced and expanded)
         self.attach_button.setVisible('multi_output' not in self.owner.window.state)
         self.binding.setVisible(advanced and not enhanced and self.owner.window.state['multi_output']['version']<7); self.show_image.setVisible(advanced)
@@ -368,8 +363,12 @@ class CanvasFunctions:
         menu=RoundMenu(self.window)
         attached=self.data().get('preview_attached') if key=='__result_preview__' else self.data()['images'][key].get('attached')
         menu.addAction('解除拼接' if attached else '接到 Prompt',lambda:self.attach(key,not attached))
-        menu.addAction('調整尺寸…',lambda:self.canvas.size_dialog(key))
+        menu.addAction('調整模組尺寸…',lambda:self.canvas.size_dialog(key))
+        menu.addAction('恢復自動尺寸',lambda:self.canvas.reset_size(key))
         if key in self.cards:
+            if self.data()['images'][key].get('enhanced'):
+                action=menu.addAction('圖片管理',self.cards[key].panel.toggle_management)
+                action.setCheckable(True);action.setChecked(not self.data()['images'][key].get('management_collapsed',True))
             menu.addAction('選擇圖片…',self.cards[key].panel.choose_file)
             source=self.data()['images'][key].get('source')
             if source: menu.addAction('載入圖片提示詞…',lambda:self.window.generation_panel.load_image_prompt(source))

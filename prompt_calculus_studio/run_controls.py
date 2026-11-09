@@ -56,7 +56,7 @@ class RunControls(QWidget):
         self.count.setAccessibleName('運行次數'); self.count.setToolTip('運行次數，每次依照 ComfyUI 工作流的 Seed 規則提交。'); self.count.setFixedWidth(76)
         self.count.valueChanged.connect(self.count_changed); layout.addWidget(self.count)
         if window.state.get('multi_output',{}).get('version',1)>=4:self.count.setToolTip('執行輪數；一輪依序完成所有已連接工作流，同一工作流只提交一次。')
-        self.run_button=button('運行',window.copy_final,'Run'); self.run_button.setMinimumHeight(40); self.run_button.setIconSize(QSize(18,18)); layout.addWidget(self.run_button,1)
+        self.run_button=button('運行',self.execute,'Run'); self.run_button.setMinimumHeight(40); self.run_button.setIconSize(QSize(18,18)); layout.addWidget(self.run_button,1)
         if not copy_fallback: self.run_button.setMaximumWidth(280)
         self.stop=button('取消',lambda:window.comfy.interrupt(),'StopRun'); self.stop.setProperty('textButton',True)
         self.stop.setProperty('iconName','close');self.stop.setIconSize(QSize(18,18))
@@ -127,6 +127,27 @@ class RunControls(QWidget):
             if bar and bar is not self:
                 bar.count.blockSignals(True); bar.count.setValue(value); bar.count.blockSignals(False)
 
+    def paused_run(self):
+        client=getattr(self.window,'comfy',None)
+        runner=getattr(getattr(client,'input_flow',None),'chain',None)
+        if self.window.state.get('multi_output',{}).get('version',1)<7 or runner is None or runner.closed:return None
+        # Read the existing progress projection, never full frozen entry data.
+        paused=[run for run in runner.store.progress_runs(self.window.state['workspace'])
+                if run['status']=='paused' and run['server']==client.url]
+        if not paused:return None
+        from .stage_model import compile_plan,execution_signature
+        try:signature=execution_signature(compile_plan(self.window.state))
+        except ValueError:return None
+        return next((run for run in paused if execution_signature(run['plan'])==signature),None)
+
+    def execute(self):
+        # Resolve again at click time: the visible document/plan may have changed.
+        paused=self.paused_run()
+        if paused is None:return self.window.copy_final()
+        try:self.window.comfy.input_flow.chain.resume(paused['id'])
+        except ValueError as exc:self.window.notice(str(exc))
+        self.refresh()
+
     def refresh(self):
         modern=self.window.state.get('multi_output',{}).get('version',1)>=5
         single_native=self.window.state.get('multi_output',{}).get('version',1)==4
@@ -149,7 +170,8 @@ class RunControls(QWidget):
         if needs and client.direct_supported and self.window.state.get('multi_output',{}).get('version',1)>=4: missing='請綁定 CLIP 輸入'
         if client and hasattr(client,'queue') and client.queue.busy():missing='佇列工作尚未結案'
         busy=bool(client and (client.run_id or getattr(getattr(client,'generation',None),'batch',None) or hasattr(client,'queue') and client.queue.busy()))
-        fallback=self.copy_fallback and not self.execution_only and not ready and not incompatible and not needs
+        paused=self.paused_run()
+        fallback=self.copy_fallback and not self.execution_only and not ready and not incompatible and not needs and paused is None
         self.run_button.setText(('執行中' if busy and not modern else '執行') if self.execution_only else '請重啟 ComfyUI' if incompatible else missing if needs else '複製完整 Prompt' if fallback else '正在提交…' if client and client.run_id and not modern else '運行')
         self.run_button.setIcon(QIcon() if fallback else icon('play','on-run'))
         role='Primary' if fallback else 'Run'
@@ -199,6 +221,9 @@ class RunControls(QWidget):
                 self.stop.setToolTip('取消此文件的等待流程；不影響正在執行的其他文件。')
             elif scheduling.startswith('任務紀錄'):
                 self.run_button.setEnabled(False)
+        if paused is not None:
+            self.run_button.setText('繼續');self.run_button.setEnabled(True)
+            self.run_button.setToolTip('繼續目前流程')
         self.configure_geometry()
 
     def stop_menu(self,pos):

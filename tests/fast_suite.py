@@ -20,13 +20,13 @@ material_cursor_upgrade queue_metadata 087_queue_history stage_refresh_projectio
 variant_composition_queue stage_parameter_persistence native_queue
 stage_status_performance material_links prompt_groups prompt_material_resolution
 stage_parameters stage_apply_boundaries maintenance_package shared_core_boundary prompt_batches
-stage_cancel_all stage_click_regression'''.split()
+stage_cancel_all stage_click_regression stage_run_controls'''.split()
 CANVAS = '''087_canvas_operations canvas_wheel_backing canvas_module_header_cache
 canvas_wheel_interaction canvas_pan_cache canvas_proxy_cache canvas_prompt_pan
 canvas_surface canvas_preview_continuity canvas_startup canvas_recent_execution
 canvas_combination_copy canvas_refresh_performance canvas_gestures
 canvas_variant_navigation canvas_navigation_rendering canvas_raster
-088_canvas_entrypoints canvas_delete_keys canvas_cohesion canvas_four_modules'''.split()
+088_canvas_entrypoints canvas_delete_keys canvas_cohesion canvas_four_modules canvas_card_menus'''.split()
 QUICK_STAGES = [
     'test_084_stages.StageTests.test_reopen_and_workspace_results_do_not_restart',
     'test_084_stages.StageTests.test_results_failure_refetch_without_generation_and_pause_resume',

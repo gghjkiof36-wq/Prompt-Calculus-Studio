@@ -88,7 +88,7 @@ class ModulePreviewStoreTests(unittest.TestCase):
                                 self.assert_closed(old)
                             if kind == 'schedule':
                                 panel = dialog.preview.card.panel
-                                self.assertEqual(panel.summary.text(), '沒有等待執行的任務')
+                                self.assertEqual(panel.summary.text(), '沒有等待執行的項目')
                                 self.assertFalse(panel.progress.isVisible())
                     dialog.reject()
                     for connection in connections:
@@ -115,4 +115,3 @@ class ModulePreviewStoreTests(unittest.TestCase):
         dialog.deleteLater()  # QObject destruction need not send a child closeEvent.
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         self.assert_closed(connection)
-

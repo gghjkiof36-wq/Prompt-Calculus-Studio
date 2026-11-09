@@ -10,6 +10,8 @@
 
 另納入 `test_shared_core_boundary.py`：掃描共用模組任意深度的 Qt 匯入與同套件依賴封閉性，以合成反例自查，並在封鎖 Qt 的子程序呼叫共用圖片資料函式。共享清單由此契約驗證，不寫死模組數量。
 
+B1-3B 納入 `test_stage_run_controls.py`（暫停後主按鈕、plan／工作區／服務隔離、關閉重開與選單取消）及 `test_canvas_card_menus.py`（13 種卡片尺寸對話框、選單入口與面板保留項目）。原有六分鐘與單檔上限不變。
+
 預設快速套件不能關閉看門狗或將單檔上限提高至 120 秒以上；只有明確使用 `--files`／`--file-list` 的診斷執行可調整。
 
 執行器使用 unittest discovery（`-s tests -p <filename>` 等價方式），先加入明確指定的 vendor、checkout 與 tests 路徑。它設定 `QT_QPA_PLATFORM=offscreen`，並為每個程序設定獨立的 `PROMPT_STUDIO_DATA`、`TEMP`、`TMP`、`TMPDIR`。不使用使用者資料，也不啟動 ComfyUI 或 GPU。
@@ -74,10 +76,10 @@ S0-4a 的舊 picker 在 setUp 就呼叫已刪除的 `toggle_lookup`／`query`，
 - canvas_ui 三項與 refinement 的新增子模組，使用目前分類 picker；保留副本獨立、巢狀順序、輸出、undo／redo／儲存。空白雙擊改驗證不新增；舊清單入口改成 prompt_editor 導航。現行版本資料不應產生 migration backup；真正舊資料備份仍由 refinement 測試。
 - paragraphs 舊雙選取設定與 list_shell 已移除，改驗證導航前後的畫布素材、手動草稿、輸出／snapshot／排序／儲存不變；背景色讀 theme token。picker_folders 驗證現行 MaterialScope 順序與原有 folder 聚合、搜尋及唯讀性。
 - regression／review／rev9／popup_layers 用真實模態 NodeDialog，保留儲存、取消、獨立副本、重開、undo／redo、遮罩與焦點。標題列拖曳改點不落在現行收合按鈕的位置。
-- OutputPanel editor 改從 open_page().content 取得，保留文字編輯與事件歸屬。SchedulePanel 已移除 policy_button，改從詳情頁更多選單驗證指令；pause 的語意由 accessibleName 驗證，而 5B 的「繼續」文字仍在 lifecycle 保留嚴格失敗。popup 的按鈕樣式比較改取現行 compact output action，仍驗證切換主題。
+- OutputPanel editor 改從 open_page().content 取得，保留文字編輯與事件歸屬。B1-3B 將預排程管理與 CLIP 工具移到卡片更多選單；管理回歸仍實際排序、移除、套用及 Undo／Redo。pause 圖示的語意由 accessibleName 驗證，5B 的「繼續」文字改驗證主執行按鈕及原 run 恢復。popup 仍透過正常主題切換驗證暫停與 compact output action 的樣式及既有 module_field 色彩，沒有手動刷新面板。
 - CAPACITY 測試以 patch 將對應 runner 的上限設為 10，資料量大於上限並實際完成／補入；初始、後續序號、總數與參數繼承皆有斷言，不只把預期數字改成 100。
 - work_queue 的 PNG 還原先 prepare_state，保留原工作區與空白草稿比較，再驗證輸入未變及新工作區根節點的 material_type 全為 text。
 - Q8b 在現行圖片卡實際連接／斷開，驗證模式、profile、prompt、來源均保留且不送出。Q8a 的拖放失敗保留。
-- visual_batch 用 id 找 clip；rev9 的子卡片命中斷言不改。release_089 過時的 `==35` 已隨圖片繪製模組拆分移除，改由上述共用邊界測試驗證清單，對應的 known_failures 項目也已刪除。
+- visual_batch 用 id 找 clip；B1-3B 續經 01 核定，rev9 只將過時的父 padding 座標改為子卡底緣與父卡高度的中點，保留原期望並新增舊位置命中子卡的回歸；產品命中範圍不改。restart 舊完成尾端先繼續並結案，再由第二次點擊建立新批次。release_089 過時的 `==35` 已隨圖片繪製模組拆分移除，改由上述共用邊界測試驗證清單，對應的 known_failures 項目也已刪除。
 
 B1-S0 沒有修改產品程式、資料格式或架構；當時程式導航圖無須變更。後續圖片模組拆分的責任入口見 [架構設計參考](../docs/development/architecture-reference.md)。已知失敗清單不是產品修復證據，完整驗收以任務輸出目錄的實測報告為準。

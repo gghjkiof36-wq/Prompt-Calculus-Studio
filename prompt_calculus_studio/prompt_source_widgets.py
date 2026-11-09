@@ -313,4 +313,6 @@ class GroupSourceCard(TextCard):
 
     def open_menu(self,position):
         menu=RoundMenu(self.canvas.window);menu.addAction('選擇流程',self.panel.edit)
+        menu.addAction('調整模組尺寸…',lambda:self.canvas.size_dialog(self.key))
+        menu.addAction('恢復自動尺寸',lambda:self.canvas.reset_size(self.key))
         menu.add_destructive_action('移除',lambda:self.owner.remove(self.key));menu.open_at(position)

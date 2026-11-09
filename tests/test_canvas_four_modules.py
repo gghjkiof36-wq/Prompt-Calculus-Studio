@@ -44,6 +44,13 @@ class FourModuleTests(StageFixture):
         self.assertTrue(event.isAccepted())
 
     def test_source_management_paging_preview_and_reopen(self):
+        from prompt_calculus_studio.widgets import RoundMenu
+        def toggle_management():
+            menus=[]
+            with patch.object(RoundMenu,'open_at',lambda menu,*_:menus.append(menu)):
+                card.open_menu(QPoint())
+            next(a for a in menus[0].actions() if a.text()=='圖片管理').trigger()
+            menus[0].deleteLater();APP.processEvents()
         key,panel=self.source();card=self.c.functions.cards[key];height=card.height
         self.assertTrue(panel.source_controls.isHidden());self.assertFalse(panel.previous.isEnabled())
         QTest.mouseClick(panel.next,Qt.MouseButton.LeftButton)
@@ -51,11 +58,11 @@ class FourModuleTests(StageFixture):
         self.assertEqual(self.c.functions.data()['images'][key]['index'],1);self.assertEqual(panel.counter.text(),'2 / 3')
         with patch('prompt_calculus_studio.image_viewer.show_image') as viewer:
             panel.open_preview();self.assertEqual(viewer.call_args.args[2],'image-1.png')
-        QTest.mouseClick(panel.management,Qt.MouseButton.LeftButton);APP.processEvents()
+        toggle_management()
         self.assertFalse(panel.source_controls.isHidden());self.assertGreater(card.height,height)
         self.w.persist();saved=self.w.store.load()
         self.assertFalse(saved['canvas_functions']['images'][key]['management_collapsed'])
-        QTest.mouseClick(panel.management,Qt.MouseButton.LeftButton);APP.processEvents()
+        toggle_management()
         self.assertTrue(panel.source_controls.isHidden());self.assertLessEqual(card.height,height+2)
         self.assertEqual(len(self.c.functions.data()['images'][key]['items']),3)
 

@@ -99,8 +99,17 @@ class CanvasRev9Tests(unittest.TestCase):
         key=self.add_copy(); child=comp.node('Nested copy','smile');child['collapsed']=True
         self.c.commit(lambda state:state['uses'][key].update(collapsed=False,children=[child]))
         child_key=key+':'+child['id']; before=self.c.history_state()
+        parent=self.c.cards[key];nested=self.c.cards[child_key]
+        child_bottom=nested.mapRectToParent(nested.shape().boundingRect()).bottom()
+        padding=QPointF(parent.width/2,(child_bottom+parent.height)/2)
+        self.assertGreater(padding.y(),child_bottom);self.assertLess(padding.y(),parent.height)
+        self.assertTrue(parent.shape().contains(padding))
+        self.assertFalse(nested.shape().contains(nested.mapFromParent(padding)))
+        # The old height-48 sample is inside today's taller child, not padding.
+        interior=nested.mapFromParent(QPointF(parent.width/2,parent.height-48))
+        self.assertTrue(nested.shape().contains(interior))
         for target,local in ((child_key,QPointF(70,self.c.cards[child_key].height-10)),
-                             (key,QPointF(self.c.cards[key].width/2,self.c.cards[key].height-48))):
+                             (key,padding),(child_key,interior)):
             card=self.c.cards[target]; point=self.card_point(card,local)
             with patch.object(self.c,'edit') as edit, patch.object(self.c,'palette') as add, \
                  patch.object(self.c,'quick_text') as quick, patch.object(self.c,'function_palette') as functions:
@@ -272,6 +281,7 @@ class CanvasRev9Tests(unittest.TestCase):
         key=self.add_copy();previous=set(self.c.data()['stages'])
         self.c.add_flow_node('stages',QPointF(3600,200));stage=(set(self.c.data()['stages'])-previous).pop()
         targets=[(self.c.cards[key],QPointF(80,45)),
+                 (self.c.cards[key],self.c.cards[key].actions()['more'].center()),
                  (self.c.cards[key],self.c.cards[key].weight_rect.center()),
                  (self.c.containers[self.cid],QPointF(100,22)),
                  (self.c.flow_cards[stage],QPointF(100,22))]

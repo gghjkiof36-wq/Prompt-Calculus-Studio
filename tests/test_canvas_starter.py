@@ -333,8 +333,13 @@ class CanvasStarterUiTests(unittest.TestCase):
             self.assertGreater(view.transform().m11(),0)
             self.assertLess(top,bar.y())
             self.assertFalse(hasattr(self.canvas,'recent_corner'))
-            self.assertTrue(bar.more.isVisible())
-            menu=bar.tools_menu();self.assertNotIn('最近生成',[action.text() for action in menu.actions()]);menu.deleteLater()
+            self.assertFalse(hasattr(bar,'more'))
+            from prompt_calculus_studio.widgets import RoundMenu
+            from PySide6.QtCore import QPoint
+            menus=[]
+            with patch.object(RoundMenu,'open_at',lambda menu,*_:menus.append(menu)):
+                self.canvas.clips[self.refs['clip']].open_menu(QPoint())
+            menu=menus[0];self.assertNotIn('最近生成',[action.text() for action in menu.actions()]);menu.deleteLater()
             self.assertTrue(view.viewport().rect().contains(bar.geometry()))
             self.assertLessEqual(bar.width(),view.viewport().width()-24)
             self.assertLessEqual(bar.height(),96)

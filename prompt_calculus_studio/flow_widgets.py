@@ -385,5 +385,7 @@ class FlowCard(TextCard):
         menu.addAction('調整模組尺寸…',lambda:self.canvas.size_dialog(self.key))
         menu.addAction('恢復自動尺寸',lambda:self.canvas.reset_size(self.key))
         menu.addAction('重新命名',lambda:self.canvas.rename_function(self.kind,self.key))
+        if self.kind=='schedulers' and hasattr(self.panel,'add_menu_actions'):
+            menu.addSeparator();self.panel.add_menu_actions(menu);menu.addSeparator()
         menu.add_destructive_action('移除模塊（保留並暫停等待項目）',lambda:self.canvas.remove_flow_node(self.kind,self.key))
         menu.open_at(position)

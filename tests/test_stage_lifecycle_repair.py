@@ -182,9 +182,10 @@ class StageLifecycleTests(StageTests):
         self.executor.finish();self.assertEqual(self.runner.store.read(old)['status'],'complete',self.notices)
         self.click();self.assertEqual(len(self.executor.submissions),1)
         self.assertEqual(self.runner.current()['status'],'paused')
-        panel=self.c.flow_cards[key].panel
-        self.assertEqual(panel.pause_button.text(),'繼續')
-        QTest.mouseClick(panel.pause_button,Qt.MouseButton.LeftButton);QTest.qWait(40)
+        self.controls.refresh();self.assertEqual(self.controls.run_button.text(),'繼續')
+        entries=len(self.runner.store.rows('entry'))
+        QTest.mouseClick(self.controls.run_button,Qt.MouseButton.LeftButton);QTest.qWait(40)
+        self.assertEqual(len(self.runner.store.rows('entry')),entries)
         self.assertEqual(len(self.executor.submissions),2,self.notices);self.executor.finish()
         self.click();self.assertEqual(len(self.executor.submissions),3,self.notices);self.executor.finish()
 
@@ -210,7 +211,14 @@ class StageLifecycleTests(StageTests):
         self.assertEqual(tail['stack'][-1]['index'],1)
         self.assertEqual(self.runner.store.rows('attempt')[0]['status'],'complete')
         self.runner.close();self.w.comfy.input_flow.chain=self.runner=StageRunner(self.w.comfy.input_flow)
+        entries=[entry['id'] for entry in self.runner.store.rows('entry')]
+        self.controls.refresh();self.assertEqual(self.controls.run_button.text(),'繼續')
         self.click();self.assertEqual(self.runner.store.read(old)['status'],'complete')
+        self.assertEqual(len(self.executor.submissions),1,self.notices)
+        self.assertEqual([entry['id'] for entry in self.runner.store.rows('entry')],entries)
+        self.assertIsNone(self.runner.current())
+        # Resuming the completed tail never means enqueueing another batch.
+        self.click()
         self.assertEqual(len(self.executor.submissions),2,self.notices)
         self.executor.finish();self.assertIsNone(self.runner.current())
 
@@ -227,16 +235,26 @@ class StageLifecycleTests(StageTests):
         stage,key=self.queue();panel=self.c.flow_cards[key].panel;panel.refresh()
         self.assertFalse(hasattr(panel,'policy_button'))
         self.assertTrue(panel.open_button.isVisible())
-        page=panel.open_page()
-        with patch('prompt_calculus_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):page.content.more_actions()
+        from PySide6.QtCore import QPoint
+        with patch('prompt_calculus_studio.widgets.RoundMenu.open_at',lambda menu,*_:menus.append(menu)):self.c.flow_cards[key].open_menu(QPoint())
         self.assertNotIn('輸入取值',[a.text() for a in menus[-1].actions()])
-        page.finish()
+        menus[-1].deleteLater()
         self.c.remove_flow_node('schedulers',key);stage,key=self.queue(stage,scope=True)
         panel=self.c.flow_cards[key].panel;panel.refresh()
-        page=panel.open_page()
-        with patch('prompt_calculus_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):page.content.more_actions()
-        self.assertIn('輸入取值',[a.text() for a in menus[-1].actions()])
-        page.finish()
+        with patch('prompt_calculus_studio.widgets.RoundMenu.open_at',lambda menu,*_:menus.append(menu)):self.c.flow_cards[key].open_menu(QPoint())
+        action=next(a for a in menus[-1].actions() if a.text()=='輸入取值')
+        import copy
+        before=copy.deepcopy(self.c.data()['schedulers'][key])
+        from _dialog_driver import drive_dialog
+        from prompt_calculus_studio.widgets import StudioDialog,ComboBox
+        def choose_live(dialog):
+            self.assertEqual(dialog.windowTitle(),'Stage 預排程 · 輸入取值')
+            pickers=dialog.findChildren(ComboBox);self.assertEqual(len(pickers),1)
+            pickers[0].setCurrentIndex(1);dialog.accept()
+        drive_dialog(action.trigger,StudioDialog,choose_live)
+        self.assertEqual(self.c.data()['schedulers'][key]['policies'],{self.clip:'live'})
+        self.c.undo();self.assertEqual(self.c.data()['schedulers'][key],before)
+        panel.page.finish();menus[-1].deleteLater()
 
 # unittest discovery otherwise repeats every inherited test from StageTests.
 def load_tests(loader,tests,pattern):

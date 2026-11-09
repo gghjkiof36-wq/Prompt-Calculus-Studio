@@ -137,7 +137,7 @@ class ModulePageTests(StageFixture):
         for number in range(3):
             self.runner.store.add('entry',self.w.state['workspace'],'o',run='r',scheduler=keys[0],execution_group='g',status='waiting',label='sequence',saved={})
         page=self.c.flow_cards[keys[0]].panel.open_page();page.content.open_group('g');APP.processEvents()
-        for widget in (page.back,page.content.more,page.content.pause_button,page.content.following):
+        for widget in (page.back,page.content.history,page.content.pause_button,page.content.following):
             bounds=widget.rect();bounds.moveTopLeft(widget.mapTo(page.surface,bounds.topLeft()))
             self.assertTrue(page.surface.rect().contains(bounds),(widget.text(),bounds,page.surface.rect()))
         self.assertTrue(page.rect().contains(page.surface.geometry()))

@@ -1,10 +1,10 @@
 """CLIP destination cards and the viewport execution bar."""
 import copy
-from PySide6.QtCore import Qt,QRectF,QEvent,QPoint,QTimer
+from PySide6.QtCore import Qt,QRectF,QEvent,QTimer
 from PySide6.QtGui import QPainter,QColor
 from PySide6.QtWidgets import QFrame,QVBoxLayout,QHBoxLayout,QLineEdit,QWidget,QSpinBox,QProgressBar
 from .canvas_items import TextCard,canvas_colors
-from .widgets import button,label,ComboBox,StudioDialog,dialog_buttons,RoundMenu
+from .widgets import button,label,ComboBox,StudioDialog,dialog_buttons
 from .generation import active_profile,profile_text_fields,options
 from . import clip_flow
 from .workflow_binding import WorkflowBindingDialog
@@ -126,8 +126,6 @@ class ExecutionBar(QFrame):
         self.handle=DragHandle(); self.handle.setToolTip('拖曳執行列'); self.handle.setCursor(Qt.CursorShape.SizeAllCursor)
         self.handle.installEventFilter(self); body.addWidget(self.handle)
         self.controls=canvas.window.run_controls
-        self.more=button('更多',self.show_more,'Quiet');self.more.setAccessibleName('更多畫布工具')
-        self.more.setToolTip('縮放畫布與任務紀錄');body.addWidget(self.more);self.more.hide()
         self.status=label('','CanvasNotice',True);self.status.setMinimumWidth(0)
         canvas.view.set_execution_status_widget(self.status)
         self.progress=QProgressBar(); self.progress.setTextVisible(True); self.progress.setFixedHeight(20); self.progress.hide(); outer.addWidget(self.progress)
@@ -164,18 +162,6 @@ class ExecutionBar(QFrame):
         controls=getattr(self.canvas,'zoom_controls',None)
         if controls is not None:controls.place()
         self.canvas.view.position_status()
-    def tools_menu(self):
-        menu=RoundMenu(self)
-        menu.addAction('縮小畫布',lambda:self.canvas.zoom(1/1.15))
-        menu.addAction('原始大小（100%）',lambda:self.canvas.zoom_to(1.))
-        menu.addAction('放大畫布',lambda:self.canvas.zoom(1.15))
-        menu.addAction('流程總覽',self.canvas.fit)
-        menu.addSeparator()
-        menu.addAction(f'任務紀錄（{self.controls.activity_count} 個活動任務）',lambda:self.canvas.window.generation_panel.history())
-        return menu
-    def show_more(self):
-        menu=self.tools_menu();menu.ensurePolished()
-        menu.open_at(self.more.mapToGlobal(QPoint(0,-menu.sizeHint().height())))
     def present_status(self):
         self.status.setText(self._status_text);self.status.setToolTip(self._status_detail or self._status_text)
         self.status.setAccessibleName(self._status_detail or self._status_text)
@@ -224,8 +210,7 @@ class ExecutionBar(QFrame):
         required=margins.left()+margins.right()+self.handle.width()+self.controls.expanded_width_hint()
         required+=self.control_layout.spacing()*max(0,self.control_layout.count()-1)
         compact=area.width()<760 or area.height()<480 or required>area.width()
-        self.compact=compact;self.more.setVisible(compact)
-        self.more.setFixedWidth(max(64,self.more.fontMetrics().horizontalAdvance('更多')+24))
+        self.compact=compact
         self.layout().setContentsMargins(8,6,8,6)
         self.layout().setSpacing(4 if compact else 6)
         self.controls.set_compact(compact)

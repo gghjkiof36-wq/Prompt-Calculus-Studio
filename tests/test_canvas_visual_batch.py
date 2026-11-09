@@ -140,13 +140,44 @@ class CanvasVisualBatchTests(StageFixture):
 
     def test_scheduler_management_keeps_the_existing_commands(self):
         from prompt_calculus_studio.widgets import RoundMenu
-        keys=[];self.c.commit(lambda s:keys.append(add_scheduler(s)))
-        panel=self.c.flow_cards[keys[0]].panel
-        controls=[button for button in panel.findChildren(QPushButton)
-                  if button.text()=='管理']
-        self.assertEqual(len(controls),1)
+        from prompt_calculus_studio.schedule_order_dialog import ScheduleOrderDialog
+        from prompt_calculus_studio import stage_model
+        from prompt_calculus_studio.queue_history import capture
+        from _dialog_driver import drive_dialog
+        keys=[next(iter(self.c.data()['schedulers']))]
+        key=keys[0]
+        self.c.commit(lambda s:[stage.update(workflow='flow',output='9') for stage in s['multi_output']['stages'].values()])
+        run=self.runner.create_run(stage_model.compile_plan(self.w.state),3,status='paused')
+        entries=self.runner.store.rows('entry');ids=[e['id'] for e in entries]
+        self.assertEqual(len(ids),3)
+        before=capture(self.runner.store,ids)
+        card=self.c.flow_cards[key];panel=card.panel
         menus=[]
-        with patch.object(RoundMenu,'open_for',lambda menu,*args:menus.append(menu)):
-            panel.more_actions()
-        self.assertEqual([a.text() for a in menus[0].actions() if not a.isSeparator()],
-                         ['增加資料接點','移除選取項目','取消目前項目','取消此處所有流程（含等待項目）'])
+        with patch.object(RoundMenu,'open_at',lambda menu,*args:menus.append(menu)):
+            card.open_menu(QPoint())
+        actions={a.text():a for a in menus[0].actions() if not a.isSeparator()}
+        self.assertIn('管理',actions)
+        self.assertIn('取消目前項目',actions);self.assertFalse(actions['取消目前項目'].isEnabled())
+        self.assertIn('取消整個預排程的所有流程',actions)
+        # v7 adds typed inputs when connected; the old manual add-port command
+        # is no longer a product capability. Preserve the actual management
+        # dialog's order/remove/apply commands and its existing Undo transaction.
+        self.assertNotIn('增加資料接點',actions)
+        groups=actions['管理'].menu().actions();self.assertEqual(len(groups),1)
+        def manage(dialog):
+            self.assertEqual(dialog.ordered_ids(),ids)
+            dialog.listing.move_row(ids[2],0)
+            self.assertEqual(dialog.ordered_ids(),[ids[2],ids[0],ids[1]])
+            dialog.listing.setCurrentRow(2);QTest.keyClick(dialog.listing,Qt.Key.Key_Delete)
+            self.assertEqual(dialog.ordered_ids(),[ids[2],ids[0]])
+            QTest.mouseClick(dialog.save_button,Qt.MouseButton.LeftButton)
+        drive_dialog(groups[0].trigger,ScheduleOrderDialog,manage)
+        self.assertEqual(self.runner.store.read(ids[1])['status'],'removed')
+        self.assertEqual(self.runner.store.waiting_ids(entries[0]['owner']),[ids[2],ids[0]])
+        self.c.undo();self.assertEqual(capture(self.runner.store,ids),before)
+        self.c.redo();self.assertEqual(self.runner.store.read(ids[1])['status'],'removed')
+        self.assertFalse(any(b.text()=='管理' for b in panel.page.content.findChildren(QPushButton)))
+        actions['取消整個預排程的所有流程'].trigger()
+        self.assertEqual(self.runner.store.read(run['id'])['status'],'cancelled')
+        self.assertTrue(all(self.runner.store.read(key)['status']=='retained' for key in (ids[0],ids[2])))
+        panel.page.finish();menus[0].deleteLater()

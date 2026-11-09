@@ -227,7 +227,8 @@ class CanvasVisualTests(unittest.TestCase):
         document=copy.deepcopy(self.canvas.data())
         bar=self.canvas.execution_bar;controls=self.w.run_controls
         eligibility=(controls.run_button.isEnabled(),controls.stop.isEnabled())
-        actions=(controls.count,controls.run_button,controls.stop,bar.more)
+        actions=(controls.count,controls.run_button,controls.stop)
+        self.assertFalse(hasattr(bar,'more'))
         for size in (11,18):
             self.w.state['settings']['ui_size']=size
             self.w.apply_theme(preserve_layout=True);self.w.resize(640,480)
@@ -260,17 +261,21 @@ class CanvasVisualTests(unittest.TestCase):
         self.w.resize(1280,800);QTest.qWait(40)
         self.assertFalse(controls.compact)
         self.assertFalse(self.canvas.zoom_controls.isHidden())
-        self.assertFalse(controls.activity.isHidden());self.assertTrue(bar.more.isHidden())
+        self.assertFalse(controls.activity.isHidden());self.assertFalse(hasattr(bar,'more'))
         self.assertIn('個活動任務',controls.activity.text())
         self.assertFalse(hasattr(self.canvas,'recent_corner'))
 
     def test_compact_more_keeps_zoom_history_without_duplicate_recent(self):
+        from prompt_calculus_studio.widgets import RoundMenu
         self.canvas.onboarding.dismiss();self.w.resize(640,480);QTest.qWait(40)
-        bar=self.canvas.execution_bar;self.assertTrue(bar.more.isVisible())
+        bar=self.canvas.execution_bar;self.assertFalse(hasattr(bar,'more'))
         graph=copy.deepcopy(self.canvas.data());history=copy.deepcopy(self.canvas.undo_stack)
         with patch.object(self.w.generation_panel,'history') as tasks,patch.object(self.w,'show_recent_sheet') as recent:
-            menu=bar.tools_menu();actions={action.text():action for action in menu.actions() if not action.isSeparator()}
-            self.assertEqual(len(actions),5)
+            menus=[]
+            with patch.object(RoundMenu,'open_at',lambda menu,*_:menus.append(menu)):
+                self.canvas.clips[self.refs['clip']].open_menu(QPoint())
+            menu=menus[0];actions={action.text():action for action in menu.actions() if not action.isSeparator()}
+            self.assertTrue({'縮小畫布','原始大小（100%）','放大畫布','流程總覽'}<=actions.keys())
             self.assertNotIn('最近生成',actions)
             actions['原始大小（100%）'].trigger();self.assertEqual(self.canvas.view.transform().m11(),1)
             actions['放大畫布'].trigger();self.assertGreater(self.canvas.view.transform().m11(),1)
@@ -280,8 +285,9 @@ class CanvasVisualTests(unittest.TestCase):
             recent.assert_not_called()
             menu.deleteLater()
         self.assertEqual(self.canvas.data(),graph);self.assertEqual(self.canvas.undo_stack,history)
-        with patch('prompt_calculus_studio.clip_widgets.RoundMenu.open_at') as open_menu:
-            bar.more.click();open_menu.assert_called_once()
+        with patch.object(self.canvas,'clip_menu') as open_menu:
+            card=self.canvas.clips[self.refs['clip']]
+            card.open_menu(QPoint());open_menu.assert_called_once_with(card.key,QPoint())
 
     def test_setup_actions_fit_when_interface_font_is_large(self):
         self.w.state['settings']['ui_size']=18

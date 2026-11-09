@@ -343,6 +343,9 @@ class FlowFunctions(CanvasFunctions):
         menu.addAction('調整模組尺寸…',lambda:self.canvas.size_dialog(key))
         menu.addAction('恢復自動尺寸',lambda:self.canvas.reset_size(key))
         if key in self.cards:
+            if self.data()['images'][key].get('enhanced'):
+                action=menu.addAction('圖片管理',self.cards[key].panel.toggle_management)
+                action.setCheckable(True);action.setChecked(not self.data()['images'][key].get('management_collapsed',True))
             if hasattr(self.cards[key].panel,'choose_file'):menu.addAction('選擇圖片…',self.cards[key].panel.choose_file)
             if self.data()['images'][key].get('reader')!='text':
                 embed=menu.addMenu('嵌入畫布')
@@ -929,6 +932,13 @@ class MultiCanvas(TextCanvas):
         menu=RoundMenu(self.window); menu.addAction('綁定工作流文字欄',lambda:self.bind_dialog(key))
         menu.addAction('調整模組尺寸…',lambda:self.size_dialog(key));menu.addAction('恢復自動尺寸',lambda:self.reset_size(key))
         menu.addAction('重新命名',lambda:self.rename_function('clip_inputs',key))
+        menu.addSeparator()
+        menu.addAction('縮小畫布',lambda:self.zoom(1/1.15))
+        menu.addAction('原始大小（100%）',lambda:self.zoom_to(1.))
+        menu.addAction('放大畫布',lambda:self.zoom(1.15))
+        menu.addAction('流程總覽',self.fit)
+        menu.addAction(f'任務紀錄（{self.window.run_controls.activity_count} 個活動任務）',lambda:self.window.generation_panel.history())
+        menu.addSeparator()
         menu.add_destructive_action('移除 CLIP 輸入',lambda:self.commit(lambda s:clip_flow.remove(s,key))); menu.open_at(position)
     def container_menu(self,key,position):
         menu=RoundMenu(self.window); menu.addAction('展開畫布「'+self.data()['canvases'][key]['name']+'」',lambda:self.open_editor(key))

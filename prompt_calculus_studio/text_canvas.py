@@ -266,6 +266,7 @@ class TextCanvas(QWidget):
             from .flow_items import caption_color
             port.caption.setBrush(caption_color(self,port.kind))
         for card in [*getattr(self,'clips',{}).values(),*getattr(self,'flow_cards',{}).values()]:
+            if hasattr(card.panel,'refresh_visual_theme'):card.panel.refresh_visual_theme()
             if hasattr(card.panel,'refresh'):card.panel.refresh()
         for card in getattr(self,'outputs',{}).values():
             card.panel.refresh_visual_theme()
