@@ -15,7 +15,7 @@ from urllib.parse import quote
 from PySide6.QtCore import QObject,QTimer
 from .stage_store import StageStore
 from .stage_model import compile_plan,execution_signature,terminals,controls,connected_terminals,input_nodes as upstream
-from .stage_context import capture,project,image_list,merge_saved,prepare_state,execution_state,execution_scene,copy_context,progress_backup
+from .stage_context import capture,project,image_list,merge_saved,prepare_state,execution_state,execution_scene,copy_context,progress_backup,borrowed_base
 from .flow_data import incoming
 
 
@@ -413,9 +413,8 @@ class StageRunner(QObject):
             stage=run['plan']['stages'][node['stage']]
             if stage.get('suppliers'):
                 from . import prompt_sources as supply
-                from .workspace_scene import scene,load
-                base=dict(self.window.state)
-                load(base,frame['ctx'].get('scene') or run.get('frozen_scene') or scene(base))
+                from .workspace_scene import scene
+                base=borrowed_base(self.window.state,frame['ctx'].get('scene') or run.get('frozen_scene') or scene(self.window.state))
                 from .prompt_materials import apply_progress
                 for key, progress in run.get('supply_progress', {}).items():
                     definition=supply.source(base,key)
@@ -470,10 +469,7 @@ class StageRunner(QObject):
         available=max(0,CAPACITY-self.store.active_count(run['workspace'],frame['node']['key'],frame['owner']))
         for _ in range(min(available,feed['total']-feed['next'])):
             source=feed['items'][feed['next']];sources=dict(frame['ctx'].get('sources',{}));sources[frame['auto']]=source
-            base=self.window.state
-            if frame['ctx'].get('scene'):
-                from .workspace_scene import load
-                base=dict(base);load(base,frame['ctx']['scene'])
+            base=borrowed_base(self.window.state,frame['ctx'].get('scene') or None,copy_top=False)
             state=project(base,self.window.store.directory,frame['ctx']['results'],sources,frame['ctx'].get('saved',{}).get('readers'),execution=True)
             saved=self.capture_scope(run['plan'],frame['node'],state,per_round=True)
             # A refill resolves one image's data, never recaptures the Stage
@@ -498,12 +494,11 @@ class StageRunner(QObject):
 
     def _fill_supply(self,run,frame):
         from . import prompt_sources as supply
-        from .workspace_scene import load
         from .flow_data import capture_inputs
         feed=frame['feed'];frozen=feed['plan'];node=frame['node']
         available=max(0,CAPACITY-self.store.active_count(run['workspace'],node['key'],frame['owner']))
         for _ in range(min(available,feed['total']-feed['next'])):
-            base=dict(self.window.state);load(base,feed['scene'])
+            base=borrowed_base(self.window.state,feed['scene'])
             images,positions=supply.project(base,frozen,frozen['rounds'][feed['next']])
             if frozen.get('version')!=2:
                 following=frozen['rounds'][min(feed['next']+1,feed['total']-1)]
@@ -565,12 +560,11 @@ class StageRunner(QObject):
         if frame is None or stage['scheduler']:return None
         from . import prompt_sources as supply
         from .prompt_materials import apply_progress
-        from .workspace_scene import load,scene
+        from .workspace_scene import scene
         if not any(other['auto'] for other in run['plan']['stages'].values()):return None
         ids=supply.connected(self.window.state,[b['source'] for b in stage['bindings'] if b['source']])
         if not ids:return None
-        base=dict(self.window.state)
-        load(base,ctx.get('scene') or run.get('frozen_scene') or scene(base))
+        base=borrowed_base(self.window.state,ctx.get('scene') or run.get('frozen_scene') or scene(self.window.state))
         for key,progress in run.get('supply_progress',{}).items():
             definition=supply.source(base,key)
             if definition:apply_progress(definition['root'],progress)

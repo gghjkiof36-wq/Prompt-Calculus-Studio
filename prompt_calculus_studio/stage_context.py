@@ -14,6 +14,28 @@ from .flow_data import image_list
 MAX_SOURCE_BYTES = 25 * 1024 * 1024
 
 
+def borrowed_base(live, scene=None, *, copy_top=True):
+    """Borrow a live document for synchronous, read-only execution preparation.
+
+    By default only the top-level dict is new; its values are shared with live.
+    With a scene, workspace_scene.load replaces scene fields with deep copies
+    and creates a new generation dict with deep-copied scene-local values.
+    Existing live generation profiles and other non-scene values stay shared;
+    load removes absent scene fields and _execution_inputs as before.
+    Without a scene, copy_top=False returns live itself, without any copy.
+    Callers may only read shared parts; this is not an editable document.
+    Before borrowed data enters a container that outlives a yield point
+    (an in-memory run, frame['ctx'], or asynchronous save), serialize it on the
+    main thread and retain only the serialized content or its independent decode.
+    """
+    if scene is None and not copy_top:return live
+    result=dict(live)
+    if scene is not None:
+        from .workspace_scene import load
+        load(result,scene)
+    return result
+
+
 def execution_state(state, suppliers=()):
     """Copy the branches projection writes; all other document data is read-only.
 
@@ -239,7 +261,7 @@ def merge_saved(outer,inner,*,borrow=False):
 def prepare_state(runner,run,stage,context,source_values=None):
     from .multi_output import new_output
     from .composition_render import freeze_image_source
-    live=runner.window.state;state=dict(live)
+    live=runner.window.state;state=borrowed_base(live)
     # Route comes from the queued definition; native graphs stay live.
     saved=context.get('saved',{});state['_execution_inputs']=saved.get('inputs',{})
     state=project(state,runner.window.store.directory,context.get('results'),source_values,saved.get('readers'),execution=True)

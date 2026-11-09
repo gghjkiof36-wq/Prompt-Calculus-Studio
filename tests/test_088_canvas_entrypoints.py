@@ -98,11 +98,22 @@ class CanvasEntrypointTests(StageFixture):
                     self.capture(dialog,'source-viewer.png' if enhanced else 'single-viewer.png')
                     QTest.mouseClick(dialog.close_button,Qt.MouseButton.LeftButton)
                     return dialog.result()
-                with patch.object(ImageViewerDialog,'exec',inspect):
+                # Rendering/closing the real dialog can outlast the OS double-
+                # click interval on a busy machine. Control the event interval,
+                # not the real viewport events, viewer or ownership assertions.
+                event_time=[0.0]
+                with patch.object(ImageViewerDialog,'exec',inspect), \
+                     patch('prompt_calculus_studio.image_preview.monotonic',side_effect=lambda:event_time[0]):
                     QTest.mouseClick(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
+                    event_time[0]=.025
                     QTest.mouseDClick(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
                     QTest.mouseRelease(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
-                self.assertEqual(views,[source['name']])
+                    self.assertEqual(views,[source['name']])
+                    # An expired interval must still allow a new activation.
+                    event_time[0]+=APP.doubleClickInterval()/1000+.01
+                    QTest.mouseDClick(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
+                    QTest.mouseRelease(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
+                    self.assertEqual(views,[source['name'],source['name']])
                 self.assertEqual(self.c.functions.data()['images'][key],before)
             self.c.functions.remove(key)
 

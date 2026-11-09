@@ -20,7 +20,7 @@ material_cursor_upgrade queue_metadata 087_queue_history stage_refresh_projectio
 variant_composition_queue stage_parameter_persistence native_queue
 stage_status_performance material_links prompt_groups prompt_material_resolution
 stage_parameters stage_apply_boundaries maintenance_package shared_core_boundary prompt_batches
-stage_cancel_all stage_click_regression stage_run_controls'''.split()
+stage_cancel_all stage_click_regression stage_run_controls stage_borrow_guard'''.split()
 CANVAS = '''087_canvas_operations canvas_wheel_backing canvas_module_header_cache
 canvas_wheel_interaction canvas_pan_cache canvas_proxy_cache canvas_prompt_pan
 canvas_surface canvas_preview_continuity canvas_startup canvas_recent_execution
@@ -45,20 +45,25 @@ def child(args):
     import PySide6
     import _modal_guard as guard
     guard.install()
+    import _borrow_guard as borrow_guard
+    borrow_guard.install_from_env()
     records = []
 
     class Result(unittest.TextTestResult):
         def startTest(self, test):
             guard.current_test = test.id()
+            borrow_guard.current_test = test.id()
             self.event_offset = len(guard.events)
+            self.borrow_offset = len(borrow_guard.events)
             self.row = dict(id=test.id(), outcomes=[])
             records.append(self.row)
             super().startTest(test)
 
         def addSuccess(self, test):
-            if len(guard.events) > self.event_offset:
+            if (len(guard.events) > self.event_offset or
+                    any(not event['expected'] for event in borrow_guard.events[self.borrow_offset:])):
                 try:
-                    raise AssertionError('Modal guard timeout escaped through a Qt callback')
+                    raise AssertionError('Test guard violation was caught or escaped through a Qt callback')
                 except AssertionError:
                     self.addFailure(test, sys.exc_info())
             else:
@@ -105,9 +110,11 @@ def child(args):
         finally:
             faulthandler.cancel_dump_traceback_later()
     write_json(Path(args.result), dict(tests=records, modal_timeouts=guard.events,
+               borrow_guard=os.environ.get('PCS_BORROW_GUARD') == '1',
+               borrow_events=borrow_guard.events, borrow_calls=borrow_guard.calls,
                python=sys.version, pyside=PySide6.__version__))
     return 0 if (result.wasSuccessful() and result.testsRun and not result.skipped
-                 and not result.expectedFailures and not guard.events) else 1
+                 and not result.expectedFailures and not guard.events and not borrow_guard.unexpected_events()) else 1
 
 
 def main():
@@ -118,6 +125,7 @@ def main():
     parser.add_argument('--file-list', type=Path)
     parser.add_argument('--timeout', type=int, default=120)
     parser.add_argument('--guard', choices=('on', 'off'), default='on')
+    parser.add_argument('--borrow-guard', action='store_true', default=os.environ.get('PCS_BORROW_GUARD') == '1')
     parser.add_argument('--source-commit', help='Provenance for an exported tree without .git')
     parser.add_argument('--child')
     parser.add_argument('--result')
@@ -154,7 +162,8 @@ def main():
         data.mkdir()
         env = dict(os.environ, QT_QPA_PLATFORM='offscreen', PROMPT_STUDIO_DATA=str(data),
                    TEMP=str(temp), TMP=str(temp), TMPDIR=str(temp), PYTHONIOENCODING='utf-8',
-                   PCS_TEST_MODAL_GUARD='1' if args.guard == 'on' else '0')
+                   PCS_TEST_MODAL_GUARD='1' if args.guard == 'on' else '0',
+                   PCS_BORROW_GUARD='1' if args.borrow_guard else '0')
         command = [sys.executable, '-I', str(Path(__file__).resolve()), '--vendor', args.vendor,
                    '--child', pattern, '--timeout', str(args.timeout), '--result', str(folder / 'tests.json'),
                    '--dump', str(folder / 'stacks.txt')]
@@ -184,8 +193,12 @@ def main():
                    tests_run=len(result.get('tests', [])),
                    passed=sum(all(o['status'] == 'pass' for o in t['outcomes']) for t in result.get('tests', [])),
                    failures=failures, modal_timeouts=result.get('modal_timeouts', []),
+                   borrow_violations=[e for e in result.get('borrow_events', []) if not e['expected']],
+                   borrow_positive_controls=sum(e['expected'] for e in result.get('borrow_events', [])),
+                   borrow_calls=result.get('borrow_calls', {}),
                    python=result.get('python'), pyside=result.get('pyside'))
         row['accepted'] = (code in (0, 1) and row['tests_run'] > 0 and not row['modal_timeouts']
+                           and not row['borrow_violations']
                            and not remaining and not row['winerror32']
                            and all(f['known'] for f in failures) and (code == 0 or bool(failures)))
         rows.append(row)
@@ -200,7 +213,7 @@ def main():
     elapsed = round(time.monotonic() - started, 3)
     budget = 360 if fast_mode else None
     report = dict(commit=commit,
-                  root=str(ROOT), guard=args.guard, platform='offscreen', vendor=args.vendor,
+                  root=str(ROOT), guard=args.guard, borrow_guard=args.borrow_guard, platform='offscreen', vendor=args.vendor,
                   seconds=elapsed, budget_seconds=budget, files=rows,
                   accepted=all(row['accepted'] for row in rows) and (budget is None or elapsed <= budget))
     write_json(args.output / 'summary.json', report)

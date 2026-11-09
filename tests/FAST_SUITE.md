@@ -16,6 +16,25 @@ B1-7 納入 `test_workspace_ambient.py`（`WORKSPACE` 清單）：固定 60 幀�
 
 預設快速套件不能關閉看門狗或將單檔上限提高至 120 秒以上；只有明確使用 `--files`／`--file-list` 的診斷執行可調整。
 
+## 借用資料監看
+
+`test_stage_borrow_guard.py` 已納入快速套件：驗證 helper 的複製深度、`resolve` 不改輸入、子上下文既有 saved 項目禁止修改且新增 key 仍可用，以及 accepting 的回復範圍與穿透寫入限制。正向對照會故意寫入借用資料，必須在改動來源前拋出 `BorrowViolation`；這些預期事件和產品違規分開計數。
+
+一般執行預設不開監看，六分鐘／單檔 120 秒預算不變。需要監看時加 `--borrow-guard`，或在啟動此執行器前設定 `PCS_BORROW_GUARD=1`。環境開關只供測試端讀取，產品不使用它。
+
+```powershell
+& $python -I tests/fast_suite.py --vendor $vendor --output $newOutput --borrow-guard
+& $python -I tests/fast_suite.py --vendor $vendor --output $newOutput --borrow-guard --file-list $stageFiles --timeout 240
+```
+
+子程序在 discovery 前呼叫 `_borrow_guard.install_from_env()`，替換七個入口及已載入的產品函式別名：`borrowed_base`、`execution_state`、`merge_saved(borrow=True)`、`capture(borrow=True)`、`execution_scene`、`copy_context`、`workspace_scene.load(readonly=True)`。其他自訂測試入口須在載入測試前自行呼叫同一安裝函式；單設環境變數不會讓普通 `unittest` 自動載入工具。`install()` 可重複呼叫，`uninstall()` 可還原定義與別名。
+
+每次違規先記錄路徑、產品呼叫位置及 test id，再立即拋錯，絕不繼續寫入。執行器檢查事件記錄，即使產品或 Qt 回呼捕捉了例外，該測試及整套結果仍失敗。`tests.json` 保存 `borrow_events`、`borrow_calls`；逐檔 `result.json` 保存 `borrow_violations`、`borrow_positive_controls` 及入口呼叫數。正向對照只有實際接住相符例外才會被標為 expected，未知事件不能套用 known failures 放行。
+
+監看以唯讀副本保護共享 dict/list；原物件 identity 與時間點行為須另外驗證。未涵蓋直接寫 live state、`prompt_sources.build` 的內部別名、非 JSON 可變物件、未執行到的路徑或刻意使用基底類別方法的繞過。`resolve` 的承重前提另由固定測試鎖住。完整契約與後續交易／存檔限制見 [Stage 快照邊界](../docs/development/stage-architecture.md#同步擷取的資料所有權與查詢)。
+
+## 隔離執行與其他用法
+
 執行器使用 unittest discovery（`-s tests -p <filename>` 等價方式），先加入明確指定的 vendor、checkout 與 tests 路徑。它設定 `QT_QPA_PLATFORM=offscreen`，並為每個程序設定獨立的 `PROMPT_STUDIO_DATA`、`TEMP`、`TMP`、`TMPDIR`。不使用使用者資料，也不啟動 ComfyUI 或 GPU。
 
 其他驗證用法：
@@ -45,6 +64,8 @@ B1-7 納入 `test_workspace_ambient.py`（`WORKSPACE` 清單）：固定 60 幀�
 `_modal_guard.install()` 只包裝測試程序內的 Qt `exec`／`exec_`，產品檔案不改。原始模態迴圈照常執行。精確計時器在五秒時記錄測試 id、對話框類別、objectName、標題與呼叫堆疊，reject／close，返回後丟出 AssertionError。執行器也檢查事件記錄，以免 Qt 回呼吞掉 Python 例外後被當成成功。`PCS_TEST_MODAL_GUARD=0` 僅供 A/B 驗證。
 
 `stage_fixture` 與 `_qt_cleanup` 載入時也安裝看門狗。`_dialog_driver` 等實際 NodeDialog 成為 activeModalWidget 才驅動，因為建構期間也可能處理事件；回呼中的斷言會回傳至主測試。
+
+圖片入口的單擊／雙擊 fixture 使用實際 viewport 事件與檢視器，只把 `image_preview.monotonic` 的兩次事件間隔固定為 25ms，避免顯示／關閉檢視器的耗時意外超過雙擊時限。它也驗證超過 `doubleClickInterval` 後會再次開啟，原圖片內容與所有權斷言保留；產品時鐘與事件處理不改。
 
 `_qt_cleanup.close_window` 在 close 後持續處理事件／DeferredDelete，直到 `_close_completed` 且沒有 `jobs.active`，最多兩秒；失敗顯示活動工作及 completion 狀態。ReceiptExecutor 持有的測試 Service 明確 close，並檢查所有 connection context 已結束。產品 Service 本來就逐次關閉 connection；測試封裝不吞掉檔案錯誤。所有 tempfile 改用環境的預設位置。
 

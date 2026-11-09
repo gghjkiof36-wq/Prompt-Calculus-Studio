@@ -44,7 +44,19 @@ Canvas 模塊按責任區分來源、組合、轉換、綁定、執行、排程�
 
 `capture(..., borrow=True)` 與 `merge_saved(..., borrow=True)` 只在同步解譯與 journal 序列化之間借用已凍結的素材、場景及輸入葉節點；合併用的字典仍各自持有。派送在可讓出控制權之前，改用 journal 解碼後的 `snapshot_state`。`prompt_materials.resolve` 的遞迴重用父層已複製的子樹，不重複複製同一份定義；公開回傳的兩棵樹仍彼此獨立。
 
+`stage_context.borrowed_base(live, scene=None, *, copy_top=True)` 是 `prepare_state` 與 runner 四處從即時文件建立基底的入口。預設只新建頂層 dict；有 scene 時沿用 `workspace_scene.load` 深複製場景欄位、建立新的 generation 字典，其中的既有 profiles 及其他非場景值仍共用。load 照舊移除 scene 缺少的欄位與 `_execution_inputs`。無 scene 且 `copy_top=False` 時直接回傳 live，保留原 refill 分支的語意。`execution_state` 等其他借用入口保持各自的責任，沒有合併到這個 helper。
+
+呼叫端只能讀取共用部分。任何借用資料要放入跨過讓出點的容器（記憶體中的 run、`frame['ctx']`、合併／非同步存檔）前，必須先在主執行緒同步序列化；跨點保存的是序列化內容或由該內容解碼的獨立物件，不能把「稍後再序列化」當成已凍結。借用的 scene 也遵守這個時間點約束。
+
+`copy_context` 的子上下文可以在自己的 saved 分類字典新增 key，但不得修改既有共用項目的內容（含其巢狀容器）。`prompt_materials.resolve` 必須保持輸入不變，否則 `prompt_sources.build` 共用的 plan 定義可能被改，且原簽章不一定能偵測。這兩個契約由 [借用固定測試](../../tests/test_stage_borrow_guard.py) 鎖住，沒有改變 `copy_context` 或供應解析的產品行為。
+
 手動排入的交易備份只複製會被供應游標更新、結果投影與保存覆寫的分支。它保留失敗時復原文件與 journal 的界線，不複製無關素材與歷史。其他交易仍使用原有完整備份。只寫入而不讀回的 entry 不再解碼剛寫入的完整紀錄；journal 內容不變。
+
+**已知限制**：`progress_backup` 是局部備份。`accepting(..., suppliers=...)` 能回復供應根、已複製的容器、output 與場景快取等列明分支；對無關 root、連線或其他共用深層物件的穿透寫入，交易失敗也無法回復。固定測試同時重現這個限制，並證明測試監看會在寫入當下阻止它；不能把這項監看當成正式執行的完整回復機制。交易的 `document=` 判斷、分支清單及回復後舊子物件引用仍須由後續交易整理處理。
+
+借用監看只存在於 [測試工具](../../tests/_borrow_guard.py)，由 [快速套件](../../tests/FAST_SUITE.md) 安裝函式替換；產品沒有環境判斷、監看 import、指紋或凍結複製成本。它涵蓋 `borrowed_base`、`execution_state`、`merge_saved(borrow=True)`、`capture(borrow=True)`、`execution_scene`、`copy_context` 及 `workspace_scene.load(readonly=True)` 的共用 dict/list。寫入先拋出含資料路徑與產品呼叫位置的例外，執行器亦拒絕被回呼吞掉的違規。
+
+監看只涵蓋測試實際走到的上述入口；它以唯讀副本取代共用容器，不能驗證原物件 identity、使用者稍後編輯造成的快照時間錯誤、其他自訂可變物件或刻意呼叫 dict/list 基底方法的繞過。直接寫即時文件（例如合法的 reserve、save）、`prompt_sources.build` 的內部別名、`workspace_scene.validate` 投影中的非場景頂層值，以及其他尚未接入的路徑不是全域攔截範圍。後續存檔去重／背景存檔必須另驗主執行緒序列化時點；後續執行交易整理須處理父子上下文所有權與完整回復，不能以監看通過代替這些工作。
 
 供 UI 與輪詢使用的工作存在性、進度及 attempt 標頭，由既有連線即時投影必要欄位，不讀取完整場景。完成回報、參數回執及公開的完整紀錄查詢仍取回完整內容。這些查詢沒有跨呼叫快取，也沒有增加連線、資料表、欄位或索引。
 
