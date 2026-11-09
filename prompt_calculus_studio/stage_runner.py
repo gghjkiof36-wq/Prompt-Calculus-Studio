@@ -150,6 +150,43 @@ class StageRunner(QObject):
                 self.window.state.clear();self.window.state.update(before)
             raise
 
+    def claim_dispatch(self):
+        """Claim/register this document after journal and cursor acceptance.
+
+        Workspace clients perform that work in the dispatch_allowed getter;
+        keep the side effect explicit at enqueue call sites.
+        """
+        return self.client.dispatch_allowed
+
+    def record_next_scope(self,run,index=0):
+        """Record the current/next outer scope without entering or supplying it.
+
+        An outer manual scope owns clicks throughout its nested execution.
+        Legacy runs keep their frame-based behaviour for their whole lifetime.
+        """
+        if 'scope_progress' not in run:return
+        previous=run['scope_progress']
+        for at in range(index,len(run['plan']['tree'])):
+            node=run['plan']['tree'][at]
+            if node['kind']=='stage':continue
+            if previous.get('index')==at and previous['state']!='left':return
+            initial=run['initial'].get(node['key'])
+            owner=initial.get('owner') if isinstance(initial,dict) else None
+            run['scope_progress']=dict(index=at,key=node['key'],state='pending',
+                auto=bool(node.get('auto')),owner=owner or run['id']+':'+uuid.uuid4().hex)
+            return
+        run['scope_progress']=dict(previous,state='left')
+
+    def enqueue_scope(self,run):
+        """Resolve a click from durable progress; only old journals read frames."""
+        if 'scope_progress' not in run:
+            frame=next((f for f in run['stack'] if f['kind']=='loop' and not f.get('auto')),None)
+            return frame or (dict(auto=True) if any(f.get('auto') for f in run['stack']) else None)
+        progress=run['scope_progress']
+        if progress['state']=='left':return None
+        return dict(node=run['plan']['tree'][progress['index']],
+            owner=progress['owner'],auto=progress['auto'])
+
     def start(self,count=1):
         from .core import RUN_COUNT_LIMIT
         if not self.client.connected:raise ValueError('請先連線至 ComfyUI。')
@@ -161,20 +198,22 @@ class StageRunner(QObject):
         self.route_changed()
         for previous in self.runs(True):
             if previous['status']=='paused':self.settle(previous)
-        active=self.current(plan);scheduling=any(n['kind']!='stage' for n in plan['tree'])
+        signature=execution_signature(plan)
+        active=next((r for r in self.runs(True) if r['status'] in ('running','waiting') and
+            r['server']==self.client.url and execution_signature(r['plan'])==signature),None)
+        scheduling=any(n['kind']!='stage' for n in plan['tree'])
         if active and scheduling:
-            candidates=[f for f in active['stack'] if f['kind']=='loop' and not f.get('auto')]
-            frame=next(iter(candidates),None)
-            if frame:
+            target=self.enqueue_scope(active)
+            if target and not target.get('auto'):
                 self.check_route(active)
-                states,supply=self.manual_rounds(plan,self.scope_keys(plan,frame['node']),count)
-                saved=[self.capture_scope(plan,frame['node'],state) for state in states]
+                states,supply=self.manual_rounds(plan,self.scope_keys(plan,target['node']),count)
+                saved=[self.capture_scope(plan,target['node'],state) for state in states]
                 with self.accepting(suppliers=self.manual_suppliers(plan)):
-                    for value in saved:self.add_entry(active,frame['owner'],frame['node'],value,execution_group=execution_group,_return_record=False)
+                    for value in saved:self.add_entry(active,target['owner'],target['node'],value,execution_group=execution_group,_return_record=False)
                     self.reserve_supply(supply)
-                self.client.dispatch_allowed
-                self.notify('已保存 '+str(len(states))+' 項至 '+self.window.state['multi_output']['schedulers'][frame['node']['key']]['name']);self.later();return
-            if any(f.get('auto') for f in active['stack']):self.notify('這批內容已在供應。');return
+                self.claim_dispatch()
+                self.notify('已保存 '+str(len(states))+' 項至 '+self.window.state['multi_output']['schedulers'][target['node']['key']]['name']);self.later();return
+            if target and target.get('auto'):self.notify('這批內容已在供應。');return
             # A scope already left is not re-entered in the same execution.
             self.create_run(plan,count,status='waiting',execution_group=execution_group);self.notify('已保存為下一次完整流程。');return
         if active and len(plan['order'])>1:
@@ -187,7 +226,7 @@ class StageRunner(QObject):
         else:self.create_run(plan,count,execution_group=execution_group)
         # The journal and consumed-source cursor must commit before a library
         # registration can persist state or any asynchronous dispatch starts.
-        self.client.dispatch_allowed
+        self.claim_dispatch()
         self.sync_free();self.later()
 
     def create_run(self,plan,count,direct=False,status='running',frozen_state=None,execution_group=None):
@@ -230,6 +269,7 @@ class StageRunner(QObject):
             if node['kind']!='stage' and not node.get('auto')}
         pending={key:value for key,value in initial.items() if key not in entries}
         run=self.store.add_captured('run',state['workspace'],server=self.client.url,plan=plan,status=status,frozen_scene=execution_scene(state),round_saved=round_saved,execution_group=execution_group,
+            scope_progress=dict(state='left'),
             direct=direct,round=1,rounds=(count if any(n.get('auto') for n in plan['tree']) else 1) if initial or direct else len(states),initial=pending,parameters=copy.deepcopy(saved['parameters']),
             stack=[dict(kind='seq',nodes=plan['tree'],index=0,ctx=ctx,produced={})],message='已暫停後續派送。' if paused else '',pause_reason='manual' if paused else '',revision=uuid.uuid4().hex)
         self.capture_free(run)
@@ -240,6 +280,7 @@ class StageRunner(QObject):
             owner=run['id']+':initial:'+node['key']
             for value in entries[node['key']]:self.add_entry(run,owner,node,value,_return_record=False)
             run['initial'][node['key']]=dict(owner=owner)
+        self.record_next_scope(run)
         self.save(run)
         self.reserve_supply(supply)
         return run
@@ -260,7 +301,8 @@ class StageRunner(QObject):
     def save(self,run):
         if getattr(self,'_advancing_run',None) is run:
             self._advancing_dirty=True;return
-        self.store.patch(run['id'],stack=run['stack'],initial=run['initial'],round=run['round'],source_positions=run.get('source_positions',{}),supply_progress=run.get('supply_progress',{}),supply_images=run.get('supply_images',{}),supply_shared=run.get('supply_shared',{}))
+        progress={'scope_progress':run['scope_progress']} if 'scope_progress' in run else {}
+        self.store.patch(run['id'],stack=run['stack'],initial=run['initial'],round=run['round'],source_positions=run.get('source_positions',{}),supply_progress=run.get('supply_progress',{}),supply_images=run.get('supply_images',{}),supply_shared=run.get('supply_shared',{}),**progress)
 
     def pump(self):
         if self.closed or self.pumping or not self.client.connected:return
@@ -348,6 +390,7 @@ class StageRunner(QObject):
                     run['round']+=1
                     saved=copy.deepcopy(run['round_saved'][run['round']-1]) if run.get('round_saved') else dict(parameters=copy.deepcopy(run.get('parameters',{})))
                     stack.append(dict(kind='seq',nodes=run['plan']['tree'],index=0,ctx=dict(results={},saved=saved,sources={},execution_group=run.get('execution_group')),produced={}))
+                    self.record_next_scope(run)
                 else:
                     return ('complete',)
             frame=stack[-1]
@@ -357,6 +400,8 @@ class StageRunner(QObject):
                 if node['kind']=='stage':stack.append(dict(kind='stage',key=node['key'],ctx=ctx,index=0,produced={},job=None))
                 else:
                     owner=run['id']+':'+uuid.uuid4().hex
+                    if len(stack)==1 and 'scope_progress' in run:
+                        progress=run['scope_progress'];owner=progress['owner'];progress['state']='entered'
                     stack.append(dict(kind='loop',node=node,ctx=ctx,owner=owner,produced={},active=None,initialized=False,auto=node.get('auto'),feed=None,done=0))
                 self.save(run);continue
             if frame['kind']=='loop':
@@ -542,6 +587,7 @@ class StageRunner(QObject):
             parent=run['stack'][-1]
             if parent['kind']=='seq':
                 parent['ctx']['results'].update(copy.deepcopy(results));merge_results(parent['produced'],results);parent['index']+=1
+                if len(run['stack'])==1:self.record_next_scope(run,parent['index'])
             elif parent['kind']=='loop':
                 merge_results(parent['produced'],results)
                 if parent['active']:

@@ -40,6 +40,18 @@ Canvas 模塊按責任區分來源、組合、轉換、綁定、執行、排程�
 
 一次同步直譯的內部轉移合併成一筆堆疊保存；entry、供應游標與堆疊提交後，才開始下一個原生派送或完成後的輸入套用。失敗仍沿原交易回復文件與紀錄，沒有改變排程的暫停、取消與復原入口。
 
+### 再次執行的排入判斷
+
+新 run 的 `scope_progress` 與 run、初始 entry 在同一交易內保存。它記錄 plan 最外層目前或下一個範圍的 `index`、`key`、`auto`、entry `owner` 及 `state`（`pending`、`entered`、`left`）。待進入的手動範圍沿用初始 entry 的 owner；只登記進度，不提早建立 loop、feed 或凍結自動供應內容。外層手動範圍在內層執行期間繼續負責追加。
+
+`start()` 只選同工作區、同服務、plan 簽章相符的 running／waiting run。`enqueue_scope()` 讀取其保存進度：尚未進入或已進入的手動範圍追加 entry；auto 範圍沿用「這批內容已在供應。」；沒有剩餘範圍則保存下一次完整流程。暫停時主按鈕仍走 `resume()`。新 run 的點擊判斷不讀 stack，因此第一次 pump 前連點與正常間隔相同。
+
+`advance()` 進入外層 loop 時標記 `entered`；`pop()` 離開外層節點時選下一個範圍，沒有下一個則標記 `left`；新一輪重新登記首個範圍。進度與 stack 經 `save()` 一起保存，包含 80 次同步轉移後讓出給 `later()` 的邊界。沒有 `scope_progress` 的舊 run 整個生命週期仍用原先的 frame 判斷，不補欄位、不改 entry 或 StageStore schema。
+
+排入接受後透過 `claim_dispatch()` 明確觸發 client 的派送權取得；其相容介面仍是帶有 claim／文件庫註冊副作用的 `dispatch_allowed` getter。這個呼叫留在 journal 與游標交易提交之後。
+
+後續要讓 batch 再次執行排入下一組，接點是 `start()` 的 auto target 分支。`scope_progress` 只負責路由，不是批次清單或供應游標；目前自動內容仍在 `initialize_loop()` 建 feed、`fill_supply()` 預留。下一組的凍結、預留與撤回交易須另行實作，不可只移除擋下判斷。
+
 ### 同步擷取的資料所有權與查詢
 
 `capture(..., borrow=True)` 與 `merge_saved(..., borrow=True)` 只在同步解譯與 journal 序列化之間借用已凍結的素材、場景及輸入葉節點；合併用的字典仍各自持有。派送在可讓出控制權之前，改用 journal 解碼後的 `snapshot_state`。`prompt_materials.resolve` 的遞迴重用父層已複製的子樹，不重複複製同一份定義；公開回傳的兩棵樹仍彼此獨立。

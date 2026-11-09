@@ -386,7 +386,16 @@ class StageTests(unittest.TestCase):
         self.assertEqual(len(self.runner.store.rows('entry',active=True)),CAPACITY+1)
         groups=self.runner.store.schedule_groups(self.w.state['workspace'],refs[0])
         self.assertEqual([g['total'] for g in groups],[CAPACITY,1])
-        self.assertEqual(len(self.runner.runs(True)),2)
+        # Q1: while A runs, the pending manual B scope owns both clicks.
+        # Separate execution groups must not create a second complete A-B-C run.
+        self.assertEqual(len(self.runner.runs(True)),1)
+        run=self.runner.current();rows=self.runner.store.rows('entry',active=True)
+        self.assertEqual({i['run'] for i in rows},{run['id']})
+        self.assertEqual({i['owner'] for i in rows},{run['scope_progress']['owner']})
+        self.assertEqual(len({i['execution_group'] for i in rows}),2)
+        self.assertEqual(run['scope_progress']['key'],refs[0])
+        self.assertEqual(run['scope_progress']['state'],'pending')
+        self.assertEqual(self.workflows(),['flow'])
 
     def test_generated_metadata_restores_modules_and_manual_blank(self):
         from prompt_calculus_studio.image_source import read_content
