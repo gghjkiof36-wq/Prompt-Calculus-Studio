@@ -40,6 +40,10 @@ Beta2 的根範圍修復提供具體例子：背景閱讀已取得廣根下的�
 
 取消仍是合作式的。一般工作開始前取消不執行 worker；`finish_accepted=True` 目前用於已接受 Recent 收藏的登記義務，不能成為任意忽略取消的開關。收尾不能清除回呼新開的工作，也不提供跨程序 exactly-once 保證。關閉沿原有停止派送、保存／恢復與資源釋放流程，不以強制關 DB 或殺執行緒取代。
 
+`Window.is_closed()` 是背景工作的共用關閉屏障：關閉檢查允許繼續後，直接與延後路徑都先設 `closing=True`；完成後由 `_close_completed` 持續封鎖。`Jobs.start` 被拒絕時回傳 `False`，呼叫端須保留尚未交付的登記義務。只有 `finish_accepted=True` 的收藏登記可在延後關閉期間繼續，store 釋放後一律拒絕。關閉重試會排空這些已接受的回覆，再沿原流程關閉；一般完成回呼不得接著開下一項工作，關閉期間的錯誤保留為 notice，不開錯誤對話框。`RecentPage` 停止自己持有的重試／刷新計時器，晚到的結果、刷新回呼與已排入的 pump 也經過同一道屏障。
+
+功能模組預覽的 journal 使用獨立 `StageStore(sqlite3.connect(':memory:'))`，只保留空資料。切換預覽、關閉預覽或選擇器結束時明確關閉連線；父物件銷毀也會釋放連線。預覽不開使用者資料庫、不讀使用者 journal、不啟動工作；runner 仍為限定介面的預覽物件。這些生命週期由 `test_close_barrier`、`test_module_preview_store` 及既有收藏／關閉回歸驗證。
+
 ## 已完成、後續接入與重新評估條件
 
 | 主題 | Beta2 已有／保留 | 何時才需要再改 |

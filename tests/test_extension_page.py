@@ -197,9 +197,13 @@ function Test-Path { param($LiteralPath,$PathType)
     def test_main_window_cannot_close_halfway_through_replacement(self):
         from prompt_calculus_studio.window import Window as MainWindow
         from unittest.mock import Mock
-        fake=SimpleNamespace(settings_page=SimpleNamespace(manager=SimpleNamespace(extension=SimpleNamespace(busy=True))),notice=Mock())
+        fake=SimpleNamespace(gallery=SimpleNamespace(finish_album_edit=Mock()),
+            flush_editor_drafts=Mock(return_value=True), closing=False,
+            settings_page=SimpleNamespace(comfy_content=object(),
+                manager=SimpleNamespace(extension=SimpleNamespace(busy=True))),notice=Mock())
         event=Mock(); MainWindow.closeEvent(fake,event)
         event.ignore.assert_called_once(); fake.notice.assert_called_once()
+        self.assertFalse(fake.closing)
 
     def test_loaded_build_identity_does_not_change_with_files_on_disk(self):
         module_path=self.root/'build_identity.py'

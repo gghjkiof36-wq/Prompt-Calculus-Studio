@@ -34,7 +34,7 @@
 - 各檔 `tests.json`、`stdout.txt`、`stderr.txt`、`stacks.txt`：逐案例結果、完整輸出及程序逾時前的堆疊。
 - `tmp` 的殘留在程序退出後、任何人工清理前計數；執行器不刪掉殘留來製造成功。`data` 是明確保留的隔離測試資料，不是 tempfile 殘留。
 - `known_failures.json` 只分類符合 **完整 test id 與錯誤內容** 的失敗。它不改 unittest 結果、不 skip、不使用 expectedFailure；例如 B 仍是子程序 exit 1。未知失敗、零案例、skip、看門狗攔截、逾時、暫存殘留皆使整套失敗。
-- S0-3 P2 的 WinError 32 雖可辨識為已知產品缺陷，仍如實顯示；有暫存殘留的執行不宣稱清理成功。
+- 關閉後啟動縮圖的 S0-3 P2 與預覽 store 的 S0-4e 已從已知失敗清單移除。`test_close_barrier.py` 鎖住直接／延後關閉及已接受收藏的登記；`test_module_preview_store.py` 遍歷全部功能預覽，檢查記憶體 journal、資料檔案不變與連線釋放，可用上述 `--files` 用法執行。WinError 32 或暫存殘留仍直接使驗證失敗。
 
 ## 看門狗及 fixture
 

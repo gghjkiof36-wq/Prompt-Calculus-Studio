@@ -30,6 +30,8 @@ class Jobs(QObject):
         self.error_callback=None
 
     def start(self, label, function, callback, failed=None, *, finish_accepted=False, announce=True):
+        if self.window.is_closed(finish_accepted=finish_accepted):
+            return False
         if self.active:
             self.window.notice("檔案工作仍在處理中，請稍候或取消。")
             return False
@@ -48,15 +50,16 @@ class Jobs(QObject):
         try:
             if error:
                 if failed: failed(error)
-                elif error.startswith("已取消") or self.window.closing: self.window.notice(error)
+                elif error.startswith("已取消") or self.window.is_closed(): self.window.notice(error)
                 else: self.window.error(error)
             else:
                 try:
                     callback(result)
                 except Exception as exc:
-                    self.window.error(str(exc))
+                    if self.window.is_closed():self.window.notice(str(exc))
+                    else:self.window.error(str(exc))
         finally:
             # Receivers may fail or start the next job. Never clear that new
             # active job, and never let a receiver error strand idle listeners.
-            if self.active is None and not self.window.closing:
+            if self.active is None and not self.window.is_closed():
                 self.became_idle.emit()

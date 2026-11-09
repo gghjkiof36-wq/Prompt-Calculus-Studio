@@ -146,6 +146,7 @@ class RecentPage(QFrame):
         self.detail_scroll.hide()
         self.detail.resized.connect(self.fit_detail)
         self.refresh_timer=QTimer(self); self.refresh_timer.setSingleShot(True); self.refresh_timer.setInterval(150); self.refresh_timer.timeout.connect(self.refresh)
+        self.pump_timer=QTimer(self); self.pump_timer.setSingleShot(True); self.pump_timer.setInterval(250); self.pump_timer.timeout.connect(self.pump)
         self.refresh_destinations(); self.refresh()
 
     def close_browser(self):
@@ -271,10 +272,11 @@ class RecentPage(QFrame):
             self.destination_picker.setFocus(); return False
 
     def request_refresh(self):
+        if self.window.is_closed():return
         self.refresh_destinations()
         catalog=self.catalog
         def received(records):
-            if self.catalog is catalog and not self.window.closing:self.receive_results(records)
+            if self.catalog is catalog and not self.window.is_closed():self.receive_results(records)
         if self.window.comfy.connected: self.window.comfy.request('desktop/results',done=received)
         else: self.window.notice('連接 ComfyUI 後可更新生成結果。'); self.refresh()
 
@@ -292,6 +294,7 @@ class RecentPage(QFrame):
         self.refresh_destinations();self.refresh()
 
     def receive_results(self,records):
+        if self.window.is_closed():return
         queued={result_id(r) for r in self.pending}
         for record in reversed(records):
             ident=result_id(record)
@@ -299,16 +302,25 @@ class RecentPage(QFrame):
                 self.pending.append(copy.deepcopy(record)); queued.add(ident)
         self.pump()
 
+    def stop_previews(self):
+        self.refresh_timer.stop()
+        self.pump_timer.stop()
+        self.pending=[]
+        self._preview_receipts={}
+
     def pump(self):
-        if self.window.closing:
-            self.pending=[]
-            self._preview_receipts={}
-            if not self.saves: return
+        if self.window.is_closed():
+            self.stop_previews()
+            if not self.saves or self.window.is_closed(finish_accepted=True):return
         if self.processing or not (self.pending or self.saves): return
-        if self.window.jobs.active: QTimer.singleShot(250,self.pump); return
+        if self.window.jobs.active:
+            if not self.window.is_closed():self.pump_timer.start()
+            return
+        self.pump_timer.stop()
         self.processing=True
         if self.saves:
-            ident,result,destination,album,store,catalog=self.saves.pop(0)
+            save=self.saves.pop(0)
+            ident,result,destination,album,store,catalog=save
             def finished(record):
                 self.processing=False
                 current=self.catalog is catalog
@@ -351,7 +363,11 @@ class RecentPage(QFrame):
                 else:failed(value[1])
             # desktop/collect already accepted this save. Closing may cancel
             # new work, but must still register this result in its old owner.
-            self.window.jobs.start('正在將收藏圖片加入媒體庫…',work,done,failed,finish_accepted=True)
+            try:started=self.window.jobs.start('正在將收藏圖片加入媒體庫…',work,done,failed,finish_accepted=True)
+            except Exception:
+                self.saves.insert(0,save);self.processing=False;raise
+            if not started:
+                self.saves.insert(0,save);self.processing=False
         else:
             source=self.pending.pop(0); ident=result_id(source)
             store,catalog=self.window.store,self.catalog
@@ -399,7 +415,7 @@ class RecentPage(QFrame):
                         # A→B→A must publish A again, not reuse an older receipt.
                         if receipt is None:receipts.pop(ident,None)
                         else:receipts[ident]=receipt
-                        if self.catalog is not catalog:return
+                        if self.catalog is not catalog or self.window.is_closed():return
                         self.known.add(ident)
                         self.refresh_timer.start()
                         self.window.show_latest_generated(record)
@@ -415,6 +431,7 @@ class RecentPage(QFrame):
                 self.pending.insert(0,source);release()
 
     def refresh(self):
+        if self.window.is_closed():return
         selected=self.record['id'] if self.record else None
         scroll=self.images.verticalScrollBar().value()
         self.images.blockSignals(True)
@@ -468,6 +485,7 @@ class RecentPage(QFrame):
         self.info.setText('' if self.save_button.isEnabled() else '連接 ComfyUI 後可儲存。')
 
     def collect(self,record=None):
+        if self.window.is_closed():return
         record=record if isinstance(record,dict) else self.record
         if not record or not self.window.comfy.connected: return
         if record['id'] in self.collecting: return

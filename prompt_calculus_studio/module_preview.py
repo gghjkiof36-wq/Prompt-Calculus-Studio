@@ -1,5 +1,6 @@
 """Read-only default-node previews rendered by the real Canvas card classes."""
 import copy
+import sqlite3
 from types import SimpleNamespace
 from PySide6.QtCore import Qt, QObject, Signal, QRectF, QTimer
 from PySide6.QtGui import QPainter
@@ -20,15 +21,23 @@ PREVIEW_SIZES = {
 class PreviewRuntime(QObject):
     stateChanged = Signal()
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent):
+        super().__init__(parent)
         # Previewing a node cannot read a user's run history or initiate IO.
-        store = SimpleNamespace(rows=lambda *a, **k: [], scheduler_paused=lambda *a: False,
-                                latest_stage_status=lambda *a: None, entry_states=lambda *a: [])
+        from .stage_store import StageStore
+        connection = sqlite3.connect(':memory:')
+        # Parent destruction does not send closeEvent to child widgets.
+        self.destroyed.connect(lambda: connection.close())
+        store = StageStore(connection)
         runner = SimpleNamespace(store=store, closed=False, results={},
                                  progress=lambda: '', expansion=lambda *a: '', runs=lambda *a: [])
         self.input_flow = SimpleNamespace(chain=runner)
         self.images = SimpleNamespace(source=lambda key: None, collection=lambda key: None, errors={})
+
+    def close(self):
+        runner = self.input_flow.chain
+        runner.closed = True
+        runner.store.db.close()
 
 
 class PreviewCanvas:
@@ -46,7 +55,7 @@ class PreviewCanvas:
         sheet = canvas_stylesheet(actual.window)
         self.window = SimpleNamespace(state=state, store=actual.window.store,
             styleSheet=lambda: sheet, _canvas_stylesheet=sheet, builder_panel=actual.window.builder_panel,
-            final=actual.window.final, changed=lambda *a, **k: None, comfy=PreviewRuntime())
+            final=actual.window.final, changed=lambda *a, **k: None, comfy=PreviewRuntime(view))
         self.view = view
         self.font = actual.font
         self.cards = {}; self.containers = {}; self.outputs = {}; self.clips = {}; self.flow_cards = {}
@@ -142,17 +151,32 @@ class ModulePreview(QGraphicsView):
         self.refit.timeout.connect(self.fit_node)
 
     def show_kind(self, kind):
-        self.refit.stop()
-        self.scene().clear(); self.card = None; self.context = None
+        self.clear_preview()
         if kind:
             self.context = PreviewCanvas(self.actual, self)
-            self.card = self.context.make_card(kind)
+            try:self.card = self.context.make_card(kind)
+            except Exception:
+                self.clear_preview()
+                raise
             proxy=getattr(self.card,'proxy',None)
             if proxy is not None:proxy.geometryChanged.connect(lambda:self.refit.start(0))
         self.fit_node()
         # Proxy widgets settle their minimum height after the first layout.
         # Refit on that change, never on every scene paint or pointer move.
         self.refit.start(0)
+
+    def clear_preview(self):
+        self.scene().clear()
+        self.refit.stop()
+        self.card = None
+        if self.context is not None:
+            self.context.window.comfy.close()
+            self.context.window.comfy.deleteLater()
+            self.context = None
+
+    def closeEvent(self, event):
+        self.clear_preview()
+        super().closeEvent(event)
 
     def fit_node(self):
         if self.fitting:return

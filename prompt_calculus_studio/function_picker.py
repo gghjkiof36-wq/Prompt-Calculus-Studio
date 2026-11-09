@@ -98,6 +98,7 @@ class FunctionPicker(CanvasSheetDialog):
         self.list.setSpacing(2); columns.addWidget(self.list, 4)
         panel=FunctionDetails(canvas,background)
         self.preview=panel.preview; self.name=panel.name; self.description=panel.description; self.kind=panel.kind
+        self.finished.connect(self.preview.clear_preview)
         self.details=QScrollArea(); self.details.setObjectName('FunctionDetailScroll')
         self.details.setFrameShape(QFrame.Shape.NoFrame); self.details.setWidgetResizable(True)
         self.details.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

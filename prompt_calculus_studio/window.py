@@ -1479,6 +1479,14 @@ class Window(QMainWindow):
             self.notice(f"已匯入；匯入前的資料庫備份：{backup.name}。如需生圖，請重新連接 ComfyUI。")
         except Exception as exc: self.error(str(exc))
 
+    def is_closed(self, *, finish_accepted=False):
+        """Block new work from the close decision through completed teardown.
+
+        Only an already accepted collection may finish its registration while
+        shutdown is waiting; nothing may start after the store is released.
+        """
+        return self.__dict__.get('_close_completed', False) or (self.closing and not finish_accepted)
+
     def closeEvent(self,event):
         # A containing workspace can reject its own close after this host has
         # finished. Hidden widgets still receive later close events, and the
@@ -1493,6 +1501,9 @@ class Window(QMainWindow):
         settings_ready=hasattr(self,'settings_page') and page_ready(self.settings_page)
         if settings_ready and page_ready(self.settings_page.comfy_content) and self.settings_page.manager.extension.busy:
             self.notice('配套擴充正在安裝，完成後即可關閉 PCS。');event.ignore();return
+        was_closing=self.closing
+        self.closing=True
+        self.recent.stop_previews()
         self.close_recent_sheet()
         if hasattr(self,'sidebar_resize') and self.sidebar_resize.dragging:self.sidebar_resize.finish()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.close()
@@ -1501,8 +1512,11 @@ class Window(QMainWindow):
             if page_ready(self.settings_page.comfy_content):self.settings_page.manager.shutdown()
             if self.settings_page.preferences is not None:self.settings_page.flush()
         browsing=settings_ready and page_ready(self.settings_page.civitai) and self.settings_page.civitai.browse_jobs.active
+        # Accepted replies can arrive while another worker owns the slot.
+        # The close retry must drain them even though ordinary retries stop.
+        self.recent.pump()
         if self.jobs.active or browsing or self.completion.tasks or (page_ready(self.gallery) and self.gallery.importing) or self.recent.collecting:
-            event.ignore(); self.closing=True
+            event.ignore()
             if page_ready(self.gallery):self.gallery.queue=[]
             if self.jobs.active: self.jobs.active.cancel.set()
             if browsing:browsing.cancel.set()
@@ -1512,6 +1526,7 @@ class Window(QMainWindow):
         try:
             if page_ready(self.models):self.models.details_editor.reject()
         except Exception as exc:
+            self.closing=was_closing
             self.error(str(exc)); event.ignore(); return
         self.save_timer.stop()
         if not self.persist(quiet=True):
@@ -1519,7 +1534,6 @@ class Window(QMainWindow):
             except (OSError,ValueError) as error:self.notice(str(error))
         self.canvas_edit_context=object()
         if getattr(self, 'owns_comfy', True):self.comfy.shutdown()
-        self.recent.refresh_timer.stop()
         self.display_recovery.stop()
         self.copy_timer.stop(); self.filter_timer.stop()
         if hasattr(self,'sidebar_peek'):self.sidebar_peek.shutdown()

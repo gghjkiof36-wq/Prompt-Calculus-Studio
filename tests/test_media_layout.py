@@ -162,7 +162,8 @@ class MediaLayoutTests(unittest.TestCase):
                 with self.subTest(phase=phase),patch('prompt_calculus_studio.pages.ask') as confirm,patch.object(self.w,'notice') as notice:
                     self.g.delete_album(); confirm.assert_not_called()
                     self.assertIsNotNone(self.w.catalog.get('album')); self.assertIn('等待圖片收藏',notice.call_args.args[0])
-            work,done=jobs.start.call_args.args[1:3]; done(work(threading.Event()))
+            work,done=jobs.start.call_args.args[1:3]
+            outcome=work(threading.Event());self.assertEqual(outcome.state,'completed');done(outcome.value)
             self.assertFalse(recent.collecting); self.assertFalse(recent.processing)
             self.assertTrue(self.w.catalog.get(record['id'])['collected'])
         before=list(self.w.catalog.db.execute('SELECT * FROM resources ORDER BY id'))
@@ -195,7 +196,8 @@ class MediaLayoutTests(unittest.TestCase):
                     if removed_at=='network':
                         request.call_args.args[2](result)
                         value=jobs.start.call_args.args[1](threading.Event())
-                    jobs.start.call_args.args[2](value)
+                    self.assertEqual(value.state,'completed')
+                    jobs.start.call_args.args[2](value.value)
                     self.assertFalse(recent.collecting); self.assertFalse(recent.processing); self.assertFalse(recent.saves)
                     self.assertIsNone(self.w.catalog.get('album')); self.assertEqual(self.w.catalog.count('image','album'),0)
                     self.assertFalse(self.w.catalog.get(record['id']).get('collected'))

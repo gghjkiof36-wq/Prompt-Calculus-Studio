@@ -8,11 +8,14 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from prompt_calculus_studio.jobs import Jobs
 from prompt_calculus_studio.job_outcomes import JobOutcome
+from prompt_calculus_studio.window import Window
 
 APP = QApplication.instance() or QApplication([])
 
 
 class Host(QObject):
+    is_closed = Window.is_closed
+
     def __init__(self):
         super().__init__()
         self.closing = False
