@@ -751,7 +751,7 @@ class Window(QMainWindow):
         try:
             self.remember_canvas_view()
             self.store.save(self.state)
-            self.close_cache.clear('local-state')
+            self.store.after_commit(lambda cache=self.close_cache: cache.clear('local-state'))
             return True
         except Exception as exc:
             if not quiet:self.notice('資料儲存失敗：'+str(exc))

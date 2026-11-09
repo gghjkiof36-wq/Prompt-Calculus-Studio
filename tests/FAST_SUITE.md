@@ -18,6 +18,12 @@ B1-7 納入 `test_workspace_ambient.py`（`WORKSPACE` 清單）：固定 60 幀�
 
 ## 借用資料監看
 
+`test_storage_transactions.py` 納入共用連線交易回歸：另一條 SQLite 連線確認
+每個寫入點在外層失敗時不可見、交易外立即提交；保留三層巢狀中被捕捉例外的
+既有語意，並驗證提交後回呼、persist 恢復副本、resume 與排序管理的整批回滾。
+測試只替換 UI／worker 排程，實際寫入與交易方法照常執行；沒有真實服務或圖片
+下載。完整入口契約見 [Stage 交易](../docs/development/stage-architecture.md#共用連線的交易入口)。
+
 `test_stage_borrow_guard.py` 已納入快速套件：驗證 helper 的複製深度、`resolve` 不改輸入、子上下文既有 saved 項目禁止修改且新增 key 仍可用，以及 accepting 的回復範圍與穿透寫入限制。正向對照會故意寫入借用資料，必須在改動來源前拋出 `BorrowViolation`；這些預期事件和產品違規分開計數。
 
 一般執行預設不開監看，六分鐘／單檔 120 秒預算不變。需要監看時加 `--borrow-guard`，或在啟動此執行器前設定 `PCS_BORROW_GUARD=1`。環境開關只供測試端讀取，產品不使用它。

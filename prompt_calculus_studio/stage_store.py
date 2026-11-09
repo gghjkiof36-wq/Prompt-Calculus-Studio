@@ -3,14 +3,17 @@ import copy
 import json
 import time
 import uuid
-from contextlib import contextmanager, nullcontext
 
 ACTIVE=('waiting','running','preparing','submitted','collecting','failed','unconfirmed','result_error')
 
 
 class StageStore:
     def __init__(self,db):
-        self.db=db;self.transaction_depth=0
+        from .core import _Transactions
+        self.db=db
+        # Storage-owned connections share depth across every StageStore. Plain
+        # SQLite connections (standalone journal tests/previews) keep a local owner.
+        self._transactions=getattr(db,'_transactions',None) or _Transactions(db)
         from .sqlite_schema import schema_transaction
         with schema_transaction(db):
             db.execute('CREATE TABLE IF NOT EXISTS stage_journal (id TEXT PRIMARY KEY, kind TEXT, workspace TEXT, owner TEXT, position INTEGER, body TEXT NOT NULL)')
@@ -297,14 +300,13 @@ class StageStore:
         row=self.db.execute('SELECT body FROM stage_journal WHERE id=?',(ident,)).fetchone()
         return json.loads(row[0]) if row else None
 
-    @contextmanager
+    @property
+    def transaction_depth(self):
+        return self._transactions.depth
+
     def transaction(self):
         """Accept journal rows and their document cursor as one durable write."""
-        outer=self.transaction_depth==0
-        with self.db if outer else nullcontext():
-            self.transaction_depth+=1
-            try:yield
-            finally:self.transaction_depth-=1
+        return self._transactions.transaction()
 
     def add(self,kind,workspace,owner='',*,_captured=False,_return_record=True,**values):
         if _captured:
@@ -342,7 +344,7 @@ class StageStore:
     def reorder(self,owner,ids):
         rows=self.rows('entry',owner=owner,active=True);waiting=[i for i in rows if i['status']=='waiting']
         if len(ids)!=len(set(ids)) or set(ids)!={i['id'] for i in waiting}:raise ValueError('只能拖曳尚未提交的項目。')
-        with self.db:
+        with self.transaction():
             positions=sorted(self.db.execute('SELECT position FROM stage_journal WHERE id=?',(i['id'],)).fetchone()[0] for i in waiting)
             for index,key in zip(positions,ids):self.db.execute('UPDATE stage_journal SET position=? WHERE id=?',(index,key))
 
@@ -356,7 +358,7 @@ class StageStore:
         """Compare-and-save one waiting item's parameters, never its live Stage."""
         from .stage_parameters import validate
         validate(config)
-        with self.db:
+        with self.transaction():
             item=self.read(ident)
             if not item or item['status']!='waiting':raise ValueError('此項已開始準備，參數草稿保留，不能修改已準備內容。')
             if item['saved']!=expected_saved:raise ValueError('這一項已被修改，請重新開啟後比較。')
@@ -369,7 +371,7 @@ class StageStore:
             self.update(ident,saved=saved)
 
     def copy_entry(self,ident):
-        with self.db:
+        with self.transaction():
             item=self.read(ident)
             if not item or item['status']!='waiting':raise ValueError('只能複製尚未開始的項目。')
             run=self.read(item['run'])
@@ -436,5 +438,5 @@ class StageStore:
 
     def restore_retained(self,run):
         entries=[r for r in self.rows('entry',run['workspace']) if r['run']==run['id'] and r['status']=='retained']
-        with self.db:
+        with self.transaction():
             for row in entries:self.update(row['id'],status='waiting')

@@ -72,6 +72,63 @@ Canvas 模塊按責任區分來源、組合、轉換、綁定、執行、排程�
 
 供 UI 與輪詢使用的工作存在性、進度及 attempt 標頭，由既有連線即時投影必要欄位，不讀取完整場景。完成回報、參數回執及公開的完整紀錄查詢仍取回完整內容。這些查詢沒有跨呼叫快取，也沒有增加連線、資料表、欄位或索引。
 
+## 共用連線的交易入口
+
+目前工作樹由 `Storage.transaction()` 管理 `studio.sqlite3` 的同步交易。
+Storage 建立的連線攜帶同一個交易管理物件；`StageStore(db).transaction()`
+委派給該物件，所有綁定此連線的 StageStore 都看見同一個 `transaction_depth`。
+獨立測試／預覽傳入普通 SQLite 連線時，StageStore 仍建立自己的交易管理物件，
+不建立額外連線、資料表、欄位或索引。
+
+契約如下：
+
+- 每次進入增加深度，離開時必定減少。只有最外層正常離開才提交；例外穿出
+  最外層時回滾，提交失敗也由 SQLite 回滾，原例外繼續傳遞。沿用 SQLite
+  隱含開始寫入交易的時機，不為純讀取建立新的鎖定策略。
+- 巢狀範圍不設 savepoint，也不設 rollback-only 標記。內層錯誤若被外層
+  捕捉，內層已寫入的資料仍留在交易中，外層繼續成功時一起提交。這保留原本
+  StageStore 的語意；需要整筆放棄時，讓例外穿出最外層。
+- `Storage.after_commit(fn)` 在交易內按登記順序排隊，在最外層提交成功、
+  深度回到 0 之後同步執行一次。回滾／提交失敗丟棄整個佇列；被捕捉的內層
+  例外不丟棄回呼，因為其寫入也沒有撤銷。交易外登記則立即執行。
+- 執行回呼前先移走佇列，所以回呼可另開獨立交易；沒有遺留回呼會被下一次
+  交易重播。回呼若丟錯，錯誤傳給呼叫端，尚未執行的回呼丟棄；資料庫此時
+  已提交，不能回滾。回呼只能作簡短的提交後收尾，不能承擔文件接受或驗證。
+- 此入口只管資料庫及回呼，不還原記憶體、檔案或 UI。`accepting()` 繼續負責
+  原有文件備份／回復；不要把一般資料庫交易當成完整的文件執行交易。
+
+`Storage.save(commit=True)`、cache／usage 寫入、StageStore 的新增、更新、
+排序、參數編輯、複製及保留項目恢復，以及 Catalog 的資料列寫入都使用此入口。
+最近生成的裁切及相簿刪除也透過 Catalog 的 Storage 進入；它們不另行直接提交。
+在交易外呼叫仍於本次呼叫內立即提交，沒有合併存檔、計時器或背景序列化。
+開庫 schema／備份初始化及工作流版本核對的 `BEGIN IMMEDIATE` 保留其原有專用
+流程；原始 `db.commit()`／`with db` 不是可在本入口內混用的新寫入介面。
+
+`Window.persist()` 仍立刻呼叫 save，但用 `after_commit` 清除原本的
+`close_cache['local-state']`；在外層交易內回傳 True 只表示同步寫入已完成，
+最終耐久性仍由外層決定。外層失敗保留恢復副本。`resume()` 的保留 entry、
+所有 scheduler 暫停旗標及 run 狀態在同一交易內恢復，成功後才通知與安排派送。
+排序管理的多個 owner reorder 與移除亦在同一交易；移除呼叫鏈的
+`stage_queue_actions.finish_entry` 加入同一深度，套用成功後才建立 queue Undo。
+
+### 後續存檔去重的接點
+
+`StageRunner.accepting()`、派送與結果收集已透過 StageStore 共用此邊界。
+後續合併存檔須在最外層離開**之前**，同一同步區段內呼叫
+`Storage.save(..., commit=False)`，不能放到 `after_commit` 或計時器。
+`commit=False` 只放棄自行提交，仍立即同步、驗證及序列化。
+`after_commit` 適合保存成功的清除／通知；它不是待存文件佇列。
+
+`save()` 仍會改寫 active output 的 `draft`／`draft_base` 或 `list_draft`、
+`list_state`，並覆寫 `workspace_scenes.items[workspace]`。這些同步甚至可能
+發生在驗證失敗之前，並不由資料庫回滾；拆分同步與序列化、驗證去重及擴大
+文件回復範圍留待後續實作。借用資料的同步序列化時點與上述所有權限制持續有效。
+
+[交易回歸](../../tests/test_storage_transactions.py) 用另一條連線確認提交可見性，
+涵蓋內外層寫入、三層與捕捉例外、回呼／提交失敗、persist 恢復副本，以及
+resume／排序管理中途失敗。它已納入一般及 borrow-guard 快速套件；離屏資料
+驗證不代表真實服務、原生桌面或 GPU 驗收。
+
 ## 配置、歷史與相容
 
 Canvas 配置屬工作區與 Undo；`stage_journal` 屬執行紀錄；生成回執沿用原有紀錄。三者不能互相替代。狀態恢復集中於載入邊界，PNG 不含工作佇列。舊 `chain_*` 與早期排程仍保留相容读取用途，v7 主路徑使用 Stage；無 Stage 不得回退到舊生成旁路。

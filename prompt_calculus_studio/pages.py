@@ -906,7 +906,7 @@ class GalleryPage(QFrame):
         if self.folder_removal_busy():return
         # Remove only catalog entries in one transaction. The original files,
         # cached previews, other albums and generation history are untouched.
-        with self.catalog.db:
+        with self.catalog.store.transaction():
             self.catalog.db.execute("DELETE FROM resources WHERE (kind='album' AND id=?) OR (kind='image' AND parent=?)",(ident,ident))
         self.album=None; self.record=None; self._detail_open=False; self.page=0
         self._pending_anchor=None; self._view_positions.clear()

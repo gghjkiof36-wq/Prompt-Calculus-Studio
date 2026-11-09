@@ -25,7 +25,7 @@ def finish_entry(runner,ident,status,*,pause=True):
     if item['status'] not in ('waiting','running'):return
     index=next((i for i,f in enumerate(run['stack']) if f.get('kind')=='loop' and f.get('active')==ident),None)
     if item['status']=='running' and index is None:raise ValueError('此項目的執行位置已改變，請重新整理紀錄。')
-    with runner.store.db:
+    with runner.store.transaction():
         if index is not None:
             # Remove this child's continuation, never siblings/outer frames.
             # Partial results of a discarded item must not feed downstream.

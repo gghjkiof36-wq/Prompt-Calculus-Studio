@@ -892,9 +892,10 @@ class StageRunner(QObject):
         if not run or run['status'] in ('complete','cancelled'):return
         self.check_route(run)
         if any(a.get('cancel_requested') or a['status'] in ('failed','unconfirmed','result_error') for a in self.store.rows('attempt',owner=ident,active=True)):raise ValueError('這份流程有失敗或取消待確認項目，請先處理該項；其他流程仍可使用。')
-        self.store.restore_retained(run)
-        for key in self.scheduler_keys(run['plan']):self.store.set_scheduler_paused(run['workspace'],key,False)
-        self.store.update(ident,status='running',message='',pause_reason='')
+        with self.store.transaction():
+            self.store.restore_retained(run)
+            for key in self.scheduler_keys(run['plan']):self.store.set_scheduler_paused(run['workspace'],key,False)
+            self.store.update(ident,status='running',message='',pause_reason='')
         self.client.dispatch_allowed
         self.later();self.notify('已繼續這份流程。')
 

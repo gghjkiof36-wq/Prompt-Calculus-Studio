@@ -187,7 +187,7 @@ class Catalog:
             self.db.execute("CREATE INDEX IF NOT EXISTS asset_source_version ON asset_sources(provider,version_id)")
 
     def put(self, kind, row, parent=""):
-        with self.db:
+        with self.store.transaction():
             self.db.execute("INSERT OR REPLACE INTO resources VALUES (?,?,?,?,?)",
                             (row["id"],kind,parent,row.get("name", ""),json.dumps(row,ensure_ascii=False)))
 
@@ -223,14 +223,14 @@ class Catalog:
         return self.db.execute(sql,args).fetchone()[0]
 
     def delete(self, ident):
-        with self.db:
+        with self.store.transaction():
             self.db.execute("DELETE FROM resources WHERE id=?",(ident,))
 
     def put_source(self, sha256, source):
         value=str(sha256).upper()
         if len(value)!=64 or not all(c in '0123456789ABCDEF' for c in value): raise ValueError('資產 SHA256 格式無效。')
         if not isinstance(source,dict) or source.get('provider')!='civitai': raise ValueError('資產來源格式無效。')
-        with self.db:
+        with self.store.transaction():
             self.db.execute("INSERT OR REPLACE INTO asset_sources VALUES (?,?,?,?,?,?)",
                 (value,'civitai',source.get('model_id'),source.get('version_id'),json.dumps(source,ensure_ascii=False),time.time()))
 
@@ -249,7 +249,7 @@ class Catalog:
     def update_identified_models(self, rows):
         """Apply source fields to the latest record, never a worker's personal copy."""
         from .civitai import SOURCE_FIELDS,HASH_FIELDS
-        with self.db:
+        with self.store.transaction():
             for row in rows:
                 latest=self.get(row['id'])
                 if not latest or latest.get('missing') or latest.get('path')!=row.get('path'): continue
@@ -274,7 +274,7 @@ class Catalog:
         parent=str(model_root(root))
         def write(row):
             self.db.execute("INSERT OR REPLACE INTO resources VALUES (?,?,?,?,?)",(row["id"],"model",parent,row["name"],json.dumps(row,ensure_ascii=False)))
-        with self.db:
+        with self.store.transaction():
             for row in rows:
                 previous = self.get(row["id"]) or {}
                 current = {**previous, **row, "missing":False}
@@ -294,7 +294,7 @@ class Catalog:
     def archive_missing_models(self, root):
         parent = str(model_root(root))
         changed = []
-        with self.db:
+        with self.store.transaction():
             for record in self.rows('model', parent, limit=20000):
                 path = Path(record['path'])
                 # An unavailable drive/folder or permission error is not proof
@@ -313,7 +313,7 @@ class Catalog:
 
     def restore_missing_models(self, root):
         parent = str(model_root(root))
-        with self.db:
+        with self.store.transaction():
             result = self.db.execute("UPDATE resources SET kind='model' WHERE kind='missing_model' AND parent=?", (parent,))
         return result.rowcount
 

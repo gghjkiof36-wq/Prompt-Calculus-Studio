@@ -98,8 +98,9 @@ class ScheduleOrderDialog(StudioDialog):
                 changed.extend(key for key in owned if key in removed)
                 choices=iter(changed);orders[owner]=[next(choices) if key in waiting else key for key in owned]
             def apply():
-                for owner,order in orders.items():store.reorder(owner,order)
-                for key in removed:panel.runner.remove_entry(key)
+                with store.transaction():
+                    for owner,order in orders.items():store.reorder(owner,order)
+                    for key in removed:panel.runner.remove_entry(key)
             from .queue_history import perform
             perform(panel.canvas,waiting,apply,'管理等待項目')
         except ValueError as exc:self.error.setText(str(exc));self.error.show();return

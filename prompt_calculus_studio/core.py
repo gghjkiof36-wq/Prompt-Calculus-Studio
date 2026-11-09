@@ -6,6 +6,7 @@ import sqlite3
 import time
 import uuid
 from dataclasses import dataclass
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from urllib.parse import urlsplit
 from .accent_colors import ACCENT_NAMES, DEFAULT_CUSTOM_ACCENT, valid_hex
@@ -492,13 +493,51 @@ def format_candidate(candidate, settings, artist=False):
     return value
 
 
+class _StorageConnection(sqlite3.Connection):
+    """Carry the shared transaction owner without a global connection registry."""
+
+
+class _Transactions:
+    """One synchronous transaction scope for a connection (no savepoints)."""
+    def __init__(self, db):
+        self.db = db
+        self.depth = 0
+        self.callbacks = []
+
+    @contextmanager
+    def transaction(self):
+        outer = self.depth == 0
+        try:
+            with self.db if outer else nullcontext():
+                self.depth += 1
+                try:
+                    yield
+                finally:
+                    self.depth -= 1
+        except BaseException:
+            if outer:
+                self.callbacks.clear()
+            raise
+        if outer:
+            callbacks, self.callbacks = self.callbacks, []
+            for callback in callbacks:
+                callback()
+
+    def after_commit(self, callback):
+        if self.depth:
+            self.callbacks.append(callback)
+        else:
+            callback()
+
+
 class Storage:
     CACHE_LIMIT=5000
     CACHE_BYTES=16*1024*1024
     def __init__(self, directory):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.directory / "studio.sqlite3")
+        self.db = sqlite3.connect(self.directory / "studio.sqlite3", factory=_StorageConnection)
+        self.db._transactions = _Transactions(self.db)
         from .sqlite_schema import schema_transaction
         with schema_transaction(self.db):
             self.db.execute("CREATE TABLE IF NOT EXISTS document (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)")
@@ -509,6 +548,28 @@ class Storage:
             self.db.execute("CREATE TABLE IF NOT EXISTS accepted (workspace TEXT, tag TEXT, body TEXT, last REAL, PRIMARY KEY(workspace,tag))")
         self.cache_epoch=0; self.cache_enabled=True
 
+    @property
+    def transaction_depth(self):
+        return self.db._transactions.depth
+
+    def transaction(self):
+        """Join the connection's synchronous transaction; only its outer exit
+        commits or rolls back. A caught inner exception does not undo writes or
+        mark the outer scope rollback-only. Uncaught exceptions propagate;
+        sqlite also rolls back a failed commit. Depth is restored on every exit.
+        This scope protects database writes, not caller-owned in-memory state.
+        """
+        return self.db._transactions.transaction()
+
+    def after_commit(self, callback):
+        """Run once, in registration order, after the outer commit at depth 0.
+        Rollback (including failed commit) discards callbacks. Outside a managed
+        scope, run immediately. A callback exception propagates after durability;
+        remaining callbacks are discarded, never retried or used to roll back.
+        Callbacks must be short post-commit actions, not document acceptance.
+        """
+        self.db._transactions.after_commit(callback)
+
     def load(self):
         row = self.db.execute("SELECT body FROM document WHERE id=1").fetchone()
         state = validate_state(json.loads(row[0])) if row else initial_state()
@@ -517,14 +578,21 @@ class Storage:
         return state
 
     def save(self, state, *, commit=True):
+        """Synchronize and serialize state, joining any outer transaction.
+
+        Mutates the active multi_output output's draft/draft_base (or list_draft)
+        and list_state, then replaces workspace_scenes.items[workspace] with the
+        current scene when present. These writes occur even if validation or
+        persistence later fails. commit=False leaves commit ownership to the
+        caller; it does not defer capture, validation or serialization.
+        """
         if 'multi_output' in state:
             from .multi_output import capture_current
             capture_current(state)
         from .workspace_scene import capture
         capture(state)
         validate_state(state)
-        from contextlib import nullcontext
-        with self.db if commit else nullcontext():
+        with self.transaction() if commit else nullcontext():
             self.db.execute("INSERT OR REPLACE INTO document VALUES (1,?)", (json.dumps(state, ensure_ascii=False),))
 
     def load_current(self, *, multi=False):
@@ -575,7 +643,7 @@ class Storage:
         if row:
             records=json.loads(row[0]); age=time.time()-row[1]
             if (not records and age>=3600) or (max_age is not None and age>=max_age): return None
-            with self.db: self.db.execute('INSERT OR REPLACE INTO cache_access VALUES (?,?)',(key,time.time()))
+            with self.transaction(): self.db.execute('INSERT OR REPLACE INTO cache_access VALUES (?,?)',(key,time.time()))
             return records
         return None
 
@@ -589,14 +657,14 @@ class Storage:
 
     def clear_cache(self):
         self.cache_epoch+=1
-        with self.db:
+        with self.transaction():
             self.db.execute('DELETE FROM cache'); self.db.execute('DELETE FROM cache_access')
 
     def cache(self, key, records):
         if not self.cache_enabled: return
         body=json.dumps(records[:12],ensure_ascii=False)
         if len(body.encode('utf-8'))>self.CACHE_BYTES: return
-        with self.db:
+        with self.transaction():
             now=time.time()
             self.db.execute("INSERT OR REPLACE INTO cache (key,body,saved) VALUES (?,?,?)", (key,body,now))
             self.db.execute('INSERT OR REPLACE INTO cache_access VALUES (?,?)',(key,now))
@@ -613,7 +681,7 @@ class Storage:
             self.db.execute('DELETE FROM cache_access WHERE key NOT IN (SELECT key FROM cache)')
 
     def use(self, workspace, tag, candidate=None):
-        with self.db:
+        with self.transaction():
             self.db.execute("INSERT INTO usage VALUES (?,?,1,?) ON CONFLICT(workspace,tag) DO UPDATE SET count=count+1,last=excluded.last",(workspace,tag,time.time()))
             if candidate:
                 self.db.execute("INSERT OR REPLACE INTO accepted VALUES (?,?,?,?)",(workspace,tag,json.dumps(candidate,ensure_ascii=False),time.time()))

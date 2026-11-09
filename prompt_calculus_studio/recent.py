@@ -410,7 +410,8 @@ class RecentPage(QFrame):
                     if record:
                         record.update(id=ident,source=source,collected={}); catalog.put('recent',record)
                         committed=True
-                        catalog.db.execute("DELETE FROM resources WHERE kind='recent' AND id NOT IN (SELECT id FROM resources WHERE kind='recent' ORDER BY json_extract(body,'$.created') DESC LIMIT 120)"); catalog.db.commit()
+                        with catalog.store.transaction():
+                            catalog.db.execute("DELETE FROM resources WHERE kind='recent' AND id NOT IN (SELECT id FROM resources WHERE kind='recent' ORDER BY json_extract(body,'$.created') DESC LIMIT 120)")
                         # Keep only the latest successful version for each ID:
                         # A→B→A must publish A again, not reuse an older receipt.
                         if receipt is None:receipts.pop(ident,None)
