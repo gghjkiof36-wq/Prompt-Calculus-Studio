@@ -1,4 +1,4 @@
-"""Q1: two clicks before the event loop must not duplicate a batch."""
+"""Q2: each click accepts a distinct group, including before the first pump."""
 import unittest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
@@ -31,6 +31,6 @@ class ClickRegressionTests(unittest.TestCase):
         observed=dict(entries=len(self.runner.store.rows('entry')),
                       submissions=len(self.executor.submissions),generations=completed)
         self.assertFalse(self.executor.pending,observed)
-        self.assertEqual(observed,dict(entries=count,submissions=count,generations=count),
-                         'Q1 duplicate batch: '+repr(observed))
-        self.assertEqual(self.submitted_texts(),[letter+'\n1-1' for letter in 'abcdefghij'])
+        self.assertEqual(observed,dict(entries=2*count,submissions=2*count,generations=2*count),repr(observed))
+        self.assertEqual(len({e['execution_group'] for e in self.runner.store.rows('entry')}),2)
+        self.assertEqual(self.submitted_texts(),[letter+f'\n1-{cycle}' for cycle in (1,2) for letter in 'abcdefghij'])

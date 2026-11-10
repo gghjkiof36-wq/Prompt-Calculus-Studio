@@ -7,6 +7,21 @@ from prompt_calculus_studio.stage_store import StageStore
 
 
 class GroupStoreTests(unittest.TestCase):
+    def test_priority_promotes_waiting_snapshot_before_result_dependent_entries_exist(self):
+        from types import SimpleNamespace
+        from prompt_calculus_studio.schedule_batch_actions import promote_waiting
+        current=self.store.add('run','w',status='running',plan={})
+        future=self.store.add('run','w',status='waiting',plan={})
+        for serial,(group,run) in enumerate((('current',current),('future',future)),1):
+            self.store.set_batch_control('w','q',group,run=run['id'],serial=serial,total=2,expanded=0)
+        runner=SimpleNamespace(store=self.store,scheduler_keys=lambda plan:['q'])
+        promote_waiting(runner,[future])
+        self.assertEqual(self.store.read(future['id'])['status'],'waiting')
+        self.store.reorder_groups('w','q',['future','current'],['current','future'])
+        promote_waiting(runner,[future])
+        self.assertEqual(self.store.read(future['id'])['status'],'running')
+        self.assertEqual(self.store.rows('entry'),[])
+
     def setUp(self):
         self.db=sqlite3.connect(':memory:');self.addCleanup(self.db.close);self.store=StageStore(self.db)
 
@@ -90,8 +105,11 @@ class GroupStoreTests(unittest.TestCase):
 
 
 import test_084_stages as fixture
+from PySide6.QtTest import QTest
+from prompt_calculus_studio.stage_batches import expand
 from prompt_calculus_studio import multi_output as model
-from prompt_calculus_studio.flow_data import add_scheduler,CAPACITY
+from prompt_calculus_studio.flow_data import add_scheduler
+from prompt_calculus_studio.stage_runner import CAPACITY
 
 
 class GroupExecutionTests(unittest.TestCase):
@@ -106,44 +124,53 @@ class GroupExecutionTests(unittest.TestCase):
         def setup(state):
             key=add_scheduler(state);keys.append(key);model.connect(state,stage,key+'::flow','flow')
         self.assertTrue(self.c.commit(setup));self.controls.count.setValue(count);self.click()
+        for _ in range(min(count,CAPACITY)):expand(self.runner,CAPACITY)
         return keys[0]
 
     def test_two_execute_clicks_append_to_same_run_but_keep_frozen_groups(self):
         key=self.queue(120);store=self.runner.store;original=store.rows('entry')
-        self.assertEqual(len(original),120)
+        self.assertEqual(len(original),CAPACITY)
         self.c.commit(lambda s:s['uses']['root'].update(prompt='second click'))
         self.controls.count.setValue(2);self.click()
         entries=store.rows('entry');groups=store.schedule_groups(self.w.state['workspace'],key)
         self.assertEqual([g['total'] for g in groups],[120,2]);self.assertEqual(len({e['run'] for e in entries}),1)
-        self.assertEqual(entries[:120],original)
+        self.assertEqual(entries[:CAPACITY],original)
+        from prompt_calculus_studio.schedule_batch_actions import prioritize
+        prioritize(self.runner,key,groups[1]['id'])
+        for _ in range(2):expand(self.runner,CAPACITY)
+        QTest.qWait(40)
+        entries=store.rows('entry')
         self.assertEqual(entries[-1]['saved']['values'][self.clip]['value'],'second click')
         self.assertNotEqual(entries[0]['execution_group'],entries[-1]['execution_group'])
         self.controls.count.setValue(1000);self.controls.refresh();self.assertEqual(self.controls.count.value(),1000)
         before=store.rows('entry')
         with self.assertRaises(ValueError):self.runner.start(1001)
         self.assertEqual(store.rows('entry'),before)
+        groups=store.schedule_groups(self.w.state['workspace'],key)
         self.runner.timer.stop();self.assertEqual(StageStore(self.w.store.db).schedule_groups(self.w.state['workspace'],key),groups)
 
     def test_accept_failure_rolls_back_all_group_rows_and_document(self):
         key=self.queue(1);store=self.runner.store;before=store.rows('entry');state=copy.deepcopy(self.w.state)
-        add=store.add;accepted=[]
+        add=store.add
         def fail(kind,*args,**kwargs):
-            if kind=='entry':
-                accepted.append(1)
-                if len(accepted)==4:raise ValueError('fixture storage failure')
+            if kind=='batch_control':raise ValueError('fixture storage failure')
             return add(kind,*args,**kwargs)
         with patch.object(store,'add',side_effect=fail),self.assertRaises(ValueError):self.runner.start(120)
         self.assertEqual(store.rows('entry'),before);self.assertEqual(self.w.state,state)
 
     def test_automatic_batch_over_100_refills_inside_the_same_group(self):
         source,images,config=self.image_batch(count=105);self.click();store=self.runner.store
+        for _ in range(CAPACITY):expand(self.runner,CAPACITY)
         groups=store.schedule_groups(self.w.state['workspace'],config['inner']);self.assertEqual(len(groups),1)
-        self.assertEqual(groups[0]['total'],105);self.assertEqual(groups[0]['pending'],5)
+        self.assertEqual(groups[0]['total'],105);self.assertEqual(groups[0]['pending'],104)
+        self.assertEqual(groups[0]['unexpanded'],105-CAPACITY)
         self.assertEqual(store.active_count(self.w.state['workspace'],config['inner']),CAPACITY)
         self.executor.finish()
+        expand(self.runner,CAPACITY)
         later=store.schedule_groups(self.w.state['workspace'],config['inner'])
         self.assertEqual(later[0]['id'],groups[0]['id']);self.assertEqual(later[0]['total'],105)
-        self.assertEqual(later[0]['pending'],4)
+        self.assertEqual(later[0]['pending'],103)
+        self.assertEqual(later[0]['unexpanded'],104-CAPACITY)
 
     def test_later_outer_click_passes_its_group_to_nested_image_feed(self):
         source,images,config=self.image_batch(outer=True);self.click();self.click();store=self.runner.store

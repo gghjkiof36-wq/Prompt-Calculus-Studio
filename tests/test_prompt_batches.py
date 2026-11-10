@@ -49,10 +49,12 @@ class BatchExecutionTests(unittest.TestCase):
         from prompt_calculus_studio.stage_runner import CAPACITY
         config=self.setup_batch(length=13)
         self.click()
+        from prompt_calculus_studio.stage_batches import expand
+        for _ in range(CAPACITY):expand(self.runner,CAPACITY)
         self.assertEqual(len(self.runner.store.rows('entry')),CAPACITY)
         source=supply.source(self.w.state,config['reader'])
         self.assertEqual(comp.render(self.w.state['uses']['root']),'1-2')
-        self.assertEqual(comp.render(source['root']),'a')
+        self.assertEqual(comp.render(source['root']),'d')
         # Ten accepted values are durable even if the delayed document timer has not fired.
         self.assertEqual(comp.render(self.w.store.load()['uses']['root']),'1-2')
         def edit(state):
@@ -64,11 +66,11 @@ class BatchExecutionTests(unittest.TestCase):
 
     def test_failed_queue_persistence_rolls_back_rows_and_cursors(self):
         self.setup_batch(length=6)
-        before=copy.deepcopy(self.w.state);original=self.runner.store.add;entries=[0]
+        before=copy.deepcopy(self.w.state);original=self.runner.store.add
         def fail_second(kind,*args,**kwargs):
-            if kind=='entry':
-                entries[0]+=1
-                if entries[0]==2:raise OSError('synthetic journal write failure')
+            # Acceptance now journals one snapshot, then its control receipt.
+            # Fail that second write, before the click transaction commits.
+            if kind=='batch_control':raise OSError('synthetic journal write failure')
             return original(kind,*args,**kwargs)
         with patch.object(self.runner.store,'add',side_effect=fail_second):
             self.click()

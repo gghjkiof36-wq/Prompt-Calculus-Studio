@@ -101,6 +101,8 @@ class MainResumeTests(StageFixture):
         from PySide6.QtCore import QPoint
         from prompt_calculus_studio.widgets import RoundMenu
         key=self.queue();self.controls.count.setValue(3);self.click()
+        from prompt_calculus_studio.stage_batches import expand
+        for _ in range(3):expand(self.runner,20)
         entries=copy.deepcopy(self.runner.store.rows('entry'))
         ident=self.runner.current()['id'];attempt=self.runner.store.rows('attempt')[0]
         def action(text):

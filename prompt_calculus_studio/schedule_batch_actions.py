@@ -45,10 +45,13 @@ def cancel(runner,scheduler,group):
     if value['cancelled']:return
     workspace=runner.window.state['workspace'];store=runner.store
     rows=entries(runner,scheduler,group)
+    control=store.batch_control(workspace,scheduler,group)
+    snapshots=[h for h in store.batch_heads(workspace) if h['scheduler']==scheduler and h['execution_group']==group]
     all_entries=store.entry_descendants(workspace,[r['id'] for r in rows])
     ids={r['id'] for r in all_entries}
     attempts=store.entry_attempts(workspace,ids,active=True)
     runs={r['run'] for r in all_entries}
+    runs.update(h['run'] for h in snapshots)
     # Include an automatic group whose next segment has not materialized yet.
     for run in runner.runs(True):
         if any(f.get('node',{}).get('key')==scheduler and
@@ -56,11 +59,28 @@ def cancel(runner,scheduler,group):
     loaded=[store.read(key) for key in runs]
     if any(r and r['server']!=runner.client.url for r in loaded):raise ValueError('請連線至此批次原本的服務再取消。')
     released=False
+    withdrawn=False
     with runner.accepting():
+        if control.get('serial'):
+            from .stage_batches import cursors,restore_cursors
+            newer=store.db.execute("SELECT body FROM stage_journal WHERE kind='batch_control' AND workspace=? AND position>(SELECT position FROM stage_journal WHERE id=?)",(workspace,control['id']))
+            import json
+            overlap=any(not c.get('withdrawn') and set(c.get('cursor_keys',[])) & set(control.get('cursor_keys',[])) for c in (json.loads(r[0]) for r in newer))
+            withdrawn=(not control.get('started') and not any(r['status'] not in ('waiting','retained','removed') for r in all_entries)
+                and not overlap and cursors(runner.window.state,control.get('cursor_keys',[]))==control.get('cursor_after',{}))
+            if withdrawn:
+                restore_cursors(runner.window.state,control.get('cursor_before',{}),runner.window.store.directory)
+                runner.window.store.save(runner.window.state,commit=False)
+                released=True
+            else:
+                from .stage_batches import release_images
+                released=release_images(runner.window.state,control)
+            for head in snapshots:store.delete_batch_snapshot(head['id'])
         store.set_batch_control(workspace,scheduler,group,cancelled=True,bypassed=False)
+        if withdrawn:store.set_batch_control(workspace,scheduler,group,withdrawn=True)
         for row in all_entries:
             if row['id'] in ids and row['status'] in ('waiting','retained'):
-                store.patch(row['id'],status='cancelled')
+                store.patch(row['id'],status='removed' if withdrawn else 'cancelled')
         for run in loaded:
             if not run:continue
             for frame in run['stack']:
@@ -90,7 +110,8 @@ def cancel(runner,scheduler,group):
         if run and any(a['owner']==run['id'] for a in attempts):runner.cancel_inputs(run)
     for attempt in attempts:request_cancel(runner,store.read(attempt['id']))
     if released:runner.window.changed('prompt',refresh=False)
-    runner.later();runner.notify()
+    runner.later()
+    runner.notify((f"已撤回第 {control['serial']} 組" if withdrawn else f"已取消第 {control['serial']} 組；位置未退回") if control.get('serial') else '')
 
 
 def cancelled_parent(runner,attempt):
@@ -118,5 +139,14 @@ def promote_waiting(runner,runs):
         if run['status']!='waiting':continue
         keys=runner.scheduler_keys(run['plan'])
         if any(runner.store.scheduler_paused(run['workspace'],key) for key in keys):continue
-        if any((runner.store.preferred_entry(run['workspace'],key) or {}).get('run')==run['id'] for key in keys):
+        def preferred(key):
+            entry=runner.store.preferred_entry(run['workspace'],key)
+            if entry:return entry.get('run')
+            # A result-dependent snapshot cannot produce an entry until its
+            # upstream Stage runs. Its accepted group still owns its priority;
+            # otherwise prioritizing/bypassing before preparation can deadlock.
+            groups=runner.store.schedule_groups(run['workspace'],key)
+            first=next((g for g in groups if g['pending'] and not g['cancelled'] and not g['bypassed']),None)
+            if first:return runner.store.batch_control(run['workspace'],key,first['id']).get('run')
+        if any(preferred(key)==run['id'] for key in keys):
             runner.store.patch(run['id'],status='running',pause_reason='');run['status']='running'

@@ -4,7 +4,6 @@ Frames and queue rows survive restarts. Only the active parent's child scope is
 expanded; results leave a scope after all its entries have finished.
 """
 import copy
-from .flow_data import CAPACITY
 import hashlib
 import json
 import sqlite3
@@ -17,6 +16,9 @@ from .stage_store import StageStore
 from .stage_model import compile_plan,execution_signature,terminals,controls,connected_terminals,input_nodes as upstream
 from .stage_context import capture,project,image_list,merge_saved,prepare_state,execution_state,execution_scene,copy_context,progress_backup,borrowed_base
 from .flow_data import incoming
+
+# Ready entries, not a limit on accepted clicks or journal groups.
+CAPACITY=20
 
 
 def merge_results(target,values):
@@ -44,6 +46,7 @@ class StageRunner(QObject):
     def close(self):
         self.cancel_apply('視窗已關閉，未繼續套用輸入。')
         self.closed=True;self.timer.stop();self.apply_queue.clear()
+        self._batch_content=None
 
     def notify(self,message=''):
         if self.closed:return
@@ -179,7 +182,7 @@ class StageRunner(QObject):
             if node['kind']=='stage':continue
             if previous.get('index')==at and previous['state']!='left':return
             initial=run['initial'].get(node['key'])
-            owner=initial.get('owner') if isinstance(initial,dict) else None
+            owner=(initial.get('owners',[initial.get('owner')])[min(run.get('round',1)-1,len(initial.get('owners',[None]))-1)] if isinstance(initial,dict) else None)
             run['scope_progress']=dict(index=at,key=node['key'],state='pending',
                 auto=bool(node.get('auto')),owner=owner or run['id']+':'+uuid.uuid4().hex)
             return
@@ -212,6 +215,13 @@ class StageRunner(QObject):
         scheduling=any(n['kind']!='stage' for n in plan['tree'])
         if active and scheduling:
             target=self.enqueue_scope(active)
+            if target and active.get('batch_snapshots'):
+                from .stage_batches import accept,notice
+                self.check_route(active)
+                with self.accepting(suppliers=self.manual_suppliers(plan)):
+                    accept(self,active,target['node'],target['owner'],count,execution_group,plan=plan)
+                self.claim_dispatch()
+                notice(self,target['node']['key'],execution_group);self.later();return
             if target and not target.get('auto'):
                 self.check_route(active)
                 states,supply=self.manual_rounds(plan,self.scope_keys(plan,target['node']),count)
@@ -221,9 +231,15 @@ class StageRunner(QObject):
                     self.reserve_supply(supply)
                 self.claim_dispatch()
                 self.notify('已保存 '+str(len(states))+' 項至 '+self.window.state['multi_output']['schedulers'][target['node']['key']]['name']);self.later();return
-            if target and target.get('auto'):self.notify('這批內容已在供應。');return
+            if target and target.get('auto'):self.notify('執行中…');return
             # A scope already left is not re-entered in the same execution.
-            self.create_run(plan,count,status='waiting',execution_group=execution_group);self.notify('已保存為下一次完整流程。');return
+            created=self.create_run(plan,count,status='waiting',execution_group=execution_group)
+            if created.get('batch_snapshots'):
+                from .stage_batches import notice
+                for node in plan['tree']:
+                    if node['kind']!='stage':notice(self,node['key'],execution_group)
+            else:self.notify('已保存為下一次完整流程。')
+            return
         if active and len(plan['order'])>1:
             self.sync_free();self.notify('這條流程尚未結束；目前點擊不追加相同流程。');return
         if len(plan['order'])==1 and not scheduling:
@@ -231,7 +247,12 @@ class StageRunner(QObject):
             with self.accepting(suppliers=self.manual_suppliers(plan)):
                 for state in states:self.create_run(plan,1,direct=True,frozen_state=state,execution_group=execution_group)
                 self.reserve_supply(supply)
-        else:self.create_run(plan,count,execution_group=execution_group)
+        else:
+            created=self.create_run(plan,count,execution_group=execution_group)
+            if created.get('batch_snapshots'):
+                from .stage_batches import notice
+                for node in plan['tree']:
+                    if node['kind']!='stage':notice(self,node['key'],execution_group)
         # The journal and consumed-source cursor must commit before a library
         # registration can persist state or any asynchronous dispatch starts.
         self.claim_dispatch()
@@ -247,6 +268,11 @@ class StageRunner(QObject):
         return set(connected(self.window.state,origins))|{key for stage in plan['stages'].values() for key in stage.get('suppliers',[])}
 
     def _create_run(self,plan,count,direct=False,status='running',frozen_state=None,execution_group=None):
+        if not direct and any(n['kind']!='stage' for n in plan['tree']):
+            return self.create_batch_run(plan,count,status,execution_group)
+        return self._create_legacy_run(plan,count,direct,status,frozen_state,execution_group)
+
+    def _create_legacy_run(self,plan,count,direct=False,status='running',frozen_state=None,execution_group=None):
         state=frozen_state if frozen_state is not None else self.context();initial={}
         states,supply=([state],None) if frozen_state is not None else self.manual_rounds(plan,plan['order'],count,state)
         state=states[0]
@@ -293,6 +319,48 @@ class StageRunner(QObject):
         self.reserve_supply(supply)
         return run
 
+    def create_batch_run(self,plan,count,status,execution_group):
+        from .stage_batches import accept,commit_batches,manual_sources,freeze_plan,cursors
+        from .stage_parameters import capture as capture_parameters
+        state=self.context()
+        paused=any(self.store.scheduler_paused(state['workspace'],key) for key in self.scheduler_keys(plan))
+        if paused and status=='running':status='paused'
+        parameters=capture_parameters(state,plan['order'])
+        rounds=count if any(n.get('auto') for n in plan['tree']) else 1
+        run=self.store.add_captured('run',state['workspace'],server=self.client.url,plan=plan,status=status,
+            frozen_scene=execution_scene(state) if any(n['kind']=='stage' for n in plan['tree']) else None,round_saved=[],execution_group=execution_group,batch_snapshots=True,
+            scope_progress=dict(state='left'),direct=False,round=1,rounds=rounds,initial={},parameters=parameters,
+            stack=[dict(kind='seq',nodes=plan['tree'],index=0,ctx=dict(results={},saved=dict(parameters=parameters),sources={},execution_group=execution_group),produced={})],
+            message='已暫停後續派送。' if paused else '',pause_reason='manual' if paused else '',revision=uuid.uuid4().hex)
+        self.capture_free(run)
+        batches={}
+        working=execution_state(state,self.manual_suppliers(plan))
+        reservations=[]
+        manual=None
+        if not any(n.get('auto') for n in plan['tree']):
+            ids=manual_sources(self,plan,plan['order'],state)
+            frozen,total=freeze_plan(state,ids,count)
+            manual=(ids,frozen,total,cursors(state,ids))
+        for cycle in range(rounds):
+            shared={}
+            for node in plan['tree']:
+                if node['kind']=='stage':continue
+                owner=run['id']+':batch:'+uuid.uuid4().hex
+                run['initial'].setdefault(node['key'],dict(owners=[]))['owners'].append(owner)
+                accept(self,run,node,owner,1 if rounds>1 or node.get('auto') else count,execution_group,
+                    state=working,shared=shared if node.get('auto') else None,accumulator=batches,manual=manual)
+                reservations.extend(batches[node['key']]['reservations'])
+                batches[node['key']]['reservations'].clear()
+            if shared:
+                for item in shared.values():item['committed']=len(item['records'])
+                if any(n['kind']=='stage' for n in plan['tree']):
+                    run.setdefault('supply_shared',{})[str(cycle+1)+':']=shared
+        self.reserve_supply(dict(batches=reservations) if reservations else None)
+        commit_batches(self,run,batches)
+        self.record_next_scope(run)
+        self.save(run)
+        return run
+
     def add_entry(self,run,owner,node,saved,source=None,parent=None,execution_group=None,*,_return_record=True):
         keys=self.scope_keys(run['plan'],node)
         group=execution_group or run.get('execution_group') or 'legacy:'+run['id']
@@ -318,6 +386,12 @@ class StageRunner(QObject):
         if (self.apply_queue or any(r['status']=='running' for r in runs)) and not self.client.dispatch_allowed:return
         self.pumping=True
         try:
+            from .stage_batches import expand
+            try:expand(self,CAPACITY)
+            except (ValueError,OSError) as exc:
+                for run in runs:
+                    if run['status']=='running':self.pause(run['id'],str(exc),reason='error')
+                return
             if self.applying:return
             if self.apply_queue:self.apply_next();return
             if self.preparing:return
@@ -364,6 +438,7 @@ class StageRunner(QObject):
             else:
                 if not frame.get('initialized') or frame.get('active'):return
                 if any(e['status'] not in ('complete','cancelled','removed') for e in self.store.rows('entry',owner=frame['owner'])):return
+                if self.store.pending_batches(frame['owner']):return
                 feed=frame.get('feed')
                 if feed and feed['next']<feed['total']:return
             self.pop(run,frame['produced'])
@@ -419,6 +494,7 @@ class StageRunner(QObject):
                 item=self.store.next_entry(frame['owner'])
                 if not item:
                     if self.store.active_count(run['workspace'],frame['node']['key'],frame['owner']):return
+                    if self.store.pending_batches(frame['owner']):return
                     if frame.get('feed') and not frame['feed'].get('cancelled') and frame['feed']['next']<frame['feed']['total']:return
                     self.pop(run,frame['produced']);continue
                 if item['status']!='waiting':return
@@ -438,6 +514,10 @@ class StageRunner(QObject):
         # committed. A failed transaction is retried from a fresh run in pump.
         with self.store.transaction():
             frame['active']=item['id'];self.store.update(item['id'],status='running')
+            group=item.get('execution_group') or 'legacy:'+run['id']
+            control=self.store.batch_control(run['workspace'],item['scheduler'],group)
+            if control.get('serial') and not control.get('started'):
+                self.store.set_batch_control(run['workspace'],item['scheduler'],group,started=True)
             ctx=copy_context(frame['ctx']);ctx['saved']=merge_saved(ctx.get('saved',{}),item['saved'],borrow=True)
             if item['saved'].get('scene'):ctx['scene']=item['saved']['scene']
             if item.get('source'):ctx.setdefault('sources',{})[frame['auto']]=item['source']
@@ -460,6 +540,13 @@ class StageRunner(QObject):
 
     def initialize_loop(self,run,frame):
         node=frame['node'];frame['initialized']=True
+        initial=run['initial'].get(node['key'])
+        if run.get('batch_snapshots') and isinstance(initial,dict) and initial.get('owners') and not frame['ctx'].get('parent'):
+            frame['owner']=initial['owners'][run['round']-1]
+            from .stage_batches import resolve_deferred
+            resolve_deferred(self,run,frame)
+            self.later()
+            return
         if frame['auto']:
             initial=run['initial'].pop(node['key'],None)
             if initial:frame['ctx']['saved']=merge_saved(frame['ctx'].get('saved',{}),initial[0],borrow=True)
@@ -520,6 +607,7 @@ class StageRunner(QObject):
         if feed.get('plan'):
             return self.fill_supply(run,frame)
         available=max(0,CAPACITY-self.store.active_count(run['workspace'],frame['node']['key'],frame['owner']))
+        started=time.perf_counter()
         for _ in range(min(available,feed['total']-feed['next'])):
             source=feed['items'][feed['next']];sources=dict(frame['ctx'].get('sources',{}));sources[frame['auto']]=source
             base=borrowed_base(self.window.state,frame['ctx'].get('scene') or None,copy_top=False)
@@ -539,6 +627,8 @@ class StageRunner(QObject):
             saved['inputs']=capture_inputs(state,frame['node']['key'])
             self.add_entry(run,frame['owner'],frame['node'],saved,source,parent=frame['ctx'].get('parent'),execution_group=frame['ctx'].get('execution_group'))
             feed['next']+=1
+            from .stage_batches import SLICE_SECONDS
+            if time.perf_counter()-started>=SLICE_SECONDS:self.later();break
         self.save(run)
 
     def fill_supply(self,run,frame):
@@ -550,6 +640,7 @@ class StageRunner(QObject):
         from .flow_data import capture_inputs
         feed=frame['feed'];frozen=feed['plan'];node=frame['node']
         available=max(0,CAPACITY-self.store.active_count(run['workspace'],node['key'],frame['owner']))
+        started=time.perf_counter()
         for _ in range(min(available,feed['total']-feed['next'])):
             base=borrowed_base(self.window.state,feed['scene'])
             images,positions=supply.project(base,frozen,frozen['rounds'][feed['next']])
@@ -573,6 +664,8 @@ class StageRunner(QObject):
                 shared=run.get('supply_shared',{}).get(frozen.get('shared_key'))
                 accepted=supply.reserve(self.window.state,frozen,through=feed['next'],shared=shared)
                 self.remember_supply_progress(run,frozen,accepted)
+            from .stage_batches import SLICE_SECONDS
+            if time.perf_counter()-started>=SLICE_SECONDS:self.later();break
         self.save(run)
         if frozen.get('version')==2:
             self.refresh_reserved_images(frozen)
@@ -602,7 +695,7 @@ class StageRunner(QObject):
                     item=self.store.update(parent['active'],status='complete',results=results)
                     if parent.get('auto') and run['workspace']==self.window.state['workspace']:
                         positions=item['saved'].get('source_positions',{})
-                        participants=set(parent.get('feed',{}).get('plan',{}).get('sources',{})) or {parent['auto']}
+                        participants=set((parent.get('feed') or {}).get('plan',{}).get('sources',{})) or set(item.get('supply_images',{})) or {parent['auto']}
                         self.advance_sources(dict(sources={k:v for k,v in positions.items() if k in participants}))
                 parent['active']=None;parent['done']+=1
         elif run['workspace']==self.window.state['workspace']:
@@ -890,6 +983,15 @@ class StageRunner(QObject):
     def stop_feed(self,ident,source):
         run=self.store.read(ident)
         if not run or run['status'] in ('cancelled','complete'):return
+        with self.store.transaction():
+            for head in self.store.batch_heads(run['workspace']):
+                if head['run']!=ident:continue
+                batch=self.store.read(head['id'])
+                if source not in batch['suppliers']:continue
+                control=self.store.batch_control(run['workspace'],head['scheduler'],head['execution_group'])
+                self.store.set_batch_control(run['workspace'],head['scheduler'],head['execution_group'],
+                    total=control['total']-(head['total']-head['expanded']))
+                self.store.delete_batch_snapshot(head['id'])
         for frame in run['stack']:
             if frame.get('auto') and frame.get('feed') and (frame['auto']==source or source in frame['feed'].get('plan',{}).get('sources',{})):
                 frame['feed']['next']=frame['feed']['total']
@@ -918,6 +1020,15 @@ class StageRunner(QObject):
         with self.accepting():
             for run in runs:
                 self.store.update(run['id'],status='cancelled',message='已停止後續流程；已送出的工作仍須核對取消結果。')
+                for control in self.store.rows('batch_control',workspace):
+                    if control.get('run')==run['id']:
+                        from .stage_batches import release_images
+                        released=release_images(self.window.state,control) or released
+                        self.store.patch(control['id'],cancelled=True)
+                for head in self.store.batch_heads(workspace):
+                    if head['run']!=run['id']:continue
+                    self.store.delete_batch_snapshot(head['id'])
+                    self.store.set_batch_control(workspace,head['scheduler'],head['execution_group'],cancelled=True)
                 # Whole-batch cancellation releases its future image range.
                 # Keep the visible next image, and never reset another batch.
                 for frame in run['stack']:

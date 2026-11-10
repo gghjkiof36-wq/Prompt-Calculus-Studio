@@ -92,7 +92,7 @@ class EnqueueProgressTests(unittest.TestCase):
                         self.assertEqual(run['scope_progress']['auto'], auto)
                 observed.append(finish(case))
         self.assertEqual(observed[0], observed[1])
-        expected = 2 if auto else 2 * clicks
+        expected = 2 * clicks
         self.assertEqual({key: observed[0][key] for key in ('runs', 'entries', 'attempts', 'submitted', 'completed')},
                          dict(runs=1, entries=expected * (2 if outer else 1), attempts=expected, submitted=expected, completed=expected))
 
@@ -151,7 +151,7 @@ class EnqueueProgressTests(unittest.TestCase):
                     observed.append(finish(case))
         self.assertEqual(observed[0], observed[1])
         self.assertEqual(observed[0]['runs'], 1)
-        self.assertEqual(observed[0]['entries'], 2 if auto else 4)
+        self.assertEqual(observed[0]['entries'], 4)
 
     def test_t4_auto_at_actual_eighty_transition_yield(self):
         self.compare_yield(True)
@@ -164,14 +164,18 @@ class EnqueueProgressTests(unittest.TestCase):
             run = case.runner.create_run(stage_model.compile_plan(case.w.state), 2, status='waiting')
             case.runner.start(2)
             self.assertEqual(len(case.runner.store.rows('run')), 1)
-            self.assertEqual(len(case.runner.store.rows('entry')), 4)
+            self.assertEqual(len(case.runner.store.rows('entry')), 0)
+            self.assertEqual(sum(g['pending'] for g in case.runner.store.schedule_groups(case.w.state['workspace'], config['scheduler'])), 4)
             self.assertEqual(case.runner.store.read(run['id'])['status'], 'waiting')
 
     def test_legacy_running_and_waiting_runs_keep_frame_decisions(self):
         for status, entered in (('running', False), ('waiting', False), ('running', True)):
             for auto in (False, True):
                 with self.subTest(status=status, entered=entered, auto=auto), scenario(auto) as (case, config):
-                    run = case.runner.create_run(stage_model.compile_plan(case.w.state), 1 if auto else 2, status=status)
+                    # Build an actual pre-Q2 body, not a new snapshot run with
+                    # only one feature flag removed.
+                    with patch.object(case.runner, '_create_run', side_effect=case.runner._create_legacy_run):
+                        run = case.runner.create_run(stage_model.compile_plan(case.w.state), 1 if auto else 2, status=status)
                     if entered:
                         case.runner.pump()
                         QTest.qWait(25)
@@ -184,7 +188,7 @@ class EnqueueProgressTests(unittest.TestCase):
                     self.assertEqual(len(case.runner.store.rows('run')), 1 if entered else 2)
                     if entered:
                         self.assertEqual(len(case.runner.store.rows('entry')), before if auto else before + 2)
-                        expected = '這批內容已在供應。' if auto else '已保存 2 項至 '
+                        expected = '執行中…' if auto else '已保存 2 項至 '
                     else:
                         expected = '已保存為下一次完整流程。'
                     self.assertTrue(any(note.startswith(expected) for note in case.notices), case.notices)
@@ -197,7 +201,8 @@ class EnqueueProgressTests(unittest.TestCase):
                 self.assertFalse(case.runner.store.db.in_transaction)
                 run = case.runner.store.rows('run')[0]
                 self.assertEqual(run['scope_progress']['state'], 'pending')
-                counts.append(len(case.runner.store.rows('entry')))
+                self.assertEqual(len(case.runner.store.rows('entry')), 0)
+                counts.append(sum(g['pending'] for g in case.runner.store.schedule_groups(case.w.state['workspace'], config['scheduler'])))
                 return True
 
             with patch.object(type(case.runner.client), 'dispatch_allowed', new_callable=PropertyMock, side_effect=claimed):

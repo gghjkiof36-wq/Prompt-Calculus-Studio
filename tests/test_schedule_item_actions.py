@@ -18,6 +18,8 @@ class ScheduleItemActionsTests(StageTests):
             key=add_scheduler(state);keys.append(key)
             model.connect(state,self.out,key+'::clip1','clip');model.connect(state,key+'::clip1',self.clip,'clip')
         self.assertTrue(self.c.commit(setup));self.controls.count.setValue(count);self.click()
+        from prompt_calculus_studio.stage_batches import expand
+        for _ in range(count):expand(self.runner,count)
         return keys[0],self.runner.store.rows('entry',active=True)
 
     def test_failed_item_right_click_only_removes_that_item_and_preserves_next_inputs(self):

@@ -78,14 +78,17 @@ class CancelAllTests(unittest.TestCase):
     def test_finite_bound_feed_releases_slots_without_reusing_consumed_inputs(self):
         from prompt_calculus_studio.stage_runner import CAPACITY
         config=self.bound_text((1,)*12,batch=True);self.click()
+        from prompt_calculus_studio.stage_batches import expand
+        for _ in range(CAPACITY):expand(self.runner,CAPACITY)
         rows=self.runner.store.rows('entry',active=True);self.assertEqual(len(rows),CAPACITY)
-        self.assertTrue(any(f.get('feed',{}).get('plan') for f in self.runner.current()['stack'] if f.get('feed')))
+        self.assertTrue(self.runner.store.rows('batch_snapshot'))
         root=copy.deepcopy(supply.definitions(self.w.state)[config['source']]['root'])
         self.runner.cancel()
         self.assertEqual(supply.definitions(self.w.state)[config['source']]['root'],root)
         self.assertFalse(self.runner.store.rows('entry',active=True))
         self.click()
-        self.assertEqual(self.submitted_texts(),['prompt 0','prompt 10'])
+        for _ in range(CAPACITY):expand(self.runner,CAPACITY)
+        self.assertEqual(self.submitted_texts(),['prompt 0','prompt 0'])
         self.assertEqual(len(self.runner.store.rows('entry',active=True)),CAPACITY)
         self.assertEqual([self.runner.store.read(e['id'])['saved'] for e in rows],[e['saved'] for e in rows])
 
@@ -94,14 +97,16 @@ class CancelAllTests(unittest.TestCase):
         from prompt_calculus_studio.stage_runner import CAPACITY
         image,_,_=self.image_batch(count=12);self.click()
         current=self.w.state['canvas_functions']['images'][image];before=copy.deepcopy(current)
-        self.assertEqual(current['index'],CAPACITY);self.assertIn('supply_reservation',current)
+        self.assertEqual(current['index'],0);self.assertIn('supply_reservation',current)
         self.runner.cancel()
         self.assertNotIn('supply_reservation',current)
         self.assertEqual(current['index'],before['index']);self.assertEqual(current['source'],before['source'])
         self.reopen_runner();self.click()
+        from prompt_calculus_studio.stage_batches import expand
+        for _ in range(CAPACITY):expand(self.runner,CAPACITY)
         rows=self.runner.store.rows('entry',active=True)
         self.assertEqual(len(rows),CAPACITY)
-        self.assertEqual(rows[0]['saved']['source_positions'][image]['index'],CAPACITY)
+        self.assertEqual(rows[0]['saved']['source_positions'][image]['index'],0)
 
     def test_all_runs_saved_before_requests_and_foreign_backend_job_untouched(self):
         self.group_source((1,1,1),scheduler=False)
@@ -129,6 +134,8 @@ class CancelAllTests(unittest.TestCase):
 
     def test_late_completion_retains_result_but_does_not_dispatch_or_rewind_cursor(self):
         config=self.bound_text((1,1,1));self.controls.count.setValue(3);self.click()
+        from prompt_calculus_studio.stage_batches import expand
+        for _ in range(3):expand(self.runner,20)
         root=copy.deepcopy(supply.definitions(self.w.state)[config['source']]['root'])
         attempt=self.runner.store.rows('attempt')[0];entries=self.runner.store.rows('entry')
         self.retain_cancel_reply();self.menu_cancel()

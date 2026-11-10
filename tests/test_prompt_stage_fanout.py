@@ -117,10 +117,16 @@ class StageFanoutTests(unittest.TestCase):
                 entries.append(kind)
                 if len(entries)==2:raise OSError('synthetic fanout write failure')
             return original(kind,*args,**kwargs)
-        with patch.object(self.runner.store,'add',side_effect=fail_second):self.click()
-        self.assertEqual(self.runner.store.rows('entry'),[])
+        with patch.object(self.runner.store,'add',side_effect=fail_second):
+            self.click();QTest.qWait(100)
+        # Q2 commits each short slice independently: the first survives, while
+        # the failing second slice leaves its cursor and row uncommitted.
+        accepted=self.runner.store.rows('entry')
+        self.assertEqual(len(accepted),1)
+        self.assertEqual(sum(b['expanded'] for b in self.runner.store.rows('batch_snapshot')),1)
         run=self.runner.current();self.runner.resume(run['id']);QTest.qWait(40);self.complete_all(6)
         self.assertEqual(self.values_by_workflow(),dict(flow=[v+'\n1-1' for v in 'abc'],B=[v+'\n1-1' for v in 'abc']))
+        self.assertEqual(self.runner.store.read(accepted[0]['id'])['saved'],accepted[0]['saved'])
 
     def test_mixed_routes_match_with_direct_stage_first_or_last(self):
         for direct_first in (False,True):
@@ -135,11 +141,11 @@ class StageFanoutTests(unittest.TestCase):
         config=self.fanout(mixed=True,direct_first=True)
         self.click();self.assertEqual(self.submitted_texts(),['a\n1-1'])
         self.runner.cancel(self.runner.current()['id'])
-        self.assertEqual(comp.render(supply.source(self.w.state,config['reader'])['root']),'b')
+        self.assertEqual(comp.render(supply.source(self.w.state,config['reader'])['root']),'d')
         self.assertEqual(comp.render(self.w.state['uses']['root']),'1-2')
         self.click();self.complete_all(6)
-        self.assertEqual(self.values_by_workflow()['flow'],[v+'\n1-2' for v in 'bcd'])
-        self.assertEqual(comp.render(supply.source(self.w.state,config['reader'])['root']),'e')
+        self.assertEqual(self.values_by_workflow()['flow'],[v+'\n1-2' for v in 'def'])
+        self.assertEqual(comp.render(supply.source(self.w.state,config['reader'])['root']),'g')
 
     def test_mixed_direct_reopen_keeps_original_shared_batch(self):
         from prompt_calculus_studio.stage_runner import StageRunner
@@ -159,8 +165,10 @@ class StageFanoutTests(unittest.TestCase):
             return original(kind,*args,**kwargs)
         with patch.object(self.runner.store,'add',side_effect=fail_attempt):self.click()
         self.assertEqual(self.runner.store.rows('attempt'),[])
-        self.assertEqual(comp.render(supply.source(self.w.state,config['reader'])['root']),'a')
-        self.assertEqual(comp.render(self.w.state['uses']['root']),'1-1')
+        # The scheduled group was already accepted. A later native preparation
+        # failure retains its frozen choices and the whole reserved prefix.
+        self.assertEqual(comp.render(supply.source(self.w.state,config['reader'])['root']),'d')
+        self.assertEqual(comp.render(self.w.state['uses']['root']),'1-2')
         self.runner.resume(self.runner.current()['id']);QTest.qWait(40);self.complete_all(6)
         self.assertEqual(self.values_by_workflow(),dict(flow=[v+'\n1-1' for v in 'abc'],B=[v+'\n1-1' for v in 'abc']))
 

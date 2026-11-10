@@ -183,9 +183,9 @@ class StageLifecycleTests(StageTests):
         self.click();self.assertEqual(len(self.executor.submissions),1)
         self.assertEqual(self.runner.current()['status'],'paused')
         self.controls.refresh();self.assertEqual(self.controls.run_button.text(),'繼續')
-        entries=len(self.runner.store.rows('entry'))
+        groups=self.runner.store.schedule_groups(self.w.state['workspace'],key)
         QTest.mouseClick(self.controls.run_button,Qt.MouseButton.LeftButton);QTest.qWait(40)
-        self.assertEqual(len(self.runner.store.rows('entry')),entries)
+        self.assertEqual([g['id'] for g in self.runner.store.schedule_groups(self.w.state['workspace'],key)],[g['id'] for g in groups])
         self.assertEqual(len(self.executor.submissions),2,self.notices);self.executor.finish()
         self.click();self.assertEqual(len(self.executor.submissions),3,self.notices);self.executor.finish()
 

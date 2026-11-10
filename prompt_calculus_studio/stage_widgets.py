@@ -303,7 +303,7 @@ class SchedulePageContent(QFrame):
                 counts=projected[item['execution_group']];counts['running']-=1;counts[status]=counts.get(status,0)+1
         current=next((g for g in self.groups if g['id']==self.group),None)
         if self.group and current is None:self.group=None;self.offset=0
-        materialized=(current['total']-current['pending']) if current else 0
+        materialized=(current['total']-current['unexpanded']) if current else 0
         self.offset=min(self.offset,max(0,(materialized-1)//self.page_size*self.page_size))
         rows=store.entry_summaries(workspace,self.key,group=self.group,limit=self.page_size,offset=self.offset) if self.group else []
         statuses={item['id']:status_by_id[item['id']] if item['id'] in status_by_id else self.runner.entry_status(item) for item in rows}
@@ -311,7 +311,7 @@ class SchedulePageContent(QFrame):
         from .scheduler_wiring import legacy_edges
         legacy=bool(legacy_edges(self.canvas.window.state,self.key))
         self.legacy_button.setVisible(legacy)
-        self.empty.setText('請先整理舊接線' if legacy else '等待供應下一段序列' if current and current['pending'] else '沒有等待執行的任務')
+        self.empty.setText('請先整理舊接線' if legacy else '等待準備下一段序列' if current and current['unexpanded'] else '沒有等待執行的任務')
         from .schedule_group_view import DETAILS,EXECUTING,BYPASSED
         old_groups=[self.groups_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.groups_list.count())]
         selected_group=self.groups_list.currentItem()
@@ -329,7 +329,7 @@ class SchedulePageContent(QFrame):
             if group['cancelled']:status='取消待確認' if any(counts.get(s,0) for s in ACTIVE_GROUP_STATES) else '已取消'
             elif group['bypassed']:status='執行後繞過' if executing else '已繞過'
             stamp=datetime.fromtimestamp(group['created']).strftime('%m/%d %H:%M')
-            name=f'第 {index+1} 組' if not group['id'].startswith('legacy:') else '先前排程'
+            name=f"第 {group.get('serial') or index+1} 組"
             entry.setText(group['label'])
             entry.setData(DETAILS,(group['label'],group['total'],status,stamp,name))
             entry.setData(EXECUTING,executing)
@@ -374,7 +374,7 @@ class SchedulePageContent(QFrame):
         self.back_button.setVisible(bool(self.group))
         self.pager.setVisible(bool(self.group));self.previous.setEnabled(self.offset>0)
         self.following.setEnabled(self.offset+self.page_size<materialized)
-        suffix=f" · {current['pending']:,} 項待供應" if current and current['pending'] else ''
+        suffix=f" · {current['unexpanded']:,} 項待準備" if current and current['unexpanded'] else ''
         self.range_label.setText((f'{self.offset+1:,}–{self.offset+len(rows):,} / {materialized:,}' if rows else '0 項')+suffix)
         self.summary.setText(('已暫停 · ' if paused else '')+(f"{current['total']:,} 項" if current else f'{len(self.groups)} 組'))
         page=getattr(self.canvas,'_module_page',None)
@@ -505,7 +505,7 @@ class SchedulePanel(QFrame):
         groups=self.runner.store.schedule_groups(workspace,self.key)
         manage=menu.addMenu('管理');manage.setEnabled(bool(groups))
         for index,group in enumerate(groups):
-            manage.addAction(f"第 {index+1} 組 · {group['label']}",lambda checked=False,ident=group['id']:self.manage_group(ident))
+            manage.addAction(f"第 {group.get('serial') or index+1} 組 · {group['label']}",lambda checked=False,ident=group['id']:self.manage_group(ident))
         from .scheduler_wiring import legacy_edges
         if legacy_edges(self.canvas.window.state,self.key):
             menu.addAction('整理舊接線',lambda:self.open_page().content.convert_wiring())
@@ -542,12 +542,14 @@ class SchedulePanel(QFrame):
             return
         groups=self.runner.store.schedule_groups(state['workspace'],self.key)
         queued=[g for g in groups if not g['cancelled'] and not g['bypassed']
-                and (g['pending'] or g['counts'].get('waiting'))]
+                and (g['unexpanded'] or g['counts'].get('waiting'))]
         current=next((g for g in groups if g['counts'].get('running')),queued[0] if queued else None)
         text='沒有等待執行的項目'
         if current:
             complete=current['counts'].get('complete',0);total=current['total']
             text=f'{complete}/{total} 已完成'
+            if current.get('serial') and not complete and not current['counts'].get('running'):
+                text=f"第 {current['serial']} 組 · {total:,} 項 · 等待"
             waiting=sum(g['id']!=current['id'] for g in queued)
             if waiting:text+=f'．{waiting} 組佇列中'
             self.progress.setRange(0,max(1,total));self.progress.setValue(complete)

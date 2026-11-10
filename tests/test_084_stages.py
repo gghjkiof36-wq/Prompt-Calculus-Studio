@@ -11,7 +11,8 @@ from PySide6.QtWidgets import QApplication,QPushButton,QPlainTextEdit
 from PySide6.QtTest import QTest
 import stage_fixture as fixtures
 from prompt_calculus_studio import multi_output as model,stage_model
-from prompt_calculus_studio.flow_data import add_image_input,add_scheduler,CAPACITY
+from prompt_calculus_studio.flow_data import add_image_input,add_scheduler
+from prompt_calculus_studio.stage_runner import CAPACITY
 
 if not QFontDatabase.families():
     for filename in ('msjh.ttc','consola.ttf','segoeui.ttf'):QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+filename)
@@ -199,10 +200,13 @@ class StageTests(unittest.TestCase):
     def test_cancel_releases_capacity_and_stop_feed_preserves_saved_items(self):
         source,items,config=self.image_batch(count=12)
         self.click();old=self.runner.current()
+        from prompt_calculus_studio.stage_batches import expand
+        for _ in range(12):expand(self.runner,CAPACITY)
         self.assertEqual(len(self.runner.store.rows('entry',active=True)),12)
         self.runner.cancel(old['id']);self.executor.tick()
         self.assertFalse(self.runner.store.rows('entry',active=True))
         self.click();current=self.runner.current();self.assertNotEqual(old['id'],current['id'])
+        for _ in range(12):expand(self.runner,CAPACITY)
         self.assertEqual(len(self.runner.store.rows('entry',active=True)),12)
         self.runner.stop_feed(current['id'],source)
         self.executor.finish();self.assertEqual(len(self.executor.submissions),2)
@@ -364,6 +368,8 @@ class StageTests(unittest.TestCase):
 
     def test_pause_stops_supply_and_removed_waiting_item_is_not_submitted(self):
         self.image_batch(count=12);self.click();run=self.runner.current()
+        from prompt_calculus_studio.stage_batches import expand
+        for _ in range(12):expand(self.runner,CAPACITY)
         self.runner.pause(run['id']);self.executor.finish()
         self.assertEqual(len(self.executor.submissions),1)
         pending=self.runner.store.rows('entry',active=True);self.assertEqual(len(pending),11)
@@ -381,9 +387,11 @@ class StageTests(unittest.TestCase):
         def setup(s):
             q=add_scheduler(s);refs.append(q);model.connect(s,keys[1],q+'::flow','flow')
         self.c.commit(setup);self.controls.count.setValue(CAPACITY);self.click()
+        from prompt_calculus_studio.stage_batches import expand
+        for _ in range(CAPACITY):expand(self.runner,CAPACITY)
         rows=self.runner.store.rows('entry',active=True);self.assertEqual(len(rows),CAPACITY)
         self.assertTrue(all(i['status']=='waiting' for i in rows));self.controls.count.setValue(1);self.click()
-        self.assertEqual(len(self.runner.store.rows('entry',active=True)),CAPACITY+1)
+        self.assertEqual(len(self.runner.store.rows('entry',active=True)),CAPACITY)
         groups=self.runner.store.schedule_groups(self.w.state['workspace'],refs[0])
         self.assertEqual([g['total'] for g in groups],[CAPACITY,1])
         # Q1: while A runs, the pending manual B scope owns both clicks.
@@ -392,7 +400,11 @@ class StageTests(unittest.TestCase):
         run=self.runner.current();rows=self.runner.store.rows('entry',active=True)
         self.assertEqual({i['run'] for i in rows},{run['id']})
         self.assertEqual({i['owner'] for i in rows},{run['scope_progress']['owner']})
-        self.assertEqual(len({i['execution_group'] for i in rows}),2)
+        self.assertEqual(len(groups),2)
+        snapshots=self.runner.store.rows('batch_snapshot')
+        self.assertEqual(len(snapshots),1)
+        self.assertEqual(snapshots[0]['owner'],run['scope_progress']['owner'])
+        self.assertNotEqual(snapshots[0]['execution_group'],rows[0]['execution_group'])
         self.assertEqual(run['scope_progress']['key'],refs[0])
         self.assertEqual(run['scope_progress']['state'],'pending')
         self.assertEqual(self.workflows(),['flow'])
@@ -512,6 +524,8 @@ class StageInterfaceTests(unittest.TestCase):
             q=add_scheduler(s);refs.append(q);model.connect(s,stage,q+'::flow','flow')
         self.c.commit(setup)
         self.c.commit(lambda s:s['uses']['root'].update(prompt='first'));self.controls.count.setValue(3);self.click()
+        from prompt_calculus_studio.stage_batches import expand
+        for _ in range(3):expand(self.runner,CAPACITY)
         entries=self.runner.store.rows('entry',active=True)
         for entry,text in zip(entries[1:],('second full text','third full text')):
             saved=copy.deepcopy(entry['saved']);saved['values'][self.clip]['value']=text

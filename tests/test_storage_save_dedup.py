@@ -219,6 +219,8 @@ class AcceptanceSaveTests(unittest.TestCase):
         self.assertEqual(self.w.store.db.execute('SELECT body FROM document').fetchone()[0], body)
         self.assertEqual(self.executor.submissions, [])
         self.click()
+        from prompt_calculus_studio.stage_batches import expand
+        for _ in range(count):expand(self.runner,20)
         self.assertEqual(len(self.runner.store.rows('entry')), count)
 
     def test_failed_final_save_n1_can_be_clicked_again(self):self.check_failure(1)

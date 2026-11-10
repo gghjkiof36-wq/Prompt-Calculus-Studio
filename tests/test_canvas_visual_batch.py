@@ -147,7 +147,10 @@ class CanvasVisualBatchTests(StageFixture):
         keys=[next(iter(self.c.data()['schedulers']))]
         key=keys[0]
         self.c.commit(lambda s:[stage.update(workflow='flow',output='9') for stage in s['multi_output']['stages'].values()])
-        run=self.runner.create_run(stage_model.compile_plan(self.w.state),3,status='paused')
+        run=self.runner.create_run(stage_model.compile_plan(self.w.state),3)
+        from prompt_calculus_studio.stage_batches import expand
+        for _ in range(3):expand(self.runner,20)
+        self.runner.pause(run['id'])
         entries=self.runner.store.rows('entry');ids=[e['id'] for e in entries]
         self.assertEqual(len(ids),3)
         before=capture(self.runner.store,ids)

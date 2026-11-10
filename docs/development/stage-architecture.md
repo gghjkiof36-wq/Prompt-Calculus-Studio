@@ -20,7 +20,8 @@ Canvas 模塊按責任區分來源、組合、轉換、綁定、執行、排程�
 |---|---|
 | `stage_model` | 編譯線性依賴及包含範圍；與 Qt、提交及等待項目無關 |
 | `stage_context` | 在獨立資料上下文保存／讀取指定輸入，保留本輪結果引用及文字來源；不改可見畫布來預填排程 |
-| `stage_store` | 同一桌面資料庫的流程、排程項、提交嘗試紀錄；每個工作區／預排程十項容量 |
+| `stage_store` | 同一桌面資料庫的流程、組別快照、排程項與提交嘗試紀錄；組別數量沒有顯示上限 |
+| `stage_batches` | 點擊時凍結與預留；依組別順序分段準備，保存展開進度與撤回游標收據 |
 | `stage_runner` | 逐層進入／退出範圍、派送、原生回執、完整完成、結果保存、恢復與去重 |
 | `generation_runner`、`native_submission` | 沿用正式提交及完成追蹤；Stage 不另建生成服務 |
 | 擴充 `native_queue` | 只套用與套用後提交分離；依任務識別取消及回報；種子控制只在提交時發生 |
@@ -36,21 +37,37 @@ Canvas 模塊按責任區分來源、組合、轉換、綁定、執行、排程�
 
 凍結 scene 在內部上下文間唯讀共用；要編輯或取下一輪時，`workspace_scene.load` 仍建立獨立副本。保存邊界的 scene 驗證只讀取欄位，不為驗證另複製一份。這些投影不是可交給編輯介面的文件，也不是跨次執行的快取。
 
-`StageStore.add_captured` 在同步捕捉結束時序列化完整紀錄，再從同一內容建立獨立的回傳物件。手動外層快照直接寫成 entry，同一交易內建立 run 的 owner 引用，省去先把全部 scene 寫入暫時的 `initial` 再刪除的重複工作；保存的 journal 欄位與內容不變。派送後若等待外部輸入套用或圖片上傳，使用 journal 已凍結的 `snapshot_state`，不再讀取借用的即時文件。
+`StageStore.add_captured` 在同步捕捉結束時序列化完整紀錄，再從同一內容建立獨立的回傳物件。預排程的手動與自動範圍都先保存組別快照，之後才準備 entry；entry 的保存內容與原生派送格式不變。派送後若等待外部輸入套用或圖片上傳，使用 journal 已凍結的 `snapshot_state`，不再讀取借用的即時文件。
 
 一次同步直譯的內部轉移合併成一筆堆疊保存；entry、供應游標與堆疊提交後，才開始下一個原生派送或完成後的輸入套用。失敗仍沿原交易回復文件與紀錄，沒有改變排程的暫停、取消與復原入口。
 
 ### 再次執行的排入判斷
 
-新 run 的 `scope_progress` 與 run、初始 entry 在同一交易內保存。它記錄 plan 最外層目前或下一個範圍的 `index`、`key`、`auto`、entry `owner` 及 `state`（`pending`、`entered`、`left`）。待進入的手動範圍沿用初始 entry 的 owner；只登記進度，不提早建立 loop、feed 或凍結自動供應內容。外層手動範圍在內層執行期間繼續負責追加。
+新 run 的 `scope_progress` 與 run、組別快照在同一交易內保存。它記錄 plan 最外層目前或下一個範圍的 `index`、`key`、`auto`、entry `owner` 及 `state`（`pending`、`entered`、`left`）。待進入範圍沿用已登記的 owner，不提早建立 loop；外層手動範圍在內層執行期間繼續負責追加。
 
-`start()` 只選同工作區、同服務、plan 簽章相符的 running／waiting run。`enqueue_scope()` 讀取其保存進度：尚未進入或已進入的手動範圍追加 entry；auto 範圍沿用「這批內容已在供應。」；沒有剩餘範圍則保存下一次完整流程。暫停時主按鈕仍走 `resume()`。新 run 的點擊判斷不讀 stack，因此第一次 pump 前連點與正常間隔相同。
+`start()` 只選同工作區、同服務、plan 簽章相符的 running／waiting run。`enqueue_scope()` 讀取其保存進度：尚未進入或已進入的範圍追加新組，手動與 auto 都在同一個 run 的 owner 下接續；沒有剩餘範圍則保存下一次完整流程。暫停時主按鈕仍走 `resume()`。新 run 的點擊判斷不讀 stack，因此第一次 pump 前連點與正常間隔相同。沒有 `batch_snapshots` 的舊 run 保留既有追加／供應方式，其 auto 擋下訊息為「執行中…」。
 
 `advance()` 進入外層 loop 時標記 `entered`；`pop()` 離開外層節點時選下一個範圍，沒有下一個則標記 `left`；新一輪重新登記首個範圍。進度與 stack 經 `save()` 一起保存，包含 80 次同步轉移後讓出給 `later()` 的邊界。沒有 `scope_progress` 的舊 run 整個生命週期仍用原先的 frame 判斷，不補欄位、不改 entry 或 StageStore schema。
 
 排入接受後透過 `claim_dispatch()` 明確觸發 client 的派送權取得；其相容介面仍是帶有 claim／文件庫註冊副作用的 `dispatch_allowed` getter。這個呼叫留在 journal 與游標交易提交之後。
 
-後續要讓 batch 再次執行排入下一組，接點是 `start()` 的 auto target 分支。`scope_progress` 只負責路由，不是批次清單或供應游標；目前自動內容仍在 `initialize_loop()` 建 feed、`fill_supply()` 預留。下一組的凍結、預留與撤回交易須另行實作，不可只移除擋下判斷。
+### 組別快照、先行視窗與撤回
+
+每次接受的點擊在 `accepting()`／共用 Storage 交易內保存：
+
+- `batch_snapshot` journal kind：每個預排程／組一份內容，包含 `run`、`owner`、`scheduler`、`execution_group`、`node`、凍結 `plan`、`scene`、非場景 `base`、凍結 `supply` 的逐輪 picks、`parameters`、`total` 與 `expanded`。重複完整流程的外層 owner 以 `segments` 保存，不複製每一輪場景。歷史與其他工作區的場景快取不放進這份內容。
+- `batch_control`：保留 `serial`、`total`、`expanded`、`cursor_before`／`cursor_after`、來源 `cursor_keys`、run／owner，以及既有的排序、繞過、取消狀態。流水號在預排程內單調增加，取消不重用；沒有流水號的舊組維持位置顯示。
+- 游標一次預留完整組；隨機仍走原供應 sampler，隨機不重複的袋子沿用來源進度。尚待上游 Stage 結果的輸入保存參照，進入範圍時才解析。
+
+`stage_runner.CAPACITY=20` 是內部先行視窗，與舊版 `input_runner` 的容量無關。`stage_batches.expand()` 依目前組順序挑選要準備的範圍，時間預算 15 ms，且每段最多一項（單項完成後才能檢查時間）；一段一個交易，經 `later()` 讓出事件迴圈後再補足視窗。單項上限用來避免大場景連續複製／序列化及 GC 累加成長停頓。排序、優先與繞過會重新選擇範圍，已準備內容不重寫。每項只由快照的 `borrowed_base` → supply/project → `capture_scope` 產生；解碼後的場景以 readonly load 借用，僅複製投影會修改的容器，所有借用內容在讓出前於主執行緒序列化。
+
+最後一項與 `expanded` 提交的同一交易刪除 `batch_snapshot`；獨立的游標收據仍保留。重開沿已提交的展開進度接續，既有原生回執不重送。UI 的 `pending` 為未準備數加上已準備未開始數；`unexpanded` 單獨供組內分頁顯示「N 項待準備」，分頁及單項操作只讀已準備的 entry。
+
+runner 最多暫留一份從 journal 解碼的自有內容，避免每個小段重新配置整個場景。這不是 live 文件的借用：快照已在接受交易序列化，展開進度每次仍讀資料庫；回滾重試不信任記憶體的 `expanded`。切換快照、解析上游參照、全部展開或關閉 runner 時丟棄此內容。
+
+取消時，尚未開始、沒有較新組使用相同游標，且目前來源游標仍符合收據的組，可以在同一交易把 entry 標成 `removed`、刪除未展開快照並還原游標。其他情況沿既有取消與原生確認路徑，回饋「位置未退回」。來源內容曾修改時也不以舊游標覆蓋新來源。Canvas Undo 不改 journal；撤回是預排程的取消操作。
+
+此改動只新增可忽略的 journal kind／JSON 欄位，不提高文件或 PNG 版本，不遷移舊 journal。後續執行交易整理需納入快照建立、整組預留、分段 entry／expanded／刪除、deferred 解析、started 收據、撤回、stop-feed 與整 run 取消的寫入點。
 
 ### 同步擷取的資料所有權與查詢
 

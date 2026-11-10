@@ -169,7 +169,7 @@ class StageStore:
             ON b.kind='batch_control' AND b.workspace=e.workspace AND b.owner=json_extract(e.body,'$.scheduler')
             AND json_extract(b.body,'$.group')=COALESCE(json_extract(e.body,'$.execution_group'),'legacy:'||json_extract(e.body,'$.run'))
             WHERE e.kind='entry' AND e.owner=? AND COALESCE(json_extract(b.body,'$.bypassed'),0)=0
-            AND COALESCE(json_extract(b.body,'$.cancelled'),0)=0 AND json_extract(e.body,'$.status') IN ("""+','.join('?' for _ in ACTIVE)+") ORDER BY COALESCE(json_extract(b.body,'$.rank'),1000000000000+e.position),e.position LIMIT 1"
+            AND COALESCE(json_extract(b.body,'$.cancelled'),0)=0 AND json_extract(e.body,'$.status') IN ("""+','.join('?' for _ in ACTIVE)+") ORDER BY COALESCE(json_extract(b.body,'$.rank'),1000000000000+CASE WHEN json_type(b.body,'$.serial') IS NOT NULL THEN b.position ELSE e.position END),e.position LIMIT 1"
         row=self.db.execute(query,(owner,*ACTIVE)).fetchone()
         return json.loads(row[0]) if row else None
 
@@ -180,6 +180,26 @@ class StageStore:
     def batch_control(self,workspace,scheduler,group):
         row=self.db.execute("SELECT body FROM stage_journal WHERE kind='batch_control' AND workspace=? AND owner=? AND json_extract(body,'$.group')=?",(workspace,scheduler,group)).fetchone()
         return json.loads(row[0]) if row else {}
+
+    def next_batch_serial(self,workspace,scheduler):
+        row=self.db.execute("SELECT COALESCE(MAX(json_extract(body,'$.serial')),0)+1 FROM stage_journal WHERE kind='batch_control' AND workspace=? AND owner=?",(workspace,scheduler)).fetchone()
+        return row[0]
+
+    def batch_heads(self,workspace,owner=None):
+        query="""SELECT id,owner,json_extract(body,'$.run','$.scheduler','$.execution_group','$.total','$.expanded','$.deferred')
+            FROM stage_journal WHERE kind='batch_snapshot' AND workspace=?"""
+        args=[workspace]
+        if owner is not None:query+=" AND (owner=? OR EXISTS(SELECT 1 FROM json_each(body,'$.segments') WHERE json_extract(value,'$.owner')=?))";args.extend((owner,owner))
+        return [dict(id=ident,owner=owned,**dict(zip(('run','scheduler','execution_group','total','expanded','deferred'),json.loads(raw))))
+                for ident,owned,raw in self.db.execute(query+' ORDER BY position',args)]
+
+    def delete_batch_snapshot(self,ident):
+        with self.transaction():self.db.execute("DELETE FROM stage_journal WHERE kind='batch_snapshot' AND id=?",(ident,))
+
+    def pending_batches(self,owner):
+        return self.db.execute("""SELECT 1 FROM stage_journal WHERE kind='batch_snapshot' AND
+            ((owner=? AND json_type(body,'$.segments') IS NULL) OR EXISTS(SELECT 1 FROM json_each(body,'$.segments') WHERE json_extract(value,'$.owner')=?
+                AND json_extract(value,'$.start')+json_extract(value,'$.total')>json_extract(body,'$.expanded'))) LIMIT 1""",(owner,owner)).fetchone() is not None
 
     def preferred_entry(self,workspace,scheduler):
         """Resolve pending group priority across run boundaries, after live work."""
@@ -195,7 +215,7 @@ class StageStore:
                 AND (json_extract(e.body,'$.status')='running' OR
                      (COALESCE(json_extract(b.body,'$.bypassed'),0)=0 AND COALESCE(json_extract(b.body,'$.cancelled'),0)=0))
             ORDER BY (json_extract(e.body,'$.status')='running') DESC,
-                COALESCE(json_extract(b.body,'$.rank'),1000000000000+e.position),e.position LIMIT 1""",(scheduler,workspace,scheduler)).fetchone()
+                COALESCE(json_extract(b.body,'$.rank'),1000000000000+CASE WHEN json_type(b.body,'$.serial') IS NOT NULL THEN b.position ELSE e.position END),e.position LIMIT 1""",(scheduler,workspace,scheduler)).fetchone()
         return dict(id=row[0],owner=row[1],run=row[2]) if row else None
 
     def set_batch_control(self,workspace,scheduler,group,**values):
@@ -251,11 +271,24 @@ class StageStore:
             group=groups.setdefault(ident,dict(id=ident,counts={},total=0,pending=0,created=created,position=position,label='批次供應'))
             group['pending']+=remaining;group['total']+=remaining
         settings=self.batch_controls(workspace,scheduler)
+        for ident,control in settings.items():
+            if 'total' not in control or control.get('cancelled'):continue
+            remaining=control['total']-control['expanded']
+            if not remaining:continue
+            group=groups.setdefault(ident,dict(id=ident,counts={},total=0,pending=0,created=control['created'],
+                position=self.db.execute('SELECT position FROM stage_journal WHERE id=?',(control['id'],)).fetchone()[0],label=control.get('label','執行')))
+            group['pending']+=remaining;group['total']+=remaining
         for group in groups.values():
             control=settings.get(group['id'],{})
+            group['serial']=control.get('serial')
+            if group['serial']:
+                group['position']=self.db.execute('SELECT position FROM stage_journal WHERE id=?',(control['id'],)).fetchone()[0]
+                group['created']=control['created']
             group['bypassed']=bool(control.get('bypassed'));group['cancelled']=bool(control.get('cancelled'))
             if group['cancelled']:group['pending']=0
-        return sorted((g for g in groups.values() if g['id']==include or g['pending'] or any(g['counts'].get(s,0) for s in (*ACTIVE,'retained'))),
+            group['unexpanded']=group['pending']
+            group['pending']+=group['counts'].get('waiting',0)+group['counts'].get('retained',0)
+        return sorted((g for g in groups.values() if not settings.get(g['id'],{}).get('withdrawn') and (g['id']==include or g['pending'] or any(g['counts'].get(s,0) for s in (*ACTIVE,'retained')))),
                       key=lambda g:(settings.get(g['id'],{}).get('rank',1000000000000+g['position']),g['position']))
 
     def reorder_page(self,workspace,scheduler,group,ids,expected):

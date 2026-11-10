@@ -226,11 +226,13 @@ class StageParameterRestartTests(unittest.TestCase):
         profile, stage = self.configure()
         queue = add_scheduler(self.w.state)
         self.c.commit(lambda state: multi_output.connect(state, stage, queue + '::flow', 'flow'))
+        # Prepare the editable fixture rows before pausing; unprepared items
+        # deliberately have no individual parameter editor under Q2.
+        self.runner.start(2)
+        from prompt_calculus_studio.stage_batches import expand
+        for _ in range(2):expand(self.runner,20)
+        self.runner.pause(self.runner.runs(True)[0]['id'])
         self.runner.store.set_scheduler_paused(self.w.state['workspace'], queue, True)
-        # Paused main-button clicks now resume. Queue both fixture items in
-        # one explicit batch, then preserve the original restart assertions.
-        self.controls.count.setValue(2)
-        self.click()
         entries = self.runner.store.rows('entry')
         self.assertEqual(len(entries), 2, self.notices)
         self.runner.store.edit_parameters(entries[1]['id'], stage, intention(profile, value=4), entries[1]['saved'])
