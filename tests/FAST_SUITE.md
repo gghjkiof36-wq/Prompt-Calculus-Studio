@@ -42,7 +42,9 @@ save 注入錯誤，檢查 0 筆 entry、游標／已存文件不變及下一次
 
 每次違規先記錄路徑、產品呼叫位置及 test id，再立即拋錯，絕不繼續寫入。執行器檢查事件記錄，即使產品或 Qt 回呼捕捉了例外，該測試及整套結果仍失敗。`tests.json` 保存 `borrow_events`、`borrow_calls`；逐檔 `result.json` 保存 `borrow_violations`、`borrow_positive_controls` 及入口呼叫數。正向對照只有實際接住相符例外才會被標為 expected，未知事件不能套用 known failures 放行。
 
-監看以唯讀副本保護共享 dict/list；原物件 identity 與時間點行為須另外驗證。執行交易另以完整 live 複本在提交／回復後檢查未登記變動。未涵蓋交易外直接寫 live state、`prompt_sources.build` 的內部別名、非 JSON 可變物件、未執行到的路徑或刻意使用基底類別方法的繞過。完整契約見 [Stage 快照邊界](../docs/development/stage-architecture.md#同步擷取的資料所有權與查詢)。
+監看以唯讀副本保護共享 dict/list；原物件 identity 與時間點行為須另外驗證。執行交易另以完整 live 複本在提交／回復後檢查未登記變動。交易外的 UI handler 寫入另用 live dict/list 包裝及 state 綁定檢查，欄位為 MULTI_HISTORY_FIELDS 加 dictionary、generation；允許項目由 [live_write_allowlist.json](live_write_allowlist.json) 逐函式／呼叫點指定。純 helper 的測試 fixture 建立不視為 UI；合成 handler 用 `live_handler(owner)` 啟用。非 JSON 可變物件、未執行到的路徑或刻意使用基底類別方法的繞過仍不在保證內。完整契約見 [Stage 快照邊界](../docs/development/stage-architecture.md#同步擷取的資料所有權與查詢)。
+
+文件寫入的三個新檔納入預設快速套件：`test_document_write_entries.py` 驗證三入口、通知、真正 journal 回復及兩個漏寫正向對照；`test_document_write_routes.py` 比較真實 handler 的入口 spy、Undo 全內容、刷新計數與 body；`test_document_write_compatibility.py` 固定遷移 UUID 對照缺 generation 的單／多畫布文件及 journal。基準 fixtures 由修改前來源的獨立 probe 產生，普通測試不更新它們。預算與逾時規則不變。
 
 `test_execution_transactions.py` 提供 AST 鎖、巢狀登記、變更集合、Undo、純接線判斷、匯入替換與逐寫入點失敗注入。以 `--files test_execution_transactions.py --borrow-guard` 執行完整矩陣；快速套件保留借用檔的核心契約與正向對照，時間預算不變。
 

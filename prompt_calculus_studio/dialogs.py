@@ -438,7 +438,8 @@ class SettingsDialog(StudioDialog):
             formatter=self.formatter.currentData(),artist_prefix=self.artist.isChecked())
         self.dictionary_feedback.setText('' if valid else '尚未套用：每行請使用「中文 = 英文」格式。輸入內容已暫存。')
         if valid:
-            self.window.state["dictionary"] = dictionary
+            self.window.update_document(lambda state: state.update(dictionary=dictionary),
+                fields=('dictionary',), reason='dictionary')
             self.window.state['settings'].pop('dictionary_buffer',None)
         else:self.window.state['settings']['dictionary_buffer']=self.dictionary.toPlainText()
         self.window.completion.api_key = self.key.text().strip()

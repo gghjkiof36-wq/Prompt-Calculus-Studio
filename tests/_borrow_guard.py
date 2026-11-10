@@ -269,6 +269,7 @@ def install():
                           ('execution_scene', execution_scene), ('copy_context', copy_context)):
         replace(sc, name, wrapper)
     replace(ws, 'load', load)
+    install_live_guard()
 
 
 def uninstall():
@@ -281,6 +282,7 @@ def uninstall():
                 if value is wrapped:
                     setattr(loaded, name, original)
     _replacements.clear()
+    uninstall_live_guard()
 
 
 @contextmanager
@@ -292,3 +294,207 @@ def installed():
     finally:
         if not active:
             uninstall()
+
+
+# Live content has a different contract from borrowed read views: writes are
+# allowed only inside an entry/execution, or at an enumerated historical site.
+_live_original = None
+_live_allowlist = ()
+_live_fields = frozenset()
+
+
+def _same_live_owner(left, right):
+    return left is right or (left is not None and
+        getattr(left, 'document', None) is not None and
+        getattr(left, 'document', None) is getattr(right, 'document', None))
+
+
+def _live_check(obj, operation, key=None):
+    owner = obj._owner()
+    if owner is None or _live_original is None:
+        return
+    path = obj._path + ((key,) if not obj._path and key is not None else ())
+    watched = not path or path[0] in _live_fields
+    frame = sys._getframe(1)
+    product = False
+    authorized = False
+    while frame is not None:
+        module = frame.f_globals.get('__name__', '')
+        qualname = frame.f_code.co_qualname
+        local = frame.f_locals
+        if module.startswith(PRODUCT + '.'):
+            # Tests also call pure model helpers to construct fixtures. Those
+            # are not UI dispatches: require an owner/controller on the stack,
+            # or the explicit synthetic-handler scope used by positive tests.
+            controller = local.get('self')
+            window = getattr(controller, 'window', None) if controller is not None else None
+            canvas = local.get('canvas') or (getattr(controller, 'canvas', None) if controller is not None else None)
+            product = product or _same_live_owner(controller, owner) or _same_live_owner(window, owner)
+            product = product or _same_live_owner(local.get('window'), owner) or _same_live_owner(getattr(canvas, 'window', None), owner)
+            product = product or controller is getattr(owner, 'store', None)
+            if module == PRODUCT + '.window' and qualname == 'Window.update_document' and _same_live_owner(local.get('self'), owner):
+                fields = local['fields']
+                if path and path[0] not in fields:
+                    _deny(obj, 'undeclared document field', path[0])
+                authorized = True
+            elif module == PRODUCT + '.window' and qualname == 'Window.adopt_document.<locals>.publish' and _same_live_owner(local.get('self'), owner):
+                authorized = True
+            elif module == PRODUCT + '.document_operations' and qualname == 'DocumentOperations.commit':
+                ops = local['self']
+                if ops.state() is owner.state: authorized = True
+            elif module == PRODUCT + '.stage_context' and qualname == 'ExecutionTransaction.rollback':
+                if local['self'].state is owner.state: authorized = True
+            for entry in _live_allowlist.get((module, qualname), ()):
+                if entry.get('legacy_window_only') and getattr(owner, 'compact_editor', None) is not False:
+                    continue
+                if 'max_multi_version' in entry and owner.state.get('multi_output', {}).get('version', 0) > entry['max_multi_version']:
+                    continue
+                allowed = entry['fields']
+                if '*' in allowed or path and path[0] in allowed:
+                    authorized = True
+        frame = frame.f_back
+    # Fixture construction is not a UI handler. A test-defined handler can use
+    # live_handler() below to opt into the same check without a fake filename.
+    if not product and not getattr(owner, '_live_handler_test', False):
+        return
+    if authorized or not watched:
+        return
+    store = getattr(owner, 'store', None)
+    manager = getattr(getattr(store, 'db', None), '_transactions', None)
+    execution = getattr(manager, 'execution', None)
+    if execution is not None and execution.state is owner.state:
+        return  # S3's independent snapshot guard verifies write-ahead records.
+    _deny(obj, 'live write outside document entry: '+operation, key)
+
+
+def _live_wrap(value, owner, path=(), memo=None):
+    import weakref
+    if owner is None: return value
+    memo = {} if memo is None else memo
+    if isinstance(value, (LiveDict, LiveList)) and value._owner() is owner:
+        return value
+    if id(value) in memo:
+        return memo[id(value)]
+    if isinstance(value, (dict, list)):
+        result = LiveDict() if isinstance(value, dict) else LiveList()
+        document = getattr(owner, 'document', None)
+        if document is None:
+            result._owner = weakref.ref(owner)
+        else:
+            document_ref, host_ref = weakref.ref(document), weakref.ref(owner)
+            result._owner = lambda: (getattr(document_ref(), 'host', None) or host_ref())
+        result._path = path
+        memo[id(value)] = result
+        if isinstance(value, dict):
+            for key, child in value.items(): dict.__setitem__(result, key, _live_wrap(child, owner, path+(key,), memo))
+        else:
+            list.extend(result, (_live_wrap(child, owner, path+(i,), memo) for i, child in enumerate(value)))
+        return result
+    return value
+
+
+class LiveDict(dict):
+    def __setitem__(self, key, value):
+        _live_check(self, 'setitem', key)
+        dict.__setitem__(self, key, _live_wrap(value, self._owner(), self._path+(key,)))
+    def __delitem__(self, key):
+        _live_check(self, 'delitem', key); dict.__delitem__(self, key)
+    def update(self, *args, **kwargs):
+        for key, value in dict(*args, **kwargs).items(): self[key] = value
+    def setdefault(self, key, default=None):
+        if key not in self: self[key] = default
+        return self[key]
+    def pop(self, key, *default):
+        if key in self: _live_check(self, 'pop', key)
+        return dict.pop(self, key, *default)
+    def popitem(self):
+        if self: _live_check(self, 'popitem', next(reversed(self)))
+        return dict.popitem(self)
+    def clear(self):
+        for key in self: _live_check(self, 'clear', key)
+        dict.clear(self)
+    def __ior__(self, other):
+        self.update(other); return self
+    def __copy__(self): return dict(self)
+    def __deepcopy__(self, memo):
+        result = {}; memo[id(self)] = result
+        result.update((copy.deepcopy(k, memo), copy.deepcopy(v, memo)) for k, v in self.items())
+        return result
+
+
+class LiveList(list):
+    def __setitem__(self, key, value):
+        _live_check(self, 'setitem', key)
+        if isinstance(key, slice): value = [_live_wrap(v, self._owner(), self._path+(i,)) for i, v in enumerate(value)]
+        else: value = _live_wrap(value, self._owner(), self._path+(key,))
+        list.__setitem__(self, key, value)
+    def __delitem__(self, key):
+        _live_check(self, 'delitem', key); list.__delitem__(self, key)
+    def append(self, value):
+        _live_check(self, 'append'); list.append(self, _live_wrap(value, self._owner(), self._path+(len(self),)))
+    def extend(self, values):
+        for value in values: self.append(value)
+    def insert(self, index, value):
+        _live_check(self, 'insert', index); list.insert(self, index, _live_wrap(value, self._owner(), self._path+(index,)))
+    def remove(self, value):
+        _live_check(self, 'remove'); list.remove(self, value)
+    def pop(self, index=-1):
+        _live_check(self, 'pop', index); return list.pop(self, index)
+    def clear(self):
+        if self: _live_check(self, 'clear')
+        list.clear(self)
+    def sort(self, *args, **kwargs):
+        _live_check(self, 'sort'); list.sort(self, *args, **kwargs)
+    def reverse(self):
+        _live_check(self, 'reverse'); list.reverse(self)
+    def __iadd__(self, values):
+        self.extend(values); return self
+    def __imul__(self, count):
+        _live_check(self, 'imul'); list.__imul__(self, count); return self
+    def __copy__(self): return list(self)
+    def __deepcopy__(self, memo):
+        result = []; memo[id(self)] = result
+        result.extend(copy.deepcopy(value, memo) for value in self)
+        return result
+
+
+@contextmanager
+def live_handler(owner):
+    """Exercise a synthetic UI handler (fixture writes otherwise stay allowed)."""
+    old = getattr(owner, '_live_handler_test', False)
+    owner._live_handler_test = True
+    try: yield
+    finally: owner._live_handler_test = old
+
+
+def install_live_guard():
+    global _live_original, _live_allowlist, _live_fields
+    if _live_original is not None: return
+    import json
+    from prompt_calculus_studio.window import Window
+    from prompt_calculus_studio.document_operations import MULTI_HISTORY_FIELDS
+    _live_fields = frozenset(MULTI_HISTORY_FIELDS) | {'dictionary', 'generation'}
+    entries = json.loads(Path(__file__).with_name('live_write_allowlist.json').read_text(encoding='utf-8'))['entries']
+    _live_allowlist = {}
+    for entry in entries:
+        _live_allowlist.setdefault((entry['module'], entry['function']), []).append(entry)
+    _live_original = Window.__setattr__
+    original = _live_original
+    def set_attribute(owner, key, value):
+        if key == 'state' and isinstance(value, dict):
+            old = getattr(owner, 'state', None)
+            if isinstance(old, LiveDict):
+                # Rebinding is itself a content write, even if nested writes
+                # never pass through a monitored dict/list method.
+                _live_check(old, 'replace-document')
+            value = _live_wrap(value, owner)
+        return original(owner, key, value)
+    Window.__setattr__ = set_attribute
+
+
+def uninstall_live_guard():
+    global _live_original
+    if _live_original is not None:
+        from prompt_calculus_studio.window import Window
+        Window.__setattr__ = _live_original
+        _live_original = None

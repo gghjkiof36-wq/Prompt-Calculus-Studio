@@ -1,0 +1,1202 @@
+{
+  "source": "UI-WRITES at 8e9e87ee3b6f96e63ee4a000c2c109120b6a8681; reachability rev3",
+  "entries": [
+    {
+      "id": "UI-001",
+      "module": "prompt_calculus_studio.canvas_acceleration",
+      "function": "CanvasAcceleration.__init__",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 60
+    },
+    {
+      "id": "UI-002",
+      "module": "prompt_calculus_studio.canvas_acceleration",
+      "function": "CanvasAcceleration.__init__",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 79
+    },
+    {
+      "id": "UI-003",
+      "module": "prompt_calculus_studio.canvas_acceleration",
+      "function": "CanvasAcceleration.check_context",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 187
+    },
+    {
+      "id": "UI-004",
+      "module": "prompt_calculus_studio.canvas_acceleration",
+      "function": "CanvasAcceleration.to_raster",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 257
+    },
+    {
+      "id": "UI-005",
+      "module": "prompt_calculus_studio.canvas_check",
+      "function": "start",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 13
+    },
+    {
+      "id": "UI-006",
+      "module": "prompt_calculus_studio.canvas_check",
+      "function": "start",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 19
+    },
+    {
+      "id": "UI-007",
+      "module": "prompt_calculus_studio.canvas_check",
+      "function": "start",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 22
+    },
+    {
+      "id": "UI-008",
+      "module": "prompt_calculus_studio.canvas_check",
+      "function": "start.check",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 35
+    },
+    {
+      "id": "UI-009",
+      "module": "prompt_calculus_studio.canvas_palette",
+      "function": "CanvasPalette.toggle_folder",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 185
+    },
+    {
+      "id": "UI-010",
+      "module": "prompt_calculus_studio.canvas_results",
+      "function": "CanvasResults.select",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 244
+    },
+    {
+      "id": "UI-011",
+      "module": "prompt_calculus_studio.civitai_ui",
+      "function": "CivitAIPage.content_changed",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 259
+    },
+    {
+      "id": "UI-012",
+      "module": "prompt_calculus_studio.civitai_ui",
+      "function": "CivitAIPage.set_online",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 264
+    },
+    {
+      "id": "UI-013",
+      "module": "prompt_calculus_studio.civitai_ui",
+      "function": "CivitAIPage.finish_registration",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 558
+    },
+    {
+      "id": "UI-014",
+      "module": "prompt_calculus_studio.clip_widgets",
+      "function": "ExecutionBar.eventFilter",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 252
+    },
+    {
+      "id": "UI-015",
+      "module": "prompt_calculus_studio.comfy_client",
+      "function": "ComfyClient.connect_to",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 162
+    },
+    {
+      "id": "UI-016",
+      "module": "prompt_calculus_studio.comfy_client",
+      "function": "ComfyClient.recheck_connection",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 183
+    },
+    {
+      "id": "UI-017",
+      "module": "prompt_calculus_studio.comfy_client",
+      "function": "ComfyClient.disconnect",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 194
+    },
+    {
+      "id": "UI-018",
+      "module": "prompt_calculus_studio.completion",
+      "function": "CompletionService.configure_cache",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 156
+    },
+    {
+      "id": "UI-019",
+      "module": "prompt_calculus_studio.composition_editor",
+      "function": "CompositionEditor.finish_close",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 282
+    },
+    {
+      "id": "UI-020",
+      "module": "prompt_calculus_studio.connector_page",
+      "function": "ConnectorPage.__init__",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 166
+    },
+    {
+      "id": "UI-021",
+      "module": "prompt_calculus_studio.dialogs",
+      "function": "SettingsDialog.save",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 433
+    },
+    {
+      "id": "UI-023",
+      "module": "prompt_calculus_studio.dialogs",
+      "function": "SettingsDialog.save",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 442
+    },
+    {
+      "id": "UI-024",
+      "module": "prompt_calculus_studio.dialogs",
+      "function": "SettingsDialog.save",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 443
+    },
+    {
+      "id": "UI-025",
+      "module": "prompt_calculus_studio.dialogs",
+      "function": "WorkspaceDialog.save",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 566
+    },
+    {
+      "id": "UI-026",
+      "module": "prompt_calculus_studio.document_host",
+      "function": "DesktopDocument.__init__",
+      "fields": [
+        "*"
+      ],
+      "classification": "c",
+      "baseline_line": 40
+    },
+    {
+      "id": "UI-027",
+      "module": "prompt_calculus_studio.document_host",
+      "function": "DesktopDocument.prepare",
+      "fields": [
+        "*"
+      ],
+      "classification": "c",
+      "baseline_line": 88
+    },
+    {
+      "id": "UI-028",
+      "module": "prompt_calculus_studio.document_operations",
+      "function": "DocumentOperations.__init__",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 36
+    },
+    {
+      "id": "UI-029",
+      "module": "prompt_calculus_studio.frame_check",
+      "function": "FrameCheck.next",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 27
+    },
+    {
+      "id": "UI-030",
+      "module": "prompt_calculus_studio.generation_check",
+      "function": "start",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 13
+    },
+    {
+      "id": "UI-031",
+      "module": "prompt_calculus_studio.generation_check",
+      "function": "start",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 16
+    },
+    {
+      "id": "UI-032",
+      "module": "prompt_calculus_studio.generation_panel",
+      "function": "GenerationPanel.settings",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 145
+    },
+    {
+      "id": "UI-033",
+      "module": "prompt_calculus_studio.interface_check",
+      "function": "start",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 13
+    },
+    {
+      "id": "UI-034",
+      "module": "prompt_calculus_studio.local_ai.library",
+      "function": "ModelLibrary.cancel",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 233
+    },
+    {
+      "id": "UI-035",
+      "module": "prompt_calculus_studio.local_ai.library",
+      "function": "ModelLibrary.accept_pending",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 292
+    },
+    {
+      "id": "UI-036",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService.__init__",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 268
+    },
+    {
+      "id": "UI-037",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService._can_edit",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 453
+    },
+    {
+      "id": "UI-038",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService.configure",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 487
+    },
+    {
+      "id": "UI-039",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService.load",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 527
+    },
+    {
+      "id": "UI-040",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService.load",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 533
+    },
+    {
+      "id": "UI-041",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService.unload",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 544
+    },
+    {
+      "id": "UI-042",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService.unload",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 557
+    },
+    {
+      "id": "UI-043",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService.submit",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 611
+    },
+    {
+      "id": "UI-044",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService.cancel",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 625
+    },
+    {
+      "id": "UI-045",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService.shutdown",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 680
+    },
+    {
+      "id": "UI-046",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService.shutdown",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 684
+    },
+    {
+      "id": "UI-047",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService.shutdown",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 690
+    },
+    {
+      "id": "UI-048",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService.resume_after_close_abort",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 713
+    },
+    {
+      "id": "UI-049",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService._on_status",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 727
+    },
+    {
+      "id": "UI-050",
+      "module": "prompt_calculus_studio.local_ai.service",
+      "function": "LocalAIService._on_thread_finished",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 778
+    },
+    {
+      "id": "UI-051",
+      "module": "prompt_calculus_studio.local_ai.text_assist",
+      "function": "TextAssistController.__init__",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 67
+    },
+    {
+      "id": "UI-052",
+      "module": "prompt_calculus_studio.local_ai.text_assist",
+      "function": "TextAssistController.start",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 176
+    },
+    {
+      "id": "UI-053",
+      "module": "prompt_calculus_studio.local_ai.text_assist",
+      "function": "TextAssistController._service_changed",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 199
+    },
+    {
+      "id": "UI-054",
+      "module": "prompt_calculus_studio.local_ai.text_assist",
+      "function": "TextAssistController._delta",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 210
+    },
+    {
+      "id": "UI-055",
+      "module": "prompt_calculus_studio.local_files",
+      "function": "choose_file",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 10
+    },
+    {
+      "id": "UI-056",
+      "module": "prompt_calculus_studio.material_editor_browser",
+      "function": "PromptEditor._order_changed",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 486
+    },
+    {
+      "id": "UI-057",
+      "module": "prompt_calculus_studio.material_editor_browser",
+      "function": "PromptEditor.toggle_folder",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 523
+    },
+    {
+      "id": "UI-058",
+      "module": "prompt_calculus_studio.material_scope",
+      "function": "MaterialScope.__init__",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 10
+    },
+    {
+      "id": "UI-059",
+      "module": "prompt_calculus_studio.menu_check",
+      "function": "MenuCheck.__init__",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 17
+    },
+    {
+      "id": "UI-060",
+      "module": "prompt_calculus_studio.menu_check",
+      "function": "MenuCheck.__init__",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 30
+    },
+    {
+      "id": "UI-061",
+      "module": "prompt_calculus_studio.multi_canvas",
+      "function": "MultiCanvas.restore_view",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 400
+    },
+    {
+      "id": "UI-063",
+      "module": "prompt_calculus_studio.pages",
+      "function": "ModelPage.choose_root",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 223
+    },
+    {
+      "id": "UI-064",
+      "module": "prompt_calculus_studio.pages",
+      "function": "ModelPage.scan",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 231
+    },
+    {
+      "id": "UI-065",
+      "module": "prompt_calculus_studio.pages",
+      "function": "GalleryPage.thumbnail_size_changed",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 756
+    },
+    {
+      "id": "UI-066",
+      "module": "prompt_calculus_studio.pages",
+      "function": "GalleryPage.delete_album",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 916
+    },
+    {
+      "id": "UI-068",
+      "module": "prompt_calculus_studio.recent",
+      "function": "RecentPage.destination_changed",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 235
+    },
+    {
+      "id": "UI-069",
+      "module": "prompt_calculus_studio.recent",
+      "function": "RecentPage.choose_directory",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 250
+    },
+    {
+      "id": "UI-070",
+      "module": "prompt_calculus_studio.recent",
+      "function": "RecentPage.pump",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 334
+    },
+    {
+      "id": "UI-071",
+      "module": "prompt_calculus_studio.run_controls",
+      "function": "RunControls.count_changed",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 125
+    },
+    {
+      "id": "UI-072",
+      "module": "prompt_calculus_studio.settings_page",
+      "function": "SettingsPage.reset_appearance",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 444
+    },
+    {
+      "id": "UI-073",
+      "module": "prompt_calculus_studio.sidebar_resize",
+      "function": "SidebarResizeController.finish",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 152
+    },
+    {
+      "id": "UI-075",
+      "module": "prompt_calculus_studio.stage_context",
+      "function": "ExecutionTransaction.__init__",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 43
+    },
+    {
+      "id": "UI-077",
+      "module": "prompt_calculus_studio.text_canvas",
+      "function": "TextCanvas.restore_hidden_view",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 320
+    },
+    {
+      "id": "UI-078",
+      "module": "prompt_calculus_studio.text_canvas",
+      "function": "TextCanvas.restore_history",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 405
+    },
+    {
+      "id": "UI-079",
+      "module": "prompt_calculus_studio.v081_check",
+      "function": "start.check",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 19
+    },
+    {
+      "id": "UI-080",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.__init__",
+      "fields": [
+        "*"
+      ],
+      "classification": "c",
+      "baseline_line": 66
+    },
+    {
+      "id": "UI-081",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.__init__",
+      "fields": [
+        "*"
+      ],
+      "classification": "c",
+      "baseline_line": 71
+    },
+    {
+      "id": "UI-082",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.__init__",
+      "fields": [
+        "*"
+      ],
+      "classification": "c",
+      "baseline_line": 74
+    },
+    {
+      "id": "UI-083",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.__init__",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 76
+    },
+    {
+      "id": "UI-084",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.set_interface_mode",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 313
+    },
+    {
+      "id": "UI-086",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.remember_canvas_view",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 911
+    },
+    {
+      "id": "UI-087",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.delete_workspace",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 955
+    },
+    {
+      "id": "UI-088",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.delete_workspace",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 956
+    },
+    {
+      "id": "UI-089",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.select_module",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 985
+    },
+    {
+      "id": "UI-090",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.module_order_changed",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 991
+    },
+    {
+      "id": "UI-091",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.new_module",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 998
+    },
+    {
+      "id": "UI-092",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.delete_module",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1015
+    },
+    {
+      "id": "UI-093",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.delete_module",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1016
+    },
+    {
+      "id": "UI-094",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.delete_module",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1017
+    },
+    {
+      "id": "UI-095",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.move_library_item",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1050
+    },
+    {
+      "id": "UI-096",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.clear_module",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1054
+    },
+    {
+      "id": "UI-097",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.library_order_changed",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1100
+    },
+    {
+      "id": "UI-098",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.adjust_weight",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1106
+    },
+    {
+      "id": "UI-099",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.toggle_item",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1113
+    },
+    {
+      "id": "UI-100",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.toggle_item",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1115
+    },
+    {
+      "id": "UI-101",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.delete_item",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1137
+    },
+    {
+      "id": "UI-102",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.add_temporary",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1155
+    },
+    {
+      "id": "UI-103",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.refresh_builder",
+      "fields": [
+        "instances",
+        "workspaces",
+        "version"
+      ],
+      "classification": "c",
+      "baseline_line": 1164,
+      "reason": "prune_instances also updates saved workspace.instances and instance() marks version; same enumerated call sites."
+    },
+    {
+      "id": "UI-104",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.refresh_builder",
+      "fields": [
+        "instances",
+        "prompt_layout"
+      ],
+      "classification": "c",
+      "baseline_line": 1165
+    },
+    {
+      "id": "UI-105",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.refresh_builder",
+      "fields": [
+        "instances",
+        "workspaces",
+        "version"
+      ],
+      "classification": "c",
+      "baseline_line": 1173,
+      "reason": "prune_instances also updates saved workspace.instances and instance() marks version; same enumerated call sites."
+    },
+    {
+      "id": "UI-106",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.refresh_builder",
+      "fields": [
+        "instances",
+        "prompt_layout"
+      ],
+      "classification": "c",
+      "baseline_line": 1174
+    },
+    {
+      "id": "UI-107",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.regenerate",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 1285
+    },
+    {
+      "id": "UI-108",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.builder_context",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1311
+    },
+    {
+      "id": "UI-109",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.builder_context",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1317
+    },
+    {
+      "id": "UI-110",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.remove_builder_entry",
+      "fields": [
+        "*"
+      ],
+      "classification": "non-v7",
+      "baseline_line": 1344
+    },
+    {
+      "id": "UI-115",
+      "module": "prompt_calculus_studio.workflow_runner",
+      "function": "WorkflowRun.start",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 36
+    },
+    {
+      "id": "UI-116",
+      "module": "prompt_calculus_studio.workflow_runner",
+      "function": "WorkflowRun.next",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 73
+    },
+    {
+      "id": "UI-117",
+      "module": "prompt_calculus_studio.workspace_connection",
+      "function": "WorkspaceConnection.attach",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 50
+    },
+    {
+      "id": "UI-118",
+      "module": "prompt_calculus_studio.workspace_connection",
+      "function": "WorkspaceConnection.connect_to",
+      "fields": [
+        "settings"
+      ],
+      "classification": "b",
+      "baseline_line": 95
+    },
+    {
+      "id": "UI-119",
+      "module": "prompt_calculus_studio.workspace_shell",
+      "function": "WorkspaceShell.__init__",
+      "fields": [
+        "settings"
+      ],
+      "classification": "c",
+      "baseline_line": 154
+    },
+    {
+      "id": "L01",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.new_workspace",
+      "fields": [
+        "workspace_scenes",
+        "workspaces",
+        "version"
+      ],
+      "classification": "non-v7",
+      "evidence": "FIX1: legacy workspace_menu or tests directly constructing Window(compact_editor=False); rev3/legacy-allowlist/result.json",
+      "legacy_window_only": true
+    },
+    {
+      "id": "L02",
+      "module": "prompt_calculus_studio.direct_runs",
+      "function": "DirectRuns.finished",
+      "fields": [
+        "canvas_functions",
+        "multi_output",
+        "uses",
+        "text_positions",
+        "output_order"
+      ],
+      "classification": "non-v7",
+      "evidence": "InputRunner.execute returns chain.start for v7 before DirectRuns.add; test_083_runtime_repair explicitly disables stage upgrade and creates legacy Window. FIX1 matrix-diagnostic-02: unscheduled_images completion.",
+      "max_multi_version": 6
+    },
+    {
+      "id": "L03",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.final_edited",
+      "fields": [
+        "draft",
+        "draft_base",
+        "multi_output"
+      ],
+      "classification": "non-v7",
+      "evidence": "Legacy final editor; v7 MultiCanvas uses OutputEditor instead of the old builder panel. test_canvas_functions directly edits Window.final; matrix-diagnostic-02.",
+      "legacy_window_only": true
+    },
+    {
+      "id": "L04",
+      "module": "prompt_calculus_studio.generation_panel",
+      "function": "GenerationPanel.mode_changed",
+      "fields": [
+        "generation"
+      ],
+      "classification": "non-v7",
+      "evidence": "SettingsPage WorkflowSettings hides mode for multi_output; v7 FlowFunctions.mode_changed is a no-op. Legacy single-Canvas test_canvas_functions invokes the original mode signal.",
+      "legacy_window_only": true
+    },
+    {
+      "id": "L05",
+      "module": "prompt_calculus_studio.generation_panel",
+      "function": "GenerationPanel.workflow_changed",
+      "fields": [
+        "generation"
+      ],
+      "classification": "non-v7",
+      "evidence": "SettingsPage WorkflowSettings unconditionally hides generation.workflow; retained legacy controller signal only. Frozen getter-write compatibility probe invokes the old handler.",
+      "legacy_window_only": true
+    },
+    {
+      "id": "L06",
+      "module": "prompt_calculus_studio.canvas_functions",
+      "function": "CanvasFunctions.data",
+      "fields": [
+        "canvas_functions"
+      ],
+      "classification": "non-v7",
+      "evidence": "Legacy TextCanvas refresh of a directly assigned unprepared state in test_canvas_refinement. Formal MultiCanvas uses FlowFunctions.data and prepared state; matrix-diagnostic-02.",
+      "legacy_window_only": true
+    },
+    {
+      "id": "L07",
+      "module": "prompt_calculus_studio.window",
+      "function": "Window.regenerate",
+      "fields": [
+        "draft",
+        "draft_base",
+        "multi_output"
+      ],
+      "classification": "non-v7",
+      "evidence": "Legacy clear_draft button/TextCanvas.output_menu and canvas_check; MultiCanvas overrides output_menu and uses OutputEditor clearing through commit. test_canvas_paragraphs invokes Window.regenerate directly.",
+      "legacy_window_only": true
+    },
+    {
+      "id": "L08",
+      "module": "prompt_calculus_studio.generation_panel",
+      "function": "GenerationPanel.set_source",
+      "fields": [
+        "generation"
+      ],
+      "classification": "non-v7",
+      "evidence": "The generation write is guarded by not multi (multi_output absent); formal EmbeddedHost always uses prepared multi-output state. Retained legacy source-menu handler, unchanged from baseline.",
+      "legacy_window_only": true,
+      "max_multi_version": 0
+    }
+  ]
+}

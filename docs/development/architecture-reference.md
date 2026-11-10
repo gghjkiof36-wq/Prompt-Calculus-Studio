@@ -79,4 +79,50 @@ git show 'c8f9011c7244c6654e2b3cc73154ca5cc2a6e3a9:docs/development/navigation-f
 
 每次依受影響契約選最小但完整的成功、取消／失敗、晚到回覆及保存重開控制，記來源和實際結果。既有的原生輸入、DPI、真服務／GPU及異常退出限制見 [Beta2 驗證](../releases/0.8.9/validation/beta.2.md)；本次整理文件沒有新增執行證據。維護分工與更新時機見[開發指南](README.md#隨功能維護)。
 
-Stage 執行寫入使用 [執行交易](stage-architecture.md#執行交易與寫入登記)：writer 在修改 live 分支前登記，失敗原地回復；提交後提供路徑集合，與 DocumentOperations 的編輯 Undo 分開。工作流自動匯入經 Window.replace_execution_document 統一採用文件、清除 last_state 與刷新，仍不新增 Undo。
+## 文件寫入與變更通知（目前工作樹）
+
+正式工作區由 `Start.cmd → run.py → run_workspace → EmbeddedHost` 建立文件與工具
+持有者。`tool_editor.make_tool_editor` 無條件建立 **MultiCanvas**；TextCanvas 是其
+共用基底，舊單畫布的 restore_history 不是正式 Undo 的來源。
+`SettingsPage.make_comfy_page` 把 **ModelPage** 放入模型資產分頁；設定工作流頁則
+透過 WorkflowSettings 使用 GenerationPanel／WorkflowManager。
+
+三個寫入入口都由 [Window](../../prompt_calculus_studio/window.py) 提供給 EmbeddedHost：
+
+| 入口 | 寫入、歷史及通知 |
+| --- | --- |
+| `host.document_operations.commit(operation, label, merge_key)` | 候選驗證後發布，保留既有 Undo、合併、runtime hooks 與 sync。成功後用保留的舊 live 參照比較頂層欄位，不增加整份 deep copy，回報實際變更集合。 |
+| `host.update_document(operation, *, fields, reason, kind='content')` | 在 live 文件原地修改宣告的頂層欄位，不建立 Undo。kind 為 content、derived、view；執行交易中先登記這些欄位，並在最外層提交後通知。測試會拒絕宣告外寫入。 |
+| `host.adopt_document(state, *, reason, before=None, after=None)` | 深複製後統一重新綁定，不與候選或 Undo 共用容器。before／after 保留 caller 原本的堆疊搬移、清空與刷新順序。執行交易中只接受 execution-import，延後到成功提交後採用；其他原因立即報錯。 |
+
+`host.document_changed(fields, *, reason, kind)` 是共用通知點；訂閱
+`host.documentChanged.connect(callback)` 可取得 `(fields, reason, kind)`。一般欄位集合
+為 frozenset，整份採用為字串 `ALL`。commit 回報實際差異，update 回報宣告範圍，
+執行交易回報 `frozenset(path[0] for path in tx.changes)`；範圍通知可以包含值未變的欄位。
+
+通知目前不連接刷新或存檔。原有 changed／refresh／sync 的次數及時機保留。
+尤其 `MultiCanvas.ensure_bounds`、`update_output` 是刷新途中產生的 derived 通知，
+消費端不可無條件再次刷新。存檔場景同步為 derived；輸出選取為 content；面板比例
+及展開畫布視角為 view。Storage 對 live 文件透過持有者進入口，私有保存候選維持原流程。
+
+GenerationPanel.settings 缺 generation 時只回傳暫存的預設映射，讀取不建立文件鍵。
+保留的舊控制器第一次賦值 mode／chosen 時，該映射才透過 update_document 建立普通
+generation 容器；映射自身不進文件。原 mode_changed／workflow_changed 的條件、
+推導、刷新與 Undo 不改，避免只讀 getter 使原本的第一次賦值落到丟棄的暫存字典。
+
+Stage writer 仍使用[執行交易](stage-architecture.md#執行交易與寫入登記)，先登記、失敗
+原地回復；`replace_execution_document` 是 adopt 的執行匯入相容介面，原本的
+last_state 清除與刷新保留。這些入口不另開 Undo 或資料庫交易。
+
+測試端 [_borrow_guard.py](../../tests/_borrow_guard.py) 在原有借用及執行交易檢查外，
+包裝 live dict/list 與 state 重新綁定，監看 MULTI_HISTORY_FIELDS（含 multi_output、
+draft、draft_base）加 dictionary、generation。函式／呼叫點允許項目放在
+[live_write_allowlist.json](../../tests/live_write_allowlist.json)，不以整檔豁免；舊入口須有
+非正式工作區可到達性證據。fixture 直接建立資料的純 helper 呼叫不是 UI handler，
+合成 handler 以 live_handler 明確啟用檢查。此監看只在測試模式安裝；不證明未執行
+路徑、自訂可變型別或刻意使用容器基底方法的繞過。
+
+固定來源對照見 [逐 handler 測試](../../tests/test_document_write_routes.py)、
+[入口契約](../../tests/test_document_write_entries.py) 與
+[遷移／journal 對照](../../tests/test_document_write_compatibility.py)。對照固定遷移 UUID
+與時鐘，保存並直接比較 SQLite body 原文；不改產品格式或遷移規則。

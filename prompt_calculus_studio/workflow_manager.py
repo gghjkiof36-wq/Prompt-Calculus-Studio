@@ -180,7 +180,10 @@ class WorkflowManager(QWidget):
         profile=self.selected()
         if not profile: return
         name,ok=InputDialog.getText(self.window,'工作流名稱','名稱',text=profile['name'])
-        if ok and name.strip(): profile['name']=name.strip(); self.window.generation_panel.changed(); self.refresh()
+        if ok and name.strip():
+            self.window.update_document(lambda state: profile.update(name=name.strip()),
+                fields=('generation',), reason='workflow-rename')
+            self.window.generation_panel.changed(); self.refresh()
     def reimport(self):
         profile=self.selected()
         if not profile: return
@@ -195,7 +198,7 @@ class WorkflowManager(QWidget):
             incoming=json.loads(Path(path).read_text(encoding='utf-8-sig'))
             if incoming.get('format')=='prompt_studio_workflow':
                 if incoming.get('id')!=profile['id']: raise ValueError('此檔案屬於另一份工作流，請使用「匯入工作流」。')
-                state,_=apply_transfer(self.window.state,incoming); self.window.state=state
+                state,_=apply_transfer(self.window.state,incoming); self.window.adopt_document(state, reason='workflow-reimport')
             else:
                 updated=infer_profile(import_graph(incoming),profile['name']); updated.update(id=profile['id'],multi_text=True); validate_profile(updated)
                 self.window.generation_panel.save_profile(updated)
@@ -240,7 +243,7 @@ class WorkflowManager(QWidget):
             candidate,record=prepare_remove(self.window.state,key,remote)
             commit_change(self.window.store,candidate,record=record)
         except (ValueError,KeyError,TypeError,sqlite3.Error) as exc:self.operation_failed('刪除未完成：'+str(exc));return
-        self.window.state.clear();self.window.state.update(candidate);self.deleted=record
+        self.window.adopt_document(candidate, reason='workflow-remove');self.deleted=record
         self.loading=False; self.undo_button.setEnabled(True); self.window.generation_panel.changed(); self.rebuild()
     def undo_remove(self):
         if not self.deleted: return
@@ -274,7 +277,7 @@ class WorkflowManager(QWidget):
             legacy_selection='clip_workflows' not in self.deleted and bool(self.deleted.get('bindings')) and self.window.state.get('multi_output',{}).get('version',0)>=4
             commit_change(self.window.store,candidate,consume=self.deleted)
         except (ValueError,KeyError,TypeError,sqlite3.Error) as exc:self.operation_failed('復原未完成：'+str(exc));return
-        self.window.state.clear();self.window.state.update(candidate)
+        self.window.adopt_document(candidate, reason='workflow-restore')
         db=self.window.store.db
         prior=db.execute('SELECT body FROM workflow_deletions ORDER BY id DESC LIMIT 1').fetchone()
         self.deleted=json.loads(prior[0]) if prior else None; self.loading=False; self.undo_button.setEnabled(bool(self.deleted)); self.window.generation_panel.changed(); self.rebuild()

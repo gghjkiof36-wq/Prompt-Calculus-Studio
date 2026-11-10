@@ -1,0 +1,177 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "id": "00000000000000000000000000000001",
+      "name": "LoRA",
+      "mode": "multiple"
+    },
+    {
+      "id": "00000000000000000000000000000002",
+      "name": "Artist",
+      "mode": "multiple"
+    },
+    {
+      "id": "00000000000000000000000000000003",
+      "name": "角色",
+      "mode": "single"
+    },
+    {
+      "id": "00000000000000000000000000000004",
+      "name": "動作",
+      "mode": "single"
+    },
+    {
+      "id": "00000000000000000000000000000005",
+      "name": "表情",
+      "mode": "multiple"
+    },
+    {
+      "id": "00000000000000000000000000000006",
+      "name": "場景",
+      "mode": "single"
+    }
+  ],
+  "items": [
+    {
+      "id": "00000000000000000000000000000007",
+      "module": "00000000000000000000000000000003",
+      "name": "紅色洋裝女孩",
+      "prompt": "1girl, red dress",
+      "aliases": [
+        "紅裙",
+        "紅色衣服",
+        "女孩"
+      ],
+      "notes": "可修改或刪除的範例"
+    },
+    {
+      "id": "00000000000000000000000000000008",
+      "module": "00000000000000000000000000000003",
+      "name": "白襯衫女孩",
+      "prompt": "1girl, white shirt",
+      "aliases": [
+        "白衣",
+        "女孩"
+      ],
+      "notes": "可修改或刪除的範例"
+    },
+    {
+      "id": "00000000000000000000000000000009",
+      "module": "00000000000000000000000000000004",
+      "name": "自然站立",
+      "prompt": "standing, hands behind back",
+      "aliases": [
+        "站立",
+        "手放身後"
+      ],
+      "notes": "可修改或刪除的範例"
+    },
+    {
+      "id": "0000000000000000000000000000000a",
+      "module": "00000000000000000000000000000004",
+      "name": "坐姿",
+      "prompt": "sitting",
+      "aliases": [
+        "坐下",
+        "坐著"
+      ],
+      "notes": "可修改或刪除的範例"
+    },
+    {
+      "id": "0000000000000000000000000000000b",
+      "module": "00000000000000000000000000000005",
+      "name": "微笑",
+      "prompt": "smile",
+      "aliases": [
+        "微笑",
+        "笑容"
+      ],
+      "notes": "可修改或刪除的範例"
+    },
+    {
+      "id": "0000000000000000000000000000000c",
+      "module": "00000000000000000000000000000005",
+      "name": "看向鏡頭",
+      "prompt": "looking at viewer",
+      "aliases": [
+        "看鏡頭",
+        "看向觀眾"
+      ],
+      "notes": "可修改或刪除的範例"
+    },
+    {
+      "id": "0000000000000000000000000000000d",
+      "module": "00000000000000000000000000000006",
+      "name": "夜晚街道",
+      "prompt": "street, night, city lights",
+      "aliases": [
+        "夜景",
+        "街道"
+      ],
+      "notes": "可修改或刪除的範例"
+    }
+  ],
+  "workspaces": [
+    {
+      "id": "0000000000000000000000000000000e",
+      "name": "預設工作區",
+      "fixed": [
+        "00000000000000000000000000000001",
+        "00000000000000000000000000000002"
+      ],
+      "picks": {}
+    }
+  ],
+  "workspace": "0000000000000000000000000000000e",
+  "selections": {},
+  "draft": null,
+  "draft_base": "",
+  "temporary": [],
+  "settings": {
+    "ui_size": 11,
+    "prompt_size": 12,
+    "density": "comfortable",
+    "context_sidebar_width": 240,
+    "gallery_columns": 12,
+    "separate_selections": true,
+    "interface_mode": "ask",
+    "connection_style": "curve",
+    "reduce_motion": false,
+    "hide_connections": false,
+    "material": "mica",
+    "visual_palette": "graphite",
+    "accent": "neutral",
+    "accent_custom": "#f077af",
+    "online": true,
+    "search_cache": true,
+    "acrylic_transparency": 61,
+    "mica_transparency": 61,
+    "clear_transparency": 20,
+    "menu_transparency": 6,
+    "confirm_clear_draft": true,
+    "formatter": "spaces",
+    "artist_prefix": true,
+    "translator": "dictionary",
+    "font_family": "Microsoft JhengHei UI",
+    "model_root": "",
+    "model_categories": [
+      "畫風",
+      "角色",
+      "背景",
+      "其他"
+    ]
+  },
+  "dictionary": {
+    "白色的牆壁": "white wall",
+    "白色牆壁": "white wall",
+    "白牆": "white wall",
+    "一個女孩": "1girl",
+    "女孩": "1girl",
+    "紅色衣服": "red clothes",
+    "簡單背景": "simple background",
+    "看鏡頭": "looking at viewer",
+    "微笑": "smile",
+    "站立": "standing"
+  }
+}

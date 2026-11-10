@@ -12,6 +12,15 @@ from prompt_calculus_studio.workflow_deletion import prepare_remove,prepare_rest
 
 
 class WorkflowDeletionTests(unittest.TestCase):
+    @property
+    def state(self):
+        return self.window.state if hasattr(self, 'window') else self._state
+
+    @state.setter
+    def state(self, value):
+        if hasattr(self, 'window'): self.window.state = value
+        else: self._state = value
+
     def setUp(self):
         tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup)
         self.store=Storage(tmp.name);self.addCleanup(self.store.db.close)
@@ -23,6 +32,9 @@ class WorkflowDeletionTests(unittest.TestCase):
         self.store.save(self.state);self.notices=[]
         panel=SimpleNamespace(changed=lambda:None)
         self.window=SimpleNamespace(state=self.state,store=self.store,generation_panel=panel,notice=self.notices.append,comfy=SimpleNamespace(epoch=0,url='http://127.0.0.1:8188',stopped=False))
+        from prompt_calculus_studio.window import Window
+        self.window.adopt_document=MethodType(Window.adopt_document,self.window)
+        self.window.document_changed=lambda *args,**kwargs:None
         self.manager=SimpleNamespace(window=self.window,loading=False,request_serial=0,details=lambda:None,rebuild=lambda:None,undo_button=SimpleNamespace(setEnabled=lambda value:None))
         for name in ('operation_failed','finish_remove','finish_restore','undo_remove','operation_context','operation_current'):
             setattr(self.manager,name,MethodType(getattr(WorkflowManager,name),self.manager))

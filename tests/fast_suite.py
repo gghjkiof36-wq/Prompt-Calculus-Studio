@@ -28,6 +28,7 @@ canvas_combination_copy canvas_refresh_performance canvas_gestures
 canvas_variant_navigation canvas_navigation_rendering canvas_raster
 088_canvas_entrypoints canvas_delete_keys canvas_cohesion canvas_four_modules canvas_card_menus'''.split()
 WORKSPACE = ['workspace_ambient']
+DOCUMENT = ['document_write_entries', 'document_write_routes', 'document_write_compatibility']
 QUICK_STAGES = [
     'test_084_stages.StageTests.test_reopen_and_workspace_results_do_not_restart',
     'test_084_stages.StageTests.test_results_failure_refetch_without_generation_and_pause_resume',
@@ -144,7 +145,7 @@ def main():
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     files = args.files or (args.file_list.read_text(encoding='utf-8-sig').split() if args.file_list else
-                          ['test_' + name + '.py' for name in STAGE + CANVAS + WORKSPACE] + ['test_084_stages.py::quick'])
+                          ['test_' + name + '.py' for name in STAGE + CANVAS + WORKSPACE + DOCUMENT] + ['test_084_stages.py::quick'])
     known_path = ROOT / 'tests' / 'known_failures.json'
     known = json.loads(known_path.read_text(encoding='utf-8')) if known_path.exists() else []
     started = time.monotonic()

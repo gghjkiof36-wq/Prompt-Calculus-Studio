@@ -96,7 +96,10 @@ class OutputEditor(QFrame):
         sizes=self.split.sizes()
         if sum(sizes):
             self.loaded_ratio=sizes[0]/sum(sizes)
-            self.canvas.data()['outputs'][self.key]['panel_ratio']=self.loaded_ratio; self.canvas.window.changed('layout')
+            self.canvas.window.update_document(
+                lambda state: state['multi_output']['outputs'][self.key].update(panel_ratio=self.loaded_ratio),
+                fields=('multi_output',), reason='output-panel-ratio', kind='view')
+            self.canvas.window.changed('layout')
     def restore_ratio(self):
         ratio=min(.4,max(.2,self.canvas.data()['outputs'][self.key].get('panel_ratio',.28)))
         if ratio!=self.loaded_ratio:
@@ -471,7 +474,10 @@ class MultiCanvas(TextCanvas):
         new_images=value.get('canvas_functions',{}).get('images',{})
         reader_changed=any(old_images.get(key,{}).get(field)!=new_images.get(key,{}).get(field)
             for key in old_images.keys()|new_images.keys() for field in ('output_node','text_field','input_index','stage_reference','prompt_choice'))
-        source.pop(); destination.append((before,later)); self.window.state=value; self.last_state=self.history_state()
+        def move_history():
+            source.pop(); destination.append((before,later))
+        self.window.adopt_document(value, reason='canvas-redo' if after else 'canvas-undo', before=move_history)
+        self.last_state=self.history_state()
         self._last_edit=None
         from .changes import layout_only
         from .material_navigation import navigation_only
@@ -540,7 +546,8 @@ class MultiCanvas(TextCanvas):
         if not hasattr(self,'outputs'): return
         if hasattr(self,'onboarding'):self.onboarding.refresh()
         self.prune_cards()
-        model.capture_current(self.window.state)
+        self.window.update_document(model.capture_current, fields=('multi_output',),
+            reason='output-projection', kind='derived')
         self.output_picker.blockSignals(True); self.output_picker.clear()
         for key,o in self.data()['outputs'].items(): self.output_picker.addItem('目前輸出 · '+o['name'],key)
         self.output_picker.setCurrentIndex(self.output_picker.findData(self.data()['current_output'])); self.output_picker.blockSignals(False)
@@ -746,7 +753,9 @@ class MultiCanvas(TextCanvas):
         cards=[self.cards[k] for k in self.data()['canvases'][key]['members'] if k in self.cards]
         return max([360]+[c.width+48 for c in cards]),max([230]+[c.height+186 for c in cards])
     def ensure_bounds(self):
-        state=self.window.state
+        self.window.update_document(self._ensure_bounds, fields=('multi_output','text_positions'),
+            reason='canvas-bounds', kind='derived')
+    def _ensure_bounds(self,state):
         for key,container in self.containers.items():
             value=self.data()['canvases'][key]; width,height=value['display_size']; x,y=value['position']
             for member in value['members']:
@@ -965,7 +974,10 @@ class MultiCanvas(TextCanvas):
     def rename_function(self,collection,key):
         text,ok=InputDialog.getText(self.window,'模組名稱','名稱',text=self.data()[collection][key]['name'])
         if ok and text.strip(): self.commit(lambda s:s['multi_output'][collection][key].update(name=text.strip()))
-    def set_current(self,key): model.select_output(self.window.state,key); self.last_state=None; self.sync()
+    def set_current(self,key):
+        self.window.update_document(lambda state: model.select_output(state,key),
+            fields=('multi_output','draft','draft_base')+model.LIST_FIELDS, reason='current-output')
+        self.last_state=None; self.sync()
     def remove_container(self,key):
         def apply(s):
             for line in list(s['multi_output']['connections']):

@@ -216,6 +216,8 @@ class TransactionContractTests(unittest.TestCase):
                   canvas=NS(last_state='old',refresh=lambda:traces.append('canvas'),undo_stack=undo),
                   generation_panel=NS(changed=lambda:traces.append('generation')),notice=Mock())
         window.replace_execution_document=lambda s:Window.replace_execution_document(window,s)
+        window.adopt_document=lambda s,**kw:Window.adopt_document(window,s,**kw)
+        window.document_changed=Mock()
         owner=object();client=NS(window=window,fetching_workflow=False,workflow_import_owner=owner)
         acknowledgements=[]
         def request(route,data=None,done=None,**kwargs):
@@ -224,7 +226,8 @@ class TransactionContractTests(unittest.TestCase):
         client.request=request
         with patch('prompt_calculus_studio.workflow_transfer.apply_transfer',return_value=(candidate,{'name':'imported'})):
             ComfyClient.receive_workflow(client)
-        self.assertIs(window.state,candidate)
+        self.assertEqual(window.state,candidate)
+        self.assertIsNot(window.state,candidate)
         self.assertEqual(traces,['generation','canvas'])
         self.assertIsNone(window.canvas.last_state)
         self.assertEqual(undo,[('before','after')])

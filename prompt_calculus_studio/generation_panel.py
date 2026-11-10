@@ -19,6 +19,40 @@ from .local_files import choose_file
 from .workflow_import import import_graph,infer_profile
 
 
+class _GenerationDefaults(dict):
+    """Read defaults without creating a document field.
+
+    The retained legacy controllers assign mode or chosen through settings().
+    Only that first assignment materializes defaults, inside the write entry;
+    their handlers, mode inference, UI callbacks and Undo stay unchanged.
+    This temporary mapping is never stored in the document.
+    """
+    def __init__(self, window, *, choices=False):
+        self.window, self.choices = window, choices
+        values = {} if choices else options({})
+        if not choices:
+            values['chosen'] = _GenerationDefaults(window, choices=True)
+        super().__init__(values)
+
+    def __setitem__(self, key, value):
+        def write(state):
+            settings = state.setdefault('generation', options({}))
+            target = settings.setdefault('chosen', {}) if self.choices else settings
+            target[key] = value
+        self.window.update_document(write, fields=('generation',), reason='generation-default-write')
+        dict.__setitem__(self, key, value)
+
+    def update(self, *args, **kwargs):
+        for key, value in dict(*args, **kwargs).items(): self[key] = value
+
+    def setdefault(self, key, default=None):
+        if key not in self: self[key] = default
+        return self[key]
+
+    def __deepcopy__(self, memo):
+        return {copy.deepcopy(key, memo): copy.deepcopy(value, memo) for key, value in self.items()}
+
+
 def node_title(graph,key):
     node=graph[key]; return f"{node.get('_meta',{}).get('title',node['class_type'])} · #{key}"
 
@@ -142,7 +176,9 @@ class GenerationPanel(QWidget):
         self.refresh()
 
     def settings(self):
-        return self.window.state.setdefault('generation',dict(mode='txt2img',profiles=[],chosen={},source=None))
+        if 'generation' in self.window.state:
+            return self.window.state['generation']
+        return _GenerationDefaults(self.window)
 
     def refresh(self):
         self.updating=True; settings=options(self.window.state); mode=settings['mode']; profile=active_profile(self.window.state)
@@ -195,7 +231,8 @@ class GenerationPanel(QWidget):
 
     def save_profile(self,profile):
         from .generation import store_profile
-        store_profile(self.window.state,profile); self.changed()
+        self.window.update_document(lambda state: store_profile(state,profile),
+            fields=('generation',), reason='workflow-profile'); self.changed()
         if self.window.state.get('selection_view')=='canvas' and self.window.state.get('multi_output',{}).get('version',1)<4:
             self.window.canvas.functions.mode_changed()
 
@@ -220,7 +257,8 @@ class GenerationPanel(QWidget):
                 profile=dialog.result_profile
             if transfer:
                 from .workflow_transfer import apply_transfer
-                self.window.state,profile=apply_transfer(self.window.state,transfer)
+                state,profile=apply_transfer(self.window.state,transfer)
+                self.window.adopt_document(state, reason='workflow-import')
                 self.changed()
             else: self.save_profile(profile)
             self.importFeedback.emit('已匯入'+('圖生圖' if profile['mode']=='img2img' else '文生圖')+'：'+profile['name'])

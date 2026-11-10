@@ -244,7 +244,10 @@ class CompositionEditor(QWidget):
         center=self.view.mapToScene(self.view.viewport().rect().center())
         value=[self.view.transform().m11(),center.x(),center.y()]
         if self.data().get('edit_view')!=value:
-            self.data()['edit_view']=value; self.window.changed('layout',refresh=False)
+            self.window.update_document(
+                lambda state: state['multi_output']['canvases'][self.key].update(edit_view=value),
+                fields=('multi_output',), reason='canvas-edit-view', kind='view')
+            self.window.changed('layout',refresh=False)
     def restore_view(self):
         if self.closing: return
         value=self.data().get('edit_view'); self.view.scene().setSceneRect(-100000,-100000,200000,200000)

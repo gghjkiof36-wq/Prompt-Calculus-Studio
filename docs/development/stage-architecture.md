@@ -91,7 +91,8 @@ runner 最多暫留一份從 journal 解碼的自有內容，避免每個小段�
 目前場景項目，或結果投影實際取代的 `uses`、`text_positions`、`output_order`、
 `multi_output.canvases`。`select_live_image` 同時涵蓋圖片選取內的 materialize。
 私有投影仍可呼叫不帶 register 的 reserve／sync_result_view；這個選項不是 live
-寫入的例外。Storage 在執行交易內同步衍生欄位時也先登記；UI 單獨存檔路徑不變。
+寫入的例外。Storage 同步 live 衍生欄位經持有者 update_document，執行交易內先
+登記宣告的頂層欄位，原同步位置及較細的 writer 登記仍保留；保存交易順序不變。
 
 同一路徑只保存第一次的深複本；已登記父分支涵蓋後續子路徑，先登記子再登記父
 則各自保留，回復按逆序執行。不存在的路徑記到第一個缺少的祖先，回復時移除。
@@ -104,7 +105,8 @@ runner 最多暫留一份從 journal 解碼的自有內容，避免每個小段�
 呼叫端可保留 tx，在 context 離開後讀取；巢狀呼叫須等共同外層提交。
 所有原有 Canvas／changed 刷新方法與參數仍保留，通知及 later 在提交成功後才執行。
 `refresh_results` 交易外呼叫會建立執行交易，交易內呼叫則加入既有範圍。
-後續增量刷新可使用此集合；這裡不依集合省略任何刷新。
+提交時另透過持有者的 document_changed 通知點發出頂層欄位集合，reason 為
+execution、kind 為 content。後續增量刷新可使用此集合；這裡不依集合省略任何刷新。
 
 `ExecutionTransaction` 只管記憶體文件；資料庫仍由 Storage 共用交易入口管理。
 `accepting` 是執行路徑的外層入口，不能用額外的純資料庫外層交易延長 live 修改
@@ -118,8 +120,10 @@ runner 最多暫留一份從 journal 解碼的自有內容，避免每個小段�
 完整複本只在測試模式存在，正式執行沒有這項成本。
 
 監看僅涵蓋實際執行的路徑。借用監看以唯讀副本取代共用容器，identity 由原地
-回復測試確認；自訂可變物件、刻意使用 dict/list 基底方法、交易外的 UI 寫入
-不等同已受全域攔截。同步序列化與 writer 的先登記契約仍須遵守。
+回復測試確認。交易外 UI 寫入另外由 live dict/list 包裝及 state 綁定監看，入口與
+逐函式允許清單見[文件寫入與變更通知](architecture-reference.md#文件寫入與變更通知目前工作樹)。
+自訂可變物件、刻意使用 dict/list 基底方法及未執行的路徑不等同已受全域攔截。
+同步序列化與 writer 的先登記契約仍須遵守。
 
 供 UI 與輪詢使用的工作存在性、進度及 attempt 標頭，由既有連線即時投影必要欄位，不讀取完整場景。完成回報、參數回執及公開的完整紀錄查詢仍取回完整內容。這些查詢沒有跨呼叫快取，也沒有增加連線、資料表、欄位或索引。
 

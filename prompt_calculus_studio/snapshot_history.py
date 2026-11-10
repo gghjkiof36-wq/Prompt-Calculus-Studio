@@ -10,7 +10,9 @@ def capture(canvas):
     history=canvas.history_state()
     if 'workspace_scenes' in state:
         from .workspace_scene import capture as capture_scene
-        capture_scene(state);history['workspace_scenes']=copy.deepcopy(state['workspace_scenes'])
+        canvas.window.update_document(capture_scene, fields=('workspace_scenes',),
+            reason='snapshot-capture', kind='derived')
+        history['workspace_scenes']=copy.deepcopy(state['workspace_scenes'])
     return {MARKER:dict(history=history,draft=state['draft'],draft_base=state.get('draft_base',''),
         selection_view=state.get('selection_view','list'),separate=state['settings'].get('separate_selections',False))}
 
@@ -27,7 +29,10 @@ def restore(canvas, source, destination, after):
     value.update(draft=saved['draft'],draft_base=saved['draft_base'],selection_view=saved['selection_view'])
     value['settings']['separate_selections']=saved['separate']
     validate_state(value)
-    source.pop();destination.append((before,later));canvas.window.state=value;canvas.last_state=canvas.history_state()
+    def move_history():
+        source.pop();destination.append((before,later))
+    canvas.window.adopt_document(value, reason='snapshot-redo' if after else 'snapshot-undo', before=move_history)
+    canvas.last_state=canvas.history_state()
     window=canvas.window
     # Present the restored state without treating it as a new user mode
     # switch, which would clear both stacks and replace the saved selection.

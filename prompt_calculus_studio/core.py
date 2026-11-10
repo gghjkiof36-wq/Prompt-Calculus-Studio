@@ -642,19 +642,26 @@ class Storage:
         registers its branch first; accepting owns in-place rollback. Outside
         execution, the existing UI save behaviour is unchanged.
         """
-        execution = getattr(self.db._transactions, 'execution', None)
-        if 'multi_output' in state:
-            if execution is not None and execution.state is state:
-                data = state['multi_output']
-                key = data.get('current_output')
-                if key in data['outputs']: execution.register('multi_output', 'outputs', key)
-            from .multi_output import capture_current
-            capture_current(state)
-        if (execution is not None and execution.state is state and 'workspace_scenes' in state
-                and state['workspace'] in {w['id'] for w in state['workspaces']}):
-            execution.register('workspace_scenes', 'items', state['workspace'])
-        from .workspace_scene import capture
-        capture(state)
+        def synchronize(state):
+            execution = getattr(self.db._transactions, 'execution', None)
+            if 'multi_output' in state:
+                if execution is not None and execution.state is state:
+                    data = state['multi_output']
+                    key = data.get('current_output')
+                    if key in data['outputs']: execution.register('multi_output', 'outputs', key)
+                from .multi_output import capture_current
+                capture_current(state)
+            if (execution is not None and execution.state is state and 'workspace_scenes' in state
+                    and state['workspace'] in {w['id'] for w in state['workspaces']}):
+                execution.register('workspace_scenes', 'items', state['workspace'])
+            from .workspace_scene import capture
+            capture(state)
+        owner_ref = getattr(self, '_document_owner', None)
+        owner = owner_ref() if owner_ref is not None else None
+        if owner is not None and getattr(owner, 'state', None) is state:
+            return owner.update_document(synchronize, fields=('multi_output','workspace_scenes'),
+                reason='save-synchronize', kind='derived')
+        synchronize(state)
 
     def save(self, state, *, commit=True):
         """Synchronize, validate and write within the shared transaction.

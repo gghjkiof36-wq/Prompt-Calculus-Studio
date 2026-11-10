@@ -3,7 +3,7 @@ import copy
 import json
 import os
 from pathlib import Path
-from PySide6.QtCore import Qt, QTimer, QSize, QPoint, QPointF, QUrl, QEvent, QVariantAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QTimer, QSize, QPoint, QPointF, QUrl, QEvent, QVariantAnimation, QEasingCurve, Signal
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut, QDesktopServices
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QComboBox,
     QSplitter, QListWidget, QListWidgetItem, QTreeWidget, QTreeWidgetItem, QPlainTextEdit,
@@ -36,6 +36,27 @@ from .deferred_page import DeferredToolPage, page_ready
 
 
 class Window(QMainWindow):
+    documentChanged = Signal(object, str, str)
+
+    @property
+    def store(self):
+        return self._store
+
+    @store.setter
+    def store(self, storage):
+        import weakref
+        self._store = storage
+        storage._document_owner = weakref.ref(self)
+
+    @property
+    def document_operations(self):
+        return self._document_operations
+
+    @document_operations.setter
+    def document_operations(self, operations):
+        self._document_operations = operations
+        operations.changed = self.document_changed
+
     def __init__(self, data_dir, *, embedded=False, client_factory=None, document_only=False, shared_state=None, shared_store=None):
         super().__init__()
         self.embedded_document = embedded
@@ -638,7 +659,8 @@ class Window(QMainWindow):
             return
         if view!=self.state.get('selection_view','list') and separate_selections(self.state):
             self.canvas.undo_stack.clear(); self.canvas.redo_stack.clear(); self.canvas.last_state=None
-        activate_selection_view(self.state,view)
+        self.update_document(lambda state: activate_selection_view(state,view),
+            fields=('multi_output','selection_view','draft','draft_base','view_drafts'), reason='selection-view', kind='view')
         if hasattr(self,'settings_page'):
             choices=self.settings_page.interface.choices.buttons()
             for choice in choices:choice.blockSignals(True)
@@ -749,10 +771,55 @@ class Window(QMainWindow):
 
     def replace_execution_document(self, state):
         """Adopt an imported workflow without an edit/Undo entry."""
-        self.state=state
-        self.canvas.last_state=None
-        self.generation_panel.changed()
-        self.canvas.refresh()
+        def refresh():
+            self.canvas.last_state=None
+            self.generation_panel.changed()
+            self.canvas.refresh()
+        self.adopt_document(state, reason='execution-import', after=refresh)
+
+    def document_changed(self, fields, *, reason, kind='content'):
+        """Publish fields (frozenset or 'ALL'); never save or refresh here."""
+        self.documentChanged.emit(fields, reason, kind)
+
+    def update_document(self, operation, *, fields, reason, kind='content'):
+        """Mutate declared live branches without adding an Undo entry.
+
+        Execution owns recovery and defers this notification until durability.
+        Tests enforce declarations; production does not copy the live document.
+        """
+        if kind not in ('content', 'derived', 'view'):
+            raise ValueError('Unknown document change kind: '+str(kind))
+        fields = frozenset(fields)
+        if not fields or any(not isinstance(field, str) for field in fields):
+            raise ValueError('Declare top-level document fields.')
+        execution = getattr(getattr(self.store.db, '_transactions', None), 'execution', None)
+        if execution is not None:
+            if execution.state is not self.state:
+                raise RuntimeError('Cannot update a different document during execution: '+reason)
+            for field in fields: execution.register(field)
+        result = operation(self.state)
+        notify = lambda: self.document_changed(fields, reason=reason, kind=kind)
+        if execution is not None: self.store.after_commit(notify)
+        else: notify()
+        return result
+
+    def adopt_document(self, state, *, reason, before=None, after=None):
+        """Rebind a detached document; caller callbacks retain history/UI order.
+
+        Only execution-import may be queued inside execution. Adoption occurs
+        after its database commit, so rollback keeps the original live owner.
+        """
+        execution = getattr(getattr(self.store.db, '_transactions', None), 'execution', None)
+        if execution is not None and reason != 'execution-import':
+            raise RuntimeError('Cannot adopt document during execution: '+reason)
+        value = copy.deepcopy(state)
+        def publish():
+            if before: before()
+            self.state = value
+            self.document_changed('ALL', reason=reason, kind='content')
+            if after: after()
+        if execution is not None: self.store.after_commit(publish)
+        else: publish()
 
     def persist(self, *, quiet=False):
         try:
@@ -926,7 +993,9 @@ class Window(QMainWindow):
             self.workspace_histories=histories
             canvas.undo_stack,canvas.redo_stack=histories.get(target,([],[]));canvas.last_state=None
             canvas.root_id=None;canvas.path=[]
-        apply_workspace(self.state,target)
+        from .workspace_scene import FIELDS
+        self.update_document(lambda state: apply_workspace(state,target),
+            fields=FIELDS+('workspace','workspace_scenes','generation','_execution_inputs'), reason='workspace-switch')
         if hasattr(self,'comfy') and hasattr(self.comfy.input_flow.chain,'load_results'):self.comfy.input_flow.chain.load_results()
         self.refresh_workspaces();self.refresh_library();self.refresh_builder();self.generation_panel.refresh()
         if hasattr(self,'canvas'):self.canvas.restore_view()
@@ -1468,7 +1537,7 @@ class Window(QMainWindow):
                 self.store.db.execute("DELETE FROM resources")
                 for r in resources: self.store.db.execute("INSERT INTO resources VALUES (?,?,?,?,?)",(r["id"],r["kind"],r["parent"],r["name"],json.dumps(r["body"],ensure_ascii=False)))
                 self.store.db.execute("INSERT OR REPLACE INTO document VALUES (1,?)",(json.dumps(state,ensure_ascii=False),))
-            self.state=self.store.load(); self.current_module=self.state["modules"][0]["id"] if self.state["modules"] else None
+            self.adopt_document(self.store.load(), reason='json-import'); self.current_module=self.state["modules"][0]["id"] if self.state["modules"] else None
             from .prompt_editor import reset_editors
             reset_editors(self)
             # JSON replaces the document, not one undoable Canvas edit. Old

@@ -24,7 +24,7 @@ MULTI_HISTORY_FIELDS = HISTORY_FIELDS + ('multi_output', 'draft', 'draft_base')
 class DocumentOperations:
     def __init__(self, *, state, replace_state, history, project, checkpoint,
                  sync, notice, is_layout_only, begin=None, prepare=None,
-                 complete=None, clock=time.monotonic):
+                 complete=None, clock=time.monotonic, changed=None):
         """Bind capabilities, not an editor or window.
 
         ``prepare(candidate, context)`` derives flow content before validation.
@@ -45,11 +45,15 @@ class DocumentOperations:
         self.prepare = prepare
         self.complete = complete
         self.clock = clock
+        self.changed = changed
         if history.get('undo_stack') is None:
             history.update(undo_stack=[], redo_stack=[], last_state=None)
         self._undo_sizes = {}
 
     def commit(self, operation, label='編輯', merge_key=None):
+        # The existing candidate is detached; retain the old reference, not a
+        # second document copy, to report top-level changes after completion.
+        previous = self.state()
         context = self.begin() if self.begin else None
         result = self._commit(operation, label, merge_key, context)
         # Runtime route notification was outside TextCanvas's validation error
@@ -61,6 +65,11 @@ class DocumentOperations:
                 after = self.project(self.state())
                 self.history['undo_stack'][-1] = (before, after)
                 self.history['last_state'] = after
+        if result and self.changed:
+            current = self.state()
+            fields = frozenset(key for key in previous.keys() | current.keys()
+                               if key not in previous or key not in current or previous[key] != current[key])
+            self.changed(fields, reason=label, kind='content')
         return result
 
     def _commit(self, operation, label, merge_key, context):

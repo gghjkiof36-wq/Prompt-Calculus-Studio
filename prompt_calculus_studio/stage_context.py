@@ -102,6 +102,10 @@ def execution_scope(window, journal):
         # Clear ownership before callbacks can start another acceptance.
         manager.execution = None
         transaction.commit()
+        changed = getattr(window, 'document_changed', None)
+        if changed:
+            changed(frozenset(path[0] for path in transaction.changes),
+                    reason='execution', kind='content')
     try:
         with journal.transaction(), (storage.coalesce_saves() if storage else nullcontext(False)) as saving:
             if outer: manager.after_commit(committed)

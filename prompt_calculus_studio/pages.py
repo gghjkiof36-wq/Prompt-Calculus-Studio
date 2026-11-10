@@ -462,7 +462,7 @@ class ModelPage(QFrame):
         item=self.list.itemAt(pos)
         if not item: return
         self.list.setCurrentItem(item)
-        menu=QMenu(self); menu.addAction("複製觸發詞",lambda:self.window.copy_text(self.trigger.toPlainText())); menu.addAction("加入目前組合",lambda:self.window.add_temporary(self.trigger.toPlainText()))
+        menu=QMenu(self); menu.addAction("複製觸發詞",lambda:self.window.copy_text(self.trigger.toPlainText()))
         menu.addAction("設定預覽圖",self.choose_image); menu.addAction("顯示檔案位置",self.reveal); menu.addSeparator(); menu.add_destructive_action("移至資源回收筒…",self.recycle)
         menu.open_at(self.list.viewport().mapToGlobal(pos))
 
@@ -1028,7 +1028,7 @@ class GalleryPage(QFrame):
             undo=list(self.window.canvas.undo_stack)
             self.window.store.save(restored)
             if hasattr(self.window.comfy,'input_flow'):self.window.comfy.input_flow.workspace_changed(self.window.state['workspace'])
-            self.window.state=restored
+            self.window.adopt_document(restored, reason='snapshot-import')
             self.window.canvas.last_state=self.window.canvas.history_state()
             self.window.current_module=restored['modules'][0]['id'] if restored['modules'] else None
             self.window.refresh_workspaces(); self.window.refresh_modules()
