@@ -29,7 +29,7 @@ save 注入錯誤，檢查 0 筆 entry、游標／已存文件不變及下一次
 測試只替換 UI／worker 排程，實際寫入與交易方法照常執行；沒有真實服務或圖片
 下載。完整入口契約見 [Stage 交易](../docs/development/stage-architecture.md#共用連線的交易入口)。
 
-`test_stage_borrow_guard.py` 已納入快速套件：驗證 helper 的複製深度、`resolve` 不改輸入、子上下文既有 saved 項目禁止修改且新增 key 仍可用，以及 accepting 的回復範圍與穿透寫入限制。正向對照會故意寫入借用資料，必須在改動來源前拋出 `BorrowViolation`；這些預期事件和產品違規分開計數。
+`test_stage_borrow_guard.py` 已納入快速套件：驗證 helper 的複製深度、`resolve` 不改輸入、子上下文既有 saved 項目禁止修改且新增 key 仍可用，以及 accepting 的登記回復、巢狀容器身分與未登記寫入對照。借用正向對照必須在改動來源前拋出 `BorrowViolation`；live 正向對照則在交易結束檢出未登記變動。預期事件和產品違規分開計數。
 
 一般執行預設不開監看，六分鐘／單檔 120 秒預算不變。需要監看時加 `--borrow-guard`，或在啟動此執行器前設定 `PCS_BORROW_GUARD=1`。環境開關只供測試端讀取，產品不使用它。
 
@@ -42,7 +42,9 @@ save 注入錯誤，檢查 0 筆 entry、游標／已存文件不變及下一次
 
 每次違規先記錄路徑、產品呼叫位置及 test id，再立即拋錯，絕不繼續寫入。執行器檢查事件記錄，即使產品或 Qt 回呼捕捉了例外，該測試及整套結果仍失敗。`tests.json` 保存 `borrow_events`、`borrow_calls`；逐檔 `result.json` 保存 `borrow_violations`、`borrow_positive_controls` 及入口呼叫數。正向對照只有實際接住相符例外才會被標為 expected，未知事件不能套用 known failures 放行。
 
-監看以唯讀副本保護共享 dict/list；原物件 identity 與時間點行為須另外驗證。未涵蓋直接寫 live state、`prompt_sources.build` 的內部別名、非 JSON 可變物件、未執行到的路徑或刻意使用基底類別方法的繞過。`resolve` 的承重前提另由固定測試鎖住。完整契約與後續交易／存檔限制見 [Stage 快照邊界](../docs/development/stage-architecture.md#同步擷取的資料所有權與查詢)。
+監看以唯讀副本保護共享 dict/list；原物件 identity 與時間點行為須另外驗證。執行交易另以完整 live 複本在提交／回復後檢查未登記變動。未涵蓋交易外直接寫 live state、`prompt_sources.build` 的內部別名、非 JSON 可變物件、未執行到的路徑或刻意使用基底類別方法的繞過。完整契約見 [Stage 快照邊界](../docs/development/stage-architecture.md#同步擷取的資料所有權與查詢)。
+
+`test_execution_transactions.py` 提供 AST 鎖、巢狀登記、變更集合、Undo、純接線判斷、匯入替換與逐寫入點失敗注入。以 `--files test_execution_transactions.py --borrow-guard` 執行完整矩陣；快速套件保留借用檔的核心契約與正向對照，時間預算不變。
 
 ## 隔離執行與其他用法
 

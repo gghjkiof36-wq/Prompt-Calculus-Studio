@@ -1,5 +1,6 @@
 """Isolated per-item intentions; unspecified native fields stay live at dispatch."""
 import copy
+from contextlib import contextmanager, nullcontext
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
@@ -12,6 +13,119 @@ from .stage_model import input_nodes as upstream
 from .flow_data import image_list
 
 MAX_SOURCE_BYTES = 25 * 1024 * 1024
+
+
+_ABSENT = object()
+
+
+def _restore(target, saved):
+    """Preserve containers still at the same position, including descendants."""
+    if isinstance(target, dict) and isinstance(saved, dict):
+        values = {k: _restore(target[k], v) if k in target else v for k, v in saved.items()}
+        target.clear()
+        target.update(values)
+        return target
+    if isinstance(target, list) and isinstance(saved, list):
+        target[:] = [_restore(target[i], v) if i < len(target) else v for i, v in enumerate(saved)]
+        return target
+    return saved
+
+
+class ExecutionTransaction:
+    """Write-ahead recovery for live JSON branches; never an Undo or read view.
+
+    Writers register a path before its first mutation. Paths are tuples of keys
+    (list indices are allowed); a missing ancestor is recorded at that ancestor.
+    Nested scopes share the first snapshots. Rollback restores in reverse order;
+    successful outer commit publishes registered paths as a frozenset, changes.
+    """
+    def __init__(self, state):
+        self.state = state
+        self.records = {}
+        self.changes = frozenset()
+        self.committed = False
+
+    def register(self, *path):
+        if not path: raise ValueError('Register a branch, not the whole document.')
+        if self.committed: raise RuntimeError('Execution transaction has ended.')
+        parent = self.state
+        for index, key in enumerate(path):
+            missing = key not in parent if isinstance(parent, dict) else key >= len(parent)
+            if missing:
+                path = path[:index+1]
+                break
+            if index < len(path)-1: parent = parent[key]
+        path = tuple(path)
+        if any(path[:len(prior)] == prior for prior in self.records): return
+        value = parent[path[-1]] if not missing else _ABSENT
+        self.records[path] = _ABSENT if value is _ABSENT else copy.deepcopy(value)
+
+    def rollback(self):
+        for path, saved in reversed(self.records.items()):
+            parent = self.state
+            for key in path[:-1]: parent = parent[key]
+            key = path[-1]
+            if saved is _ABSENT:
+                if isinstance(parent, dict): parent.pop(key, None)
+                elif key < len(parent): del parent[key:]
+            elif isinstance(parent, dict):
+                parent[key] = _restore(parent.get(key), saved)
+            else:
+                parent[key] = _restore(parent[key], saved)
+
+    def commit(self):
+        self.committed = True
+        self.changes = frozenset(self.records)
+
+
+@contextmanager
+def execution_scope(window, journal):
+    """Join the synchronous execution owner; publish only after database commit.
+
+    Live writes must register first. Borrowed reads still use borrowed_base;
+    child contexts must not edit existing saved items. No event-loop yield is
+    allowed before serialization and the outer commit. Caught inner exceptions
+    retain their writes, matching Storage.transaction (no savepoints).
+    """
+    storage = getattr(window, 'store', None)
+    manager = journal._transactions if hasattr(journal, '_transactions') else journal.db._transactions
+    transaction = getattr(manager, 'execution', None)
+    outer = transaction is None
+    if outer:
+        if manager.depth:
+            raise RuntimeError('Start accepting() before an enclosing database transaction.')
+        transaction = ExecutionTransaction(window.state)
+        manager.execution = transaction
+    elif transaction.state is not window.state:
+        raise RuntimeError('Cannot replace the live document inside execution.')
+    def committed():
+        # Clear ownership before callbacks can start another acceptance.
+        manager.execution = None
+        transaction.commit()
+    try:
+        with journal.transaction(), (storage.coalesce_saves() if storage else nullcontext(False)) as saving:
+            if outer: manager.after_commit(committed)
+            yield transaction
+            persist = getattr(window, 'persist', None)
+            if saving and storage.save_pending and persist is not None:
+                # persist delegates the UI's view capture; keep that write in
+                # this boundary without changing the UI-only autosave path.
+                transaction.register('canvas_view')
+                if not persist(): raise OSError('資料儲存失敗。')
+    except BaseException:
+        if outer and not transaction.committed:
+            try:transaction.rollback()
+            finally:manager.execution = None
+        raise
+
+
+def select_live_image(state, key, index, directory, *, register, preserve_reservation=False):
+    """Execution writer for select(), including its derived materialization."""
+    from .image_source import select
+    register('canvas_functions', 'images', key)
+    for path in (('uses',), ('text_positions',), ('output_order',), ('multi_output', 'canvases')):
+        register(*path)
+    return select(state, key, index, directory, preserve_reservation=preserve_reservation)
 
 
 def borrowed_base(live, scene=None, *, copy_top=True):
@@ -27,6 +141,9 @@ def borrowed_base(live, scene=None, *, copy_top=True):
     Before borrowed data enters a container that outlives a yield point
     (an in-memory run, frame['ctx'], or asynchronous save), serialize it on the
     main thread and retain only the serialized content or its independent decode.
+    Live execution writes require registration in the execution transaction;
+    borrowing is not a second write or read ownership boundary. Child contexts
+    must not modify existing items in their shared saved mapping.
     """
     if scene is None and not copy_top:return live
     result=dict(live)
@@ -72,23 +189,8 @@ def execution_scene(state):
     return result
 
 
-def progress_backup(state, suppliers):
-    """Rollback the branches synchronous supply acceptance can change.
-
-    Reservation edits supplier cursors; save replaces the active scene and
-    output's list cache; result projection replaces derived roots/canvases.
-    Libraries, histories and unrelated roots are read-only in this boundary.
-    """
-    result=execution_state(state,suppliers)
-    data=result['multi_output']
-    data['outputs']=copy.deepcopy(data['outputs'])
-    if 'workspace_scenes' in state:
-        result['workspace_scenes']=dict(state['workspace_scenes'],items=dict(state['workspace_scenes']['items']))
-    return result
-
-
 def copy_context(context):
-    """Fork mutable execution maps; captured inputs and scenes stay read-only."""
+    """Fork maps; children must not modify existing saved items or scenes."""
     saved=context.get('saved')
     shared=[context.get('scene'),saved]
     result=copy.deepcopy(context,{id(value):value for value in shared if value is not None})
@@ -174,12 +276,13 @@ def project(state,directory,results=None,source_values=None,readers=None,*,execu
     materialize(state);return state
 
 
-def sync_result_view(state,directory,results):
+def sync_result_view(state,directory,results,*,register=None):
     """Refresh derived Canvas content without persisting runtime task results."""
     projected=project(state,directory,results,execution=True);changed=False
     for key,value in projected.get('canvas_functions',{}).get('images',{}).items():
         current=state['canvas_functions']['images'][key]
         if incoming(state,key,'image') or current.get('stage_reference'):
+            if register:register('canvas_functions','images',key)
             for field in ('source','content','content_error'):
                 if current.get(field)!=value.get(field):changed=True
                 if field in value:current[field]=copy.deepcopy(value[field])
@@ -188,10 +291,12 @@ def sync_result_view(state,directory,results):
     # are the only edit-document fields it derives; user-owned roots survive.
     for field in ('uses','text_positions','output_order'):
         if state.get(field)!=projected.get(field):
+            if register:register(field)
             changed=True
             if field in projected:state[field]=copy.deepcopy(projected[field])
             else:state.pop(field,None)
     if state['multi_output']['canvases']!=projected['multi_output']['canvases']:
+        if register:register('multi_output','canvases')
         changed=True;state['multi_output']['canvases']=copy.deepcopy(projected['multi_output']['canvases'])
     return changed
 

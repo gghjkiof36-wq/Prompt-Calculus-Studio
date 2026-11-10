@@ -78,3 +78,5 @@ git show 'c8f9011c7244c6654e2b3cc73154ca5cc2a6e3a9:docs/development/navigation-f
 文件交易看 [test_document_operations.py](../../tests/test_document_operations.py) 與 [UI 呼叫端](../../tests/test_document_operations_ui.py)；回執看 [test_job_outcomes.py](../../tests/test_job_outcomes.py) 和 [呼叫端生命週期](../../tests/test_job_callers.py)；服務看 [test_service_adapters.py](../../tests/test_service_adapters.py)；Stage 看 [test_stage_image_snapshot.py](../../tests/test_stage_image_snapshot.py)；根變更看 [test_markdown_root_scope.py](../../tests/test_markdown_root_scope.py)。這些是選用入口，不代表新增功能已獲驗證。
 
 每次依受影響契約選最小但完整的成功、取消／失敗、晚到回覆及保存重開控制，記來源和實際結果。既有的原生輸入、DPI、真服務／GPU及異常退出限制見 [Beta2 驗證](../releases/0.8.9/validation/beta.2.md)；本次整理文件沒有新增執行證據。維護分工與更新時機見[開發指南](README.md#隨功能維護)。
+
+Stage 執行寫入使用 [執行交易](stage-architecture.md#執行交易與寫入登記)：writer 在修改 live 分支前登記，失敗原地回復；提交後提供路徑集合，與 DocumentOperations 的編輯 Undo 分開。工作流自動匯入經 Window.replace_execution_document 統一採用文件、清除 last_state 與刷新，仍不新增 Undo。

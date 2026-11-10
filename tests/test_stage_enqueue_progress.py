@@ -190,7 +190,12 @@ class EnqueueProgressTests(unittest.TestCase):
                         self.assertEqual(len(case.runner.store.rows('entry')), before if auto else before + 2)
                         expected = '執行中…' if auto else '已保存 2 項至 '
                     else:
-                        expected = '已保存為下一次完整流程。'
+                        # The old run keeps its frame decision, but a newly
+                        # created subsequent run uses the accepted Q2 model.
+                        created=next(r for r in case.runner.store.rows('run') if r['id']!=run['id'])
+                        self.assertTrue(created['batch_snapshots'])
+                        self.assertEqual(created['status'],'waiting')
+                        expected = '已排入第 1 組（2 項）'
                     self.assertTrue(any(note.startswith(expected) for note in case.notices), case.notices)
 
     def test_dispatch_claim_sees_committed_progress_and_entries(self):

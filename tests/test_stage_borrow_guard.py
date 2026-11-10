@@ -190,9 +190,11 @@ class BorrowContractTests(unittest.TestCase):
         before = copy.deepcopy(state)
         runner = self.runner(state)
         with self.assertRaisesRegex(sqlite3.OperationalError, 'failed acceptance'):
-            with StageRunner.accepting(runner, suppliers=[supplier]):
+            with StageRunner.accepting(runner) as transaction:
                 frozen = sources.build(state, [supplier], count=1)
-                sources.reserve(state, frozen)
+                sources.reserve(state, frozen, register=transaction.register)
+                for path in (('uses',),('text_positions',),('multi_output','canvases'),('canvas_functions','images','image'),('generation',),('multi_output','outputs'),('workspace_scenes',)):
+                    transaction.register(*path)
                 state['uses']['derived'] = {'prompt': 'new'}
                 state['text_positions']['derived'] = [1, 2]
                 canvas = next(iter(state['multi_output']['canvases'].values()))
@@ -212,7 +214,7 @@ class BorrowContractTests(unittest.TestCase):
         before = copy.deepcopy(state)
         runner = self.runner(state)
         with guard.installed(), guard.expect_violation('view/uses/a'):
-            with StageRunner.accepting(runner, suppliers=[]):
+            with StageRunner.accepting(runner) as transaction:
                 view = sc.execution_state(state)
                 try:
                     view['uses']['a']['prompt'] = 'not recoverable by shallow backup'
@@ -223,17 +225,37 @@ class BorrowContractTests(unittest.TestCase):
                     raise
         self.assertEqual(state, before)
 
-    def test_known_limit_unguarded_nested_write_survives_shallow_rollback(self):
+    def test_registered_nested_write_rolls_back_in_place(self):
         state = document({})
+        before = copy.deepcopy(state)
+        root = state['uses']['a']
+        nested = root.setdefault('test_nested', {'items': [1, 2]})
+        before = copy.deepcopy(state)
+        items = nested['items']
         runner = self.runner(state)
-        # Document the limitation on synthetic data, even in a guarded suite.
-        raw_execution_state = inspect.unwrap(sc.execution_state)
-        with patch.object(sc, 'execution_state', raw_execution_state):
-            with self.assertRaisesRegex(ValueError, 'rollback'):
-                with StageRunner.accepting(runner, suppliers=[]):
-                    raw_execution_state(state)['uses']['a']['prompt'] = 'leaked'
-                    raise ValueError('rollback')
-        self.assertEqual(state['uses']['a']['prompt'], 'leaked')
+        with self.assertRaisesRegex(ValueError, 'rollback'):
+            with StageRunner.accepting(runner) as transaction:
+                transaction.register('uses', 'a')
+                root['prompt'] = 'failed'
+                items.append(3)
+                nested['new'] = True
+                runner.store.add('entry', state['workspace'], status='waiting')
+                raise ValueError('rollback')
+        self.assertEqual(state, before)
+        self.assertEqual(runner.store.rows('entry'), [])
+        self.assertIs(state['uses']['a'], root)
+        self.assertIs(root['test_nested'], nested)
+        self.assertIs(nested['items'], items)
+
+    def test_positive_control_detects_unregistered_live_write(self):
+        for rollback in (False, True):
+            with self.subTest(rollback=rollback):
+                state = document({})
+                runner = self.runner(state)
+                with guard.installed(), guard.expect_violation('live/uses/a/prompt'):
+                    with StageRunner.accepting(runner):
+                        state['uses']['a']['prompt'] = 'unregistered'
+                        if rollback: raise ValueError('rollback')
 
     def test_mutating_container_apis_fail_before_change_and_deepcopy_is_owned(self):
         operations = [

@@ -638,11 +638,21 @@ class Storage:
         Mutates the active multi_output output's draft/draft_base (or list_draft)
         and list_state, then replaces workspace_scenes.items[workspace] with the
         current scene when present. These writes occur even if validation or
-        persistence later fails; accepting owns their in-memory rollback.
+        persistence later fails. Inside an execution transaction each writer
+        registers its branch first; accepting owns in-place rollback. Outside
+        execution, the existing UI save behaviour is unchanged.
         """
+        execution = getattr(self.db._transactions, 'execution', None)
         if 'multi_output' in state:
+            if execution is not None and execution.state is state:
+                data = state['multi_output']
+                key = data.get('current_output')
+                if key in data['outputs']: execution.register('multi_output', 'outputs', key)
             from .multi_output import capture_current
             capture_current(state)
+        if (execution is not None and execution.state is state and 'workspace_scenes' in state
+                and state['workspace'] in {w['id'] for w in state['workspaces']}):
+            execution.register('workspace_scenes', 'items', state['workspace'])
         from .workspace_scene import capture
         capture(state)
 

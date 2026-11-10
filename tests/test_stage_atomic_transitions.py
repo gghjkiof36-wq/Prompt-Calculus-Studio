@@ -1,5 +1,6 @@
 """State pairs commit once, and publication never observes half acceptance."""
 import json
+from contextlib import nullcontext
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -29,8 +30,9 @@ class StageAtomicTransitionsTests(unittest.TestCase):
             client=SimpleNamespace(request=lambda *a, **k: self.fail('unexpected request'),
                 resultsReceived=SimpleNamespace(emit=lambda values:self.publish('recent'))),
             window=SimpleNamespace(state={'workspace': 'w'}, notice=self.notices.append,
-                                   store=SimpleNamespace(directory=Path(self.area.name))))
+                                   store=SimpleNamespace(directory=Path(self.area.name),coalesce_saves=lambda:nullcontext(False))))
         self.runner.save = lambda run: StageRunner.save(self.runner, run)
+        self.runner.accepting = lambda: StageRunner.accepting(self.runner)
         self.runner.pause = lambda *a, **k: self.fail('database failure must not pause a backend job')
         for name in ('remember_preview', 'refresh_results', 'settle', 'notify', 'later'):
             setattr(self.runner, name, lambda *a, name=name, **kwargs: self.publish(name))

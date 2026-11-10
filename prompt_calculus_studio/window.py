@@ -747,6 +747,13 @@ class Window(QMainWindow):
         if record is None: self.latest_preview.hide(); return
         self.latest_preview.setIcon(thumb_icon(self.store,record.get('thumb'),96)); self.latest_preview.setVisible(not self.canvas_mode)
 
+    def replace_execution_document(self, state):
+        """Adopt an imported workflow without an edit/Undo entry."""
+        self.state=state
+        self.canvas.last_state=None
+        self.generation_panel.changed()
+        self.canvas.refresh()
+
     def persist(self, *, quiet=False):
         try:
             self.remember_canvas_view()

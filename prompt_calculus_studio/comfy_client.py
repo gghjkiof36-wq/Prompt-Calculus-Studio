@@ -331,8 +331,7 @@ class ComfyClient(QObject):
                     from .workflow_transfer import apply_transfer
                     state,profile=apply_transfer(self.window.state,data['value'])
                     self.window.store.backup(); self.window.store.save(state)
-                    self.window.state=state; self.window.canvas.last_state=None
-                    self.window.generation_panel.changed(); self.window.canvas.refresh()
+                    self.window.replace_execution_document(state)
                     self.window.notice('已自動匯入工作流：'+profile['name'])
                     settings=getattr(self.window,'settings_page',None)
                     if settings and hasattr(settings,'workflow_manager'): settings.workflow_manager.refresh()

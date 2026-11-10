@@ -9,12 +9,12 @@ import json
 import sqlite3
 import time
 import uuid
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from urllib.parse import quote
 from PySide6.QtCore import QObject,QTimer
 from .stage_store import StageStore
 from .stage_model import compile_plan,execution_signature,terminals,controls,connected_terminals,input_nodes as upstream
-from .stage_context import capture,project,image_list,merge_saved,prepare_state,execution_state,execution_scene,copy_context,progress_backup,borrowed_base
+from .stage_context import capture,project,image_list,merge_saved,prepare_state,execution_state,execution_scene,copy_context,borrowed_base,execution_scope
 from .flow_data import incoming
 
 # Ready entries, not a limit on accepted clicks or journal groups.
@@ -41,6 +41,8 @@ class StageRunner(QObject):
         self.apply_abort=None;self.apply_owner=None;self.apply_operation=None;self.apply_cancellations=set()
 
     def later(self):
+        if self.store.transaction_depth:
+            self.store._transactions.after_commit(self.later);return
         if not self.closed:self.timer.start(0)
 
     def close(self):
@@ -49,6 +51,8 @@ class StageRunner(QObject):
         self._batch_content=None
 
     def notify(self,message=''):
+        if self.store.transaction_depth:
+            self.store._transactions.after_commit(lambda:self.notify(message));return
         if self.closed:return
         if message:self.window.notice(message)
         self.client.stateChanged.emit()
@@ -70,7 +74,7 @@ class StageRunner(QObject):
     def scheduler_keys(self,plan):
         return set(plan['scopes'])|{s['scheduler'] for s in plan['stages'].values() if s['scheduler']}
 
-    def route_changed(self):
+    def route_changed(self, *, schedule=True):
         from .stage_free import route_changed
         for run in self.runs(True):
             route_changed(self,run)
@@ -78,7 +82,7 @@ class StageRunner(QObject):
             except ValueError:
                 if run.get('pause_reason')!='route':self.pause(run['id'],'接線已修改；已提交項目繼續收取，後續保留並暫停。',reason='route')
                 self.cancel_inputs(run)
-        self.later()
+        if schedule:self.later()
     def owns(self,owner):return False
 
     def context(self,results=None,sources=None,readers=None):
@@ -125,41 +129,39 @@ class StageRunner(QObject):
     def reserve_supply(self,plan,select_next=True,through=None):
         if not plan:return
         from .prompt_sources import reserve
-        reserve(self.window.state,plan,select_next=select_next,through=through)
+        reserve(self.window.state,plan,select_next=select_next,through=through,register=self.execution.register)
         self.refresh_reserved_images(plan)
         self.window.store.save(self.window.state,commit=not self.store.transaction_depth)
         self.refresh_results()
-        self.window.changed('prompt')
+        self.store._transactions.after_commit(lambda:self.window.changed('prompt'))
 
     def refresh_reserved_images(self,plan):
         from .composition_image import source_path
         from .image_source import read_content
         plans=plan.get('batches',[plan]);ids={p['id'] for p in plans}
-        for image in self.window.state.get('canvas_functions',{}).get('images',{}).values():
+        for key,image in self.window.state.get('canvas_functions',{}).get('images',{}).items():
             if image.get('supply_reservation',{}).get('plan') not in ids:continue
+            self.execution.register('canvas_functions','images',key)
             image.pop('content',None);image.pop('content_error',None)
             try:image['content']=read_content(source_path(self.window.store.directory,image['source'],verify=True),image.get('prompt_choice'))
             except (ValueError,OSError) as exc:image['content_error']=str(exc)
 
+    @property
+    def execution(self):
+        transaction=getattr(self.store._transactions,'execution',None)
+        if transaction is None:raise RuntimeError('Live execution writes require accepting().')
+        return transaction
+
     @contextmanager
-    def accepting(self,*,document=True,suppliers=None):
-        before=None
-        if document and not self.store.transaction_depth:
-            before=(copy.deepcopy(self.window.state) if suppliers is None else progress_backup(self.window.state,suppliers))
-        storage=getattr(self.window,'store',None)
-        try:
-            with self.store.transaction(), (storage.coalesce_saves() if storage is not None else nullcontext(False)) as saving:
-                yield
-                # Include the pending UI autosave in this same acceptance. Its
-                # view capture and recovery-cache cleanup still use persist;
-                # the actual write is flushed before the transaction exits.
-                persist=getattr(self.window,'persist',None)
-                if saving and storage.save_pending and persist is not None:
-                    if not persist():raise OSError('資料儲存失敗。')
-        except Exception:
-            if before is not None:
-                self.window.state.clear();self.window.state.update(before)
-            raise
+    def accepting(self):
+        """Yield the shared execution transaction; register live writes first.
+
+        The outer commit publishes tx.changes (frozenset of tuple paths).
+        Rollback is in place and never enters Undo. Borrowed reads still use
+        borrowed_base; child contexts cannot modify existing saved items.
+        """
+        with execution_scope(self.window,self.store) as transaction:
+            yield transaction
 
     def claim_dispatch(self):
         """Claim/register this document after journal and cursor acceptance.
@@ -167,6 +169,8 @@ class StageRunner(QObject):
         Workspace clients perform that work in the dispatch_allowed getter;
         keep the side effect explicit at enqueue call sites.
         """
+        if self.store.transaction_depth:
+            self.store._transactions.after_commit(self.claim_dispatch);return
         return self.client.dispatch_allowed
 
     def record_next_scope(self,run,index=0):
@@ -206,7 +210,7 @@ class StageRunner(QObject):
         plan=compile_plan(self.window.state)
         if not plan['order']:
             self.sync_free(all_inputs=True);return
-        self.route_changed()
+        self.route_changed(schedule=False)
         for previous in self.runs(True):
             if previous['status']=='paused':self.settle(previous)
         signature=execution_signature(plan)
@@ -218,7 +222,7 @@ class StageRunner(QObject):
             if target and active.get('batch_snapshots'):
                 from .stage_batches import accept,notice
                 self.check_route(active)
-                with self.accepting(suppliers=self.manual_suppliers(plan)):
+                with self.accepting():
                     accept(self,active,target['node'],target['owner'],count,execution_group,plan=plan)
                 self.claim_dispatch()
                 notice(self,target['node']['key'],execution_group);self.later();return
@@ -226,12 +230,12 @@ class StageRunner(QObject):
                 self.check_route(active)
                 states,supply=self.manual_rounds(plan,self.scope_keys(plan,target['node']),count)
                 saved=[self.capture_scope(plan,target['node'],state) for state in states]
-                with self.accepting(suppliers=self.manual_suppliers(plan)):
+                with self.accepting():
                     for value in saved:self.add_entry(active,target['owner'],target['node'],value,execution_group=execution_group,_return_record=False)
                     self.reserve_supply(supply)
                 self.claim_dispatch()
                 self.notify('已保存 '+str(len(states))+' 項至 '+self.window.state['multi_output']['schedulers'][target['node']['key']]['name']);self.later();return
-            if target and target.get('auto'):self.notify('執行中…');return
+            if target and target.get('auto'):self.notify('執行中…');self.later();return
             # A scope already left is not re-entered in the same execution.
             created=self.create_run(plan,count,status='waiting',execution_group=execution_group)
             if created.get('batch_snapshots'):
@@ -239,12 +243,13 @@ class StageRunner(QObject):
                 for node in plan['tree']:
                     if node['kind']!='stage':notice(self,node['key'],execution_group)
             else:self.notify('已保存為下一次完整流程。')
+            self.later()
             return
         if active and len(plan['order'])>1:
-            self.sync_free();self.notify('這條流程尚未結束；目前點擊不追加相同流程。');return
+            self.sync_free();self.notify('這條流程尚未結束；目前點擊不追加相同流程。');self.later();return
         if len(plan['order'])==1 and not scheduling:
             states,supply=self.manual_rounds(plan,plan['order'],count)
-            with self.accepting(suppliers=self.manual_suppliers(plan)):
+            with self.accepting():
                 for state in states:self.create_run(plan,1,direct=True,frozen_state=state,execution_group=execution_group)
                 self.reserve_supply(supply)
         else:
@@ -259,7 +264,7 @@ class StageRunner(QObject):
         self.sync_free();self.later()
 
     def create_run(self,plan,count,direct=False,status='running',frozen_state=None,execution_group=None):
-        with self.accepting(suppliers=self.manual_suppliers(plan)):
+        with self.accepting():
             return self._create_run(plan,count,direct,status,frozen_state,execution_group or uuid.uuid4().hex)
 
     def manual_suppliers(self,plan):
@@ -447,22 +452,18 @@ class StageRunner(QObject):
         if run['stack'] and run['stack'][-1]['kind']=='stage' and run['stack'][-1].get('job'):return
         # Pure interpreter transitions share one durable stack write. The next
         # external action runs only after entries, cursors and stack commit.
-        plan=run.get('plan');state=self.window.state
-        # A plain manual text scope changes only the journal. Source supply,
-        # legacy progress and result-derived document roots still need rollback.
-        document=(not plan or any(s['auto'] for s in plan['stages'].values()) or
-            bool(state.get('canvas_functions',{}).get('images')) or bool(run.get('source_positions')) or
-            any(c['kind'] in ('clip','content','image') and c['source'] in plan['stages']
-                for c in state.get('multi_output',{}).get('connections',[])))
-        with self.accepting(document=document):
+        with self.accepting():
             self._advancing_run=run
             self._advancing_dirty=False
             try:action=self.advance(run)
             finally:self._advancing_run=None
             if self._advancing_dirty:self.save(run)
-        if action:
-            if action[0]=='complete':self.complete(run)
-            else:self.dispatch(run,*action)
+        def publish_action():
+            if action:
+                if action[0]=='complete':self.complete(run)
+                else:self.dispatch(run,*action)
+
+        self.store._transactions.after_commit(publish_action)
 
     def advance(self,run):
         # Bound synchronous transitions; callbacks resume through an owned timer.
@@ -512,7 +513,7 @@ class StageRunner(QObject):
     def activate_entry(self,run,frame,item):
         # No external work starts until both the row and its owning stack are
         # committed. A failed transaction is retried from a fresh run in pump.
-        with self.store.transaction():
+        with self.accepting():
             frame['active']=item['id'];self.store.update(item['id'],status='running')
             group=item.get('execution_group') or 'legacy:'+run['id']
             control=self.store.batch_control(run['workspace'],item['scheduler'],group)
@@ -662,7 +663,7 @@ class StageRunner(QObject):
             feed['next']+=1
             if frozen.get('version')==2:
                 shared=run.get('supply_shared',{}).get(frozen.get('shared_key'))
-                accepted=supply.reserve(self.window.state,frozen,through=feed['next'],shared=shared)
+                accepted=supply.reserve(self.window.state,frozen,through=feed['next'],shared=shared,register=self.execution.register)
                 self.remember_supply_progress(run,frozen,accepted)
             from .stage_batches import SLICE_SECONDS
             if time.perf_counter()-started>=SLICE_SECONDS:self.later();break
@@ -670,7 +671,7 @@ class StageRunner(QObject):
         if frozen.get('version')==2:
             self.refresh_reserved_images(frozen)
             self.window.store.save(self.window.state,commit=False)
-            self.refresh_results();self.window.changed('prompt')
+            self.refresh_results();self.store._transactions.after_commit(lambda:self.window.changed('prompt'))
 
     def remember_supply_progress(self,run,frozen,accepted):
         for key,record in accepted.items():
@@ -778,50 +779,62 @@ class StageRunner(QObject):
         retry=frame.pop('retry',None)
         if retry:state,images=retry['snapshot_state'],retry['images']
         else:cfg['parameters']=self.store.resolve_parameters(run['workspace'],stage['id'],cfg.get('parameters'))
-        with self.accepting(document=bool(frame.get('supply_plan'))):
+        with self.accepting():
             attempt=self.store.add_captured('attempt',run['workspace'],run['id'],status='preparing',stage=stage['id'],parent=ctx.get('parent'),
                 round=run['round'],position=frame['index'],snapshot_state=state,images=images,error='',sources=ctx.get('saved',{}).get('source_positions',{}),parameter_replay=bool(retry))
             if frame.get('supply_plan'):
                 from .prompt_sources import reserve
                 frozen=frame['supply_plan'];shared=run.get('supply_shared',{}).get(frozen.get('shared_key'))
                 through=max(frozen.get('committed',0),variant['supply_round']+1)
-                accepted=reserve(self.window.state,frozen,through=through,shared=shared)
+                accepted=reserve(self.window.state,frozen,through=through,shared=shared,register=self.execution.register)
                 self.remember_supply_progress(run,frozen,accepted);self.refresh_reserved_images(frozen)
                 self.window.store.save(self.window.state,commit=False)
             frame['job']=attempt['id'];self.save(run)
-        # Foreign input application and image uploads can yield to editing.
-        # Continue from the detached journal capture, never the borrowed view.
-        state=attempt['snapshot_state'];images=attempt['images']
-        self.preparing=attempt['id']
-        if run['workspace']==self.window.state['workspace']:self.remember_preview(attempt,dict(images=[],attempts=[],records=[]))
-        if frame.get('supply_plan'):self.refresh_results();self.window.changed('prompt')
-        def valid():
-            if self.closed or self.preparing!=attempt['id'] or not self.client.connected:return False
-            try:self.check_route(run)
-            except ValueError as exc:
-                self.preparing=None
-                if self.client.generation.record(attempt['id']) is None:self.store.update(attempt['id'],status='failed',error='提交前接線已變更；這項尚未生成。')
-                self.pause(run['id'],str(exc),reason='route');return False
-            return True
-        def fail(error):
-            if not valid():return
-            self.preparing=None;job=self.client.generation.record(attempt['id'])
-            self.store.update(attempt['id'],status='unconfirmed' if job and job['state']=='unconfirmed' else 'failed',error=str(error))
-            self.pause(run['id'],str(error),reason='error');self.later()
-        def submit(snapshot,uploads):
-            if not valid():return
-            if retry and retry.get('replay'):snapshot['chain_replay']=retry['replay']
-            snapshot['chain']=dict(run=run['id'],round=run['round'],stage=stage['id'],item=attempt['id'],attempt=attempt['id'],revision=run['revision'],parent=ctx.get('parent'))
-            def queued(job):
-                if not valid():return
-                self.store.record_parameters(attempt,job)
-                self.preparing=None;self.store.patch(attempt['id'],status='submitted',prompt_id=job['prompt_id']);self.notify();self.later()
-            self.client.generation.submit_native(snapshot,stage['workflow'],queued,fail,valid,images=uploads,ident=attempt['id'])
-        def prepared():
-            try:prepare(self.client,state,stage['workflow'],valid,submit,fail,image_values=images)
-            except (ValueError,OSError) as exc:fail(str(exc))
-        if foreign:self.apply_bindings(foreign,prepared,fail,valid=valid,owner=run['id'])
-        else:prepared()
+        def begin_submission():
+            # Foreign input application and image uploads can yield to editing.
+            # Continue from the detached journal capture, never the borrowed view.
+            state=attempt['snapshot_state'];images=attempt['images']
+            self.preparing=attempt['id']
+            if run['workspace']==self.window.state['workspace']:self.remember_preview(attempt,dict(images=[],attempts=[],records=[]))
+            if frame.get('supply_plan'):self.refresh_results();self.store._transactions.after_commit(lambda:self.window.changed('prompt'))
+            def still_current():
+                if self.closed or self.preparing!=attempt['id'] or not self.client.connected:return False
+                try:self.check_route(run)
+                except ValueError:return False
+                return True
+            def abandon_for_route():
+                if self.closed or self.preparing!=attempt['id'] or not self.client.connected:return
+                try:self.check_route(run)
+                except ValueError as exc:
+                    self.preparing=None
+                    with self.accepting():
+                        if self.client.generation.record(attempt['id']) is None:self.store.update(attempt['id'],status='failed',error='提交前接線已變更；這項尚未生成。')
+                        self.pause(run['id'],str(exc),reason='route')
+            def continue_current():
+                if still_current():return True
+                abandon_for_route()
+                return False
+            def fail(error):
+                if not continue_current():return
+                self.preparing=None;job=self.client.generation.record(attempt['id'])
+                self.store.update(attempt['id'],status='unconfirmed' if job and job['state']=='unconfirmed' else 'failed',error=str(error))
+                self.pause(run['id'],str(error),reason='error');self.later()
+            def submit(snapshot,uploads):
+                if not continue_current():return
+                if retry and retry.get('replay'):snapshot['chain_replay']=retry['replay']
+                snapshot['chain']=dict(run=run['id'],round=run['round'],stage=stage['id'],item=attempt['id'],attempt=attempt['id'],revision=run['revision'],parent=ctx.get('parent'))
+                def queued(job):
+                    if not continue_current():return
+                    self.store.record_parameters(attempt,job)
+                    self.preparing=None;self.store.patch(attempt['id'],status='submitted',prompt_id=job['prompt_id']);self.notify();self.later()
+                self.client.generation.submit_native(snapshot,stage['workflow'],queued,fail,continue_current,images=uploads,ident=attempt['id'])
+            def prepared():
+                try:prepare(self.client,state,stage['workflow'],continue_current,submit,fail,image_values=images)
+                except (ValueError,OSError) as exc:fail(str(exc))
+            if foreign:self.apply_bindings(foreign,prepared,fail,valid=still_current,owner=run['id'])
+            else:prepared()
+
+        self.store._transactions.after_commit(begin_submission)
 
     def observe(self,status):
         if self.closed:return
@@ -923,7 +936,11 @@ class StageRunner(QObject):
         else:received([])
 
     def advance_sources(self,attempt):
-        from .image_source import select
+        with self.accepting():
+            return self._advance_sources(attempt)
+
+    def _advance_sources(self,attempt):
+        from .stage_context import select_live_image
         changed=False
         for key,position in attempt.get('sources',{}).items():
             if position.get('accepted'):continue
@@ -931,6 +948,8 @@ class StageRunner(QObject):
                 from .prompt_sources import source,signature
                 current=source(self.window.state,key)
                 if current and current['root'].get('supply_cursor',{}).get('plan')==position['plan'] and signature(current['root'])==position['signature']:
+                    from .prompt_sources import source_path
+                    self.execution.register(*source_path(key))
                     current['root']['sequence']['selected']=position['group']
                     changed=True
                 continue
@@ -943,13 +962,13 @@ class StageRunner(QObject):
                 if reservation.get('plan')!=position['plan'] or value.get('index',0)>index:continue
             elif value.get('index')!=index:continue
             if index+1<len(value.get('items',[])):
-                select(self.window.state,key,index+1,self.window.store.directory,preserve_reservation=True)
+                select_live_image(self.window.state,key,index+1,self.window.store.directory,register=self.execution.register,preserve_reservation=True)
                 changed=True
         if changed:
             # Readers wired through a Canvas own derived roots as well as a
             # source cursor. Materialize that view before publishing its Prompt.
             self.refresh_results()
-            self.window.changed('prompt')
+            self.store._transactions.after_commit(lambda:self.window.changed('prompt'))
 
     def refresh_results(self, *, preview_changed=False):
         canvas=getattr(self.window,'canvas',None)
@@ -957,16 +976,20 @@ class StageRunner(QObject):
             # Update derived source text on the visible Canvas without an edit
             # transaction; the task journal and the user's undo history stay separate.
             from .stage_context import sync_result_view
-            changed=sync_result_view(self.window.state,self.window.store.directory,self.results)
-            if changed:
-                canvas.refresh();self.window.changed('prompt')
-            else:
-                canvas.functions.refresh();canvas.results.refresh();canvas.refresh_image_previews()
-                # A document edit above already schedules all sibling views.
-                # Publish a display-only result when there was no such edit.
-                if preview_changed:
-                    publish=getattr(self.window,'refresh_sibling_result_previews',None)
-                    if publish:publish()
+            with self.accepting() as transaction:
+                changed=sync_result_view(self.window.state,self.window.store.directory,self.results,register=transaction.register)
+            def publish_result():
+                if changed:
+                    canvas.refresh();self.store._transactions.after_commit(lambda:self.window.changed('prompt'))
+                else:
+                    canvas.functions.refresh();canvas.results.refresh();canvas.refresh_image_previews()
+                    # A document edit above already schedules all sibling views.
+                    # Publish a display-only result when there was no such edit.
+                    if preview_changed:
+                        publish=getattr(self.window,'refresh_sibling_result_previews',None)
+                        if publish:publish()
+
+            self.store._transactions.after_commit(publish_result)
 
     def pause(self,ident,message='已暫停後續派送；目前工作繼續。',reason='manual'):
         run=self.store.read(ident)
@@ -983,7 +1006,7 @@ class StageRunner(QObject):
     def stop_feed(self,ident,source):
         run=self.store.read(ident)
         if not run or run['status'] in ('cancelled','complete'):return
-        with self.store.transaction():
+        with self.accepting():
             for head in self.store.batch_heads(run['workspace']):
                 if head['run']!=ident:continue
                 batch=self.store.read(head['id'])
@@ -992,10 +1015,10 @@ class StageRunner(QObject):
                 self.store.set_batch_control(run['workspace'],head['scheduler'],head['execution_group'],
                     total=control['total']-(head['total']-head['expanded']))
                 self.store.delete_batch_snapshot(head['id'])
-        for frame in run['stack']:
-            if frame.get('auto') and frame.get('feed') and (frame['auto']==source or source in frame['feed'].get('plan',{}).get('sources',{})):
-                frame['feed']['next']=frame['feed']['total']
-        self.save(run);self.pause(ident,'已停止這批補入；已保存項目保留並暫停。',reason='manual')
+            for frame in run['stack']:
+                if frame.get('auto') and frame.get('feed') and (frame['auto']==source or source in frame['feed'].get('plan',{}).get('sources',{})):
+                    frame['feed']['next']=frame['feed']['total']
+            self.save(run);self.pause(ident,'已停止這批補入；已保存項目保留並暫停。',reason='manual')
 
     def resume(self,ident):
         run=self.store.read(ident)
@@ -1023,7 +1046,7 @@ class StageRunner(QObject):
                 for control in self.store.rows('batch_control',workspace):
                     if control.get('run')==run['id']:
                         from .stage_batches import release_images
-                        released=release_images(self.window.state,control) or released
+                        released=release_images(self.window.state,control,register=self.execution.register) or released
                         self.store.patch(control['id'],cancelled=True)
                 for head in self.store.batch_heads(workspace):
                     if head['run']!=run['id']:continue
@@ -1036,6 +1059,7 @@ class StageRunner(QObject):
                     for key,spec in plan.get('sources',{}).items():
                         image=self.window.state.get('canvas_functions',{}).get('images',{}).get(key,{})
                         if spec['kind']=='image' and image.get('supply_reservation',{}).get('plan')==plan['id']:
+                            self.execution.register('canvas_functions','images',key)
                             image.pop('supply_reservation',None);released=True
                 for item in self.store.rows('entry',workspace,active=True):
                     if item['run']!=run['id']:continue
@@ -1046,15 +1070,18 @@ class StageRunner(QObject):
                     self.store.update(attempt['id'],cancel_requested=True)
                     attempts.append(attempt['id'])
             if released:self.window.store.save(self.window.state,commit=False)
-        if self.preparing in attempts:self.preparing=None
-        if ident is None:
-            self.apply_queue=[item for item in self.apply_queue if item[7][1]!=workspace]
-            if self.apply_operation and self.apply_operation['workspace']==workspace:self.cancel_apply('已取消這次輸入同步。')
-        for run in runs:self.cancel_inputs(run)
-        from .stage_queue_actions import request_cancel
-        for key in attempts:request_cancel(self,self.store.read(key))
-        if released:self.window.changed('prompt',refresh=False)
-        self.notify('已停止此工作區的後續流程；已送出的工作依原任務回覆確認取消。');self.later()
+        def publish_cancel():
+            if self.preparing in attempts:self.preparing=None
+            if ident is None:
+                self.apply_queue=[item for item in self.apply_queue if item[7][1]!=workspace]
+                if self.apply_operation and self.apply_operation['workspace']==workspace:self.cancel_apply('已取消這次輸入同步。')
+            for run in runs:self.cancel_inputs(run)
+            from .stage_queue_actions import request_cancel
+            for key in attempts:request_cancel(self,self.store.read(key))
+            if released:self.window.changed('prompt',refresh=False)
+            self.notify('已停止此工作區的後續流程；已送出的工作依原任務回覆確認取消。');self.later()
+
+        self.store._transactions.after_commit(publish_cancel)
 
     def retry(self,ident,reprepare=False,allow_unknown=False):
         item=self.store.read(ident);run=self.store.read(item['owner']);self.check_route(run)
@@ -1170,6 +1197,8 @@ class StageRunner(QObject):
         return finish(self,run)
 
     def sync_free(self,all_inputs=False):
+        if self.store.transaction_depth:
+            self.store._transactions.after_commit(lambda:self.sync_free(all_inputs));return
         state=self.context();data=state['multi_output'];used=connected_terminals(state)
         groups={}
         for key,target in terminals(state).items():
@@ -1271,23 +1300,28 @@ class StageRunner(QObject):
                 journal(error=str(e),status='unconfirmed' if operation['sent'] and not operation['ended'] else 'failed');failed(str(e));self.later()
         self.apply_abort=error
         self.notify()
-        def valid():
-            if self.closed or self.applying!=ident:return False
+        def still_current():
+            return not self.closed and self.applying==ident and self.client.connected and guard()
+        def abandon_for_route():
+            if self.closed or self.applying!=ident:return
             if not self.client.connected or not guard():
-                self.cancel_apply('輸入接線、工作區或所屬流程已變更，未繼續套用。');return False
-            return True
+                self.cancel_apply('輸入接線、工作區或所屬流程已變更，未繼續套用。')
+        def continue_current():
+            if still_current():return True
+            abandon_for_route()
+            return False
         started=time.monotonic()
         def receive(result):
-            if not valid():return
+            if not continue_current():return
             if result.get('state')=='applied':
                 journal(ended=True,status='applied');self.applying=None;self.apply_abort=None;self.apply_owner=None;self.apply_operation=None;done();self.later()
             elif result.get('state') in ('failed','unconfirmed') or time.monotonic()-started>35:
                 journal(ended=result.get('state')=='failed');error(result.get('error') or '同步逾時。')
             else:
                 timer=QTimer(self);timer.setSingleShot(True)
-                timer.timeout.connect(lambda:(self.client.request('workflow/native/status',dict(id=ident),done=receive,failed=error) if valid() else None,timer.deleteLater()));timer.start(300)
+                timer.timeout.connect(lambda:(self.client.request('workflow/native/status',dict(id=ident),done=receive,failed=error) if continue_current() else None,timer.deleteLater()));timer.start(300)
         def submit(snapshot,uploads):
-            if valid():
+            if continue_current():
                 journal(sent=True,status='submitted');self.client.request('workflow/native/apply',dict(id=ident,snapshot=snapshot,workflow=workflow,images=uploads),done=receive,failed=error)
-        try:prepare(self.client,state,workflow,valid,submit,error,image_values=images)
+        try:prepare(self.client,state,workflow,continue_current,submit,error,image_values=images)
         except (ValueError,OSError) as exc:error(str(exc))

@@ -203,10 +203,14 @@ def project(state, plan, picks):
     return images, positions
 
 
-def reserve(state, plan, select_next=True, through=None, shared=None):
+def source_path(key):
+    return ('uses', key[4:]) if key.startswith('use:') else ('canvas_functions', 'text_sources', key, 'root')
+
+
+def reserve(state, plan, select_next=True, through=None, shared=None, *, register=None):
     """Commit persisted choices; shared placements consume each prefix once."""
     if 'batches' in plan:
-        for batch in plan['batches']: reserve(state, batch, select_next)
+        for batch in plan['batches']: reserve(state, batch, select_next, register=register)
         return
     if plan.get('version') == 2:
         end = len(plan['rounds']) if through is None else through
@@ -227,26 +231,31 @@ def reserve(state, plan, select_next=True, through=None, shared=None):
                 if spec['kind'] == 'text':
                     value = source(state, key)
                     if value and value['root']['id'] == spec['root']['id'] and signature(value['root']) == spec['signature']:
+                        if register: register(*source_path(key))
                         pm.apply_progress(value['root'], record['progress'])
                 else:
                     image = state.get('canvas_functions', {}).get('images', {}).get(key)
                     if image and image.get('batch_id') == spec['batch']:
+                        if register: register('canvas_functions', 'images', key)
                         index = (record['index']+1) % len(spec['items'])
                         image['supply_reservation'] = dict(batch=spec['batch'], plan=plan['id'], next=index)
                         image['index'] = index; image['source'] = copy.deepcopy(spec['items'][index])
         plan['committed'] = end
+        if register: register('version')
         groups.mark_version(state)
         return accepted
     for key, spec in plan['sources'].items():
         if spec['kind'] == 'image':
             image = state.get('canvas_functions', {}).get('images', {}).get(key)
             if image and image.get('batch_id') == spec['batch']:
+                if register: register('canvas_functions', 'images', key)
                 image['supply_reservation'] = dict(batch=spec['batch'], plan=plan['id'], next=spec['index']+len(plan['rounds']))
             continue
         current = source(state, key)
         if (not current or current['root']['id'] != spec['root']['id'] or
                 legacy_signature(current['root']) != spec['signature']): continue
         root = current['root']; pos = copy.deepcopy(spec['position'])
+        if register: register(*source_path(key))
         root['supply_cursor'] = dict(signature=spec['signature'], position=pos, plan=plan['id'])
         if select_next:root['sequence']['selected'] = pos['group']
         root.pop('round_override', None)

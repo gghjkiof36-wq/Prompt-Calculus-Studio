@@ -225,8 +225,11 @@ class InputRunner:
                 if value and value.get('batch_id')==source['batch'] and value.get('index')!=source['index']:
                     canvas=getattr(self.window,'canvas',None)
                     if canvas:
-                        select(self.window.state,source['key'],source['index'],self.window.store.directory)
-                        materialize(self.window.state);canvas.refresh();self.window.changed('prompt',refresh=False)
+                        from .stage_context import execution_scope, select_live_image
+                        with execution_scope(self.window,self.window.store) as transaction:
+                            select_live_image(self.window.state,source['key'],source['index'],self.window.store.directory,register=transaction.register)
+                            materialize(self.window.state)
+                        canvas.refresh();self.window.changed('prompt',refresh=False)
             self.notify('已交給 ComfyUI；可繼續修改畫布及加入工作。')
             QTimer.singleShot(0,self.direct.pump)
         def failed(error):

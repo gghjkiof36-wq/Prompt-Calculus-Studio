@@ -63,9 +63,10 @@ class CaptureIsolationTests(unittest.TestCase):
         db=sqlite3.connect(':memory:');self.addCleanup(db.close)
         runner=SimpleNamespace(store=StageStore(db),window=SimpleNamespace(state=state))
         with self.assertRaises(sqlite3.OperationalError):
-            with StageRunner.accepting(runner,suppliers=[source]):
+            with StageRunner.accepting(runner) as transaction:
                 frozen=prompt_sources.build(state,[source],count=1)
-                prompt_sources.reserve(state,frozen)
+                prompt_sources.reserve(state,frozen,register=transaction.register)
+                for path in (('multi_output','outputs'),('workspace_scenes',),('uses',),('multi_output','canvases')):transaction.register(*path)
                 state['multi_output']['outputs'][state['multi_output']['current_output']]['draft']='unaccepted'
                 workspace_scene.capture(state)
                 state['uses']['derived']={'prompt':'unaccepted'}
@@ -78,9 +79,11 @@ class CaptureIsolationTests(unittest.TestCase):
         class ReadOnly:
             def __deepcopy__(self,memo):raise AssertionError('unrelated document data copied')
         state['uses']['unrelated']=ReadOnly();state['content_history']=ReadOnly()
-        backup=stage_context.progress_backup(state,[source])
-        self.assertIs(backup['uses']['unrelated'],state['uses']['unrelated'])
-        self.assertIsNot(backup['canvas_functions']['text_sources'][source]['root'],state['canvas_functions']['text_sources'][source]['root'])
+        import inspect
+        transaction=inspect.unwrap(stage_context.ExecutionTransaction)(state)
+        transaction.register(*prompt_sources.source_path(source))
+        self.assertEqual(len(transaction.records),1)
+
 
 
 class AdvanceBoundaryTests(unittest.TestCase):
@@ -112,6 +115,7 @@ class AdvanceBoundaryTests(unittest.TestCase):
         original=self.store.read(self.run['id']);state=copy.deepcopy(self.runner.window.state)
         def advance(run):
             self.store.update(run['id'],round=2)
+            self.runner.store._transactions.execution.register('uses','a')
             self.runner.window.state['uses']['a']['prompt']='unaccepted'
             raise sqlite3.OperationalError('synthetic failure')
         self.runner.advance=advance
@@ -127,7 +131,8 @@ class AdvanceBoundaryTests(unittest.TestCase):
         self.runner.window.state['content_history']=History()
         self.run['plan']={'stages':{'stage':{'auto':None}}}
         self.runner.advance=lambda run:None
-        StageRunner.step(self.runner,self.run)
+        with patch('prompt_calculus_studio.stage_context.ExecutionTransaction',__import__('inspect').unwrap(stage_context.ExecutionTransaction)):
+            StageRunner.step(self.runner,self.run)
 
     def test_foreign_input_delay_uses_journal_capture_after_live_document_edit(self):
         prepared=[];callbacks=[]

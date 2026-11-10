@@ -233,6 +233,37 @@ def install():
                                                                    ('scene_validate', 'generation', 'profiles'))
         return guarded
 
+    def execution_transaction(original):
+        def guarded(state):
+            before = copy.deepcopy(state)
+            transaction = original(state)
+            def check():
+                def differences(left, right, path=()):
+                    if isinstance(left, dict) and isinstance(right, dict):
+                        for key in left.keys() | right.keys():
+                            if key not in left or key not in right: yield path+(key,)
+                            else: yield from differences(left[key], right[key], path+(key,))
+                    elif isinstance(left, list) and isinstance(right, list):
+                        if len(left) != len(right): yield path
+                        for i in range(min(len(left), len(right))):
+                            yield from differences(left[i], right[i], path+(i,))
+                    elif left != right: yield path
+                for path in differences(before, state):
+                    if not any(path[:len(p)] == p for p in transaction.records):
+                        _deny(type('LivePath', (), {'_path': ('live',)+path})(), 'unregistered execution write')
+            commit, rollback = transaction.commit, transaction.rollback
+            def committed():
+                commit()
+                check()
+            def rolled_back():
+                rollback()
+                check()
+            transaction.commit = committed
+            transaction.rollback = rolled_back
+            return transaction
+        return guarded
+
+    replace(sc, 'ExecutionTransaction', execution_transaction)
     for name, wrapper in (('execution_state', execution_state), ('borrowed_base', borrowed_base),
                           ('merge_saved', merge_saved), ('capture', capture),
                           ('execution_scene', execution_scene), ('copy_context', copy_context)):

@@ -51,17 +51,19 @@ def cursors(state, ids):
     return result
 
 
-def restore_cursors(state, snapshot, directory):
+def restore_cursors(state, snapshot, directory, *, register):
     for key, value in snapshot.items():
         if value['kind'] == 'text':
             definition = supply.source(state, key)
             if not definition or definition['root']['id'] != value['root'] or materials.signature(definition['root']) != value['signature']:
                 raise ValueError('來源已修改，位置無法退回。')
+            register(*supply.source_path(key))
             materials.apply_progress(definition['root'], value['fields'])
         else:
             image = state.get('canvas_functions', {}).get('images', {}).get(key)
             if not image or image.get('batch_id') != value['batch']:
                 raise ValueError('圖片來源已修改，位置無法退回。')
+            register('canvas_functions', 'images', key)
             for field, saved in value['fields'].items():
                 if saved is None: image.pop(field, None)
                 else: image[field] = copy.deepcopy(saved)
@@ -74,13 +76,14 @@ def restore_cursors(state, snapshot, directory):
                 except (ValueError,OSError) as exc:image['content_error']=str(exc)
 
 
-def release_images(state, control):
+def release_images(state, control, *, register):
     released=False
     for key,saved in control.get('cursor_after',{}).items():
         if saved['kind']!='image':continue
         image=state.get('canvas_functions',{}).get('images',{}).get(key,{})
         expected=saved['fields'].get('supply_reservation')
         if expected and image.get('supply_reservation')==expected:
+            register('canvas_functions', 'images', key)
             image.pop('supply_reservation');released=True
     return released
 
@@ -220,7 +223,7 @@ def expand(runner, capacity):
         return 0
     started = time.perf_counter()
     prepared = 0
-    with store.transaction():
+    with runner.accepting():
         for scheduler in dict.fromkeys(h['scheduler'] for h in heads):
             remaining = capacity
             for group in store.schedule_groups(workspace, scheduler):

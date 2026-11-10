@@ -67,7 +67,7 @@ runner 最多暫留一份從 journal 解碼的自有內容，避免每個小段�
 
 取消時，尚未開始、沒有較新組使用相同游標，且目前來源游標仍符合收據的組，可以在同一交易把 entry 標成 `removed`、刪除未展開快照並還原游標。其他情況沿既有取消與原生確認路徑，回饋「位置未退回」。來源內容曾修改時也不以舊游標覆蓋新來源。Canvas Undo 不改 journal；撤回是預排程的取消操作。
 
-此改動只新增可忽略的 journal kind／JSON 欄位，不提高文件或 PNG 版本，不遷移舊 journal。後續執行交易整理需納入快照建立、整組預留、分段 entry／expanded／刪除、deferred 解析、started 收據、撤回、stop-feed 與整 run 取消的寫入點。
+此改動只新增可忽略的 journal kind／JSON 欄位，不提高文件或 PNG 版本，不遷移舊 journal。快照建立、整組預留、分段 entry／expanded／刪除、deferred 解析、started 收據、撤回、stop-feed、整 run 取消與 waiting 提升各使用執行交易。
 
 ### 同步擷取的資料所有權與查詢
 
@@ -79,13 +79,47 @@ runner 最多暫留一份從 journal 解碼的自有內容，避免每個小段�
 
 `copy_context` 的子上下文可以在自己的 saved 分類字典新增 key，但不得修改既有共用項目的內容（含其巢狀容器）。`prompt_materials.resolve` 必須保持輸入不變，否則 `prompt_sources.build` 共用的 plan 定義可能被改，且原簽章不一定能偵測。這兩個契約由 [借用固定測試](../../tests/test_stage_borrow_guard.py) 鎖住，沒有改變 `copy_context` 或供應解析的產品行為。
 
-手動排入的交易備份只複製會被供應游標更新、結果投影與保存覆寫的分支。它保留失敗時復原文件與 journal 的界線，不複製無關素材與歷史。其他交易仍使用原有完整備份。只寫入而不讀回的 entry 不再解碼剛寫入的完整紀錄；journal 內容不變。
+### 執行交易與寫入登記
 
-**已知限制**：`progress_backup` 是局部備份。`accepting(..., suppliers=...)` 能回復供應根、已複製的容器、output 與場景快取等列明分支；對無關 root、連線或其他共用深層物件的穿透寫入，交易失敗也無法回復。固定測試同時重現這個限制，並證明測試監看會在寫入當下阻止它；不能把這項監看當成正式執行的完整回復機制。交易的 `document=` 判斷、分支清單及回復後舊子物件引用仍須由後續交易整理處理。
+執行路徑寫 live 文件必須先登記。`with runner.accepting() as tx` 取得
+`stage_context.ExecutionTransaction`；舊輸入路徑用同一個 `execution_scope`。
+它不提供讀取視圖、不加入 Undo，也不整份複製文件。借用讀取仍從
+`borrowed_base()` 取得；子上下文不得修改 `saved` 的既有項目。
 
-借用監看只存在於 [測試工具](../../tests/_borrow_guard.py)，由 [快速套件](../../tests/FAST_SUITE.md) 安裝函式替換；產品沒有環境判斷、監看 import、指紋或凍結複製成本。它涵蓋 `borrowed_base`、`execution_state`、`merge_saved(borrow=True)`、`capture(borrow=True)`、`execution_scene`、`copy_context` 及 `workspace_scene.load(readonly=True)` 的共用 dict/list。寫入先拋出含資料路徑與產品呼叫位置的例外，執行器亦拒絕被回呼吞掉的違規。
+寫入函式在第一次修改前呼叫 `tx.register(*path)`。路徑為 tuple：供應來源的
+`uses[id]`／`canvas_functions.text_sources[id].root`、圖片 record、active output、
+目前場景項目，或結果投影實際取代的 `uses`、`text_positions`、`output_order`、
+`multi_output.canvases`。`select_live_image` 同時涵蓋圖片選取內的 materialize。
+私有投影仍可呼叫不帶 register 的 reserve／sync_result_view；這個選項不是 live
+寫入的例外。Storage 在執行交易內同步衍生欄位時也先登記；UI 單獨存檔路徑不變。
 
-監看只涵蓋測試實際走到的上述入口；它以唯讀副本取代共用容器，不能驗證原物件 identity、使用者稍後編輯造成的快照時間錯誤、其他自訂可變物件或刻意呼叫 dict/list 基底方法的繞過。直接寫即時文件（例如合法的 reserve、save）、`prompt_sources.build` 的內部別名、`workspace_scene.validate` 投影中的非場景頂層值，以及其他尚未接入的路徑不是全域攔截範圍。後續存檔去重／背景存檔必須另驗主執行緒序列化時點；後續執行交易整理須處理父子上下文所有權與完整回復，不能以監看通過代替這些工作。
+同一路徑只保存第一次的深複本；已登記父分支涵蓋後續子路徑，先登記子再登記父
+則各自保留，回復按逆序執行。不存在的路徑記到第一個缺少的祖先，回復時移除。
+既有 dict/list 遞迴原地回復，仍在原位置的巢狀容器身分保留，dict 鍵順序也還原。
+巢狀 accepting 共用外層交易；捕捉內層例外不建立 savepoint、不丟棄其寫入。
+例外穿出外層或提交失敗時，journal 和已登記文件分支一起回復。
+
+最外層提交成功後，`tx.changes` 是登記過的分支路徑 `frozenset[tuple]`；它是
+寫入範圍，包含登記後值未改變的路徑，不是精確的內容差異。純 journal 範圍為空。
+呼叫端可保留 tx，在 context 離開後讀取；巢狀呼叫須等共同外層提交。
+所有原有 Canvas／changed 刷新方法與參數仍保留，通知及 later 在提交成功後才執行。
+`refresh_results` 交易外呼叫會建立執行交易，交易內呼叫則加入既有範圍。
+後續增量刷新可使用此集合；這裡不依集合省略任何刷新。
+
+`ExecutionTransaction` 只管記憶體文件；資料庫仍由 Storage 共用交易入口管理。
+`accepting` 是執行路徑的外層入口，不能用額外的純資料庫外層交易延長 live 修改
+的生命週期。提交後回呼失敗不回復已提交文件。長壽命容器仍只保存序列化內容
+或其自有解碼；登記不是跨事件迴圈的快照機制。
+
+借用監看只存在於 [測試工具](../../tests/_borrow_guard.py)，由
+[快速套件](../../tests/FAST_SUITE.md) 安裝函式替換。原有七個借用入口保持不變；
+另在執行交易開始時深複製 live 文件，在提交／回復後逐路徑比對，變動不在登記
+路徑或其子路徑內就記錄違規並拋錯。正向對照分別驗證提交與回復的漏登記。
+完整複本只在測試模式存在，正式執行沒有這項成本。
+
+監看僅涵蓋實際執行的路徑。借用監看以唯讀副本取代共用容器，identity 由原地
+回復測試確認；自訂可變物件、刻意使用 dict/list 基底方法、交易外的 UI 寫入
+不等同已受全域攔截。同步序列化與 writer 的先登記契約仍須遵守。
 
 供 UI 與輪詢使用的工作存在性、進度及 attempt 標頭，由既有連線即時投影必要欄位，不讀取完整場景。完成回報、參數回執及公開的完整紀錄查詢仍取回完整內容。這些查詢沒有跨呼叫快取，也沒有增加連線、資料表、欄位或索引。
 
@@ -112,7 +146,7 @@ Storage 建立的連線攜帶同一個交易管理物件；`StageStore(db).trans
   交易重播。回呼若丟錯，錯誤傳給呼叫端，尚未執行的回呼丟棄；資料庫此時
   已提交，不能回滾。回呼只能作簡短的提交後收尾，不能承擔文件接受或驗證。
 - 此入口只管資料庫及回呼，不還原記憶體、檔案或 UI。`accepting()` 繼續負責
-  原有文件備份／回復；不要把一般資料庫交易當成完整的文件執行交易。
+  寫入登記與原地回復；不要把一般資料庫交易當成完整的文件執行交易。
 
 `Storage.save(commit=True)`、cache／usage 寫入、StageStore 的新增、更新、
 排序、參數編輯、複製及保留項目恢復，以及 Catalog 的資料列寫入都使用此入口。
@@ -146,7 +180,7 @@ Storage 建立的連線攜帶同一個交易管理物件；`StageStore(db).trans
 `draft`／`draft_base` 或 `list_draft`、`list_state`，並深複製目前場景至
 `workspace_scenes.items[workspace]`。即使合併，這一步仍立即執行，保留中間
 讀取者看到的衍生資料；最終 flush 再同步一次。這些寫回可在驗證失敗前發生，
-仍由 accepting 的既有備份還原。沒有擴大其回復範圍。
+同步函式先登記，失敗由 accepting 原地還原。
 
 序列化寫入在 `_write_document()`。外層 `validate_state()` 驗證共用素材、設定、
 工作流與 content_history；`workspace_scene.validate()` 只驗場景欄位及其參照。

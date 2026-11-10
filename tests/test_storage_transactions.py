@@ -285,7 +285,8 @@ class StorageTransactionTests(unittest.TestCase):
         before = self.snapshot()
         runner = SimpleNamespace(store=self.stage, window=SimpleNamespace(state=self.state))
         with self.assertRaises(ValueError):
-            with StageRunner.accepting(runner):
+            with StageRunner.accepting(runner) as transaction:
+                transaction.register('draft')
                 self.state['draft'] = 'changed'
                 self.stage.copy_entry(self.entries[0]['id'])
                 self.storage.save(self.state)

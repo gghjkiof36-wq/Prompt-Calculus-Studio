@@ -60,7 +60,7 @@ def cancel(runner,scheduler,group):
     if any(r and r['server']!=runner.client.url for r in loaded):raise ValueError('請連線至此批次原本的服務再取消。')
     released=False
     withdrawn=False
-    with runner.accepting():
+    with runner.accepting() as transaction:
         if control.get('serial'):
             from .stage_batches import cursors,restore_cursors
             newer=store.db.execute("SELECT body FROM stage_journal WHERE kind='batch_control' AND workspace=? AND position>(SELECT position FROM stage_journal WHERE id=?)",(workspace,control['id']))
@@ -69,12 +69,12 @@ def cancel(runner,scheduler,group):
             withdrawn=(not control.get('started') and not any(r['status'] not in ('waiting','retained','removed') for r in all_entries)
                 and not overlap and cursors(runner.window.state,control.get('cursor_keys',[]))==control.get('cursor_after',{}))
             if withdrawn:
-                restore_cursors(runner.window.state,control.get('cursor_before',{}),runner.window.store.directory)
+                restore_cursors(runner.window.state,control.get('cursor_before',{}),runner.window.store.directory,register=transaction.register)
                 runner.window.store.save(runner.window.state,commit=False)
                 released=True
             else:
                 from .stage_batches import release_images
-                released=release_images(runner.window.state,control)
+                released=release_images(runner.window.state,control,register=transaction.register)
             for head in snapshots:store.delete_batch_snapshot(head['id'])
         store.set_batch_control(workspace,scheduler,group,cancelled=True,bypassed=False)
         if withdrawn:store.set_batch_control(workspace,scheduler,group,withdrawn=True)
@@ -94,24 +94,29 @@ def cancel(runner,scheduler,group):
                     for key,spec in plan.get('sources',{}).items():
                         image=runner.window.state.get('canvas_functions',{}).get('images',{}).get(key,{})
                         if spec['kind']=='image' and image.get('supply_reservation',{}).get('plan')==plan['id']:
+                            transaction.register('canvas_functions','images',key)
                             image.pop('supply_reservation',None);released=True
             runner.save(run)
             if any(a['owner']==run['id'] for a in attempts):
                 store.patch(run['id'],batch_cancel_resume=run['status']=='running',status='paused',pause_reason='batch_cancel')
         for attempt in attempts:store.patch(attempt['id'],cancel_requested=True)
         if released:runner.window.store.save(runner.window.state,commit=False)
-    if runner.preparing in {a['id'] for a in attempts}:runner.preparing=None
-    from .stage_queue_actions import request_cancel,finish_entry
-    # A running scope can sit between two Stages without an outstanding job.
-    for row in rows:
-        if row['status']=='running' and not any(a.get('parent') in ids and a['owner']==row['run'] for a in attempts):
-            finish_entry(runner,row['id'],'cancelled',pause=False)
-    for run in loaded:
-        if run and any(a['owner']==run['id'] for a in attempts):runner.cancel_inputs(run)
-    for attempt in attempts:request_cancel(runner,store.read(attempt['id']))
-    if released:runner.window.changed('prompt',refresh=False)
-    runner.later()
-    runner.notify((f"已撤回第 {control['serial']} 組" if withdrawn else f"已取消第 {control['serial']} 組；位置未退回") if control.get('serial') else '')
+    def publish_cancel():
+        if runner.preparing in {a['id'] for a in attempts}:runner.preparing=None
+        from .stage_queue_actions import request_cancel,finish_entry
+        # A running scope can sit between two Stages without an outstanding job.
+        for row in rows:
+            if row['status']=='running' and not any(a.get('parent') in ids and a['owner']==row['run'] for a in attempts):
+                finish_entry(runner,row['id'],'cancelled',pause=False)
+        for run in loaded:
+            if run and any(a['owner']==run['id'] for a in attempts):runner.cancel_inputs(run)
+        for attempt in attempts:request_cancel(runner,store.read(attempt['id']))
+        if released:runner.window.changed('prompt',refresh=False)
+        runner.later()
+        runner.notify((f"已撤回第 {control['serial']} 組" if withdrawn else f"已取消第 {control['serial']} 組；位置未退回") if control.get('serial') else '')
+
+
+    store._transactions.after_commit(publish_cancel)
 
 
 def cancelled_parent(runner,attempt):
@@ -149,4 +154,6 @@ def promote_waiting(runner,runs):
             first=next((g for g in groups if g['pending'] and not g['cancelled'] and not g['bypassed']),None)
             if first:return runner.store.batch_control(run['workspace'],key,first['id']).get('run')
         if any(preferred(key)==run['id'] for key in keys):
-            runner.store.patch(run['id'],status='running',pause_reason='');run['status']='running'
+            with runner.accepting():
+                runner.store.patch(run['id'],status='running',pause_reason='')
+            run['status']='running'
