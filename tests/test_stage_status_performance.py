@@ -1,4 +1,5 @@
 """Bounded status projections keep complete execution evidence intact."""
+from journal_fixtures import snapshot as journal_snapshot
 import copy
 import json
 import sqlite3
@@ -17,19 +18,19 @@ class JournalProjectionTests(unittest.TestCase):
         done=store.add('run','w',status='complete',snapshot=payload)
         failed=store.add('attempt','w','open',stage='s',status='failed',error='native failure',snapshot=payload)
         live=store.add('run','w',status='paused',snapshot=payload)
-        before=list(db.execute('SELECT id,body FROM stage_journal ORDER BY position'))
+        before=journal_snapshot(db)
         with patch('prompt_calculus_studio.stage_store.json.loads',wraps=json.loads) as decode:
             self.assertEqual(store.latest_stage_status('w','s'),dict(status='failed',error='native failure'))
             self.assertEqual(store.open_runs('w'),[live]);self.assertEqual(decode.call_count,1)
-        self.assertEqual(list(db.execute('SELECT id,body FROM stage_journal ORDER BY position')),before)
+        self.assertEqual(journal_snapshot(db),before)
         self.assertEqual(store.read(done['id'])['snapshot'],payload)
         store.update(failed['id'],status='complete',error='')
         self.assertEqual(store.latest_stage_status('w','s'),dict(status='complete',error=''))
         # Reopening pauses only unfinished runs and retains full retry evidence.
         again=StageStore(db);self.assertEqual(again.read(live['id'])['snapshot'],payload)
-        query="SELECT body FROM stage_journal WHERE kind='attempt' AND workspace='w' AND json_extract(body,'$.stage')='s' ORDER BY position DESC LIMIT 1"
+        query="SELECT body FROM stage_header WHERE kind='attempt' AND workspace='w' AND json_extract(body,'$.stage')='s' ORDER BY position DESC LIMIT 1"
         plan=str(list(db.execute('EXPLAIN QUERY PLAN '+query)))
-        self.assertIn('stage_latest',plan);self.assertNotIn('TEMP B-TREE',plan)
+        self.assertIn('stage_header_latest',plan);self.assertNotIn('TEMP B-TREE',plan)
 
 
 class StatusRefreshTests(unittest.TestCase):

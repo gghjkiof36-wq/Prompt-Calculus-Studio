@@ -26,6 +26,8 @@ class PreviewRuntime(QObject):
         # Previewing a node cannot read a user's run history or initiate IO.
         from .stage_store import StageStore
         connection = sqlite3.connect(':memory:')
+        from .storage_layout import initialize
+        initialize(connection)
         # Parent destruction does not send closeEvent to child widgets.
         self.destroyed.connect(lambda: connection.close())
         store = StageStore(connection)

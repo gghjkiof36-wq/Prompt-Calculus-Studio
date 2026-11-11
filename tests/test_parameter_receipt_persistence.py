@@ -21,6 +21,8 @@ class ParameterReceiptPersistenceTests(unittest.TestCase):
         self.path = Path(self.tmp.name) / 'journal.sqlite'
         self.db = sqlite3.connect(self.path); self.addCleanup(self.db.close)
         self.db.execute('PRAGMA foreign_keys=ON')
+        from prompt_calculus_studio.storage_layout import initialize
+        initialize(self.db)
         self.client = Client(self.db)
         self.runner = GenerationRunner(self.client)
         self.store = StageStore(self.db)
@@ -57,7 +59,7 @@ class ParameterReceiptPersistenceTests(unittest.TestCase):
             job = json.loads(db.execute('SELECT body FROM generation_jobs WHERE id=?',
                                         (self.job['id'],)).fetchone()[0])
             seeds = [json.loads(row[0]) for row in db.execute(
-                "SELECT body FROM stage_journal WHERE kind='parameter_state' ORDER BY position")]
+                "SELECT body FROM stage_header WHERE kind='parameter_state' ORDER BY position")]
         return job, seeds
 
     def job_writes(self):
@@ -101,7 +103,7 @@ class ParameterReceiptPersistenceTests(unittest.TestCase):
         self.job['state'] = 'complete'; self.runner.save(self.job)
         self.store.update(self.attempt['id'], status='complete')
         before = self.durable(); live = copy.deepcopy(self.job)
-        self.db.execute("""CREATE TEMP TRIGGER fail_stage BEFORE INSERT ON stage_journal
+        self.db.execute("""CREATE TEMP TRIGGER fail_stage BEFORE INSERT ON stage_header
             WHEN NEW.kind='parameter_state' BEGIN SELECT RAISE(ABORT,'stage write failure'); END""")
         self.runner._pending_progress_save.add(self.job['id'])
         receipt = copy.deepcopy(self.receipt); receipt['fields'][0]['next_value'] = 11
@@ -124,7 +126,7 @@ class ParameterReceiptPersistenceTests(unittest.TestCase):
             CREATE TABLE receipt_guard_parent (id INTEGER PRIMARY KEY);
             CREATE TABLE receipt_guard_child (parent INTEGER REFERENCES receipt_guard_parent(id)
                 DEFERRABLE INITIALLY DEFERRED);
-            CREATE TEMP TRIGGER fail_receipt_commit AFTER INSERT ON stage_journal
+            CREATE TEMP TRIGGER fail_receipt_commit AFTER INSERT ON stage_header
                 WHEN NEW.kind='parameter_state' BEGIN INSERT INTO receipt_guard_child VALUES (99); END;
         """)
         before = self.durable(); live = copy.deepcopy(self.job); self.sql.clear()
@@ -146,7 +148,7 @@ class ParameterReceiptPersistenceTests(unittest.TestCase):
         # Recovered history may already have the job receipt while the Stage
         # projection is absent. Equal job data must not suppress its retry.
         self.job['parameter_receipt'] = copy.deepcopy(self.receipt); self.runner.save(self.job)
-        self.db.execute("""CREATE TEMP TRIGGER fail_stage BEFORE INSERT ON stage_journal
+        self.db.execute("""CREATE TEMP TRIGGER fail_stage BEFORE INSERT ON stage_header
             WHEN NEW.kind='parameter_state' BEGIN SELECT RAISE(ABORT,'stage write failure'); END""")
         with self.assertRaisesRegex(sqlite3.IntegrityError, 'stage write failure'): self.refresh()
         self.assertEqual(self.durable()[1], [])

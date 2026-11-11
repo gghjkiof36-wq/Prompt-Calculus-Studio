@@ -198,13 +198,13 @@ def run(out):
         for workspace in (ids['workspace_a'], ids['workspace_b']):
             journal.add('run', workspace, status='paused', server='http://127.0.0.1:8188',
                         synthetic_inventory_only=True, frozen_prompt='P0 frozen ' + workspace)
-        saved_rows = list(store.db.execute('SELECT id,kind,workspace,owner,position,body FROM stage_journal ORDER BY position'))
+        saved_rows = {table:list(store.db.execute('SELECT * FROM '+table+' ORDER BY 1,2')) for table in ('stage_header','stage_content','stage_content_ref')}
         db_state = store.load()
         assert db_state == prepared
         assert store.db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
     with closing(core.Storage(data)) as store:
         assert store.load() == db_state
-        assert saved_rows == list(store.db.execute('SELECT id,kind,workspace,owner,position,body FROM stage_journal ORDER BY position'))
+        assert saved_rows == {table:list(store.db.execute('SELECT * FROM '+table+' ORDER BY 1,2')) for table in ('stage_header','stage_content','stage_content_ref')}
     write_json(documents/'legacy-state-v7.json', db_state)
     write_json(documents/'identity-map.json', ids)
     reopened = json.loads((documents/'legacy-state-v7.json').read_text('utf-8'))

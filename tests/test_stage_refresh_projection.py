@@ -1,4 +1,5 @@
 """Schedule display reads summaries while detail/edit owners keep full originals."""
+from journal_fixtures import snapshot as journal_snapshot
 import copy
 import json
 import sqlite3
@@ -33,10 +34,10 @@ class EntryStatusProjectionTests(unittest.TestCase):
         other=self.entry('workspace',status='running')
         self.store.add('attempt','workspace',self.run['id'],parent=other['id'],status='result_error')
         self.store.add('attempt','elsewhere',self.run['id'],parent=self.root['id'],status='failed')
-        before=list(self.db.execute('SELECT id,body FROM stage_journal ORDER BY position'))
+        before=journal_snapshot(self.db)
         self.assertEqual(self.status(self.root),'submitted')
         self.assertEqual(self.status(self.child),'submitted')
-        self.assertEqual(list(self.db.execute('SELECT id,body FROM stage_journal ORDER BY position')),before)
+        self.assertEqual(journal_snapshot(self.db),before)
         self.store.update(latest['id'],cancel_requested=True)
         self.assertEqual(self.status(self.root),'cancelling')
         self.store.update(latest['id'],cancel_requested=False,status='complete')
@@ -72,7 +73,7 @@ class EntryStatusProjectionTests(unittest.TestCase):
             self.store.update(attempt['id'],status=status)
             self.assertEqual(self.status(self.root),status)
         self.store.update(attempt['id'],status='complete')
-        self.db.execute('DELETE FROM stage_journal WHERE id=?',(self.run['id'],))
+        self.db.execute('DELETE FROM stage_header WHERE id=?',(self.run['id'],))
         self.assertEqual(self.status(self.root),'running')
 
     def test_latest_lookup_uses_parent_index_and_body_is_unchanged(self):
@@ -82,15 +83,15 @@ class EntryStatusProjectionTests(unittest.TestCase):
                            snapshot_state={'frozen':'x'*80000})
         self.store.add('attempt','workspace',self.run['id'],parent=self.child['id'],status='submitted',
                        snapshot_state={'frozen':'x'*80000})
-        before=list(self.db.execute('SELECT id,body FROM stage_journal ORDER BY position'))
+        before=journal_snapshot(self.db)
         statements=[];self.db.set_trace_callback(statements.append)
         try:self.assertEqual(self.status(self.root),'submitted')
         finally:self.db.set_trace_callback(None)
         query=next(query for query in statements if 'WITH RECURSIVE' in query)
         plan=str(list(self.db.execute('EXPLAIN QUERY PLAN '+query)))
-        self.assertIn('stage_parent',plan)
-        self.assertEqual(plan.count('stage_parent (kind=? AND workspace=? AND <expr>=?)'),2)
-        self.assertEqual(list(self.db.execute('SELECT id,body FROM stage_journal ORDER BY position')),before)
+        self.assertIn('stage_header_parent',plan)
+        self.assertEqual(plan.count('stage_header_parent (kind=? AND workspace=? AND <expr>=?)'),2)
+        self.assertEqual(journal_snapshot(self.db),before)
 
 
 class EntryDisplayProjectionTests(unittest.TestCase):
@@ -130,7 +131,7 @@ class EntryDisplayProjectionTests(unittest.TestCase):
     def test_display_does_not_decode_frozen_graphs_or_large_plain_text(self):
         original=self.add(saved={'scene':{'frozen':'f'*200000},
                                  'values':{'text':{'type':'text','value':'t'*200000}}})
-        before=list(self.db.execute('SELECT id,body FROM stage_journal'))
+        before=journal_snapshot(self.db)
         loaded=[];decode=json.loads
         def bounded(raw,*args,**kwargs):
             loaded.append(len(raw));self.assertLess(len(raw),1000)
@@ -138,23 +139,23 @@ class EntryDisplayProjectionTests(unittest.TestCase):
         with patch('prompt_calculus_studio.stage_store.json.loads',side_effect=bounded):
             result=self.store.entry_summaries('w','s')
         self.assertEqual(len(result),1);self.assertTrue(loaded)
-        self.assertEqual(list(self.db.execute('SELECT id,body FROM stage_journal')),before)
+        self.assertEqual(journal_snapshot(self.db),before)
         self.assertEqual(self.store.read(original['id']),original)
 
     def test_new_index_preserves_old_rows_and_callers_transaction(self):
         original=self.add(status='complete')
-        before=list(self.db.execute('SELECT id,body FROM stage_journal'))
-        self.db.execute('DROP INDEX stage_parent');self.db.commit()
+        before=journal_snapshot(self.db)
+        self.db.execute('DROP INDEX stage_header_parent');self.db.commit()
         self.db.execute('CREATE TABLE pending(value)')
         self.db.execute('INSERT INTO pending VALUES (1)')
         StageStore(self.db)
         self.assertTrue(self.db.in_transaction)
-        self.assertEqual(list(self.db.execute('SELECT id,body FROM stage_journal')),before)
-        self.assertEqual([r[1] for r in self.db.execute('PRAGMA table_info(stage_journal)')],
-                         ['id','kind','workspace','owner','position','body'])
+        self.assertEqual(journal_snapshot(self.db),before)
+        self.assertEqual([r[1] for r in self.db.execute('PRAGMA table_info(stage_header)')],
+                         ['id','kind','workspace','owner','position','body','projection','content_paths'])
         self.db.rollback()
         self.assertEqual(self.db.execute('SELECT * FROM pending').fetchall(),[])
-        self.assertIsNone(self.db.execute("SELECT name FROM sqlite_master WHERE name='stage_parent'").fetchone())
+        self.assertIsNone(self.db.execute("SELECT name FROM sqlite_master WHERE name='stage_header_parent'").fetchone())
         self.assertEqual(self.store.read(original['id']),original)
 
 

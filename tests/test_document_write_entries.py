@@ -1,4 +1,5 @@
 """Content entry contracts; real SQLite transactions and positive controls."""
+from journal_fixtures import snapshot as journal_snapshot
 import copy
 import json
 from pathlib import Path
@@ -56,7 +57,7 @@ class DocumentWriteEntryTests(unittest.TestCase):
         from prompt_calculus_studio.stage_store import StageStore
         journal = StageStore(self.store.db)
         existing = journal.add('entry', owner.state['workspace'], status='ready', payload={'text':'before'})
-        before_rows = self.store.db.execute('SELECT * FROM stage_journal ORDER BY position').fetchall()
+        before_rows = journal_snapshot(self.store.db)
         with self.assertRaisesRegex(RuntimeError, 'injected'):
             with execution_scope(owner, journal):
                 owner.update_document(lambda s: s['items'][0].update(prompt='changed'),
@@ -66,7 +67,7 @@ class DocumentWriteEntryTests(unittest.TestCase):
                 journal.add('entry', owner.state['workspace'], status='pending')
                 raise RuntimeError('injected')
         self.assertEqual(owner.state, before)
-        self.assertEqual(self.store.db.execute('SELECT * FROM stage_journal ORDER BY position').fetchall(), before_rows)
+        self.assertEqual(journal_snapshot(self.store.db), before_rows)
         self.assertEqual(owner.events, [])
 
     def test_adoption_refused_in_execution_but_normal_outside_and_detached(self):

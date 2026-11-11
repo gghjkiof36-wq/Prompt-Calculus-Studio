@@ -20,8 +20,8 @@ def unfinished(db):
         if db.execute("""SELECT 1 FROM generation_jobs WHERE json_extract(body,'$.state')
                          IN ('submitting','queued','running','unconfirmed') LIMIT 1""").fetchone():
             return True
-    if 'stage_journal' in tables:
-        if db.execute("""SELECT 1 FROM stage_journal WHERE kind='input'
+    if 'stage_header' in tables:
+        if db.execute("""SELECT 1 FROM stage_header WHERE kind='input'
                          AND json_extract(body,'$.sent')=1
                          AND COALESCE(json_extract(body,'$.ended'),0)=0 LIMIT 1""").fetchone():
             return True
@@ -121,6 +121,9 @@ class WorkspaceRuntime:
                         raise ValueError('任務資料庫缺少原文件狀態。')
                 except (sqlite3.Error, ValueError) as exc:
                     self.errors[document.runtime_token] = str(exc)
+                    from .storage_layout import LayoutError
+                    if isinstance(exc, LayoutError):
+                        raise
                     raise ValueError('任務資料無法讀取，原紀錄已保留：'+str(exc)) from exc
                 finally:
                     if store is not None:
@@ -191,7 +194,9 @@ class WorkspaceRuntime:
                     store.close()
                 self.errors[token] = str(exc)
         if self.errors:
-            self.workspace.show_notice('部分任務紀錄需要檢查，已保留資料並暫停新的生成。')
+            from .storage_layout import OLD_MESSAGE, NEW_MESSAGE
+            layout_message = next((v for v in self.errors.values() if v in (OLD_MESSAGE, NEW_MESSAGE)), None)
+            self.workspace.show_notice(layout_message or '部分任務紀錄需要檢查，已保留資料並暫停新的生成。')
 
     def history_owner(self, value):
         """Open retained history on demand without restoring it into a file."""

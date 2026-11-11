@@ -1,8 +1,11 @@
 """Frozen migration IDs and real journal rows compared with the S3 source.
 
 The external baseline probe uses PCS_COMPAT_CAPTURE. Ordinary tests can only
-read the checked-in 8e9e87e receipt. No body normalization is performed.
+read the checked-in 8e9e87e receipt. Document TEXT remains byte-for-byte;
+journal layout 1 is compared as complete, canonically encoded JSON values.
 """
+from journal_fixtures import snapshot as journal_snapshot
+from prompt_calculus_studio import journal_codec
 import copy
 from contextlib import contextmanager
 import hashlib
@@ -113,9 +116,12 @@ class DocumentWriteCompatibilityTests(unittest.TestCase):
                     first = journal.add('entry', owner.state['workspace'], status='ready', payload={'text':'before'})
                     store.save(owner.state)
                     before = copy.deepcopy(owner.state)
-                    read_rows = lambda: store.db.execute('SELECT * FROM stage_journal ORDER BY position').fetchall()
+                    def read_rows():
+                        rows = store.db.execute('SELECT id,kind,workspace,owner,position FROM stage_header ORDER BY position').fetchall()
+                        return [(*row, journal_codec.canonical(journal.read(row[0])).decode('utf-8')) for row in rows]
                     read_body = lambda: store.db.execute('SELECT body FROM document WHERE id=1').fetchone()[0]
                     rows_before, body_before = read_rows(), read_body()
+                    physical_before = journal_snapshot(store.db)
                     callbacks = []
                     try:
                         with execution_scope(owner, journal) as tx:
@@ -138,6 +144,7 @@ class DocumentWriteCompatibilityTests(unittest.TestCase):
                     if fail:
                         self.assertEqual(owner.state, before)
                         self.assertEqual(read_rows(), rows_before)
+                        self.assertEqual(journal_snapshot(store.db), physical_before)
                         self.assertEqual(read_body(), body_before)
                         self.assertEqual(callbacks, [])
                     else:
@@ -152,8 +159,14 @@ class DocumentWriteCompatibilityTests(unittest.TestCase):
             Path(capture).write_text(json.dumps(result, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
         else:
             expected = json.loads(EXPECTED.read_text(encoding='utf-8'))
-            # Convert SQLite tuples only; document/journal bodies remain the
-            # actual TEXT, byte for byte, including original JSON key order.
+            # Preserve the frozen receipt; only journal TEXT whitespace/key
+            # order changes with the explicitly versioned storage layout.
+            # Canonical bytes still distinguish false/0/0.0, signed zero, all
+            # missing/null/empty values, and every unknown field. Document TEXT
+            # is never normalized. SQL identity/position and row order stay exact.
+            for name in ('rollback', 'commit'):
+                for row in expected[name]['rows']:
+                    row[5] = journal_codec.canonical(json.loads(row[5])).decode('utf-8')
             actual = json.loads(json.dumps(result, ensure_ascii=False))
             self.assertEqual(set(actual), set(expected))
             for name in expected:

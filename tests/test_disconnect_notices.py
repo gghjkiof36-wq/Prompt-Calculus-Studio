@@ -1,4 +1,5 @@
 """Disconnected status is not a repeating work interruption; no server or model."""
+from journal_fixtures import snapshot as journal_snapshot
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -34,14 +35,14 @@ class DisconnectNoticeTests(unittest.TestCase):
         notices = []
         with patch.object(self.w, 'notice', notices.append):
             self.fail_poll()
-            rows = list(self.w.store.db.execute('SELECT * FROM stage_journal'))
+            rows = journal_snapshot(self.w.store.db)
             changes = self.w.store.db.total_changes
             changed = QSignalSpy(self.client.stateChanged)
             for _ in range(12):
                 self.fail_poll()
             self.assertEqual(changed.count(), 0)
             self.assertEqual(self.w.store.db.total_changes, changes)
-            self.assertEqual(list(self.w.store.db.execute('SELECT * FROM stage_journal')), rows)
+            self.assertEqual(journal_snapshot(self.w.store.db), rows)
         self.assertEqual(notices.count(NOTICE), 1)
         self.assertEqual(self.client.input_flow.chain.store.read(run['id'])['status'], 'paused')
 

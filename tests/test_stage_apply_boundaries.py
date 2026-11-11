@@ -5,6 +5,7 @@ only transport replies are delayed. No task is directly marked complete.
 """
 import unittest
 import sqlite3
+from prompt_calculus_studio import journal_codec
 import json
 import time
 from contextlib import closing
@@ -78,7 +79,7 @@ class StageApplyBoundaryTests(unittest.TestCase):
         started=time.monotonic();self.w.close();self.assertLess(time.monotonic()-started,1.5)
         self.assertEqual(cancelled,[ident]);self.assertTrue(self.runner.closed)
         with closing(sqlite3.connect(filename)) as db:
-            record=json.loads(db.execute('SELECT body FROM stage_journal WHERE id=?',(ident,)).fetchone()[0])
+            record=journal_codec.records(db,db.execute('SELECT id,body,content_paths,projection FROM stage_header WHERE id=?',(ident,)))[0]
         self.assertEqual((record['status'],record['cancel_state']),('unconfirmed','requested'))
         self.assertTrue(record['sent']);self.assertFalse(record['ended'])
         # A late transport reply after Qt/store close must not call UI or DB.

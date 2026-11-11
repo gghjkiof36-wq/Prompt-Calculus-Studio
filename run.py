@@ -83,7 +83,9 @@ def main():
     except Exception as exc:
         import traceback
         (data/"error.log").write_text(traceback.format_exc(),encoding="utf-8")
-        QMessageBox.critical(None,"Prompt Calculus Studio 無法啟動",str(exc)+"\n詳細資訊已寫入 data/error.log")
+        from prompt_calculus_studio.storage_layout import LayoutError
+        message = str(exc) if isinstance(exc, LayoutError) else str(exc)+"\n詳細資訊已寫入 data/error.log"
+        QMessageBox.critical(None,"Prompt Calculus Studio 無法啟動",message)
         return 1
     finally:
         faulthandler.disable(); fault_log.close()

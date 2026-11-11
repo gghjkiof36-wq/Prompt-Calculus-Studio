@@ -1,4 +1,5 @@
 """Click acceptance, frozen expansion and cursor withdrawal as durable operations."""
+from journal_fixtures import snapshot as journal_snapshot
 import copy
 import json
 import unittest
@@ -11,7 +12,7 @@ from test_stage_enqueue_progress import scenario, finish
 
 
 def journal(case):
-    return list(case.runner.store.db.execute('SELECT id,body,position FROM stage_journal ORDER BY position'))
+    return journal_snapshot(case.runner.store.db)
 
 
 class BatchSnapshotTests(unittest.TestCase):

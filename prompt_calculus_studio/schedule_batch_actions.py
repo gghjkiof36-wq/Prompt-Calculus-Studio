@@ -63,7 +63,7 @@ def cancel(runner,scheduler,group):
     with runner.accepting() as transaction:
         if control.get('serial'):
             from .stage_batches import cursors,restore_cursors
-            newer=store.db.execute("SELECT body FROM stage_journal WHERE kind='batch_control' AND workspace=? AND position>(SELECT position FROM stage_journal WHERE id=?)",(workspace,control['id']))
+            newer=store.db.execute("SELECT body FROM stage_header WHERE kind='batch_control' AND workspace=? AND position>(SELECT position FROM stage_header WHERE id=?)",(workspace,control['id']))
             import json
             overlap=any(not c.get('withdrawn') and set(c.get('cursor_keys',[])) & set(control.get('cursor_keys',[])) for c in (json.loads(r[0]) for r in newer))
             withdrawn=(not control.get('started') and not any(r['status'] not in ('waiting','retained','removed') for r in all_entries)

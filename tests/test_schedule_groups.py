@@ -1,4 +1,5 @@
 """Execution groups, bounded display and isolated ordering over persistent rows."""
+from journal_fixtures import snapshot as journal_snapshot
 import copy
 import sqlite3
 import unittest
@@ -14,7 +15,7 @@ class GroupStoreTests(unittest.TestCase):
         future=self.store.add('run','w',status='waiting',plan={})
         for serial,(group,run) in enumerate((('current',current),('future',future)),1):
             self.store.set_batch_control('w','q',group,run=run['id'],serial=serial,total=2,expanded=0)
-        runner=SimpleNamespace(store=self.store,scheduler_keys=lambda plan:['q'])
+        runner=SimpleNamespace(store=self.store,scheduler_keys=lambda plan:['q'],accepting=self.store.transaction)
         promote_waiting(runner,[future])
         self.assertEqual(self.store.read(future['id'])['status'],'waiting')
         self.store.reorder_groups('w','q',['future','current'],['current','future'])
@@ -34,13 +35,13 @@ class GroupStoreTests(unittest.TestCase):
     def test_group_projection_and_paging_do_not_load_frozen_content(self):
         for i in range(235):self.entry('first',i)
         for i in range(120):self.entry('second',i)
-        before=list(self.db.execute('SELECT id,body,position FROM stage_journal'))
+        before=journal_snapshot(self.db)
         with patch.object(self.store,'rows',side_effect=AssertionError('Full history read')),patch.object(self.store,'read',side_effect=AssertionError('Full body read')):
             groups=self.store.schedule_groups('w','q')
             page=self.store.entry_summaries('w','q',group='first',limit=50,offset=200)
             self.assertEqual([g['total'] for g in groups],[235,120]);self.assertEqual(len(page),35)
             self.assertTrue(all('saved' not in r for r in page))
-        self.assertEqual(list(self.db.execute('SELECT id,body,position FROM stage_journal')),before)
+        self.assertEqual(journal_snapshot(self.db),before)
         self.assertEqual(StageStore(self.db).schedule_groups('w','q'),groups)
 
     def test_page_reorder_leaves_other_group_and_unseen_positions_unchanged(self):
@@ -48,13 +49,13 @@ class GroupStoreTests(unittest.TestCase):
         for i in range(15):self.entry('second',i)
         page=self.store.entry_summaries('w','q',group='first',limit=50)
         ids=[r['id'] for r in page];expected=dict(ids=ids,statuses=[r['status'] for r in page],offset=0)
-        before=dict(self.db.execute('SELECT id,position FROM stage_journal'))
+        before=dict(self.db.execute('SELECT id,position FROM stage_header'))
         self.store.reorder_page('w','q','first',list(reversed(ids)),expected)
-        after=dict(self.db.execute('SELECT id,position FROM stage_journal'))
+        after=dict(self.db.execute('SELECT id,position FROM stage_header'))
         self.assertEqual({k:v for k,v in after.items() if k not in ids},{k:v for k,v in before.items() if k not in ids})
         self.assertEqual([r['id'] for r in self.store.entry_summaries('w','q',group='first',limit=50)],list(reversed(ids)))
         with self.assertRaises(ValueError):self.store.reorder_page('w','q','first',ids,expected)
-        self.assertEqual(dict(self.db.execute('SELECT id,position FROM stage_journal')),after)
+        self.assertEqual(dict(self.db.execute('SELECT id,position FROM stage_header')),after)
 
     def test_unconfirmed_and_cross_owner_entries_cannot_be_reordered(self):
         a=self.entry('g',0);b=self.entry('g',1,status='running')
@@ -75,9 +76,9 @@ class GroupStoreTests(unittest.TestCase):
 
     def test_legacy_group_is_a_projection_and_patch_keeps_null_and_snapshot(self):
         entry=self.entry(None,0);self.store.patch(entry['id'],source=None,error='')
-        before=list(self.db.execute('SELECT body FROM stage_journal'))
+        before=journal_snapshot(self.db)
         self.assertEqual(self.store.schedule_groups('w','q')[0]['id'],'legacy:run')
-        self.assertEqual(list(self.db.execute('SELECT body FROM stage_journal')),before)
+        self.assertEqual(journal_snapshot(self.db),before)
         self.assertEqual(self.store.read(entry['id'])['saved'],entry['saved'])
         self.assertIsNone(self.store.read(entry['id'])['source'])
 
@@ -92,12 +93,12 @@ class GroupStoreTests(unittest.TestCase):
 
     def test_group_order_and_bypass_persist_without_editing_frozen_rows(self):
         a=[self.entry('a',i) for i in range(2)];b=[self.entry('b',i) for i in range(2)]
-        before=list(self.db.execute("SELECT body,position FROM stage_journal WHERE kind='entry' ORDER BY position"))
+        before=journal_snapshot(self.db,kind='entry')
         self.store.reorder_groups('w','q',['b','a'],['a','b'])
         self.assertEqual(self.store.next_entry('same-owner')['id'],b[0]['id'])
         self.store.set_batch_control('w','q','b',bypassed=True)
         self.assertEqual(self.store.next_entry('same-owner')['id'],a[0]['id'])
-        self.assertEqual(list(self.db.execute("SELECT body,position FROM stage_journal WHERE kind='entry' ORDER BY position")),before)
+        self.assertEqual(journal_snapshot(self.db,kind='entry'),before)
         reopened=StageStore(self.db)
         self.assertEqual([g['id'] for g in reopened.schedule_groups('w','q')],['b','a'])
         self.assertTrue(reopened.schedule_groups('w','q')[0]['bypassed'])

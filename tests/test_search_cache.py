@@ -9,7 +9,9 @@ class SearchCacheTests(unittest.TestCase):
     def test_old_database_retains_document_cache_and_accepted_words(self):
         self.store.close(); path=Path(self.temp.name)/'legacy'; path.mkdir()
         db=sqlite3.connect(path/'studio.sqlite3'); db.execute('CREATE TABLE cache(key TEXT PRIMARY KEY,body TEXT NOT NULL,saved REAL NOT NULL)')
-        db.execute('INSERT INTO cache VALUES (?,?,?)',('old',json.dumps([dict(value='smile')]),time.time())); db.commit(); db.close()
+        db.execute('INSERT INTO cache VALUES (?,?,?)',('old',json.dumps([dict(value='smile')]),time.time())); db.commit()
+        from prompt_calculus_studio.storage_layout import transform_journal
+        transform_journal(db); db.close()
         self.store=Storage(path); state=initial_state(); self.store.save(state); self.store.use(state['workspace'],'kept',dict(value='kept'))
         self.assertEqual(self.store.cached('old'),[dict(value='smile')]); self.store.clear_cache()
         self.assertIsNone(self.store.cached('old')); self.assertEqual(self.store.load(),state)

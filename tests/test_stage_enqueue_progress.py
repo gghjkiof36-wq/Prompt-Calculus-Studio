@@ -181,7 +181,7 @@ class EnqueueProgressTests(unittest.TestCase):
                         QTest.qWait(25)
                     # Hand-write a pre-Q1 journal body: no progress key at all.
                     with case.runner.store.transaction():
-                        case.runner.store.db.execute("UPDATE stage_journal SET body=json_remove(body,'$.scope_progress') WHERE id=?", (run['id'],))
+                        case.runner.store.db.execute("UPDATE stage_header SET body=json_remove(body,'$.scope_progress') WHERE id=?", (run['id'],))
                     before = len(case.runner.store.rows('entry'))
                     case.runner.start(1 if auto else 2)
                     self.assertNotIn('scope_progress', case.runner.store.read(run['id']))

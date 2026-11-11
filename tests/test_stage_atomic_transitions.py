@@ -1,4 +1,5 @@
 """State pairs commit once, and publication never observes half acceptance."""
+from prompt_calculus_studio import journal_codec
 import json
 from contextlib import nullcontext
 from pathlib import Path
@@ -49,7 +50,7 @@ class StageAtomicTransitionsTests(unittest.TestCase):
         self.db.set_trace_callback(self.sql.append)
 
     def read(self, ident):
-        return json.loads(self.reader.execute('SELECT body FROM stage_journal WHERE id=?', (ident,)).fetchone()[0])
+        return journal_codec.records(self.reader,self.reader.execute('SELECT id,body,content_paths,projection FROM stage_header WHERE id=?',(ident,)))[0]
 
     def publish(self, name):
         self.assertFalse(self.db.in_transaction)
@@ -72,7 +73,7 @@ class StageAtomicTransitionsTests(unittest.TestCase):
         else:
             statement = "SELECT RAISE(ABORT, 'temporary write failure')"
         # Identifiers are UUIDs created by this isolated fixture.
-        self.db.execute(f"""CREATE TEMP TRIGGER fail_transition AFTER UPDATE ON stage_journal
+        self.db.execute(f"""CREATE TEMP TRIGGER fail_transition AFTER UPDATE ON stage_header
             WHEN NEW.id='{ident}' BEGIN {statement}; END""")
 
     def test_result_and_frame_commit_once_before_any_publication(self):

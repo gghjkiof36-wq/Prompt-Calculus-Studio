@@ -1,4 +1,5 @@
 """Projection ownership and durable transition boundaries for frozen execution."""
+from journal_fixtures import snapshot as journal_snapshot
 import copy
 import json
 import sqlite3
@@ -108,7 +109,7 @@ class AdvanceBoundaryTests(unittest.TestCase):
         self.runner.advance=advance;self.runner.dispatch=dispatch
         StageRunner.step(self.runner,self.run)
         self.assertEqual(observed,[([{'index':3}],('frame','stage'))])
-        self.assertEqual(sum(s.startswith('UPDATE stage_journal') for s in statements),1)
+        self.assertEqual(sum(s.startswith('UPDATE stage_header') for s in statements),1)
         self.assertEqual(sum(s=='COMMIT' for s in statements),1)
 
     def test_failed_transition_rolls_back_rows_and_document_without_dispatch(self):
@@ -164,7 +165,7 @@ class JournalProjectionTests(unittest.TestCase):
         stack=[dict(kind='loop',owner='owner',done=2,feed=dict(total=10,plan={'large':'x'*100000}),ctx={'saved':{'scene':{'large':'x'*100000}}}),
                dict(kind='stage',key='stage',ctx={'saved':{'scene':{'large':'x'*100000}}})]
         run=self.store.add('run','w',server='server',plan={'stages':{}},stack=stack,status='running',message='pending')
-        before=list(self.db.execute('SELECT body FROM stage_journal'))
+        before=journal_snapshot(self.db)
         def small_decode(value,*a,**kw):
             self.assertLess(len(value),1000)
             return json.JSONDecoder().decode(value)
@@ -174,7 +175,7 @@ class JournalProjectionTests(unittest.TestCase):
         self.assertEqual(projected['stack'][0]['feed'],{'total':10})
         self.assertEqual(projected['stack'][0]['done'],2)
         self.assertEqual(projected['stack'][1]['key'],'stage')
-        self.assertEqual(list(self.db.execute('SELECT body FROM stage_journal')),before)
+        self.assertEqual(journal_snapshot(self.db),before)
         self.store.update(run['id'],status='complete')
         self.assertFalse(self.store.has_open_runs('w'));self.assertEqual(self.store.progress_runs('w'),[])
 

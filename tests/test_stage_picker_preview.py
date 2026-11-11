@@ -1,4 +1,5 @@
 """Keyboard previews use an empty journal and never alter the real document."""
+from journal_fixtures import snapshot as journal_snapshot
 import copy
 import unittest
 from contextlib import contextmanager
@@ -41,7 +42,7 @@ class StagePickerPreviewTests(unittest.TestCase):
             before=copy.deepcopy(self.w.state);saved=self.w.store.load()
             history=self.w.canvas.history_projection(self.w.state)
             runner=self.w.comfy.input_flow.chain
-            journal=list(self.w.store.db.execute('SELECT * FROM stage_journal'))
+            journal=journal_snapshot(self.w.store.db)
             with patch.object(runner.store,'latest_stage_status',side_effect=AssertionError('No real journal reads')):
                 for _ in range(2):
                     self.select_stage(dialog)
@@ -53,7 +54,7 @@ class StagePickerPreviewTests(unittest.TestCase):
             self.assertFalse(dialog.isVisible())
             self.assertEqual(self.w.state,before);self.assertEqual(self.w.store.load(),saved)
             self.assertEqual(self.w.canvas.history_projection(self.w.state),history)
-            self.assertEqual(list(self.w.store.db.execute('SELECT * FROM stage_journal')),journal)
+            self.assertEqual(journal_snapshot(self.w.store.db),journal)
 
     def test_button_adds_one_real_stage_whose_status_still_uses_its_journal(self):
         with self.picker() as dialog:

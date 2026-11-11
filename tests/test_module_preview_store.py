@@ -83,7 +83,7 @@ class ModulePreviewStoreTests(unittest.TestCase):
                             store = dialog.preview.context.window.comfy.input_flow.chain.store
                             self.assertIsInstance(store, StageStore)
                             self.assertEqual(store.db.execute('PRAGMA database_list').fetchone()[2], '')
-                            self.assertEqual(store.db.execute('SELECT COUNT(*) FROM stage_journal').fetchone()[0], 0)
+                            self.assertEqual(store.db.execute('SELECT COUNT(*) FROM stage_header').fetchone()[0], 0)
                             if old is not None:
                                 self.assert_closed(old)
                             if kind == 'schedule':

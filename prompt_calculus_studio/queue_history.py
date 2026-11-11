@@ -24,7 +24,7 @@ def capture(store, ids):
     result={}
     for ident in ids:
         item=store.read(ident)
-        row=store.db.execute('SELECT position FROM stage_journal WHERE id=?',(ident,)).fetchone()
+        row=store.db.execute('SELECT position FROM stage_header WHERE id=?',(ident,)).fetchone()
         if not item or row is None:raise ValueError('預排程項目已不存在。')
         result[ident]=dict(item=item,position=row[0])
     return result
@@ -42,7 +42,7 @@ def untouched(store, values):
         # Keep the parent lookup indexed and independent of total queue history.
         for start in range(0,len(ids),400):
             chunk=ids[start:start+400]
-            query="SELECT 1 FROM stage_journal WHERE kind IN ('entry','attempt') AND workspace=? AND json_extract(body,'$.parent') IN ("+','.join('?' for _ in chunk)+') LIMIT 1'
+            query="SELECT 1 FROM stage_header WHERE kind IN ('entry','attempt') AND workspace=? AND json_extract(body,'$.parent') IN ("+','.join('?' for _ in chunk)+') LIMIT 1'
             if store.db.execute(query,(workspace,*chunk)).fetchone():return False
     return True
 
@@ -88,12 +88,11 @@ def restore(canvas, source, destination, after):
             run=store.read(ident)
             if not run or run['status'] in ('complete','cancelled') or run['server']!=runner.client.url:
                 raise ValueError('原流程已結束或連線不符，未重建或重送。')
-        with store.db:
+        with store.transaction():
             for ident in runs:runner.pause(ident,'已復原等待項目；檢查內容後按「繼續」。')
             for ident,value in target['records'].items():
                 item=value['item'];store.set_scheduler_paused(item['workspace'],item['scheduler'],True)
-                store.db.execute('UPDATE stage_journal SET position=?,body=? WHERE id=?',
-                                 (value['position'],json.dumps(item,ensure_ascii=False),ident))
+                store.replace_record(item,value['position'])
         source.pop();destination.append((before,later));canvas._last_edit=None;runner.notify('已復原等待項目；流程保持暫停。')
         canvas.window.notice('已復原等待項目；檢查內容後按「繼續」。')
     except ValueError as exc:canvas.window.notice(str(exc))
