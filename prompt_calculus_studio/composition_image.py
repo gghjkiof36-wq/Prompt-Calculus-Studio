@@ -44,8 +44,8 @@ def validate_image(value):
         if item['width']<=0 or item['height']<=0 or not 0<=item['stroke_width']<=4096: raise ValueError('圖層尺寸或筆寬無效。')
         if not color(item.get('fill')) or not color(item.get('stroke')): raise ValueError('圖層顏色無效。')
         if item['type']=='image':
-            from .generation import validate_generation
-            validate_generation(dict(mode='img2img',profiles=[],source=item.get('source'),chosen={}))
+            from .generation import validate_source
+            validate_source(item.get('source'))
             if item.get('source') is None: raise ValueError('圖片圖層缺少來源。')
             crop=item.get('crop',[0,0,1,1])
             if not isinstance(crop,list) or len(crop)!=4 or any(type(v) not in (int,float) or not math.isfinite(v) or not 0<=v<=1 for v in crop) or crop[2]<=crop[0] or crop[3]<=crop[1]: raise ValueError('裁切範圍無效。')

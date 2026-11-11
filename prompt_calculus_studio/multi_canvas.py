@@ -10,7 +10,7 @@ from .canvas_functions import CanvasFunctions,SourceCard
 from .flow_items import CanvasContainer,Port,FlowLine,curve
 from .widgets import label,button,row,ComboBox,RoundMenu,StudioDialog,dialog_buttons,InputDialog,widget_global_position
 from .core import build_prompt,validate_state,output_groups
-from .generation import active_profile,text_fields
+from .generation import text_fields
 from . import composition as comp
 from . import multi_output as model
 from . import clip_flow
@@ -319,7 +319,7 @@ class FlowFunctions(CanvasFunctions):
         if self.canvas.commit(lambda state:result.append(add(state,(position.x(),position.y())))):
             return result[0]
     def source_position(self,output):
-        card=self.canvas.outputs.get(output)
+        card=self.canvas.outputs.get(output) or self.canvas.flow_cards.get(output)
         rect=card.sceneBoundingRect() if card else QRectF(*self.window.state.get('text_positions',{}).get(output,[650,100]),540,650)
         width,height,gap=360,340,36
         candidates=[QRectF(rect.left()-width-gap,rect.top(),width,height),QRectF(rect.left(),rect.bottom()+gap,width,height),
@@ -330,6 +330,9 @@ class FlowFunctions(CanvasFunctions):
             return sum(max(0,r.width())*max(0,r.height()) for r in (candidate.intersected(other) for other in others))
         return min(candidates,key=overlap).topLeft()
     def use_source(self,source,output=None):
+        if self.canvas.data()['version']>=7:
+            from .image_source_action import use_image
+            return use_image(self.canvas,source,output)
         output=output or self.canvas.data()['current_output']
         if output not in self.canvas.data()['outputs']: raise ValueError('請先新增 Prompt 輸出。')
         line=next((c for c in self.canvas.data()['connections'] if c['kind']=='image' and c['destination']==output),None)
@@ -755,7 +758,8 @@ class MultiCanvas(TextCanvas):
                 inputs=text_sources(self.data()['outputs'][key])
                 for at,cid in enumerate(inputs):self.add_port(card,key,'text' if cid in self.data()['canvases'] else 'clip',False,slot=cid,index=at)
                 self.add_port(card,key,'text',False,index=len(inputs))
-                self.add_port(card,key,'image',False,index=len(inputs)+1)
+                if self.data()['version']<7 or any(c['kind']=='image' and c['destination']==key for c in self.data()['connections']):
+                    self.add_port(card,key,'image',False,index=len(inputs)+1)
                 self.add_port(card,key,'clip',True)
             for key,card in self.clips.items():
                 self.add_port(card,key,'clip',False);self.add_port(card,key,'control',True)

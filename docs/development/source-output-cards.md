@@ -31,6 +31,16 @@ v7 移除的介面入口：更換圖片十項選單、建立 Stage 引用、圖�
 
 ## Prompt 預覽
 
+### v7 圖片接線與結果重用（B3-GEN）
+
+新圖片線只能接圖片輸入等接受圖片的模組，不能接 Prompt 輸出。`multi_output.valid_edge`／`flow_data.valid_edge` 預設驗證新建；文件驗證及已存流程投影明確使用 `stored=True`，保留舊圖片→Prompt 線。舊線顯示「舊連線 · 不送出圖片」與舊圖片接點，可以刪除或拖動目的端改接；拒絕的接點不當成空白處刪線。依賴判斷仍沿用 `stage_model`／`prompt_sources`，樣式不代表舊線對排程完全無影響。
+
+最近生成、Canvas 生成結果及圖片預覽共用 `image_source_action.use_image`，名稱為「用這張圖當來源」。`image_input_routing` 只在目前 Prompt 有唯一直接 CLIP 工作流歸屬時提供同工作流候選；LoadImage 必須存在、image 欄可寫、綁定不重複，且輸入未接來源。多個可用卡讓使用者選擇，有來源的卡不可選；沒有可用目標或歸屬不明時，明確選工作流與未被綁定的 LoadImage，再建立來源、輸入及連線。不靠 Stage 組合推測工作流，不自動接下游 Stage，也不載入圖片的 Prompt。
+
+目標確認前不匯入圖片；取消不改文件。確認後重新核對文件擁有者、profile、綁定及占用，以一次 `Canvas.commit → DocumentOperations.commit` 建立一筆 Undo。來源素材沿既有內容定址保存；提交失敗不改文件，但已匯入的素材檔依原清理規則保留。改線沿 S4 全量刷新，Undo／Redo 與其他視圖走既有通知。沒有舊線一鍵轉換功能；手動改接與結果重用共用綁定／歸屬／占用條件。
+
+### 預覽文字
+
 `OutputPanel` 及 `OutputEditor` 都取 `multi_output.compile_output(...).final_prompt`，同樣保留手動內容（含空字串）和來源錯誤時的既有顯示。`PromptPreview` 是自繪 QWidget，不含編輯器或捲動區，只排版至多六行，更新前比較完整文字。每個 Canvas 共用一個 `PromptCache` 輸入快照，以既有 `changes.layout_only` 契約忽略幾何變動；歷史、未啟用工作區快照及視角不參與目前工作區的編譯。輸入改變才清除文字快取，保留副本也能檢出執行游標原地變動。完整文字用於複製；拖曳（含放開提交）、平移、縮放不觸發編譯。`ModulePage`、來源排序樹與編輯器仍按需建立；「排序」聚焦來源樹，點文字聚焦編輯器。
 
 「讀取流程」卡將 step 顯示為「每次一組」，batch 仍顯示「整個流程」，僅收窄顯示控制項，資料值不變。

@@ -87,10 +87,10 @@ def add_image_input(state, position=(1000, 300)):
     return key
 
 
-def valid_edge(state, source, destination, kind):
+def valid_edge(state, source, destination, kind, *, stored=False):
     if state['multi_output']['version']>=7:
         from .module_contracts import can_connect
-        return can_connect(state,source,destination,kind)
+        return can_connect(state,source,destination,kind,stored=stored)
     elif kind=='control':
         from .chain_connections import valid_edge as control_edge
         return control_edge(state,source,destination)
@@ -144,8 +144,8 @@ def validate_value(item):
     if item['type'] == 'clip' and not isinstance(content, str):
         raise ValueError('文字輸入必須為文字，空字串也是有效內容。')
     if item['type'] == 'image':
-        from .generation import validate_generation
-        validate_generation(dict(mode='img2img',profiles=[],source=content))
+        from .generation import validate_source
+        validate_source(content)
     if item['type'] == 'content':
         if not isinstance(content, dict) or content.get('kind') not in ('modules', 'raw'):
             raise ValueError('圖片中的模塊內容不可辨識。')

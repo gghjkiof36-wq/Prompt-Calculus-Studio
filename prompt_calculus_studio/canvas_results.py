@@ -74,7 +74,8 @@ class CanvasResults(QFrame):
         self.destination=ComboBox(); self.destination.setMinimumWidth(100); self.destination.currentIndexChanged.connect(self.change_destination)
         self.choose_folder=button('資料夾…',self.choose_directory,'Quiet'); layout.addLayout(row(self.destination,self.choose_folder))
         self.save_button=button('儲存圖片',self.save,'Primary')
-        self.reuse=button('導入圖生圖',self.use_source,'Quiet')
+        from .image_source_action import ACTION
+        self.reuse=button(ACTION if window.state.get('multi_output',{}).get('version',0)>=7 else '導入圖生圖',self.use_source,'Quiet')
         self.recent_button=button('最近生成',lambda:self.window.show_page(self.window.recent),'Quiet'); layout.addLayout(row(self.save_button,self.reuse,self.recent_button))
         self.feedback=label('','Subtle',True); layout.addWidget(self.feedback); self.feedback.hide()
         self.refresh()

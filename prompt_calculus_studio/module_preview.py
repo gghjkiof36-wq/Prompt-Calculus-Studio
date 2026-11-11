@@ -121,7 +121,7 @@ class PreviewCanvas:
             state['text_sizes'][key] = list(card.default_size if kind in ('source','single','output','schedule') else PREVIEW_SIZES[kind])
             card.attach(); card.update_text()
         spec = MODULES[contract]
-        inputs = ('text','image') if kind == 'output' else ('control',) if kind == 'stage' else spec.inputs
+        inputs = (('text',) if state['multi_output']['version']>=7 else ('text','image')) if kind == 'output' else ('control',) if kind == 'stage' else spec.inputs
         outputs = ('flow','image','clip') if kind == 'stage' else spec.outputs
         for output, kinds in ((False, inputs), (True, outputs)):
             for index, wire in enumerate(kinds):

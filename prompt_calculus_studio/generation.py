@@ -32,6 +32,11 @@ def store_profile(state,profile):
     """Save one validated profile; v4 execution is selected by CLIP bindings."""
     profile=copy.deepcopy(profile)
     if 'multi_output' in state: profile['multi_text']=True
+    modern=state.get('multi_output',{}).get('version',0)>=7
+    if modern:
+        from .workflow_import import infer_mode
+        previous=next((p for p in options(state)['profiles'] if p['id']==profile.get('id')),None)
+        profile['mode']=previous['mode'] if previous else infer_mode(profile['graph'],profile.get('image'))
     validate_profile(profile)
     settings=state.setdefault('generation',dict(mode='txt2img',profiles=[],chosen={},source=None))
     if len(settings['profiles'])>=50 and not any(p['id']==profile['id'] for p in settings['profiles']):
@@ -39,6 +44,9 @@ def store_profile(state,profile):
     settings['profiles']=[profile if p['id']==profile['id'] else p for p in settings['profiles']]
     if not any(p['id']==profile['id'] for p in settings['profiles']): settings['profiles'].append(profile)
     chosen=settings.setdefault('chosen',{})
+    if modern:
+        settings['mode']='txt2img'
+        return profile
     for mode,ident in list(chosen.items()):
         if ident==profile['id'] and mode!=profile['mode']: chosen[mode]=''
     if state.get('multi_output',{}).get('version',1)<4:
@@ -305,7 +313,12 @@ def validate_generation(value, *, profiles_validated=False):
     chosen=value.get('chosen',{})
     if not isinstance(chosen,dict) or any(mode not in MODES or (ident and (ident not in profiles or profiles[ident]['mode']!=mode)) for mode,ident in chosen.items()):
         raise ValueError('選取的工作流不存在。')
-    source=value.get('source')
+    validate_source(value.get('source'))
+    return value
+
+
+def validate_source(source):
+    """Validate a stored image reference, including the absent-source value."""
     if source is not None:
         if not isinstance(source,dict) or not re.fullmatch('[0-9a-f]{64}',str(source.get('sha256',''))): raise ValueError('來源圖片資料無效。')
         path=PurePosixPath(source.get('relative',''))
@@ -313,7 +326,7 @@ def validate_generation(value, *, profiles_validated=False):
             raise ValueError('來源圖片位置無效。')
         if any(type(source.get(key)) is not int or source[key]<=0 for key in ('width','height')): raise ValueError('來源圖片尺寸無效。')
         if not isinstance(source.get('name'),str): raise ValueError('來源圖片名稱無效。')
-    return value
+    return source
 
 
 def uploaded_image(value):
@@ -344,7 +357,7 @@ def validate_canvas_functions(value):
             pos=item['supply_reservation']
             if (not isinstance(pos,dict) or not isinstance(pos.get('plan'),str) or
                     type(pos.get('next')) is not int or pos['next']<0):raise ValueError('圖片供應位置無效。')
-        validate_generation(dict(mode='img2img',profiles=[],chosen={},source=item.get('source')))
+        validate_source(item.get('source'))
         if item.get('reader') not in (None,'text'):raise ValueError('讀取模塊類型無效。')
         if item.get('output_node') is not None and not isinstance(item['output_node'],str):raise ValueError('圖片結果節點無效。')
         field=item.get('text_field')

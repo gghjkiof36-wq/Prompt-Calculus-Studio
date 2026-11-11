@@ -88,6 +88,12 @@ Stage 最新狀態查詢／索引與未變輪詢優化不刪減歷史。桌面�
 
 第 5 版資料不可交給舊程式或舊擴充；回退使用保留的舊資料副本。程式碼回退不會回退資料。
 
+## v7 生成模式與舊圖片連線（B3-GEN）
+
+文件、PNG 與 journal 的格式及雜湊規則不變。v7 新建／首次匯入的 profile 依整張 API graph 推導相容標記 `mode`：有 LoadImage（包括不在採樣路徑上的節點）或有效圖片綁定為 `img2img`，其餘為 `txt2img`。更新既有 profile ID 保留原 mode，不因改名、參數或重讀而回寫。新 profile 保存及工作流交換寫入的 `generation.mode` 固定 `txt2img`，原 `chosen` 保留；一般載入、保存、快照及 Undo 不正規化舊 mode。PNG 繼續複製 profile 的 mode，擴充端不加新的推導規則。
+
+新建 v7 圖片→Prompt 線被拒絕，已有的線在文件驗證、流程投影、PNG 還原與 Undo 時照舊接受。沒有載入遷移或自動改接；舊線仍參與依賴判斷，Stage 仍不藉此傳送圖片。v6 以下的接線與 direct mode 不變。來源參照驗證抽為 `generation.validate_source`，沿用原 hash、相對路徑、尺寸、名稱及 None 的接受集合；畫布圖層仍額外拒絕 None。
+
 ## 素材、文字草稿與內容歷史
 
 - 候選26新增可選的庫級 `material_navigation` version 1，保存資料夾、分類ID歸屬及側欄順序；`settings.material_folder_collapsed` 保存收合偏好。缺欄位時全部分類在外層，不在refresh写入，不重排原`modules`或Canvas輸出。新增、改名、移動及移除沿既有Undo交易，僅收合不新增內容交易。已刪除分類的舊引用在顯示時忽略，下一次明確收納操作才清除；不支援的收納版本拒絕載入。此處原先的「資料夾不寫進 PNG」只記錄 0.8.7 初始行為；0.8.8 改為保留重建所需的資料夾／分類參照，依本頁現行規則。

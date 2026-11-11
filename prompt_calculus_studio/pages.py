@@ -585,7 +585,8 @@ class GalleryPage(QFrame):
         self.detail_actions=QWidget(); action_layout=QVBoxLayout(self.detail_actions); action_layout.setContentsMargins(0,0,0,0); action_layout.setSpacing(12)
         self.detail_body.addWidget(self.detail_actions,1,Qt.AlignmentFlag.AlignTop)
         self.preview.install_on(self.empty_start)
-        self.img2img_button=button('用這張圖生圖',lambda:self.window.use_image_for_generation(self.record['path']) if self.record else None,'Primary')
+        from .image_source_action import ACTION
+        self.img2img_button=button(ACTION if window.state.get('multi_output',{}).get('version',0)>=7 else '用這張圖生圖',lambda:self.window.use_image_for_generation(self.record['path']) if self.record else None,'Primary')
         self.img2img_button.setEnabled(False); action_layout.addWidget(self.img2img_button)
         self.open_original_button=button('開啟原圖',self.open_original,'Quiet'); self.open_original_button.setIcon(icon('external-link'))
         self.detail_more=button('更多',self.detail_menu,'Quiet'); self.detail_more.setIcon(icon('menu')); self.detail_more.setAccessibleName('目前圖片的更多操作')

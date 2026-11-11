@@ -29,7 +29,7 @@ def readable_metadata(record):
         if generation.get('queue_revision'):
             lines.extend(['Queue 固定工作版本：'+str(generation['queue_revision']),
                           '以下為當次提交值；模組快照保留來源稿件。'])
-        lines.extend(['當次生成方式：'+('圖生圖' if generation.get('mode')=='img2img' else '文生圖'),'工作流：'+str(generation.get('workflow',''))])
+        lines.append('工作流：'+str(generation.get('workflow','')))
         source=generation.get('source')
         if isinstance(source,dict): lines.append('來源圖片：'+str(source.get('name',''))+' · SHA256 '+str(source.get('sha256','')))
         for key,value in generation.get('parameters',{}).items(): lines.append('實際 '+FIELD_NAMES.get(key,key)+'：'+str(value))

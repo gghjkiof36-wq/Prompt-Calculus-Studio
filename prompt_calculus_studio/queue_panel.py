@@ -117,13 +117,3 @@ class QueueDialog(StudioDialog):
             if record.get('error'):lines.extend(['',record['error']])
             lines.extend(['','工作版本：'+work['sha256']])
             self.detail.setPlainText('\n'.join(lines))
-
-
-def show_queue(window):
-    dialog = getattr(window, 'queue_dialog', None)
-    if dialog is None:
-        window.queue_dialog = QueueDialog(window)
-        dialog = window.queue_dialog
-    dialog.refresh()
-    dialog.show()
-    dialog.raise_()

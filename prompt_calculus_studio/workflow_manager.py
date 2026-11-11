@@ -169,7 +169,7 @@ class WorkflowManager(QWidget):
             if not valid():return
             try:
                 from .workflow_import import read_profile
-                profile=read_profile(value,entry['name'],entry['id'],dict(server=server,path=entry['path']))
+                profile=read_profile(value,entry['name'],entry['id'],dict(server=server,path=entry['path']),modern=self.window.state.get('multi_output',{}).get('version',0)>=7)
                 previous=next((p for p in originals if p['id']==profile['id']),None)
                 current=next((p for p in self.window.state.get('generation',{}).get('profiles',[]) if p['id']==profile['id']),None)
                 if current!=previous:raise ValueError('工作流已更新，請重新讀取。')
@@ -200,7 +200,7 @@ class WorkflowManager(QWidget):
                 if incoming.get('id')!=profile['id']: raise ValueError('此檔案屬於另一份工作流，請使用「匯入工作流」。')
                 state,_=apply_transfer(self.window.state,incoming); self.window.adopt_document(state, reason='workflow-reimport')
             else:
-                updated=infer_profile(import_graph(incoming),profile['name']); updated.update(id=profile['id'],multi_text=True); validate_profile(updated)
+                updated=infer_profile(import_graph(incoming),profile['name'],modern=self.window.state.get('multi_output',{}).get('version',0)>=7); updated.update(id=profile['id'],multi_text=True); validate_profile(updated)
                 self.window.generation_panel.save_profile(updated)
             self.window.generation_panel.changed(); self.window.canvas.refresh(); self.refresh()
         except (ValueError,KeyError,TypeError,OSError) as exc: self.window.notice('工作流未更新：'+str(exc))

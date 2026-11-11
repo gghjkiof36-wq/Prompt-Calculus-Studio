@@ -64,13 +64,20 @@ def import_graph(value):
         graph[ident]=dict(class_type=kind,inputs=inputs,_meta={'title':node.get('title',kind)})
     return api_graph(graph)
 
-def infer_profile(graph,name,workflow=None):
+def infer_mode(graph, image=None):
+    """Compatibility tag for a new v7 profile; never an execution selector."""
+    bound = graph.get(image, {}) if isinstance(image, str) else {}
+    valid_binding = bound.get('class_type') == 'LoadImage' and isinstance(bound.get('inputs', {}).get('image'), str)
+    return 'img2img' if valid_binding or any(n.get('class_type') == 'LoadImage' for n in graph.values()) else 'txt2img'
+
+
+def infer_profile(graph,name,workflow=None,*,modern=False):
     samplers=[k for k,n in graph.items() if n['class_type']=='KSampler']
     sampler=samplers[0] if len(samplers)==1 else ''
     inputs=graph.get(sampler,{}).get('inputs',{}); latent=inputs.get('latent_image')
     upstream=ancestors(graph,str(latent[0])) if isinstance(latent,list) else set(graph)
     images=[k for k,n in graph.items() if n['class_type']=='LoadImage' and k in upstream]
-    mode='img2img' if images else 'txt2img'; fields=text_fields(graph)
+    mode=infer_mode(graph) if modern else 'img2img' if images else 'txt2img'; fields=text_fields(graph)
     prompt=suggested_text(graph,sampler) or (fields[0] if len(fields)==1 else None)
     sizes=[k for k,n in graph.items() if k in upstream and n['class_type'] in ('ImageScale','EmptyLatentImage','EmptySD3LatentImage')]
     profile=dict(id=uuid.uuid4().hex,name=name,mode=mode,graph=graph,prompt=list(prompt) if prompt else None,
@@ -90,7 +97,7 @@ def infer_profile(graph,name,workflow=None):
     return profile
 
 
-def read_profile(value,name,ident,origin):
+def read_profile(value,name,ident,origin,*,modern=False):
     """Read nodes without applying a transfer's unrelated desktop bindings."""
     if not isinstance(value,dict): raise ValueError('工作流格式無效。')
     if value.get('format')=='prompt_studio_native_inspection':
@@ -100,13 +107,13 @@ def read_profile(value,name,ident,origin):
             raise ValueError('原生工作流讀取身分無效。')
         # The official frontend serialized custom widgets and unsaved nodes.
         # Never reverse-engineer widget positions from a visual JSON here.
-        profile=infer_profile(api_graph(value.get('output')),name,visual)
+        profile=infer_profile(api_graph(value.get('output')),name,visual,modern=modern)
     elif value.get('format')=='prompt_studio_workflow':
         if value.get('version')!=1 or not isinstance(value.get('id'),str) or not value['id']:
             raise ValueError('工作流交換檔格式無效。')
-        profile=infer_profile(import_graph(value.get('graph')),value.get('name'),value.get('workflow'))
+        profile=infer_profile(import_graph(value.get('graph')),value.get('name'),value.get('workflow'),modern=modern)
         ident=value['id']
-    else: profile=infer_profile(import_graph(value),name,value)
+    else: profile=infer_profile(import_graph(value),name,value,modern=modern)
     profile.update(id=ident,multi_text=True,origin=origin)
     if value.get('format')=='prompt_studio_native_inspection' and value.get('parameters'):
         from .stage_parameters import identity

@@ -45,11 +45,11 @@ def next_canvas_name(state):
     return '畫布'+str(number)
 
 
-def valid_edge(state,source,destination,kind):
+def valid_edge(state,source,destination,kind,*,stored=False):
     data=state['multi_output']; canvases=data['canvases']; outputs=data['outputs']; images=state.get('canvas_functions',{}).get('images',{})
     if data['version']>=5:
         from .flow_data import valid_edge as typed_edge
-        return typed_edge(state,source,destination,kind)
+        return typed_edge(state,source,destination,kind,stored=stored)
     if kind=='text': return source in canvases and destination in outputs
     if data['version']>=3 and kind=='clip': return source in outputs and destination in data['clip_inputs']
     if kind=='image':
@@ -368,7 +368,7 @@ def validate_multi(state):
         slot=input_slot(src,dst,kind,data['outputs'] if data['version']>=6 else ())
         if line['id'] in line_ids or slot in seen: raise ValueError('輸入連線重複。')
         line_ids.add(line['id']); seen.add(slot)
-        if not valid_edge(state,src,dst,kind): raise ValueError('連線類型或端口無效。')
+        if not valid_edge(state,src,dst,kind,stored=True): raise ValueError('連線類型或端口無效。')
         if kind=='text':
             if data['version']>=5:
                 if src not in data['outputs'][dst]['canvases']:raise ValueError('文字連線或來源不一致。')

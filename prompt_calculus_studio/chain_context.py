@@ -64,7 +64,7 @@ def context(runner,run,item):
     for i,(node,image) in enumerate(images):data['image_inputs']['chain_image_'+str(i)]=dict(name='階段圖片輸入',workflow=stage['workflow'],node=node)
     # Removed image input endpoints cannot leave invalid snapshot connections.
     from .multi_output import valid_edge
-    data['connections']=[c for c in data['connections'] if valid_edge(state,c['source'],c['destination'],c['kind'])]
+    data['connections']=[c for c in data['connections'] if valid_edge(state,c['source'],c['destination'],c['kind'],stored=True)]
     state.pop('workspace_scenes',None)
     # Execution metadata needs only the current native graph. Other stages'
     # profiles remain in the persistent run, not duplicated in every PNG.

@@ -7,7 +7,7 @@ from .generation import text_fields,validate_profile
 def import_transfer(state,value):
     if 'multi_output' not in state: raise ValueError('多輸出工作流需要 v0.8 Alpha。')
     if value.get('version')!=1 or not isinstance(value.get('id'),str) or not value['id'] or not isinstance(value.get('name'),str) or not value['name'].strip(): raise ValueError('工作流交換檔格式無效。')
-    graph=import_graph(value.get('graph')); profile=infer_profile(graph,value['name'],value.get('workflow')); profile.update(id=value['id'],multi_text=True)
+    graph=import_graph(value.get('graph')); profile=infer_profile(graph,value['name'],value.get('workflow'),modern=state['multi_output'].get('version',0)>=7); profile.update(id=value['id'],multi_text=True)
     validate_profile(profile)
     if state['multi_output'].get('version',1)>=4:
         # A transfer updates workflow content only. Canvas owns binding edits.
@@ -30,6 +30,9 @@ def apply_transfer(state,value):
     profile,bindings=import_transfer(state,value); candidate=copy.deepcopy(state)
     settings=candidate.setdefault('generation',dict(mode='txt2img',profiles=[],chosen={},source=None))
     previous=next((p for p in settings['profiles'] if p['id']==profile['id']),None)
+    if candidate['multi_output'].get('version',0)>=7:
+        settings['mode']='txt2img'
+        if previous:profile['mode']=previous['mode']
     if previous and previous.get('origin'):profile['origin']=copy.deepcopy(previous['origin'])
     if len(settings['profiles'])>=50 and not any(p['id']==profile['id'] for p in settings['profiles']): raise ValueError('最多保存 50 份工作流。')
     settings['profiles']=[p for p in settings['profiles'] if p['id']!=profile['id']]+[profile]

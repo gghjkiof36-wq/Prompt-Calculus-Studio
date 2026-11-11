@@ -178,7 +178,7 @@ import stage_fixture as current_fixture
 
 
 class CurrentFunctionTests(current_fixture.StageFixture):
-    def test_standalone_image_attach_keeps_mode_prompt_and_detached_source(self):
+    def test_standalone_image_cannot_attach_to_prompt_and_keeps_detached_source(self):
         image=Path(self.tmp.name)/'source.png'
         picture=QImage(320,240,QImage.Format.Format_RGB32);picture.fill(0xff426078);self.assertTrue(picture.save(str(image)))
         self.w.generation_panel.mode.setCurrentIndex(0);self.w.final.setPlainText('keep current prompt')
@@ -186,11 +186,13 @@ class CurrentFunctionTests(current_fixture.StageFixture):
         key=self.c.functions.add_image(path=image,position=QPointF(1700,1200))
         self.assertIsNotNone(key,self.notices)
         source=copy.deepcopy(self.c.functions.data()['images'][key]['source'])
+        history=len(self.c.undo_stack)
         self.c.functions.attach(key)
+        self.assertEqual(len(self.c.undo_stack),history)
         self.assertEqual(self.w.state['generation']['mode'],'txt2img')
         self.assertEqual(active_profile(self.w.state),profile)
         self.assertEqual(self.w.final.toPlainText(),'keep current prompt')
-        self.assertIn((key,self.out,'image'),[(e['source'],e['destination'],e['kind']) for e in self.c.data()['connections']])
+        self.assertNotIn((key,self.out,'image'),[(e['source'],e['destination'],e['kind']) for e in self.c.data()['connections']])
         self.assertEqual(self.c.functions.data()['images'][key]['source'],source)
         self.c.functions.attach(key,False)
         self.assertEqual(self.w.state['generation']['mode'],'txt2img')

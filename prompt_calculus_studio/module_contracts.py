@@ -41,7 +41,7 @@ MODULES = {
     'text_reader': ModuleType('source', ('clip',), ('clip',)),
     'group_source': ModuleType('source', (), ('content', 'clip')),
     'canvas': ModuleType('composition', ('image', 'content', 'clip'), ('text', 'image')),
-    'prompt': ModuleType('transform', ('text', 'clip', 'image'), ('clip',)),
+    'prompt': ModuleType('transform', ('text', 'clip'), ('clip',)),
     'clip_input': ModuleType('binding', ('clip',), ('control',)),
     'image_input': ModuleType('binding', ('image',), ('control',)),
     'stage': ModuleType('execution', ('control', 'done'), ('flow', 'image', 'clip', 'done')),
@@ -90,6 +90,8 @@ def scheduler_port_specs(state, scheduler):
 
 def connection_error(state, source, destination, kind):
     """Current editing contract; old saved wires remain valid to read/undo."""
+    if legacy_prompt_image(state, source, destination, kind):
+        return '圖片輸入不在 Prompt 輸出；請連到圖片輸入。'
     if state['multi_output']['version']>=7 and kind in DATA_TYPES:
         if 'scheduler' in (module_kind(state,source),module_kind(state,destination)):
             return '請先將文字接到 Prompt 輸出及 CLIP 輸入，圖片接到圖片輸入，再由輸入模塊連接預排程。'
@@ -131,7 +133,16 @@ def port_types(state, key, output):
     return MODULES[kind].outputs if output else MODULES[kind].inputs
 
 
-def can_connect(state, source, destination, kind):
+def legacy_prompt_image(state, source, destination, kind):
+    """Recognize stored image wires without making them new editing ports."""
+    data = state.get('multi_output', {})
+    return (data.get('version', 0) >= 7 and kind == 'image'
+            and destination in data.get('outputs', {})
+            and source != destination and 'image' in port_types(state, source, True))
+
+
+def can_connect(state, source, destination, kind, *, stored=False):
+    if stored and legacy_prompt_image(state, source, destination, kind):return True
     if kind == 'flow':
         parent = destination.split('::')[0]
         endpoint = parent+'::'+BINDINGS_CHANNEL

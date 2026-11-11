@@ -60,13 +60,14 @@ def node_title(graph,key):
 class WorkflowDialog(StudioDialog):
     def __init__(self,window,graph,mode,profile=None):
         super().__init__(window); self.window=window; self.graph=graph; self.profile=copy.deepcopy(profile or {})
-        self.mode=mode; self.setWindowTitle('工作流對應'); self.resize(660,550)
-        self.body.addWidget(label('確認文字與圖片欄位。','Subtle'))
-        self.name=QLineEdit(self.profile.get('name','圖生圖工作流' if mode=='img2img' else '文生圖工作流'))
+        self.mode=mode; self.modern=window.state.get('multi_output',{}).get('version',0)>=7
+        self.setWindowTitle('工作流對應'); self.resize(660,550)
+        self.name=QLineEdit(self.profile.get('name','工作流' if self.modern else '圖生圖工作流' if mode=='img2img' else '文生圖工作流'))
         form=QFormLayout(); self.body.addLayout(form); form.addRow('名稱',self.name)
-        self.kind=ComboBox(); self.kind.addItem('文生圖','txt2img'); self.kind.addItem('圖生圖','img2img'); self.kind.setCurrentIndex(self.kind.findData(mode))
-        form.addRow('生成方式',self.kind)
-        if 'multi_output' in window.state: self.kind.hide(); form.labelForField(self.kind).hide()
+        if not self.modern:
+            self.kind=ComboBox(); self.kind.addItem('文生圖','txt2img'); self.kind.addItem('圖生圖','img2img'); self.kind.setCurrentIndex(self.kind.findData(mode))
+            form.addRow('生成方式',self.kind)
+            if 'multi_output' in window.state: self.kind.hide(); form.labelForField(self.kind).hide()
         self.sampler=ComboBox(); self.sampler.addItem('沿用工作流，不另外調整','')
         self.size_node=ComboBox(); self.size_node.addItem('沿用來源圖／工作流尺寸','')
         self.image=ComboBox(); self.image.addItem('沿用工作流圖片','')
@@ -86,15 +87,15 @@ class WorkflowDialog(StudioDialog):
         form.addRow('最終 Prompt',self.prompt)
         if 'multi_output' in window.state:
             self.prompt.hide(); form.labelForField(self.prompt).hide()
-            form.addRow(label('文字欄由各最終 Prompt 的綁定按鈕指定。','Subtle',True))
         form.addRow('來源圖片',self.image)
         form.addRow('採樣設定',self.sampler); form.addRow('尺寸設定',self.size_node)
-        self.body.addWidget(label('未指定的參數沿用工作流。','Subtle'))
         self.error=label('','ConflictNotice',True); self.body.addWidget(self.error); self.error.hide()
         self.body.addStretch(); self.body.addWidget(dialog_buttons(self,self.save))
 
     def save(self):
-        result=dict(id=self.profile.get('id',uuid.uuid4().hex),name=self.name.text().strip(),mode=self.kind.currentData(),graph=copy.deepcopy(self.graph),
+        from .workflow_import import infer_mode
+        mode=(self.profile.get('mode') or infer_mode(self.graph,self.image.currentData())) if self.modern else self.kind.currentData()
+        result=dict(id=self.profile.get('id',uuid.uuid4().hex),name=self.name.text().strip(),mode=mode,graph=copy.deepcopy(self.graph),
                     prompt=self.prompt.currentData(),image=self.image.currentData(),sampler=self.sampler.currentData(),size=self.size_node.currentData(),
                     values={},seed_mode=self.profile.get('seed_mode','fixed'))
         if 'multi_output' in self.window.state: result['multi_text']=True
@@ -214,6 +215,7 @@ class GenerationPanel(QWidget):
         self.window.changed('generation')
 
     def mode_changed(self):
+        if self.window.state.get('multi_output',{}).get('version',0)>=7:return
         if not self.updating:
             self.settings()['mode']=self.mode.currentData(); self.changed(); self.reveal_controls()
             canvas=getattr(self.window,'canvas',None)
@@ -245,7 +247,7 @@ class GenerationPanel(QWidget):
             incoming=json.loads(file.read_text(encoding='utf-8-sig'))
             transfer=incoming if isinstance(incoming,dict) and incoming.get('format')=='prompt_studio_workflow' else None
             graph=import_graph(transfer['graph'] if transfer else incoming)
-            profile=infer_profile(graph,file.stem,incoming)
+            profile=infer_profile(graph,file.stem,incoming,modern=self.window.state.get('multi_output',{}).get('version',0)>=7)
             if 'multi_output' in self.window.state: profile['multi_text']=True
             if transfer:
                 from .workflow_transfer import import_transfer
@@ -261,7 +263,8 @@ class GenerationPanel(QWidget):
                 self.window.adopt_document(state, reason='workflow-import')
                 self.changed()
             else: self.save_profile(profile)
-            self.importFeedback.emit('已匯入'+('圖生圖' if profile['mode']=='img2img' else '文生圖')+'：'+profile['name'])
+            prefix='已匯入' if self.window.state.get('multi_output',{}).get('version',0)>=7 else '已匯入'+('圖生圖' if profile['mode']=='img2img' else '文生圖')
+            self.importFeedback.emit(prefix+'：'+profile['name'])
             return profile
         except (ValueError,OSError,KeyError,TypeError) as exc:
             self.importFeedback.emit(''); import_error(self.window,exc)
@@ -293,6 +296,9 @@ class GenerationPanel(QWidget):
 
     def set_source(self,path,output=None):
         try:
+            if self.window.state.get('multi_output',{}).get('version',0)>=7:
+                from .image_source_action import use_image
+                return bool(use_image(self.window.canvas,path,output))
             source=self.import_source(path)
             multi='multi_output' in self.window.state
             if not multi: self.settings().update(mode='img2img',source=source)

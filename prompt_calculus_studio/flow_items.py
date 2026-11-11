@@ -40,18 +40,39 @@ def curve(start,end,style='curve'):
     return path
 
 
+class LegacyLineLabel(QGraphicsSimpleTextItem):
+    def __init__(self,line):
+        super().__init__('舊連線 · 不送出圖片',line);self.canvas=line.canvas
+        font=line.canvas.font();font.setPixelSize(14);self.setFont(font)
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+    def boundingRect(self):return super().boundingRect().adjusted(-6,-3,6,3)
+    def paint(self,painter,option,widget=None):
+        colors=canvas_colors(self.canvas)
+        painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(QColor(colors['surface']))
+        painter.drawRoundedRect(self.boundingRect(),4,4)
+        self.setBrush(QColor(colors['text']));super().paint(painter,option,widget)
+
+
 class FlowLine(QGraphicsPathItem):
     def __init__(self,canvas,value):
         super().__init__(); self.canvas=canvas; self.value=value; self.key=value['id']
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable); self.setZValue(-.1)
-        self.setToolTip(LABELS[value['kind']]+'資料流 · 拖動尾端改接，選取後按 Delete 解除')
+        from .module_contracts import legacy_prompt_image
+        self.legacy=legacy_prompt_image(canvas.window.state,value['source'],value['destination'],value['kind'])
+        self.legacy_label=LegacyLineLabel(self) if self.legacy else None
+        self.setToolTip('舊連線 · 不送出圖片' if self.legacy else LABELS[value['kind']]+'資料流 · 拖動尾端改接，選取後按 Delete 解除')
+    def setPath(self,path):
+        super().setPath(path)
+        if self.legacy_label:
+            point=path.pointAtPercent(.5);bounds=self.legacy_label.boundingRect()
+            self.legacy_label.setPos(point.x()-bounds.width()/2,point.y()-bounds.height()-7)
     def itemChange(self,change,value):
         if change==QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:self.setZValue(25 if value else -.1)
         return super().itemChange(change,value)
     def shape(self):
         stroke=QPainterPathStroker(); stroke.setWidth(16); return stroke.createStroke(self.path())
     def paint(self,painter,option,widget=None):
-        self.setPen(QPen(QColor(canvas_colors(self.canvas)['text']) if self.isSelected() else wire_color(self.canvas,self.value['kind']),3 if self.isSelected() else 2))
+        self.setPen(QPen(QColor(canvas_colors(self.canvas)['text']) if self.isSelected() else wire_color(self.canvas,self.value['kind']),3 if self.isSelected() else 2,Qt.PenStyle.DashLine if self.legacy else Qt.PenStyle.SolidLine))
         super().paint(painter,option,widget)
         if self.isSelected():
             painter.setBrush(QColor(canvas_colors(self.canvas)['surface']))
@@ -101,6 +122,8 @@ class Port(QGraphicsObject):
             name='輸出' if output else '輸入'+(str(offset+1) if count else '')
         direction='輸出' if output else '輸入'
         self.setToolTip((name if name.startswith(direction) else name+direction)+' · 拖曳或點擊連線')
+        if not output and kind=='image' and key in canvas.data()['outputs'] and canvas.data()['version']>=7:
+            name='舊圖片';self.setToolTip('舊連線 · 不送出圖片')
         self.caption=QGraphicsSimpleTextItem(name[:12],self); self.caption.setBrush(caption_color(canvas,kind)); self.caption.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         # The default Canvas zoom remains readable without scaling the graph
         # to fit: 15 scene pixels provide at least 12px at the initial .8 zoom.
@@ -134,6 +157,12 @@ class Port(QGraphicsObject):
         gesture=self.canvas.connection_gesture
         if destination.slot and destination.slot!=source.key and not (gesture.original and gesture.anchor is destination): return False
         if not model.valid_edge(self.canvas.window.state,source.key,target,'done' if ordering else source.kind): return False
+        if gesture.original:
+            edge=next((c for c in self.canvas.data()['connections'] if c['id']==gesture.original),None)
+            from .module_contracts import legacy_prompt_image
+            if edge and legacy_prompt_image(self.canvas.window.state,edge['source'],edge['destination'],edge['kind']):
+                from .image_input_routing import rewire_candidate
+                if not rewire_candidate(self.canvas.window.state,edge,target):return False
         if self.kind=='text' and self.canvas.data()['version']<5:
             original=getattr(self.canvas.connection_gesture,'original',None)
             return not any(c['id']!=original and c['kind']=='text' and c['source']==source.key and c['destination']!=destination.key for c in self.canvas.data()['connections'])
@@ -189,6 +218,15 @@ class ConnectionGesture(QObject):
     def finish(self,position):
         if self.anchor is None: return
         self.move(position); anchor=self.anchor; target=self.target; original=self.original; kind=anchor.kind if anchor.output or target is None else target.kind
+        if original and target is None:
+            edge=next((c for c in self.canvas.data()['connections'] if c['id']==original),None)
+            from .module_contracts import legacy_prompt_image
+            if edge and legacy_prompt_image(self.canvas.window.state,edge['source'],edge['destination'],edge['kind']):
+                point=self.canvas.view.mapFromScene(position)
+                # A rejected port is not blank canvas. Preserve the old wire
+                # on an occupied, foreign or otherwise invalid destination.
+                if any((self.canvas.view.mapFromScene(p.scenePos())-point).manhattanLength()<20 for p in self.canvas.ports.values()):
+                    self.cancel();return
         src,dst=((anchor.key,target.key) if anchor.output else (target.key,anchor.key)) if target else (None,None)
         if src in self.canvas.data().get('stages',{}) and dst in self.canvas.data().get('stages',{}) and kind=='flow':kind='done'
         if dst:
@@ -196,6 +234,12 @@ class ConnectionGesture(QObject):
             dst=scheduler_wire_target(self.canvas.window.state,dst,kind)
         self.cancel(); canvas=self.canvas
         def apply(s):
+            if original and src:
+                edge=next((c for c in s['multi_output']['connections'] if c['id']==original),None)
+                from .module_contracts import legacy_prompt_image
+                if edge and legacy_prompt_image(s,edge['source'],edge['destination'],edge['kind']):
+                    from .image_input_routing import rewire_candidate
+                    if not rewire_candidate(s,edge,dst):raise ValueError('圖片輸入已變更。')
             if original: model.disconnect(s,original)
             if src:
                 from .scheduler_wiring import connect

@@ -5,7 +5,7 @@ from PySide6.QtGui import QPainter,QColor
 from PySide6.QtWidgets import QFrame,QVBoxLayout,QHBoxLayout,QLineEdit,QWidget,QSpinBox,QProgressBar
 from .canvas_items import TextCard,canvas_colors
 from .widgets import button,label,ComboBox,StudioDialog,dialog_buttons
-from .generation import active_profile,profile_text_fields,options
+from .generation import profile_text_fields,options
 from . import clip_flow
 from .workflow_binding import WorkflowBindingDialog
 

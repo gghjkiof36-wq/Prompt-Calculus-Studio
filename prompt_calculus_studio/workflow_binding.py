@@ -117,7 +117,7 @@ class WorkflowBindingDialog(StudioDialog):
             if not valid():return
             try:
                 from .workflow_import import read_profile
-                profile=read_profile(value,entry['name'],key,entry['origin'])
+                profile=read_profile(value,entry['name'],key,entry['origin'],modern=self.canvas.data().get('version',0)>=7)
             except (ValueError,KeyError,TypeError) as exc:failed(exc);return
             self.staged[key]=profile; self.read_sources[key]=source; self.loading=False; self.refresh_targets();self.update_submit()
             # Only the saved fallback needs an extra label; ordinary live

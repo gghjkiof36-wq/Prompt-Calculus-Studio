@@ -36,6 +36,11 @@ class CompositionImageTests(unittest.TestCase):
     def close_window(self,window):
         try:window.close();APP.processEvents()
         finally:window.store.close()
+    def historical_image_wire(self,state):
+        # These rendering/backup cases retain an existing pre-B3 Prompt image
+        # wire. New v7 wire creation is rejected in test_generation_v7.
+        state['multi_output']['connections'].append(dict(id=model.ident('wire_'),
+            source=self.cid,destination=self.oid,kind='image'))
     def test_clean_render_contains_shapes_strokes_and_erasure_only(self):
         rect=layer('rect',10,10,80,60); rect['fill']='#ff0000'; self.doc['layers'].append(rect)
         stroke=layer('stroke',0,0,120,80,points=[[20,30],[90,30]]); stroke.update(stroke='#0000ff',stroke_width=8); self.doc['layers'].append(stroke)
@@ -45,7 +50,7 @@ class CompositionImageTests(unittest.TestCase):
         self.assertEqual(image.pixelColor(40,30).name(),'#ffffff'); self.assertEqual(image.pixelColor(0,0).name(),'#ffffff')
         self.canvas.commit(lambda s:s['multi_output']['canvases'][self.cid].update(image=self.doc))
         self.canvas.add_tag('never appear in PNG',self.canvas.containers[self.cid].pos()+QPointF(30,70))
-        model.connect(self.w.state,self.cid,self.oid,'image'); source=freeze_source(self.w.state,self.w.store.directory)
+        self.historical_image_wire(self.w.state); source=freeze_source(self.w.state,self.w.store.directory)
         path=self.w.store.directory/source['relative']; actual=QImage(str(path)); self.assertEqual(actual,image)
         self.assertNotIn('prompt_studio',png_metadata(path)['raw']); self.assertEqual(source['width'],120)
     def test_crop_layer_order_hidden_lock_and_bounded_cache(self):
@@ -62,7 +67,7 @@ class CompositionImageTests(unittest.TestCase):
         source=self.root/'image.png'; image=QImage(120,80,QImage.Format.Format_RGB32); image.fill(QColor('green')); image.save(str(source))
         stored=self.w.generation_panel.import_source(source); self.doc['layers'].append(layer('image',0,0,120,80,source=stored))
         self.canvas.commit(lambda s:s['multi_output']['canvases'][self.cid].update(image=self.doc))
-        self.canvas.commit(lambda s:model.connect(s,self.cid,self.oid,'image')); frozen=freeze_source(self.w.state,self.w.store.directory)
+        self.canvas.commit(self.historical_image_wire); frozen=freeze_source(self.w.state,self.w.store.directory)
         self.canvas.commit(lambda s:s['multi_output']['canvases'][self.cid].update(display_size=[1000,900]))
         self.assertEqual(self.canvas.data()['canvases'][self.cid]['image']['width'],120)
         self.w.persist(); backup=self.w.store.backup(); target=self.root/'backup.zip'; archive_data(self.w.store.directory,backup,target)
@@ -93,5 +98,5 @@ class CompositionImageTests(unittest.TestCase):
         invalid=document(16000,16000)
         with self.assertRaises(ValueError): validate_image(invalid)
         with self.assertRaisesRegex(ValueError,'連到'): freeze_source(self.w.state,self.w.store.directory)
-        model.connect(self.w.state,self.cid,self.oid,'image')
+        self.historical_image_wire(self.w.state)
         with self.assertRaisesRegex(ValueError,'尺寸'): freeze_source(self.w.state,self.w.store.directory)
