@@ -68,7 +68,15 @@ def start_smoke(window, left, args, app):
 
 
 def main():
+    base = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
+    if any(arg.split('=', 1)[0].startswith('--migrate-') for arg in sys.argv[1:]):
+        from prompt_calculus_studio.workspace_migration import cli
+        return cli(sys.argv[1:], base)
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--migrate-from', type=Path, help='Copy and migrate an old PCS delivery without opening a window.')
+    parser.add_argument('--migrate-into', type=Path, help='New delivery root (default: program directory).')
+    parser.add_argument('--migrate-allow-inflight', action='store_true', help='Explicitly retain unfinished jobs; reopening pauses runs.')
+    parser.add_argument('--migrate-source-alias', action='append', help='Previous absolute delivery location; repeatable, string matching only.')
     parser.add_argument('--root', type=Path, help='Content folder; defaults to files beside the program.')
     parser.add_argument('--data', type=Path, help='Application data; defaults to PROMPT_STUDIO_DATA or data beside the program.')
     parser.add_argument('--choose-workspace', action='store_true', help='Choose and remember an existing PCS folder.')
@@ -86,9 +94,17 @@ def main():
     args = parser.parse_args()
     if args.smoke_comfy_url and not args.smoke_test:
         parser.error('--smoke-comfy-url requires --smoke-test')
-    base = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
     from prompt_calculus_studio import workspace_profile
     app = None
+    if not args.check:
+        from prompt_calculus_studio.workspace_migration import cleanup
+        try:
+            cleanup(base)
+        except (OSError, ValueError) as error:
+            # A broken profile must stop startup before creating any window or
+            # guessing whether an INCOMPLETE folder can be deleted.
+            print(str(error), file=sys.stderr)
+            return 2
     if args.choose_workspace:
         if args.root or args.data or args.check or args.smoke_test:
             parser.error('--choose-workspace cannot be combined with explicit folders or diagnostics')
@@ -117,15 +133,19 @@ def main():
     os.environ['PROMPT_STUDIO_V08'] = '1'
     if args.check:
         import json
+        from prompt_calculus_studio.workspace_migration import check_layouts
         from prompt_calculus_studio.local_documents import index, io
         from PySide6 import QtCore
         entries = list(index.scan(args.root))
         for entry in entries:
             if entry.kind != 'markdown':
                 io.load(args.root, entry.relative)
+        layouts = check_layouts(args.data)
+        refused = any(value['refused'] for value in layouts)
         print(json.dumps(dict(root=str(args.root), data=str(args.data), files=len(entries),
-                              qt=QtCore.__version__, check='passed'), ensure_ascii=False))
-        return 0
+                              qt=QtCore.__version__, check='refused' if refused else 'passed',
+                              databases=layouts), ensure_ascii=False))
+        return 1 if refused else 0
     from PySide6.QtWidgets import QApplication, QMessageBox
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QFont, QIcon

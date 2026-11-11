@@ -36,6 +36,7 @@ $env:PROMPT_STUDIO_DATA = Join-Path $PWD 'qa/dev-data'
 - [任務保存與執行歸屬](local-workspace/execution-owners.md)
 - [Stage 模塊、接點與執行邊界](stage-architecture.md)
 - [Journal 標頭、內容、開庫防護與單庫轉換](journal-layout.md)
+- [複製後搬遷：入口、提交、路徑、清理與驗證](workspace-migration.md)
 - [應用程式配色基準](application-color-baseline.md)
 - [Canvas 外觀與共用元件基準](canvas-visual-baseline.md)（專屬操作仍適用，配色遷移狀態保留為歷史）
 - [資料保存、參數與相容性](data-compatibility.md)

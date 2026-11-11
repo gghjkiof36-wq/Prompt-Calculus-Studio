@@ -7,11 +7,20 @@ ROOT=Path(sys.executable).resolve().parent if getattr(sys,"frozen",False) else P
 sys.path.insert(0,str(ROOT/"vendor"))
 
 def main():
+    if any(arg.split('=', 1)[0].startswith('--migrate-') for arg in sys.argv[1:]):
+        from run_workspace import main as workspace_main
+        return workspace_main()
     # The current release starts the document workspace. Explicit historical
     # flags retain the old entry point for its diagnostics and saved packages.
     if not any(arg.startswith('--v0') or arg.endswith('smoke-test') for arg in sys.argv[1:]) or any(flag in sys.argv[1:] for flag in ('--v0.8.9-alpha','--v0.8.9-beta','--v0.8.9-beta.2','--v0.8.9-beta.3','--v0.8.10-pre-alpha.1','--v0.8.10-pre-alpha.2')):
         from run_workspace import main as workspace_main
         return workspace_main()
+    from prompt_calculus_studio.workspace_migration import cleanup
+    try:
+        cleanup(ROOT)
+    except (OSError, ValueError) as error:
+        print(str(error), file=sys.stderr)
+        return 2
     os.environ.setdefault('PROMPT_STUDIO_V08','1')
     if any(flag in sys.argv for flag in ('--v08-alpha','--v08-smoke-test','--v081-alpha','--v081-smoke-test','--v082-alpha','--v083-alpha','--v084-alpha','--v0.8.4-alpha','--v0.8.5-alpha','--v0.8.6-alpha','--v0.8.7-alpha','--v0.8.8-alpha')):os.environ['PROMPT_STUDIO_V08']='1'
     from PySide6.QtCore import QLockFile

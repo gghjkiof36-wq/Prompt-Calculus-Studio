@@ -3,7 +3,7 @@
 本契約對應目前工作樹的 journal 拆分實作。它只改 `studio.sqlite3` 的執行紀錄；
 文件 `version`、PNG `schema_version`、記憶體 state、公開 StageStore 回傳值，以及
 `document`／`content_history` 均不改。目錄複製、路徑重寫、`--migrate-from` 和
-VACUUM 屬於後續搬遷指令，不由正常開庫隱式執行。
+VACUUM 由[複製後搬遷指令](workspace-migration.md)負責，不由正常開庫隱式執行。
 
 ## 表與編碼
 
