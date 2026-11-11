@@ -73,6 +73,8 @@ def main():
         from prompt_calculus_studio.workspace_migration import cli
         return cli(sys.argv[1:], base)
     parser = argparse.ArgumentParser(description=__doc__)
+    from prompt_calculus_studio.performance_recorder import add_arguments, create_application, stop_recording
+    add_arguments(parser)
     parser.add_argument('--migrate-from', type=Path, help='Copy and migrate an old PCS delivery without opening a window.')
     parser.add_argument('--migrate-into', type=Path, help='New delivery root (default: program directory).')
     parser.add_argument('--migrate-allow-inflight', action='store_true', help='Explicitly retain unfinished jobs; reopening pauses runs.')
@@ -109,7 +111,7 @@ def main():
         if args.root or args.data or args.check or args.smoke_test:
             parser.error('--choose-workspace cannot be combined with explicit folders or diagnostics')
         from PySide6.QtWidgets import QApplication
-        app = QApplication(sys.argv)
+        app = create_application(sys.argv, enabled=args.record_stalls, threshold_ms=args.record_stalls_threshold)
         selected = workspace_profile.choose(base)
         if selected is None:
             return 0
@@ -122,7 +124,7 @@ def main():
             if args.check or args.smoke_test:
                 raise
             from PySide6.QtWidgets import QApplication, QMessageBox
-            app = QApplication(sys.argv)
+            app = create_application(sys.argv, enabled=args.record_stalls, threshold_ms=args.record_stalls_threshold)
             QMessageBox.warning(None, '無法開啟資料', str(error))
             return 2
     if not args.check and args.root == base/'files':
@@ -149,7 +151,7 @@ def main():
     from PySide6.QtWidgets import QApplication, QMessageBox
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QFont, QIcon
-    app = app or QApplication(sys.argv)
+    app = app or create_application(sys.argv, enabled=args.record_stalls, threshold_ms=args.record_stalls_threshold)
     app.setApplicationName('Prompt Calculus Studio')
     app.setOrganizationName('Local Tools')
     app.setFont(QFont('Microsoft JhengHei UI', 12))
@@ -191,6 +193,7 @@ def main():
     try:
         return app.exec()
     finally:
+        stop_recording(app)
         sys.excepthook = previous_hook
         lock.unlock()
 

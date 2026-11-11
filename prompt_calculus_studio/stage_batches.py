@@ -234,6 +234,9 @@ def expand(runner, capacity):
                 for head in heads:
                     if not wanted: break
                     if head['execution_group'] != group['id'] or head['scheduler'] != scheduler or head['deferred']: continue
+                    # Polling a paused run must not decode its frozen batch
+                    # content. This is the same guard as below, before hydration.
+                    if store.status_value(head['run']) not in ('running','waiting'): continue
                     cached=getattr(runner,'_batch_content',None)
                     if cached is None or cached[0]!=head['id']:
                         # This is an owned journal decode, never a borrowed

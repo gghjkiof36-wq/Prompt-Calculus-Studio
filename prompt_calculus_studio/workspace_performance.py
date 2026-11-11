@@ -11,7 +11,11 @@ from .theme import visual_tokens
 
 
 class PerformanceSamples:
-    """Real GUI callbacks in a one-second window; missed slots are not frames."""
+    """Real GUI callbacks in a one-second window; missed slots are not frames.
+
+    Lag is maximum deadline lateness, not event duration. The opt-in stall
+    recorder measures event/callback duration independently of this monitor.
+    """
     def __init__(self, now, refresh_rate=60.):
         self.reset(now, refresh_rate)
 

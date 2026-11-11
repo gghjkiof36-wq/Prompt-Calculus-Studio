@@ -17,6 +17,14 @@ class Difference:
     roots: frozenset = frozenset()
 
 
+def presentation_settings(settings):
+    """Only the submission count is known not to affect card presentation.
+
+    Keep unknown settings in the comparison so future visual settings fail full.
+    """
+    return {key:value for key,value in settings.items() if key!='comfy_count'}
+
+
 def _active_content(value):
     """The active scene duplicates top-level fields; retain all inactive data."""
     result=dict(value)
@@ -97,7 +105,7 @@ class CanvasRefreshScheduler(QObject):
         return self.canvas.window.state.get('multi_output',{}).get('version',0)>=7
 
     def notified(self,fields,reason,kind):
-        if not self.enabled() or kind=='derived':return
+        if not self.enabled() or kind=='derived' or not fields:return
         from .document_operations import MULTI_HISTORY_FIELDS
         unknown=fields!='ALL' and bool(set(fields)-set(MULTI_HISTORY_FIELDS)-{'settings','content_history'})
         self.request(full=fields=='ALL' or unknown,adopted=fields=='ALL' or unknown)
@@ -121,7 +129,7 @@ class CanvasRefreshScheduler(QObject):
 
     def presented(self):
         self.owner=(self.canvas.window.store,self.canvas.window.state.get('workspace'))
-        self.settings=copy.deepcopy(self.canvas.window.state.get('settings',{}))
+        self.settings=copy.deepcopy(presentation_settings(self.canvas.window.state.get('settings',{})))
 
     def busy(self):
         canvas=self.canvas
@@ -132,7 +140,7 @@ class CanvasRefreshScheduler(QObject):
 
     def plan(self,now,*,full=False):
         canvas=self.canvas
-        if (full or self.busy() or self.settings!=canvas.window.state.get('settings',{})
+        if (full or self.busy() or self.settings!=presentation_settings(canvas.window.state.get('settings',{}))
                 or self.owner!=(canvas.window.store,canvas.window.state.get('workspace'))
                 or getattr(canvas,'_scene_refresh_pending',True)):
             return Difference()
@@ -146,7 +154,7 @@ class CanvasRefreshScheduler(QObject):
         # N01's late content notification and save-synchronize never save or
         # present twice. ALL remains an unconditional full invalidation.
         if (not self.adopted and now==getattr(canvas,'_visible_scene_state',None)
-                and self.settings==canvas.window.state.get('settings',{})
+                and self.settings==presentation_settings(canvas.window.state.get('settings',{}))
                 and self.owner==(canvas.window.store,canvas.window.state.get('workspace'))):
             self.consume();return
         plan=self.plan(now,full=self.full or self.adopted)
