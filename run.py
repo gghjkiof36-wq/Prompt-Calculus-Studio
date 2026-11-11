@@ -27,7 +27,12 @@ def main():
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication, QMessageBox
     from prompt_calculus_studio.window import Window
-    app=QApplication(sys.argv)
+    import argparse
+    from prompt_calculus_studio.performance_recorder import add_arguments, create_application, start_recording, stop_recording
+    recorder_parser=argparse.ArgumentParser(add_help=False)
+    add_arguments(recorder_parser)
+    recorder_args,_=recorder_parser.parse_known_args()
+    app=create_application(sys.argv,enabled=recorder_args.record_stalls,threshold_ms=recorder_args.record_stalls_threshold)
     app.setApplicationName("Prompt Calculus Studio"); app.setOrganizationName("Local Tools")
     from prompt_calculus_studio import __file__ as package_file
     app.setWindowIcon(QIcon(str(Path(package_file).parent/"assets"/"studio.ico")))
@@ -41,6 +46,7 @@ def main():
     # Native crashes bypass sys.excepthook. Keep stack traces with this data
     # directory, without dumping prompts or changing the user's running process.
     import faulthandler
+    start_recording(app,data)
     fault_log=(data/'fault.log').open('a',encoding='utf-8')
     faulthandler.enable(fault_log,all_threads=True)
     try:
@@ -97,6 +103,7 @@ def main():
         QMessageBox.critical(None,"Prompt Calculus Studio 無法啟動",message)
         return 1
     finally:
+        stop_recording(app)
         faulthandler.disable(); fault_log.close()
         lock.unlock()
 

@@ -100,6 +100,10 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
         from .tooltips import install_tooltip_styling
         install_tooltip_styling()
         self.data = Path(data).absolute()
+        # Application-owned diagnostics share the resolved workspace data root;
+        # ordinary launches have no recorder and create no log directory.
+        from .performance_recorder import start_recording
+        start_recording(QApplication.instance(), self.data)
         self.root = remembered_root(root, (self.data/'workspace-layout.json').is_file())
         self.data.mkdir(parents=True, exist_ok=True)
         from .workspace_recovery import CloseRecovery

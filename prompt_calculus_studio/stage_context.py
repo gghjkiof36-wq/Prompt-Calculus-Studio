@@ -103,7 +103,9 @@ def execution_scope(window, journal):
         manager.execution = None
         transaction.commit()
         changed = getattr(window, 'document_changed', None)
-        if changed:
+        # A journal-only scope is not a document invalidation. Progress signals
+        # still come from StageRunner.notify; registered writes publish as before.
+        if changed and transaction.changes:
             changed(frozenset(path[0] for path in transaction.changes),
                     reason='execution', kind='content')
     try:
