@@ -24,7 +24,7 @@ stage_cancel_all stage_click_regression stage_run_controls stage_borrow_guard'''
 CANVAS = '''087_canvas_operations canvas_wheel_backing canvas_module_header_cache
 canvas_wheel_interaction canvas_pan_cache canvas_proxy_cache canvas_prompt_pan
 canvas_surface canvas_preview_continuity canvas_startup canvas_recent_execution
-canvas_combination_copy canvas_refresh_performance canvas_gestures
+canvas_combination_copy canvas_refresh_performance canvas_incremental_refresh canvas_gestures
 canvas_variant_navigation canvas_navigation_rendering canvas_raster
 088_canvas_entrypoints canvas_delete_keys canvas_cohesion canvas_four_modules canvas_card_menus'''.split()
 WORKSPACE = ['workspace_ambient']

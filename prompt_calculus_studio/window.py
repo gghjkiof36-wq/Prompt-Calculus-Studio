@@ -803,6 +803,13 @@ class Window(QMainWindow):
         else: notify()
         return result
 
+    def normalize_canvas_document(self):
+        """Synchronize former refresh writers at a live document boundary."""
+        from .canvas_normalization import prune,FIELDS
+        from .multi_output import capture_current
+        self.update_document(prune,fields=FIELDS,reason='canvas-normalize',kind='derived')
+        self.update_document(capture_current,fields=('multi_output',),reason='output-projection',kind='derived')
+
     def adopt_document(self, state, *, reason, before=None, after=None):
         """Rebind a detached document; caller callbacks retain history/UI order.
 
@@ -813,6 +820,9 @@ class Window(QMainWindow):
         if execution is not None and reason != 'execution-import':
             raise RuntimeError('Cannot adopt document during execution: '+reason)
         value = copy.deepcopy(state)
+        if getattr(self,'document',None) is not None and value.get('multi_output',{}).get('version',0)>=7:
+            from .canvas_normalization import normalize
+            normalize(value)
         def publish():
             if before: before()
             self.state = value
@@ -1230,8 +1240,9 @@ class Window(QMainWindow):
         if self.compact_editor:
             # Keep the canonical draft/Canvas adapter for explicit restore or
             # model actions, without populating a second, hidden list editor.
-            composition.prune_instances(self.state)
-            if self.state.get('uses'):self.state.setdefault('prompt_layout','paragraphs')
+            if getattr(self,'document',None) is None or self.state.get('multi_output',{}).get('version',0)<7:
+                composition.prune_instances(self.state)
+                if self.state.get('uses'):self.state.setdefault('prompt_layout','paragraphs')
             self.updating=True
             try:self.final.setPlainText(self.state['draft'] if self.state['draft'] is not None else build_prompt(self.state))
             finally:self.updating=False

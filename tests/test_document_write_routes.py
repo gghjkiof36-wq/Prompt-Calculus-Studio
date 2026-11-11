@@ -112,7 +112,13 @@ class DocumentWriteRouteTests(unittest.TestCase):
                     if not capture:
                         with self.subTest(path=ident):
                             for field in row:
-                                self.assertEqual(row[field], expected[ident][field], ident+'/'+field)
+                                reference=expected[ident][field]
+                                if ident=='N06' and field=='refresh':
+                                    # S4 moved this writer from presentation to
+                                    # a document boundary; saved bytes/Undo still
+                                    # compare verbatim with the independent S3 body.
+                                    reference={k:v for k,v in reference.items() if k!='output'}
+                                self.assertEqual(row[field], reference, ident+'/'+field)
                     host.changes.stop(); host.save_timer.stop()
 
                 def dictionary():
@@ -208,9 +214,9 @@ class DocumentWriteRouteTests(unittest.TestCase):
                     member = canvas.data()['canvases'][key]['members'][0]
                     host.state['text_positions'][member] = [-9000,-9000]
                     canvas.cards[member].setPos(-9000,-9000)
-                record('N05', canvas.refresh_layout, 'canvas-bounds', {'multi_output','text_positions'},'derived',setup=out_of_bounds)
+                record('N05', canvas.refresh_layout, 'canvas-bounds', {'text_positions'},'derived',setup=out_of_bounds)
                 def outdated(): host.state['multi_output']['outputs'][output]['list_state'] = {}
-                record('N06', canvas.update_output, 'output-projection', {'multi_output'},'derived',setup=outdated)
+                record('N06', host.normalize_canvas_document, 'output-projection', {'multi_output'},'derived',setup=outdated)
                 record('A01', lambda: snapshot_history.capture(canvas), 'snapshot-capture', {'workspace_scenes'},'derived')
                 from prompt_calculus_studio import workspace_scene
                 destination = []

@@ -195,7 +195,9 @@ class DesktopDocument(QObject):
             for host in self.hosts:
                 if host is self.last_editor or host.closing:
                     continue
-                host.canvas.refresh()
+                scheduler=getattr(host.canvas,'refresh_scheduler',None)
+                if scheduler is None or not scheduler.enabled():host.canvas.refresh()
+                else:scheduler.request(full=True)
                 host.refresh_prompt_editors()
                 host.comfy_changed()
         finally:
@@ -381,6 +383,9 @@ class EmbeddedHost(Window):
             # Results have one document owner, not one receiver per view.
             self.comfy.resultsReceived.disconnect(self.recent.receive_results)
         self._document_ready = True
+        if document is not None:
+            from .canvas_refresh import CanvasRefreshScheduler
+            self.canvas.refresh_scheduler=CanvasRefreshScheduler(self.canvas)
 
     @property
     def state(self):
@@ -494,6 +499,9 @@ class EmbeddedHost(Window):
         return super().settings(section)
 
     def changed(self, scope='prompt', refresh=True):
+        if (scope=='prompt' and self._document_ready and self.document is not None
+                and self.state.get('multi_output',{}).get('version',0)>=7):
+            self.normalize_canvas_document()
         super().changed(scope, refresh)
         if self._document_ready and self.document is not None:
             self.document.view_changed(self)

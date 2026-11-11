@@ -658,6 +658,11 @@ class Storage:
             capture(state)
         owner_ref = getattr(self, '_document_owner', None)
         owner = owner_ref() if owner_ref is not None else None
+        if (owner is not None and getattr(owner,'document',None) is not None
+                and getattr(owner,'state',None) is state and isinstance(state,dict)
+                and state.get('multi_output',{}).get('version',0)>=7):
+            from .canvas_normalization import prune,FIELDS
+            owner.update_document(prune,fields=FIELDS,reason='canvas-normalize',kind='derived')
         if owner is not None and getattr(owner, 'state', None) is state:
             return owner.update_document(synchronize, fields=('multi_output','workspace_scenes'),
                 reason='save-synchronize', kind='derived')

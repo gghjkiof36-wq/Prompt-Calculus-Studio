@@ -86,6 +86,9 @@ class DocumentOperations:
                 if value.get('uses'):
                     value.setdefault('prompt_layout', 'paragraphs')
                 prune_output_order(value)
+                if value.get('multi_output',{}).get('version',0)>=7:
+                    from .multi_output import capture_current
+                    capture_current(value)
             validate_state(value)
             if value == self.state():
                 return

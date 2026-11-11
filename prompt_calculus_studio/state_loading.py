@@ -60,4 +60,7 @@ def prepare_state(state, *, multi=False):
         materialize(result)
         from .workspace_scene import upgrade as upgrade_scenes
         upgrade_scenes(result)
+        if result['multi_output']['version']>=7:
+            from .canvas_normalization import normalize
+            normalize(result)
     return validate_state(result)

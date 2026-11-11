@@ -100,10 +100,58 @@ git show 'c8f9011c7244c6654e2b3cc73154ca5cc2a6e3a9:docs/development/navigation-f
 為 frozenset，整份採用為字串 `ALL`。commit 回報實際差異，update 回報宣告範圍，
 執行交易回報 `frozenset(path[0] for path in tx.changes)`；範圍通知可以包含值未變的欄位。
 
-通知目前不連接刷新或存檔。原有 changed／refresh／sync 的次數及時機保留。
-尤其 `MultiCanvas.ensure_bounds`、`update_output` 是刷新途中產生的 derived 通知，
-消費端不可無條件再次刷新。存檔場景同步為 derived；輸出選取為 content；面板比例
-及展開畫布視角為 view。Storage 對 live 文件透過持有者進入口，私有保存候選維持原流程。
+通知不直接刷新或存檔。v7 文件的 EmbeddedHost 將通知接到下述每個 view 的排程器，
+合併通知尾端；一般 changed 仍負責原有保存與 Prompt 同步。存檔場景同步為 derived；
+輸出選取為 content；面板比例及展開畫布視角為 view。
+Storage 對 live 文件透過持有者進入口，私有保存候選維持原流程。
+
+### Canvas 刷新排程與單 root 呈現
+
+v7 EmbeddedHost 的 [CanvasRefreshScheduler](../../prompt_calculus_studio/canvas_refresh.py)
+為每個 Canvas 保存已呈現的 owner、外觀及場景投影；只訂閱 `documentChanged`，
+訂閱函式只累積失效並啟動一次 0ms timer。`derived` 通知不排刷新，因此幾何收斂、
+輸出投影與 save-synchronize 不會循環，也不會因 N01 通知再保存一次。
+ChangeCoordinator 與 sibling 的既有排程也匯入此排程器。
+
+內容交易仍同步完成呈現，再記錄最終 Undo 投影與發布實際欄位通知；不能把此步驟
+一概改成延後，否則幾何收斂會落在 Undo 記錄之外。同步呈現消耗已排入的失效，
+之後的通知 timer 比對該 view 已呈現投影，沒有新差異便不再次呈現。
+純 update／adopt／執行提交的同事件迴圈通知合併處理；ALL 無條件全量失效。
+排程器不擁有文件交易，不保存、不生成、不接受未確認草稿。
+
+通知的頂層欄位不是 card ID。排程器比較獨立的前後投影，再換算 root/key 差異：
+
+- 單一文字 root 的確認內容修改：root 集合、順序、子樹結構、其他文件欄位相同，
+  才重建該 root 整棵子樹。未變 root 的 Qt item 保留；同 z 值的繪製順序也保留。
+  全量路徑原有的 root 選取恢復、子卡選取及 hover 清除規則維持一致。
+- 單 root 釋放後的位置／尺寸修改：只更新幾何。`layout_only` 同時忽略頂層與
+  **active** workspace scene 的幾何；inactive scene 仍完整比較，不能漏掉其內容。
+  PromptCache 沿用這個內容判斷，移動不重組 Prompt，文字／權重改變仍重算。
+- 權重的既有快速路徑保留，不新增 NodeCard。接點與連線在內容刷新仍全部重建，
+  先移除線及舊 ports，再刪除受影響 root，避免保留卡連到已銷毀的 Qt item。
+
+新增／刪除、成員跨容器、接線、來源／輸出／Stage、收合、無法換算的差異、
+ALL／Undo／Redo、owner／工作區切換、全域外觀都走全量後備。輸入框有焦點、
+mouse grab 或連線手勢存在時，外部內容刷新也走全量，保留原來的游標／手勢
+處理。非 v7 與舊相容入口不採用增量。兄弟 host 仍全量，但由自己的排程器合併，
+不借用另一個 host 的已呈現狀態或 Qt item；隱藏視圖不提前認領已呈現版本。
+原本 library/navigation-only 的零次畫布呈現路徑仍保留，不因通知補做全量刷新。
+
+刷新中的寫入分為兩種：
+
+- `ensure_bounds` 是呈現後的幾何收斂。先計算 display_size／text_positions 的實際
+  差值，再透過 update_document 發 `canvas-bounds / derived`，只宣告有差異的欄位；
+  第二次值相同便沒有寫入與通知，不觸發保存或排程。
+- [canvas_normalization](../../prompt_calculus_studio/canvas_normalization.py) 集中原 builder
+  的 prune／預設值與 output capture。它們在候選 commit、prepare_state 載入、
+  EmbeddedHost 的 changed 邊界及 Storage 保存邊界同步；正式 view 的 refresh／
+  update_output 不再承擔這些寫入。分離候選比對保護 `''` 與 `None`、list/canvas
+  草稿、draft_base 與 category_positions；舊非正式 adapter 維持原路徑。
+
+相機仍沿原 owner、hidden-view 與首次引導的優先順序。此段沒有投影快取、歷史
+格式、接點／線增量或執行結果增量；效能改善只針對 NodeCard 建拆與 root 複製。
+可重跑的正式入口契約見 [test_canvas_incremental_refresh](../../tests/test_canvas_incremental_refresh.py)，
+原 S3b 保存 body／Undo 收據仍由 test_document_write_routes 逐字比較。
 
 GenerationPanel.settings 缺 generation 時只回傳暫存的預設映射，讀取不建立文件鍵。
 保留的舊控制器第一次賦值 mode／chosen 時，該映射才透過 update_document 建立普通

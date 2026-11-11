@@ -44,6 +44,13 @@ def layout_only(before,after):
             functions=without(value['canvas_functions'],('preview_display',));result['canvas_functions']=functions
             if 'images' in functions:functions['images']={k:without(v,('collapsed','management_collapsed')) for k,v in functions['images'].items()}
             if 'previews' in functions:functions['previews']={k:without(v,('collapsed',)) for k,v in functions['previews'].items()}
+        # history_projection includes a second copy of the active scene. Strip
+        # the same geometry there, but keep inactive workspaces fully compared.
+        scenes=value.get('workspace_scenes',{})
+        active=value.get('workspace')
+        if value.get('multi_output',{}).get('version',0)>=7 and active in scenes.get('items',{}):
+            result['workspace_scenes']=dict(scenes,items=dict(scenes['items']))
+            result['workspace_scenes']['items'][active]=content(scenes['items'][active])
         return result
     return content(before)==content(after)
 
@@ -62,9 +69,14 @@ class ChangeCoordinator(QObject):
     def flush(self):
         self.timer.stop(); scopes=self.pending; render=self.render; self.pending=set(); self.render=set(); w=self.window
         if w.closing:return
-        if Change.LAYOUT in render and hasattr(w,'canvas'):w.canvas.refresh_layout()
+        scheduler=getattr(getattr(w,'canvas',None),'refresh_scheduler',None)
+        if Change.LAYOUT in render and hasattr(w,'canvas'):
+            if scheduler and scheduler.enabled():scheduler.request()
+            else:w.canvas.refresh_layout()
         if Change.PROMPT in scopes:
-            if Change.PROMPT in render and hasattr(w,'canvas'):w.canvas.update_output()
+            if Change.PROMPT in render and hasattr(w,'canvas'):
+                if scheduler and scheduler.enabled():scheduler.request()
+                else:w.canvas.update_output()
             if hasattr(w,'comfy'):w.comfy.schedule_sync()
         if Change.GENERATION in scopes and hasattr(w,'comfy'):w.comfy.stateChanged.emit()
     def stop(self):self.timer.stop(); self.pending.clear(); self.render.clear()

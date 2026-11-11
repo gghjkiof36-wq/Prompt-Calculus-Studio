@@ -442,6 +442,29 @@ class MultiCanvas(TextCanvas):
         return dict(begin=self.begin_content_operation,
                     prepare=self.prepare_content_operation, complete=self.complete_content_operation)
 
+    def sync(self,scope='prompt'):
+        scheduler=getattr(self,'refresh_scheduler',None)
+        self._incremental_sync=bool(scheduler and scheduler.enabled())
+        try:
+            result=super().sync(scope)
+            if (scope=='library' and self._incremental_sync and self.isVisible()
+                    and not scheduler.full and not scheduler.adopted):
+                from .material_navigation import navigation_only
+                from .local_documents.library import change_only
+                before=getattr(self,'_visible_scene_state',None)
+                if before is not None and (navigation_only(before,self.last_state) or change_only(before,self.last_state)):
+                    # Library/navigation-only commits already have a zero-
+                    # Canvas-render contract; their late notice must keep it.
+                    self._visible_scene_state=self.last_state
+                    scheduler.presented()
+            return result
+        finally:self._incremental_sync=False
+
+    def refresh_visual_theme(self):
+        super().refresh_visual_theme()
+        scheduler=getattr(self,'refresh_scheduler',None)
+        if scheduler and scheduler.enabled():scheduler.request(full=True,adopted=True)
+
     def begin_content_operation(self):
         return dict(connections=copy.deepcopy(self.data()['connections']), library_only=False)
 
@@ -575,8 +598,10 @@ class MultiCanvas(TextCanvas):
         if not hasattr(self,'outputs'): return
         if hasattr(self,'onboarding'):self.onboarding.refresh()
         self.prune_cards()
-        self.window.update_document(model.capture_current, fields=('multi_output',),
-            reason='output-projection', kind='derived')
+        scheduler=getattr(self,'refresh_scheduler',None)
+        if scheduler is None or not scheduler.enabled():
+            self.window.update_document(model.capture_current, fields=('multi_output',),
+                reason='output-projection', kind='derived')
         self.output_picker.blockSignals(True); self.output_picker.clear()
         for key,o in self.data()['outputs'].items(): self.output_picker.addItem('目前輸出 · '+o['name'],key)
         self.output_picker.setCurrentIndex(self.output_picker.findData(self.data()['current_output'])); self.output_picker.blockSignals(False)
@@ -592,17 +617,40 @@ class MultiCanvas(TextCanvas):
         self.update_lines()
         if self.editor_page and not self.editor_page.refreshing: self.editor_page.refresh()
     def refresh_layout(self):
+        scheduler=getattr(self,'refresh_scheduler',None)
+        if scheduler and scheduler.enabled() and not self.refreshing:
+            now=self.history_state()
+            plan=scheduler.plan(now,full=scheduler.consume())
+            if plan.mode not in ('geometry','none'):
+                return self.refresh(_difference=plan)
         self.prune_cards()
         if self.isVisible():super().refresh_layout()
         for container in self.containers.values():container.refresh()
         for card in [*self.outputs.values(),*self.clips.values(),*self.flow_cards.values(),*self.functions.cards.values(),*self.preview_cards.values(),self.order_card]:
             if card is not None:card.sync_bounds()
         self.update_lines()
-    def refresh(self, *, prepare_hidden=False):
+        if scheduler and scheduler.enabled():
+            if self.isVisible():
+                self.last_state=self.history_state()
+                self._visible_scene_state=self.last_state
+                scheduler.presented()
+            else:self._scene_refresh_pending=True
+    def refresh(self, *, prepare_hidden=False, _difference=None):
         page=getattr(self,'_module_page',None)
         if page is not None:page.validate_owner()
         if not hasattr(self,'outputs') or self.refreshing: return
-        if getattr(self,'_weight_edit',False) and not getattr(self,'_scene_refresh_pending',True) and self.isVisible():
+        scheduler=getattr(self,'refresh_scheduler',None)
+        force_full=scheduler.consume() if scheduler and scheduler.enabled() else False
+        now=None
+        if scheduler and scheduler.enabled() and (_difference is not None or getattr(self,'_incremental_sync',False)):
+            now=self.history_state()
+            _difference=_difference or scheduler.plan(now,full=force_full)
+            if force_full:
+                from .canvas_refresh import Difference
+                _difference=Difference()
+            if _difference.mode=='geometry' and self.isVisible():
+                self.refresh_layout();return
+        if not force_full and getattr(self,'_weight_edit',False) and not getattr(self,'_scene_refresh_pending',True) and self.isVisible():
             from .changes import node_weights_only
             now=self.history_state()
             if node_weights_only(getattr(self,'_visible_scene_state',None),now):
@@ -610,13 +658,15 @@ class MultiCanvas(TextCanvas):
                 # Validation/history still run through the normal transaction.
                 self.update_output()
                 self.last_state=now;self._visible_scene_state=now
+                if scheduler:scheduler.presented()
                 return
+        changed_roots=_difference.roots if _difference and _difference.mode=='roots' and self.isVisible() else None
         self._scene_refresh_pending=True
         if hasattr(self,'onboarding'):self.onboarding.refresh()
         self.refreshing=True
         try:
             self.connection_gesture.cancel()
-            now=self.history_state()
+            now=now if now is not None else self.history_state()
             state=self.window.state; selected={c.key for c in self.view.scene().selectedItems() if hasattr(c,'key')}
             self.entries={}
             for key,root in state.get('uses',{}).items():
@@ -629,8 +679,17 @@ class MultiCanvas(TextCanvas):
             for port in self.ports.values(): self.view.scene().removeItem(port); port.setParentItem(None); port.deleteLater()
             self.ports={}
             for card in list(self.cards.values()):
-                if card.parentItem() is None: self.view.scene().removeItem(card); card.deleteLater()
-            self.cards={}
+                if card.parentItem() is None and (changed_roots is None or card.key in changed_roots):
+                    self.view.scene().removeItem(card); card.deleteLater()
+            self.cards={} if changed_roots is None else {key:card for key,card in self.cards.items()
+                if self.entries[key][0] not in changed_roots}
+            if changed_roots is not None:
+                # Full rebuilds restore root selection only and clear hover
+                # controls. Preserve that interaction policy on retained items.
+                for card in self.cards.values():
+                    if card.parentItem() is not None:card.setSelected(False)
+                    if card.hot is not None:
+                        card.hot=None;card.unsetCursor();card.update()
             for collection,values in [(self.containers,self.data()['canvases']),(self.outputs,self.data()['outputs']),(self.clips,self.data()['clip_inputs'])]:
                 for key in list(collection):
                     if key not in values:
@@ -639,11 +698,17 @@ class MultiCanvas(TextCanvas):
                 if key not in self.containers: self.containers[key]=CanvasContainer(self,key); self.view.scene().addItem(self.containers[key])
                 self.containers[key].refresh()
             for index,(key,value) in enumerate(state.get('uses',{}).items()):
+                if changed_roots is not None and key not in changed_roots:continue
                 cid=model.owner(state,key); card=NodeCard(self,key,copy.deepcopy(value),'模組' if cid else '未分配',not value['enabled'])
                 self.view.scene().addItem(card); default=[-1500,index*170]
                 if cid:
                     parent=self.containers[cid]; at=self.data()['canvases'][cid]['members'].index(key); default=[parent.x()+24,parent.y()+64+at*170]
                 card.setPos(*state.get('text_positions',{}).get(key,default)); card.setSelected(key in selected)
+            if changed_roots is not None:
+                # Equal-z siblings paint in insertion order. Reinserted roots
+                # must retain that order, including overlapping cards.
+                roots=[self.cards[key] for key in state.get('uses',{})]
+                for first,second in reversed(list(zip(roots,roots[1:]))):first.stackBefore(second)
             self.ensure_bounds()
             self.refresh_image_previews()
             for index,key in enumerate(self.data()['outputs']):
@@ -732,6 +797,7 @@ class MultiCanvas(TextCanvas):
             self.remember_layout_defaults()
             self._visible_scene_state=self.last_state
             self._scene_refresh_pending=False
+            if scheduler:scheduler.presented()
         finally: self.refreshing=False
     def refresh_image_previews(self):
         from .composition_image import canvas_document
@@ -782,19 +848,32 @@ class MultiCanvas(TextCanvas):
         cards=[self.cards[k] for k in self.data()['canvases'][key]['members'] if k in self.cards]
         return max([360]+[c.width+48 for c in cards]),max([230]+[c.height+186 for c in cards])
     def ensure_bounds(self):
-        self.window.update_document(self._ensure_bounds, fields=('multi_output','text_positions'),
-            reason='canvas-bounds', kind='derived')
-    def _ensure_bounds(self,state):
+        sizes={};positions={}
+        def same(saved,value):
+            # Keep the old saved JSON representation as well as numeric value:
+            # Qt positions are floats, even when the loaded coordinate is int.
+            return saved==value and all(type(a) is type(b) for a,b in zip(saved,value))
         for key,container in self.containers.items():
             value=self.data()['canvases'][key]; width,height=value['display_size']; x,y=value['position']
             for member in value['members']:
                 # Reserve the port area above and the editor button plus its
                 # gap below. Taller text/group controls must not cover it.
                 card=self.cards[member]; width=max(width,card.width+48); height=max(height,card.height+186)
-            value['display_size']=[width,height]; container.refresh()
+            if not same(value['display_size'],[width,height]):sizes[key]=[width,height]
             for member in value['members']:
                 card=self.cards[member]; px=max(x+24,min(card.x(),x+width-card.width-24)); py=max(y+108,min(card.y(),y+height-card.height-78))
-                card.setPos(px,py); state.setdefault('text_positions',{})[member]=[px,py]
+                card.setPos(px,py)
+                if not same(self.window.state.get('text_positions',{}).get(member),[px,py]):positions[member]=[px,py]
+        fields=set()
+        if sizes:fields.add('multi_output')
+        if positions:fields.add('text_positions')
+        if fields:
+            def apply(state):
+                for key,size in sizes.items():state['multi_output']['canvases'][key]['display_size']=size
+                if positions:state.setdefault('text_positions',{}).update(positions)
+            self.window.update_document(apply,fields=fields,reason='canvas-bounds',kind='derived')
+        for container in self.containers.values():container.refresh()
+        return frozenset(fields)
     def canvas_at(self,position):
         candidates=[c for c in self.containers.values() if c.sceneBoundingRect().contains(position)]
         return max(candidates,key=lambda c:c.zValue()).key if candidates else None
