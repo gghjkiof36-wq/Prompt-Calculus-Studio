@@ -93,8 +93,8 @@ class InputCanvasTests(unittest.TestCase):
         self.assertEqual(root['name'],'test.png');self.assertEqual(root['prompt'],'opaque, natural sentence')
         self.assertIn(members[0],self.c.cards)
         panel=self.c.functions.cards[key].panel
-        self.assertFalse(panel.source_controls.isVisible())
-        panel.toggle_management();self.assertTrue(panel.source_controls.isVisible())
+        self.assertTrue(panel.list_button.isVisible())
+        self.assertEqual(panel.list_button.text(),'清單 1')
         self.c.functions.cards[key].panel.live_control('pause')
         self.assertFalse(self.notices,self.notices)
 

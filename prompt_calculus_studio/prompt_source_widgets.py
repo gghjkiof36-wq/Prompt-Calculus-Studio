@@ -205,7 +205,9 @@ class GroupSourcePanel(QFrame):
         self.index.setAlignment(Qt.AlignmentFlag.AlignCenter);self.index.setFixedWidth(76);self.index.setToolTip('輸入序號跳至組合')
         layout.addLayout(row(self.group_name,self.previous,self.index,self.next))
         self.supply=ComboBox();self.supply.setAccessibleName('供應方式')
-        for name,value in (('整個流程','batch'),('逐輪','step')):self.supply.addItem(name,value)
+        modern=owner.window.state.get('multi_output',{}).get('version',0)>=7
+        for name,value in (('整個流程','batch'),('每次一組' if modern else '逐輪','step')):self.supply.addItem(name,value)
+        if modern:self.supply.setMaximumWidth(150)
         self.mode=button('',self.choose_mode,'SourceMode');self.mode.setFixedSize(38,38)
         self.mode.setAccessibleName('變量')
         layout.addLayout(row(self.supply,self.mode))

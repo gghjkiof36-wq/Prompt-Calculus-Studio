@@ -298,7 +298,7 @@ class StorageTransactionTests(unittest.TestCase):
         keys = ['q', 'q2']
         for key in keys:
             self.stage.set_scheduler_paused(self.state['workspace'], key, True)
-        runner = SimpleNamespace(store=self.stage, check_route=Mock(), scheduler_keys=lambda plan: keys,
+        runner = SimpleNamespace(store=self.stage, window=SimpleNamespace(state=self.state), check_route=Mock(), scheduler_keys=lambda plan: keys,
             client=SimpleNamespace(dispatch_allowed=True), later=Mock(), notify=Mock())
         before = self.snapshot()
         original = self.stage.update

@@ -204,6 +204,8 @@ class StageRunner(QObject):
 
     def start(self,count=1):
         from .core import RUN_COUNT_LIMIT
+        from .source_import import blocks_execution
+        if blocks_execution(self.window):raise ValueError('圖片仍在匯入中，請等待完成或取消。')
         if not self.client.connected:raise ValueError('請先連線至 ComfyUI。')
         if type(count) is not int or not 1<=count<=RUN_COUNT_LIMIT:raise ValueError(f'次數須為 1–{RUN_COUNT_LIMIT:,}。')
         execution_group=uuid.uuid4().hex
@@ -1021,6 +1023,8 @@ class StageRunner(QObject):
             self.save(run);self.pause(ident,'已停止這批補入；已保存項目保留並暫停。',reason='manual')
 
     def resume(self,ident):
+        from .source_import import blocks_execution
+        if blocks_execution(self.window):raise ValueError('圖片仍在匯入中，請等待完成或取消。')
         run=self.store.read(ident)
         if not run or run['status'] in ('complete','cancelled'):return
         self.check_route(run)

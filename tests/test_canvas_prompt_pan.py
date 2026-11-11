@@ -1,4 +1,4 @@
-"""Camera snapshots keep the live output summary; full text stays in its page."""
+"""Camera snapshots keep the live, read-only Prompt text after page edits."""
 import unittest
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
@@ -17,7 +17,7 @@ class CanvasPromptPanTests(unittest.TestCase):
     events = fixtures.WorkspaceShellTests.events
 
     def editor_ink(self, view, card):
-        editor = card.panel.summary
+        editor = card.panel.preview
         origin = editor.mapTo(card.panel, QPoint())
         left = view.mapFromScene(card.proxy.mapToScene(QPointF(origin)))
         right = view.mapFromScene(card.proxy.mapToScene(QPointF(origin + QPoint(editor.width(), editor.height()))))
@@ -29,7 +29,7 @@ class CanvasPromptPanTests(unittest.TestCase):
         gray = image.copy(bounds).convertToFormat(QImage.Format.Format_Grayscale8)
         pixels, stride = bytes(gray.constBits()), gray.bytesPerLine()
         sample=[p for y in range(gray.height()) for p in pixels[y*stride:y*stride+gray.width()]]
-        # The summary uses secondary text, rather than the editor's white ink.
+        # The lightweight preview paints text without a child text editor.
         background=sorted(sample)[len(sample)//2]
         return (sum(p>background+24 for p in sample),)
 
@@ -79,7 +79,8 @@ class CanvasPromptPanTests(unittest.TestCase):
         view.setFocus(); self.events()
         self.assertIs(canvas.outputs[key], card)
         before = self.editor_ink(view, card)
-        self.assertGreater(before[0],20,before)  # One short secondary-label line.
+        self.assertGreater(before[0],20,before)
+        self.assertEqual(card.panel.preview.text(),text)
         captures, hits = view.pan_raster.captures, view.pan_raster.hits
         moving = self.pan(view, card)
         after = self.editor_ink(view, card)

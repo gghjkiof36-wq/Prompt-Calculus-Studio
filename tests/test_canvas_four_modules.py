@@ -23,7 +23,9 @@ class FourModuleTests(StageFixture):
         for i in range(count):
             path=Path(self.tmp.name)/f'image-{i}.png'
             image=QImage(96,72,QImage.Format.Format_RGB32);image.fill(QColor(80+i*30,110,150));image.save(str(path));paths.append(str(path))
-        self.assertTrue(load_many(panel,paths));APP.processEvents();return key,self.c.functions.cards[key].panel
+        self.assertTrue(load_many(panel,paths))
+        from _source_import import wait_import
+        wait_import(self.w);return key,self.c.functions.cards[key].panel
 
     def queue(self):
         keys=[];self.c.commit(lambda s:keys.append(add_scheduler(s)))
@@ -45,25 +47,27 @@ class FourModuleTests(StageFixture):
 
     def test_source_management_paging_preview_and_reopen(self):
         from prompt_calculus_studio.widgets import RoundMenu
-        def toggle_management():
+        def toggle_preview():
             menus=[]
             with patch.object(RoundMenu,'open_at',lambda menu,*_:menus.append(menu)):
                 card.open_menu(QPoint())
-            next(a for a in menus[0].actions() if a.text()=='圖片管理').trigger()
+            self.assertNotIn('圖片管理',[a.text() for a in menus[0].actions()])
+            next(a for a in menus[0].actions() if a.text()=='顯示圖片').trigger()
             menus[0].deleteLater();APP.processEvents()
         key,panel=self.source();card=self.c.functions.cards[key];height=card.height
-        self.assertTrue(panel.source_controls.isHidden());self.assertFalse(panel.previous.isEnabled())
+        self.assertFalse(panel.list_button.isHidden());self.assertFalse(panel.previous.isEnabled())
         QTest.mouseClick(panel.next,Qt.MouseButton.LeftButton)
         panel=self.c.functions.cards[key].panel
         self.assertEqual(self.c.functions.data()['images'][key]['index'],1);self.assertEqual(panel.counter.text(),'2 / 3')
         with patch('prompt_calculus_studio.image_viewer.show_image') as viewer:
             panel.open_preview();self.assertEqual(viewer.call_args.args[2],'image-1.png')
-        toggle_management()
-        self.assertFalse(panel.source_controls.isHidden());self.assertGreater(card.height,height)
+        toggle_preview()
+        self.assertTrue(panel.preview.isHidden());self.assertLess(card.height,height)
         self.w.persist();saved=self.w.store.load()
-        self.assertFalse(saved['canvas_functions']['images'][key]['management_collapsed'])
-        toggle_management()
-        self.assertTrue(panel.source_controls.isHidden());self.assertLessEqual(card.height,height+2)
+        self.assertFalse(saved['canvas_functions']['images'][key]['show_image'])
+        self.assertNotIn('management_collapsed',saved['canvas_functions']['images'][key])
+        toggle_preview()
+        self.assertFalse(panel.preview.isHidden());self.assertLessEqual(card.height,height+2)
         self.assertEqual(len(self.c.functions.data()['images'][key]['items']),3)
 
     def test_catalog_uses_same_default_source_and_single_layout(self):
@@ -72,8 +76,8 @@ class FourModuleTests(StageFixture):
             key=self.c.functions.add_image(enhanced=enhanced);actual=self.c.functions.cards[key]
             preview.show_kind(kind);APP.processEvents();example=preview.card
             self.assertEqual(example.requested_size,actual.requested_size)
-            self.assertEqual(example.panel.source_controls.isHidden(),actual.panel.source_controls.isHidden())
-            self.assertEqual(example.panel.attach_button.isHidden(),actual.panel.attach_button.isHidden())
+            self.assertEqual(example.panel.list_button.isHidden(),actual.panel.list_button.isHidden())
+            self.assertEqual(example.panel.supply_row.isHidden(),actual.panel.supply_row.isHidden())
             self.assertEqual(example.panel.preview.minimumHeight(),actual.panel.preview.minimumHeight())
         preview.deleteLater()
 
@@ -138,12 +142,11 @@ class FourModuleTests(StageFixture):
         value['stage_reference']=next(iter(self.c.data()['stages']))
         collection=dict(collection='owned-result',items=copy.deepcopy(value['items']))
         value.pop('input_index',None)
-        def select(dialog):
-            dialog.findChild(QListWidget).setCurrentRow(2)
-            next(b for b in dialog.findChildren(QPushButton) if b.text()=='使用這張').click()
-            return dialog.result()
         with patch.object(self.w.comfy.images,'collection',return_value=collection),patch.object(self.w.comfy.images,'choose') as choose:
             step(panel,1);choose.assert_called_once_with(key,'owned-result',0)
-            with patch.object(StudioDialog,'exec',select):edit_list(panel)
+            value['input_index']=2
+            panel.set_input_mode('one')
             self.assertEqual(choose.call_args.args,(key,'owned-result',2))
+            with patch.object(StudioDialog,'exec') as opened:edit_list(panel);opened.assert_not_called()
+            panel.set_input_mode('all');self.assertNotIn('input_index',self.c.functions.data()['images'][key])
         self.assertEqual(value['items'],collection['items'])

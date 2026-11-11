@@ -224,6 +224,10 @@ class RunControls(QWidget):
         if paused is not None:
             self.run_button.setText('繼續');self.run_button.setEnabled(True)
             self.run_button.setToolTip('繼續目前流程')
+        if stage_mode:
+            from .source_import import blocks_execution
+            if blocks_execution(self.window):
+                self.run_button.setEnabled(False);self.run_button.setToolTip('圖片仍在匯入中')
         self.configure_geometry()
 
     def stop_menu(self,pos):

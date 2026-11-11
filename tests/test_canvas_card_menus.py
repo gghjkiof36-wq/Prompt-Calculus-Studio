@@ -66,7 +66,7 @@ class CardMenuTests(StageFixture):
         schedule=next(card for card in cards if getattr(card,'kind',None)=='schedulers')
         output=self.c.outputs[self.out]
         self.assertEqual(schedule.panel.open_button.text(),'開啟預排程')
-        self.assertEqual(output.panel.open_button.text(),'開啟 Prompt 輸出')
+        self.assertEqual(output.panel.open_button.text(),'排序')
         self.assertFalse(schedule.panel.open_button.isHidden())
         self.assertFalse(output.panel.open_button.isHidden())
         page=schedule.panel.open_page()

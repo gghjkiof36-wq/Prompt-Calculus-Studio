@@ -19,6 +19,7 @@ class CanvasDeleteKeysTests(unittest.TestCase):
 
     def select_header(self,card):
         # Isolate the target visually, then exercise the ordinary header click.
+        key=card.key
         self.header_count=getattr(self,'header_count',0)+1
         at=(4500+(self.header_count%4)*1200,1000+(self.header_count//4)*1200)
         if card.key in self.c.data()['canvases']:
@@ -29,8 +30,12 @@ class CanvasDeleteKeysTests(unittest.TestCase):
         card=self.c.cards.get(card.key,card)
         view=self.c.view;view.resetTransform();view.scale(.7,.7)
         view.centerOn(card.sceneBoundingRect().center());QTest.qWait(10)
+        # Card preview geometry can schedule another layout refresh. Resolve
+        # the live text card after event delivery; keep the selection assertion.
+        card=self.c.cards.get(key,card)
         pos=view.mapFromScene(card.mapToScene(QPointF(80,24)))
         QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=pos);QTest.qWait(10)
+        card=self.c.cards.get(key,card)
         self.assertTrue(card.isSelected(),(card.key,pos,view.viewport().rect(),type(view.itemAt(pos)).__name__,card.scenePos()))
 
     def test_preview_delete_and_backspace_restore_its_connection(self):

@@ -89,6 +89,8 @@ class SourceTreeTests(StageFixture):
         image.fill(QColor('#8a969d'));image.save(str(path))
         from prompt_calculus_studio.source_controls import load_many
         self.assertTrue(load_many(self.c.functions.cards[key].panel,[str(path)]))
+        from _source_import import wait_import
+        wait_import(self.w)
         def setup(s):
             s['canvas_functions']['images'][key]['content']=dict(kind='raw',text='cinematic light')
             connect(s,key,self.out,'clip')

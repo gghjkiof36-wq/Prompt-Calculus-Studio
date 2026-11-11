@@ -74,7 +74,10 @@ class CanvasEntrypointTests(StageFixture):
         for i in range(3 if enhanced else 1):
             path=Path(self.tmp.name)/f'preview-{i}.png'
             picture=QImage(96,72,QImage.Format.Format_RGB32); picture.fill(QColor(80+i*50,110,150)); picture.save(str(path)); paths.append(str(path))
-        if enhanced:self.assertTrue(load_many(self.c.functions.cards[key].panel,paths))
+        if enhanced:
+            self.assertTrue(load_many(self.c.functions.cards[key].panel,paths))
+            from _source_import import wait_import
+            wait_import(self.w)
         else:self.assertTrue(self.c.functions.replace(key,paths[0]))
         APP.processEvents(); return key
 

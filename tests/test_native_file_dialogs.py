@@ -80,10 +80,10 @@ class NativeFileDialogTests(unittest.TestCase):
         entries=[(self.panel().choose_file,IMAGE_FILTER),(self.w.generation_panel.choose_source,IMAGE_FILTER),
             (self.w.generation_panel.import_workflow,'工作流 (*.json)'),
             (lambda:self.w.canvas.import_canvas_image(canvas),IMAGE_FILTER)]
-        for action,filters in entries:
+        for index,(action,filters) in enumerate(entries):
             with self.subTest(entry=action):
                 before=copy.deepcopy(self.w.state);undo=len(self.w.canvas.undo_stack)
-                self.picker(action,QFileDialog.FileMode.ExistingFile,filters=filters)
+                self.picker(action,QFileDialog.FileMode.ExistingFiles if index==0 else QFileDialog.FileMode.ExistingFile,filters=filters)
                 self.assertEqual(self.w.state,before);self.assertEqual(len(self.w.canvas.undo_stack),undo)
 
     def test_multiple_and_folder_entries_use_native_policy_and_cancel_without_edits(self):
@@ -99,7 +99,9 @@ class NativeFileDialogTests(unittest.TestCase):
                 self.assertEqual(len(self.w.canvas.undo_stack),undo)
 
     def test_image_import_from_picker_can_undo_redo_and_reopen(self):
-        self.picker(self.panel().choose_file,QFileDialog.FileMode.ExistingFile,selection=self.files[0],filters=IMAGE_FILTER)
+        self.picker(self.panel().choose_file,QFileDialog.FileMode.ExistingFiles,selection=self.files[0],filters=IMAGE_FILTER)
+        from _source_import import wait_import
+        wait_import(self.w)
         image=copy.deepcopy(self.w.state['canvas_functions']['images'][self.key]['source'])
         self.assertEqual(image['name'],self.files[0].name)
         self.assertTrue((self.w.store.directory/image['relative']).is_file())
@@ -118,10 +120,12 @@ class NativeFileDialogTests(unittest.TestCase):
                 else:
                     with patch.object(QFileDialog,'getOpenFileNames',return_value=([str(p) for p in self.files],IMAGE_FILTER)):
                         choose_many(self.panel())
+                from _source_import import wait_import
+                wait_import(self.w)
                 items=self.w.state['canvas_functions']['images'][self.key]['items']
                 self.assertEqual([item['name'] for item in items],['sample 2.png','sample 10.png'])
                 self.assertTrue(all((self.w.store.directory/item['relative']).is_file() for item in items))
-                edit.assert_called_once();self.w.canvas.undo()
+                edit.assert_not_called();self.w.canvas.undo()
 
     def test_recent_folder_selection_persists_and_cancel_does_not_replace_it(self):
         self.picker(self.w.recent.choose_directory,QFileDialog.FileMode.Directory,selection=self.folder)

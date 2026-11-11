@@ -1584,6 +1584,10 @@ class Window(QMainWindow):
             self.notice('配套擴充正在安裝，完成後即可關閉 PCS。');event.ignore();return
         was_closing=self.closing
         self.closing=True
+        source_thumbnails=False
+        if self.__dict__.get('_source_thumbnail_jobs'):
+            from .source_thumbnails import close_window as close_source_thumbnails
+            source_thumbnails=close_source_thumbnails(self)
         self.recent.stop_previews()
         self.close_recent_sheet()
         if hasattr(self,'sidebar_resize') and self.sidebar_resize.dragging:self.sidebar_resize.finish()
@@ -1596,7 +1600,7 @@ class Window(QMainWindow):
         # Accepted replies can arrive while another worker owns the slot.
         # The close retry must drain them even though ordinary retries stop.
         self.recent.pump()
-        if self.jobs.active or browsing or self.completion.tasks or (page_ready(self.gallery) and self.gallery.importing) or self.recent.collecting:
+        if self.jobs.active or source_thumbnails or browsing or self.completion.tasks or (page_ready(self.gallery) and self.gallery.importing) or self.recent.collecting:
             event.ignore()
             if page_ready(self.gallery):self.gallery.queue=[]
             if self.jobs.active: self.jobs.active.cancel.set()

@@ -79,7 +79,9 @@ class OutputSources(QTreeWidget):
         values=set(output.get('source_collapsed',[]))
         if collapsed:values.add(key)
         else:values.discard(key)
-        output['source_collapsed']=[source for source in text_sources(output) if source in values]
+        collapsed=[source for source in text_sources(output) if source in values]
+        self.canvas.window.update_document(lambda state:state['multi_output']['outputs'][self.output].update(source_collapsed=collapsed),
+            fields=('multi_output',),reason='output-source-fold',kind='view')
         self.signature=None;self.fit_visible_rows()
         card=self.canvas.outputs.get(self.output)
         if card:

@@ -192,13 +192,28 @@ class OutputPanel(QFrame):
         super().__init__();self.canvas=canvas;self.key=key;self.page=None
         self.setObjectName('CanvasModuleBody')
         body=QVBoxLayout(self);body.setContentsMargins(4,8,4,4);body.setSpacing(8)
-        self.summary=label('','Subtle',True);body.addWidget(self.summary)
-        self.open_button=button('開啟 Prompt 輸出',self.open_page);body.addWidget(self.open_button)
+        self.modern=canvas.data().get('version',0)>=7
+        self.summary=label('','Subtle',True)
+        if self.modern:
+            from .output_preview import PromptPreview
+            self.preview=PromptPreview(lambda:self.open_page('editor'));body.addWidget(self.preview)
+            self.copy_button=button('',self.copy_prompt,'Quiet');self.copy_button.setParent(self.preview)
+            self.copy_button.setFixedSize(32,32);self.copy_button.setAccessibleName('複製 Prompt');self.copy_button.setToolTip('複製 Prompt')
+            self.preview.copy_button=self.copy_button
+            self.open_button=button('排序',lambda:self.open_page('order'))
+            body.addLayout(row(self.summary,None,self.open_button))
+        else:
+            body.addWidget(self.summary)
+            self.open_button=button('開啟 Prompt 輸出',self.open_page);body.addWidget(self.open_button)
         self.refresh_visual_theme()
 
-    def open_page(self):
+    def copy_prompt(self):self.canvas.window.copy_text(self.preview.text())
+
+    def open_page(self,focus=None):
         if self.page is not None and not self.page.closed:
-            self.page.raise_();return self.page
+            self.page.raise_()
+            if focus in ('order','editor'):(self.page.content.order if focus=='order' else self.page.content.editor).setFocus()
+            return self.page
         from .module_page import ModulePage
         editor=OutputEditor(self.canvas,self.key)
         def closed():
@@ -206,7 +221,8 @@ class OutputPanel(QFrame):
             self.page=None
             if isValid(self) and isValid(self.summary) and not self.canvas.window.closing:self.refresh()
         self.page=ModulePage(self.canvas,self.canvas.data()['outputs'][self.key]['name'],editor,closed,kind='outputs')
-        editor.restore_ratio();editor.refresh();self.page.fit();editor.editor.setFocus()
+        editor.restore_ratio();editor.refresh();self.page.fit()
+        (editor.order if focus=='order' else editor.editor).setFocus()
         return self.page
 
     def refresh(self):
@@ -216,7 +232,12 @@ class OutputPanel(QFrame):
             return
         from .flow_data import text_sources
         manual=output['draft'] is not None
-        self.summary.setText(('手動內容 · '+str(len(output['draft']))+' 字') if manual else '文字來源 · '+str(len(text_sources(output))))
+        if self.modern:
+            from .output_preview import PromptCache
+            if not hasattr(self.canvas,'_prompt_card_cache'):self.canvas._prompt_card_cache=PromptCache()
+            self.preview.setText(self.canvas._prompt_card_cache.text(self.canvas.window.state,self.key))
+            self.summary.setText('手動' if manual else str(len(text_sources(output)))+' 個來源')
+        else:self.summary.setText(('手動內容 · '+str(len(output['draft']))+' 字') if manual else '文字來源 · '+str(len(text_sources(output))))
         if self.page is not None and not self.page.closed:
             self.page.heading.setText(output['name']);self.page.content.refresh()
 
@@ -226,6 +247,10 @@ class OutputPanel(QFrame):
         from .canvas_items import canvas_colors
         from .module_chrome import style_action
         style_action(self.open_button,canvas_colors(self.canvas),pending=True)
+        if self.modern:
+            from .ui_icons import icon
+            colors=canvas_colors(self.canvas);self.preview.colors=colors
+            style_action(self.copy_button,colors);self.copy_button.setIcon(icon('copy',colors['text']))
         if self.page is not None and not self.page.closed:
             self.page.refresh_visual_theme();self.page.content.refresh_visual_theme()
 
@@ -274,7 +299,8 @@ class FlowFunctions(CanvasFunctions):
                 card=self.cards.pop(key); self.canvas.view.scene().removeItem(card); card.deleteLater()
         for index,key in enumerate(data['images']):
             if key not in self.cards: self.cards[key]=SourceCard(self,key); self.canvas.view.scene().addItem(self.cards[key])
-            card=self.cards[key]; card.panel.attach_button.hide()
+            card=self.cards[key]
+            if hasattr(card.panel,'attach_button'):card.panel.attach_button.hide()
             card.attach(); card.setPos(*self.window.state.get('text_positions',{}).get(key,[900,850+index*390]))
         if self.canvas.preview_card: self.canvas.preview_card.setVisible(data.get('preview',True))
         from .prompt_source_widgets import GroupSourceCard
@@ -343,13 +369,16 @@ class FlowFunctions(CanvasFunctions):
         self.canvas.commit(lambda s:add_text_reader(s,(position.x(),position.y())))
     def context(self,key,position):
         menu=RoundMenu(self.window)
+        modern=self.window.state.get('multi_output',{}).get('version',0)>=7
+        if modern and key in self.cards and hasattr(self.cards[key].panel,'menu_actions'):
+            self.cards[key].panel.menu_actions(menu)
         menu.addAction('調整模組尺寸…',lambda:self.canvas.size_dialog(key))
         menu.addAction('恢復自動尺寸',lambda:self.canvas.reset_size(key))
         if key in self.cards:
-            if self.data()['images'][key].get('enhanced'):
+            if not modern and self.data()['images'][key].get('enhanced'):
                 action=menu.addAction('圖片管理',self.cards[key].panel.toggle_management)
                 action.setCheckable(True);action.setChecked(not self.data()['images'][key].get('management_collapsed',True))
-            if hasattr(self.cards[key].panel,'choose_file'):menu.addAction('選擇圖片…',self.cards[key].panel.choose_file)
+            if not modern and hasattr(self.cards[key].panel,'choose_file'):menu.addAction('選擇圖片…',self.cards[key].panel.choose_file)
             if self.data()['images'][key].get('reader')!='text':
                 embed=menu.addMenu('嵌入畫布')
                 for cid,value in self.canvas.data()['canvases'].items(): embed.addAction(value['name'],lambda checked=False,c=cid:self.canvas.embed_source(key,c))

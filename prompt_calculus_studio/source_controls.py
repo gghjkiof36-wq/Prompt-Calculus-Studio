@@ -9,6 +9,9 @@ from .image_source import folder_files,natural_key,set_items,select,metadata_sou
 
 def load_many(panel, paths, iterate=True):
     owner=panel.owner
+    if owner.window.state.get('multi_output',{}).get('version',0)>=7:
+        from .source_import import start
+        return start(panel,paths)
     if owner.window.comfy.input_flow.source_active(panel.key):
         owner.window.notice('這份圖片清單仍有未完成工作；先完成或停止這批供應，再更換清單。');return False
     try:
@@ -20,6 +23,9 @@ def load_many(panel, paths, iterate=True):
 
 
 def choose_many(panel, folder=False):
+    if panel.owner.window.state.get('multi_output',{}).get('version',0)>=7:
+        from .source_picker import pick_files
+        return pick_files(panel,folder)
     if folder:
         name=QFileDialog.getExistingDirectory(panel.owner.window,'選擇圖片資料夾')
         if not name:return
@@ -33,6 +39,9 @@ def choose_many(panel, folder=False):
 
 
 def choose_recent(panel):
+    if panel.owner.window.state.get('multi_output',{}).get('version',0)>=7:
+        from .source_picker import pick_catalog
+        return pick_catalog(panel)
     window=panel.owner.window;dialog=StudioDialog(window);dialog.setWindowTitle('選擇最近生成的圖片');dialog.resize(650,580)
     search=QLineEdit();search.setPlaceholderText('搜尋檔名（顯示最多 300 張）');dialog.body.addWidget(search)
     listing=QListWidget();listing.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection);listing.setIconSize(QSize(72,72));dialog.body.addWidget(listing)
@@ -52,23 +61,12 @@ def edit_list(panel):
     window=panel.owner.window;value=panel.owner.data()['images'][panel.key]
     if window.state.get('multi_output',{}).get('version',0)>=7:
         from .flow_data import incoming
-        if incoming(window.state,panel.key,'image') or value.get('stage_reference'):
-            collection=window.comfy.images.collection(panel.key)
-            if not collection:return
-            dialog=StudioDialog(window);dialog.setWindowTitle('接入圖片清單');dialog.resize(650,540)
-            listing=QListWidget();listing.setIconSize(QSize(56,56))
-            from PySide6.QtGui import QIcon
-            for source in collection['items']:
-                item=QListWidgetItem(QIcon(str(window.store.directory/source['relative'])),source['name']);listing.addItem(item)
-            index=value.get('input_index');listing.setCurrentRow(index if index is not None else 0)
-            dialog.body.addWidget(listing,1)
-            def select_current():
-                current=listing.currentRow()
-                if current>=0:window.comfy.images.choose(panel.key,collection['collection'],current);dialog.accept()
-            def select_all():
-                panel.owner.canvas.commit(lambda s:s['canvas_functions']['images'][panel.key].pop('input_index',None));dialog.accept()
-            dialog.body.addLayout(row(button('使用全部',select_all,'Quiet'),None,button('取消',dialog.reject,'Quiet'),button('使用這張',select_current,'Primary')))
-            listing.itemDoubleClicked.connect(lambda *_:select_current());dialog.exec();return
+        # v7 connected selection is entirely on the card.
+        if incoming(window.state,panel.key,'image') or value.get('stage_reference'):return
+        from .source_import import active
+        if active(window,panel.key):return
+        from .source_list_dialog import SourceListDialog
+        return SourceListDialog(panel).exec()
     items=copy.deepcopy(value.get('items') or ([value['source']] if value.get('source') else []))
     dialog=StudioDialog(window);dialog.setWindowTitle('圖片來源 · 清單與目前圖片');dialog.resize(650,540)
     dialog.body.addWidget(label('拖曳排列；移除只略過這張圖片。保存清單後，由第一張開始；已排程的項目仍保留。','Subtle',True))
