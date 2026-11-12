@@ -5,6 +5,7 @@ event loop; decoded pages and SQLite connections never cross into the GUI.
 """
 import json
 import logging
+import math
 import sqlite3
 import threading
 import time
@@ -14,7 +15,6 @@ from . import comfy_event_protocol as p
 from .comfy_event_inbox import EventInbox
 
 HEARTBEAT = 8.0
-WORKER_TICK_MS = 250
 DETECT = 12.0
 EVIDENCE = 30.0
 NO_PROGRESS = 120.0
@@ -50,7 +50,7 @@ def poll_evidence(route, data, value):
 
 
 class ShadowChannel:
-    def __init__(self, inbox, send, identity, *, scope=None, clock=time.monotonic, notify=None, valid=None):
+    def __init__(self, inbox, send, identity, *, scope=None, clock=time.monotonic, notify=None, valid=None, reconcile_first=False):
         self.inbox, self.send, self.clock = inbox, send, clock
         self.identity = dict(identity)
         self.scope = p.scope(scope)
@@ -86,6 +86,8 @@ class ShadowChannel:
         self.next_negotiate = 0
         self.snapshot_completed = False
         self.watches = {}
+        self.reconcile_first = reconcile_first
+        self.snapshot_authorized = not reconcile_first
 
     def watch(self, entity, phase):
         if entity not in self.watches:
@@ -129,10 +131,12 @@ class ShadowChannel:
             self.inbox.diagnostic('reconcile_required', dict(identity=self.identity, reason=reason))
             self.causes.add(reason)
             self.need_snapshot = True
+            self.snapshot_authorized = not self.reconcile_first
             self.snapshot_completed = False
             self.snapshot_token = self.snapshot_after = ''
             self.snapshot_as_of = None
             self.next_snapshot = self.clock()
+            self.last_health = None  # A new cause needs a fresh targeted-probe authorization.
 
     def query(self, route, **extra):
         return route + '?' + urlencode(dict(server_instance=self.identity['server_instance'], epoch=self.identity['epoch'],
@@ -244,6 +248,7 @@ class ShadowChannel:
             raise ValueError('Invalid running set')
         now = self.clock()
         self.last_heartbeat = now
+        self.notify(dict(heartbeat=True, identity=dict(self.identity)))
         self.running = running
         self.queue_readable = value.get('queue_readable')
         self.publisher_alive = value.get('publisher_alive')
@@ -306,6 +311,7 @@ class ShadowChannel:
             if health != self.last_health:
                 self.inbox.health(self.identity, self.scope, health)
                 self.last_health = health
+                self.notify(dict(health=health, identity=dict(self.identity)))
         self._apply(record_health)
         if self.storage_retry is not None: return
         if self.refresh_token:
@@ -319,11 +325,39 @@ class ShadowChannel:
             self.request('heartbeat', self.query('events/heartbeat'), self._heartbeat)
         if self.need_snapshot:
             # No event read can race the snapshot watermark commit.
-            if 'events' not in self.pending and now >= self.next_snapshot:
+            if self.snapshot_authorized and 'events' not in self.pending and now >= self.next_snapshot:
                 self.request('snapshot', self.query('events/snapshot', snapshot_token=self.snapshot_token,
                              after=self.snapshot_after), self._snapshot, 6)
         elif now >= self.next_events:
             self.request('events', self.query('events', since=self.since, wait=8), self._events)
+
+    def next_wakeup(self):
+        """Next actionable deadline, after tick; no periodic idle Python pump."""
+        if self.stopped or not self.valid():return None
+        now=self.clock()
+        if self.storage_retry is not None:return self.storage_at
+        due=[row[2] for row in self.pending.values()]
+        # These thresholds change health only once. HTTP responses and commands
+        # separately wake the worker and may replace the deadlines beforehand.
+        observed=min(self.last_events,self.last_heartbeat)
+        if observed+DETECT>now:due.append(observed+DETECT)
+        elif observed+EVIDENCE>now:due.append(observed+EVIDENCE)
+        for prompt,observed in self.progress.items():
+            if prompt not in self.diagnosed:due.append(observed+NO_PROGRESS)
+        for entity,watch in self.watches.items():
+            if watch['phase']=='collecting' and entity.removeprefix('prompt:') in (self.running or []):continue
+            started=watch['started']
+            if started+DETECT>now:due.append(started+DETECT)
+            elif started+EVIDENCE>now:due.append(started+EVIDENCE)
+        if self.refresh_token or self.renegotiate:
+            kind='config' if self.refresh_token else 'capability'
+            if kind not in self.pending:due.append(self.next_negotiate)
+        else:
+            if 'heartbeat' not in self.pending:due.append(self.next_heartbeat)
+            if self.need_snapshot:
+                if self.snapshot_authorized and 'events' not in self.pending and 'snapshot' not in self.pending:due.append(self.next_snapshot)
+            elif 'events' not in self.pending:due.append(self.next_events)
+        return min(due) if due else None
 
 
 # Qt is only an adapter. Its worker owns request parsing, SQLite, timers and
@@ -332,8 +366,39 @@ from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot, Qt
 from PySide6.QtNetwork import QNetworkAccessManager
 
 
+class DeliveryFilter:
+    """Worker-only transient observations; lifecycle authorization comes from GUI commit."""
+    def __init__(self):
+        self.running = {}
+        self.nodes = {}
+        self.display = {}
+
+    def select(self, page, owner_info=None):
+        owner=page['owner']; running=self.running.get(owner, set())
+        selected=[]
+        for event in page['events']:
+            kind=event['kind'];prompt=event.get('prompt_id')
+            if kind=='native.progress': continue
+            if prompt in running and kind in ('native.execution_start','native.executing','native.executed','native.execution_cached'):
+                if owner_info and any(event.get('scope',{}).get(key) not in (None,owner_info.get(key)) for key in ('library_id','workspace_id')):
+                    continue
+                node=event.get('payload',{}).get('node')
+                if kind=='native.executing' and node is not None and self.nodes.get((owner,prompt))!=str(node):
+                    self.nodes[owner,prompt]=str(node)
+                    self.display.setdefault(owner,{})[prompt]=dict(prompt_id=prompt,node=str(node))
+                continue
+            selected.append(event)
+        return dict(page,events=selected)
+
+    def accepted(self, owner, prompts):
+        self.running[owner]=set(prompts)
+        self.nodes={key:node for key,node in self.nodes.items() if key[0]!=owner or key[1] in prompts}
+
+
 class _Worker(QObject):
     finished = Signal()
+    deliveryReady = Signal(object)
+    healthChanged = Signal(object)
     def __init__(self, directory, url, token, identity):
         super().__init__()
         self.directory, self.url, self.token, self.identity = directory, url, token, identity
@@ -341,34 +406,89 @@ class _Worker(QObject):
         self.core = self.inbox = None
         self.queued = []
         self.cancelled = threading.Event()
+        self.owners = {}
+        self.delivering = set()
+        self.delivery_revision = -1
+        self.prune_at = 0
+        self.filter = DeliveryFilter()
+        self.display_at = 0
+
+    def notified(self, value):
+        if 'token' in value: self.token = value['token']
+        if 'health' in value or 'heartbeat' in value: self.healthChanged.emit(value)
 
     @Slot()
     def start(self):
         self.network = QNetworkAccessManager(self)
         self.timer = QTimer(self)
-        self.timer.setInterval(WORKER_TICK_MS)
+        self.timer.setSingleShot(True)
+        self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.timer.timeout.connect(self.cycle)
-        self.timer.start()
         self.retry_at = 0
         self.cycle()
 
     def cycle(self):
         if self.stopped: return
+        if hasattr(self,'timer'):self.timer.stop()
         if self.core is None:
-            if time.monotonic() < self.retry_at: return
+            if time.monotonic() < self.retry_at:
+                self.wake(math.ceil((self.retry_at-time.monotonic())*1000));return
             try:
                 self.inbox = EventInbox(self.directory)
                 self.core = ShadowChannel(self.inbox, self.send, self.identity,
-                                          notify=lambda value: setattr(self, 'token', value['token']),
-                                          valid=lambda: not self.cancelled.is_set())
+                                          notify=self.notified,
+                                          valid=lambda: not self.cancelled.is_set(), reconcile_first=True)
             except (sqlite3.Error, OSError) as exc:
                 logging.getLogger(__name__).warning('shadow inbox unavailable: %s', exc)
                 self.retry_at = time.monotonic() + 8
-                return
+                self.wake(8000);return
         while self.queued and self.core.storage_retry is None:
             value = self.queued.pop(0)
             self.core._apply(lambda value=value: self.apply_command(value))
         self.core.tick()
+        if self.identity != self.core.identity:
+            self.identity=dict(self.core.identity)
+            self.delivering.clear()
+            self.delivery_revision=-1
+            self.filter = DeliveryFilter()
+        if self.core.storage_retry is None and self.inbox.db.total_changes != self.delivery_revision:
+            advanced = False
+            for owner in self.owners:
+                if owner in self.delivering: continue
+                page = self.inbox.delivery(self.core.identity, self.core.scope, owner)
+                if page is not None:
+                    page = self.filter.select(page,self.owners[owner])
+                    if not page['events'] and not page['snapshot']:
+                        self.core._apply(lambda page=page:self.inbox.delivered(page))
+                        if self.core.storage_retry is not None: break
+                        advanced = True
+                        # A bounded page may be followed by more inbox data.
+                        self.wake(0)
+                    else:
+                        self.delivering.add(owner)
+                        self.deliveryReady.emit(page)
+            self.delivery_revision = -1 if advanced else self.inbox.db.total_changes
+        if self.filter.display and time.monotonic()>=self.display_at:
+            self.display_at=time.monotonic()+.2
+            display=self.filter.display;self.filter.display={}
+            self.healthChanged.emit(dict(identity=dict(self.core.identity),display={owner:list(items.values()) for owner,items in display.items()}))
+        if time.monotonic() >= self.prune_at:
+            self.prune_at = time.monotonic() + 60
+            self.core._apply(lambda: self.inbox.prune(self.core.identity))
+        if hasattr(self,'timer'):
+            deadlines=[self.prune_at]
+            if self.queued and self.core.storage_retry is None:deadlines.append(time.monotonic())
+            due=self.core.next_wakeup()
+            if due is not None:deadlines.append(due)
+            if self.filter.display:deadlines.append(self.display_at)
+            self.wake(max(1,math.ceil((min(deadlines)-time.monotonic())*1000)))
+
+    def wake(self, milliseconds):
+        if self.stopped:return
+        if not hasattr(self,'timer'):
+            QTimer.singleShot(milliseconds,self.cycle);return
+        if not self.timer.isActive() or self.timer.remainingTime()>milliseconds:
+            self.timer.start(max(0,milliseconds))
 
     def send(self, route, done, failed, deadline):
         from .comfy_client import ComfyClient
@@ -378,8 +498,11 @@ class _Worker(QObject):
             # health timer. A fixed 250ms pause per snapshot page can exhaust
             # the server's 60s snapshot lease. Core deadlines still enforce
             # empty-page, inconsistent-log and storage-error backoff.
-            if not self.stopped: QTimer.singleShot(15, self.cycle)
-        return ComfyClient.request(self, route, done=received, failed=failed,
+            self.wake(15)
+        def rejected(error):
+            failed(error)
+            self.wake(0)
+        return ComfyClient.request(self, route, done=received, failed=rejected,
                                    deadline=deadline, max_bytes=p.MAX_PAGE_BYTES)
 
     @Slot(object)
@@ -391,11 +514,28 @@ class _Worker(QObject):
             logging.getLogger(__name__).warning('shadow command queue full; diagnostic not accepted')
             return
         self.queued.append(value)
+        self.wake(0)
 
     def apply_command(self, value):
         if value['kind'] == 'owner':
             self.inbox.owner(value['value'])
+            self.owners[value['value']['token']] = value['value']
             self.core.require_snapshot('owner:' + value['value']['token'])
+        elif value['kind'] == 'delivered':
+            if value['page']['identity']!=self.core.identity:return
+            self.inbox.delivered(value['page'])
+            self.filter.accepted(value['page']['owner'],value.get('running',[]))
+            self.delivering.discard(value['page']['owner'])
+            self.delivery_revision = -1
+        elif value['kind'] == 'redeliver':
+            self.delivering.discard(value['owner'])
+            self.delivery_revision = -1
+        elif value['kind'] == 'reconcile':
+            self.core.require_snapshot(value['reason'], reset=True)
+        elif value['kind'] == 'snapshot_authorized':
+            self.core.snapshot_authorized = True
+        elif value['kind'] == 'reconciled':
+            self.core.needs_reconcile = False
         elif value['kind'] == 'poll':
             for entity, outcome in value['evidence']:
                 self.inbox.observe_poll(self.core.identity, entity, outcome, value['owner'])
@@ -418,12 +558,16 @@ class _Worker(QObject):
 class QtChannel(QObject):
     command = Signal(object)
     stopping = Signal()
+    deliveryReady = Signal(object)
+    healthChanged = Signal(object)
     def __init__(self, directory, url, token, identity, parent=None):
         super().__init__(parent)
         self.url, self.token, self.identity = url, token, identity
         self.thread = QThread()
         self.worker = _Worker(directory, url, token, identity)
         self.worker.moveToThread(self.thread)
+        self.worker.deliveryReady.connect(self.deliveryReady)
+        self.worker.healthChanged.connect(self.healthChanged)
         self.thread.started.connect(self.worker.start)
         self.command.connect(self.worker.command)
         self.stopping.connect(self.worker.stop)

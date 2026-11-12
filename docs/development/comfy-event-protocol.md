@@ -1,6 +1,6 @@
 # ComfyUI 持久收據與事件協定
 
-適用於 pre-alpha3 的擴充事件來源與桌面影子接收。桌面在背景接收、保存及核對事件，尚未啟用事件 reducer，也沒有取代輪詢。需要更新 ComfyUI 端擴充並重啟後端、重新整理網頁；此文件不是已安裝或 GPU 驗收證明。
+適用於 pre-alpha3 的擴充事件來源與桌面通道。C1 起，原生／凍結生成任務由事件接受與有界對帳決定生命週期；input 與輔助 operation 暫留既有路徑。需要更新 ComfyUI 端擴充並重啟後端、重新整理網頁；此文件不是已安裝或 GPU 驗收證明。
 
 ## 身分與相容
 
@@ -24,25 +24,43 @@
 
 `server_instance` 存在擴充專用 `integration.sqlite3`，重建 Service 不變；每次 Service 建立產生新 `epoch` 並持久保存。舊 Service 的 writer 會被資料表 trigger 拒絕。每個 epoch 的全域 seq 從 1 遞增，wire 一律使用十進位字串，`"0"` 是初始游標。新 epoch 清除舊事件流、保留收據與 tombstone；必須重新 snapshot，不能接續舊游標。
 
-單一使用者模式才提供此通道。舊 PCS 搭配新版擴充繼續使用原 HTTP 路徑與輪詢；目前的影子接收也不關閉輪詢。舊擴充沒有 `execution_events_v1` 時，不建立通道，既有行為保持不變。將來切換 reducer 的版本遇到舊擴充，更新前禁止新派送，不提供 legacy 輪詢相容模式。PCS 文件格式本段完全不變，也不建立 `event_apply` 表；後續資料格式搬遷另有版本邊界。
+單一使用者模式才提供此通道。舊 PCS 搭配新版擴充繼續使用原 HTTP 路徑。新版 PCS 遇到沒有有效 `execution_events_v1` 協定的擴充，顯示「需要更新擴充」並禁止新派送；原已在途任務只對原 operation 有界查證，不恢復週期狀態輪詢。studio DB 新增 `storage_layout('event_apply',1)`；journal 保持 1，文件及 PNG 版本不變。舊庫須先複製再搬遷，不支援降版開新庫。
 
-## 桌面影子通道與持久 inbox
+## 桌面通道與持久 inbox
 
-`WorkspaceConnection` 管理目前 server 的共享 `QtChannel`，多文件共用同一條事件流。QThread 自己持有 QNetworkAccessManager、JSON 解析、計時器與 SQLite 連線；完整 events／snapshot 不送回 GUI。主執行緒只提供協商身分、穩定 owner 與從舊輪詢抽出的精簡終局證據，沒有事件 reducer 或執行 UI 通知。
+`WorkspaceConnection` 管理目前 server 的共享 `QtChannel`，多文件共用同一條事件流；獨立宿主由 `DocumentChannel` 管理。QThread 持有 QNetworkAccessManager、JSON 解析、計時器與 inbox 連線。主執行緒每個 owner 同時最多接受一頁，最多 16 筆且編碼低於 256KiB；不跨執行緒傳 SQLite 物件或未解析回覆。健康資訊每次變更及有效心跳才交給 GUI，不在無事 pump 掃 inbox。
 
 每個 request 可由回傳的 reply 中止，並有從送出起算的絕對期限，不能靠持續收到少量資料無限延長。events 最多等 8 秒、期限 12 秒，heartbeat 每 8 秒，snapshot／協商期限 6 秒。連線換代會立即使舊回應無效，再在 worker 中中止請求；關閉工作區會非阻塞地等待 worker 退出，才完成關窗。token 只存在程序記憶體；403 重新取 config token 並協商，400／409、reset_required 或錯 server／epoch 都重新協商及 snapshot，不重送任何工作。
 
-非空事件頁與 snapshot 後頁在 worker 收到並保存後排程續讀，不逐頁等待 250ms 健康計時器，避免人為耗盡 snapshot 的 60 秒有效期。空頁、不一致或儲存錯誤仍由核心期限與退避限制；慢速網路造成 snapshot 過期時重新取固定水位，不推進未完成的游標。
+worker 使用單次期限計時器，在回覆、命令或最近的心跳／證據／重試／清理期限到達時才醒來，沒有每 250ms 的空閒掃描。非空事件頁與 snapshot 後頁收到並保存後即排程續讀，避免人為耗盡 snapshot 的 60 秒有效期。空頁、不一致或儲存錯誤仍由核心期限與退避限制；慢速網路造成 snapshot 過期時重新取固定水位，不推進未完成的游標。
 
-獨立 sidecar 位於工作區資料根目錄的 `comfy-channel.sqlite3`，WAL／SHM 同屬該資料。`streams` 以 server_instance、epoch、scope_digest 分開保存 received 與 applied；inbox 以 server_instance、epoch、seq 去重，衝突的同 seq 內容拒絕接受。單頁事件及 received 在同一交易提交，applied 在影子接收階段始終為 0。固定水位 snapshot 分頁先暫存，只有全部完成才記錄 snapshot 及推進 received；舊 epoch 收據保留原始 envelope，不當成新 epoch 的事件。隨後從該水位續讀。
+獨立 sidecar 位於工作區資料根目錄的 `comfy-channel.sqlite3`，WAL／SHM 同屬該資料。`streams` 以 server_instance、epoch、scope_digest 分開保存 received 與 applied；inbox 以 server_instance、epoch、seq 去重，衝突的同 seq 內容拒絕接受。單頁事件及 received 在同一交易提交。`delivery_offsets` 保存每個 owner 的交付水位，applied 是該 scope 所有 owner 的最小水位；需要變更文件的事件，只在文件接受交易成功後回報 delivered。純進度或已確認不改文件的觀測可直接在 worker 完成交付。固定水位 snapshot 分頁先暫存，全部完成才推進 received；文件接受完 snapshot 才推進 delivery，接續 W 以後的事件。舊 epoch 收據僅限該次有效 snapshot 接受，不能當作新 epoch 的串流事件。
 
 SQLite／磁碟失敗時停止所有拉取，保留最多一頁待提交資料，以 1／2／4／8 秒退避重試同一交易；收到但未 commit 不推進游標。程序關閉後該記憶體頁可丟棄，下次仍從持久游標讀回。每個 server／epoch 的未套用事件上限 100,000 筆或 64MiB，達上限停止拉取，不刪除未套用證據；每次 snapshot 也受同樣容量限制。完成新 snapshot 後可移除同 scope 的舊暫存 snapshot。sidecar 不隨文件關閉、另存或切換 server 刪除，也不屬文件格式；清理／恢復工具可用 `channel_sidecars` 取得主檔、WAL、SHM，不能把它當成無條件可清除的 cache。
 
 owner 表使用現有 runtime_token，另存 document_id、由 runtime store 路徑推得的 library_id、原 server 及附掛狀態。另存後的新文件有新 owner，舊任務仍屬原 runtime；關閉視圖不改派事件給目前文件。工作區訂閱 default-user 的 server scope，避免同一 server 多文件各開 long-poll；本地 owner 關聯獨立保留。scope 增加或新 owner 加入會補一次 snapshot，不拿原 cursor 當作新增範圍的證據。
 
-12 秒沒有通道回覆，影子健康狀態記為 detected 並取 snapshot；30 秒記為 unconfirmed。送出、取消、收取證據也分別記錄有限期限，但這些狀態只在 sidecar，不更新 job／attempt／Stage／活動任務或 UI。heartbeat 的 running 集合可證明長節點仍在執行；120 秒無進度只記診斷。`log_consistent=false` 與每筆 `log.gap` 各觸發影子 snapshot；仍保留 needs_reconcile，原生對帳與真正套用留給 reducer 段。空頁／不一致頁至少間隔 1 秒，錯誤以 1／2／4／8 秒退避，不因不一致忙迴圈。
+12 秒沒有有效通道回覆、running 與本機不符、啟動未結案、needs_reconcile、log.gap 或不一致，都先查原 operation。首次定點查證返回證據或失敗後，才授權固定水位 snapshot；其後接續 W 以後的事件。新 epoch／新 server 先凍結新派送，不發全域 interrupt。送出、取消、收取各有 30 秒證據窗口，失敗以 1／2／4／8 秒退避；history 只在 terminal 或原生 history 證據出現時讀取，成功一次就停止。30 秒不足以確認時保存 unconfirmed 並顯示「無法確認」，不釋放在途權、不重送。有效心跳、晚到終態或「查詢原任務」可開啟下一次有界核對。queued／running 的正常長生成沒有總執行逾時；120 秒無進度只寫診斷。空頁／不一致頁至少間隔 1 秒。
 
-舊輪詢仍決定所有執行狀態。history、native status／cancel／fenced recovery 的終局證據，與事件／snapshot 的 success、error、cancel_confirmed、interrupted、missing 比對，結果保存為 shadow_match／shadow_mismatch。沒有 interrupted 的排隊取消以 cancel_confirmed 比對；純 unavailable 不是 missing。這些診斷只表示觀測一致或不同，不授權重送、取消或本地結案。
+原生／凍結生成的週期 status 查詢已停用。Workspace 的通道健康、snapshot 已接受，且 client 沒有待完成的 owner 註冊或在途 input／apply／輔助 operation 時，desktop/status 的週期請求至少相隔 8 秒（由既有 1.5 秒 timer 排程，通常每 9 秒）；utility client 也共用此健康資訊。其他情況維持 1.5 秒，明確的重新確認與命令仍即時查詢；input／輔助 operation 的查詢保留到 C2。worker 在 12 秒察覺期限到達時，立即投影既有「正在確認 ComfyUI 連線…」狀態，不等待低頻 status 或它的 HTTP 期限；不因此把工作結案。獨立宿主的 status 頻率不變。
+
+desktop/status 不能直接完成通道任務。能力資訊及擴充安裝位置只有內容改變時才重新辨識與綁定；連線換代仍使舊快取失效。HTTP 回覆不再做影子核對或送出 poll 診斷命令，生命週期以通道與有界對帳為準。沒有 interrupted 的排隊取消以 cancel_confirmed 收尾；純 unavailable 不是 missing。
+
+## 文件接受、冪等與清理（C1）
+
+`channel_applied_events` 的 PK 是 `(server,epoch,seq)`，保存 envelope digest、entity、revision、disposition 與接受時間。定點證據使用 `reconcile:<operation>:<digest>` 的本地 receipt key，不冒充 wire seq。generation job、attempt、parameter_state、Stage 結果及 frame 與 receipt 共用同一連線、同一外層 `accepting`／execution_scope 交易。結果圖片沿原最終收圖路徑；節點即時收圖留給 D。通道 metadata 不加入 tx.changes 或 Canvas Undo。記憶體終態、最近生成、通知及 scheduler 只在 after_commit 更新。
+
+文件 receipt 只保存實際變更：首次 queued／prompt、首次 running、終態、取消確認、missing fence、參數收據、unconfirmed 與 retired。progress、重複節點、已 running 的 executed／cached、相同收據與晚到終態不開文件交易，也不為 no-op 插入一列。receipt 數量因此隨狀態變更次數增加，不隨生成時間增加；重播無副作用的觀測不需要文件 receipt。
+
+progress 數值沒有桌面 UI 訂閱者，留在 worker 做健康與 120 秒無進度診斷。任務詳情會顯示最後節點，worker 合併節點變更後最多每 200ms 送一批小物件；GUI 只更新記憶體，既有詳情視窗仍每 2 秒讀取，不廣播 Canvas 或狀態刷新。worker 只有在 owner 確認 running 已接受後，才略過後續 executing／executed／cached 的生命週期交付；首次 running 仍須由文件交易接受。所有頁面仍驗證身分、scope 與序號覆蓋範圍。
+
+原生 active job 使用既有記憶體 map；frozen attempt 對 Queue 主鍵及 active 集合的索引在 owner 開啟時建立一次，之後隨 Queue 提交更新，回滾不發布。job 查詢使用 map／主鍵，health 只檢查在途 owner，不逐事件解碼保留 Queue rows。
+
+文件提交後、sidecar delivery 提交前當機，重送事件由文件 PK 判為 no-op。SQLite 失敗不移動 frame 或游標。相同 seq 不同內容拒絕；receipt revision 倒退忽略，同 revision 不同內容隔離並重新核對；錯 server／owner／epoch 不套用。terminal 可早於 queued，依原 operation 讀回完整收據；晚到 ACK 不回退已結案狀態。retired tombstone 單調，成功／取消晚到不能復活。manual／restart pause 不因終態收取清除；batch_cancel_resume 仍由既有群組取消規則決定。背景文件打不開時該 owner 保持 pending，其他 owner 可繼續接受。
+
+D1 的「停止追蹤此筆」僅接受原 operation 的 fenced missing：擴充在 queue mutex 與收據交易內檢查 queue、history、提交窗口及 ownership，建立阻擋晚到 submit 的 fence。原收據整列遺失時，須帶原 library／workspace／prompt 證據；不能以目前文件代替。unavailable 不可結案。PCS 本地記錄 retired／tombstone，不假稱 ComfyUI 執行取消。
+
+inbox 每頁只增減 `budgets`／`snapshot_budgets`，不做 COUNT／SUM 全表掃描；舊 sidecar 首次開啟才回填計數。worker 每 60 秒最多清理 1024 筆：只刪所有 owner 已 delivery 且收到超過 24 小時的事件，同交易減計數。超過 100,000 筆／64MiB 時停止拉取，絕不以容量為由刪未交付證據。新 epoch snapshot 對某 owner 完整交付後才覆蓋該 owner 的舊 epoch 水位；所有 owner 都已覆蓋、舊事件過期清空後，才清除舊 epoch 的 stream、offset、snapshot、觀測及計數。文件內接受 PK 與 retired tombstone 不按 sidecar 期限刪除。
 
 ## 安全與訂閱範圍
 
@@ -80,7 +98,7 @@ worker 經唯一的 `EventLog.append` 寫入 `kind="log.gap"`、`entity="log:gap
 
 保存 false 與嘗試缺口共用退避：每次嘗試結束後至少 1 秒才可再次存取 DB，不隨 50ms ingestion tick 重寫 meta，也不因仍為 false 重複 notify。先獨立提交 false，確保缺口 append 失敗後仍有持久待辦。新 Service 的 epoch **一律從 consistent 開始**：若上一 epoch 的 event_meta 留有未解除遺失，切換 epoch 的交易會把它寫成新 epoch 的第一筆 `log.gap`（seq="1"，加 previous_epoch）。切換失敗則整筆回滾，舊標記不丟失；不沿用永久 false。
 
-消費端（後續桌面通道段）收到 `log.gap`，必須安排**固定 as_of_seq 的 snapshot 加原生 queue/history 對帳**，完成後再接續其後事件；缺口本身不能直接把 generation job／attempt 判為失敗、完成或允許重送。`log_consistent=false` 表示仍等缺口持久化，先定點查證並沿既有 30 秒證據期限處理「無法確認」，不忙重試。看到 true 也仍要處理已收到的 gap；不能只看 heartbeat true 就跳過對帳。epoch 改變、游標過期也照常要求完整對帳。
+消費端收到 `log.gap`，必須安排**固定 as_of_seq 的 snapshot 加原生 queue/history 對帳**，完成後再接續其後事件；缺口本身不能直接把 generation job／attempt 判為失敗、完成或允許重送。`log_consistent=false` 表示仍等缺口持久化，先定點查證並沿既有 30 秒證據期限處理「無法確認」，不忙重試。看到 true 也仍要處理已收到的 gap；不能只看 heartbeat true 就跳過對帳。epoch 改變、游標過期也照常要求完整對帳。
 
 ### 原生 hook 與期限
 
@@ -122,11 +140,11 @@ snapshot 各頁的 receipt 內容固定，新的事件不會修改已複製的�
 
 ## 取消、missing 與停止追蹤
 
-native 與 frozen 都持久保存 cancel_requested，排隊中精確比對 prompt、marker／payload 後才移除，移除後保存 cancel_confirmed；沒有 interrupted 也能對帳。執行中只中斷已核對的工作，等待原生 interrupted 或精確 history 的取消證據。完成與取消競爭時保留兩者證據，後續 reducer 決定最終顯示，不能偽造 interrupted。
+native 與 frozen 都持久保存 cancel_requested，排隊中精確比對 prompt、marker／payload 後才移除，移除後保存 cancel_confirmed；沒有 interrupted 也能對帳。執行中只中斷已核對的工作，等待原生 interrupted 或精確 history 的取消證據。完成與取消競爭時保留兩者證據，由 reducer 依收據與 history 決定終態，不能偽造 interrupted。
 
 原生 recovery／abandon 以及 frozen 的 `/workflow/queue/recovery`、`/abandon`、`/cancel` 都沿用本機 token 的 POST 安全規則。frozen 請求使用 attempt，native 使用 id。missing fence 與 receipt 更新在同一 SQLite immediate transaction、queue mutex 內重新讀取；已接受但仍可能晚到 enqueue 的 submit_inflight 不准 fence。Service 重載保留同一程序的在途標記，真正程序重開才解除舊程序的標記。fence trigger 會拒絕晚到 prepare／submit 寫入。
 
-只有已知收據、可核對 queue/history、排除在途提交後的 missing 才給 fenced 證據。找不到收據或 unavailable 不等同 missing。retired/abandon 留 durable tombstone，後來訊息不恢復派送資格。桌面既有「停止追蹤此筆」的 D1 行為由後續 reducer 段接入，本段不修改按鈕或 PCS 工作狀態。
+只有可核對原 owner、queue/history 並排除在途提交後的 missing 才給 fenced 證據。原收據整列遺失時，須提供原 library／workspace／prompt，並與持久 event_receipts 投影核對；投影也遺失則為 unavailable。同程序的 submit_inflight（含擴充重載）仍阻止 fence，只有 queue/history 找到原 prompt，或 submit_process 證明屬於已結束的舊程序，才可排除提交窗口。在 queue mutex 與同一收據交易內重查後建立 fence；單純查不到或 unavailable 不等同 missing。retired/abandon 留 durable tombstone，後來訊息不恢復派送資格。桌面既有「停止追蹤此筆」接受這份證據後才在本地結案。
 
 ## 已核對的原生語意
 
@@ -143,4 +161,6 @@ native 與 frozen 都持久保存 cancel_requested，排隊中精確比對 promp
 
 固定來源 hash 與來源衍生 fixture 在測試檔中保存；未執行 ComfyUI 本體。第三方 group node、其他後端／前端版本、真 GPU 與真 WebSocket 尚未驗證，見[配套矩陣](../guide/comfyui-compatibility.md)。單一 hook 與服務重建有合成測試；不據此宣稱 ComfyUI 路由整體可熱重載，實際更新仍須重啟後端。
 
-共用協定由 `releases.SHARED_MODULES` 與建置流程產生，不能手動修改打包後的 shared 副本。共享 transport／inbox 目前只影子接收；後續才接 reducer／交易格式與禁止舊擴充派送，再接早到節點結果與效能整合。manager、md、chat 不因此改走 ComfyUI 執行通道。
+共用協定由 `releases.SHARED_MODULES` 與建置流程產生，不能手動修改 shared 副本。C2 接續本機一致性、取消 run 殘留及 input／輔助 operation；D 才加入早到節點結果。manager、md、chat 的編輯保存不因此改走 ComfyUI 執行通道。
+
+已完成任務的晚到參數收據仍可在同一接受交易保存到 job、parameter_state 與 channel_applied_events；原 prompt／owner 與 receipt revision 必須相符。這條路徑不重收圖片、不再推 frame，也不改終態。retired tombstone 仍直接忽略晚到寫入。

@@ -9,11 +9,20 @@ from .queued_work import ACTIVE, validate
 class WorkQueue:
     def __init__(self, db):
         self.db = db
+        self.changed = None
         with db:
             db.execute('CREATE TABLE IF NOT EXISTS work_queue (id TEXT PRIMARY KEY, position INTEGER NOT NULL, body TEXT NOT NULL)')
 
     def rows(self):
         return [json.loads(r[0]) for r in self.db.execute('SELECT body FROM work_queue ORDER BY position')]
+
+    def published(self, item):
+        if self.changed is None: return
+        value = copy.deepcopy(item)
+        transactions = getattr(self.db, '_transactions', None)
+        if transactions is not None and transactions.depth:
+            transactions.after_commit(lambda: self.changed(value))
+        else: self.changed(value)
 
     def read(self, ident):
         row = self.db.execute('SELECT body FROM work_queue WHERE id=?', (ident,)).fetchone()
@@ -40,14 +49,17 @@ class WorkQueue:
         return items
 
     def update(self, ident, **changes):
-        with self.db:
-            self.db.execute('BEGIN IMMEDIATE')
+        from contextlib import nullcontext
+        nested = bool(getattr(getattr(self.db,'_transactions',None),'depth',0))
+        with nullcontext() if nested else self.db:
+            if not nested:self.db.execute('BEGIN IMMEDIATE')
             item = self.read(ident)
             item.update(copy.deepcopy(changes))
             self.db.execute('UPDATE work_queue SET body=? WHERE id=?', (json.dumps(item, ensure_ascii=False), ident))
+        self.published(item)
         return item
 
-    def claim(self, server):
+    def claim(self, server, *, identity=None):
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
             rows = [r for r in self.rows() if r['work']['scope']['server'] == server]
@@ -58,9 +70,11 @@ class WorkQueue:
                 return None
             attempt = uuid.uuid4().hex
             item.update(state='submitting', attempt=attempt, error='')
+            if identity:item.update(event_server=identity['server_instance'],event_epoch=identity['epoch'])
             item['attempts'].append(dict(id=attempt, created=time.time()))
             self.db.execute('UPDATE work_queue SET body=? WHERE id=?', (json.dumps(item, ensure_ascii=False), item['id']))
-            return item
+        self.published(item)
+        return item
 
     def edit_pending(self, ident, action):
         with self.db:
@@ -92,6 +106,7 @@ class WorkQueue:
             for key in ('attempt','prompt_id','payload','outputs','results'):
                 item.pop(key, None)
             self.db.execute('UPDATE work_queue SET body=? WHERE id=?', (json.dumps(item, ensure_ascii=False), ident))
+        self.published(item)
 
     def remove_finished(self, ident):
         with self.db:
@@ -99,3 +114,4 @@ class WorkQueue:
             if self.read(ident)['state'] not in ('complete','failed'):
                 raise ValueError('未結案工作不能移除紀錄。')
             self.db.execute('DELETE FROM work_queue WHERE id=?',(ident,))
+        self.published(dict(id=ident))

@@ -441,7 +441,9 @@ async def native_abandon(request):
 @routes.post('/prompt_studio/workflow/native/recovery')
 @local_route
 async def native_recovery(request):
-    return web.json_response(service.native_queue.recovery((await body(request))['id'],PromptServer.instance.prompt_queue))
+    value=await body(request)
+    return web.json_response(service.native_queue.recovery(value['id'],PromptServer.instance.prompt_queue,
+        proof_scope=value.get('proof_scope'),expected_prompt=value.get('expected_prompt','')))
 
 
 @routes.post('/prompt_studio/workflow/images')

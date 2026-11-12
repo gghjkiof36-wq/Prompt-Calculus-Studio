@@ -1,6 +1,8 @@
 """Workspace connection preferences; execution still belongs to each document."""
 import json
+import copy
 import logging
+import sqlite3
 import weakref
 
 from PySide6.QtCore import QObject, QIODevice, QSaveFile, QTimer
@@ -19,10 +21,13 @@ class WorkspaceConnection(QObject):
         self.registering = None
         self.registered_client = None
         self.channel = None
+        self.channel_receiving = False
         self.channel_generation = 0
         self.retiring_channels = []
         self.event_owners = {}
         self.event_observations = {}
+        self.event_status = weakref.WeakKeyDictionary()
+        self.pending_event_owners = set()
         self.binding_attempts = set()
         self.path = workspace.data/'workspace-connection.json'
         self.url = 'http://127.0.0.1:8188'
@@ -62,6 +67,12 @@ class WorkspaceConnection(QObject):
 
     def stop_channel(self):
         self.channel_generation += 1
+        self.channel_receiving = False
+        self.event_status.clear()
+        for client in self.live_clients():
+            if hasattr(client,'events'):
+                client.events.close()
+                client.events.ready=False
         if self.channel is not None:
             self.channel.stop()
             self.retiring_channels.append(self.channel)
@@ -82,25 +93,38 @@ class WorkspaceConnection(QObject):
         self.event_owners[value['token']] = value
         if self.channel is not None:
             self.channel.command.emit(dict(kind='owner', value=value))
+            if value['token'] in self.pending_event_owners:
+                self.pending_event_owners.discard(value['token'])
+                self.channel.command.emit(dict(kind='redeliver',owner=value['token']))
 
     def observe_status(self, client, value):
         if not self.enabled or not client.enabled or client.url != self.url: return
-        from .comfy_event_protocol import recognize
+        signature=(client.url,client.token,value.get('capabilities'),value.get('event_channel'),
+                   value.get('extension_info'),value.get('extension'))
+        if self.event_status.get(client)==signature:return
         from .comfy_event_transport import QtChannel
-        try: identity = recognize(value)
-        except (ValueError, TypeError) as exc:
-            logging.getLogger(__name__).warning('shadow capability rejected: %s', exc)
-            identity = None
+        identity=client.event_identity(value)
         if identity is not None:
             key = self.url, client.token, identity['server_instance'], identity['epoch']
             previous = self.channel
             if previous is None or key != (previous.url, previous.token, previous.identity['server_instance'], previous.identity['epoch']):
                 self.stop_channel()
                 self.channel = QtChannel(self.workspace.data, self.url, client.token, identity, self)
+                generation=self.channel_generation
+                self.channel.deliveryReady.connect(lambda page:self.deliver_events(page,generation))
+                self.channel.healthChanged.connect(lambda value:self.channel_health(value,generation))
+                for target in self.live_clients():
+                    if target.document_polling:target.events.bind(identity)
                 for owner in self.event_owners.values():
                     self.channel.command.emit(dict(kind='owner', value=owner))
+            if client.document_polling and client.events.identity!=identity:
+                client.events.bind(identity)
+                client.events.probed=self.authorize_snapshot
         elif self.channel is not None:
             self.stop_channel()
+        # Channel replacement invalidates every client's observation. Save
+        # afterwards so steady polls do not rebuild owners or emit commands.
+        self.event_status[client]=copy.deepcopy(signature)
         info = value.get('extension_info') or value.get('extension') or {}
         reported = info.get('root') if isinstance(info, dict) else None
         if not reported: return
@@ -127,6 +151,67 @@ class WorkspaceConnection(QObject):
             if manager is not None:
                 if not manager.extension.startup_checked: manager.extension.skip_startup_update = True
                 manager.extension.render()
+
+    def channel_health(self, value, generation):
+        if generation!=self.channel_generation or self.channel is None:return
+        if 'display' in value:
+            if self.channel.identity!=value['identity']:return
+            for client in self.live_clients():
+                items=value['display'].get(getattr(client.window,'runtime_token',None))
+                if items:client.events.display(items)
+            return
+        self.channel.identity=dict(value['identity'])
+        health=value.get('health')
+        if health is not None:
+            self.channel_receiving=bool(health.get('state')=='receiving' and
+                health.get('log_consistent',True) and not health.get('needs_reconcile'))
+            if health.get('state') in ('detected','unconfirmed'):
+                # The worker's 12s deadline also projects onto the existing
+                # connection-check state, including utility pages. Do not wait
+                # for the slower metadata request or retire any operation.
+                for client in self.live_clients():
+                    if client.enabled and not client.connection_checking:
+                        client.connection_checking=True
+                        client.message='正在確認 ComfyUI 連線…'
+                        client.stateChanged.emit()
+        for client in self.live_clients():
+            if not client.document_polling:continue
+            if client.events.identity!=value['identity']:client.events.bind(value['identity'])
+            client.events.probed=self.authorize_snapshot
+            if value.get('heartbeat'):client.events.heartbeat()
+            else:client.events.health(value['health'])
+        self.authorize_snapshot()
+
+    def authorize_snapshot(self):
+        if self.channel is None:return
+        pending=[row for client in self.live_clients() for row in client.events.reconcile.pending.values()]
+        if all(row.get('probed') for row in pending):
+            self.channel.command.emit(dict(kind='snapshot_authorized'))
+
+    def deliver_events(self, page, generation):
+        if generation!=self.channel_generation or self.channel is None:return
+        if page['identity']!=self.channel.identity:return
+        client=next((c for c in self.live_clients() if getattr(c.window,'runtime_token',None)==page['owner']),None)
+        if client is None:
+            self.pending_event_owners.add(page['owner'])
+            logging.getLogger(__name__).warning('event delivery remains pending for unavailable owner %s',page['owner'])
+            return
+        if client.events.identity!=page['identity']:client.events.bind(page['identity'])
+        def apply(index=0):
+            if generation!=self.channel_generation or client.stopped or page['identity']!=self.channel.identity:return
+            try:
+                if index==len(page['events']):
+                    self.channel.command.emit(dict(kind='delivered',page=page,running=client.events.running_prompts()))
+                    if page['snapshot'] and page['done']:
+                        client.events.snapshot_ready=True
+                        client.events.ready=client.events.channel_healthy and not client.events.reconcile.pending
+                        self.channel.command.emit(dict(kind='reconciled'))
+                    return
+                client.events.receive(page['events'][index],lambda:apply(index+1),snapshot=bool(page['snapshot']))
+            except (sqlite3.Error,OSError,ValueError) as exc:
+                logging.getLogger(__name__).warning('document event acceptance pending: %s',exc)
+                QTimer.singleShot(1000,lambda:apply(index))
+        apply()
 
     def observe_poll(self, client, route, data, value):
         if self.channel is None or client.url != self.channel.url: return
@@ -230,6 +315,9 @@ class WorkspaceComfyClient(ComfyClient):
         mutation = route in ('workflow/native/start', 'workflow/native/apply', 'workflow/queue/submit',
                              'workflow/queue/variant', '/prompt', '/upload/image', 'desktop/command',
                              'desktop/interrupt')
+        if route in ('workflow/native/start','workflow/queue/submit','/prompt') and not self.dispatch_allowed:
+            (failed or self.window.notice)(RequestFailure(self.scheduling_message or '無法確認',rejected=True))
+            return
         if auxiliary:
             allowed = scheduler.acquire_operation(self)
         else:
@@ -259,9 +347,8 @@ class WorkspaceComfyClient(ComfyClient):
             try:
                 if channel_generation == manager.channel_generation:
                     if route == 'desktop/status': manager.observe_status(self, value)
-                    manager.observe_poll(self, route, data, value)
             except Exception:
-                logging.getLogger(__name__).exception('shadow observation failed; polling remains authoritative')
+                logging.getLogger(__name__).exception('channel capability observation failed')
             if ident and (route in ('workflow/native/status', 'workflow/native/cancel') or auxiliary):
                 self.reconcile_operation(ident, value)
             if done:
@@ -290,14 +377,27 @@ class WorkspaceComfyClient(ComfyClient):
             chain.store.update(ident, ended=True, status=state)
 
     def poll(self):
-        super().poll()
-        if not self.connected or self.stopped or not self.document_polling:
-            return
-        db = self.window.store.db
-        operations = {r[0] for r in db.execute(
-            'SELECT id FROM workspace_operations WHERE ended=0 AND server=?', (self.url,))}
-        operations.update(row['id'] for row in self.input_flow.chain.store.rows('input')
-                          if row.get('server') == self.url and row.get('sent') and not row.get('ended'))
+        operations=set()
+        if self.connected and not self.stopped and self.document_polling:
+            db = self.window.store.db
+            operations = {r[0] for r in db.execute(
+                'SELECT id FROM workspace_operations WHERE ended=0 AND server=?', (self.url,))}
+            operations.update(row['id'] for row in self.input_flow.chain.store.rows('input')
+                              if row.get('server') == self.url and row.get('sent') and not row.get('ended'))
+        connection=self.workspace.comfy_connection if self.workspace else None
+        chain=self.input_flow.chain
+        slow=bool(connection and connection.channel_receiving and self.connected and self.event_capable and
+            (not self.document_polling or self.events.ready) and not operations and not self.run_id and
+            not (self.register_library and self.owns_library_registration) and
+            not getattr(chain,'applying',None) and not getattr(chain,'apply_queue',()) and
+            not getattr(chain,'apply_cancellations',()))
+        # Only the periodic timer is coalesced. Explicit rechecks/commands keep
+        # their immediate poll. Pending owner registration and C2 input/auxiliary
+        # operations keep 1.5s; metadata throttling must not defer either gate.
+        # Reuse the operation lookup above; do not add another queue scan.
+        if not (self.sender() is self.timer and slow and self._status_clock()-self._desktop_status_at<8):
+            super().poll()
+        if not self.connected or self.stopped or not self.document_polling:return
         for ident in operations - self.operation_checks:
             self.operation_checks.add(ident)
             def done(value, key=ident):
@@ -308,6 +408,8 @@ class WorkspaceComfyClient(ComfyClient):
 
     @property
     def dispatch_allowed(self):
+        if self.event_capable is False:return False
+        if self.events.enabled and self.events.identity is not None and not self.events.ready:return False
         if self.workspace is None:
             return True
         if not self.workspace.scheduler.claim(self):
@@ -322,6 +424,9 @@ class WorkspaceComfyClient(ComfyClient):
 
     @property
     def scheduling_message(self):
+        if self.stopped:return ''
+        if self.event_capable is False:return '需要更新擴充'
+        if self.events.enabled and any(j.get('error')=='無法確認' for j in self.generation.jobs.values()):return '無法確認'
         return self.workspace.scheduler.description(self) if self.workspace else ''
 
     def start_saved_connection(self):

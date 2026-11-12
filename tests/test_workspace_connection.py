@@ -182,7 +182,7 @@ class WorkspaceConnectionTests(unittest.TestCase):
         self.connected()
         self.assertIn('已連線', self.w.connection.brand.text())
 
-    def test_runtime_restriction_is_not_reported_as_an_extension_update(self):
+    def test_old_extension_restriction_requires_channel_update(self):
         available = copy.deepcopy(self.peer.status)
         reason = '此原生入口目前只支援 ComfyUI 單一使用者模式。'
         self.peer.status.update(capabilities=['direct_generation_v1', 'workflow_transfer_v1'],
@@ -195,17 +195,16 @@ class WorkspaceConnectionTests(unittest.TestCase):
         client.timer.stop()
         self.assertFalse(client.snapshot_compatible)
         self.assertFalse(client.can_run)
-        self.assertEqual(client.message, reason)
+        self.assertEqual(client.message, '需要更新擴充')
         tab.host.canvas.execution_bar.update_progress()
         message = tab.host.canvas.execution_bar.status.text()
-        self.assertIn(reason, message)
-        self.assertNotIn('更新', message)
+        self.assertIn('需要更新擴充', message)
         self.assertFalse(any(method == 'POST' and route.endswith('/config')
                              for method, route, _ in self.peer.calls))
         self.peer.status = available
         client.poll()
         self.wait(lambda: client.snapshot_compatible)
-        self.assertTrue(client.can_run)
+        self.assertFalse(client.can_run)  # This fixture remains a pre-channel extension.
         tab.host.canvas.execution_bar.update_progress()
         self.assertNotIn(reason, tab.host.canvas.execution_bar.status.text())
         self.assertEqual(tab.host.state['multi_output'], before)
@@ -217,10 +216,10 @@ class WorkspaceConnectionTests(unittest.TestCase):
         client = tab.host.comfy
         self.wait(lambda: client.connected)
         self.assertFalse(client.can_run)
-        self.assertIn('未提供', client.message)
+        self.assertEqual('需要更新擴充', client.message)
         self.assertNotIn('重啟', client.message)
         tab.host.canvas.execution_bar.update_progress()
-        self.assertIn(client.compatibility_message, tab.host.canvas.execution_bar.status.text())
+        self.assertIn('需要更新擴充', tab.host.canvas.execution_bar.status.text())
 
     def test_idle_disconnect_does_not_claim_to_preserve_nonexistent_work(self):
         tab = self.canvas('Idle')

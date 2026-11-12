@@ -1,5 +1,6 @@
 """Asynchronous localhost transport. Never retries a generation automatically."""
 import json
+import copy
 import time
 import uuid
 from PySide6.QtCore import QObject, Signal, QTimer, QUrl, QEventLoop
@@ -23,7 +24,7 @@ class ComfyClient(QObject):
 
     @property
     def dispatch_allowed(self):
-        return True
+        return self.event_capable is not False and (not self.events.enabled or self.events.identity is None or self.events.ready)
 
     @property
     def workflow_import_owner(self):
@@ -59,6 +60,14 @@ class ComfyClient(QObject):
         from .input_runner import InputRunner
         self.input_flow=InputRunner(self)
         self.flow_supported=None; self.fetching_workflow=False; self.register_library=True
+        from .comfy_event_reducer import EventReducer
+        self.events=EventReducer(self)
+        self.event_session=None
+        self.event_capable=None
+        self._event_status_signature=None
+        self._event_identity=None
+        self._status_clock=time.monotonic
+        self._desktop_status_at=float('-inf')
         from .image_bindings import ImageBindings
         self.images=ImageBindings(self); self.images_supported=False
         self.window.store.db.execute('CREATE TABLE IF NOT EXISTS workflow_receipts (id TEXT PRIMARY KEY, error TEXT NOT NULL)'); self.window.store.db.commit()
@@ -68,6 +77,7 @@ class ComfyClient(QObject):
 
     @property
     def can_run(self):
+        if self.event_capable is False:return False
         if self.window.state.get('multi_output',{}).get('version',1)>=7:
             return bool(self.connected and self.native_supported and self.snapshot_compatible and self.flow_supported)
         if self.window.state.get('multi_output',{}).get('version',1)>=5:
@@ -164,6 +174,23 @@ class ComfyClient(QObject):
         reply.readyRead.connect(read); reply.finished.connect(finish)
         return reply  # Caller may abort in this object's thread; never resubmits.
 
+    def event_identity(self, status):
+        """Share recognition of unchanged capabilities between host adapters.
+
+        Running/node counters are not channel configuration. A private copy
+        also detects callers that mutate and reuse a response dictionary.
+        """
+        signature=(status.get('capabilities'),status.get('event_channel'),status.get('extension_info'))
+        if signature!=self._event_status_signature:
+            from .comfy_event_protocol import recognize
+            try:self._event_identity=recognize(status)
+            except (ValueError,TypeError) as exc:
+                import logging
+                logging.getLogger(__name__).warning('channel capability rejected: %s',exc)
+                self._event_identity=None
+            self._event_status_signature=copy.deepcopy(signature)
+        return self._event_identity
+
     def connect_to(self,address):
         address=local_address(address); self.reset_connection()
         self.url=address; self.enabled=True; self.token=''; self.ready=False
@@ -202,6 +229,7 @@ class ComfyClient(QObject):
         self.window.state['settings']['comfy_enabled']=False; self.window.changed('settings',refresh=False); self.stateChanged.emit()
 
     def reset_connection(self):
+        if self.event_session:self.event_session.stop()
         self.epoch+=1
         self._connection_check_until=0.0
         self.native_supported=False;self.native_open_supported=False;self.opening_native=False;self.native_unavailable_reason=''
@@ -238,6 +266,7 @@ class ComfyClient(QObject):
 
     def poll(self):
         if self.stopped or not self.enabled or self.polling: return
+        self._desktop_status_at=self._status_clock()
         self.polling=True
         def fail(message):
             before=self.visible_status()
@@ -267,6 +296,15 @@ class ComfyClient(QObject):
             self.control_interrupted=self.had_control and not self.ready
             self.running=status.get('running',0); self.pending=status.get('pending',0)
             self.direct_supported='direct_generation_v1' in status.get('capabilities',[])
+            identity=self.event_identity(status)
+            self.event_capable=identity is not None
+            if identity is not None and self.document_polling and not getattr(self,'workspace',None):
+                if self.event_session is None:
+                    from .comfy_event_session import DocumentChannel
+                    self.event_session=DocumentChannel(self)
+                self.event_session.observe(identity)
+            if not self.event_capable and self.events.active() and not self.events.enabled:
+                self.events.bind(None)
             self.queue_supported='frozen_queue_v1' in status.get('capabilities',[])
             self.native_supported=all(c in status.get('capabilities',[]) for c in ('native_queue_v1','native_bindings_v1'))
             self.native_open_supported='native_open_v1' in status.get('capabilities',[])
@@ -291,6 +329,7 @@ class ComfyClient(QObject):
             if not self.snapshot_compatible:
                 self.message=self.compatibility_message
                 self.control_interrupted=True; self.sync_timer.stop()
+            if not self.event_capable:self.message='需要更新擴充'
             changed=self.visible_status()!=before
             if not self.document_polling:
                 if changed:self.stateChanged.emit()
@@ -298,6 +337,12 @@ class ComfyClient(QObject):
             # Explicit runner callbacks can notify while processing receipts;
             # give every observer the current node before any such callback.
             self.input_flow.last_status=status
+            if self.events.enabled and self.events.identity is None:
+                self.events.heartbeat()
+                known=set(status.get('running_ids',[]))|set(status.get('queued_ids',[]))
+                for job in self.events.active():
+                    if not job.get('prompt_id') or job['prompt_id'] not in known:
+                        self.events.reconcile.require(job['id'],'legacy_inflight')
             generation_changed=self.generation.observe(status,publish_status=False)
             self.input_flow.observe(status)
             self.queue.observe()
@@ -418,6 +463,15 @@ class ComfyClient(QObject):
         finally:poll.stop();deadline.stop()
 
     def shutdown(self):
+        if getattr(self,'event_session',None):
+            self.event_session.stop()
+            # Pump callbacks while joining; never wait on a Python worker with
+            # the GUI holding the GIL. Normal network shutdown is abortable.
+            loop=QEventLoop();timer=QTimer();timer.setInterval(10)
+            timer.timeout.connect(lambda:loop.quit() if self.event_session.stopped() else None)
+            timer.start()
+            if not self.event_session.stopped():loop.exec(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+            timer.stop()
         self.timer.stop();self.sync_timer.stop()
         self.input_flow.disconnected()
         self.queue.disconnected()
@@ -425,4 +479,5 @@ class ComfyClient(QObject):
         self.flush_input_cancellations()
         if hasattr(self.input_flow.chain,'close'):self.input_flow.chain.close()
         self.stopped=True; self.timer.stop(); self.sync_timer.stop()
+        if getattr(self,'events',None):self.events.close()
         for reply in list(self.replies): reply.abort()

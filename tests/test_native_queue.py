@@ -58,6 +58,34 @@ class NativeQueueTests(unittest.TestCase):
         visual['extra']={'pcs_native_operation':'operation-1'}
         return dict(prompt=actual,client_id='real-web-sid',extra_data=dict(extra_pnginfo=dict(workflow=visual)))
 
+    def test_missing_row_keeps_inflight_fence_until_process_restart(self):
+        import threading
+        from types import SimpleNamespace
+        from integration_test.event_protocol import scope
+        self.snapshot['library_id']='fixture-library'
+        data=self.prepared();self.queue.decorate(data)
+        operation=self.queue.read(self.request['id'])
+        proof=dict(scope(),library_id=self.snapshot['library_id'],workspace_id=self.snapshot['state']['workspace'])
+        backend=SimpleNamespace(mutex=threading.RLock(),queue=[],currently_running={},get_history=lambda **kw:{})
+        with self.service.connect() as db:db.execute('DELETE FROM native_operations WHERE id=?',(self.request['id'],))
+        def recover():return self.queue.recovery(self.request['id'],backend,proof_scope=proof,expected_prompt=data['prompt_id'])
+        self.assertEqual(recover()['recovery']['location'],'submitting')
+        with self.service.connect() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM event_fences').fetchone()[0],0)
+        backend.queue=[(0,data['prompt_id'],data['prompt'],data['extra_data'])]
+        self.assertEqual(recover()['recovery']['location'],'queued')
+        backend.queue.clear()
+        with self.assertRaises(ValueError):
+            self.queue.recovery(self.request['id'],backend,proof_scope=dict(proof,library_id='wrong'))
+        self.service=Service(self.root,self.root,self.root);self.queue=self.service.native_queue
+        self.assertEqual(recover()['recovery']['location'],'submitting')
+        with patch('integration_test.event_log.PROCESS_INSTANCE','new-process'):
+            self.assertTrue(recover()['recovery']['fenced'])
+            first=self.service.events.heartbeat([])['latest_seq']
+            self.assertTrue(recover()['recovery']['fenced'])
+            self.assertEqual(self.service.events.heartbeat([])['latest_seq'],first)
+        with self.assertRaises(sqlite3.IntegrityError):self.queue.save(operation)
+        self.assertTrue(self.service.events.heartbeat([])['log_consistent'])
+
     def test_legacy_journal_state_index_preserves_receipts_and_tracks_delivery(self):
         legacy=self.root/'legacy';legacy.mkdir()
         receipts=[dict(id=f'old-{i}',state=state,submit_inflight=False,

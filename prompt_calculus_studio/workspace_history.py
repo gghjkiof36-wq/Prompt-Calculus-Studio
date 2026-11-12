@@ -92,7 +92,10 @@ class WorkspaceHistory(StudioDialog):
 
     def recheck(self):
         if self.execution is not None:
-            self.execution.client.poll()
+            client=self.execution.client
+            client.poll()
+            if client.events.enabled:
+                for job in client.events.active():client.events.reconcile.require(job['id'],'manual',force=True)
             self.refresh()
 
     def cancel(self):

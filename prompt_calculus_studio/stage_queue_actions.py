@@ -36,7 +36,8 @@ def finish_entry(runner,ident,status,*,pause=True):
         for attempt in attempts:
             if attempt['status'] in ('failed','cancelled'):
                 runner.store.update(attempt['id'],status='removed',previous_status=attempt['status'])
-    if index is not None and pause:runner.pause(run['id'],'此項已結束；其他等待項目保留，按「繼續」接續。')
+    if index is not None and pause:runner.pause(run['id'],'此項已結束；其他等待項目保留，按「繼續」接續。',
+        reason=run.get('pause_reason') if run.get('pause_reason') in ('manual','restart') else 'manual')
     runner.later();runner.notify()
 
 
@@ -65,7 +66,8 @@ def finish_cancel(runner,attempt):
         # No schedule boundary: retain the stopped Stage for explicit retry,
         # since downstream cannot continue without its required result.
         runner.store.update(attempt['id'],status='failed',cancel_requested=False,error='使用者取消目前工作；後續已暫停。')
-    if runner.preparing==attempt['id']:runner.preparing=None
+    if runner.preparing==attempt['id']:
+        runner.store._transactions.after_commit(lambda:setattr(runner,'preparing',None) if runner.preparing==attempt['id'] else None)
     runner.notify('原任務已結案；已停止的流程不再派送後續項目。' if run['status']=='cancelled' else
                   '已取消目前項目；其他等待項目保留並暫停。')
 
@@ -92,6 +94,13 @@ def request_cancel(runner,attempt):
             job.get('workspace')!=run['workspace'] or job.get('native_operation')!=attempt['id']):
         runner.notify('已停止後續流程；請連線至原服務核對這項工作的取消結果。');return
     store=runner.store
+    events=getattr(runner.client,'events',None)
+    if events is not None and events.enabled:
+        events.reconcile.require(attempt['id'],'cancel',force=True)
+        runner.client.request('workflow/native/cancel',dict(id=attempt['id']),
+            done=lambda value:events.reconcile.require(attempt['id'],'cancel_ack',force=True),
+            failed=lambda error:events.reconcile.require(attempt['id'],'cancel_ack_lost'))
+        return
     def received(result):
         if runner.closed or runner.store is not store:return
         current=store.read(attempt['id'])

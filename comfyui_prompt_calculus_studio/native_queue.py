@@ -585,7 +585,7 @@ class NativeQueue:
             return dict(location='history',can_abandon=terminal,reason='已找到 ComfyUI 歷史，正在核對原工作結果。')
         return dict(location='missing',can_abandon=True,reason='原任務已不在 ComfyUI 佇列，歷史也不存在。可按「解除阻塞」停止追蹤；保留紀錄，不重送。')
 
-    def recovery(self, ident, queue):
+    def recovery(self, ident, queue, *, proof_scope=None, expected_prompt=''):
         self.require_supported()
         mutex=getattr(queue,'mutex',None)
         if mutex is None:raise ValueError('無法鎖定並核對原生佇列，尚未解除追蹤。')
@@ -593,7 +593,53 @@ class NativeQueue:
             with self.service.connect() as db:
                 db.execute('BEGIN IMMEDIATE')
                 row=db.execute('SELECT body FROM native_operations WHERE id=?',(ident,)).fetchone()
-                if row is None:raise ValueError('找不到原生執行要求。')
+                if row is None:
+                    if proof_scope is None:raise ValueError('找不到原生執行要求。')
+                    from .event_protocol import scope
+                    frozen_scope=scope(proof_scope)
+                    if not frozen_scope.get('workspace_id') or not frozen_scope.get('library_id'):
+                        raise ValueError('Missing recovery ownership')
+                    entity='native_operations:'+ident
+                    saved=db.execute('SELECT body FROM event_receipts WHERE entity=?',(entity,)).fetchone()
+                    if saved is None:
+                        return dict(id=ident,state='unconfirmed',recovery=dict(location='unavailable',can_abandon=False))
+                    prior=json.loads(saved[0])
+                    if any(prior.get('scope',{}).get(key)!=frozen_scope[key] for key in ('library_id','workspace_id')):
+                        raise ValueError('Recovery ownership mismatch')
+                    if expected_prompt and prior.get('prompt_id') and expected_prompt!=prior['prompt_id']:
+                        raise ValueError('Recovery prompt mismatch')
+                    history=getattr(queue,'get_history',None)
+                    if not callable(history):
+                        return dict(id=ident,state='unconfirmed',recovery=dict(location='unavailable',can_abandon=False))
+                    entries=[('running',v) for v in queue.currently_running.values()]+[('queued',v) for v in queue.queue]
+                    entries += [('history',v.get('prompt',[])) for v in history().values() if isinstance(v,dict)]
+                    for location,entry in entries:
+                        if not isinstance(entry,(tuple,list)) or len(entry)<4:continue
+                        marker=entry[3].get('extra_pnginfo',{}).get('prompt_studio',{})
+                        if marker.get('generation',{}).get('native_operation')==ident:
+                            snapshot=marker.get('snapshot') or next((b.get('snapshot',{}) for b in marker.get('bindings',[]) if b.get('snapshot')),marker)
+                            if snapshot.get('library_id')!=frozen_scope['library_id'] or snapshot.get('state',{}).get('workspace')!=frozen_scope['workspace_id']:
+                                return dict(id=ident,state='unconfirmed',recovery=dict(location='unavailable',can_abandon=False))
+                            return dict(id=ident,state='queued',prompt_id=entry[1],payload=dict(prompt=entry[2],extra_data=entry[3]),
+                                        recovery=dict(location=location,can_abandon=False))
+                        if expected_prompt and entry[1]==expected_prompt:
+                            return dict(id=ident,state='unconfirmed',recovery=dict(location='unavailable',can_abandon=False))
+                    from .event_log import PROCESS_INSTANCE
+                    payload=prior.get('payload',{})
+                    fence=db.execute('SELECT body FROM event_fences WHERE entity=?',(entity,)).fetchone()
+                    if fence:
+                        checked=json.loads(fence[0]).get('missing_fence',{}).get('checked')
+                        return dict(id=ident,state='unconfirmed',recovery=dict(location='missing',fenced=True,can_abandon=True,checked=checked))
+                    if payload.get('fetch_required'):
+                        return dict(id=ident,state='unconfirmed',recovery=dict(location='unavailable',can_abandon=False))
+                    inflight=payload.get('submit_inflight',payload.get('state') in ('submitted','unconfirmed') and bool(prior.get('prompt_id')))
+                    if inflight and payload.get('submit_process') in (None,PROCESS_INSTANCE):
+                        return dict(id=ident,state='unconfirmed',recovery=dict(location='submitting',can_abandon=False))
+                    proof=dict(location='missing',fenced=True,can_abandon=True,checked=time.time())
+                    payload=dict(state='unconfirmed',missing_fence=dict(epoch=self.service.events.epoch,checked=proof['checked']))
+                    db.execute('INSERT OR IGNORE INTO event_fences VALUES (?,?)',(entity,json.dumps(payload)))
+                    self.service.events.append(db,'operation.missing',payload,entity=entity,scope=frozen_scope,prompt_id=expected_prompt)
+                    return dict(id=ident,state='unconfirmed',recovery=proof)
                 operation=json.loads(row[0]);proof=self._recovery(operation,queue)
                 if proof['location']=='missing' and proof['can_abandon']:
                     if not operation.get('missing_fence'):
@@ -601,7 +647,7 @@ class NativeQueue:
                         if operation['state'] not in ('failed','unconfirmed'):operation['state']='unconfirmed'
                         db.execute('UPDATE native_operations SET body=? WHERE id=?',(json.dumps(operation,ensure_ascii=False),ident))
                     proof['fenced']=True
-                result={k:copy.deepcopy(operation[k]) for k in ('id','state','error','prompt_id','payload') if k in operation}
+                result={k:copy.deepcopy(operation[k]) for k in ('id','state','error','prompt_id','payload','parameter_receipt','cancel_confirmed','terminal_action','terminal_result','missing_fence','abandoned') if k in operation}
                 result['recovery']=dict(proof,checked=time.time())
             return result
 

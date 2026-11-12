@@ -77,6 +77,17 @@ class PreferencesTests(unittest.TestCase):
         self.assertEqual(workspace_preferences(self.data).value,result.value)
         self.assertEqual(old.read_bytes(),before)
 
+    def test_migration_write_failure_is_read_error_and_retryable(self):
+        old=self.legacy('one',dict(root='A',automatic=False)); before=old.read_bytes()
+        for error in (PermissionError('readonly'),OSError('disk full'),OSError('link unsupported')):
+            with self.subTest(error=str(error)), patch('prompt_calculus_studio.extension_install.os.link',side_effect=error):
+                result=workspace_preferences(self.data)
+                self.assertTrue(result.error)
+                self.assertFalse(result.path.exists())
+                self.assertFalse(bind_reported(result,'http://127.0.0.1:8188',self.info)[0])
+                self.assertEqual(old.read_bytes(),before)
+        self.assertEqual(workspace_preferences(self.data).value,dict(root='A',automatic=False))
+
     def test_host_selection_and_shared_manual_automatic_preferences(self):
         session=self.data/'sessions'/'new'/'app-services';session.mkdir(parents=True)
         host=SimpleNamespace(store=SimpleNamespace(directory=session),workspace_owner=SimpleNamespace(data=self.data))

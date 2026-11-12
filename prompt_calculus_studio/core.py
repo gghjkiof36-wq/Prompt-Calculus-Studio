@@ -589,6 +589,10 @@ class Storage:
     def transaction_depth(self):
         return self.db._transactions.depth
 
+    @property
+    def library_id(self):
+        return str(uuid.uuid5(uuid.NAMESPACE_URL,str((self.directory/'studio.sqlite3').resolve()).casefold()))
+
     def transaction(self):
         """Join the connection's synchronous transaction; only its outer exit
         commits or rolls back. A caught inner exception does not undo writes or

@@ -1,6 +1,14 @@
 # 預排程窗口、等待狀態與文件註冊
 
-此契約適用於目前 Stage 預排程與 Workspace 文件 FIFO。資料格式、journal schema、ComfyUI 協定及取消確認語義不變。
+此契約適用於目前 Stage 預排程與 Workspace 文件 FIFO。C1 的事件接受格式與有界對帳見[通道協定](comfy-event-protocol.md)；先行窗口與 SCHED-A 的註冊順序不變。
+
+## 通道接受與派送資格（C1）
+
+原生／凍結生成不再由每次 desktop/status 引發 status／queue／history 輪詢。共享通道收到終局後，由原 operation 的收據、history 與最終收圖確認；接受 receipt、attempt、parameter_state、結果及 frame 同外層交易，成功後才喚醒 scheduler。取消 HTTP ACK 遺失時，cancel_confirmed 或定點收據仍可清 cancel_requested，保留手動暫停，釋放原在途權。
+
+新 epoch、log.gap、不一致、心跳不符與啟動未結案，先查原 operation，再固定水位 snapshot，期間阻擋新派送。30 秒證據不足顯示「無法確認」，保留在途權；120 秒無進度只記診斷。fenced missing 可用既有「停止追蹤此筆」本地 retired，unavailable 不行。舊擴充缺少事件能力時顯示「需要更新擴充」，原任務仍可有界收尾。手動／restart pause、保留項目與全部繞過不因此自動解除。
+
+無事 pump 不掃 inbox；worker 每個 owner 有一頁交付上限，無變化 progress 只記接受 PK。P2 的保留項目熱路徑優化另派。S5–S7 本機修復、S9b 已取消 run 殘留、input／輔助 operation 留給 C2。
 
 ## 先行窗口
 

@@ -33,7 +33,7 @@ def project(table, ident, value, deleted=False):
     """Every writer has a named event; bulky originals stay in their receipt table."""
     payload = {k: value[k] for k in ('state', 'phase', 'error', 'first_error', 'action',
         'terminal_action', 'prompt_id', 'cancel_requested', 'cancel_confirmed', 'abandoned',
-        'missing_fence', 'submit_inflight', 'transport_recorded', 'queue_terminal', 'terminal_result', 'created',
+        'missing_fence', 'submit_inflight', 'submit_process', 'transport_recorded', 'queue_terminal', 'terminal_result', 'created',
         'deadline_at', 'diagnostic_at', 'cancel_deadline_at', 'cancel_unconfirmed', 'status', 'owner', 'head', 'client', 'session',
         'revision', 'op_id', 'request_hash', 'key', 'parameter_receipt') if k in value}
     # The digest also tells a consumer that a large graph/transfer changed.

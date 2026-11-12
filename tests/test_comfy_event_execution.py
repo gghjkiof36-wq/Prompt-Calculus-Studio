@@ -1,4 +1,4 @@
-"""Actual Canvas click/Stage/polling pipeline plus an injected shadow receiver."""
+"""Canvas click/Stage fixture: receipt ingestion never enables HTTP shadow work."""
 import copy
 import json
 import threading
@@ -62,7 +62,13 @@ class ShadowExecutionTests(unittest.TestCase):
     def matches(self):
         return [json.loads(row[0]) for row in self.inbox.db.execute("SELECT body FROM diagnostics WHERE kind='shadow_match'")]
 
-    def test_complete_generation_matches_poll_without_advancing_stage_from_events(self):
+    def assert_event_only(self, outcome):
+        events=[row[0] for row in self.inbox.db.execute("SELECT outcome FROM observations WHERE source='event'")]
+        self.assertIn(outcome,events)
+        self.assertEqual(self.inbox.db.execute("SELECT COUNT(*) FROM observations WHERE source='poll'").fetchone()[0],0)
+        self.assertEqual(self.matches(),[])
+
+    def test_complete_generation_does_not_run_http_shadow_comparison(self):
         self.flow.click(self.flow.a)
         self.assertEqual(len(self.flow.peer.submissions),1)
         prompt=next(iter(self.flow.peer.pending))
@@ -72,19 +78,19 @@ class ShadowExecutionTests(unittest.TestCase):
         self.flow.finish()
         self.peer.append(entity='execution:'+prompt,kind='native.execution_success',prompt=prompt)
         self.receive_without_mutation()
-        self.assertTrue(any(row['event']=='success' for row in self.matches()),self.matches())
+        self.assert_event_only('success')
         self.assertEqual(len(self.flow.peer.submissions),1)
 
-    def test_cancel_without_interrupted_matches_native_receipt(self):
+    def test_cancel_receipt_does_not_run_http_shadow_comparison(self):
         self.flow.click(self.flow.a)
         self.queue.queue=[(0,p['prompt_id'],p['prompt'],p['extra_data']) for p in self.flow.peer.pending.values()]
         self.flow.a.host.comfy.interrupt(clear_pending=True)
         self.flow.tick()
         self.receive_without_mutation()
-        self.assertTrue(any(row['event']=='cancelled' for row in self.matches()),self.matches())
+        self.assert_event_only('cancelled')
         self.assertEqual(len(self.flow.peer.submissions),1)
 
-    def test_fenced_missing_matches_and_unavailable_is_not_terminal(self):
+    def test_fenced_missing_does_not_run_http_shadow_comparison(self):
         self.flow.click(self.flow.a)
         job=next(iter(self.flow.a.host.comfy.generation.jobs.values()))
         items=[(0,p['prompt_id'],p['prompt'],p['extra_data']) for p in self.flow.peer.pending.values()]
@@ -94,7 +100,7 @@ class ShadowExecutionTests(unittest.TestCase):
         self.flow.a.host.comfy.request('workflow/native/recovery',dict(id=job['native_operation']),done=received.append)
         self.receive_without_mutation()
         self.assertTrue(received)
-        self.assertTrue(any(row['event']=='missing' for row in self.matches()),self.matches())
+        self.assert_event_only('missing')
         self.assertEqual(len(self.flow.peer.submissions),1)
 
 

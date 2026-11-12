@@ -6,6 +6,8 @@
 
 ## 格式、遷移與使用位置
 
+Pre-alpha3 CHANNEL-C1 新增 studio DB 的 `storage_layout('event_apply',1)` 與 `channel_applied_events`；journal 仍為 1，document／PNG 格式不變。S5B registry 只在複製後的搬遷目標執行缺少的步驟：journal=0 先升 journal=1，再加 event_apply；既有 journal=1 只加 event_apply。正常開庫先核對標記與表結構，缺少標記時拒讀，不能順手補表。搬遷包含 comfy-channel.sqlite3 sidecar，原件與舊偏好檔保持不動；舊 PCS 不能開新 studio DB，pre-alpha3 不支援降版。
+
 桌面與同版通用／legacy／modern 配套支援文件及 PNG 快照格式 1–7。格式 5／6／7 與 ComfyUI 後端、前端或 PCS 發布版號分開。新類型與游標需要格式 7，舊版程式不保證可讀；回退以相容程式及原資料副本為單位。
 
 `material_type` 保存 text／combination／flow；文字 `variants`、組合 `combination`、流程 `sequence` 各有明確用途。載入、匯入、還原只在轉換邊界處理副本，保留 ID、名稱、正文、歷史、分類、綁定與空手動稿。未知格式拒絕，不替換已保存原件。

@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QListWidget, QListWidgetItem, QPlainTextEdit
 from .widgets import StudioDialog, label, button, row
 
 NAMES = dict(waiting='等待', submitting='提交中', queued='後端等待', running='執行中',
-             complete='完成', failed='失敗', unconfirmed='待確認', results_pending='結果待齊')
+             complete='完成', failed='失敗', unconfirmed='無法確認', retired='已停止追蹤', results_pending='結果待齊')
 
 
 class QueueDialog(StudioDialog):

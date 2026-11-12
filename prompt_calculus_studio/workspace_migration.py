@@ -183,7 +183,7 @@ def migrate(source, destination, *, allow_inflight=False, source_aliases=(), che
                         receipt['sizes']['before_transform'] = path.stat().st_size
                         if kind == 'studio':
                             receipt['transforms'] = []
-                            for step in storage_layout.REGISTRY:
+                            for step in storage_layout.pending_steps(db):
                                 step.inspect(db)
                                 converted = step.transform(db, checkpoint=lambda phase, detail: event('transform', dict(file=relative, phase=phase)))
                                 receipt['transforms'].append(dict(key=step.key, version=step.to_version, inventory=converted))

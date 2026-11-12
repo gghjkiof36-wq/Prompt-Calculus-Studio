@@ -150,6 +150,7 @@ class MigrationTests(unittest.TestCase):
             record = dict(id='entry',kind='entry',workspace='w',owner='o',source=False,saved={'values': {'z': 'old placeholder'}},status='waiting')
             legacy(db, [record])
             self.assertEqual(layout.transform_journal(db)['records'], 1)
+            layout.transform_events(db)
             self.assertTrue(codec.identical(StageStore(db).read('entry'), record))
 
     def test_single_copy_lossless_verified_counts_registry_and_untouched_tables(self):
@@ -234,7 +235,7 @@ class OpenGuardTests(unittest.TestCase):
             store = Storage(folder)
             try:
                 self.assertTrue(layout.inspect_layout(store.db))
-                self.assertEqual(store.db.execute('SELECT * FROM storage_layout').fetchall(), [('journal', 1)])
+                self.assertEqual(store.db.execute('SELECT * FROM storage_layout').fetchall(), [('journal', 1), ('event_apply', 1)])
                 backup = store.backup()
                 with closing(sqlite3.connect(backup)) as db:self.assertTrue(layout.inspect_layout(db))
             finally:store.close()

@@ -59,7 +59,7 @@ class StageTests(unittest.TestCase):
         self.assertEqual(summary.summary.text(),'0/1 已完成')
         self.assertNotIn('執行中',summary.summary.text())
         panel=SchedulePageContent(self.c,schedule[0]);panel.refresh();panel.open_group(entry['execution_group'])
-        self.assertIn('提交未確認',panel.list.item(0).text());self.assertNotIn('執行中',panel.list.item(0).text())
+        self.assertIn('無法確認',panel.list.item(0).text());self.assertNotIn('執行中',panel.list.item(0).text())
         panel.deleteLater()
 
     def setUp(self):

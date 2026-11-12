@@ -157,9 +157,26 @@ class GenerationRunner:
                     next((p for p in snapshot['state'].get('generation',{}).get('profiles',[]) if p['id']==workflow),{}).get('graph',{}).get(v['binding']['node'],{}).get('class_type') in ('SaveImage','PreviewImage')}),
                  typed_inputs=snapshot['state'].get('multi_output',{}).get('version',0)>=5)
         if snapshot.get('chain'):job['chain']=copy.deepcopy(snapshot['chain'])
+        events=getattr(self.client,'events',None)
+        if events is not None and events.enabled:
+            job['event_library']=snapshot.get('library_id','')
+            if events.identity:
+                job.update(event_server=events.identity['server_instance'],event_epoch=events.identity['epoch'])
         self.jobs[ident]=job;self.save(job)
+        if events is not None and events.enabled:
+            events.reconcile.require(ident,'submit')
+            request=dict(id=ident,snapshot=snapshot,workflow=workflow,image=image)
+            if images is not None:request['images']=images
+            # Commands only create intent. Channel/point reconciliation accepts
+            # the receipt; a late HTTP ACK cannot regress a terminal event.
+            self.client.request('workflow/native/start',request,
+                done=lambda value:events.reconcile.require(ident,'submit_ack',force=True),
+                failed=lambda error:events.reconcile.require(ident,'submit_reply_lost'))
+            return ident
         def fail(error):
             if self.client.stopped:return
+            if getattr(getattr(self.client,'events',None),'enabled',False):
+                self.client.events.reconcile.require(ident,'late_submit_failure');return
             if job['state'] in ('failed','complete'):return
             self.native_waiting.discard(ident)
             job.setdefault('first_error',str(error))
@@ -168,6 +185,8 @@ class GenerationRunner:
             if valid():failed('原生提交未完成：'+str(error))
         def received(result):
             if self.client.stopped:return
+            if getattr(getattr(self.client,'events',None),'enabled',False):
+                self.client.events.reconcile.require(ident,'late_submit_ack');return
             if job['state'] in ('failed','complete'):return
             for key in ('diagnostics','first_error','terminal_action','issued_at','parameter_receipt'):
                 if key in result:job[key]=copy.deepcopy(result[key])
@@ -210,6 +229,7 @@ class GenerationRunner:
         if self.pipeline:self.pipeline.observe(status)
         running=set(status.get('running_ids',[])); queued=set(status.get('queued_ids',[]))
         for job in list(self.jobs.values()):
+            if job.get('native_operation') and getattr(getattr(self.client,'events',None),'enabled',False):continue
             if job['server']!=self.client.url or job['state'] not in ACTIVE: continue
             self.refresh_parameters(job)
             if job.get('native_operation') and not job.get('prompt_id'):
@@ -322,9 +342,15 @@ class GenerationRunner:
         if job and job['state'] in ACTIVE and record['state'] in ACTIVE:
             for key in ('node','node_started','last_seen'):
                 if key in job:record[key]=copy.deepcopy(job[key])
+        events=getattr(self.client,'events',None)
+        if events is not None and record['state'] in ACTIVE:
+            record.update(events.display_nodes.get(record['id'],{}))
         return record
 
     def refresh_parameters(self,job,force=False):
+        if getattr(getattr(self.client,'events',None),'enabled',False):
+            if force:self.client.events.reconcile.require(job['id'],'parameters',force=True)
+            return False
         from .job_details import job_marker
         receipt=job.get('parameter_receipt') or job_marker(job).get('generation',{}).get('stage_parameters',{})
         pending=any(f.get('seed_mode') not in (None,'fixed') and f.get('next_value') is None for f in receipt.get('fields',[]))
@@ -369,6 +395,8 @@ class GenerationRunner:
         return True
 
     def recheck(self,ident):
+        if getattr(getattr(self.client,'events',None),'enabled',False):
+            self.client.events.reconcile.require(ident,'user',force=True);return
         job=self.jobs.get(ident) or self.record(ident)
         if not job or job['server']!=self.client.url:
             self.window.notice('請連線至這項工作的原 ComfyUI 服務。');return
@@ -423,10 +451,17 @@ class GenerationRunner:
 
     def abandon(self,ident):
         job=self.record(ident)
-        if not job or job['server']!=self.client.url or not job.get('native_operation'):
+        events=getattr(self.client,'events',None)
+        if not job or job['server']!=self.client.url or not (job.get('native_operation') or job.get('queue_job') and events is not None and events.enabled):
             self.window.notice('無法核對這項工作的原生歸屬。');return
         if job['state'] not in ACTIVE:
             self.window.notice('這項工作已結案，不需要解除追蹤。');return
+        if events is not None and events.enabled:
+            proof=job.get('recovery',{})
+            if proof.get('location')!='missing' or not proof.get('fenced'):
+                events.reconcile.require(ident,'abandon',force=True);return
+            events.accept_evidence(ident,dict(state='abandoned',recovery=proof),None,None,lambda:None,self.window.notice)
+            return
         def done(result):
             if result.get('state')!='abandoned':
                 self.window.notice(result.get('reason','工作仍待核對，尚未略過。'));self.recheck(ident);return

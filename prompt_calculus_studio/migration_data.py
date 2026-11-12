@@ -13,6 +13,11 @@ from .migration_files import IMAGES, SIDECARS, MigrationFailure
 
 
 STUDIO = {
+    'storage_layout': 'key version',
+    'stage_header': 'id kind workspace owner position body projection content_paths',
+    'stage_content': 'sha256 encoding bytes body',
+    'stage_content_ref': 'record_id pointer sha256',
+    'channel_applied_events': 'server epoch seq digest entity revision disposition created',
     'document': 'id body', 'stage_journal': 'id kind workspace owner position body',
     'content_history': 'id body', 'cache': 'key body saved', 'cache_access': 'key accessed',
     'usage': 'workspace tag count last', 'accepted': 'workspace tag body last',
@@ -26,6 +31,12 @@ STUDIO = {
     'clean_exports': 'id time body', 'clean_presets': 'name body',
 }
 SCHEMAS = {
+    'channel': {'streams':'server epoch scope received applied snapshot health',
+        'inbox':'server epoch seq body size', 'snapshots':'server epoch scope token as_of after_key complete',
+        'snapshot_items':'server epoch token entity body', 'owners':'token body',
+        'observations':'server epoch entity source outcome owner at', 'diagnostics':'key at kind body',
+        'budgets':'server epoch count size', 'delivery_offsets':'server epoch scope owner cursor snapshot after_key',
+        'inbox_times':'server epoch seq received', 'snapshot_budgets':'server epoch token count size'},
     'studio': STUDIO,
     'execution-index': {'owners': 'token body', 'tickets': 'token position'},
     'notebook': {'settings': 'scope value', 'versions': 'id path at digest raw reason'},
@@ -39,7 +50,7 @@ SCHEMAS = {
     'integration': {'collections': 'key path hash', 'jobs': 'id body created',
                     'workflow_transfers': 'id library body created status error'},
 }
-FROZEN = {'document', 'content_history', 'stage_journal', 'generation_jobs',
+FROZEN = {'document', 'content_history', 'stage_journal', 'stage_header', 'stage_content', 'generation_jobs',
           'chain_runs', 'chain_items', 'chain_attempts', 'chain_results',
           'input_queue', 'input_queue_control', 'work_queue'}
 INFLIGHT = {'submitted', 'collecting', 'preparing', 'unconfirmed', 'cancel_requested'}
@@ -72,6 +83,7 @@ def database_kind(relative):
     parts = Path(relative).parts
     if parts == ('data', 'studio.sqlite3') or (len(parts) == 4 and parts[:2] == ('data', 'documents') and parts[-1] == 'studio.sqlite3'):
         return 'studio'
+    if parts == ('data','comfy-channel.sqlite3'):return 'channel'
     for name in ('execution-index', 'notebook', 'integration'):
         if parts == ('data', name + '.sqlite3'):
             return name
@@ -364,11 +376,19 @@ def moved_row(kind, table, columns, row, relocation):
     elif kind == 'notebook' and table == 'versions':
         index = columns.index('path')
         row[index] = relocation.path(row[index])
+    elif kind == 'channel' and table == 'owners':
+        index=columns.index('body');value=codec.strict_loads(row[index])
+        for key in ('path','store'):
+            if key in value:value[key]=relocation.path(value[key])
+        row[index]=codec.canonical(value).decode('utf-8')
     return row
 
 
 def audit_database(db, kind, relative, relocation):
     schema = tables(db, kind, relative)
+    if kind == 'studio' and 'storage_layout' in schema:
+        from .storage_layout import inspect_layout
+        inspect_layout(db, require_events=False)
     problems, inflight = [], []
     resources = 0
     for table, columns in schema.items():
@@ -383,7 +403,7 @@ def audit_database(db, kind, relative, relocation):
                     relocation.observe(value)
             if kind == 'catalog' and table == 'source' and relocation.path(record['path'], folders=('files',)) != record['path']:
                 resources += 1
-            if kind == 'studio' and table in FROZEN and 'body' in columns:
+            if kind == 'studio' and table in FROZEN - {'stage_content'} and 'body' in columns:
                 try:
                     body = codec.strict_loads(record['body'])
                 except (ValueError, TypeError):
@@ -401,7 +421,7 @@ def audit_database(db, kind, relative, relocation):
             for column, value in zip(columns, mapped):
                 if not isinstance(value, str):
                     continue
-                if kind == 'catalog' or kind == 'studio' and table in FROZEN and column == 'body':
+                if kind in ('catalog','channel') or kind == 'studio' and table in FROZEN and column == 'body':
                     continue
                 at = relative + ':' + table + '/' + column
                 if kind == 'execution-index' and table == 'owners' and column == 'body':
@@ -429,7 +449,7 @@ def audit_database(db, kind, relative, relocation):
 def logical_inventory(db, kind, schema, *, relocation=None, new_journal=False):
     result = {'tables': {}}
     for table, columns in sorted(schema.items()):
-        if table == 'stage_journal' and kind == 'studio':
+        if kind == 'studio' and table in ('stage_journal', 'stage_header', 'stage_content', 'stage_content_ref', 'storage_layout'):
             continue
         rows = []
         for row in db.execute('SELECT * FROM ' + quoted(table)):
@@ -447,7 +467,7 @@ def logical_inventory(db, kind, schema, *, relocation=None, new_journal=False):
                                       revision=revision(body), content_history=dict(count=len(entries), sha256=hashed(history))))
             result['documents'] = documents
     if kind == 'studio':
-        if new_journal:
+        if new_journal or 'stage_header' in schema:
             # Read through the codec API, without StageStore's restart writes.
             rows = db.execute('SELECT id,kind,workspace,owner,position,body,content_paths,projection FROM stage_header ORDER BY position,id').fetchall()
             bodies = codec.records(db, [(r[0], r[5], r[6], r[7]) for r in rows])
@@ -466,7 +486,7 @@ def logical_inventory(db, kind, schema, *, relocation=None, new_journal=False):
 def rewrite_database(db, kind, schema, relocation):
     with db:
         for table, columns in schema.items():
-            if (kind, table) not in {('execution-index', 'owners'), ('notebook', 'versions')}:
+            if (kind, table) not in {('execution-index', 'owners'), ('notebook', 'versions'), ('channel','owners')}:
                 continue
             for record in db.execute('SELECT rowid,* FROM ' + quoted(table)).fetchall():
                 moved = moved_row(kind, table, columns, record[1:], relocation)

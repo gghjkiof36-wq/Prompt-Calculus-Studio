@@ -189,6 +189,8 @@ class ExecutionBar(QFrame):
             elif not self.controls.run_button.isEnabled() and client and client.can_run:notes.append('請先加入提示詞')
             status=' · '.join(notes)
         chain=client.input_flow.chain.progress() if modern and self.canvas.window.state['multi_output']['version']<7 else ''
+        if client and getattr(client,'event_capable',None) is False:status='需要更新擴充'
+        elif client and client.generation.message=='無法確認':status='無法確認'
         self._status_text=chain or status;self._status_detail=detail if not chain else '';self.present_status()
         active=pipeline is not None and pipeline.active()
         self.progress.setVisible(active)

@@ -372,7 +372,7 @@ class GenerationPanel(QWidget):
         dialog=StudioDialog(self.window); dialog.setWindowTitle('生成任務紀錄'); dialog.resize(760,600)
         listing=QListWidget(); detail=QPlainTextEdit(); detail.setReadOnly(True)
         records=self.window.comfy.generation.records()
-        names={'submitting':'提交中','queued':'佇列中','running':'生成中','complete':'完成','failed':'失敗','unconfirmed':'未確認'}
+        names={'submitting':'提交中','queued':'佇列中','running':'生成中','complete':'完成','failed':'失敗','unconfirmed':'無法確認','retired':'已停止追蹤'}
         for record in records:
             listing.addItem(names.get(record['state'],record['state'])+' · '+workflow_name(record)+' · '+record['id'][:8])
         def selected(index):

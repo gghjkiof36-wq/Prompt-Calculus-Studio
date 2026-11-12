@@ -9,7 +9,8 @@ VACUUM 由[複製後搬遷指令](workspace-migration.md)負責，不由正常�
 
 | 表 | 欄位與用途 |
 | --- | --- |
-| `storage_layout` | `key TEXT PRIMARY KEY, version INTEGER NOT NULL`。目前只寫 `journal=1`；`local_state` 尚未拆分，不寫標記，明確標為 0 亦可讀。 |
+| `storage_layout` | `key TEXT PRIMARY KEY, version INTEGER NOT NULL`。目前寫 `journal=1` 與 `event_apply=1`；`local_state` 尚未拆分，不寫標記，明確標為 0 亦可讀。 |
+| `channel_applied_events` | `server, epoch, seq` 為複合 PK；另有 `digest, entity, revision, disposition, created`。文件接受收據與 job／attempt／frame／parameter_state 同交易；不進 Canvas Undo。 |
 | `stage_header` | `id TEXT PRIMARY KEY, kind TEXT, workspace TEXT, owner TEXT, position INTEGER, body TEXT NOT NULL, projection TEXT NOT NULL, content_paths TEXT NOT NULL`。`body` 是原紀錄的骨架；`projection` 是衍生摘要；`content_paths` 是預期的 pointer→hash 清單。 |
 | `stage_content` | `sha256 TEXT PRIMARY KEY, encoding TEXT NOT NULL, bytes INTEGER NOT NULL, body BLOB NOT NULL`。encoding 固定 `json-utf8-v1`，bytes 為實際 BLOB 長度。 |
 | `stage_content_ref` | `record_id TEXT NOT NULL, pointer TEXT NOT NULL, sha256 TEXT NOT NULL, PRIMARY KEY(record_id,pointer)`；record_id 外鍵指向 header，刪除動作 CASCADE；sha256 外鍵指向 content。另有 `stage_ref_hash(sha256)`。 |

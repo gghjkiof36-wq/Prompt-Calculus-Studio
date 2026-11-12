@@ -24,10 +24,12 @@ def legacy_copy(db, path):
         rows = old.execute('SELECT id,kind,workspace,owner,position,body,content_paths,projection FROM stage_header ORDER BY position,id').fetchall()
         decoded = codec.records(old, [(r[0], r[5], r[6], r[7]) for r in rows])
         with old:
+            if old.execute('SELECT COUNT(*) FROM channel_applied_events').fetchone()[0]:
+                raise ValueError('A layout-0 fixture cannot contain event acceptances')
             old.execute('CREATE TABLE stage_journal(id TEXT PRIMARY KEY,kind TEXT,workspace TEXT,owner TEXT,position INTEGER,body TEXT NOT NULL)')
             for row, body in zip(rows, decoded):
                 old.execute('INSERT INTO stage_journal VALUES(?,?,?,?,?,?)', (*row[:5], json.dumps(body, ensure_ascii=False)))
-            for table in ('stage_content_ref', 'stage_header', 'stage_content', 'storage_layout'):
+            for table in ('stage_content_ref', 'stage_header', 'stage_content', 'channel_applied_events', 'storage_layout'):
                 old.execute('DROP TABLE ' + table)
 
 

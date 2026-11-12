@@ -10,7 +10,7 @@ from .output_order import OutputOrderList
 from .stage_model import choose,compile_plan
 
 NAMES=dict(waiting='等待',running='執行中',preparing='準備輸入',submitted='已提交',collecting='保存結果',
-    complete='完成',paused='已暫停',failed='失敗',unconfirmed='提交未確認',result_error='圖片尚未取得',cancelling='取消待確認',cancelled='已取消',removed='已移除',retained='已保留',retried='已建立新嘗試')
+    complete='完成',paused='已暫停',failed='失敗',unconfirmed='無法確認',result_error='圖片尚未取得',cancelling='取消待確認',cancelled='已取消',removed='已移除',retained='已保留',retried='已建立新嘗試')
 ACTIVE_GROUP_STATES=('preparing','submitted','collecting','running','unconfirmed','cancelling')
 
 

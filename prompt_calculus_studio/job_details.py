@@ -2,7 +2,7 @@
 import json
 import time
 
-NAMES={'submitting':'提交中','queued':'等待中','running':'執行中','complete':'完成','failed':'失敗','unconfirmed':'未確認'}
+NAMES={'submitting':'提交中','queued':'等待中','running':'執行中','complete':'完成','failed':'失敗','unconfirmed':'無法確認','retired':'已停止追蹤'}
 
 def native_details(record):
     phases=dict(received='網頁收到要求',select='切換工作流',activate='確認工作流',apply='套用輸入',

@@ -150,7 +150,13 @@ def workspace_preferences(directory):
                          automatic=all(v['automatic'] for v in values) if len(roots) == 1 else False)
             if len(roots) == 1 and len({v['automatic'] for v in values}) == 1:
                 value = dict(values[0])
-        write_preferences(destination, value, exclusive=True)
+        try:
+            write_preferences(destination, value, exclusive=True)
+        except OSError as exc:
+            logging.getLogger(__name__).warning('extension preference migration failed: %s', exc)
+            result = InstallPreferences(directory)
+            result.error = '擴充安裝設定無法讀取，請重新選擇資料夾。'
+            return result
     return InstallPreferences(directory)
 
 

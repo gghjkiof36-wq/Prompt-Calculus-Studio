@@ -9,7 +9,7 @@ from .sqlite_schema import schema_transaction
 
 OLD_MESSAGE = '這份資料是舊版格式，請用搬遷功能匯入。'
 NEW_MESSAGE = '這份資料來自較新版本，無法開啟。'
-SUPPORTED = {'journal': 1, 'local_state': 0}
+SUPPORTED = {'journal': 1, 'local_state': 0, 'event_apply': 1}
 TABLES = {
     'stage_header': ('id', 'kind', 'workspace', 'owner', 'position', 'body', 'projection', 'content_paths'),
     'stage_content': ('sha256', 'encoding', 'bytes', 'body'),
@@ -22,7 +22,7 @@ class LayoutError(ValueError):
     pass
 
 
-def inspect_layout(db):
+def inspect_layout(db, *, require_events=True):
     """No DDL, PRAGMA writes, data reads, or restart updates before this check."""
     objects = dict(db.execute("SELECT name,type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))
     if not objects:
@@ -36,6 +36,8 @@ def inspect_layout(db):
         if versions.get('journal') != 1 or 'stage_journal' in objects:
             raise LayoutError(OLD_MESSAGE)
         if 'local_state' in versions and versions['local_state'] != 0:
+            raise LayoutError(OLD_MESSAGE)
+        if require_events and versions.get('event_apply') != 1:
             raise LayoutError(OLD_MESSAGE)
         for table, fields in TABLES.items():
             columns = db.execute('PRAGMA table_info(' + table + ')').fetchall()
@@ -53,6 +55,8 @@ def inspect_layout(db):
         foreign = {(row[2], row[3], row[4], row[6]) for row in db.execute('PRAGMA foreign_key_list(stage_content_ref)')}
         if foreign != {('stage_header', 'record_id', 'id', 'CASCADE'), ('stage_content', 'sha256', 'sha256', 'NO ACTION')}:
             raise LayoutError(OLD_MESSAGE)
+        if versions.get('event_apply') == 1:
+            verify_events(db)
     except sqlite3.DatabaseError as exc:
         raise LayoutError(OLD_MESSAGE) from exc
     return True
@@ -102,6 +106,7 @@ def initialize(db):
     with schema_transaction(db):
         create_journal(db)
         mark_journal(db)
+        create_events(db)
 
 
 class MigrationError(ValueError):
@@ -216,4 +221,46 @@ class LayoutStep:
     verify: object
 
 
-REGISTRY = (LayoutStep('journal', 0, 1, inspect_legacy, transform_journal, verify_journal),)
+EVENT_COLUMNS = ('server', 'epoch', 'seq', 'digest', 'entity', 'revision', 'disposition', 'created')
+
+
+def verify_events(db, old=None):
+    columns = db.execute('PRAGMA table_info(channel_applied_events)').fetchall()
+    if tuple(row[1] for row in columns) != EVENT_COLUMNS or tuple(row[5] for row in columns) != (1, 2, 3, 0, 0, 0, 0, 0):
+        raise LayoutError(OLD_MESSAGE)
+    if any(not row[3] or row[2].upper()!=('INTEGER' if row[1]=='revision' else 'REAL' if row[1]=='created' else 'TEXT') for row in columns):
+        raise LayoutError(OLD_MESSAGE)
+    return dict(receipts=db.execute('SELECT COUNT(*) FROM channel_applied_events').fetchone()[0])
+
+
+def create_events(db):
+    db.execute('CREATE TABLE channel_applied_events (server TEXT NOT NULL,epoch TEXT NOT NULL,seq TEXT NOT NULL,'
+               'digest TEXT NOT NULL,entity TEXT NOT NULL,revision INTEGER NOT NULL,disposition TEXT NOT NULL,'
+               'created REAL NOT NULL,PRIMARY KEY(server,epoch,seq))')
+    db.execute("INSERT INTO storage_layout VALUES ('event_apply',1)")
+
+
+def inspect_before_events(db):
+    inspect_layout(db, require_events=False)
+    if db.execute("SELECT 1 FROM storage_layout WHERE key='event_apply'").fetchone():
+        raise LayoutError('Event acceptance layout already present')
+
+
+def transform_events(db, *, checkpoint=None):
+    inspect_before_events(db)
+    with migration_transaction(db):
+        create_events(db)
+        if checkpoint: checkpoint('event_apply', None)
+        return verify_events(db)
+
+
+def pending_steps(db):
+    names = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    versions = dict(db.execute('SELECT key,version FROM storage_layout')) if 'storage_layout' in names else {}
+    if any(type(v) is not int or v > SUPPORTED.get(k, -1) for k, v in versions.items()):
+        raise LayoutError(NEW_MESSAGE)
+    return [step for step in REGISTRY if versions.get(step.key, 0) == step.from_version]
+
+
+REGISTRY = (LayoutStep('journal', 0, 1, inspect_legacy, transform_journal, verify_journal),
+            LayoutStep('event_apply', 0, 1, inspect_before_events, transform_events, verify_events))

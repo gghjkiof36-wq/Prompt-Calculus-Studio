@@ -1,6 +1,6 @@
 # 分頁工作流的任務保存與排程
 
-適用本輪 0.8.9 本機修復。可攜文件格式維持不變；舊完整資料庫導入與真實 ComfyUI／GPU 驗收仍屬各自範圍。
+適用 0.8.10 Pre-alpha3 的本機執行通道。可攜文件格式維持不變；studio DB 新增 event_apply layout，須先複製再搬遷。真實 ComfyUI／GPU 驗收仍屬各自範圍。
 
 ## 保存邊界
 
@@ -29,14 +29,18 @@ Pre-alpha2 的文件重開沿用 `DesktopDocument.parked_hosts` 中仍可用的�
 
 ## 連線與執行能力
 
-連線成功不代表工作流可以執行。`snapshot_version_compatible` 單獨核對資料格式，`snapshot_compatible` 繼續連同所需的工作流能力阻擋不相容操作。資料格式可讀但能力缺少時，優先顯示服務回報的 `native_unavailable_reason`；例如單一使用者模式限制，不能當成擴充版本過舊。沒有具體原因時只顯示工作流功能未提供；確定資料格式不支援才提示更新配套擴充。Canvas 與連線流程共用 `compatibility_message`，不另寫一份更新判定。
+連線成功不代表工作流可以執行。缺少有效 `execution_events_v1` 時優先顯示「需要更新擴充」，禁止新派送；在途任務仍用原 operation 有界對帳。事件能力有效後，`snapshot_version_compatible` 單獨核對資料格式，`snapshot_compatible` 連同所需的工作流能力阻擋不相容操作。資料格式可讀但能力缺少時，顯示服務回報的 `native_unavailable_reason`；例如單一使用者模式限制。沒有具體原因時顯示工作流功能未提供；格式不支援時使用既有 `compatibility_message`。
 
 斷線仍保留原有暫停與任務核對流程；只有斷線前確實存在待處理工作時，才通知內容已保留。無工作時不產生這則通知。
 
 ## 驗證
 
+C1 的 `WorkspaceConnection` 對同 server 共用一條事件通道，按 runtime token 交付。背景文件打不開時該 owner 保持 pending，不把事件轉交焦點文件，也不阻塞其他文件接受。關閉視圖、另存、更名延續既有 owner 規則；事件 receipt 寫入原 owner 的 studio DB，sidecar 的 delivery 只在文件 commit 後推進。新 epoch 不讓舊回覆改回身分。新 PCS 缺少有效事件能力時優先顯示「需要更新擴充」並禁止新派送；有效事件能力仍須符合其餘資料格式與模式限制。
+
+`test_event_acceptance_atomic.py` 由控制列入口檢查 start／cancel ACK 遺失、S1／S1-X／S9a、重開與終態交錯；`test_event_delivery.py` 檢查 sidecar 交付後故障、兩次重開重播、固定水位與過期清理。Manager／Markdown／Chat 的編輯與保存沒有改接此通道。
+
 `tests/test_workspace_execution.py` 使用共用的合成原生回執／佇列服務，經實際 Qt 執行控制與正式 journal／Stage 引擎，檢查多文件順序、多步流程、輸入凍結、取消、回覆遺失、無分頁恢復、Save As、路徑更名及保存失敗。`test_workspace_connection.py` 使用隔離的本機 HTTP peer 檢查實際 Qt 連線傳輸與燈號。這些不等於真實 ComfyUI、GPU 或使用者桌面驗收。
 
 `test_workspace_binding.py` 直接經分頁 Canvas 的綁定按鈕驗證節點選擇、復原／重做、保存及重開，並檢查圖片綁定、Stage 參數套用、同文件共用目錄及不同文件的取消／延遲回覆隔離。`test_workflow_picker.py` 保留舊介面的工作流讀取、過期連線及原生／已儲存版本區分。
 
-`test_workspace_connection.py` 另檢查已知模式限制、缺少能力而未回報原因、能力恢復，以及空閒斷線的通知。`test_navigation_connection.py` 保留舊版擴充阻擋新資料及更新後恢復案例；這些合成回覆不能代替使用者已安裝擴充的版本與實際狀態核對。
+`test_workspace_connection.py` 另檢查已知模式限制、缺少能力而未回報原因、能力恢復，以及空閒斷線的通知。`test_navigation_connection.py` 檢查格式不支援時不註冊 library，格式相容後仍須具備事件能力才能派送；這些合成回覆不能代替使用者已安裝擴充的版本與實際狀態核對。

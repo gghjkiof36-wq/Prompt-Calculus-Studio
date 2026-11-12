@@ -224,14 +224,22 @@ class QueueRunner:
     def pump(self):
         if not self.dispatching or not self.client.connected:
             return
+        if getattr(self.client,'event_capable',None) is False:return
         if not self.client.dispatch_allowed:return
-        item = self.store.claim(self.client.url)
+        events=getattr(self.client,'events',None)
+        item = self.store.claim(self.client.url,identity=events.identity if events is not None and events.enabled else None)
         if item is None:
             if not any(r['state'] in ACTIVE for r in self.store.rows() if r['work']['scope']['server']==self.client.url):
                 self.dispatching = False
                 self.notify('Queue 已跑完；再加入工作後請重新按開始。')
             return
         self.notify()
+        if events is not None and events.enabled:
+            events.reconcile.require(item['attempt'],'submit')
+            self.client.request('workflow/queue/submit',dict(job=item['id'],attempt=item['attempt'],capture=item['capture'],sha256=item['work']['sha256']),
+                done=lambda value:events.reconcile.require(item['attempt'],'submit_ack',force=True),
+                failed=lambda error:events.reconcile.require(item['attempt'],'submit_ack_lost'))
+            return
         def failed(error):
             self.store.update(item['id'], state='failed' if getattr(error, 'rejected', False) else 'unconfirmed', error=str(error))
             self.dispatching = False
@@ -263,6 +271,7 @@ class QueueRunner:
             QTimer.singleShot(0, self.pump)
 
     def observe(self):
+        if getattr(getattr(self.client,'events',None),'enabled',False):return
         if not self.client.connected or not getattr(self.client, 'queue_supported', False):
             return
         for item in self.store.rows():

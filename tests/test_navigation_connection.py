@@ -69,7 +69,7 @@ class NavigationConnectionTests(unittest.TestCase):
                                   capabilities=['native_queue_v1','native_bindings_v1','stage_execution_v1'],
                                   snapshot_versions=[self.w.state['version']]))
 
-    def test_old_extension_never_receives_new_library_and_can_recover_after_update(self):
+    def test_old_format_is_not_registered_and_channel_capability_is_also_required(self):
         client=self.client;client.enabled=True;client.token='fixture-token';client.register_library=True
         status=dict(ready=True,lease='lease',running=0,pending=0,
             capabilities=['native_queue_v1','native_bindings_v1','stage_execution_v1','workflow_transfer_v1'],
@@ -78,12 +78,12 @@ class NavigationConnectionTests(unittest.TestCase):
         with patch.object(client,'receive_workflow') as transfer,patch.object(self.w,'notice') as notice:
             client.poll();self.calls[-1]['done'](status)
             self.assertTrue(client.connected);self.assertFalse(client.can_run)
-            self.assertTrue(client.register_library);self.assertIn('更新配套擴充',client.message)
+            self.assertTrue(client.register_library);self.assertEqual('需要更新擴充',client.message)
             self.assertFalse(any(c['route']=='config' and c['data'] for c in self.calls))
             transfer.assert_not_called();self.assertFalse(client.sync_timer.isActive())
             client.run();notice.assert_called_once_with(client.compatibility_message)
             bar=self.w.canvas.execution_bar;bar.update_progress()
-            self.assertIn('PCS 擴充需要更新',bar.status.text())
+            self.assertIn('需要更新擴充',bar.status.text())
             self.assertNotIn('舊擴充',bar.status.text())
             self.assertIn('舊擴充',bar.status.toolTip())
             self.assertIn('目前文件格式：'+str(self.w.state['version']),bar.status.toolTip())
@@ -97,7 +97,8 @@ class NavigationConnectionTests(unittest.TestCase):
             client.poll();self.calls[-1]['done'](status)
             self.assertTrue(client.snapshot_compatible);self.assertFalse(client.register_library)
             bar.update_progress()
-            self.assertNotIn('PCS 擴充需要更新',bar.status.text())
+            self.assertIn('需要更新擴充',bar.status.text())
+            self.assertFalse(client.can_run)
             self.assertNotIn('舊擴充',bar.status.toolTip())
             self.assertEqual(len([c for c in self.calls if c['route']=='config' and c['data']]),1)
             transfer.assert_called_once()

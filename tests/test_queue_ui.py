@@ -67,8 +67,9 @@ class QueueUiTests(unittest.TestCase):
         self.window.run_controls.set_execution_only(True);self.window.run_controls.refresh()
         self.assertFalse(hasattr(self.window,'canvas_queue'))
         self.assertEqual(self.window.run_controls.run_button.text(),'執行')
+        before=len(self.window.canvas.data()['schedulers'])
         self.window.canvas.add_flow_node('schedulers')
-        self.assertEqual(len(self.window.canvas.data()['schedulers']),1)
+        self.assertEqual(len(self.window.canvas.data()['schedulers']),before+1)
 
     def test_preview_does_not_change_explicit_single_selection_or_source_bytes(self):
         paths=[]

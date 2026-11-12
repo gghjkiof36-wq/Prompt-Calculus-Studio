@@ -840,6 +840,7 @@ class StageRunner(QObject):
 
     def observe(self,status):
         if self.closed:return
+        if getattr(getattr(self.client,'events',None),'enabled',False):return
         for attempt in self.store.attempt_heads():
             job=self.client.generation.record(attempt['id'])
             if attempt.get('cancel_requested'):
@@ -866,7 +867,7 @@ class StageRunner(QObject):
                 self.client.generation.jobs.setdefault(job['id'],job)
         self.later()
 
-    def collect(self,attempt,job):
+    def collect(self,attempt,job,*,accept=None,committed=None,on_error=None,before_commit=None):
         if attempt['id'] in self.collecting:return
         run=self.store.read(attempt['owner']);stage=run['plan']['stages'][attempt['stage']]
         graph=job.get('payload',{}).get('prompt',{})
@@ -874,6 +875,8 @@ class StageRunner(QObject):
         self.collecting.add(attempt['id'])
         def fail(error):
             if self.closed:return
+            if on_error is not None:
+                self.collecting.discard(attempt['id']);on_error(error);return
             self.collecting.discard(attempt['id']);self.store.update(attempt['id'],status='result_error',error=str(error));self.pause(run['id'],'結果尚未取得：'+str(error),reason='error')
         def received(rows):
             if self.closed:return
@@ -898,8 +901,9 @@ class StageRunner(QObject):
                 # Publishing either half alone costs an extra commit and can
                 # strand a completed attempt if the second write fails.
                 try:
-                    with self.store.transaction():
-                        self.store.patch(attempt['id'],status='complete',result=result,error='')
+                    with self.accepting():
+                        if accept is not None:accept()
+                        self.store.patch(attempt['id'],status='complete',result=result,error='',cancel_requested=False)
                         current=self.store.read(run['id'])
                         frame=next((f for f in current['stack'] if f.get('job')==attempt['id']),None)
                         if frame and current['status']!='cancelled':
@@ -908,25 +912,29 @@ class StageRunner(QObject):
                             for key,value in attempt.get('sources',{}).items():
                                 if key not in autos:current.setdefault('source_positions',{}).setdefault(key,value)
                             self.save(current)
-                except sqlite3.Error:
+                        if before_commit is not None:before_commit()
+                except sqlite3.Error as exc:
                     # request() converts escaped callback errors to backend
                     # failures. Keep this rolled-back attempt collectable.
                     self.collecting.discard(attempt['id'])
+                    if on_error is not None:on_error(exc);return
                     if attempt['id'] not in self._result_save_errors:
                         self._result_save_errors.add(attempt['id'])
                         self.window.notice('結果暫時無法保存，會在下次檢查時重試。')
                     return
-                self._result_save_errors.discard(attempt['id'])
-                self.collecting.discard(attempt['id'])
-                # Publish only this accepted job's matched outputs to its owner.
-                # Workspace clients deliberately never poll the global feed.
-                if recent:self.client.resultsReceived.emit(recent)
-                if current['workspace']==self.window.state['workspace']:
-                    self.remember_preview(attempt,result)
-                    self.results[stage['id']]=copy.deepcopy(frame['produced'][stage['id']]) if frame and stage['id'] in frame['produced'] else result
-                    self.refresh_results(preview_changed=bool(images))
-                if current['status']=='paused':self.settle(self.store.read(current['id']))
-                self.notify();self.later()
+                def publish():
+                    self._result_save_errors.discard(attempt['id'])
+                    self.collecting.discard(attempt['id'])
+                    # Also defer when collect() is nested in an outer acceptance.
+                    if recent:self.client.resultsReceived.emit(recent)
+                    if current['workspace']==self.window.state['workspace']:
+                        self.remember_preview(attempt,result)
+                        self.results[stage['id']]=copy.deepcopy(frame['produced'][stage['id']]) if frame and stage['id'] in frame['produced'] else result
+                        self.refresh_results(preview_changed=bool(images))
+                    if current['status']=='paused':self.settle(self.store.read(current['id']))
+                    self.notify();self.later()
+                    if committed is not None:committed()
+                self.store._transactions.after_commit(publish)
             except (ValueError,OSError) as exc:fail(str(exc))
             except Exception:
                 # A failed database transaction leaves the attempt active.
