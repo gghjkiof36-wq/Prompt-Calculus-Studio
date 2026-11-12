@@ -16,6 +16,13 @@ _SHA = re.compile(r'[0-9a-f]{64}\Z')
 _KINDS = {'.md': 'md', '.pcs-category': 'category', '.pcs-workflow': 'workflow', '.pcs-chat': 'chat'}
 
 
+def channel_sidecars(directory):
+    """Inventory only. Never delete the unapplied inbox, WAL or recovery cursor."""
+    from .comfy_event_inbox import FILENAME
+    return [path for suffix in ('', '-wal', '-shm')
+            if (path := Path(directory) / (FILENAME + suffix)).is_file()]
+
+
 def _missing_original(value, record_key):
     location = value.get('path')
     if not isinstance(location, str) or len(location) > 32767:

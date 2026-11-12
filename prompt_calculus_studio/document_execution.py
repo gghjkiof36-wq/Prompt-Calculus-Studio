@@ -1,5 +1,6 @@
 """A workflow execution owner outlives every view and never follows focus."""
 import copy
+import uuid
 from pathlib import Path
 from PySide6.QtCore import QObject
 
@@ -16,6 +17,7 @@ class DocumentExecution(QObject):
         self.view_host = host
         self.store = host.store if host else store
         self._state = state
+        self._event_path = str(document.path) if document else metadata['path']
         self.closed = False
         self.client = client_type(self)
         self.received = []
@@ -63,6 +65,18 @@ class DocumentExecution(QObject):
         if self.document is not None:
             for host in self.document.hosts:host.recent.receive_results(values)
 
+    def event_owner(self):
+        """Stable shadow delivery address, never the visible tab or mutable name."""
+        return dict(token=self.runtime_token, document_id=self.document_id,
+                    library_id=str(uuid.uuid5(uuid.NAMESPACE_URL, str((self.store.directory/'studio.sqlite3').resolve()).casefold())),
+                    store=str(self.store.directory), path=str(self.document.path) if self.document is not None else self._event_path,
+                    attached=self.document is not None, closed=self.closed,
+                    server=getattr(self.__dict__.get('client'), 'url', self.state['settings'].get('comfy_url', '')))
+
+    def remember_event_owner(self):
+        if self.workspace_owner is not None:
+            self.workspace_owner.comfy_connection.remember_event_owner(self)
+
     def refresh_sibling_result_previews(self):
         if self.document is None:
             return
@@ -71,15 +85,18 @@ class DocumentExecution(QObject):
                 host.canvas.refresh_result_previews()
 
     def detach(self):
+        if self.document is not None: self._event_path = str(self.document.path)
         self._state = copy.deepcopy(self.state)
         self.document = None
         self.view_host = None
         self.persist()
+        self.remember_event_owner()
 
     def attach(self, document, host):
         document.state = self.state
         self.document = document
         self.view_host = host
+        self.remember_event_owner()
 
     def close(self):
         if self.closed or self.__dict__.get('_closing', False):return
@@ -127,6 +144,7 @@ class DocumentExecution(QObject):
                     self._store_closed = True
                 except Exception as error:failures.append(('關閉文件資料庫', error))
             self.closed = self.__dict__.get('_client_closed', False) and self.__dict__.get('_store_closed', False)
+            self.remember_event_owner()
             self.close_errors = [*self.__dict__.get('close_errors', []), *failures]
         finally:
             self._closing = False

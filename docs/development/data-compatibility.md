@@ -113,7 +113,7 @@ Stage 最新狀態查詢／索引與未變輪詢優化不刪減歷史。桌面�
 
 | 資料 | 寫入者與用途 | 回復界線 |
 |---|---|---|
-| 資料目錄的 `extension-install.json` | PCS 擴充管理頁保存選定 ComfyUI 路徑與自動更新偏好 | 不從服務回傳路徑改寫；更新回復不重設此設定。 |
+| 資料目錄的 `extension-install.json` | Workspace 固定在資料根目錄；獨立宿主沿原目錄。擴充頁與自動綁定共用路徑及自動更新偏好 | 未綁定且回報路徑通過本機／實體位置驗證時可綁定；保留既有 root 與 automatic。固定檔不存在時一次搬遷舊 session 設定，衝突採保守值、原檔不改，規則見[相容指南](../guide/comfyui-compatibility.md#擴充資料夾自動綁定)。 |
 | `.pcs-program-backups/install-state.json` | 安裝器保存本次替換位置、備份位置與交易狀態 | `completed` 是完成替換；`rolled_back` 僅在原樹核對成功且沒有競爭 target 時成立；`replacing`／`rollback_unconfirmed` 或未知狀態阻擋下一次安裝，不自動重試。 |
 | `.pcs-program-backups/*-rollback.json` 與 `previous-*` | 安裝器保存原安裝相對路徑／大小／雜湊及完整原樹 | `local_library.json` 與其他原檔保留；競爭時不覆寫外來樹。復原未確認時保留所有仍存在的備份，供人工檢查。 |
 | Canvas 配置與排程 journal | 原有保存／Undo／Redo與生成流程 | 卡片布局計時器沒有資料所有權；移除畫面卡片不由舊回呼改寫新卡片或生成紀錄。 |

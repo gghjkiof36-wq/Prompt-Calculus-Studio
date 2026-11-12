@@ -1393,6 +1393,15 @@ class WorkspaceShell(WorkspacePanes, QMainWindow):
                 event.ignore()
                 return
         self.layout_store.save()
+        if not self.comfy_connection.channels_stopped():
+            if not getattr(self, '_channel_close_pending', False):
+                self._channel_close_pending = True
+                def retry_channel_close():
+                    self._channel_close_pending = False
+                    self.close()
+                QTimer.singleShot(25, self, retry_channel_close)
+            event.ignore()
+            return
         if self.utility and not self.utility.close():
             event.ignore()
             return

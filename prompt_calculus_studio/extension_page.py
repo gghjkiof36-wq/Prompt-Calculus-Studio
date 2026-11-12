@@ -6,7 +6,7 @@ from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QBoxLayout, QFileDialog
 
-from .extension_install import InstallPreferences, available_package, build_info, comfy_root, installed, update_state
+from .extension_install import preferences_for, available_package, build_info, comfy_root, installed, update_state
 from .widgets import button
 from .ui_icons import icon
 from .management_reading import PREFERRED_CONTENT_WIDTH,ReadingText,ReadingPanel,ReadingPath,ReadingCheckBox,readable_control
@@ -16,7 +16,7 @@ class ExtensionPage(QWidget):
     def __init__(self, window):
         super().__init__()
         self.window = window
-        self.preferences = InstallPreferences(window.store.directory)
+        self.preferences = preferences_for(window)
         self.base, self.package = available_package()
         self.candidate = build_info(self.package)
         self.process = QProcess(self)
@@ -28,6 +28,8 @@ class ExtensionPage(QWidget):
         self.busy = False
         self.waiting = False
         self.stopped = False
+        self.skip_startup_update = False
+        self.startup_checked = False
         self.message = self.preferences.error
         self.retry_timer = QTimer(self)
         self.retry_timer.setInterval(15000)
@@ -85,10 +87,18 @@ class ExtensionPage(QWidget):
         return root, previous, build_info(previous) if previous else {}
 
     def startup(self):
-        if not self.stopped and self.preferences.value['root'] and not self.preferences.error:
+        self.startup_checked = True
+        if not self.stopped and not self.skip_startup_update and self.preferences.value['root'] and not self.preferences.error:
             self.check_now(automatic=True)
 
     def render(self):
+        # Binding may arrive before this lazily constructed page is opened.
+        # Refresh preferences without invoking startup/check_now/install.
+        if getattr(self.window, 'workspace_owner', None) is not None:
+            self.preferences = preferences_for(self.window)
+            self.automatic.blockSignals(True)
+            self.automatic.setChecked(self.preferences.value['automatic'])
+            self.automatic.blockSignals(False)
         self.location.setText(self.preferences.value['root'])
         self.location.setToolTip(self.preferences.value['root'])
         self.location.setAccessibleName('ComfyUI 安裝位置')

@@ -1,5 +1,6 @@
 """Workspace connection preferences; execution still belongs to each document."""
 import json
+import logging
 import weakref
 
 from PySide6.QtCore import QObject, QIODevice, QSaveFile, QTimer
@@ -17,6 +18,12 @@ class WorkspaceConnection(QObject):
         self.library_client = None
         self.registering = None
         self.registered_client = None
+        self.channel = None
+        self.channel_generation = 0
+        self.retiring_channels = []
+        self.event_owners = {}
+        self.event_observations = {}
+        self.binding_attempts = set()
         self.path = workspace.data/'workspace-connection.json'
         self.url = 'http://127.0.0.1:8188'
         self.enabled = False
@@ -53,6 +60,88 @@ class WorkspaceConnection(QObject):
             # Hosts must finish constructing before transport callbacks use UI.
             QTimer.singleShot(0, client.start_saved_connection)
 
+    def stop_channel(self):
+        self.channel_generation += 1
+        if self.channel is not None:
+            self.channel.stop()
+            self.retiring_channels.append(self.channel)
+            self.channel = None
+        self.retiring_channels = [channel for channel in self.retiring_channels if channel.running]
+        self.event_observations.clear()
+
+    def channels_stopped(self):
+        if self.channel is not None: self.stop_channel()
+        self.retiring_channels = [channel for channel in self.retiring_channels if channel.running]
+        return not self.retiring_channels
+
+    def remember_event_owner(self, execution):
+        value = execution.event_owner()
+        previous = self.event_owners.get(value['token'], {})
+        value['servers'] = sorted(set(previous.get('servers', [])) | {value['server']})
+        if self.event_owners.get(value['token']) == value: return
+        self.event_owners[value['token']] = value
+        if self.channel is not None:
+            self.channel.command.emit(dict(kind='owner', value=value))
+
+    def observe_status(self, client, value):
+        if not self.enabled or not client.enabled or client.url != self.url: return
+        from .comfy_event_protocol import recognize
+        from .comfy_event_transport import QtChannel
+        try: identity = recognize(value)
+        except (ValueError, TypeError) as exc:
+            logging.getLogger(__name__).warning('shadow capability rejected: %s', exc)
+            identity = None
+        if identity is not None:
+            key = self.url, client.token, identity['server_instance'], identity['epoch']
+            previous = self.channel
+            if previous is None or key != (previous.url, previous.token, previous.identity['server_instance'], previous.identity['epoch']):
+                self.stop_channel()
+                self.channel = QtChannel(self.workspace.data, self.url, client.token, identity, self)
+                for owner in self.event_owners.values():
+                    self.channel.command.emit(dict(kind='owner', value=owner))
+        elif self.channel is not None:
+            self.stop_channel()
+        info = value.get('extension_info') or value.get('extension') or {}
+        reported = info.get('root') if isinstance(info, dict) else None
+        if not reported: return
+        binding_key = self.url, reported
+        if binding_key in self.binding_attempts: return
+        self.binding_attempts.add(binding_key)
+        from .extension_install import workspace_preferences, bind_reported
+        try:
+            preferences = workspace_preferences(self.workspace.data)
+            changed, reason = bind_reported(preferences, self.url, info)
+        except (OSError, ValueError) as exc:
+            changed, reason = False, 'preferences_unavailable: ' + str(exc)
+        diagnostic = dict(server=self.url, result=reason)
+        logger = logging.getLogger(__name__)
+        (logger.info if changed else logger.warning)('extension automatic binding: %s', diagnostic)
+        if self.channel is not None:
+            self.channel.command.emit(dict(kind='diagnostic', name='extension_binding', value=diagnostic))
+        if changed:
+            # Do not construct the lazy page: its startup hook may check for
+            # automatic updates. An existing page only refreshes its status.
+            host = self.workspace.utility
+            page = getattr(host, 'settings_page', None) if host is not None else None
+            manager = page.__dict__.get('_manager') if page is not None else None
+            if manager is not None:
+                if not manager.extension.startup_checked: manager.extension.skip_startup_update = True
+                manager.extension.render()
+
+    def observe_poll(self, client, route, data, value):
+        if self.channel is None or client.url != self.channel.url: return
+        from .comfy_event_transport import poll_evidence
+        evidence = poll_evidence(route, data, value)
+        if not evidence: return
+        owner = getattr(client.window, 'runtime_token', '')
+        fresh = []
+        for entity, outcome in evidence:
+            key = owner, entity
+            if self.event_observations.get(key) != outcome:
+                self.event_observations[key] = outcome
+                fresh.append((entity, outcome))
+        if fresh: self.channel.command.emit(dict(kind='poll', owner=owner, evidence=fresh))
+
     def save(self, url, enabled):
         payload = json.dumps(dict(url=url, enabled=enabled), ensure_ascii=False).encode('utf-8')
         output = QSaveFile(str(self.path))
@@ -87,6 +176,7 @@ class WorkspaceConnection(QObject):
         if changed_address:
             self.registering = None
             self.registered_client = None
+        self.stop_channel()
         # Keep a status-only client available when focus moves from Canvas
         # to Markdown or a new tab. It never owns a generation or import.
         self.workspace.ensure_utility()
@@ -97,6 +187,8 @@ class WorkspaceConnection(QObject):
                 ComfyClient.connect_to(client, address)
             else:
                 ComfyClient.recheck_connection(client)
+            if hasattr(client.window, 'runtime_token'):
+                self.remember_event_owner(client.window)
         return True
 
     def disconnect(self):
@@ -105,6 +197,7 @@ class WorkspaceConnection(QObject):
         except OSError as exc:
             self.workspace.show_notice('ComfyUI 連線設定無法儲存：'+str(exc))
             return False
+        self.stop_channel()
         for client in self.live_clients():
             ComfyClient.disconnect(client)
         self.registering = None
@@ -124,12 +217,14 @@ class WorkspaceComfyClient(ComfyClient):
         with self.window.store.db:
             self.window.store.db.execute('''CREATE TABLE IF NOT EXISTS workspace_operations
                 (id TEXT PRIMARY KEY, server TEXT, route TEXT, ended INTEGER NOT NULL, status TEXT)''')
+        if self.workspace is not None and hasattr(window, 'runtime_token'):
+            self.workspace.comfy_connection.remember_event_owner(window)
 
-    def request(self, route, data=None, done=None, failed=None, raw=None, content_type='application/json'):
+    def request(self, route, data=None, done=None, failed=None, raw=None, content_type='application/json', **options):
         if self.stopped:
             return
         if self.workspace is None:
-            return super().request(route, data, done, failed, raw, content_type)
+            return super().request(route, data, done, failed, raw, content_type, **options)
         scheduler = self.workspace.scheduler
         auxiliary = route in ('workflow/native/open', 'workflow/native/inspect', 'workflow/queue/capture')
         mutation = route in ('workflow/native/start', 'workflow/native/apply', 'workflow/queue/submit',
@@ -151,7 +246,22 @@ class WorkspaceComfyClient(ComfyClient):
             with self.window.store.db:
                 self.window.store.db.execute('INSERT INTO workspace_operations VALUES (?,?,?,0,?)',
                                             (ident, self.url, route, 'submitting'))
+        channel_generation = self.workspace.comfy_connection.channel_generation
+        channel = self.workspace.comfy_connection.channel
+        event_ident = (data.get('attempt') if route.startswith('workflow/queue/') else ident) if isinstance(data, dict) else None
+        if channel is not None and event_ident and self.url == channel.url:
+            if route in ('workflow/native/start', 'workflow/queue/submit', 'workflow/native/cancel', 'workflow/queue/cancel'):
+                channel.command.emit(dict(kind='watch',
+                    entity=('queue_attempts:' if route.startswith('workflow/queue/') else 'native_operations:') + event_ident,
+                    phase='cancelling' if route.endswith('/cancel') else 'submitting'))
         def received(value):
+            manager = self.workspace.comfy_connection
+            try:
+                if channel_generation == manager.channel_generation:
+                    if route == 'desktop/status': manager.observe_status(self, value)
+                    manager.observe_poll(self, route, data, value)
+            except Exception:
+                logging.getLogger(__name__).exception('shadow observation failed; polling remains authoritative')
             if ident and (route in ('workflow/native/status', 'workflow/native/cancel') or auxiliary):
                 self.reconcile_operation(ident, value)
             if done:
@@ -160,7 +270,7 @@ class WorkspaceComfyClient(ComfyClient):
             if auxiliary and getattr(error, 'rejected', False):
                 self.reconcile_operation(ident, dict(state='failed'))
             (failed or self.window.notice)(error)
-        return super().request(route, data, received, rejected, raw, content_type)
+        return super().request(route, data, received, rejected, raw, content_type, **options)
 
     def reset_connection(self):
         if hasattr(self, 'operation_checks'):

@@ -86,6 +86,8 @@ class WorkspaceRuntime:
 
     def remember(self, document):
         self.write(self.metadata(document))
+        execution = self.executions.get(document.runtime_token)
+        if execution is not None: execution.remember_event_owner()
 
     def retire_content(self, document):
         """Keep old tasks, but never restore a Save As draft over its source."""

@@ -20,6 +20,7 @@ class TimeoutReply(QObject):
     def readAll(self): return QByteArray()
     def error(self): return QNetworkReply.NetworkError.TimeoutError
     def attribute(self, key): return None
+    def abort(self): self.finished.emit()
 
 
 class RegistrationGateTests(unittest.TestCase):

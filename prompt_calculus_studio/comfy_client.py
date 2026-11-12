@@ -125,21 +125,28 @@ class ComfyClient(QObject):
         return (self.compatibility_message+f'\n目前文件格式：{self.window.state["version"]}'
                 +f'\n擴充支援格式：{versions or "未提供"}')
 
-    def request(self,route,data=None,done=None,failed=None,raw=None,content_type='application/json'):
+    def request(self,route,data=None,done=None,failed=None,raw=None,content_type='application/json',*,deadline=None,max_bytes=4*1024*1024):
         if self.stopped: return
         epoch=self.epoch
+        deadline=time.monotonic()+(60 if raw is not None else 12) if deadline is None else deadline
         request=QNetworkRequest(QUrl(self.url+(route if route.startswith('/') else '/prompt_studio/'+route))); request.setTransferTimeout(60000 if raw is not None else 12000)
+        request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.SameOriginRedirectPolicy)
         request.setRawHeader(b'X-Prompt-Studio',self.token.encode()); request.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader,content_type)
         reply=self.network.post(request,raw) if raw is not None else self.network.get(request) if data is None else self.network.post(request,json.dumps(data,ensure_ascii=False).encode())
         self.replies.add(reply); chunks=bytearray()
+        absolute=QTimer(reply); absolute.setSingleShot(True)
+        absolute.timeout.connect(reply.abort)
+        absolute.start(max(1,int((deadline-time.monotonic())*1000)))
         def read():
             chunks.extend(bytes(reply.readAll()))
-            if len(chunks)>4*1024*1024: reply.abort()
+            if len(chunks)>max_bytes: reply.abort()
         def finish():
+            absolute.stop()
             read(); self.replies.discard(reply)
             if self.stopped or epoch!=self.epoch: reply.deleteLater(); return
             try:
-                if len(chunks)>4*1024*1024: raise ValueError('ComfyUI 回應過大。')
+                if time.monotonic()>=deadline: raise TimeoutError('ComfyUI 回應逾時。')
+                if len(chunks)>max_bytes: raise ValueError('ComfyUI 回應過大。')
                 try: result=json.loads(chunks)
                 except (ValueError,UnicodeError): result={}
                 if reply.error()!=QNetworkReply.NetworkError.NoError:
@@ -155,6 +162,7 @@ class ComfyClient(QObject):
                 else: self.window.notice(str(exc))
             finally: reply.deleteLater()
         reply.readyRead.connect(read); reply.finished.connect(finish)
+        return reply  # Caller may abort in this object's thread; never resubmits.
 
     def connect_to(self,address):
         address=local_address(address); self.reset_connection()

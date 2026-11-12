@@ -1,6 +1,6 @@
 # ComfyUI 持久收據與事件協定
 
-適用於 pre-alpha3 的擴充通道第一段。此段提供事件來源、持久收據與唯讀同步端點；桌面只新增 Qt-free 協定解析，尚未啟用事件 reducer、游標儲存或取代輪詢。需要更新 ComfyUI 端擴充並重啟後端、重新整理網頁；此文件不是已安裝或 GPU 驗收證明。
+適用於 pre-alpha3 的擴充事件來源與桌面影子接收。桌面在背景接收、保存及核對事件，尚未啟用事件 reducer，也沒有取代輪詢。需要更新 ComfyUI 端擴充並重啟後端、重新整理網頁；此文件不是已安裝或 GPU 驗收證明。
 
 ## 身分與相容
 
@@ -20,11 +20,29 @@
 }
 ```
 
-`desktop/status` 同樣附加 `event_channel`、能力名稱與 `extension_info`，保留原 `extension` 與所有舊欄位。安裝位置來自已載入擴充的 `build_identity.LOADED_BUILD.root`，不是由 PCS 猜目錄；自動綁定在後續桌面通道段才啟用。
+`desktop/status` 同樣附加 `event_channel`、能力名稱與 `extension_info`，保留原 `extension` 與所有舊欄位。安裝位置來自已載入擴充的 `build_identity.LOADED_BUILD.root`，不是由 PCS 猜目錄；桌面只在[自動綁定條件](../guide/comfyui-compatibility.md#擴充資料夾自動綁定)全部成立時保存位置。
 
 `server_instance` 存在擴充專用 `integration.sqlite3`，重建 Service 不變；每次 Service 建立產生新 `epoch` 並持久保存。舊 Service 的 writer 會被資料表 trigger 拒絕。每個 epoch 的全域 seq 從 1 遞增，wire 一律使用十進位字串，`"0"` 是初始游標。新 epoch 清除舊事件流、保留收據與 tombstone；必須重新 snapshot，不能接續舊游標。
 
-單一使用者模式才提供此通道。舊 PCS 搭配新版擴充繼續使用原 HTTP 路徑與輪詢；本段及下一段不關閉輪詢。將來切換 reducer 的版本遇到舊擴充，更新前禁止新派送，不提供 legacy 輪詢相容模式。PCS 文件格式本段完全不變，也不建立 `event_apply` 表；後續資料格式搬遷另有版本邊界。
+單一使用者模式才提供此通道。舊 PCS 搭配新版擴充繼續使用原 HTTP 路徑與輪詢；目前的影子接收也不關閉輪詢。舊擴充沒有 `execution_events_v1` 時，不建立通道，既有行為保持不變。將來切換 reducer 的版本遇到舊擴充，更新前禁止新派送，不提供 legacy 輪詢相容模式。PCS 文件格式本段完全不變，也不建立 `event_apply` 表；後續資料格式搬遷另有版本邊界。
+
+## 桌面影子通道與持久 inbox
+
+`WorkspaceConnection` 管理目前 server 的共享 `QtChannel`，多文件共用同一條事件流。QThread 自己持有 QNetworkAccessManager、JSON 解析、計時器與 SQLite 連線；完整 events／snapshot 不送回 GUI。主執行緒只提供協商身分、穩定 owner 與從舊輪詢抽出的精簡終局證據，沒有事件 reducer 或執行 UI 通知。
+
+每個 request 可由回傳的 reply 中止，並有從送出起算的絕對期限，不能靠持續收到少量資料無限延長。events 最多等 8 秒、期限 12 秒，heartbeat 每 8 秒，snapshot／協商期限 6 秒。連線換代會立即使舊回應無效，再在 worker 中中止請求；關閉工作區會非阻塞地等待 worker 退出，才完成關窗。token 只存在程序記憶體；403 重新取 config token 並協商，400／409、reset_required 或錯 server／epoch 都重新協商及 snapshot，不重送任何工作。
+
+非空事件頁與 snapshot 後頁在 worker 收到並保存後排程續讀，不逐頁等待 250ms 健康計時器，避免人為耗盡 snapshot 的 60 秒有效期。空頁、不一致或儲存錯誤仍由核心期限與退避限制；慢速網路造成 snapshot 過期時重新取固定水位，不推進未完成的游標。
+
+獨立 sidecar 位於工作區資料根目錄的 `comfy-channel.sqlite3`，WAL／SHM 同屬該資料。`streams` 以 server_instance、epoch、scope_digest 分開保存 received 與 applied；inbox 以 server_instance、epoch、seq 去重，衝突的同 seq 內容拒絕接受。單頁事件及 received 在同一交易提交，applied 在影子接收階段始終為 0。固定水位 snapshot 分頁先暫存，只有全部完成才記錄 snapshot 及推進 received；舊 epoch 收據保留原始 envelope，不當成新 epoch 的事件。隨後從該水位續讀。
+
+SQLite／磁碟失敗時停止所有拉取，保留最多一頁待提交資料，以 1／2／4／8 秒退避重試同一交易；收到但未 commit 不推進游標。程序關閉後該記憶體頁可丟棄，下次仍從持久游標讀回。每個 server／epoch 的未套用事件上限 100,000 筆或 64MiB，達上限停止拉取，不刪除未套用證據；每次 snapshot 也受同樣容量限制。完成新 snapshot 後可移除同 scope 的舊暫存 snapshot。sidecar 不隨文件關閉、另存或切換 server 刪除，也不屬文件格式；清理／恢復工具可用 `channel_sidecars` 取得主檔、WAL、SHM，不能把它當成無條件可清除的 cache。
+
+owner 表使用現有 runtime_token，另存 document_id、由 runtime store 路徑推得的 library_id、原 server 及附掛狀態。另存後的新文件有新 owner，舊任務仍屬原 runtime；關閉視圖不改派事件給目前文件。工作區訂閱 default-user 的 server scope，避免同一 server 多文件各開 long-poll；本地 owner 關聯獨立保留。scope 增加或新 owner 加入會補一次 snapshot，不拿原 cursor 當作新增範圍的證據。
+
+12 秒沒有通道回覆，影子健康狀態記為 detected 並取 snapshot；30 秒記為 unconfirmed。送出、取消、收取證據也分別記錄有限期限，但這些狀態只在 sidecar，不更新 job／attempt／Stage／活動任務或 UI。heartbeat 的 running 集合可證明長節點仍在執行；120 秒無進度只記診斷。`log_consistent=false` 與每筆 `log.gap` 各觸發影子 snapshot；仍保留 needs_reconcile，原生對帳與真正套用留給 reducer 段。空頁／不一致頁至少間隔 1 秒，錯誤以 1／2／4／8 秒退避，不因不一致忙迴圈。
+
+舊輪詢仍決定所有執行狀態。history、native status／cancel／fenced recovery 的終局證據，與事件／snapshot 的 success、error、cancel_confirmed、interrupted、missing 比對，結果保存為 shadow_match／shadow_mismatch。沒有 interrupted 的排隊取消以 cancel_confirmed 比對；純 unavailable 不是 missing。這些診斷只表示觀測一致或不同，不授權重送、取消或本地結案。
 
 ## 安全與訂閱範圍
 
@@ -125,4 +143,4 @@ native 與 frozen 都持久保存 cancel_requested，排隊中精確比對 promp
 
 固定來源 hash 與來源衍生 fixture 在測試檔中保存；未執行 ComfyUI 本體。第三方 group node、其他後端／前端版本、真 GPU 與真 WebSocket 尚未驗證，見[配套矩陣](../guide/comfyui-compatibility.md)。單一 hook 與服務重建有合成測試；不據此宣稱 ComfyUI 路由整體可熱重載，實際更新仍須重啟後端。
 
-共用協定由 `releases.SHARED_MODULES` 與建置流程產生，不能手動修改打包後的 shared 副本。後續 B 段接共享 transport／inbox，C 段才接 reducer／交易格式與禁止舊擴充派送，D 段接早到節點結果，效能整合在其後；本段不改 manager、md、chat，也不把它們路由到 ComfyUI。
+共用協定由 `releases.SHARED_MODULES` 與建置流程產生，不能手動修改打包後的 shared 副本。共享 transport／inbox 目前只影子接收；後續才接 reducer／交易格式與禁止舊擴充派送，再接早到節點結果與效能整合。manager、md、chat 不因此改走 ComfyUI 執行通道。

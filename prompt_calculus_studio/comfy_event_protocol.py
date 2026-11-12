@@ -120,6 +120,8 @@ def validate_page(value, identity, requested_scope, since):
         raise ValueError('Oversized event page')
     previous = start
     for item in events:
+        if not isinstance(item, dict) or not isinstance(item.get('scope'), dict):
+            raise ValueError('Invalid event envelope')
         seq = cursor(item.get('seq'))
         if not previous < seq <= end or not matches_scope(item, requested_scope):
             raise ValueError('Invalid event order or scope')
@@ -129,3 +131,47 @@ def validate_page(value, identity, requested_scope, since):
             raise ValueError('Oversized event payload')
         previous = seq
     return end
+
+
+def validate_header(value, identity, requested_scope):
+    if not isinstance(value, dict) or value.get('schema') != SCHEMA:
+        raise ValueError('Invalid channel header')
+    if any(value.get(k) != identity.get(k) for k in ('server_instance', 'epoch')):
+        raise ValueError('Wrong event server or epoch')
+    if value.get('scope_digest') != scope_digest(requested_scope):
+        raise ValueError('Wrong event scope')
+    cursor(value.get('latest_seq'))
+    cursor(value.get('oldest_seq'))
+    if type(value.get('log_consistent')) is not bool: raise ValueError('Missing log consistency')
+
+
+def validate_snapshot(value, identity, requested_scope, *, token='', after='', as_of=None):
+    validate_header(value, identity, requested_scope)
+    current = value.get('snapshot_token')
+    if not isinstance(current, str) or not 1 <= len(current) <= 100 or (token and current != token):
+        raise ValueError('Wrong snapshot token')
+    watermark = cursor(value.get('as_of_seq'))
+    if watermark > cursor(value['latest_seq']) or (as_of is not None and str(as_of) != value['as_of_seq']):
+        raise ValueError('Wrong snapshot watermark')
+    if value.get('after') != after or type(value.get('done')) is not bool:
+        raise ValueError('Wrong snapshot coverage')
+    items = value.get('receipts')
+    if not isinstance(items, list) or len(items) > MAX_EVENTS or len(encode(value)) > MAX_PAGE_BYTES:
+        raise ValueError('Oversized snapshot')
+    previous = after
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get('scope'), dict):
+            raise ValueError('Invalid snapshot envelope')
+        entity = item.get('entity')
+        if not isinstance(entity, str) or not previous < entity or not matches_scope(item, requested_scope):
+            raise ValueError('Wrong snapshot order or scope')
+        # Durable receipts can originate in an older epoch. Their envelope is
+        # retained verbatim; snapshot header/as_of identify the current view.
+        if item.get('schema') != SCHEMA or item.get('server_instance') != identity['server_instance']:
+            raise ValueError('Wrong snapshot receipt identity')
+        if len(encode(item.get('payload'))) > MAX_PAYLOAD_BYTES: raise ValueError('Oversized snapshot receipt')
+        if item.get('epoch') == identity['epoch'] and cursor(item.get('seq')) > watermark:
+            raise ValueError('Receipt newer than snapshot')
+        previous = entity
+    if value.get('next_after') != (previous if items else '') or (not value['done'] and not items):
+        raise ValueError('Incomplete snapshot coverage')
