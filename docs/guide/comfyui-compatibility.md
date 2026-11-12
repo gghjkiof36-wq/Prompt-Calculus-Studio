@@ -1,8 +1,23 @@
 # ComfyUI 配套與資料格式相容
 
-適用：PCS 0.8.9 Beta2 · [安裝步驟](comfyui.md) · [疑難排解](troubleshooting.md)
+適用：pre-alpha3 開發中的事件通道，以及下方另列的 0.8.9 Beta2 歷史配套。· [安裝步驟](comfyui.md) · [疑難排解](troubleshooting.md)
 
-## 選擇同版配套
+## pre-alpha3 事件通道配套
+
+持久收據／事件紀錄需要更新 ComfyUI 端擴充，再重啟後端並重新整理網頁。只更新桌面程式不會讓舊擴充具備此能力；實際載入版、安裝位置與 `execution_events_v1` 能力以服務回覆為準，安裝位置由擴充的 `extension_info.root` 回報。
+
+目前第一段保留舊 HTTP 路徑與輪詢，桌面尚未切換事件驅動；下一段仍為影子接收。後續正式切換時，新 PCS 遇到舊擴充會在更新前禁止新派送，不提供 legacy 輪詢相容模式。舊 PCS 使用新版擴充可繼續走原路徑。本段不改 PCS 文件格式、不替使用者自動更新擴充安裝。
+
+| 通道支援矩陣 | 核對程度 |
+|---|---|
+| ComfyUI 0.38.0 核心原生事件 | **已對 0.38.0 原始碼核對**；prompt_id、快取、多輸出、子圖、error／interrupted、排隊取消由來源衍生 fixture 驗證。 |
+| 其他 ComfyUI 後端版本 | 未驗證；下方歷史套件標籤不代表新通道已驗證。 |
+| 原生網頁、第三方 group／custom nodes、官方 Desktop | 新通道未做真環境驗證。 |
+| GPU 生成、實際安裝／熱重載 | 未驗證；更新須重啟後端。 |
+
+事件重播、容量、scope 與安全細節見[事件協定](../development/comfy-event-protocol.md)。這些結果只證明固定來源及離線合成測試，不表示目前使用者安裝已更新或全部工作流已通過。
+
+## 0.8.9 Beta2 歷史配套
 
 主程式與配套擴充都須更新。0.8.9 Beta2 的通用、legacy 與 modern 配套使用同源核心，支援 PCS 文件／快照格式 **1–7**；每次只在 `custom_nodes` 安裝一份 PCS 擴充。
 

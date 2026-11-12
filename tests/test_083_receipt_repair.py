@@ -81,7 +81,12 @@ class ReceiptRepairTests(unittest.TestCase):
         self.assertEqual(self.queue.recovery('operation-1',q)['recovery']['location'],'submitting')
         with self.assertRaisesRegex(ValueError,'待提交'):self.queue.abandon('operation-1',q)
         self.assertEqual(self.queue.cancel('operation-1',q,lambda:None)['state'],'settled')
-        restarted=type(self.queue)(self.service)
+        reloaded=type(self.queue)(self.service)
+        with self.assertRaisesRegex(ValueError,'待提交'):reloaded.abandon('operation-1',q)
+        # Rebuilding a service in the same process is a reload, not evidence
+        # that an old /prompt handler is gone. Model an actual process restart.
+        with patch('integration_test.event_log.PROCESS_INSTANCE','restarted-process'):
+            restarted=type(self.service)(self.root,self.root,self.root).native_queue
         self.assertEqual(restarted.abandon('operation-1',q)['state'],'abandoned')
         self.assertTrue(restarted.read('operation-1')['queue_terminal'])
 

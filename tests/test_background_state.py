@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
+from test_comfy_integration import Service
 
 _spec = importlib.util.spec_from_file_location('pcs_background_state', Path(__file__).resolve().parents[1] / 'comfyui_prompt_calculus_studio/background_state.py')
 module = importlib.util.module_from_spec(_spec)
@@ -20,15 +21,13 @@ class FakeService:
     def __init__(self, path):
         self.path = path
         self.lock = threading.RLock()
+        # Use the real event transaction boundary in this storage-only fixture.
+        self.backend = Service(path.parent, path.parent, path.parent)
+        self.events = self.backend.events
 
     @contextmanager
     def connect(self):
-        db = sqlite3.connect(self.path)
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
+        with self.backend.connect() as db:yield db
 
 
 def graphs():
@@ -174,6 +173,7 @@ class BackgroundStateTests(unittest.TestCase):
     def test_restart_marks_released_state_unknown_and_requires_explicit_recovery(self):
         _, receipt, release = self.released()
         prior_epoch = self.core.server_epoch
+        self.service = FakeService(self.service.path)
         self.core = BackgroundState(self.service)
         self.assertNotEqual(self.core.server_epoch, prior_epoch)
         self.assertEqual(self.snapshot()['phase'], 'unknown')
@@ -219,6 +219,7 @@ class BackgroundStateTests(unittest.TestCase):
 
     def test_pending_submission_survives_restart_as_unresolved_without_resubmission(self):
         _, _, request, _ = self.start()
+        self.service = FakeService(self.service.path)
         self.core = BackgroundState(self.service)
         with self.assertRaisesRegex(ValueError, 'server_epoch'):
             self.core.start(request)
@@ -435,6 +436,16 @@ class BackgroundStateTests(unittest.TestCase):
                 _, _, request, _ = self.start()
                 original = self.core.bind_prompt(request | {'prompt_id': 'real-' + name})
                 mutate(original)
+                if name == 'key':
+                    # A durable writer can no longer move an existing receipt
+                    # into a foreign workspace, even before recapture runs.
+                    with self.assertRaisesRegex(ValueError,'Receipt ownership changed'),self.service.connect() as db:
+                        db.execute('UPDATE background_operations SET body=? WHERE id=?',
+                                   (module._json(original),original['op_id']))
+                    with self.service.connect() as db:
+                        stored,=db.execute('SELECT body FROM background_operations WHERE id=?',(original['op_id'],)).fetchone()
+                    self.assertEqual(__import__('json').loads(stored)['key']['workspace_id'],name)
+                    continue
                 with self.service.connect() as db:
                     db.execute('UPDATE background_operations SET body=? WHERE id=?',
                                (module._json(original), original['op_id']))

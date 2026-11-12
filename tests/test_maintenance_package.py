@@ -131,4 +131,22 @@ assert not definitions(restored)[key]['root']['selection_cursor']['position']['e
             run=subprocess.run([sys.executable,'-c',code,*SHARED_MODULES],cwd=destination,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=30)
             self.assertEqual(run.returncode,0,run.stdout.decode('utf-8',errors='replace'))
 
+    def test_extension_event_sources_import_without_qt(self):
+        # Source boundary check is separate from the tracked-source package
+        # builder: an uncommitted handoff must not loosen its allowlist.
+        code="""import sys,importlib,types
+class NoQt:
+ def find_spec(self,fullname,*args):
+  if fullname.startswith(('PySide6','PyQt','shiboken6')):raise RuntimeError('Event protocol imported Qt')
+sys.meta_path.insert(0,NoQt())
+package=types.ModuleType('pcs_event_source');package.__path__=[sys.argv[1]]
+shared=types.ModuleType('pcs_event_source.shared');shared.__path__=[sys.argv[2]]
+sys.modules[package.__name__]=package;sys.modules[shared.__name__]=shared
+for name in ('event_protocol','event_log','service'):
+ importlib.import_module(package.__name__+'.'+name)
+"""
+        run=subprocess.run([sys.executable,'-B','-c',code,str(ROOT/'comfyui_prompt_calculus_studio'),str(ROOT/'prompt_calculus_studio')],
+                           cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=30)
+        self.assertEqual(run.returncode,0,run.stdout.decode('utf-8',errors='replace'))
+
 if __name__=='__main__':unittest.main()

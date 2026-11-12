@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 import os
+import sqlite3
 import time
 import uuid
 from pathlib import Path, PurePosixPath
@@ -19,6 +20,13 @@ class FrozenQueue:
         with service.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS queue_captures (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS queue_attempts (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
+            service.events.watch(db, 'queue_captures', 'queue_attempts')
+            from .event_log import PROCESS_INSTANCE
+            for ident, raw in db.execute('SELECT id,body FROM queue_attempts').fetchall():
+                value=json.loads(raw)
+                if value.get('submit_inflight') and value.get('submit_process') != PROCESS_INSTANCE:
+                    value.update(submit_inflight=False,state='unconfirmed')
+                    db.execute('UPDATE queue_attempts SET body=? WHERE id=?',(json.dumps(value),ident))
 
     def read(self, table, ident):
         if table not in ('queue_captures', 'queue_attempts'):
@@ -212,13 +220,19 @@ class FrozenQueue:
             payload = self.payload(work, job, ident, prompt)
             saved = dict(id=ident, job=job, capture=value['capture'], request_hash=fingerprint,
                          prompt_id=prompt, created=time.time(), state='submitting', payload=payload, error='')
+            from .event_protocol import EVIDENCE_SECONDS
+            saved['deadline_at']=saved['created']+EVIDENCE_SECONDS
+            from .event_log import PROCESS_INSTANCE
+            saved.update(submit_inflight=True,submit_process=PROCESS_INSTANCE)
             db.execute('INSERT INTO queue_attempts VALUES (?,?)', (ident, json.dumps(saved, ensure_ascii=False)))
-        attempted = False
+        attempted = accepted = False
         try:
             for asset in work['assets']:
                 self.materialize(asset)
             attempted = True
             status, response = await post(copy.deepcopy(payload))
+            accepted = status < 400 and response.get('prompt_id') == prompt
+            saved['submit_inflight']=False
             if status >= 400:
                 error = response.get('error', {})
                 rejected = status == 400 and isinstance(error, dict) and error.get('type') in (
@@ -231,8 +245,20 @@ class FrozenQueue:
             else:
                 saved.update(state='queued', error='')
         except Exception as exc:
+            if (accepted and isinstance(exc, (sqlite3.Error, OSError))
+                    and not isinstance(exc, (sqlite3.IntegrityError, sqlite3.DataError))):
+                self.service.events.record_loss('frozen accepted receipt: '+str(exc),
+                    prompt_id=prompt, entity='queue_attempts:'+ident)
             saved.update(state='unconfirmed' if attempted else 'failed', error=str(exc))
-        self.save_attempt(saved)
+        try:
+            self.save_attempt(saved)
+        except (sqlite3.IntegrityError, sqlite3.DataError):
+            raise
+        except (sqlite3.Error, OSError) as exc:
+            if accepted:
+                self.service.events.record_loss('frozen accepted receipt: '+str(exc),
+                    prompt_id=prompt, entity='queue_attempts:'+ident)
+            raise
         return saved
 
     def decorate(self, data):
@@ -271,7 +297,7 @@ class FrozenQueue:
             return saved
         prompt = saved['prompt_id']
         if prompt in running or prompt in queued:
-            saved.update(state='running' if prompt in running else 'queued', error='')
+            saved.update(state='running' if prompt in running else 'queued', error='',submit_inflight=False)
         elif prompt in history:
             work = self.read('queue_captures', saved['capture'])
             state, error = result_state(work, prompt, history[prompt])
@@ -290,3 +316,58 @@ class FrozenQueue:
             saved.update(state='unconfirmed', error='佇列與歷史找不到原嘗試；停止派送，不重送。')
         self.save_attempt(saved)
         return saved
+
+    def recovery(self, ident, queue, *, retire=False):
+        """Fence absence atomically against decorate; never retire unavailable."""
+        self.service.native_queue.require_supported()
+        mutex=getattr(queue,'mutex',None)
+        if mutex is None:raise ValueError('無法核對原生佇列。')
+        with mutex,self.service.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT body FROM queue_attempts WHERE id=?',(ident,)).fetchone()
+            if row is None:raise ValueError('找不到 Queue 嘗試。')
+            saved=json.loads(row[0]);prompt=saved['prompt_id']
+            location='missing'
+            if any(item[1]==prompt for item in queue.currently_running.values()):location='running'
+            elif any(item[1]==prompt for item in queue.queue):location='queued'
+            elif saved.get('submit_inflight'):location='submitting'
+            else:
+                history=getattr(queue,'get_history',None)
+                if not callable(history):location='unavailable'
+                elif history(prompt_id=prompt).get(prompt):location='history'
+            proof=dict(location=location,can_abandon=location=='missing',checked=time.time())
+            if location=='missing':
+                saved.setdefault('missing_fence',dict(epoch=self.service.events.epoch,checked=time.time()))
+                if saved['state'] not in ('failed','unconfirmed'):saved['state']='unconfirmed'
+                proof['fenced']=True
+            if retire:
+                if location!='missing':raise ValueError('尚無 fenced missing 證據，未停止追蹤。')
+                saved.update(state='failed',abandoned=True,terminal_action='abandon',queue_terminal=True)
+            if location=='missing':
+                db.execute('UPDATE queue_attempts SET body=? WHERE id=?',(json.dumps(saved),ident))
+            return dict(id=ident,state='abandoned' if retire else saved['state'],recovery=proof)
+
+    def cancel(self, ident, queue, interrupt):
+        """Persist intent before the effect and confirmation after queued removal."""
+        import heapq
+        self.service.native_queue.require_supported()
+        saved=self.read('queue_attempts',ident);prompt=saved['prompt_id']
+        mutex=getattr(queue,'mutex',None)
+        if mutex is None:raise ValueError('無法核對原生佇列。')
+        with mutex:
+            pending=list(queue.queue);running=list(queue.currently_running.values())
+            matches=[item for item in pending+running if item[1]==prompt]
+            for item in matches:
+                actual=item[3].get('extra_pnginfo',{}).get('prompt_studio',{}) if len(item)>3 else {}
+                expected=saved['payload']['extra_data']['extra_pnginfo']['prompt_studio']
+                if actual!=expected or digest(item[2])!=digest(saved['payload']['prompt']):
+                    raise ValueError('Queue 任務歸屬不符。')
+            if matches:
+                saved.update(cancel_requested=True,cancel_confirmed=False,cancel_deadline_at=time.time()+30)
+                self.save_attempt(saved)
+                if any(item[1]==prompt for item in pending):
+                    queue.queue[:]=[item for item in queue.queue if item[1]!=prompt];heapq.heapify(queue.queue)
+                    saved.update(state='failed',cancel_confirmed=True,terminal_action='cancel',queue_terminal=True)
+                    self.save_attempt(saved);return dict(ok=True,state='failed')
+                interrupt();return dict(ok=True,state='cancelling')
+        return self.recovery(ident,queue)

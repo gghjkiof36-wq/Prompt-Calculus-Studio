@@ -1,9 +1,13 @@
 import asyncio
 import copy
 import importlib
+import json
+import sqlite3
+import time
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from test_comfy_integration import Service
 from test_background_state import graphs,module
 from test_multi_output import workspace
@@ -60,6 +64,27 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(self.service.background.snapshot(dict(key=self.key))['revision'],2)
         # Normal entry idempotency terminates at the same native operation.
         self.assertEqual(self.service.native_queue.start(self.request)['prompt_id'],result['prompt_id'])
+
+    def test_accepted_background_receipt_failure_recovers_with_gap_without_resubmitting(self):
+        self.runner.edit('release',self.release,self.server)
+        posts=[]
+        async def post(payload):
+            posts.append(copy.deepcopy(payload));self.service.prepare_prompt(payload)
+            self.service.events.fault=lambda _:(_ for _ in ()).throw(sqlite3.OperationalError('accepted disk failure'))
+            return 200,dict(prompt_id=payload['prompt_id'])
+        with self.assertRaises(sqlite3.OperationalError):self.run_request(post)
+        log=self.service.events;log.fault=None
+        self.assertFalse(log.heartbeat([])['log_consistent'])
+        with log.connection() as db:self.assertEqual(db.execute('SELECT consistent FROM event_meta').fetchone()[0],0)
+        with patch('time.monotonic',return_value=time.monotonic()+2):self.assertTrue(log.recover_gap())
+        self.assertTrue(log.heartbeat([])['log_consistent'])
+        with log.connection() as db:
+            self.assertEqual(db.execute('SELECT consistent,reason FROM event_meta').fetchone(),(1,''))
+            gaps=[json.loads(r[0]) for r in db.execute("SELECT body FROM event_log WHERE json_extract(body,'$.kind')='log.gap'")]
+        self.assertEqual(len(gaps),1)
+        self.assertIn(dict(prompt_id=posts[0]['prompt_id'],entity='native_operations:'+self.request['id']),gaps[0]['payload']['affected'])
+        self.assertEqual(self.service.native_queue.start(self.request)['prompt_id'],posts[0]['prompt_id'])
+        self.assertEqual(len(posts),1)
 
     def test_open_or_dirty_writer_never_posts_old_version(self):
         async def post(_):self.fail('must not submit')

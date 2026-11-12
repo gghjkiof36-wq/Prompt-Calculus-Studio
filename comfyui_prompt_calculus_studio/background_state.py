@@ -232,11 +232,12 @@ class BackgroundState:
         self.service = service
         self.multi_user = multi_user
         self.draw = draw
-        self.server_epoch = str(uuid.uuid4())
+        self.server_epoch = service.events.epoch
         with self._transaction() as db:
             db.execute('CREATE TABLE IF NOT EXISTS background_states (key TEXT PRIMARY KEY, body TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS background_operations (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS background_receipts (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
+            service.events.watch(db, 'background_states', 'background_operations', 'background_receipts')
             # No restart silently releases a missing writer or resubmits a job.
             for ident, raw in db.execute('SELECT key,body FROM background_states').fetchall():
                 state = json.loads(raw); state['phase'] = 'unknown'

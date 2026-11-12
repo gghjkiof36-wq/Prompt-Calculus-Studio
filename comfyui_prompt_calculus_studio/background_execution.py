@@ -1,6 +1,7 @@
 """Bind confirmed-close state to the existing PCS operation and Comfy prompt."""
 import copy
 import json
+import sqlite3
 import time
 import uuid
 from .native_queue import digest
@@ -146,7 +147,7 @@ class BackgroundExecution:
             identity=dict(workflow=key['workflow_id'],frontend_id=key['frontend_id'],path=key['path']),client_id=client_id,
             snapshot=snapshot,workflow=key['workflow_id'],texts=bound_texts(snapshot['state'],profile),user_scope='default',
             background=dict(key=key,revision=operation['revision'],digest=operation['digest'],server_epoch=self.core.server_epoch))
-        attempted=False
+        attempted=accepted=False
         try:
             self.service.native_queue.prepare_payload(native,payload['prompt'],visual)
             visual.setdefault('extra',{})['pcs_native_operation']=native['id']
@@ -156,6 +157,7 @@ class BackgroundExecution:
             # queue.put or execute nodes from an alternate private runner.
             attempted=True
             status,response=await post(payload)
+            accepted=status<400 and response.get('prompt_id')==prompt_id
             if status>=400:
                 # Only the pinned native route's pre-queue validation errors
                 # prove rejection. A 5xx can occur after queue.put succeeded.
@@ -168,9 +170,13 @@ class BackgroundExecution:
             if recorded.get('prompt_id')!=prompt_id or recorded['state']!='submitted':raise ValueError('背景提交尚未完成記錄核對。')
             if not verify(prompt_id,payload['prompt']):raise ValueError('ComfyUI 實際接收的工作流與確認版本不符，已停止後续操作。')
             self.core.bind_prompt(dict(key=key,op_id=native['id'],prompt_id=prompt_id,server_epoch=self.core.server_epoch))
-            recorded.update(state='queued');self.service.native_queue.save(recorded)
+            recorded.update(state='queued',submit_inflight=False);self.service.native_queue.save(recorded)
             return self.service.native_queue.status(native['id'])
         except Exception as error:
+            if (accepted and isinstance(error,(sqlite3.Error,OSError))
+                    and not isinstance(error,(sqlite3.IntegrityError,sqlite3.DataError))):
+                self.service.events.record_loss('background accepted receipt: '+str(error),
+                    prompt_id=prompt_id,entity='native_operations:'+native['id'])
             try:self.core.submission_failed(dict(key=key,op_id=native['id'],server_epoch=self.core.server_epoch,uncertain=attempted))
             except ValueError:pass # A committed bind remains committed even if its HTTP reply is lost.
             try:recorded=self.service.native_queue.read(native['id'])

@@ -22,10 +22,13 @@ class Service:
         self.roots = {'output': Path(output_root).resolve(), 'temp': Path(temp_root).resolve()}
         self.lock = threading.RLock()
         self.default_library = default_library
+        from .event_log import EventLog
+        self.events = EventLog(self.directory)
         with self.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS collections (key TEXT PRIMARY KEY, path TEXT NOT NULL, hash TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL, created REAL NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS workflow_transfers (id TEXT PRIMARY KEY, library TEXT NOT NULL, body TEXT NOT NULL, created REAL NOT NULL, status TEXT NOT NULL, error TEXT NOT NULL)')
+            self.events.watch(db, 'collections', 'jobs', 'workflow_transfers')
         from .native_queue import NativeQueue
         self.native_queue=NativeQueue(self,native_multi_user)
         from .frozen_queue import FrozenQueue
@@ -36,11 +39,49 @@ class Service:
     @contextmanager
     def connect(self):
         connection = sqlite3.connect(self.directory / 'integration.sqlite3', timeout=10)
+        self.events.configure_connection(connection)
         try:
             with connection:
                 yield connection
+                self.events.drain_changes(connection)
+            if connection.total_changes: self.events.committed()
         finally:
             connection.close()
+
+    def maintain_events(self, queue=None):
+        """Worker deadlines independent of HTTP polling; never resubmit a job."""
+        from .event_protocol import EVIDENCE_SECONDS, DIAGNOSTIC_SECONDS
+        now = time.time()
+        with self.connect() as db:
+            native = [json.loads(r[0]) for r in db.execute("SELECT body FROM native_operations WHERE json_extract(body,'$.state') IN ('awaiting_browser','pending','delivered','prepared','submitted','unconfirmed','queued') AND COALESCE(json_extract(body,'$.queue_terminal'),0)=0")]
+        running, queued = ([], []) if queue is None else queue.get_current_queue_volatile()
+        entries = list(running)+list(queued)
+        for value in native:
+            if value.get('abandoned'): continue
+            if queue is not None and value.get('prompt_id'):
+                history = queue.get_history(prompt_id=value['prompt_id'])
+                self.native_queue.reconcile(value['id'], entries+[v.get('prompt', []) for v in history.values()])
+                self.native_queue.observe_terminal(value['id'],history)
+            else: self.native_queue.status(value['id'])
+            with self.connect() as db:
+                last=db.execute("SELECT MAX(json_extract(body,'$.created_at')) FROM event_receipts WHERE prompt=? AND entity LIKE 'execution:%'",(value.get('prompt_id',''),)).fetchone()[0]
+            if now-(last or value.get('created', now)) >= DIAGNOSTIC_SECONDS and not value.get('diagnostic_at'):
+                current = self.native_queue.read(value['id']);current['diagnostic_at'] = now
+                self.native_queue.save(current)
+        for value in self.work_queue.unresolved():
+            if queue is not None:
+                history = queue.get_history(prompt_id=value['prompt_id'])
+                self.work_queue.reconcile(value['id'], [v[1] for v in running], [v[1] for v in queued], history)
+            elif value['state'] == 'submitting' and now-value['created'] >= EVIDENCE_SECONDS:
+                value.update(state='unconfirmed', error='提交證據逾時，不會重送。');self.work_queue.save_attempt(value)
+        with self.events.connection() as db:self.events.prune(db)
+        # Cancellation evidence expires independently of generation duration.
+        for table in ('native_operations','queue_attempts'):
+            with self.connect() as db:
+                rows=db.execute("SELECT id,body FROM "+table+" WHERE json_extract(body,'$.cancel_requested')=1 AND COALESCE(json_extract(body,'$.cancel_confirmed'),0)=0 AND COALESCE(json_extract(body,'$.cancel_unconfirmed'),0)=0 AND json_extract(body,'$.cancel_deadline_at')<?",(now,)).fetchall()
+                for ident, raw in rows:
+                    value=json.loads(raw);value['cancel_unconfirmed']=True
+                    db.execute('UPDATE '+table+' SET body=? WHERE id=?',(json.dumps(value),ident))
 
     def settings(self):
         if self.config_path.exists():
@@ -105,6 +146,8 @@ class Service:
             if old:
                 if old!=(library,payload): raise ValueError('匯出識別碼重複。')
             else:
+                if db.execute('SELECT 1 FROM event_receipts WHERE entity=?',('workflow_transfers:'+ident,)).fetchone():
+                    raise ValueError('此匯出識別碼已有持久收據，不能重新派送。')
                 if db.execute("SELECT COUNT(*) FROM workflow_transfers WHERE library=? AND status='pending'",(library,)).fetchone()[0]>=50: raise ValueError('待匯入工作流已滿，請先開啟桌面程式。')
                 db.execute('INSERT INTO workflow_transfers VALUES (?,?,?,?,?,?)',(ident,library,payload,time.time(),'pending',''))
                 db.execute("DELETE FROM workflow_transfers WHERE status!='pending' AND created<?",(time.time()-7*86400,))

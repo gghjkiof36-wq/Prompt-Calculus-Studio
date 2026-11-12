@@ -12,6 +12,30 @@ EVENTS = frozenset(('execution_start', 'execution_cached', 'executing', 'progres
     'progress_state', 'executed', 'execution_success', 'execution_error', 'execution_interrupted'))
 
 
+def install_event_hook(server, publisher):
+    """Replace the publisher, not the original sender or legacy active jobs."""
+    hook = getattr(server, '_pcs_execution_hook', None)
+    if hook is not None and server.send_sync is hook:
+        hook.publisher.stop()
+        hook.publisher = publisher
+    else:
+        legacy = BackgroundEvents(server.send_sync)
+        class Hook:
+            def __init__(self):
+                self.publisher = publisher
+                self.legacy = legacy
+
+            def __call__(self, event, data, sid=None):
+                # No disk I/O here, even when called while queue.mutex is held.
+                self.publisher.observe(event, data, sid)
+                return self.legacy.observe(event, data, sid)
+        hook = Hook()
+        server._pcs_execution_hook = hook
+        server.send_sync = hook
+    publisher.start()
+    return hook.legacy
+
+
 class BackgroundEvents:
     def __init__(self, send):
         self.send = send

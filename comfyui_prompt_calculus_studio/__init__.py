@@ -31,10 +31,12 @@ routes = PromptServer.instance.routes
 bridge = DesktopBridge()
 from .node_images import NodeImages
 node_images=NodeImages(dict(input=folder_paths.get_input_directory(),output=folder_paths.get_output_directory(),temp=folder_paths.get_temp_directory()))
-from .background_events import BackgroundEvents
+from .background_events import install_event_hook
+from .event_log import NativeEventBuffer
+from . import event_protocol
 from .background_execution import BackgroundExecution,CaptureRejected
-background_events=BackgroundEvents(PromptServer.instance.send_sync)
-PromptServer.instance.send_sync=background_events.observe
+event_publisher=NativeEventBuffer(service, PromptServer.instance.prompt_queue)
+background_events=install_event_hook(PromptServer.instance,event_publisher)
 background_execution=BackgroundExecution(service,background_events)
 
 
@@ -77,6 +79,75 @@ async def body(request):
     if not isinstance(value, dict):
         raise ValueError('資料格式無效。')
     return value
+
+
+def event_route(function):
+    """The new GET routes need the same token as mutations, plus local checks."""
+    @functools.wraps(function)
+    async def checked(request):
+        if not secrets.compare_digest(request.headers.get('X-Prompt-Studio', ''), _token):
+            raise web.HTTPForbidden(text='請重新取得本機連線 token。')
+        service.native_queue.require_supported()
+        return await function(request)
+    return local_route(checked)
+
+
+def event_query(request):
+    query=request.query
+    requested=event_protocol.scope(json.loads(query.get('scope','{}')))
+    identity=(query.get('server_instance'),query.get('epoch'))
+    digest=query.get('scope_digest','')
+    service.events.check(identity,requested,digest)
+    return identity,requested,digest
+
+
+def event_response(value, status=200):
+    # The byte budget is defined over exactly these UTF-8 JSON bytes.
+    return web.json_response(value,status=status,dumps=lambda v:event_protocol.encode(v).decode('utf-8'))
+
+
+def event_capability():
+    return dict(schema=event_protocol.SCHEMA,transport='long-poll',
+        server_instance=service.events.server_instance,epoch=service.events.epoch,
+        limits=event_protocol.limits())
+
+
+@routes.get('/prompt_studio/events/capability')
+@event_route
+async def events_capability(request):
+    return event_response(dict(capabilities=[event_protocol.CAPABILITY],
+        event_channel=event_capability(),extension_info=LOADED_BUILD))
+
+
+@routes.get('/prompt_studio/events')
+@event_route
+async def events(request):
+    identity,requested,digest=event_query(request)
+    result=await asyncio.to_thread(service.events.events,request.query.get('since','0'),
+        float(request.query.get('wait','0')),identity,requested,digest)
+    return event_response(result,409 if result.get('reset_required') else 200)
+
+
+@routes.get('/prompt_studio/events/heartbeat')
+@event_route
+async def events_heartbeat(request):
+    _,requested,_=event_query(request)
+    def read():
+        try:
+            running,_=PromptServer.instance.prompt_queue.get_current_queue_volatile()
+            running=[item[1] for item in running]
+        except Exception:
+            running=None
+        return service.events.heartbeat(running,requested)
+    return event_response(await asyncio.to_thread(read))
+
+
+@routes.get('/prompt_studio/events/snapshot')
+@event_route
+async def events_snapshot(request):
+    identity,requested,digest=event_query(request)
+    return event_response(await asyncio.to_thread(service.events.snapshot,identity,requested,digest,
+        request.query.get('snapshot_token',''),request.query.get('after','')))
 
 
 @routes.get('/prompt_studio/config')
@@ -151,6 +222,10 @@ async def desktop_status(request):
     else:status['native_unavailable_reason']='此原生入口目前只支援 ComfyUI 單一使用者模式。'
     status['pcs_version']=LOADED_BUILD.get('version','開發版')
     status['extension']=LOADED_BUILD
+    status['extension_info']=LOADED_BUILD
+    if service.native_queue.available():
+        status['capabilities'].append(event_protocol.CAPABILITY)
+        status['event_channel']=event_capability()
     if service.native_queue.available():status['capabilities'].extend(['native_recovery_v1','native_inspect_v1','native_parameters_v1'])
     return web.json_response(status)
 
@@ -275,6 +350,24 @@ async def queue_status(request):
     running,queued=queue.get_current_queue_volatile()
     return web.json_response(service.work_queue.reconcile(ident,{p[1] for p in running},{p[1] for p in queued},
         queue.get_history(prompt_id=saved['prompt_id'])))
+
+
+@routes.post('/prompt_studio/workflow/queue/cancel')
+@local_route
+async def queue_cancel(request):
+    import nodes
+    value=await body(request)
+    return web.json_response(await asyncio.to_thread(service.work_queue.cancel,value['attempt'],
+        PromptServer.instance.prompt_queue,nodes.interrupt_processing))
+
+
+@routes.post('/prompt_studio/workflow/queue/recovery')
+@routes.post('/prompt_studio/workflow/queue/abandon')
+@local_route
+async def queue_recovery(request):
+    value=await body(request)
+    return web.json_response(await asyncio.to_thread(service.work_queue.recovery,value['attempt'],
+        PromptServer.instance.prompt_queue,retire=request.path.endswith('/abandon')))
 
 
 @routes.post('/prompt_studio/workflow/background/lease')

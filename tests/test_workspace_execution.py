@@ -50,6 +50,8 @@ class WorkspaceExecutionTests(unittest.TestCase):
         self.b = self.make('B', 'beta')
         self.peer = self.executors[self.a.document.runtime_token]
         second = self.executors[self.b.document.runtime_token]
+        self.assertIs(second.service, self.peer.service)
+        self.assertIs(second.native, self.peer.native)
         # Both document clients talk to the same native receipt store, queue,
         # history and frontend identity, as they would on one ComfyUI server.
         for name in ('native', 'service', 'pending', 'history', 'submissions',
@@ -91,7 +93,15 @@ class WorkspaceExecutionTests(unittest.TestCase):
             multi_output.connect(state, clip, stage, 'control')
         self.assertTrue(canvas.commit(setup), self.notices)
         request = host.comfy.request
-        executor = Executor(host, self.base/'server')
+        if self.executors:
+            # Both clients address one running server. Constructing a second
+            # Service for its database would simulate an extension reload and
+            # deliberately fence the first Service's epoch before sharing it.
+            service = next(iter(self.executors.values())).service
+            with patch('test_083_runtime_repair.ReceiptService', return_value=service):
+                executor = Executor(host, self.base/'server')
+        else:
+            executor = Executor(host, self.base/'server')
         host.comfy.request = request  # Keep the workspace's final transport guard.
         host.comfy.timer.stop()
         host.comfy.enabled = False

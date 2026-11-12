@@ -1,5 +1,6 @@
 """Native Run requests share the desktop input-buffer consumer, never its DB."""
 import copy
+import hashlib
 import json
 import time
 from .workflow_state import matches
@@ -11,6 +12,7 @@ class InputBridge:
         with service.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS input_bridge (client TEXT PRIMARY KEY, body TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS input_requests (id TEXT PRIMARY KEY, client TEXT NOT NULL, body TEXT NOT NULL)')
+            service.events.watch(db, 'input_bridge', 'input_requests')
             # Retain desktop-owned contents, but a stopped desktop cannot own
             # the native Run button indefinitely (including replaced copies).
             for client,raw in list(db.execute('SELECT client,body FROM input_bridge')):
@@ -40,6 +42,15 @@ class InputBridge:
         if not isinstance(ident,str) or not 1<=len(ident)<=128 or not isinstance(identity,dict):raise ValueError('原生執行識別無效。')
         with self.service.connect() as db:
             db.execute('BEGIN IMMEDIATE')
+            from .event_protocol import encode
+            request_hash=hashlib.sha256(encode(identity)).hexdigest()
+            # An ACK removes the delivery row, not the fact that this click
+            # was already handled. Replay after restart must not enqueue it.
+            receipt=db.execute('SELECT body FROM event_receipts WHERE entity=?',('input_requests:'+ident,)).fetchone()
+            if receipt:
+                payload=json.loads(receipt[0])['payload']
+                if payload.get('request_hash')!=request_hash:raise ValueError('原生輸入要求的身分與持久收據不符。')
+                return dict(handled=True,item=payload.get('head',''),message='此要求已交由 PCS 處理，不重複提交。')
             found=[]
             for client,raw in db.execute('SELECT client,body FROM input_bridge'):
                 body=json.loads(raw)
@@ -52,7 +63,7 @@ class InputBridge:
             if len(found)!=1:return dict(handled=False)
             client,body,entry=found[0]
             if time.time()-body['seen']>8 or entry['paused']:return dict(handled=False)
-            request=dict(id=ident,owner=entry['owner'],head=entry['head'],created=time.time())
+            request=dict(id=ident,owner=entry['owner'],head=entry['head'],created=time.time(),request_hash=request_hash)
             prior=db.execute('SELECT body FROM input_requests WHERE id=?',(ident,)).fetchone()
             if not prior:db.execute('INSERT INTO input_requests VALUES (?,?,?)',(ident,client,json.dumps(request)))
             return dict(handled=True,item=entry['head'],message='已交由 PCS 預排程接續；此按鍵不重複提交。')

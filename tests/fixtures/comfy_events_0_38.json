@@ -1,0 +1,43 @@
+{
+  "version": "0.38.0",
+  "evidence": "Source-derived synthetic fixtures, not a GPU or frontend execution trace.",
+  "sources": {
+    "execution.py": "d1c99b0b1efb079d9a53a4fb307ff3c7f97e354b83bbeaf43a68c01cd2c103af",
+    "main.py": "168c547e05c557641d5ba5e15a4b6ee1fc2cc9278414db25b16c36338dc646c8",
+    "server.py": "f5a57fa6c54c2cd842cdfaba076c99242b7de3b28de29480ffe291156d3d0254"
+  },
+  "scenarios": [
+    {"name": "subgraph_multi_output", "source": "execution.py:438-451,496,568-609,824; display_node is not unique_id; parent UI may precede expanded children", "events": [
+      ["execution_start", {"prompt_id":"subgraph", "timestamp":1}],
+      ["execution_cached", {"prompt_id":"subgraph", "nodes":[], "timestamp":2}],
+      ["executing", {"prompt_id":"subgraph", "node":"group", "display_node":"group"}],
+      ["executed", {"prompt_id":"subgraph", "node":"group", "display_node":"group", "output":{"text":["expanded parent UI"]}}],
+      ["executing", {"prompt_id":"subgraph", "node":"group.0.8", "display_node":"group"}],
+      ["executed", {"prompt_id":"subgraph", "node":"group.0.8", "display_node":"group", "output":{"images":[{"filename":"a.png","type":"output","subfolder":""},{"filename":"b.png","type":"output","subfolder":""}]}}],
+      ["executed", {"prompt_id":"subgraph", "node":"9", "display_node":"9", "output":{"images":[{"filename":"c.png","type":"output","subfolder":""}]}}],
+      ["execution_success", {"prompt_id":"subgraph", "timestamp":3}],
+      ["executing", {"prompt_id":"subgraph", "node":null}]
+    ]},
+    {"name":"cache", "source":"execution.py:446-451,770,814-824; asset_enrichment.emit_cached_output; cached UI can emit executed; not every cached node has UI", "events":[
+      ["execution_cached", {"prompt_id":"cache", "nodes":["4","8"]}],
+      ["executed", {"prompt_id":"cache", "node":"4", "display_node":"4", "output":null}],
+      ["executed", {"prompt_id":"cache", "node":"8", "display_node":"8", "output":{"images":[{"filename":"cached.png","type":"output","subfolder":""}]}}],
+      ["execution_success", {"prompt_id":"cache"}]
+    ]},
+    {"name":"error", "source":"execution.py:686-712; error inputs excluded from channel payload", "events":[
+      ["execution_error", {"prompt_id":"error", "node_id":"5", "exception_type":"RuntimeError", "exception_message":"fixture", "current_inputs":{"text":"not in event log"}, "traceback":["fixture"]}]
+    ]},
+    {"name":"interrupted", "source":"execution.py:690-699; broadcast even without a client_id", "events":[
+      ["execution_interrupted", {"prompt_id":"interrupted", "node_id":"5", "executed":["4"]}]
+    ]},
+    {"name":"blocker_then_success", "source":"execution.py:524-539,824; node blocker error is not proof of a failed whole prompt", "events":[
+      ["execution_error", {"prompt_id":"blocked", "node_id":"5", "exception_type":"ExecutionBlocked"}],
+      ["execution_success", {"prompt_id":"blocked"}]
+    ]},
+    {"name":"reconnect_no_prompt", "source":"server.py:289-293 uses async send, bypasses send_sync; included as a defensive ingestion fixture, not a guaranteed hook event", "events":[
+      ["executing", {"node":"reconnect-node"}],
+      ["status", {"status":{"exec_info":{"queue_remaining":0}}}]
+    ]},
+    {"name":"queued_cancel", "source":"execution.py PromptQueue.delete_queue_item removes pending item; interrupted is emitted only by execution error handler", "events":[]}
+  ]
+}

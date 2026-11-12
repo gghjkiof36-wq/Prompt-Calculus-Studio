@@ -66,6 +66,7 @@ async def handshake(queue, target, notify, ident, timeout=7.0):
              age=round(time.monotonic()-live['seen'],3),epoch=live['epoch'],ready=live['ready'],acknowledged=live.get('probe')==probe)
         for key,live in queue.sessions.items()])
     with queue.service.connect() as db:
+        # Service.connect includes this direct writer in the atomic outbox.
         db.execute('INSERT OR REPLACE INTO native_diagnostics VALUES (?,?)',(ident,json.dumps(observation,ensure_ascii=False)))
     raise ValueError(message+' ['+reason+']')
 

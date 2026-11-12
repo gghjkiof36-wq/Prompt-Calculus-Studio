@@ -3,6 +3,7 @@ import copy
 import asyncio
 import hashlib
 import json
+import sqlite3
 import time
 import uuid
 from .workflow_state import matches, server_identity
@@ -30,6 +31,7 @@ class NativeQueue:
         with service.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS native_operations (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS native_diagnostics (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
+            service.events.watch(db, 'native_operations', 'native_diagnostics')
             # Heartbeats must not parse every retained snapshot to find live work.
             # SQLite maintains this index across all existing journal writers.
             db.execute("CREATE INDEX IF NOT EXISTS native_operations_state_idx ON native_operations (json_extract(body,'$.state'))")
@@ -39,9 +41,16 @@ class NativeQueue:
                 if value['state']=='awaiting_browser':value.update(state='failed',error='擴充已重新啟動，這次要求尚未派送。')
                 if value['state'] in ('pending','delivered','prepared','submitted'):
                     value.update(state='unconfirmed',error='擴充已重新啟動，提交須對帳，不會重送。')
-                # No HTTP submit from the previous service process can still
-                # enqueue after this startup. Preserve receipts, not its lock.
-                value['submit_inflight']=False
+                # Reload is not a process restart: an old handler may still
+                # enqueue after its durable on_prompt receipt.
+                from .event_log import PROCESS_INSTANCE
+                if value.get('submit_process') and value['submit_process'] != PROCESS_INSTANCE:
+                    value['submit_inflight']=False
+                elif value.get('submit_inflight') and not value.get('submit_process'):
+                    # A legacy receipt has no proof that its old transport is
+                    # gone. Quarantine it through this process, too.
+                    value['submit_process']=PROCESS_INSTANCE
+                else:value.setdefault('submit_inflight',False)
                 db.execute('UPDATE native_operations SET body=? WHERE id=?',(json.dumps(value,ensure_ascii=False),ident))
 
     def available(self):
@@ -57,6 +66,8 @@ class NativeQueue:
         return json.loads(row[0])
 
     def save(self,value):
+        from .event_protocol import EVIDENCE_SECONDS
+        if 'created' in value:value.setdefault('deadline_at',value['created']+EVIDENCE_SECONDS)
         with self.service.connect() as db:
             old=db.execute('SELECT body FROM native_operations WHERE id=?',(value['id'],)).fetchone()
             prior=json.loads(old[0]) if old else {}
@@ -417,7 +428,8 @@ class NativeQueue:
                 bindings=[dict(node_id=first['node'] if first else '',field=first['field'] if first else '',
                     node_title=operation['graph'][first['node']]['class_type'] if first else '圖片輸入',snapshot=operation['snapshot'])])
             extra.pop('prompt_studio_request',None);extra['prompt_studio']=copy.deepcopy(envelope)
-            operation.update(state='submitted',submit_inflight=True,prompt_id=prompt_id,payload=dict(prompt_id=prompt_id,prompt=copy.deepcopy(data['prompt']),input_types=operation.get('input_types',{}),
+            from .event_log import PROCESS_INSTANCE
+            operation.update(state='submitted',submit_inflight=True,submit_process=PROCESS_INSTANCE,prompt_id=prompt_id,payload=dict(prompt_id=prompt_id,prompt=copy.deepcopy(data['prompt']),input_types=operation.get('input_types',{}),
                 extra_data=dict(extra_pnginfo=copy.deepcopy(extra))))
             with self.service.connect() as db:
                 # Both receipts must commit together before Comfy may validate
@@ -489,7 +501,16 @@ class NativeQueue:
             # accepted receipt. Keep tracking that job; never enqueue a retry.
             operation['frontend_error']=str(value.get('error','未取得網頁回覆。'))[:1000]
         else:operation.update(state='unconfirmed' if value.get('uncertain') or operation['state']=='submitted' else 'failed',error=str(value.get('error','未取得提交回執。'))[:1000])
-        self.save(operation);return self.status(operation['id'])
+        try:
+            self.save(operation)
+        except (sqlite3.IntegrityError, sqlite3.DataError):
+            raise  # A fence/stale/envelope rejection is not a lost receipt.
+        except (sqlite3.Error, OSError) as exc:
+            if prompt_id:
+                self.service.events.record_loss('native accepted receipt: '+str(exc),
+                    prompt_id=prompt_id, entity='native_operations:'+operation['id'])
+            raise
+        return self.status(operation['id'])
 
     def status(self,ident):
         self.require_supported()
@@ -504,7 +525,11 @@ class NativeQueue:
         with self.service.connect() as db:
             rows=db.execute("SELECT body FROM native_operations WHERE json_extract(body,'$.state') IN ('awaiting_browser','pending','delivered','prepared')").fetchall()
         for raw, in rows:
-            operation=json.loads(raw);operation.update(state='failed',error='已取消原生提交。');self.save(operation)
+            operation=json.loads(raw)
+            delivered_apply=operation.get('action')=='apply' and operation['state']=='delivered'
+            operation.update(state='failed',terminal_action='cancel',cancel_requested=True,
+                cancel_confirmed=not delivered_apply,cancel_deadline_at=time.time()+30,error='已取消原生提交。')
+            self.save(operation)
 
     def cancel(self,ident,queue,interrupt):
         """Cancel only a journaled operation. Hold the executor lock through interruption."""
@@ -514,7 +539,7 @@ class NativeQueue:
             return dict(ok=True,state='failed' if operation.get('cancel_confirmed') else 'cancelling')
         if operation['state'] in ('awaiting_browser','pending','delivered','prepared') or operation.get('action')=='apply' and operation['state']=='unconfirmed':
             delivered_apply=operation.get('action')=='apply' and operation['state'] in ('delivered','unconfirmed')
-            if delivered_apply:operation.update(cancel_requested=True,cancel_confirmed=False)
+            operation.update(cancel_requested=True,cancel_confirmed=not delivered_apply,cancel_deadline_at=time.time()+30)
             operation.update(state='failed',terminal_action='cancel',error='已取消這項 PCS 工作。');self.save(operation)
             return dict(ok=True,state='cancelling' if delivered_apply else 'failed')
         if operation.get('action')=='apply':return dict(ok=True,state='settled')
@@ -529,10 +554,12 @@ class NativeQueue:
                 if marker.get('native_operation')!=ident or not graph_matches(operation.get('graph'),p[2],operation.get('input_types')):
                     raise ValueError('任務歸屬不符，未取消其他來源的工作。')
             if any(p[1]==prompt for p in pending):
+                operation.update(cancel_requested=True,cancel_confirmed=False,cancel_deadline_at=time.time()+30);self.save(operation)
                 queue.queue[:]=[p for p in queue.queue if p[1]!=prompt];heapq.heapify(queue.queue)
-                operation.update(state='failed',terminal_action='cancel',error='已移除這項尚未執行的 PCS 工作。');self.save(operation)
+                operation.update(state='failed',terminal_action='cancel',cancel_confirmed=True,error='已移除這項尚未執行的 PCS 工作。');self.save(operation)
                 return dict(ok=True,state='failed')
             if any(p[1]==prompt for p in running):
+                operation.update(cancel_requested=True,cancel_confirmed=False,cancel_deadline_at=time.time()+30);self.save(operation)
                 interrupt();return dict(ok=True,state='cancelling')
         result=self.recovery(ident,queue)
         if result['recovery']['location']=='missing' and result['recovery']['can_abandon']:
@@ -563,9 +590,19 @@ class NativeQueue:
         mutex=getattr(queue,'mutex',None)
         if mutex is None:raise ValueError('無法鎖定並核對原生佇列，尚未解除追蹤。')
         with mutex:
-            operation=self.read(ident)
-            result={k:copy.deepcopy(operation[k]) for k in ('id','state','error','prompt_id','payload') if k in operation}
-            result['recovery']=dict(self._recovery(operation,queue),checked=time.time())
+            with self.service.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                row=db.execute('SELECT body FROM native_operations WHERE id=?',(ident,)).fetchone()
+                if row is None:raise ValueError('找不到原生執行要求。')
+                operation=json.loads(row[0]);proof=self._recovery(operation,queue)
+                if proof['location']=='missing' and proof['can_abandon']:
+                    if not operation.get('missing_fence'):
+                        operation['missing_fence']=dict(epoch=self.service.events.epoch,checked=time.time())
+                        if operation['state'] not in ('failed','unconfirmed'):operation['state']='unconfirmed'
+                        db.execute('UPDATE native_operations SET body=? WHERE id=?',(json.dumps(operation,ensure_ascii=False),ident))
+                    proof['fenced']=True
+                result={k:copy.deepcopy(operation[k]) for k in ('id','state','error','prompt_id','payload') if k in operation}
+                result['recovery']=dict(proof,checked=time.time())
             return result
 
     def occupied(self, running, queued, history):
@@ -597,12 +634,17 @@ class NativeQueue:
         mutex=getattr(queue,'mutex',None)
         if mutex is None:raise ValueError('無法鎖定並核對原生佇列，未略過。')
         with mutex:
-            operation=self.read(ident);proof=self._recovery(operation,queue)
-            if not proof['can_abandon']:raise ValueError(proof['reason'])
-            # Updating the receipt also rejects any late prepare/decorate/reply.
-            operation.update(state='failed',queue_terminal=True,abandoned=True,submit_inflight=False,terminal_action='abandon',
-                recovery=dict(proof,checked=time.time()),error='已解除這筆舊任務的追蹤；保留紀錄，沒有重送。')
-            self.save(operation)
+            with self.service.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                row=db.execute('SELECT body FROM native_operations WHERE id=?',(ident,)).fetchone()
+                if row is None:raise ValueError('找不到原生執行要求。')
+                operation=json.loads(row[0]);proof=self._recovery(operation,queue)
+                if not proof['can_abandon']:raise ValueError(proof['reason'])
+                if proof['location']=='missing':
+                    operation['missing_fence']=dict(epoch=self.service.events.epoch,checked=time.time());proof['fenced']=True
+                operation.update(state='failed',queue_terminal=True,abandoned=True,submit_inflight=False,terminal_action='abandon',
+                    recovery=dict(proof,checked=time.time()),error='已解除這筆舊任務的追蹤；保留紀錄，沒有重送。')
+                db.execute('UPDATE native_operations SET body=? WHERE id=?',(json.dumps(operation,ensure_ascii=False),ident))
         return dict(ok=True,state='abandoned',recovery=operation['recovery'],reason=operation['error'])
 
     def reconcile(self,ident,entries):
@@ -621,3 +663,28 @@ class NativeQueue:
                 operation.update(state='queued',submit_inflight=False,error='已由 ComfyUI 佇列／歷史確認原生提交。')
                 self.save(operation);break
         return self.status(ident)
+
+    def observe_terminal(self, ident, history):
+        """Persist exact history proof without relying on another status poll.
+
+        This does not collect images or decide a PCS job/Stage state. In 0.38.0
+        an ExecutionBlocked node can emit error followed by prompt success;
+        keep both the history status and message kinds for the later reducer.
+        """
+        operation=self.read(ident);prompt=operation.get('prompt_id')
+        if not prompt or operation.get('abandoned') or operation.get('missing_fence'):return
+        entry=history.get(prompt,{})
+        original=entry.get('prompt',[]);status=entry.get('status',{})
+        if not (status.get('completed') is True or status.get('status_str')=='error'):return
+        if not isinstance(original,(tuple,list)) or len(original)<4 or original[1]!=prompt:return
+        extra=original[3].get('extra_pnginfo',{}) if isinstance(original[3],dict) else {}
+        marker=extra.get('prompt_studio',{}).get('generation',{})
+        if (not marker or marker!=operation.get('marker',{}).get('generation') or
+                not graph_matches(operation.get('graph'),original[2],operation.get('input_types'))):return
+        messages=[m[0] for m in status.get('messages',[]) if isinstance(m,(list,tuple)) and m and isinstance(m[0],str)]
+        evidence=dict(completed=status.get('completed') is True,status=status.get('status_str'),messages=messages)
+        if operation.get('terminal_result')==evidence:return
+        operation.update(queue_terminal=True,submit_inflight=False,terminal_result=evidence)
+        if operation.get('cancel_requested') and 'execution_interrupted' in messages:
+            operation.update(cancel_confirmed=True,terminal_action='cancel')
+        self.save(operation)
