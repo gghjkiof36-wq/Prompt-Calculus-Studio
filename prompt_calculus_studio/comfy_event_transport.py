@@ -412,6 +412,7 @@ class _Worker(QObject):
         self.prune_at = 0
         self.filter = DeliveryFilter()
         self.display_at = 0
+        self.incoming = []
 
     def notified(self, value):
         if 'token' in value: self.token = value['token']
@@ -423,7 +424,7 @@ class _Worker(QObject):
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.setTimerType(Qt.TimerType.PreciseTimer)
-        self.timer.timeout.connect(self.cycle)
+        self.incoming.append(self.timer.timeout.connect(self.cycle))
         self.retry_at = 0
         self.cycle()
 
@@ -547,6 +548,10 @@ class _Worker(QObject):
     def stop(self):
         if self.stopped: return
         self.stopped = True
+        # As with replies, do not let DeferredDelete disconnect a Python
+        # sender under the worker's QObject mutex (and then acquire the GIL).
+        for connection in self.incoming: QObject.disconnect(connection)
+        self.incoming.clear()
         self.epoch += 1
         if self.core: self.core.stop()
         for reply in list(self.replies): reply.abort()
@@ -568,9 +573,10 @@ class QtChannel(QObject):
         self.worker.moveToThread(self.thread)
         self.worker.deliveryReady.connect(self.deliveryReady)
         self.worker.healthChanged.connect(self.healthChanged)
-        self.thread.started.connect(self.worker.start)
-        self.command.connect(self.worker.command)
-        self.stopping.connect(self.worker.stop)
+        self.worker.incoming.extend((
+            self.thread.started.connect(self.worker.start),
+            self.command.connect(self.worker.command),
+            self.stopping.connect(self.worker.stop)))
         self.worker.finished.connect(self.thread.quit, Qt.ConnectionType.DirectConnection)
         self.worker.finished.connect(self.worker.deleteLater)
         self._released = False

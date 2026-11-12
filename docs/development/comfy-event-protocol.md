@@ -32,6 +32,8 @@
 
 每個 request 可由回傳的 reply 中止，並有從送出起算的絕對期限，不能靠持續收到少量資料無限延長。events 最多等 8 秒、期限 12 秒，heartbeat 每 8 秒，snapshot／協商期限 6 秒。連線換代會立即使舊回應無效，再在 worker 中中止請求；關閉工作區會非阻塞地等待 worker 退出，才完成關窗。token 只存在程序記憶體；403 重新取 config token 並協商，400／409、reset_required 或錯 server／epoch 都重新協商及 snapshot，不重送任何工作。
 
+GUI 與 worker 共用 request 的完成清理：在 reply 所屬執行緒停止 deadline timer、明確斷開 timer → abort 與本次的 Python 回呼連線、解除 QNAM parent，再沿原完成路徑呼叫 `deleteLater`。不能把這些斷線留給 QObject 解構：Qt 會在持有 receiver 的 signal-slot mutex 時呼叫 sender 的 `disconnectNotify`，Python 建立的 timer 會因此查詢虛擬函式並要求 GIL，與另一執行緒的 Qt 操作互等。worker 關閉時也先拆除 started、command、stopping 與 cycle timer 的入站連線，再中止原請求與排程銷毀。取消、絕對期限、換代拒絕與不重送規則不變。
+
 worker 使用單次期限計時器，在回覆、命令或最近的心跳／證據／重試／清理期限到達時才醒來，沒有每 250ms 的空閒掃描。非空事件頁與 snapshot 後頁收到並保存後即排程續讀，避免人為耗盡 snapshot 的 60 秒有效期。空頁、不一致或儲存錯誤仍由核心期限與退避限制；慢速網路造成 snapshot 過期時重新取固定水位，不推進未完成的游標。
 
 獨立 sidecar 位於工作區資料根目錄的 `comfy-channel.sqlite3`，WAL／SHM 同屬該資料。`streams` 以 server_instance、epoch、scope_digest 分開保存 received 與 applied；inbox 以 server_instance、epoch、seq 去重，衝突的同 seq 內容拒絕接受。單頁事件及 received 在同一交易提交。`delivery_offsets` 保存每個 owner 的交付水位，applied 是該 scope 所有 owner 的最小水位；需要變更文件的事件，只在文件接受交易成功後回報 delivered。純進度或已確認不改文件的觀測可直接在 worker 完成交付。固定水位 snapshot 分頁先暫存，全部完成才推進 received；文件接受完 snapshot 才推進 delivery，接續 W 以後的事件。舊 epoch 收據僅限該次有效 snapshot 接受，不能當作新 epoch 的串流事件。

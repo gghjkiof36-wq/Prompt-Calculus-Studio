@@ -14,6 +14,8 @@ B1-3B 納入 `test_stage_run_controls.py`（暫停後主按鈕、plan／工作�
 
 B1-7 納入 `test_workspace_ambient.py`（`WORKSPACE` 清單）：固定 60 幀的 Canvas／文字頁 paint 計數、輸入與焦點、全域幾何、通知避讓、暫停與頂層視窗生命週期。Qt 6.11 offscreen 外掛顯示非 ToolTip 視窗時會忽略禁止焦點旗標而自動啟用；fixture 僅在 offscreen 對特效設定 `WA_DontShowOnScreen`，仍由真實 QWidget backing store 派送 paintEvent，不模擬 paint／焦點結果。原生桌面的輸入穿透、啟用、疊放、跨螢幕 DPI 與 OpenGL 合成仍須另驗；此屬性不進產品。
 
+`test_request_lifetime.py` 納入 `WORKSPACE`：以實際 HTTP reply 及虛擬函式計數，驗證 GUI／worker 的成功、錯誤、逾時、取消與換代在 deferred deletion 前完成 Python sender／parent 清理，並驗證通道關閉的入站連線。這是確定性生命週期檢查，不靠壓力碰撞；長時間壓力程式不納入快速套件。
+
 預設快速套件不能關閉看門狗或將單檔上限提高至 120 秒以上；只有明確使用 `--files`／`--file-list` 的診斷執行可調整。
 
 ## 借用資料監看

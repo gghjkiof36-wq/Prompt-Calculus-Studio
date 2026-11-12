@@ -145,13 +145,21 @@ class ComfyClient(QObject):
         reply=self.network.post(request,raw) if raw is not None else self.network.get(request) if data is None else self.network.post(request,json.dumps(data,ensure_ascii=False).encode())
         self.replies.add(reply); chunks=bytearray()
         absolute=QTimer(reply); absolute.setSingleShot(True)
-        absolute.timeout.connect(reply.abort)
+        abort_connection=absolute.timeout.connect(reply.abort)
         absolute.start(max(1,int((deadline-time.monotonic())*1000)))
         def read():
             chunks.extend(bytes(reply.readAll()))
             if len(chunks)>max_bytes: reply.abort()
         def finish():
             absolute.stop()
+            # QObject destruction calls each sender's disconnectNotify while
+            # holding the receiver's signal-slot mutex. The Python QTimer's
+            # virtual override lookup needs the GIL: leaving this connection
+            # to DeferredDelete can deadlock against GUI connect/disconnect.
+            # Do all Python-owned cleanup here, in the request's thread.
+            QObject.disconnect(abort_connection)
+            QObject.disconnect(read_connection); QObject.disconnect(finish_connection)
+            reply.setParent(None)
             read(); self.replies.discard(reply)
             if self.stopped or epoch!=self.epoch: reply.deleteLater(); return
             try:
@@ -171,7 +179,7 @@ class ComfyClient(QObject):
                 if failed: failed(RequestFailure(str(exc),isinstance(status,int) and 400<=status<500,status))
                 else: self.window.notice(str(exc))
             finally: reply.deleteLater()
-        reply.readyRead.connect(read); reply.finished.connect(finish)
+        read_connection=reply.readyRead.connect(read); finish_connection=reply.finished.connect(finish)
         return reply  # Caller may abort in this object's thread; never resubmits.
 
     def event_identity(self, status):

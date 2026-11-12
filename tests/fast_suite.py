@@ -27,7 +27,7 @@ canvas_surface canvas_preview_continuity canvas_startup canvas_recent_execution
 canvas_combination_copy canvas_refresh_performance canvas_incremental_refresh canvas_gestures
 canvas_variant_navigation canvas_navigation_rendering canvas_raster
 088_canvas_entrypoints canvas_delete_keys canvas_cohesion canvas_four_modules canvas_card_menus'''.split()
-WORKSPACE = ['workspace_ambient']
+WORKSPACE = ['workspace_ambient', 'request_lifetime']
 DOCUMENT = ['document_write_entries', 'document_write_routes', 'document_write_compatibility']
 QUICK_STAGES = [
     'test_084_stages.StageTests.test_reopen_and_workspace_results_do_not_restart',
