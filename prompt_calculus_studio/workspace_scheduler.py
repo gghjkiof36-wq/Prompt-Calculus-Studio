@@ -4,6 +4,7 @@ import sqlite3
 from PySide6.QtCore import QObject, QTimer
 
 from .workspace_runtime import unfinished
+from .stage_readiness import readiness_runs, run_can_progress, waiting_reason
 
 
 class WorkspaceScheduler(QObject):
@@ -32,13 +33,16 @@ class WorkspaceScheduler(QObject):
             return False
         chain = client.input_flow.chain
         flow = client.input_flow
-        runs = getattr(chain, 'runs', lambda active: [])(True)
-        return bool(getattr(chain, 'preparing', None) or getattr(chain, 'applying', None)
+        if (getattr(chain, 'preparing', None) or getattr(chain, 'applying', None)
                     or getattr(chain, 'apply_queue', None)
-                    or any(r['status'] == 'running' for r in runs)
                     or client.queue.preparing or client.queue.dispatching
                     or client.generation.batch or client.run_id
-                    or flow.current or flow.direct.current or flow.direct.pending)
+                    or flow.current or flow.direct.current or flow.direct.pending):
+            return True
+        if getattr(chain, 'closed', False):
+            return False
+        runs = readiness_runs(chain.store, chain.window.state['workspace'])
+        return any(run_can_progress(chain.store, run) for run in runs)
 
     def acquire_operation(self, client):
         """Immediate explicit frontend actions cannot jump ahead of another file."""
@@ -60,6 +64,12 @@ class WorkspaceScheduler(QObject):
     def claim(self, client):
         token = getattr(client.window, 'runtime_token', None)
         if not token or self.stopped or not self.ready or self.runtime.errors:
+            return False
+        if not self.runnable(client) and not self.pending(client):
+            # A bypassed loop still gets observe/pump calls. Re-inserting and
+            # removing its ticket would repeatedly restart the next owner's
+            # zero timer, starving the file that just acquired the lane.
+            self.refresh()
             return False
         if token != self.owner and token not in self.waiting:
             try:
@@ -141,6 +151,8 @@ class WorkspaceScheduler(QObject):
             return f'排隊第 {self.waiting.index(token)+1} 位 · 等待「{name}」結束'
         if self.owner == token:
             return '執行中 · 其他工作流依序等待' if self.runnable(client) else '正在核對前次任務'
+        if not self.runnable(client) and not self.pending(client):
+            return waiting_reason(client.input_flow.chain)
         return ''
 
     def stop(self):

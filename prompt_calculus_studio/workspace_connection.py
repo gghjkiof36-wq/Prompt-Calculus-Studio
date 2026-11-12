@@ -278,27 +278,41 @@ class WorkspaceComfyClient(ComfyClient):
         # The bridge has one current library. Serialize registrations so a
         # slow response for the previous tab cannot overtake the new target.
         connection = self.workspace.comfy_connection
+        if connection.registering is not None or self.stopped:
+            return
         operation = object()
-        connection.registering = operation
-        self.register_library = False
-        self.window.persist()
+        chain = self.input_flow.chain
 
-        def finished(_=None):
-            if connection.registering is operation:
+        def terminate(error=None):
+            # Duplicate or late replies may neither pause an old document nor
+            # release/replace a newer document's registration.
+            if connection.registering is not operation:
+                return
+            try:
+                if error is None:
+                    connection.registered_client = self
+                else:
+                    message = '工作流連線設定未完成：'+str(error)
+                    with chain.store.transaction():
+                        for run in chain.runs(True):
+                            if run['status'] in ('running', 'waiting'):
+                                chain.store.patch(run['id'], status='paused', pause_reason='error', message=message)
+                    self.window.notice(message)
+            finally:
                 connection.registering = None
-                connection.registered_client = self
-                self.input_flow.chain.later()
+                chain.notify()
+                chain.later()
+                self.workspace.scheduler.refresh()
 
-        def failed(message):
-            if connection.registering is operation:
-                connection.registering = None
-            for run in self.input_flow.chain.runs(True):
-                if run['status'] == 'running':
-                    self.input_flow.chain.pause(run['id'], '工作流連線設定未完成：'+str(message), reason='error')
-            self.window.notice(message)
-
-        self.request('config', dict(library=str(self.window.store.directory/'studio.sqlite3')),
-                     done=finished, failed=failed)
+        try:
+            connection.registering = operation
+            connection.registered_client = None
+            self.register_library = False
+            self.window.persist()
+            self.request('config', dict(library=str(self.window.store.directory/'studio.sqlite3')),
+                         done=lambda _: terminate(), failed=terminate)
+        except Exception as exc:
+            terminate(exc)
 
     @property
     def receives_unscoped_results(self):

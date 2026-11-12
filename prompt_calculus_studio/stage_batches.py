@@ -9,6 +9,7 @@ import time
 
 from . import prompt_sources as supply, prompt_materials as materials
 from .stage_context import borrowed_base, execution_state, execution_scene, project
+from .stage_readiness import run_states
 
 SLICE_SECONDS = .015
 SLICE_ITEMS = 1
@@ -224,19 +225,35 @@ def expand(runner, capacity):
     started = time.perf_counter()
     prepared = 0
     with runner.accepting():
+        by_scheduler = {}
+        for head in heads:
+            by_scheduler.setdefault(head['scheduler'], {}).setdefault(head['execution_group'], []).append(head)
         for scheduler in dict.fromkeys(h['scheduler'] for h in heads):
+            groups = store.schedule_groups(workspace, scheduler)
+            entries = store.entry_states(workspace, scheduler)
+            grouped_heads = by_scheduler[scheduler]
+            states = run_states(store, {row['run'] for row in entries} |
+                                {head['run'] for items in grouped_heads.values() for head in items})
+            preparable = {ident for ident, (status, _) in states.items() if status in ('running', 'waiting')}
+            ready_by_group = {}
+            for row in entries:
+                if row['status'] in ('waiting', 'running') and row['run'] in preparable:
+                    group_id = row['execution_group']
+                    ready_by_group[group_id] = ready_by_group.get(group_id, 0)+1
             remaining = capacity
-            for group in store.schedule_groups(workspace, scheduler):
+            for group in groups:
                 if group['cancelled'] or group['bypassed']: continue
-                ready = sum(group['counts'].get(s, 0) for s in ('waiting', 'running', 'retained'))
-                wanted = max(0, min(group['unexpanded'], remaining-ready))
-                remaining -= ready + wanted
-                for head in heads:
+                # Walk the current priority window. Already prepared rows in a
+                # demoted group stay saved, but cannot starve a prioritized one.
+                ready = ready_by_group.get(group['id'], 0)
+                remaining = max(0, remaining-ready)
+                available = [h for h in grouped_heads.get(group['id'], ())
+                             if not h['deferred'] and h['run'] in preparable]
+                wanted = min(sum(h['total']-h['expanded'] for h in available), remaining)
+                for head in available:
                     if not wanted: break
-                    if head['execution_group'] != group['id'] or head['scheduler'] != scheduler or head['deferred']: continue
                     # Polling a paused run must not decode its frozen batch
-                    # content. This is the same guard as below, before hydration.
-                    if store.status_value(head['run']) not in ('running','waiting'): continue
+                    # content. Eligibility was checked once above, before hydration.
                     cached=getattr(runner,'_batch_content',None)
                     if cached is None or cached[0]!=head['id']:
                         # This is an owned journal decode, never a borrowed
@@ -282,6 +299,9 @@ def expand(runner, capacity):
                         wanted -= 1
                         if prepared>=SLICE_ITEMS or time.perf_counter()-started >= SLICE_SECONDS: break
                     delta = batch['expanded']-head['expanded']
+                    # A deferred segment may stop this head early. Reserve only
+                    # the rows actually prepared, never its unrealizable wanted.
+                    remaining -= delta
                     control = store.batch_control(workspace, scheduler, group['id'])
                     store.set_batch_control(workspace, scheduler, group['id'], expanded=control['expanded']+delta)
                     if batch['expanded'] == batch['total']:

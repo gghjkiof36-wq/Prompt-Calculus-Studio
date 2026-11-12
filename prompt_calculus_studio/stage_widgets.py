@@ -321,6 +321,7 @@ class SchedulePageContent(QFrame):
             for group in self.groups:
                 entry=QListWidgetItem();entry.setData(Qt.ItemDataRole.UserRole,group['id']);self.groups_list.addItem(entry)
                 if group['id']==selected_group:self.groups_list.setCurrentItem(entry)
+        wait_reasons=None;scheduling=None
         for index,group in enumerate(self.groups):
             entry=self.groups_list.item(index);counts=projected[group['id']]
             important=next((key for key in ('unconfirmed','cancelling','failed','result_error','preparing','submitted','collecting','running','retained') if counts.get(key)),None)
@@ -328,6 +329,14 @@ class SchedulePageContent(QFrame):
             status=NAMES[important] if important else (f"{counts.get('complete',0):,} 已完成" if counts.get('complete') else '等待')
             if group['cancelled']:status='取消待確認' if any(counts.get(s,0) for s in ACTIVE_GROUP_STATES) else '已取消'
             elif group['bypassed']:status='執行後繞過' if executing else '已繞過'
+            elif not any(counts.get(s,0) for s in (*ACTIVE_GROUP_STATES,'failed','result_error')):
+                from .stage_readiness import group_wait_reasons
+                if wait_reasons is None:wait_reasons=group_wait_reasons(store,workspace,self.key,self.groups)
+                reason=wait_reasons[group['id']]
+                if reason:status=reason
+                elif group['pending']:
+                    if scheduling is None:scheduling=getattr(self.runner.client,'scheduling_message','')
+                    if scheduling.startswith('排隊'):status='等待其他文件'
             stamp=datetime.fromtimestamp(group['created']).strftime('%m/%d %H:%M')
             name=f"第 {group.get('serial') or index+1} 組"
             entry.setText(group['label'])

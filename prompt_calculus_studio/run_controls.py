@@ -215,7 +215,7 @@ class RunControls(QWidget):
         else: self.stop.setText('取消')
         scheduling = getattr(client, 'scheduling_message', '') if client else ''
         if scheduling:
-            self.run_button.setToolTip(scheduling)
+            self.run_button.setToolTip('等待其他文件' if scheduling.startswith('排隊') else scheduling)
             if scheduling.startswith('排隊'):
                 self.run_button.setText('已排隊')
                 self.stop.setToolTip('取消此文件的等待流程；不影響正在執行的其他文件。')
@@ -223,7 +223,7 @@ class RunControls(QWidget):
                 self.run_button.setEnabled(False)
         if paused is not None:
             self.run_button.setText('繼續');self.run_button.setEnabled(True)
-            self.run_button.setToolTip('繼續目前流程')
+            self.run_button.setToolTip(scheduling if scheduling in ('等待：保留項目','已繞過') else '繼續目前流程')
         if stage_mode:
             from .source_import import blocks_execution
             if blocks_execution(self.window):
