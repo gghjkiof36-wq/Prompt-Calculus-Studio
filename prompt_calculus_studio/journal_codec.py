@@ -95,7 +95,7 @@ def paths(body):
     if kind == 'entry':
         saved(body.get('saved'), ('saved',))
     elif kind == 'attempt':
-        fields(body, (), ('snapshot_state', 'images', 'result'))
+        fields(body, (), ('snapshot_state', 'images', 'result', 'operation_evidence'))
     elif kind == 'batch_snapshot':
         fields(body, (), ('scene', 'base', 'supply', 'segments', 'results', 'parameters'))
     elif kind == 'run':
@@ -114,7 +114,7 @@ def paths(body):
                 context(frame.get('ctx'), prefix + ('ctx',))
                 saved(frame.get('saved'), prefix + ('saved',))
                 fields(frame.get('feed'), prefix + ('feed',), ('scene', 'plan', 'supply'))
-                fields(frame.get('retry'), prefix + ('retry',), ('snapshot_state', 'images', 'result', 'replay'))
+                fields(frame.get('retry'), prefix + ('retry',), ('snapshot_state', 'images', 'result', 'replay', 'operation_evidence'))
     # Empty containers/nulls carry no large payload. Keeping them in the header
     # avoids a blob lookup for every empty interpreter frame. A parameters map
     # whose values are all null likewise contains only presence information.

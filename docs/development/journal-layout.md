@@ -7,6 +7,10 @@ VACUUM 由[複製後搬遷指令](workspace-migration.md)負責，不由正常�
 
 ## 表與編碼
 
+本機一致性證據 `attempt.operation_evidence`（以及 retry 內同名欄位）沿用既有 generic pointer→hash 機制拆到 stage_content；不把大型 payload 留在 status header。這是可選 JSON 內容路徑，讀取器依 content_paths 還原，並不依寫入器的 paths 清單猜欄位。表、欄位、canonical bytes、encoding 與版本都不變，無須 DDL／搬遷。缺少此證據的舊 attempt 保持缺少，不在開庫時補造。
+
+local continuation／修復 receipt 使用既有 channel_applied_events；`server=local, epoch=stage-continuation-v1, seq=attempt_id:action`。它與 attempt/result/frame 同外層交易，不能隨 sidecar 傳輸事件 TTL 刪除，否則會失去拒絕重複 continuation 的證據。
+
 | 表 | 欄位與用途 |
 | --- | --- |
 | `storage_layout` | `key TEXT PRIMARY KEY, version INTEGER NOT NULL`。目前寫 `journal=1` 與 `event_apply=1`；`local_state` 尚未拆分，不寫標記，明確標為 0 亦可讀。 |

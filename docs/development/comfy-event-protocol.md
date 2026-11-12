@@ -44,7 +44,7 @@ owner 表使用現有 runtime_token，另存 document_id、由 runtime store 路
 
 12 秒沒有有效通道回覆、running 與本機不符、啟動未結案、needs_reconcile、log.gap 或不一致，都先查原 operation。首次定點查證返回證據或失敗後，才授權固定水位 snapshot；其後接續 W 以後的事件。新 epoch／新 server 先凍結新派送，不發全域 interrupt。送出、取消、收取各有 30 秒證據窗口，失敗以 1／2／4／8 秒退避；history 只在 terminal 或原生 history 證據出現時讀取，成功一次就停止。30 秒不足以確認時保存 unconfirmed 並顯示「無法確認」，不釋放在途權、不重送。有效心跳、晚到終態或「查詢原任務」可開啟下一次有界核對。queued／running 的正常長生成沒有總執行逾時；120 秒無進度只寫診斷。空頁／不一致頁至少間隔 1 秒。
 
-原生／凍結生成的週期 status 查詢已停用。Workspace 的通道健康、snapshot 已接受，且 client 沒有待完成的 owner 註冊或在途 input／apply／輔助 operation 時，desktop/status 的週期請求至少相隔 8 秒（由既有 1.5 秒 timer 排程，通常每 9 秒）；utility client 也共用此健康資訊。其他情況維持 1.5 秒，明確的重新確認與命令仍即時查詢；input／輔助 operation 的查詢保留到 C2。worker 在 12 秒察覺期限到達時，立即投影既有「正在確認 ComfyUI 連線…」狀態，不等待低頻 status 或它的 HTTP 期限；不因此把工作結案。獨立宿主的 status 頻率不變。
+原生／凍結生成的週期 status 查詢已停用。Workspace 的通道健康、snapshot 已接受，且 client 沒有待完成的 owner 註冊或在途 input／apply／輔助 operation 時，desktop/status 的週期請求至少相隔 8 秒（由既有 1.5 秒 timer 排程，通常每 9 秒）；utility client 也共用此健康資訊。其他情況維持 1.5 秒，明確的重新確認與命令仍即時查詢；input／輔助 operation 的查詢保留，接管另行實作。worker 在 12 秒察覺期限到達時，立即投影既有「正在確認 ComfyUI 連線…」狀態，不等待低頻 status 或它的 HTTP 期限；不因此把工作結案。獨立宿主的 status 頻率不變。
 
 desktop/status 不能直接完成通道任務。能力資訊及擴充安裝位置只有內容改變時才重新辨識與綁定；連線換代仍使舊快取失效。HTTP 回覆不再做影子核對或送出 poll 診斷命令，生命週期以通道與有界對帳為準。沒有 interrupted 的排隊取消以 cancel_confirmed 收尾；純 unavailable 不是 missing。
 
@@ -163,6 +163,18 @@ native 與 frozen 都持久保存 cancel_requested，排隊中精確比對 promp
 
 固定來源 hash 與來源衍生 fixture 在測試檔中保存；未執行 ComfyUI 本體。第三方 group node、其他後端／前端版本、真 GPU 與真 WebSocket 尚未驗證，見[配套矩陣](../guide/comfyui-compatibility.md)。單一 hook 與服務重建有合成測試；不據此宣稱 ComfyUI 路由整體可熱重載，實際更新仍須重啟後端。
 
-共用協定由 `releases.SHARED_MODULES` 與建置流程產生，不能手動修改 shared 副本。C2 接續本機一致性、取消 run 殘留及 input／輔助 operation；D 才加入早到節點結果。manager、md、chat 的編輯保存不因此改走 ComfyUI 執行通道。
+共用協定由 `releases.SHARED_MODULES` 與建置流程產生，不能手動修改 shared 副本。input／輔助 operation 的接管另行實作；早到節點結果尚未啟用。manager、md、chat 的編輯保存不因此改走 ComfyUI 執行通道。
+
+## 本機一致性收據
+
+開文件／繼續 gate 與原 operation 的對帳入口會核對本機 attempt、job、frame。`stage_invariants` 的 local receipt 使用 server=`local`、epoch=`stage-continuation-v1`、seq=`attempt_id:action`；它不是傳輸事件，不需要對外發布，亦不改 sidecar received/applied。原表的 PK 保證重開與重複核對不多消耗來源、不多推 frame。
+
+正常 collect 將 continuation receipt、完整 result、frame.job 清除與 index 推進放進既有 accepting 外層交易。修復同樣先在該交易檢查 result 身分／圖片與既有 receipt；曾接受的 continuation 不會再次執行。已取消 run 只清原 job 指標，保留結果但不提供下游 continuation。SQLite 失敗回滾全部變更，通知及 job 記憶體發布只在 after_commit。
+
+既有 attempt JSON 增加可選 `submission_intent`（not_sent／issued）、`operation_evidence` 與 `local_issue`／`local_origin`。不新增 SQL schema，不提升 event_apply=1；舊記錄沒有意圖時必須視為不確定。issued 與初始 job 在 HTTP 前同交易保存；耐久 payload 證據只由接受過的 job 保存，重建仍為 unconfirmed。無證據顯示「資料不一致」，缺結果顯示「結果待確認」，未知傳輸顯示「無法確認」。皆不自動派送；只有 not_sent 可 failed 並暫停。
+
+operation_evidence 依 journal=1 的既有 generic content_paths 拆到內容表，避免 status／readiness 標頭隨 payload 變大。完整結果若有耐久 outputs manifest，還須比對 node/index 集合、prompt 身分及圖片來源完整性，不能以少一張圖片的 result 推進 frame。
+
+只寫 `kind=operation.missing` 不構成 fence。事件須包含與其 epoch 相同的 missing_fence 及 checked 證據；缺少時改做原 operation 的定點對帳，不標 retired，也不釋放 lane。
 
 已完成任務的晚到參數收據仍可在同一接受交易保存到 job、parameter_state 與 channel_applied_events；原 prompt／owner 與 receipt revision 必須相符。這條路徑不重收圖片、不再推 frame，也不改終態。retired tombstone 仍直接忽略晚到寫入。

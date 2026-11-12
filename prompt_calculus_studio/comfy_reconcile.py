@@ -14,6 +14,8 @@ class Reconcile:
         self.timer.timeout.connect(self.tick)
 
     def require(self, ident, reason, *, event=None, done=None, force=False):
+        if getattr(self.reducer,'invariants',None):
+            self.reducer.invariants.check(ident)
         job=self.reducer.job(ident)
         if job and (job['state']=='retired' or job['state'] in ('complete','failed') and reason!='parameters'):
             if done:done()

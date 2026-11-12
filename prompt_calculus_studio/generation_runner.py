@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+import sqlite3
 import time
 import uuid
 from urllib.parse import quote
@@ -148,7 +149,6 @@ class GenerationRunner:
     def submit_native(self,snapshot,workflow,queued,failed,valid,image='',images=None,ident=None):
         """Journal an operation, then observe the actual native queue receipt."""
         ident=ident or uuid.uuid4().hex
-        self.native_waiting.add(ident)
         job=dict(id=ident,native_operation=ident,state='submitting',created=time.time(),server=self.client.url,error='',
                  workspace=snapshot['state']['workspace'],requested_workflow=workflow,
                  entry_point=snapshot['state'].get('_entry_point','pcs'),
@@ -162,7 +162,22 @@ class GenerationRunner:
             job['event_library']=snapshot.get('library_id','')
             if events.identity:
                 job.update(event_server=events.identity['server_instance'],event_epoch=events.identity['epoch'])
-        self.jobs[ident]=job;self.save(job)
+        if snapshot.get('chain') and hasattr(self.client.input_flow.chain,'accepting'):
+            chain=self.client.input_flow.chain
+            try:
+                with chain.accepting():
+                    # Commit the send fence before entering HTTP. Absence of the
+                    # job alone never proves that the request did not escape.
+                    chain.store.patch(ident,submission_intent='issued')
+                    self._write_job(job)
+                    chain.store._transactions.after_commit(lambda:self.jobs.__setitem__(ident,job))
+            except sqlite3.Error as exc:
+                # Only this pre-HTTP failure is proven unsent. The preparation
+                # error path pauses it; failures after sending stay uncertain.
+                raise ValueError('資料不一致') from exc
+        else:
+            self.jobs[ident]=job;self.save(job)
+        self.native_waiting.add(ident)
         if events is not None and events.enabled:
             events.reconcile.require(ident,'submit')
             request=dict(id=ident,snapshot=snapshot,workflow=workflow,image=image)

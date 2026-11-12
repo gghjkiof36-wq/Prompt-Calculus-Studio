@@ -1,10 +1,12 @@
 # 資料與相容性
 
-現行：0.8.8 Alpha 1。固定受驗功能來源 `0d4a5f5a9ef51a98137a18522c0d2bf110ca3b61`；發布整合／實際資產見[來源對照](../releases/0.8.8/source-provenance.md)。操作見[素材與批次](../guide/prompt-materials-088.md)。
+歷史基準：0.8.8 Alpha 1，固定受驗功能來源 `0d4a5f5a9ef51a98137a18522c0d2bf110ca3b61`；發布整合／實際資產見[來源對照](../releases/0.8.8/source-provenance.md)。下列格式段落另記錄 Pre-alpha3 的 studio DB 契約。操作見[素材與批次](../guide/prompt-materials-088.md)。
 
 後續開發維護：[舊 Stage 快照還原與視窗生命週期](legacy-stage-recovery.md)（0.8.9 第一階段來源）。
 
 ## 格式、遷移與使用位置
+
+本機一致性檢查沿用 event_apply=1、journal=1，沒有新增 SQL 表或欄位。attempt 的可選 submission_intent／operation_evidence／local_issue／local_origin 與 local continuation receipt 不需要新的 registry 步驟；operation_evidence 使用既有 generic content_paths 拆分，已知讀取器可按 pointer 還原。缺少意圖的舊資料視為傳輸不確定，不能推論未送出。document／PNG 版本不變，pre-alpha3 仍不支援降版；此處的 generic reader 相容性不等於批准整個應用程式降版。
 
 Pre-alpha3 CHANNEL-C1 新增 studio DB 的 `storage_layout('event_apply',1)` 與 `channel_applied_events`；journal 仍為 1，document／PNG 格式不變。S5B registry 只在複製後的搬遷目標執行缺少的步驟：journal=0 先升 journal=1，再加 event_apply；既有 journal=1 只加 event_apply。正常開庫先核對標記與表結構，缺少標記時拒讀，不能順手補表。搬遷包含 comfy-channel.sqlite3 sidecar，原件與舊偏好檔保持不動；舊 PCS 不能開新 studio DB，pre-alpha3 不支援降版。
 

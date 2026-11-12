@@ -783,7 +783,7 @@ class StageRunner(QObject):
         else:cfg['parameters']=self.store.resolve_parameters(run['workspace'],stage['id'],cfg.get('parameters'))
         with self.accepting():
             attempt=self.store.add_captured('attempt',run['workspace'],run['id'],status='preparing',stage=stage['id'],parent=ctx.get('parent'),
-                round=run['round'],position=frame['index'],snapshot_state=state,images=images,error='',sources=ctx.get('saved',{}).get('source_positions',{}),parameter_replay=bool(retry))
+                round=run['round'],position=frame['index'],snapshot_state=state,images=images,error='',sources=ctx.get('saved',{}).get('source_positions',{}),parameter_replay=bool(retry),submission_intent='not_sent')
             if frame.get('supply_plan'):
                 from .prompt_sources import reserve
                 frozen=frame['supply_plan'];shared=run.get('supply_shared',{}).get(frozen.get('shared_key'))
@@ -904,14 +904,8 @@ class StageRunner(QObject):
                     with self.accepting():
                         if accept is not None:accept()
                         self.store.patch(attempt['id'],status='complete',result=result,error='',cancel_requested=False)
-                        current=self.store.read(run['id'])
-                        frame=next((f for f in current['stack'] if f.get('job')==attempt['id']),None)
-                        if frame and current['status']!='cancelled':
-                            merge_results(frame['produced'],{stage['id']:result});frame['job']=None;frame['index']+=1
-                            autos={key for s in current['plan']['stages'].values() if s['auto'] for key in (s.get('suppliers') or [s['auto']])}
-                            for key,value in attempt.get('sources',{}).items():
-                                if key not in autos:current.setdefault('source_positions',{}).setdefault(key,value)
-                            self.save(current)
+                        from .stage_invariants import continue_result
+                        current,frame=continue_result(self,attempt,result)
                         if before_commit is not None:before_commit()
                 except sqlite3.Error as exc:
                     # request() converts escaped callback errors to backend
@@ -1035,6 +1029,10 @@ class StageRunner(QObject):
         if blocks_execution(self.window):raise ValueError('圖片仍在匯入中，請等待完成或取消。')
         run=self.store.read(ident)
         if not run or run['status'] in ('complete','cancelled'):return
+        checker=getattr(getattr(self.client,'events',None),'invariants',None)
+        if checker:
+            checker.check(owner=ident)
+            run=self.store.read(ident)
         self.check_route(run)
         if any(a.get('cancel_requested') or a['status'] in ('failed','unconfirmed','result_error') for a in self.store.rows('attempt',owner=ident,active=True)):raise ValueError('這份流程有失敗或取消待確認項目，請先處理該項；其他流程仍可使用。')
         with self.store.transaction():
@@ -1099,6 +1097,7 @@ class StageRunner(QObject):
         item=self.store.read(ident);run=self.store.read(item['owner']);self.check_route(run)
         if item.get('cancel_requested'):raise ValueError('這項取消仍待確認，不能重新生成。')
         if run['status'] in ('complete','cancelled'):raise ValueError('流程已結束，請明確建立新的執行。')
+        if item.get('local_issue') and item.get('submission_intent')!='not_sent':raise ValueError(item['local_issue'])
         if item['status']=='result_error':self.collect(item,self.client.generation.record(item['id']));return
         if item['status']!='failed':raise ValueError('提交結果不明時不可重新生成；請先查看原任務紀錄。')
         frame=next((f for f in run['stack'] if f.get('job')==ident),None)

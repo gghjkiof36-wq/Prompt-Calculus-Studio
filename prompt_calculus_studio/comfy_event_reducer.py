@@ -34,6 +34,11 @@ class EventReducer:
         queue = client.queue.store
         for item in queue.rows(): self.queue_changed(item)
         queue.changed = self.queue_changed
+        self.invariants = None
+        if self.window.state.get('multi_output',{}).get('version',0)>=7:
+            from .stage_invariants import InvariantChecker
+            self.invariants = InvariantChecker(client)
+            self.invariants.check(notify=False)
 
     @property
     def chain(self): return self.client.input_flow.chain
@@ -182,6 +187,11 @@ class EventReducer:
             value['state']='running'
             if 'node' in value: value['node']=str(value['node'])
         if kind=='operation.missing' or value.get('missing_fence'):
+            fence=value.get('missing_fence',{})
+            if not isinstance(fence,dict) or fence.get('epoch')!=event['epoch'] or not fence.get('checked'):
+                self.diagnostic('missing without fence',event)
+                self.reconcile.require(ident,'missing_without_fence')
+                done();return
             value['recovery']=dict(location='missing',fenced=True,can_abandon=True)
             self.remember_proof(ident,value)
             self.reconcile.require(ident,'missing')
@@ -272,7 +282,10 @@ class EventReducer:
         self.store.checkpoint('before_job')
         self.client.generation._write_job(job)
         attempt=self.chain.store.read(job['id'])
-        if attempt and attempt.get('kind')=='attempt': self.chain.store.record_parameters(attempt,job)
+        if attempt and attempt.get('kind')=='attempt':
+            self.chain.store.record_parameters(attempt,job)
+            if job.get('payload',{}).get('prompt') and job.get('prompt_id'):
+                self.chain.store.patch(attempt['id'],operation_evidence=job,local_issue='')
         self.store.accept(event,'retired' if job['state']=='retired' else disposition)
 
     def commit(self, job, event, done, *, disposition='accepted'):
@@ -300,6 +313,8 @@ class EventReducer:
                     self.chain.store.patch(job['id'],status='unconfirmed',error=job.get('error',''))
             if job.get('queue_job'):
                 self.client.queue.store.update(job['queue_job'],**{k:job[k] for k in ('state','prompt_id','payload','outputs','results','error') if k in job})
+            if self.invariants and job['state'] in TERMINAL:
+                self.invariants.check(job['id'])
             self.store.checkpoint('before_accept_commit')
             self.chain.store._transactions.after_commit(lambda:self.published(job,done))
 

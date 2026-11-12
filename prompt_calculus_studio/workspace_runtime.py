@@ -23,7 +23,9 @@ def unfinished(db):
     if 'stage_header' in tables:
         if db.execute("""SELECT 1 FROM stage_header WHERE kind='input'
                          AND json_extract(body,'$.sent')=1
-                         AND COALESCE(json_extract(body,'$.ended'),0)=0 LIMIT 1""").fetchone():
+                         AND COALESCE(json_extract(body,'$.ended'),0)=0
+                         UNION ALL SELECT 1 FROM stage_header WHERE kind='attempt'
+                         AND json_extract(body,'$.status') IN ('preparing','submitted','unconfirmed') LIMIT 1""").fetchone():
             return True
     if 'work_queue' in tables:
         if db.execute("""SELECT 1 FROM work_queue WHERE json_extract(body,'$.state')

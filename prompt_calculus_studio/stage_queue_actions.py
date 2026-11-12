@@ -88,6 +88,13 @@ def request_cancel(runner,attempt):
     if not attempt or not attempt.get('cancel_requested'):return
     run=runner.store.read(attempt['owner'])
     job=runner.client.generation.record(attempt['id'])
+    if not job:
+        checker=getattr(getattr(runner.client,'events',None),'invariants',None)
+        if checker:
+            checker.check(attempt['id'])
+            attempt=runner.store.read(attempt['id'])
+            job=runner.client.generation.record(attempt['id'])
+            if not job and attempt.get('local_issue') and attempt['status']=='unconfirmed':return
     if not job or job['state'] in ('complete','failed'):
         finish_cancel(runner,runner.store.read(attempt['id']));return
     if (runner.client.stopped or run['server']!=runner.client.url or job['server']!=run['server'] or

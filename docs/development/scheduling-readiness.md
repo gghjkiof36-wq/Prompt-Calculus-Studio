@@ -8,7 +8,21 @@
 
 新 epoch、log.gap、不一致、心跳不符與啟動未結案，先查原 operation，再固定水位 snapshot，期間阻擋新派送。30 秒證據不足顯示「無法確認」，保留在途權；120 秒無進度只記診斷。fenced missing 可用既有「停止追蹤此筆」本地 retired，unavailable 不行。舊擴充缺少事件能力時顯示「需要更新擴充」，原任務仍可有界收尾。手動／restart pause、保留項目與全部繞過不因此自動解除。
 
-無事 pump 不掃 inbox；worker 每個 owner 有一頁交付上限，無變化 progress 只記接受 PK。P2 的保留項目熱路徑優化另派。S5–S7 本機修復、S9b 已取消 run 殘留、input／輔助 operation 留給 C2。
+無事 pump 不掃 inbox 或本機一致性；worker 每個 owner 有一頁交付上限，progress 不寫文件 receipt。input／輔助 operation 仍沿用原有路徑，通道接管另行實作。
+
+## 本機一致性與已取消流程
+
+`stage_invariants.InvariantChecker` 只在開文件、明確繼續前及原 operation 的對帳要求執行。開文件／繼續只查 journal 標頭及 frame.job，指定對帳以 PK 查一筆；不掃 retained queue payload。健康任務只核對 job 與 run 標頭。`pump` 不呼叫 checker。
+
+| 不一致 | 接受規則與既有 Stage 狀態 |
+|---|---|
+| submitted 缺 job | 同 operation、workspace、server、run 的耐久 payload 與 prompt 證據才重建 unconfirmed 投影；仍只核對原 prompt。無證據顯示「資料不一致」，保留在途權。 |
+| complete attempt 的 frame.job 未清 | 同一 accepting 交易檢查完整 result、來源檔與 continuation receipt，合併結果並前進一次。缺結果顯示「結果待確認」；已有 receipt 卻回退的 frame 顯示「資料不一致」。 |
+| preparing 缺 job | 新 attempt 的 not_sent 意圖在準備前保存；進入 HTTP 前，issued 與 job 同交易提交。只有 not_sent 能轉 failed＋paused，等待明確 retry。issued 或舊紀錄缺意圖都顯示「無法確認」。 |
+
+修復 receipt 使用既有 `channel_applied_events` 的 local namespace；不屬於伺服器 epoch，不推進 inbox 游標，不進 Canvas Undo。SQLite 回滾時不發布 job 記憶體、不通知、不推 frame。手動及 restart pause 保留；修復自身不呼叫 pump，也不重送。
+
+Runtime 的未結案檢查包括 preparing／submitted／unconfirmed attempt，避免 job 遺失時釋放 lane。通道仍由 generation 的未結案索引收集 operation，不依 open_runs。已取消 run 的 operation 得到終態時，只清 frame.job／cancel_requested，保持 run cancelled 與 batch_cancel_resume 的原值；不復活流程、不合併取消後的下游 continuation。
 
 ## 先行窗口
 

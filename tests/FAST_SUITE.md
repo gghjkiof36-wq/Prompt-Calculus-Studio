@@ -1,5 +1,7 @@
 # 快速測試與基準對照
 
+`test_stage_invariants.py` 納入 `WORKSPACE`：本機缺 job／缺結果／提交意圖、修復交易失敗、兩次重開與核對、已取消 run 的 group／clear_pending 矩陣及提交次數。沿用原始單 Stage＋scheduler 的合成資料，透過既有繼續／取消入口驗證狀態，不將壓力量測放入快速套件。
+
 從 checkout 根目錄執行。每個檔案使用獨立的 Python 程序，按清單順序執行；效能檔也不與其他測試程序並行。執行時不要另開一套測試或效能量測。
 
 ```powershell

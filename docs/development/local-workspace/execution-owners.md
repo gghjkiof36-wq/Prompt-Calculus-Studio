@@ -1,6 +1,14 @@
 # 分頁工作流的任務保存與排程
 
-適用 0.8.10 Pre-alpha3 的本機執行通道。可攜文件格式維持不變；studio DB 新增 event_apply layout，須先複製再搬遷。真實 ComfyUI／GPU 驗收仍屬各自範圍。
+適用 0.8.10 Pre-alpha3 的本機執行通道。可攜文件格式維持不變；studio DB 的 event_apply layout 須先複製再搬遷。真實 ComfyUI／GPU 驗收仍屬各自範圍。
+
+## 本機證據與 lane
+
+開文件時先以 journal 標頭核對 attempt、job、frame 的一致性；使用者按繼續時再核對該 run；通道對帳只核對指定 operation。這些檢查不放進週期 pump。缺少 job 不是釋放 lane 的證據：runtime 的未結案查詢也保留 preparing、submitted、unconfirmed attempt，包含已 cancelled run 的殘留。
+
+提交前的意圖與已接受 payload 證據放在既有 attempt journal；continuation／修復收據放在既有 channel_applied_events。全部透過同一 accepting 交易保存，提交後才發布記憶體與通知，不修改文件編輯歷史。沒有新增 SQL 表／欄位，event_apply 仍是 1，journal、可攜 document 與 PNG 版本不變。
+
+有耐久 payload 才能重建 job 投影，且先以 unconfirmed 核對原 prompt；不重送。無證據或結果不完整時保留 lane，沿用 Stage 的錯誤投影。只有明確 not_sent 才能 failed＋paused，重試仍需使用者操作。cancelled run 得到確定終態後清除原 frame.job，不恢復 run，不清手動／restart pause。input、capture、open、inspect 與其他輔助 operation 的通道接管尚未啟用。
 
 ## 保存邊界
 

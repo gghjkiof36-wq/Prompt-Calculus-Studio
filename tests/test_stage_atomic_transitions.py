@@ -147,7 +147,10 @@ class StageAtomicTransitionsTests(unittest.TestCase):
     def test_cancelled_result_is_saved_without_advancing_or_restarting(self):
         self.store.update(self.run['id'], status='cancelled')
         self.collect()
-        self.assertEqual(self.read(self.run['id'])['stack'][0], self.frame)
+        # C2 settles the confirmed operation's stale lane, without consuming
+        # another source, advancing the frame, or reviving the cancelled run.
+        self.assertEqual(self.read(self.run['id'])['stack'][0], dict(self.frame,job=None))
+        self.assertEqual(self.read(self.run['id'])['status'], 'cancelled')
         self.assertEqual(self.read(self.attempt['id'])['status'], 'complete')
 
     def test_other_workspace_result_does_not_refresh_current_canvas(self):
