@@ -350,9 +350,11 @@ class StageStore:
         """Accept journal rows and their document cursor as one durable write."""
         return self._transactions.transaction()
 
-    def add(self,kind,workspace,owner='',*,_captured=False,_return_record=True,**values):
-        item=dict(id=uuid.uuid4().hex,kind=kind,workspace=workspace,owner=owner,created=time.time(),**values)
+    def add(self,kind,workspace,owner='',*,ident=None,_captured=False,_return_record=True,**values):
+        item=dict(id=ident or uuid.uuid4().hex,kind=kind,workspace=workspace,owner=owner,created=time.time(),**values)
         with self.transaction():
+            if ident and self.db.execute('SELECT 1 FROM stage_header WHERE id=?',(ident,)).fetchone():
+                raise ValueError('資料不一致')
             position=self.db.execute('SELECT COALESCE(MAX(position),0)+1 FROM stage_header').fetchone()[0]
             codec.write(self.db,item,position)
         return self.read(item['id']) if _return_record else item['id']

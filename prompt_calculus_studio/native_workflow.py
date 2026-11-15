@@ -38,5 +38,10 @@ def open_bound_workflow(window,workflow):
         if not current():finish('');return
         client.request('workflow/native/status',dict(id=operation),done=received,failed=lambda error:finish(str(error)))
     window.notice('正在定位 ComfyUI 原生工作流：'+source['name']+'…')
+    aux=getattr(getattr(client,'events',None),'aux',None)
+    if aux and aux.enabled:
+        aux.start('open',dict(id=operation,workflow=workflow,snapshot=client.snapshot()),
+            done=lambda _:finish('ComfyUI 已顯示綁定工作流：'+source['name']),failed=lambda error:finish(str(error)))
+        return
     client.request('workflow/native/open',dict(id=operation,workflow=workflow,snapshot=client.snapshot()),
         done=received,failed=lambda error:finish(str(error)))

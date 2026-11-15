@@ -74,3 +74,13 @@ Workspace 的可推進判斷沿用 preparing、applying、apply_queue、直接�
 程式責任：`stage_batches` 管準備窗口，`stage_readiness` 管唯讀推導，`workspace_scheduler` 管文件資格與 FIFO，`workspace_connection` 管註冊終止，`run_controls`／`stage_widgets` 顯示狀態。沒有新的資料流、頁面或協定；程式地圖可補上 `stage_readiness` 的依賴關係。
 
 回歸入口：`test_stage_sched_readiness.py`、`test_workspace_registration_gate.py`、`test_sched_cross_types.py`，以及既有批次快照、schedule groups、workspace execution 與取消測試。Qt offscreen 與合成 transport 證據不代表真實 ComfyUI／GPU 驗收。
+
+## 原生 input／aux 的就緒與接受
+
+C3 的 open／inspect／capture／apply 先保存原 operation intent，再送 HTTP。回覆只觸發有期限的定點讀回，不能直接清掉 lane；`comfy_aux_operations` 核對原 runtime owner 與完整收據後，在文件接受交易結案。已取消 run 的 input 仍由未結案索引追蹤，不依 open_runs。
+
+run 使用 input_ids 關聯；原 input_operations 仍可讀，但不再雙寫副本。`comfy_aux_inputs` 的等待批次只在使用者當次操作、註冊完成、前一步提交後或明確繼續時喚醒；閒置 pump 不掃描歷史 input_batch。暫停、restart pause、取消與 S8 繞過都不提供新的派送資格。
+
+foreign apply 完成後的 continuation、free_state 與原 receipt 在同一交易保存。重開不自動續送；只有 submission_intent=not_sent，且 input_batch 與各 input 的 owner／workspace／server／continuation 相符，才是合法的準備等待。這項證據也保護通道能力回覆之前的 legacy observe。已經 issued 的 attempt 即使保留 foreign_batch，仍須走 S5／S7 檢查，不能因按繼續再次提交。30 秒證據不足顯示「無法確認」，保留在途權；取消要求不是取消終態。
+
+inspect 只保存讀取結果與參數描述。使用者按套用仍走原本的再次核對及 Undo 編輯交易；底稿 capture 不加入等待工作，也不在重開後恢復圖片 variant／upload。細節見 [通道協定](comfy-event-protocol.md#原生輔助操作與輸入c3)。

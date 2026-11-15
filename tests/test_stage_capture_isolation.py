@@ -140,7 +140,7 @@ class AdvanceBoundaryTests(unittest.TestCase):
         stage=dict(id='stage',workflow='workflow')
         state=dict(workspace='w',multi_output={'stages':{'stage':{'parameters':None}}},uses={'root':{'prompt':'frozen'}})
         frame=dict(ctx={'saved':{},'sources':{},'results':{}},variants=[{'values':{},'sources':{},'results':{}}],index=0)
-        self.run.update(workspace='w',round=1,stack=[frame])
+        self.run.update(workspace='w',round=1,revision=1,stack=[frame])
         self.runner.window.state['workspace']='w'
         self.runner.closed=False
         self.runner.client=SimpleNamespace(connected=True)

@@ -393,6 +393,9 @@ class StageRunner(QObject):
         if (self.apply_queue or any(r['status']=='running' for r in runs)) and not self.client.dispatch_allowed:return
         self.pumping=True
         try:
+            if self.__dict__.get('_input_waiting'):
+                from .comfy_aux_inputs import start_next
+                for batch in tuple(self._input_waiting):start_next(self,batch)
             from .stage_batches import expand
             try:expand(self,CAPACITY)
             except (ValueError,OSError) as exc:
@@ -819,7 +822,14 @@ class StageRunner(QObject):
             def fail(error):
                 if not continue_current():return
                 self.preparing=None;job=self.client.generation.record(attempt['id'])
-                self.store.update(attempt['id'],status='unconfirmed' if job and job['state']=='unconfirmed' else 'failed',error=str(error))
+                current=self.store.read(attempt['id'])
+                batch=self.store.read(current.get('foreign_batch')) if current.get('foreign_batch') else None
+                uncertain=batch and batch['status']=='waiting'
+                if uncertain:
+                    # Aux acceptance already committed the unconfirmed attempt
+                    # with its deadline receipt. This is a UI notification only.
+                    self.notify();self.later();return
+                self.store.update(attempt['id'],status='unconfirmed' if uncertain or job and job['state']=='unconfirmed' else 'failed',error=str(error))
                 self.pause(run['id'],str(error),reason='error');self.later()
             def submit(snapshot,uploads):
                 if not continue_current():return
@@ -833,7 +843,10 @@ class StageRunner(QObject):
             def prepared():
                 try:prepare(self.client,state,stage['workflow'],continue_current,submit,fail,image_values=images)
                 except (ValueError,OSError) as exc:fail(str(exc))
-            if foreign:self.apply_bindings(foreign,prepared,fail,valid=still_current,owner=run['id'])
+            if foreign:self.apply_bindings(foreign,prepared,fail,valid=still_current,owner=run['id'],
+                continuation=dict(kind='foreign',attempt=attempt['id'],workflow=stage['workflow'],
+                    chain=dict(run=run['id'],round=run['round'],stage=stage['id'],item=attempt['id'],attempt=attempt['id'],revision=run['revision'],parent=ctx.get('parent')),
+                    replay=retry.get('replay') if retry else None))
             else:prepared()
 
         self.store._transactions.after_commit(begin_submission)
@@ -849,6 +862,12 @@ class StageRunner(QObject):
                     finish_cancel(self,self.store.read(attempt['id']))
                 continue
             if job is None:
+                # The startup capability reply may not have arrived yet. A
+                # durable foreign-input intent is still owned by the channel;
+                # the legacy observation path must not fail its continuation.
+                current=self.store.read(attempt['id'])
+                from .comfy_aux_inputs import pending_foreign
+                if pending_foreign(self.store,current):continue
                 if attempt['status']=='preparing' and self.preparing!=attempt['id']:
                     self.store.update(attempt['id'],status='failed',error='提交前中斷，未找到原生要求。')
                 continue
@@ -1040,6 +1059,9 @@ class StageRunner(QObject):
             for key in self.scheduler_keys(run['plan']):self.store.set_scheduler_paused(run['workspace'],key,False)
             self.store.update(ident,status='running',message='',pause_reason='')
         self.client.dispatch_allowed
+        if getattr(getattr(self.client,'events',None),'aux',None) and self.client.events.aux.enabled:
+            from .comfy_aux_inputs import resume
+            resume(self,ident)
         self.later();self.notify('已繼續這份流程。')
 
     def cancel(self,ident=None):
@@ -1127,8 +1149,11 @@ class StageRunner(QObject):
             if run['status'] in ('running','waiting'):
                 self.pause(run['id'],'連線中斷；已提交紀錄保留，恢復後請繼續。',reason='disconnect')
         self.cancel_apply('輸入同步連線中斷，未自動重送。')
+        aux=getattr(getattr(self.client,'events',None),'aux',None)
         for run in self.runs(True):
-            if run.get('free_state')=='applying':self.store.update(run['id'],free_state='failed',free_error='輸入同步連線中斷，未自動重送。')
+            covered=aux and any(aux.owns(key) for key in run.get('input_ids',[]))
+            if run.get('free_state')=='applying' and not covered:
+                self.store.update(run['id'],free_state='failed',free_error='輸入同步連線中斷，未自動重送。')
         self.preparing=None;self.applying=None;self.apply_queue.clear();self.collecting.clear()
 
     def workspace_changed(self,previous):
@@ -1228,14 +1253,24 @@ class StageRunner(QObject):
 
     def cancel_inputs(self,run):
         if self.apply_owner==run['id']:self.cancel_apply('所屬流程已停止，未繼續套用輸入。')
+        if getattr(getattr(self.client,'events',None),'aux',None):
+            from .comfy_aux_inputs import cancel_batch
+            for batch in self.store.rows('input_batch',owner=run['id']):
+                if batch['status']=='waiting':cancel_batch(self,batch)
         self.apply_queue=[item for item in self.apply_queue if item[6]!=run['id']]
         current=self.store.read(run['id'])
-        for operation in current.get('input_operations',[]):
+        operations=[self.store.read(key) for key in current.get('input_ids',[])]
+        operations += [self.store.read(row['id']) or row for row in current.get('input_operations',[])
+                       if row['id'] not in current.get('input_ids',[])]
+        for operation in operations:
+            if not operation:continue
             if operation.get('sent') and not operation.get('ended'):
                 self.request_input_cancel(dict(operation,server=run['server']))
 
     def request_input_cancel(self,operation):
         ident=operation['id'];store=self.store
+        aux=getattr(getattr(self.client,'events',None),'aux',None)
+        if aux and aux.owns(ident):aux.cancel(ident);return
         if ident in self.apply_cancellations:return
         recorded=store.read(ident)
         if recorded and recorded.get('ended') and recorded.get('cancel_state') in ('failed','settled'):return
@@ -1256,16 +1291,31 @@ class StageRunner(QObject):
         self.client.request('workflow/native/cancel',dict(id=ident),done=lambda result:finish(result),failed=lambda error:finish(error=error))
 
     def cancel_apply(self,message):
+        if self.__dict__.get('_input_waiting'):
+            from .comfy_aux_inputs import cancel_batch
+            for key in tuple(self._input_waiting):cancel_batch(self,self.store.read(key))
         operation=self.apply_operation
         if not operation:return
         if self.apply_abort:self.apply_abort(message)
         if operation['sent'] and not operation['ended']:self.request_input_cancel(operation)
 
-    def apply_bindings(self,groups,done,failed,valid=None,owner=None):
+    def apply_bindings(self,groups,done,failed,valid=None,owner=None,continuation=None):
+        aux=getattr(getattr(self.client,'events',None),'aux',None)
+        if aux and aux.enabled:
+            from .comfy_aux_inputs import begin
+            return begin(self,groups,done,failed,valid,owner,continuation)
         context=(self.window.store,self.window.state['workspace'],self.client.url,self.client.epoch);batch=uuid.uuid4().hex
         def guard():return context==(self.window.store,self.window.state['workspace'],self.client.url,self.client.epoch) and (valid is None or valid())
         for workflow,bindings in groups.items():self.apply_queue.append((workflow,copy.deepcopy(bindings),done if workflow==next(reversed(groups)) else lambda:None,failed,guard,batch,owner,context))
         self.apply_next()
+
+    def accept_input_continuation(self,item):
+        from .comfy_aux_inputs import accept
+        accept(self,item)
+
+    def input_accepted(self,item):
+        from .comfy_aux_inputs import received
+        received(self,item)
 
     def apply_next(self):
         if self.closed or self.applying or not self.apply_queue:return
@@ -1283,10 +1333,9 @@ class StageRunner(QObject):
         def journal(**changes):
             operation.update(changes);self.store.update(ident,**changes)
             if owner:
-                run=self.store.read(owner);operations=run.get('input_operations',[])
-                item=next((r for r in operations if r['id']==ident),None)
-                if item is None:item=dict(id=ident,workflow=workflow,sent=False,ended=False);operations.append(item)
-                item.update(changes);self.store.update(owner,input_operations=operations)
+                run=self.store.read(owner)
+                ids=run.get('input_ids',[])
+                if ident not in ids:self.store.patch(owner,input_ids=[*ids,ident])
         journal()
         state=copy.deepcopy(self.window.state);data=state['multi_output'];images=[]
         data.update(canvases={},outputs={},clip_inputs={},image_inputs={},bindings=[],connections=[],schedulers={},stages={},current_output=None)

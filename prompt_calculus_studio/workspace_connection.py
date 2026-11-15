@@ -184,7 +184,7 @@ class WorkspaceConnection(QObject):
 
     def authorize_snapshot(self):
         if self.channel is None:return
-        pending=[row for client in self.live_clients() for row in client.events.reconcile.pending.values()]
+        pending=[row for client in self.live_clients() for row in (*client.events.reconcile.pending.values(),*client.events.aux.pending.values())]
         if all(row.get('probed') for row in pending):
             self.channel.command.emit(dict(kind='snapshot_authorized'))
 
@@ -331,9 +331,10 @@ class WorkspaceComfyClient(ComfyClient):
             if not ident:
                 (failed or self.window.notice)(RequestFailure('操作缺少任務身分，未送出。', rejected=True))
                 return
-            with self.window.store.db:
-                self.window.store.db.execute('INSERT INTO workspace_operations VALUES (?,?,?,0,?)',
-                                            (ident, self.url, route, 'submitting'))
+            if not self.events.aux.owns(ident):
+                with self.window.store.db:
+                    self.window.store.db.execute('INSERT INTO workspace_operations VALUES (?,?,?,0,?)',
+                                                (ident, self.url, route, 'submitting'))
         channel_generation = self.workspace.comfy_connection.channel_generation
         channel = self.workspace.comfy_connection.channel
         event_ident = (data.get('attempt') if route.startswith('workflow/queue/') else ident) if isinstance(data, dict) else None
@@ -365,6 +366,7 @@ class WorkspaceComfyClient(ComfyClient):
         return super().reset_connection()
 
     def reconcile_operation(self, ident, value):
+        if self.events.aux.owns(ident):return
         state = value.get('state')
         ended = state in ('opened', 'inspected', 'captured', 'applied', 'failed', 'settled')
         with self.window.store.db:
@@ -382,18 +384,17 @@ class WorkspaceComfyClient(ComfyClient):
             db = self.window.store.db
             operations = {r[0] for r in db.execute(
                 'SELECT id FROM workspace_operations WHERE ended=0 AND server=?', (self.url,))}
-            operations.update(row['id'] for row in self.input_flow.chain.store.rows('input')
-                              if row.get('server') == self.url and row.get('sent') and not row.get('ended'))
+            operations.update(r[0] for r in db.execute("SELECT id FROM stage_header WHERE kind='input' AND json_extract(body,'$.server')=? AND json_extract(body,'$.sent')=1 AND COALESCE(json_extract(body,'$.ended'),0)=0 AND COALESCE(json_extract(body,'$.aux_version'),0)!=1",(self.url,)))
         connection=self.workspace.comfy_connection if self.workspace else None
         chain=self.input_flow.chain
         slow=bool(connection and connection.channel_receiving and self.connected and self.event_capable and
             (not self.document_polling or self.events.ready) and not operations and not self.run_id and
             not (self.register_library and self.owns_library_registration) and
-            not getattr(chain,'applying',None) and not getattr(chain,'apply_queue',()) and
+            (not getattr(chain,'applying',None) or self.events.aux.owns(chain.applying)) and not getattr(chain,'apply_queue',()) and
             not getattr(chain,'apply_cancellations',()))
         # Only the periodic timer is coalesced. Explicit rechecks/commands keep
         # their immediate poll. Pending owner registration and C2 input/auxiliary
-        # operations keep 1.5s; metadata throttling must not defer either gate.
+        # unmanaged operations keep 1.5s; covered input/aux use durable receipts.
         # Reuse the operation lookup above; do not add another queue scan.
         if not (self.sender() is self.timer and slow and self._status_clock()-self._desktop_status_at<8):
             super().poll()
@@ -424,6 +425,7 @@ class WorkspaceComfyClient(ComfyClient):
 
     @property
     def scheduling_message(self):
+        if any(item.get('error')=='無法確認' for item in self.events.aux.active.values()):return '無法確認'
         if self.stopped:return ''
         if self.event_capable is False:return '需要更新擴充'
         if self.events.enabled and any(j.get('error')=='無法確認' for j in self.generation.jobs.values()):return '無法確認'
@@ -455,6 +457,8 @@ class WorkspaceComfyClient(ComfyClient):
             # survive a restart after their callbacks were lost. Cancel by
             # original ID, never through the server's global interrupt.
             chain = self.input_flow.chain
+            for ident,item in list(self.events.aux.active.items()):
+                if item['action']!='apply' and item['sent']:self.events.aux.cancel(ident)
             for item in chain.store.rows('input'):
                 if item.get('sent') and not item.get('ended') and item.get('server') == self.url:
                     chain.request_input_cancel(item)

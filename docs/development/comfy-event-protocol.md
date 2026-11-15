@@ -163,7 +163,31 @@ native 與 frozen 都持久保存 cancel_requested，排隊中精確比對 promp
 
 固定來源 hash 與來源衍生 fixture 在測試檔中保存；未執行 ComfyUI 本體。第三方 group node、其他後端／前端版本、真 GPU 與真 WebSocket 尚未驗證，見[配套矩陣](../guide/comfyui-compatibility.md)。單一 hook 與服務重建有合成測試；不據此宣稱 ComfyUI 路由整體可熱重載，實際更新仍須重啟後端。
 
-共用協定由 `releases.SHARED_MODULES` 與建置流程產生，不能手動修改 shared 副本。input／輔助 operation 的接管另行實作；早到節點結果尚未啟用。manager、md、chat 的編輯保存不因此改走 ComfyUI 執行通道。
+共用協定由 `releases.SHARED_MODULES` 與建置流程產生，不能手動修改 shared 副本。C3 接管以下持久原生輔助操作；早到節點結果尚未啟用。manager、md、chat 的編輯保存不因此改走 ComfyUI 執行通道。
+
+## 原生輔助操作與輸入（C3）
+
+`comfy_aux_operations` 是 open、inspect、capture、apply 的單一接受入口。HTTP ACK 只排入定點對帳；事件與 snapshot 的 `receipt_ref` 也只通知讀回原 `workflow/native/recovery` 收據。收據新增 action、target、request_hash、event_identity、scope，以及取消／fence 證據。需要配套 C3 擴充；舊收據缺少完整身分時維持「無法確認」，不猜歸屬、不重送或退回高頻輪詢。
+
+每次 HTTP 前，在原文件 journal 保存 `aux_version=1` 的 input／aux_operation：runtime owner、原 operation ID、server URL／instance／epoch、library／workspace、workflow target、凍結 request 及 hash、sent、期限與 continuation。新 run 只保存 input_ids；舊 input_operations 副本仍可讀取。request／result／input_images 使用 journal=1 既有 content_paths，不新增 SQL 表或欄位，event_apply 維持 1，document／PNG 版本不變。
+
+只有原 intent 與完整收據的 ID、action、request hash、workflow identity、owner、server 和目前 epoch 相符才接受。無 scope 的 inspect 由 worker 的原 intent owner 索引交付，不廣播給文件。超大收據的事件保留 action 與 ref，內容由有期限的原收據查詢取得。新 epoch 仍先對帳；不能把舊 epoch 回應套到新連線。
+
+接受使用同一連線的 accepting 外層交易，包含終態、continuation 與 channel_applied_events。一般 capture 的 work_queue 加入也在這筆交易；SQLite 失敗全部回滾。文件提交後才通知 UI、喚醒排程、回報 sidecar delivered；重開或重播遇到已結案 intent 不再續行。
+
+| 操作 | 持久續行 |
+|---|---|
+| inspect | 保存已核對 inspection、解析 profile／parameter_description 與 receipt 後結束。沒有自動套用參數或綁定；手動套用、再次 inspect、衝突核對及 Undo 沿原編輯入口。關閉面板後的晚到結果只保存讀取；期限後不改用存檔副本。 |
+| capture，store_result=True | 收據中的 work 與本地 work_queue 同交易，只加入一次。遠端已有 capture、本地尚未加入時由重讀收據補齊。 |
+| capture，store_result=False | 只接受底稿的收據、歸屬、期限與 lane；不加入底稿、不在重開後重啟 variant／upload。活著的原請求可以繼續；回覆遺失則停止準備，保留既有工作。 |
+| apply | input_batch 保存順序與 continuation；每次接受原 input ID 後才進下一步。foreign_ready、free_state 與原收據同交易；重開後保留 restart pause，不自動重新派送。使用者繼續時以原 attempt／input ID 接回尚未送出的下一步。 |
+| open | 保存原生定位結果並釋放 lane，不改綁定或觸發生成。 |
+
+12 秒未取得證據即定點查原 operation；單次讀回有絕對期限，失敗以 1／2／4／8 秒退避，30 秒保存「無法確認」。正在等待的 HTTP 也受截止時間約束，不以回呼一定會到達為前提。通道健康恢復、新事件或明確更新後可再核對同一 ID。120 秒診斷沿既有通道，不將長執行判成 failed。
+
+HTTP rejected 與 failed 收據不同；只有核對原收據，或取消後取得同 epoch 的 missing fence，才能結案。delivered apply 的 cancelling 須等原瀏覽器 cancel_confirmed；已 applied 的收據勝過晚到取消 ACK。純 unavailable、未收到取消確認都保留 lane。刪失的 aux 收據須從持久 event_receipts 核對原 intent，並建立拒絕晚到寫入的 fence；無投影時不得猜 missing。
+
+新操作不再使用 100／300／500ms native/status，也不進 Workspace 的 1.5 秒補查集合。通道健康且有完整 intent 時，desktop/status 仍採 C1 的 8 秒門檻（1.5 秒 timer 合併，實際約 9 秒）；斷線仍由 12 秒通道心跳察覺。舊而不完整的 input／workspace_operations、v5／v6 run_id、legacy apply_queue／cancel，以及待 library 註冊仍維持原節奏。variant／upload、InputBridge、DirectRuns、workflow transfer、Web 背景操作、原生選圖與舊 desktop bridge 不在本段接管範圍。
 
 ## 本機一致性收據
 

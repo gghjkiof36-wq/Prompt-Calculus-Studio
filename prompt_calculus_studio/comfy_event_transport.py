@@ -372,12 +372,16 @@ class DeliveryFilter:
         self.running = {}
         self.nodes = {}
         self.display = {}
+        self.aux = {}
 
     def select(self, page, owner_info=None):
         owner=page['owner']; running=self.running.get(owner, set())
         selected=[]
         for event in page['events']:
             kind=event['kind'];prompt=event.get('prompt_id')
+            if (event.get('entity','').startswith('native_operations:') and
+                event.get('payload',{}).get('action') in ('open','inspect','capture','apply') and
+                event['entity'] not in self.aux.get(owner,())):continue
             if kind=='native.progress': continue
             if prompt in running and kind in ('native.execution_start','native.executing','native.executed','native.execution_cached'):
                 if owner_info and any(event.get('scope',{}).get(key) not in (None,owner_info.get(key)) for key in ('library_id','workspace_id')):
@@ -518,6 +522,10 @@ class _Worker(QObject):
         self.wake(0)
 
     def apply_command(self, value):
+        if value['kind']=='aux_owner':
+            self.filter.aux[value['owner']]=set(value['entities'])
+            self.delivery_revision=-1
+            return
         if value['kind'] == 'owner':
             self.inbox.owner(value['value'])
             self.owners[value['value']['token']] = value['value']

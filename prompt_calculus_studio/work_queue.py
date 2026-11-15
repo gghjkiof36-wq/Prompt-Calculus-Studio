@@ -39,8 +39,10 @@ class WorkQueue:
             validate(work)
             items.append(dict(id=uuid.uuid4().hex, created=time.time(), state='waiting', work=copy.deepcopy(work),
                          capture=capture, label=label or work['generation']['workflow'], attempts=[], error=''))
-        with self.db:
-            self.db.execute('BEGIN IMMEDIATE')
+        from contextlib import nullcontext
+        nested = bool(getattr(getattr(self.db,'_transactions',None),'depth',0))
+        with nullcontext() if nested else self.db:
+            if not nested:self.db.execute('BEGIN IMMEDIATE')
             if self.db.execute('SELECT COUNT(*) FROM work_queue').fetchone()[0]+len(items) > 2000:
                 raise ValueError('Queue 已有 2000 項紀錄，請先移除不再需要的等待項目。')
             for item in items:

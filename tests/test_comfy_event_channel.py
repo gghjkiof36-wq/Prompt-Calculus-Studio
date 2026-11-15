@@ -155,6 +155,13 @@ class QtChannelTests(unittest.TestCase):
             with patch.object(client,'register_library',True):
                 tick(22.5);self.assertEqual(statuses()[-1],22.5)
             tick(24);self.assertEqual(statuses()[-1],22.5)
+            # C3-owned apply has a durable intent and bounded reconciliation;
+            # unlike the legacy inputs above, it keeps the healthy cadence.
+            client.events.aux.known.add('covered')
+            with patch.object(client.input_flow.chain,'applying','covered'):
+                tick(25.5);self.assertEqual(statuses()[-1],22.5)
+                tick(31.5);self.assertEqual(statuses()[-1],31.5)
+            client.events.aux.known.discard('covered')
 
     def test_utility_status_uses_the_same_healthy_channel_deadline(self):
         # A document owner accepts the initial snapshot. Without an owner the

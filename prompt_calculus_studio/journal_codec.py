@@ -96,6 +96,10 @@ def paths(body):
         saved(body.get('saved'), ('saved',))
     elif kind == 'attempt':
         fields(body, (), ('snapshot_state', 'images', 'result', 'operation_evidence'))
+    elif kind in ('input','aux_operation'):
+        # Existing journal=1 content pointers also carry C3's frozen request
+        # and full receipt. Readiness queries keep using the small header.
+        fields(body, (), ('request', 'result', 'input_images'))
     elif kind == 'batch_snapshot':
         fields(body, (), ('scene', 'base', 'supply', 'segments', 'results', 'parameters'))
     elif kind == 'run':

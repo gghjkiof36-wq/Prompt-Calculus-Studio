@@ -21,7 +21,7 @@ def unfinished(db):
                          IN ('submitting','queued','running','unconfirmed') LIMIT 1""").fetchone():
             return True
     if 'stage_header' in tables:
-        if db.execute("""SELECT 1 FROM stage_header WHERE kind='input'
+        if db.execute("""SELECT 1 FROM stage_header WHERE kind IN ('input','aux_operation')
                          AND json_extract(body,'$.sent')=1
                          AND COALESCE(json_extract(body,'$.ended'),0)=0
                          UNION ALL SELECT 1 FROM stage_header WHERE kind='attempt'

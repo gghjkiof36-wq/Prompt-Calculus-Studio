@@ -108,6 +108,8 @@ class InvariantChecker:
                         if notify:self.store._transactions.after_commit(runner.notify)
             return
         if origin not in ('preparing','submitted','unconfirmed','result_error'):return
+        from .comfy_aux_inputs import pending_foreign
+        if pending_foreign(self.store,attempt):return
         evidence=attempt.get('operation_evidence')
         if self.owned_payload(attempt,run,evidence):
             candidate=copy.deepcopy(evidence)

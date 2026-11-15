@@ -75,7 +75,16 @@ class WorkflowCatalog(QObject):
                 QTimer.singleShot(100,self,lambda:client.request('workflow/native/status',dict(id=ident),done=received,failed=error) if valid() else None)
                 return
             failed(value.get('error') or '原生工作流未讀取，請重新整理。')
-        client.request('workflow/native/inspect',dict(id=ident,target=dict(path=path,frontend_id=(profile or {}).get('frontend_id',''))),done=received,failed=error)
+        request=dict(id=ident,target=dict(path=path,frontend_id=(profile or {}).get('frontend_id','')))
+        aux=getattr(getattr(client,'events',None),'aux',None)
+        if aux and aux.enabled:
+            # Q1: only the read result is durable. A closed/stale dialog cannot
+            # apply edits, and an expired pre-apply read never falls back.
+            aux.start('inspect',request,continuation=dict(workflow=(profile or {}).get('id') or self.identity(path),
+                name=(profile or {}).get('name') or PurePosixPath(path).stem),done=received,
+                failed=lambda message:failed(message) if valid() else None)
+            return
+        client.request('workflow/native/inspect',request,done=received,failed=error)
     def trash(self,path,done,failed):
         path=workflow_path(path); target='prompt_studio/workflow-trash/'+uuid.uuid4().hex+'/'+path
         server,epoch=self.client.url,self.client.epoch

@@ -35,6 +35,8 @@ class EventReducer:
         for item in queue.rows(): self.queue_changed(item)
         queue.changed = self.queue_changed
         self.invariants = None
+        from .comfy_aux_operations import AuxOperations
+        self.aux = AuxOperations(self)
         if self.window.state.get('multi_output',{}).get('version',0)>=7:
             from .stage_invariants import InvariantChecker
             self.invariants = InvariantChecker(client)
@@ -112,6 +114,7 @@ class EventReducer:
         self.snapshot_ready = False
         self.channel_healthy = True
         self.identity = copy.deepcopy(identity)
+        self.aux.bind()
         self.prompt_jobs.clear()
         self.display_nodes.clear()
         for job in self.active():
@@ -142,6 +145,7 @@ class EventReducer:
             done()
             return
         entity = event.get('entity','')
+        if entity.startswith('native_operations:') and self.aux.receive(event,done,snapshot=snapshot):return
         ident = entity.split(':',1)[1] if entity.startswith(('native_operations:','queue_attempts:')) else None
         if ident is None and event.get('prompt_id'):
             ident = self.prompt_job(event['prompt_id'])
@@ -355,6 +359,7 @@ class EventReducer:
 
     def health(self, health):
         if not self.enabled: return
+        self.aux.health(health)
         self.channel_healthy=bool(not health.get('needs_reconcile') and health.get('log_consistent',True) and health.get('state')=='receiving')
         self.ready=bool(self.snapshot_ready and not self.reconcile.pending and self.channel_healthy)
         running=health.get('running')
@@ -368,6 +373,7 @@ class EventReducer:
                     except (sqlite3.Error,OSError) as exc:self.diagnostic('unconfirmed receipt pending: '+str(exc))
 
     def heartbeat(self):
+        self.aux.heartbeat()
         # A fresh valid heartbeat permits one new bounded evidence window.
         # A long-running, positively queued/running prompt has no expiry timer.
         for ident,row in list(self.reconcile.pending.items()):
@@ -377,3 +383,4 @@ class EventReducer:
     def close(self):
         self.generation+=1
         self.reconcile.close()
+        self.aux.close()

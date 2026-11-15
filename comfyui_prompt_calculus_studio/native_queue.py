@@ -329,7 +329,8 @@ class NativeQueue:
     def prepare(self,value):
         self.require_supported()
         operation=self.checked(value)
-        if operation['state']!='delivered':raise ValueError('此原生操作已結束或不在待提交狀態。')
+        if (operation['state']!='delivered' and not (operation.get('action')=='capture' and operation['state']=='unconfirmed')
+                or operation.get('cancel_requested')):raise ValueError('此原生操作已結束或不在待提交狀態。')
         if operation.get('action') in ('open','apply','inspect') or value.get('client_id')!=operation['client_id']:raise ValueError('此操作不提交生成，或原生連線已變更。')
         graph=api_graph(value.get('output')); visual=copy.deepcopy(value.get('workflow'))
         if not isinstance(visual,dict) or not isinstance(visual.get('nodes'),list):raise ValueError('原生可視工作流資料無效。')
@@ -453,7 +454,7 @@ class NativeQueue:
         self.require_supported()
         operation=self.checked(value); prompt_id=value.get('prompt_id')
         if operation.get('action')=='inspect':
-            if operation['state']!='delivered':return self.status(operation['id'])
+            if operation['state'] not in ('delivered','unconfirmed') or operation.get('cancel_requested'):return self.status(operation['id'])
             inspection=value.get('inspection')
             if isinstance(inspection,dict) and not value.get('error'):
                 identity=operation.get('resolved_identity',operation['identity'])
@@ -473,12 +474,12 @@ class NativeQueue:
             else:operation.update(state='failed',error=str(value.get('error','原生工作流未讀取。'))[:1000])
             self.save(operation);return self.status(operation['id'])
         if operation.get('action')=='apply':
-            if operation['state']=='delivered':
+            if operation['state'] in ('delivered','unconfirmed') and not operation.get('cancel_requested'):
                 operation.update(state='applied' if value.get('applied') is True and not value.get('error') else 'failed',error=str(value.get('error',''))[:1000])
                 self.save(operation)
             return self.status(operation['id'])
         if operation.get('action')=='open':
-            if operation['state']!='delivered':return self.status(operation['id'])
+            if operation['state'] not in ('delivered','unconfirmed') or operation.get('cancel_requested'):return self.status(operation['id'])
             opened=value.get('opened_identity')
             if opened and not value.get('error'):
                 if not isinstance(opened,dict) or not self.target_matches(opened,operation['target']):raise ValueError('原生開啟回覆與綁定不符。')
@@ -517,8 +518,15 @@ class NativeQueue:
         operation=self.read(ident)
         if operation['state'] in ('awaiting_browser','pending','delivered','prepared','submitted') and time.time()-operation['created']>30:
             operation.update(state='failed' if operation['state'] in ('awaiting_browser','pending') else 'unconfirmed',error='原生提交逾時，不會自動重送。');self.save(operation)
-        result={k:copy.deepcopy(operation[k]) for k in ('id','state','error','first_error','terminal_action','issued_at','prompt_id','payload','opened_identity','work','inspection','parameter_receipt') if k in operation}
+        result=self.receipt(operation)
         result['diagnostics']=self.diagnostics(ident)
+        return result
+
+    def receipt(self, operation):
+        from .event_protocol import receipt_scope
+        result={k:copy.deepcopy(operation[k]) for k in ('id','state','error','first_error','terminal_action','issued_at','prompt_id','payload','opened_identity','work','inspection','parameter_receipt',
+            'action','target','request_hash','cancel_requested','cancel_confirmed','missing_fence') if k in operation}
+        result.update(event_identity=dict(server_instance=self.service.events.server_instance,epoch=self.service.events.epoch),scope=receipt_scope(operation))
         return result
 
     def cancel_pending(self):
@@ -542,7 +550,7 @@ class NativeQueue:
             operation.update(cancel_requested=True,cancel_confirmed=not delivered_apply,cancel_deadline_at=time.time()+30)
             operation.update(state='failed',terminal_action='cancel',error='已取消這項 PCS 工作。');self.save(operation)
             return dict(ok=True,state='cancelling' if delivered_apply else 'failed')
-        if operation.get('action')=='apply':return dict(ok=True,state='settled')
+        if operation.get('action') in ('open','inspect','capture','apply'):return dict(ok=True,state='settled')
         prompt=operation.get('prompt_id')
         mutex=getattr(queue,'mutex',None)
         if mutex is None:raise ValueError('ComfyUI 無法核對指定任務的取消；後續已暫停，請在原生任務紀錄處理。')
@@ -587,6 +595,42 @@ class NativeQueue:
 
     def recovery(self, ident, queue, *, proof_scope=None, expected_prompt=''):
         self.require_supported()
+        # Auxiliary actions have no executor prompt. Their original native
+        # receipt is authoritative; absence from the executor is not missing.
+        with self.service.connect() as db:
+            # Serialize the absence check with late receipt writers. A fence
+            # must not be based on a SELECT from before another writer's commit.
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT body FROM native_operations WHERE id=?',(ident,)).fetchone()
+            prior=json.loads(row[0]) if row else None
+            if prior and prior.get('action') in ('open','inspect','capture','apply'):
+                result=self.receipt(prior)
+                result['recovery']=dict(location='receipt',can_abandon=False)
+                return result
+            if prior is None:
+                saved=db.execute('SELECT body FROM event_receipts WHERE entity=?',('native_operations:'+ident,)).fetchone()
+                saved=json.loads(saved[0]) if saved else {}
+                payload=saved.get('payload',{})
+                if payload.get('action') in ('open','inspect','capture','apply'):
+                    # A deleted native receipt cannot permit late browser
+                    # writes: each mutation checks this exact operation first.
+                    # Fence the ID in the same transaction as its gap evidence.
+                    from .event_protocol import scope
+                    requested=scope(proof_scope)
+                    if any(saved.get('scope',{}).get(k) not in (None,requested.get(k)) for k in ('library_id','workspace_id')):
+                        raise ValueError('Recovery ownership mismatch')
+                    checked=time.time();fence=dict(epoch=self.service.events.epoch,checked=checked)
+                    result=dict(payload,id=ident,state='unconfirmed',missing_fence=fence,
+                        event_identity=dict(server_instance=self.service.events.server_instance,epoch=self.service.events.epoch),
+                        scope=saved.get('scope',{}),recovery=dict(location='missing',fenced=True,can_abandon=True,checked=checked))
+                    entity='native_operations:'+ident
+                    existing=db.execute('SELECT body FROM event_fences WHERE entity=?',(entity,)).fetchone()
+                    if existing and json.loads(existing[0])['missing_fence']['epoch']==self.service.events.epoch:
+                        result['missing_fence']=json.loads(existing[0])['missing_fence']
+                    else:
+                        db.execute('INSERT OR REPLACE INTO event_fences VALUES (?,?)',(entity,json.dumps(dict(missing_fence=fence))))
+                        self.service.events.append(db,'operation.missing',dict(payload,missing_fence=fence),entity=entity,scope=requested)
+                    return result
         mutex=getattr(queue,'mutex',None)
         if mutex is None:raise ValueError('無法鎖定並核對原生佇列，尚未解除追蹤。')
         with mutex:

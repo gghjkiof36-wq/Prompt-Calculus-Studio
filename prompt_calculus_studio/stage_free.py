@@ -61,6 +61,7 @@ def finish(runner,run):
     if current.get('free_error'):run['free_error']=current['free_error']
     if not items or current.get('free_state') in ('applied','failed','retained'):return True
     if current.get('free_state')=='applying':
+        if any((runner.store.read(key) or {}).get('ended') is False for key in current.get('input_ids',[])):return False
         if (runner.applying is not None and runner.apply_owner==run['id']) or any(item[6]==run['id'] for item in runner.apply_queue):return False
         # Restoring a journal cannot prove whether the prior apply reached the
         # browser. Preserve its operation IDs and do not issue a replacement.
@@ -91,11 +92,13 @@ def finish(runner,run):
     runner.store.update(run['id'],free_state='applying')
     def completed(error=None):
         if runner.closed:return
+        if getattr(getattr(runner.client,'events',None),'aux',None) and runner.client.events.aux.enabled:
+            runner.later();return
         runner.store.update(run['id'],free_state='failed' if error else 'applied',free_error=str(error) if error else '')
         runner.later()
     def valid():
         owner=runner.store.read(run['id'])
         return (not runner.closed and owner['status']=='running' and owner['workspace']==runner.window.state['workspace']
             and owner['server']==runner.client.url and matches(runner.window.state,items))
-    runner.apply_bindings(groups,completed,completed,valid=valid,owner=run['id'])
+    runner.apply_bindings(groups,completed,completed,valid=valid,owner=run['id'],continuation=dict(kind='free'))
     return False

@@ -35,7 +35,7 @@ def project(table, ident, value, deleted=False):
         'terminal_action', 'prompt_id', 'cancel_requested', 'cancel_confirmed', 'abandoned',
         'missing_fence', 'submit_inflight', 'submit_process', 'transport_recorded', 'queue_terminal', 'terminal_result', 'created',
         'deadline_at', 'diagnostic_at', 'cancel_deadline_at', 'cancel_unconfirmed', 'status', 'owner', 'head', 'client', 'session',
-        'revision', 'op_id', 'request_hash', 'key', 'parameter_receipt') if k in value}
+        'revision', 'op_id', 'request_hash', 'target', 'key', 'parameter_receipt') if k in value}
     # The digest also tells a consumer that a large graph/transfer changed.
     payload['receipt_sha256'] = hashlib.sha256(encode(value)).hexdigest()
     payload['receipt_ref'] = dict(table=table, id=ident)
@@ -63,6 +63,8 @@ def project(table, ident, value, deleted=False):
     if len(encode(payload)) > MAX_PAYLOAD_BYTES:
         payload = dict(receipt_ref=dict(table=table, id=ident),
                        receipt_sha256=hashlib.sha256(encode(value)).hexdigest(), fetch_required=True)
+        if table=='native_operations' and value.get('action') in ('open','inspect','capture','apply'):
+            payload['action']=value['action']
     return kind, payload, receipt_scope(value)
 
 

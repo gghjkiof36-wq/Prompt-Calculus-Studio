@@ -35,6 +35,7 @@ class WorkspaceScheduler(QObject):
         flow = client.input_flow
         if (getattr(chain, 'preparing', None) or getattr(chain, 'applying', None)
                     or getattr(chain, 'apply_queue', None)
+                    or getattr(chain, '_input_waiting', None)
                     or client.queue.preparing or client.queue.dispatching
                     or client.generation.batch or client.run_id
                     or flow.current or flow.direct.current or flow.direct.pending):

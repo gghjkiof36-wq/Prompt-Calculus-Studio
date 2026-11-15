@@ -155,6 +155,18 @@ class QueueRunner:
                                       if self.preparing == token else None)
             request=dict(id=ident, snapshot=snapshot, workflow=profile['id'], image=image)
             if queue_texts is not None:request['queue_texts']=queue_texts
+            aux=getattr(getattr(self.client,'events',None),'aux',None)
+            if aux and aux.enabled:
+                def committed(value):
+                    if self.preparing!=token:return
+                    item=value['queue_item'] if store_result else dict(work=value['work'],capture=ident)
+                    if done:done(item)
+                    else:
+                        self.preparing=None
+                        self.notify('工作已加入；可繼續編輯，開始後使用這份固定快照。')
+                        if self.dispatching:self.pump()
+                aux.start('capture',request,continuation=dict(enqueue=store_result),done=committed,failed=failed)
+                return
             self.client.request('workflow/queue/capture', request, receive, failed)
         if source:
             self.upload(source, capture, failed)

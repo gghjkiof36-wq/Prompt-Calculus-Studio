@@ -8,7 +8,7 @@
 
 提交前的意圖與已接受 payload 證據放在既有 attempt journal；continuation／修復收據放在既有 channel_applied_events。全部透過同一 accepting 交易保存，提交後才發布記憶體與通知，不修改文件編輯歷史。沒有新增 SQL 表／欄位，event_apply 仍是 1，journal、可攜 document 與 PNG 版本不變。
 
-有耐久 payload 才能重建 job 投影，且先以 unconfirmed 核對原 prompt；不重送。無證據或結果不完整時保留 lane，沿用 Stage 的錯誤投影。只有明確 not_sent 才能 failed＋paused，重試仍需使用者操作。cancelled run 得到確定終態後清除原 frame.job，不恢復 run，不清手動／restart pause。input、capture、open、inspect 與其他輔助 operation 的通道接管尚未啟用。
+有耐久 payload 才能重建 job 投影，且先以 unconfirmed 核對原 prompt；不重送。無證據或結果不完整時保留 lane，沿用 Stage 的錯誤投影。只有明確 not_sent 才能 failed＋paused，重試仍需使用者操作。cancelled run 得到確定終態後清除原 frame.job，不恢復 run，不清手動／restart pause。持久的原生 input、capture、open、inspect 已依下方 C3 規則接管；其他輔助路徑仍保持原有處理。
 
 ## 保存邊界
 
@@ -52,3 +52,13 @@ C1 的 `WorkspaceConnection` 對同 server 共用一條事件通道，按 runtim
 `test_workspace_binding.py` 直接經分頁 Canvas 的綁定按鈕驗證節點選擇、復原／重做、保存及重開，並檢查圖片綁定、Stage 參數套用、同文件共用目錄及不同文件的取消／延遲回覆隔離。`test_workflow_picker.py` 保留舊介面的工作流讀取、過期連線及原生／已儲存版本區分。
 
 `test_workspace_connection.py` 另檢查已知模式限制、缺少能力而未回報原因、能力恢復，以及空閒斷線的通知。`test_navigation_connection.py` 檢查格式不支援時不註冊 library，格式相容後仍須具備事件能力才能派送；這些合成回覆不能代替使用者已安裝擴充的版本與實際狀態核對。
+
+## C3 輔助操作的原 owner
+
+open、inspect、capture、apply 的 intent 與 receipt 保存在原 runtime 的 studio DB，包含 operation ID、workflow identity、server instance／epoch 和 request hash。無 library scope 的 inspect 也只交給保存該 intent 的 owner。焦點切換、關閉視圖、另存後的晚到結果不會寫到新文件；原 owner 仍可接受收據、釋放自己的 lane。
+
+未結案索引同時查 input 與 aux_operation 的 sent／ended，涵蓋已取消 run 與沒有 run 的操作。run 只保存 input_ids 關聯；相容讀取舊 input_operations。HTTP ACK、cancelling、unavailable 都不能把 ended 改成 true；只有通道核對完整收據，或取消後的 fenced missing 才能解除在途權。
+
+inspect 的持久結果是讀取資料，不是編輯命令；已關閉的參數面板不會在重開後套用。一般 capture 能補回尚未建立的 work_queue，底稿 capture 則不恢復圖片批次。apply 的續行保存到原 input_batch，重開保留 pause；明確繼續不重送已送出的 input。
+
+`test_aux_event_acceptance.py` 由原生開啟、文件 catalog、Queue prepare、Stage apply 入口驗證失聯、錯誤身分、兩次重開與重播、交易回滾及取消；[協定](../comfy-event-protocol.md#原生輔助操作與輸入c3) 列出期限與仍保留的舊路徑。

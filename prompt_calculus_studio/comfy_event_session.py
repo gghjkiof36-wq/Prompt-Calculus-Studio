@@ -29,7 +29,7 @@ class DocumentChannel:
             path=str(client.window.store.directory),attached=True,servers=[client.url])))
 
     def authorize(self):
-        if self.channel and all(row.get('probed') for row in self.client.events.reconcile.pending.values()):
+        if self.channel and all(row.get('probed') for row in (*self.client.events.reconcile.pending.values(),*self.client.events.aux.pending.values())):
             self.channel.command.emit(dict(kind='snapshot_authorized'))
 
     def health(self,value,generation):
