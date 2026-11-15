@@ -377,6 +377,8 @@ class NativeEventBuffer:
         self.thread = None
         self.last_progress = {}
         self.last_cycle=time.monotonic()
+        from .result_manifest import ResultManifestBuffer
+        self.results = ResultManifestBuffer(service, queue=queue)
         service.events.publisher=self
 
     def healthy(self):
@@ -415,6 +417,10 @@ class NativeEventBuffer:
                     self.items.append(item)
         except Exception:
             self.service.events.record_loss('native ingestion failure', prompt_id=data.get('prompt_id'), persist=False)
+        finally:
+            # Capture independently even if the legacy budget overflowed, while
+            # preserving the existing native loss evidence/ordering.
+            self.results.observe(event, data)
 
     def drain(self):
         now = time.monotonic()
@@ -452,6 +458,7 @@ class NativeEventBuffer:
 
     def start(self):
         if self.thread: return
+        self.results.start()
         def run():
             maintenance = 0
             while not self.stop_event.wait(.05):
@@ -471,3 +478,4 @@ class NativeEventBuffer:
     def stop(self):
         self.stop_event.set()
         if self.thread: self.thread.join(timeout=12)
+        self.results.stop()

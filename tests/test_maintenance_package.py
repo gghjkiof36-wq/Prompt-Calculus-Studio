@@ -142,10 +142,12 @@ sys.meta_path.insert(0,NoQt())
 package=types.ModuleType('pcs_event_source');package.__path__=[sys.argv[1]]
 shared=types.ModuleType('pcs_event_source.shared');shared.__path__=[sys.argv[2]]
 sys.modules[package.__name__]=package;sys.modules[shared.__name__]=shared
-for name in ('event_protocol','event_log','service'):
+for name in sys.argv[3:]:
+ importlib.import_module(shared.__name__+'.'+name)
+for name in ('event_protocol','event_log','result_manifest','service'):
  importlib.import_module(package.__name__+'.'+name)
 """
-        run=subprocess.run([sys.executable,'-B','-c',code,str(ROOT/'comfyui_prompt_calculus_studio'),str(ROOT/'prompt_calculus_studio')],
+        run=subprocess.run([sys.executable,'-B','-c',code,str(ROOT/'comfyui_prompt_calculus_studio'),str(ROOT/'prompt_calculus_studio'),*SHARED_MODULES],
                            cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=30)
         self.assertEqual(run.returncode,0,run.stdout.decode('utf-8',errors='replace'))
 

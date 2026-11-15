@@ -148,7 +148,9 @@ native 與 frozen 都持久保存 cancel_requested，排隊中精確比對 promp
 
 只有可核對原 owner、queue/history 並排除在途提交後的 missing 才給 fenced 證據。原收據整列遺失時，須提供原 library／workspace／prompt，並與持久 event_receipts 投影核對；投影也遺失則為 unavailable。同程序的 submit_inflight（含擴充重載）仍阻止 fence，只有 queue/history 找到原 prompt，或 submit_process 證明屬於已結束的舊程序，才可排除提交窗口。在 queue mutex 與同一收據交易內重查後建立 fence；單純查不到或 unavailable 不等同 missing。retired/abandon 留 durable tombstone，後來訊息不恢復派送資格。桌面既有「停止追蹤此筆」接受這份證據後才在本地結案。
 
-## 已核對的原生語意
+## 先前階段的原生來源紀錄
+
+下表是先前通道階段留下的固定來源紀錄，**不是 result_manifest_v1 的來源契約**。結果 manifest 這一階段沒有原生 ComfyUI 原始碼或執行證據；cache、全部 cache、group、subgraph、occurrence 與 nested path 的原生對應一律未定。不能用下表、人工 fixture 或 display_node 推導結果的語意鍵或完整性。
 
 | 0.38.0 來源 | 核對結果 |
 |---|---|
@@ -164,6 +166,80 @@ native 與 frozen 都持久保存 cancel_requested，排隊中精確比對 promp
 固定來源 hash 與來源衍生 fixture 在測試檔中保存；未執行 ComfyUI 本體。第三方 group node、其他後端／前端版本、真 GPU 與真 WebSocket 尚未驗證，見[配套矩陣](../guide/comfyui-compatibility.md)。單一 hook 與服務重建有合成測試；不據此宣稱 ComfyUI 路由整體可熱重載，實際更新仍須重啟後端。
 
 共用協定由 `releases.SHARED_MODULES` 與建置流程產生，不能手動修改 shared 副本。C3 接管以下持久原生輔助操作；早到節點結果尚未啟用。manager、md、chat 的編輯保存不因此改走 ComfyUI 執行通道。
+
+## 耐久結果 manifest v1
+
+擴充的 `result_manifest.py` 提供 `result_manifest_v1`：**final 由原 prompt 的成功 history 封存；原生 executed 的早到候選僅盡力提供顯示**。只有預設 observer、可用的 queue history reader、存活的 result worker，以及耐久版本、原子 outbox、分頁、受限資產讀取都接好時，`events/capability` 和單使用者模式的 `desktop/status` 才宣告能力。注入測試 adapter、缺 history reader 或 worker 已停止時不宣告。早到候選可能不完整；cache 節點沒有 executed 就不會有早到候選，仍由 history 收齊，不依賴原生 occurrence 或 subgraph 映射。
+
+有 `execution_events_v1` 而沒有 `result_manifest_v1` 的擴充，PCS 維持既有最終收圖，D 功能關閉。完全沒有 C1 通道能力的擴充仍按既有規則要求更新、禁止新生成。本次只有擴充實作，PCS 的候選接收、終態 gate、frame、UI 和資料格式均未改；D-B 候選表確定使用 **event_apply=2**，目前 C2/C3 仍為 1。不得為這個擴充先行改 PCS 格式，亦不得把 candidate 當成已接受的 Stage 結果。
+
+### 身分、來源與順序
+
+manifest 的 `schema` 是 `pcs.result-manifest.v1`。完整 `identity` 欄位如下，任何一項不同都不能接續原 manifest：
+
+```json
+{
+  "owner": {"library_id": "…", "workspace_id": "…", "document_id": "…"},
+  "server_instance": "…",
+  "operation": {"kind": "native", "id": "…"},
+  "prompt_id": "…",
+  "graph_digest": "64 lowercase hex SHA256 characters"
+}
+```
+
+`kind` 僅為 native 或 frozen。`manifest_id = SHA256(canonical(identity))`；同一 server/operation 只容許一份原身分及 frozen path map。canonical 是 UTF-8 JSON、key 排序、無多餘空白、不容許 NaN，和事件 `encode` 相同。`graph_digest` 對實際保存的 `operation.payload.prompt` 用此算法計算，不使用當前 Web graph、畫布名稱或某張 PNG 的 graph 替換。來源 `source_epoch` 只是證據，**不在 manifest、item 或來源重播的語意唯一鍵內**。
+
+現有原生提交收據可以核對 snapshot.library_id、snapshot.state.workspace、prompt 及實際 submitted graph，但沒有 PCS document_id。`POST results/manifests/bind` 由持有本機 token 的 PCS 明確提供完整 owner mapping；擴充依原 native_operations 或 queue_attempts/queue_captures 收據核對 library、workspace、prompt、graph，再凍結 document_id。這個 document mapping 是 PCS 的聲明，不冒充由 ComfyUI 推得；同 operation 再 bind 不同 document 拒絕。缺原收據或 owner 不能 bind，不採 active tab。D-B 必須以原 document owner 呼叫此端點，不能改用目前文件。
+
+item 同時保存 `image` descriptor、`format=png`、size 和 asset_sha256。原生路徑使用兩份獨立集合：`item_source=candidates` 的 revision 只讀候選；`item_source=history` 的 sealed revision 只讀 final。即使兩者 ordinal 相同也不是同一項，不能把兩份清單接起來或把舊候選補進 final。
+
+- 原生候選以 prompt_id、原始 `node` 與 `output.images` 建立。相同 prompt/node 的 executed 依耐久 observation sequence 給顯示用 occurrence（字串 `"0"` 起算）；相同 bytes／完全相同 callback 也可代表第二次執行，不能按內容去重。capture ID 在 worker 重試時保持不變，重開由已落盤 sequence 繼續，不重新編號。
+- 候選 node_path 是原事件明示的不透明字串陣列，沒有時為 `[node]`；不切分 node/display_node 字串猜路徑。迴圈、group/subgraph flatten 的原生語意未定，**顯示可能合併或缺漏**，不影響 final。
+- final 完全重新列舉 history.outputs，依 history 的 node 插入順序及每個 images 陣列順序給 ordinal；只選既有最終收圖同樣支援的 PNG，不套 64／120 張上限。node_id 使用 history 的原始 key，node_path=`[node_id]`、occurrence=`"history"`、output_slot=`"images"`、item_index 為該輸出陣列下標。不要求 final key 對應候選或 frozen graph 的 nested path。
+- 有明確來源契約的 server adapter 可呼叫 `register(identity, paths)` 及 worker 的 `ingest(packet)`。packet 包含 identity、source_id、source_revision、evidence_ref、items、可選 seal；`ResultManifestBuffer.adapter` 在 worker 執行。這是受信任的內部接口，沒有接受 HTTP 或原生 event 自稱 trusted 的入口。測試注入的 adapter 僅代表人工來源契約。
+- 已提交 source receipt 的同 source_id/revision canonical packet digest 不同會拒絕。digest 不含 source_epoch；相同來源重播不新增版本、item 或通知。不同來源只重送相同 items 也是 no-op（不新增 source receipt）；同語意 key 改 asset 或 ordinal 拒絕。每個有變更的 header revision 保存 source_evidence 的 id/revision/ref/digest，供追查該版本的來源。
+- 內部 adapter 的唯一鍵仍是 `(occurrence, node_path, output_slot, item_index)`，ordinal 唯一，且 node_path 必須在其 frozen path map；原生 event 自稱有 adapter 欄位不生效。
+- 原生 candidate/final 都提供 `asset_key=SHA256(canonical([node_id,image,asset_sha256]))`。D-B 在同一 manifest 內按相同 node、描述（filename/subfolder/type）及 hash 重用已複製且再次驗 hash 的 asset，避免重複下載；不相符則只採 final。擴充本身不複製檔案，也不以 hash 去掉不同的輸出位置。final 每次重新驗實際 bytes，不以同名檔假定相同。
+
+### 版本與 final seal
+
+每次有效 item／seal 變更新增 immutable header revision，保存當時 item_count、items_digest、source_epoch 和 checksum；item 保存 added revision，舊 revision 的分頁集合永不變。checksum 對不含 checksum 自身的完整 header 計算。items_digest 是按 ordinal 排序的完整公開 item 陣列 canonical SHA256，包含語意欄位、ordinal、image descriptor、format、size、asset_sha256，不含檔案 stat 或 transport epoch。
+
+原生 terminal success 喚醒 worker 查該 prompt 的 history。ComfyUI 在 execution_success 之後才以 task_done 原子寫入 status／outputs，所以當下缺 history 會等待補讀。seal 必須核 history prompt tuple 的 prompt_id、frozen graph digest、成功且 completed 的 status，以及 outputs 字典；final count/digest 依重新驗證的完整清單計算，ordinal 恰好為 `0..expected_count-1`。封存保存 history_digest；`sealed=true, terminal_state=success, result_state=ready` 才是成功結果。bind 晚於事件、重開或遺失 terminal callback 時，也可由成功 history 的耐久 terminal 證據補齊。error／interrupted 的原生證據保留候選及 `sealed=false`，不進成功 seal。
+
+內部 adapter 原有 `complete=true`、terminal_state、expected_count、final_digest 契約仍可用；其 error/interrupted seal 為 partial，不是原生成功或 Stage 成功。測試 adapter 不屬於生產能力宣告路徑。
+
+合法 zero 必有 `zero_output=true`、expected_count=0、final_digest=SHA256(canonical([]))。原生 history 必須明列非圖片輸出（例如 text），覆蓋 requested output nodes，或明列沒有 requested outputs；原本已觀察到圖片、已知 SaveImage／PreviewImage 缺結果、只有空物件或空 images 都不能證明 zero。成功 history 的已知頂層圖片輸出缺漏也等待補讀；未知/custom/subgraph 的非空圖片清單直接以成功 history 為權威，不猜 flatten 對應，與原最終收圖一致。history 不提供完整性以外的自訂節點語意，無明確零圖證據時保持 `sealed=false, expected_count=null, result_state=results_pending`（結果待確認），包括全部 cache。sealed 後禁止附加新項目或改變終態／digest。final seal 只是擴充結果完整性，PCS 仍要驗原 terminal、成功複製全部資產，再在原接受交易處理 frame 與 continuation。
+
+### 捕捉、交易、缺口與保存
+
+原 send_sync hook 先把結果相關事件交給獨立 `ResultManifestBuffer`；既有 executed/native event projection 及 Web legacy observer 原樣保留。hook 只作有界結構複製及記憶體入列，不做 SQLite、序列化、hash、讀圖或網路。每 capture 最多 512KiB 結構預算（字串以每字元 4 bytes、其他節點 32 bytes 計），深度 20；佇列最多 256 captures、8MiB，worker 每輪最多 8 captures、單一 writer，逐張驗檔，單圖最多 25MiB。這些是捕捉上限，不是 64／120 張顯示上限。
+
+超量或資料無法複製時，以有界 pending gap（最多 16 個已知 prompt 加一個總括項目）保存缺口，由 worker 在 integration.sqlite3 寫 result_gaps 和 log.gap。不能把截斷的 descriptor 當完整清單；對帳只向原 prompt 的可信來源取得證據。儲存失敗保留未提交 capture，至少 1 秒退避；不重送生成。硬中止前尚在記憶體的資料沒有耐久保證，由新 epoch 強制對帳，未 seal 的清單始終待確認。若無精確來源可補齊，不能宣稱恢復成功。
+
+manifest items、immutable header、來源 receipt 及 `kind=result.manifest` outbox **同一筆 integration DB 交易**；commit 後才沿原 EventLog 喚醒。payload 只有 manifest_id/revision/checksum，沒有圖片或完整項目；envelope.prompt_id 留空、entity 為 `result_manifest:<id>`，避免舊 PCS 把結果通知當成原 operation 的生命週期／終態證據。D-B 依新 kind 補讀及核對完整 identity。既有 native.executed 的 payload／壓縮契約不變。
+
+預設 observer 先耐久保存 result_observations，再依 sequence 投影 result_candidates、顯示 occurrence、header/outbox；交易失敗重試同一 capture，不多建 occurrence。final 獨立寫 result_items，舊候選 revision 仍可固定補讀，不升格為 final。progress/progress_state 不進 manifest worker、不產生 manifest DB 寫入。既有 C1 NativeEventBuffer 的進度 outbox（最多 5Hz）維持原行為，這個限制不是宣稱整個 C1 integration DB 從來不記 progress。
+
+result worker 在啟動做一次 pending manifest 恢復；bind、capture、stop 以 wake 事件喚醒。沒有工作時無 timeout，閒置每秒定時喚醒為 0；未完整 history 以 0.1／0.5／1／5／30 秒退避重讀原 prompt，儲存失敗至少等 1 秒。只要結果仍待確認就保留補讀，不重送生成。這不改原 C1 event worker 的維護計時。
+
+result_manifests、result_versions、result_items、result_candidates、result_native_state、result_occurrences、result_sources、result_observations、result_gaps 都只在擴充 integration DB。事件流 floor、snapshot TTL、epoch 重開不刪它們；本版沒有 manifest GC／配額回收，不以最近 120 張或 Web 選取 64 張裁切。已註冊的 output/temp 檔案仍由 ComfyUI 管理，擴充不搬移、不延長其實體壽命；移走、覆寫或刪除後精確讀取會拒絕，不能退回最新同名圖片。磁碟失敗會暴露 gap／待確認，不回報完成。
+
+### 讀取端點與安全
+
+以下皆在 `/prompt_studio/`，經原 `event_route`/`local_route` 的 loopback peer、Host、Origin、Sec-Fetch-Site、本機 X-Prompt-Studio token 及單使用者模式檢查。GET 也要 token。每次必帶目前 server_instance、epoch、scope、scope_digest，scope 必含與完整 owner 相等的 library_id/workspace_id；owner 是上述三欄的 JSON。跨重開需重新握手，語意身分與 item ordinal 不變。
+
+| 端點 | 查詢／內容 |
+|---|---|
+| POST results/manifests/bind | JSON body 為完整 identity；query 的 owner/scope 必相符。核對既有收據後取得初始 header；重播不另建 manifest。 |
+| GET results/manifests | 按精確 owner 列 header。首次回 as_of（全域 version sequence），後頁帶相同 as_of、after=前頁 next_after。最多 64 headers、256KiB，版本固定於 as_of。 |
+| GET results/manifest | 必帶 manifest_id、revision、checksum；after 為最後 ordinal（起始 -1）。最多 64 items、256KiB，回 header/items/next_after/done，以及 expires/asset_token。 |
+| GET results/evidence | 同一 manifest reference；after 為 observation sequence（起始 0）。每頁一個 native observation，另附最多 16 個 gap 摘要；空頁 done=true。這是診斷補讀，不是 final completeness；capture 受 512KiB 結構預算限制。 |
+| GET results/asset | 同一 reference，另帶 ordinal、asset_sha256、expires、asset_token；回 image/png 原 bytes，Cache-Control=no-store，不接受使用者提供的檔案路徑。 |
+
+asset_token 是以啟動期隨機密鑰 HMAC 綁定完整 identity、revision、checksum 及 300 秒期限的讀取 lease；它不是可替代 X-Prompt-Studio 的授權。過期或擴充重開後重新讀同 revision 頁取得 lease；不修改 manifest。錯 scope／owner／server、revision/checksum 衝突、外來或過期 token 一律拒絕。
+
+資產只能是 worker 登記過的 output/temp PNG，相對 subfolder 和單一 filename；禁止 input、絕對路徑、`..`、反斜線繞路、URL/百分比編碼、Windows ADS、symlink／reparse point（含父路徑）。開檔前後比對 file identity、size、mtime/ctime，驗 PNG signature、SHA256；讀取時再對登記的 stat/hash 驗證。候選及 adapter 有 prompt_studio submission_id 時仍核對；final 的精確成功 history 才能引用 cache 舊圖，允許其 PNG metadata 保留舊 submission_id，不能由 event／HTTP 參數自稱這項權限。缺檔、短讀、檔案被覆寫或重新導向時拒絕，從不回傳「最新圖」。原 `desktop/results`、`desktop/collect`、`node_images` 及 Web 64 張選取限制未修改。
 
 ## 原生輔助操作與輸入（C3）
 

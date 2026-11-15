@@ -34,6 +34,7 @@ node_images=NodeImages(dict(input=folder_paths.get_input_directory(),output=fold
 from .background_events import install_event_hook
 from .event_log import NativeEventBuffer
 from . import event_protocol
+from . import result_manifest
 from .background_execution import BackgroundExecution,CaptureRejected
 event_publisher=NativeEventBuffer(service, PromptServer.instance.prompt_queue)
 background_events=install_event_hook(PromptServer.instance,event_publisher)
@@ -115,7 +116,10 @@ def event_capability():
 @routes.get('/prompt_studio/events/capability')
 @event_route
 async def events_capability(request):
-    return event_response(dict(capabilities=[event_protocol.CAPABILITY],
+    capabilities = [event_protocol.CAPABILITY]
+    if event_publisher.results.available():
+        capabilities.append(result_manifest.CAPABILITY)
+    return event_response(dict(capabilities=capabilities,
         event_channel=event_capability(),extension_info=LOADED_BUILD))
 
 
@@ -148,6 +152,64 @@ async def events_snapshot(request):
     identity,requested,digest=event_query(request)
     return event_response(await asyncio.to_thread(service.events.snapshot,identity,requested,digest,
         request.query.get('snapshot_token',''),request.query.get('after','')))
+
+
+def result_query(request):
+    _, requested, _ = event_query(request)
+    expected_owner = result_manifest.owner(json.loads(request.query.get('owner', '{}')))
+    if 'entities' in requested or any(requested.get(key) != expected_owner[key] for key in ('library_id', 'workspace_id')):
+        raise ValueError('Exact result owner scope required')
+    return expected_owner
+
+
+def result_reference(request):
+    query = request.query
+    return (query.get('manifest_id', ''), int(query.get('revision', '0')),
+            query.get('checksum', ''), result_query(request))
+
+
+@routes.post('/prompt_studio/results/manifests/bind')
+@event_route
+async def result_bind(request):
+    expected_owner = result_query(request)
+    value = await body(request)
+    if value.get('owner') != expected_owner:
+        raise ValueError('Foreign result owner')
+    return event_response(await asyncio.to_thread(service.result_manifests.bind, value))
+
+
+@routes.get('/prompt_studio/results/manifests')
+@event_route
+async def result_headers(request):
+    expected_owner = result_query(request)
+    query = request.query
+    return event_response(await asyncio.to_thread(service.result_manifests.headers, expected_owner,
+        after=query.get('after', ''), as_of=int(query['as_of']) if 'as_of' in query else None))
+
+
+@routes.get('/prompt_studio/results/manifest')
+@event_route
+async def result_page(request):
+    return event_response(await asyncio.to_thread(service.result_manifests.page,
+        *result_reference(request), after=int(request.query.get('after', '-1'))))
+
+
+@routes.get('/prompt_studio/results/evidence')
+@event_route
+async def result_evidence(request):
+    return event_response(await asyncio.to_thread(service.result_manifests.evidence,
+        *result_reference(request), after=int(request.query.get('after', '0'))))
+
+
+@routes.get('/prompt_studio/results/asset')
+@event_route
+async def result_asset(request):
+    query = request.query
+    content = await asyncio.to_thread(service.result_manifests.asset, *result_reference(request),
+        ordinal=int(query.get('ordinal', '-1')), asset_sha256=query.get('asset_sha256', ''),
+        expires=int(query.get('expires', '0')), token=query.get('asset_token', ''))
+    return web.Response(body=content, content_type='image/png',
+                        headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
 
 
 @routes.get('/prompt_studio/config')
@@ -225,6 +287,7 @@ async def desktop_status(request):
     status['extension_info']=LOADED_BUILD
     if service.native_queue.available():
         status['capabilities'].append(event_protocol.CAPABILITY)
+        if event_publisher.results.available():status['capabilities'].append(result_manifest.CAPABILITY)
         status['event_channel']=event_capability()
     if service.native_queue.available():status['capabilities'].extend(['native_recovery_v1','native_inspect_v1','native_parameters_v1'])
     return web.json_response(status)

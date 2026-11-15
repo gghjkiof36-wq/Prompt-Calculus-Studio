@@ -35,6 +35,8 @@ class Service:
         self.work_queue=FrozenQueue(self,input_root)
         from .background_state import BackgroundState
         self.background=BackgroundState(self)
+        from .result_manifest import ResultManifests
+        self.result_manifests = ResultManifests(self, dict(output=output_root, temp=temp_root))
 
     @contextmanager
     def connect(self):
