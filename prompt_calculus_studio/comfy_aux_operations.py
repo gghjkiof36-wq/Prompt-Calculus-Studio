@@ -16,6 +16,7 @@ from . import comfy_event_protocol as protocol
 ROUTES = dict(open='workflow/native/open', inspect='workflow/native/inspect',
               capture='workflow/queue/capture', apply='workflow/native/apply')
 SUCCESS = dict(open='opened', inspect='inspected', capture='captured', apply='applied')
+LONG_PROBE_DELAYS = (30, 60, 120, 300)
 
 
 def fingerprint(action, request):
@@ -31,6 +32,7 @@ class AuxOperations:
         self.pending, self.callbacks, self.active = {}, {}, {}
         self.acked = set()
         self.known = set()
+        self.healthy = True
         self.timer = QTimer(self.client)
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self.tick)
@@ -144,18 +146,21 @@ class AuxOperations:
         if row is None:
             item=self.active[ident]
             age=max(0,time.time()-item.get('sent_at',time.time())) if reason=='startup' else 0
-            row=self.pending[ident]=dict(start=now-min(30,age), at=now+delay, tries=0, busy=False, expired=False, done=[])
+            if reason=='startup' and item.get('status')=='unconfirmed':age=max(30,age)
+            row=self.pending[ident]=dict(start=now-min(30,age), at=now+delay, tries=0, busy=False,
+                expired=False, done=[], long_step=0, startup_probe=reason=='startup')
         if done:row['done'].append(done)
         if event is not None:row['event']=event
         if force:
-            if row['expired']:row['start']=now
-            row.update(at=now, expired=False)
+            # New evidence permits one query, not a new 30-second window.
+            row['at']=now
         row['reason']=reason
         self.schedule()
 
     def schedule(self):
-        due=[min(r.get('until',r['at']) if r['busy'] else r['at'],r['start']+30)
-             for r in self.pending.values() if not r['expired']]
+        due=[(r.get('until',r['at']) if r['busy'] else r['at']) if r['expired'] else
+             min(r.get('until',r['at']) if r['busy'] else r['at'],r['start']+30)
+             for r in self.pending.values()]
         if due:self.timer.start(max(0,int((min(due)-self.clock())*1000)))
         else:self.timer.stop()
 
@@ -164,7 +169,8 @@ class AuxOperations:
         now=self.clock()
         for ident,row in list(self.pending.items()):
             if row['busy'] and now>=row.get('until',now+1):
-                row.update(busy=False,probed=True,at=now+min(8,2**min(row['tries']-1,3)),serial=row.get('serial',0)+1)
+                row.update(busy=False,probed=True,serial=row.get('serial',0)+1)
+                self.retry_at(row)
                 handle=row.pop('handle',None)
                 if handle is not None:handle.abort()
                 self.reducer.probed()
@@ -172,24 +178,37 @@ class AuxOperations:
                 try:self.unconfirmed(ident)
                 except (sqlite3.Error,OSError):row['at']=now+1;row['start']=now-29;continue
                 row['expired']=True
+                row['at']=now if row.pop('startup_probe',False) else now+LONG_PROBE_DELAYS[0]
                 self.finish_waiters(row)
-            if not row['expired'] and not row['busy'] and now>=row['at']:self.query(ident,row)
+            if not row['busy'] and now>=row['at']:self.query(ident,row)
         self.schedule()
+
+    def retry_at(self, row):
+        if row['expired']:
+            step=min(row['long_step'],len(LONG_PROBE_DELAYS)-1)
+            row['at']=self.clock()+LONG_PROBE_DELAYS[step]
+            row['long_step']=min(step+1,len(LONG_PROBE_DELAYS)-1)
+        else:row['at']=self.clock()+min(8,2**min(row['tries']-1,3))
 
     def query(self, ident, row):
         item=self.active.get(ident)
         if not item:return
         identity=self.reducer.identity
         if not identity or item['server']!=self.client.url or item['event_server']!=identity['server_instance']:
-            row.update(probed=True,at=row['start']+30);self.reducer.probed();return
+            row['probed']=True
+            if row['expired']:self.retry_at(row)
+            else:row['at']=row['start']+30
+            self.reducer.probed();return
         row['busy']=True;row['tries']+=1
         row['serial']=row.get('serial',0)+1;serial=row['serial']
-        row['until']=self.clock()+min(12,max(.1,row['start']+30-self.clock()))
+        timeout=12 if row['expired'] else min(12,max(.1,row['start']+30-self.clock()))
+        row['until']=self.clock()+timeout
         generation=self.reducer.generation
         def current():return not self.client.stopped and generation==self.reducer.generation and self.pending.get(ident) is row and row['serial']==serial
         def failed(error):
             if not current():return
-            row.update(busy=False,probed=True,error=str(error),at=self.clock()+min(8,2**min(row['tries']-1,3)))
+            row.update(busy=False,probed=True,error=str(error))
+            self.retry_at(row)
             self.reducer.probed();self.schedule()
         def received(value):
             if not current():return
@@ -200,11 +219,12 @@ class AuxOperations:
             except (ValueError,KeyError,TypeError,OSError,sqlite3.Error) as exc:failed(exc);return
             if ended:
                 self.pending.pop(ident,None);self.finish_waiters(row)
+            elif row['expired']:self.retry_at(row)
             else:row['at']=self.clock()+8
             self.schedule()
         handle=self.client.request('workflow/native/recovery', dict(id=ident,
             proof_scope=dict(protocol.scope(), library_id=item['library'], workspace_id=item['workspace'])),
-            done=received,failed=failed,deadline=time.monotonic()+min(12,max(.1,row['start']+30-self.clock())))
+            done=received,failed=failed,deadline=time.monotonic()+timeout)
         if current() and row['busy']:row['handle']=handle
 
     def receive(self, event, done, *, snapshot=False):
@@ -225,6 +245,11 @@ class AuxOperations:
         # event_ref is notification. Full receipt always comes from its original
         # bounded endpoint, including terminal events and replacement snapshots.
         if payload.get('state') in ('pending','awaiting_browser','delivered') and not payload.get('cancel_requested'):
+            notice=(event['server_instance'],event['epoch'],event['seq'])
+            row=self.pending.get(ident)
+            if row is None or row.get('notice')!=notice:
+                self.require(ident,'event',force=True)
+                self.pending[ident]['notice']=notice
             done();return True
         self.require(ident,'event',event=event,done=done,force=True)
         return True
@@ -328,14 +353,20 @@ class AuxOperations:
             done=lambda _:received('cancel_ack'),failed=lambda _:received('cancel_ack_lost'))
 
     def health(self, health):
-        if health.get('needs_reconcile') or health.get('state') in ('detected','unconfirmed'):
+        healthy=not health.get('needs_reconcile') and health.get('state')=='receiving'
+        recovered=healthy and not self.healthy
+        self.healthy=healthy
+        if recovered:
+            for ident in self.pending:self.require(ident,'recovered_connection',force=True)
+        elif health.get('needs_reconcile') or health.get('state') in ('detected','unconfirmed'):
             for ident,item in self.active.items():
                 if item['sent']:self.require(ident,'health')
 
     def heartbeat(self):
-        for ident,row in list(self.pending.items()):
-            if row['expired']:
-                row.update(start=self.clock(),at=self.clock(),expired=False)
+        # A heartbeat is health, not new evidence for every stuck operation.
+        if not self.healthy:
+            self.healthy=True
+            for ident in self.pending:self.require(ident,'recovered_connection',force=True)
         self.schedule()
 
     @staticmethod

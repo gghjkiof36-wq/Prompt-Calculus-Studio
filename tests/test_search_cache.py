@@ -10,8 +10,8 @@ class SearchCacheTests(unittest.TestCase):
         self.store.close(); path=Path(self.temp.name)/'legacy'; path.mkdir()
         db=sqlite3.connect(path/'studio.sqlite3'); db.execute('CREATE TABLE cache(key TEXT PRIMARY KEY,body TEXT NOT NULL,saved REAL NOT NULL)')
         db.execute('INSERT INTO cache VALUES (?,?,?)',('old',json.dumps([dict(value='smile')]),time.time())); db.commit()
-        from prompt_calculus_studio.storage_layout import transform_journal,transform_events
-        transform_journal(db); transform_events(db); db.close()
+        from prompt_calculus_studio.storage_layout import transform_journal,transform_events,transform_candidates
+        transform_journal(db); transform_events(db); transform_candidates(db); db.close()
         self.store=Storage(path); state=initial_state(); self.store.save(state); self.store.use(state['workspace'],'kept',dict(value='kept'))
         self.assertEqual(self.store.cached('old'),[dict(value='smile')]); self.store.clear_cache()
         self.assertIsNone(self.store.cached('old')); self.assertEqual(self.store.load(),state)

@@ -6,7 +6,7 @@ import uuid
 
 from . import journal_codec as codec
 
-ACTIVE=('waiting','running','preparing','submitted','collecting','failed','unconfirmed','result_error')
+ACTIVE=('waiting','running','preparing','submitted','collecting','failed','unconfirmed','result_error','results_pending')
 
 
 class StageStore:
@@ -302,7 +302,7 @@ class StageStore:
                 positions=[self.db.execute('SELECT position FROM stage_header WHERE id=?',(key,)).fetchone()[0] for key in before]
                 for position,key in zip(positions,after):self.db.execute('UPDATE stage_header SET position=? WHERE id=?',(position,key))
 
-    def patch(self,ident,**values):
+    def patch(self,ident,*,_prepared=None,**values):
         """Replace only changed roots; unchanged content never gets decoded."""
         if not values:return
         with self.transaction():
@@ -314,7 +314,7 @@ class StageStore:
                 codec.write(self.db,item,row[4],columns=row[:4])
                 return
             partial=dict(id=ident,kind=header.get('kind'));partial.update(values)
-            part,derived,new_refs,content=codec.split(self.db,partial)
+            part,derived,new_refs,content=_prepared if _prepared is not None else codec.split(self.db,partial)
             for key in values:
                 header[key]=part[key]
                 prefix=codec.pointer((key,))

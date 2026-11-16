@@ -379,6 +379,9 @@ class DeliveryFilter:
         selected=[]
         for event in page['events']:
             kind=event['kind'];prompt=event.get('prompt_id')
+            # Result manifests have their own durable outbox/intent route.
+            # They are never coalesced with disposable executed/progress hints.
+            if kind=='result.manifest':selected.append(event);continue
             if (event.get('entity','').startswith('native_operations:') and
                 event.get('payload',{}).get('action') in ('open','inspect','capture','apply') and
                 event['entity'] not in self.aux.get(owner,())):continue

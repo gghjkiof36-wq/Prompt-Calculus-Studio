@@ -9,23 +9,24 @@ from urllib.parse import quote
 from PySide6.QtCore import QTimer
 from .generation import active_profile, options, submission, uploaded_image, validate_profile, image_target
 
-ACTIVE=('submitting','queued','running','unconfirmed')
+ACTIVE=('submitting','queued','running','unconfirmed','results_pending')
 
 
 class GenerationRunner:
     def __init__(self,client):
         self.client=client; self.window=client.window; self.batch=None; self.checking=set(); self.message=''; self.pipeline=None; self.native_waiting=set();self.parameter_checking=set();self.parameter_checked={}
         self.db=self.window.store.db;self._active_status_key=None;self._pending_progress_save=set()
+        self._candidate_retention=bool(self.db.execute("SELECT 1 FROM sqlite_master WHERE name='channel_result_candidates'").fetchone())
         from .sqlite_schema import schema_transaction
         with schema_transaction(self.db):
             self.db.execute('CREATE TABLE IF NOT EXISTS generation_jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL, created REAL NOT NULL)')
             # Scheduler/status reads must not parse completed frozen payloads.
             self.db.execute("CREATE INDEX IF NOT EXISTS generation_state ON generation_jobs(json_extract(body,'$.state'))")
-            self.db.execute("""CREATE INDEX IF NOT EXISTS generation_retention ON generation_jobs(created DESC)
+            self.db.execute("""CREATE INDEX IF NOT EXISTS generation_result_retention ON generation_jobs(created DESC)
                 WHERE json_extract(body,'$.queue_job') IS NULL AND json_extract(body,'$.chain') IS NULL
-                AND json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed')""")
+                AND json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed','results_pending')""")
         self.jobs={}
-        for row in self.db.execute("SELECT body FROM generation_jobs WHERE json_extract(body,'$.state') IN ('submitting','queued','running','unconfirmed') ORDER BY created"):
+        for row in self.db.execute("SELECT body FROM generation_jobs WHERE json_extract(body,'$.state') IN ('submitting','queued','running','unconfirmed','results_pending') ORDER BY created"):
             job=json.loads(row[0])
             if 'workspace' not in job:
                 from .job_details import job_marker
@@ -39,10 +40,14 @@ class GenerationRunner:
             self._write_job(job)
         self._pending_progress_save.discard(job['id'])
 
-    def _write_job(self,job):
+    def _write_job(self,job,*,encoded=None):
         """Write within the caller's transaction; publish only after its commit."""
-        self.db.execute('INSERT OR REPLACE INTO generation_jobs VALUES (?,?,?)',(job['id'],json.dumps(job,ensure_ascii=False),job['created']))
-        self.db.execute("DELETE FROM generation_jobs WHERE id IN (SELECT id FROM generation_jobs WHERE json_extract(body,'$.queue_job') IS NULL AND json_extract(body,'$.chain') IS NULL AND json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed') ORDER BY created DESC LIMIT -1 OFFSET 200)")
+        self.db.execute('INSERT OR REPLACE INTO generation_jobs VALUES (?,?,?)',(job['id'],encoded if encoded is not None else json.dumps(job,ensure_ascii=False),job['created']))
+        removed=self.db.execute("DELETE FROM generation_jobs WHERE id IN (SELECT id FROM generation_jobs WHERE json_extract(body,'$.queue_job') IS NULL AND json_extract(body,'$.chain') IS NULL AND json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed','results_pending') ORDER BY created DESC LIMIT -1 OFFSET 200) RETURNING id").fetchall()
+        if self._candidate_retention:
+            from .result_candidate_store import retain
+            unresolved=set(self.jobs)|getattr(getattr(self.client,'events',None),'queue_active',set())
+            retain(self.db,(row[0] for row in removed),unresolved=unresolved)
 
     def status(self,text):
         # Explicit completion/error/receipt messages remain notifications even

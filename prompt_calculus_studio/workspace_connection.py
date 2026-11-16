@@ -425,8 +425,8 @@ class WorkspaceComfyClient(ComfyClient):
 
     @property
     def scheduling_message(self):
-        if any(item.get('error')=='無法確認' for item in self.events.aux.active.values()):return '無法確認'
         if self.stopped:return ''
+        if any(item.get('error')=='無法確認' for item in self.events.aux.active.values()):return '無法確認'
         if self.event_capable is False:return '需要更新擴充'
         if self.events.enabled and any(j.get('error')=='無法確認' for j in self.generation.jobs.values()):return '無法確認'
         return self.workspace.scheduler.description(self) if self.workspace else ''
@@ -545,6 +545,7 @@ class WorkspaceComfyClient(ComfyClient):
         return self.workspace.comfy_connection.connect_to(address)
 
     def recheck_connection(self):
+        self.events.results.refresh_requested=True
         if self.workspace is None:
             return super().recheck_connection()
         return self.workspace.comfy_connection.connect_to(self.workspace.comfy_connection.url)

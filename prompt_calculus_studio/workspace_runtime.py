@@ -18,14 +18,14 @@ def unfinished(db):
     tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if 'generation_jobs' in tables:
         if db.execute("""SELECT 1 FROM generation_jobs WHERE json_extract(body,'$.state')
-                         IN ('submitting','queued','running','unconfirmed') LIMIT 1""").fetchone():
+                         IN ('submitting','queued','running','unconfirmed','results_pending') LIMIT 1""").fetchone():
             return True
     if 'stage_header' in tables:
         if db.execute("""SELECT 1 FROM stage_header WHERE kind IN ('input','aux_operation')
                          AND json_extract(body,'$.sent')=1
                          AND COALESCE(json_extract(body,'$.ended'),0)=0
                          UNION ALL SELECT 1 FROM stage_header WHERE kind='attempt'
-                         AND json_extract(body,'$.status') IN ('preparing','submitted','unconfirmed') LIMIT 1""").fetchone():
+                         AND json_extract(body,'$.status') IN ('preparing','submitted','unconfirmed','results_pending') LIMIT 1""").fetchone():
             return True
     if 'work_queue' in tables:
         if db.execute("""SELECT 1 FROM work_queue WHERE json_extract(body,'$.state')

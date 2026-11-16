@@ -715,8 +715,11 @@ def set_preview(widget, store, relative, size=240):
 
 def thumb_icon(store, relative, size):
     path=preview_path(store,relative)
-    if not path: return QIcon()
-    return QIcon(QPixmap(str(path)).scaled(size,size,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))
+    picture=QPixmap(str(path)) if path else QPixmap()
+    repair=getattr(store,'result_repair',None)
+    if repair and isinstance(relative,str) and relative.startswith('thumbnails/results/'):
+        repair(relative,failed=picture.isNull())
+    return QIcon(picture.scaled(size,size,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)) if not picture.isNull() else QIcon()
 
 def record_pixmap(store,record,size):
     from .media_paths import preview_file

@@ -50,10 +50,10 @@ class GenerationIndexTests(unittest.TestCase):
         self.assertEqual(dict(self.db.execute('SELECT id,body FROM generation_jobs')),before)
         self.assertEqual(set(runner.jobs),{'active-'+state for state in ACTIVE})
         self.assertEqual([r[1] for r in self.db.execute('PRAGMA table_info(generation_jobs)')],['id','body','created'])
-        active_query="SELECT 1 FROM generation_jobs WHERE json_extract(body,'$.state') IN ('submitting','queued','running','unconfirmed') LIMIT 1"
-        retention="SELECT id FROM generation_jobs WHERE json_extract(body,'$.queue_job') IS NULL AND json_extract(body,'$.chain') IS NULL AND json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed') ORDER BY created DESC LIMIT -1 OFFSET 200"
+        active_query="SELECT 1 FROM generation_jobs WHERE json_extract(body,'$.state') IN ('submitting','queued','running','unconfirmed','results_pending') LIMIT 1"
+        retention="SELECT id FROM generation_jobs WHERE json_extract(body,'$.queue_job') IS NULL AND json_extract(body,'$.chain') IS NULL AND json_extract(body,'$.state') NOT IN ('submitting','queued','running','unconfirmed','results_pending') ORDER BY created DESC LIMIT -1 OFFSET 200"
         self.assertIn('generation_state',str(list(self.db.execute('EXPLAIN QUERY PLAN '+active_query))))
-        self.assertIn('generation_retention',str(list(self.db.execute('EXPLAIN QUERY PLAN '+retention))))
+        self.assertIn('generation_result_retention',str(list(self.db.execute('EXPLAIN QUERY PLAN '+retention))))
         self.assertTrue(unfinished(self.db))
         newest=dict(id='new',state='complete',created=500,server=self.client.url)
         runner.save(newest)
@@ -61,7 +61,7 @@ class GenerationIndexTests(unittest.TestCase):
         expected=set(before)-{'done-'+str(i) for i in range(7)}
         self.assertEqual(set(after),expected|{'new'})
         self.assertTrue(all(after[key]==before[key] for key in expected))
-        self.db.execute("DELETE FROM generation_jobs WHERE json_extract(body,'$.state') IN ('submitting','queued','running','unconfirmed')")
+        self.db.execute("DELETE FROM generation_jobs WHERE json_extract(body,'$.state') IN ('submitting','queued','running','unconfirmed','results_pending')")
         self.assertFalse(unfinished(self.db))
 
     def test_schema_initialization_does_not_commit_callers_pending_write(self):

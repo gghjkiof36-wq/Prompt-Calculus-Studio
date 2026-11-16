@@ -78,7 +78,14 @@ class CanvasResults(QFrame):
         self.reuse=button(ACTION if window.state.get('multi_output',{}).get('version',0)>=7 else '導入圖生圖',self.use_source,'Quiet')
         self.recent_button=button('最近生成',lambda:self.window.show_page(self.window.recent),'Quiet'); layout.addLayout(row(self.save_button,self.reuse,self.recent_button))
         self.feedback=label('','Subtle',True); layout.addWidget(self.feedback); self.feedback.hide()
+        fetch=getattr(getattr(getattr(self.window,'comfy',None),'events',None),'results',None)
+        if fetch is not None:fetch.repaired.connect(self.result_repaired)
         self.refresh()
+
+    def result_repaired(self, relative):
+        path=str(self.window.store.directory/relative)
+        if any(record['path']==path for record in self.input_records):
+            self.image_key=None;self.refresh()
 
     def refresh(self):
         if self.key=='__result_preview__':
@@ -195,6 +202,20 @@ class CanvasResults(QFrame):
         if not line:self.preview.set_picture(QPixmap());self.preview.setText('');self.preview.setEnabled(False);self.image_key=None;return True
         key=line['source'];images=self.window.comfy.images
         runner=getattr(getattr(self.window.comfy,'input_flow',None),'chain',None)
+        fetch=getattr(getattr(self.window.comfy,'events',None),'results',None)
+        candidate=fetch.preview(key) if fetch is not None else None
+        if fetch is not None and fetch.awaiting(key):
+            self.feedback.setText('結果待確認');self.feedback.show()
+        if candidate:
+            items=candidate['items']
+            signature=('candidates',tuple((i['sha256'],str(i['reference'])) for i in items))
+            self.input_records=[dict(path=str(self.window.store.directory/i['relative']),name=i['name']) for i in items]
+            if self.image_key!=signature:
+                self.preview.set_pictures([QPixmap.fromImage(image) for image in candidate['pictures']])
+                self.image_key=signature
+            self.input_record=self.input_records[0];self.preview.setEnabled(True)
+            self.feedback.setText(candidate['status']);self.feedback.show()
+            return True
         if runner is not None:
             from .preview_scope import preview_images
             collection=dict(items=preview_images(self.window.state,runner.preview_results,key));source=None
@@ -208,10 +229,11 @@ class CanvasResults(QFrame):
             self.preview.setEnabled(True)
             if self.image_key!=signature:
                 pictures=[];limit=min(1536,int((4_000_000/max(1,len(items)))**.5))
-                for record in self.input_records:
+                for item,record in zip(items,self.input_records):
                     reader=QImageReader(record['path']);reader.setAutoTransform(True);reader.setAllocationLimit(128);size=reader.size()
                     if size.isValid():size.scale(limit,limit,Qt.AspectRatioMode.KeepAspectRatio);reader.setScaledSize(size)
-                    pictures.append(QPixmap.fromImage(reader.read()))
+                    picture=QPixmap.fromImage(reader.read());pictures.append(picture)
+                    if picture.isNull() and fetch is not None:fetch.request_repair(item['relative'],failed=True)
                 self.preview.set_pictures(pictures);self.image_key=signature
             self.input_record=self.input_records[0]
         else:

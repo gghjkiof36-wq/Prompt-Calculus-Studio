@@ -37,6 +37,8 @@ class EventReducer:
         self.invariants = None
         from .comfy_aux_operations import AuxOperations
         self.aux = AuxOperations(self)
+        from .comfy_result_fetch import ResultFetch
+        self.results = ResultFetch(self)
         if self.window.state.get('multi_output',{}).get('version',0)>=7:
             from .stage_invariants import InvariantChecker
             self.invariants = InvariantChecker(client)
@@ -109,6 +111,7 @@ class EventReducer:
         if self.identity == identity and self.enabled: return
         self.generation += 1
         self.reconcile.close()
+        self.results.reset()
         self.enabled = True
         self.ready = False
         self.snapshot_ready = False
@@ -122,6 +125,8 @@ class EventReducer:
             if identity and job.get('event_server') not in (None,identity['server_instance']):
                 self.diagnostic('server replaced; original owner retained')
             self.reconcile.require(job['id'], 'startup')
+            self.results.ensure(job)
+        if self.results.enabled:self.results.recover_derivatives()
 
     def diagnostic(self, reason, event=None):
         value = dict(reason=reason, entity=(event or {}).get('entity',''))
@@ -140,6 +145,10 @@ class EventReducer:
         if not self.identity or event['server_instance'] != self.identity['server_instance'] or (not snapshot and event['epoch'] != self.identity['epoch']):
             self.diagnostic('wrong server/epoch', event); done(); return
         if event['kind']=='native.progress': done(); return
+        if event['kind']=='result.manifest':
+            if self.identity.get('result_manifest_v1'):self.results.receive(event,done)
+            else:done()
+            return
         if event['kind']==p.LOG_GAP:
             self.health(dict(needs_reconcile=True, log_consistent=False))
             done()
@@ -240,6 +249,10 @@ class EventReducer:
                 original=history.get('prompt',[])
                 executed=original[4] if len(original)>4 and isinstance(original[4],list) else list(graph)
                 targets=sorted(set(candidate.get('output_nodes',[]))|{str(k) for k in executed if graph.get(str(k),{}).get('class_type') in ('SaveImage','PreviewImage')})
+                # D retains the exact prompt/input check. Output completeness is
+                # decided by the frozen history manifest, including cache/zero,
+                # rather than the legacy static batch-size estimate.
+                if self.results.eligible(candidate):targets=[]
                 checked,reason=result_state(dict(graph=graph,outputs=targets,input_types=candidate.get('payload',{}).get('input_types')),candidate['prompt_id'],history)
                 if checked not in ('complete','failed'): failed(reason); return
                 candidate.update(state=checked,error=reason,input_check='matched' if checked=='complete' else 'mismatch')
@@ -252,6 +265,9 @@ class EventReducer:
             candidate.update(state='failed',terminal_action='cancel',cancel_confirmed=True,error='已取消',finished=time.time())
         elif value.get('state')=='failed':
             candidate.update(state='failed',error=value.get('error',''),finished=time.time())
+        elif job['state']=='results_pending':
+            # New transport observations cannot erase durable terminal evidence.
+            pass
         elif value.get('state') in ('queued','running') and candidate.get('prompt_id'):
             candidate.update(state='running' if candidate['state']=='running' and value['state']=='queued' else value['state'],error='')
         # Receipt identity/revision alone is not a document change. Replaying
@@ -265,6 +281,18 @@ class EventReducer:
         if revision>=candidate.get('event_revisions',{}).get(entity,0):
             candidate.setdefault('event_revisions',{})[entity]=revision
             candidate.setdefault('event_digests',{})[entity]=hashlib.sha256(p.encode(event.get('payload',{}))).hexdigest()
+        if candidate['state']=='complete' and self.results.eligible(candidate):
+            candidate.update(state='results_pending',result_terminal='success',error='結果待確認')
+            try:self.commit(candidate,event,done)
+            except (sqlite3.Error,OSError,ValueError) as exc:failed(exc);return
+            self.results.ensure(candidate,force=True)
+            return
+        if candidate['state']=='complete' and job.get('result_manifest'):
+            failed('Original result manifest capability unavailable');return
+        self.accept_candidate(candidate,event,done,failed)
+
+    def accept_candidate(self, candidate, event, done, failed):
+        ident=candidate['id']
         generation=self.generation
         def accept_result():
             if generation!=self.generation or self.client.stopped:
@@ -282,14 +310,49 @@ class EventReducer:
             else: self.commit(candidate,event,done)
         except (sqlite3.Error,OSError,ValueError) as exc: failed(exc)
 
+    def result_ready(self, job, header, assets, prepared=None):
+        if job['state']!='results_pending' or job.get('result_terminal')!='success':return
+        if job.get('result_manifest')!=header:raise ValueError('Final manifest changed')
+        if not header.get('sealed') or header.get('item_source')!='history':raise ValueError('Final history required')
+        # Final collection adds fields; it does not edit the frozen payload.
+        # Keep the pending job intact for rollback without copying its scene.
+        if prepared:candidate=dict(prepared['job'],result_assets=assets,result_prepared=prepared)
+        else:
+            candidate=dict(job,state='complete',error='',result_assets=assets,
+                results=[dict(prompt_id=job['prompt_id'],node_id=item['node_id'],image=item['image'],
+                    path=str(self.window.store.directory/receipt['source']['relative'])) for item,receipt in assets])
+        event=self.event_for(job,dict(final_manifest={k:header[k] for k in ('manifest_id','revision','checksum')},state='complete'))
+        errors=[]
+        self.accept_candidate(candidate,event,lambda:None,errors.append)
+        if errors:raise ValueError(str(errors[0]))
+
     def write(self, job, event, disposition='accepted'):
+        # Both Stage collect and non-Stage commit use this accepting boundary.
+        if job.get('result_prepared'):
+            ident=job['id'];header=job['result_manifest'];current=self.job(ident)
+            if self.store.db.execute('SELECT body FROM generation_jobs WHERE id=?',(ident,)).fetchone()!=job['result_prepared']['job_fence']:
+                raise ValueError('Final result receipt changed during preparation')
+            if (not current or current['state']!='results_pending' or current.get('result_terminal')!='success' or
+                    current.get('result_manifest')!=header or self.results.identity(current)!=header['identity']):
+                raise ValueError('Final result owner/evidence changed')
+            count,ready=self.store.db.execute("SELECT COUNT(*),COALESCE(SUM(state='ready' AND owner=?),0) FROM channel_result_candidates WHERE manifest=? AND source='history'",
+                (p.encode(header['identity']['owner']).decode(),header['manifest_id'])).fetchone()
+            if count!=header['item_count'] or ready!=count:raise ValueError('Final assets not ready')
         self.store.checkpoint('before_job')
-        self.client.generation._write_job(job)
+        durable={k:v for k,v in job.items() if k not in ('result_assets','result_prepared')}
+        prepared=job.get('result_prepared')
+        if prepared:self.client.generation._write_job(durable,encoded=prepared['job_json'])
+        else:self.client.generation._write_job(durable)
+        if job['state']=='complete' and job.get('result_manifest',{}).get('sealed'):
+            manifest=job['result_manifest']['manifest_id']
+            self.store.db.execute("DELETE FROM channel_result_candidates WHERE manifest=? AND source='candidates'",(manifest,))
+            self.store.db.execute("UPDATE channel_result_candidates SET derived_pending=1 WHERE manifest=? AND source='history' AND state='ready' AND COALESCE(json_type(receipt,'$.derived'),'null')='null'",(manifest,))
         attempt=self.chain.store.read(job['id'])
         if attempt and attempt.get('kind')=='attempt':
             self.chain.store.record_parameters(attempt,job)
             if job.get('payload',{}).get('prompt') and job.get('prompt_id'):
-                self.chain.store.patch(attempt['id'],operation_evidence=job,local_issue='')
+                self.chain.store.patch(attempt['id'],operation_evidence=durable,local_issue='',
+                                       _prepared=prepared['evidence_parts'] if prepared else None)
         self.store.accept(event,'retired' if job['state']=='retired' else disposition)
 
     def commit(self, job, event, done, *, disposition='accepted'):
@@ -315,8 +378,10 @@ class EventReducer:
                     self.chain.store.patch(job['id'],status='submitted',prompt_id=job.get('prompt_id'),error='')
                 elif job['state']=='unconfirmed':
                     self.chain.store.patch(job['id'],status='unconfirmed',error=job.get('error',''))
+                elif job['state']=='results_pending':
+                    self.chain.store.patch(job['id'],status='results_pending',prompt_id=job.get('prompt_id'),error='結果待確認')
             if job.get('queue_job'):
-                self.client.queue.store.update(job['queue_job'],**{k:job[k] for k in ('state','prompt_id','payload','outputs','results','error') if k in job})
+                self.client.queue.store.update(job['queue_job'],**{k:job[k] for k in ('state','prompt_id','payload','outputs','results','error','result_manifest','result_terminal') if k in job})
             if self.invariants and job['state'] in TERMINAL:
                 self.invariants.check(job['id'])
             self.store.checkpoint('before_accept_commit')
@@ -325,16 +390,22 @@ class EventReducer:
     def published(self, job, done):
         generation=self.client.generation
         original=generation.jobs.get(job['id'])
-        if original is not None: original.clear(); original.update(copy.deepcopy(job))
+        manifest_owned=bool(job.get('result_manifest')) and self.results.eligible(job)
+        if original is not None:
+            original.clear()
+            # D's final job is already committed and immediately leaves the
+            # active index. Its immutable metadata needs no second scene copy.
+            original.update({k:v for k,v in job.items() if k not in ('result_assets','result_prepared')} if manifest_owned else copy.deepcopy(job))
         if job['state'] in TERMINAL:
             generation.jobs.pop(job['id'],None)
-        elif not job.get('queue_job'): generation.jobs[job['id']]=copy.deepcopy(job)
+        elif not job.get('queue_job'): generation.jobs[job['id']]=(original if original is not None else dict(job)) if manifest_owned else copy.deepcopy(job)
         if job.get('prompt_id') or job['state'] in TERMINAL:
             if job.get('prompt_id'): self.prompt_jobs[job['prompt_id']]=job['id']
             generation.native_waiting.discard(job['id'])
             if self.chain.preparing==job['id']: self.chain.preparing=None
         generation._set_status('無法確認' if any(v.get('state')=='unconfirmed' and v.get('error')=='無法確認' for v in generation.jobs.values()) else '')
         self.chain.notify(); self.chain.later()
+        self.results.ensure(job)
         if job.get('queue_job'):
             if job['state'] in ('failed','unconfirmed','retired'):self.client.queue.dispatching=False
             self.client.queue.notify(job.get('error',''))
@@ -352,6 +423,9 @@ class EventReducer:
 
     def unconfirmed(self, ident):
         job=self.job(ident)
+        if job and job['state']=='results_pending':
+            self.results.ensure(job,force=True)
+            return
         if not job or job['state'] in TERMINAL or job['state']=='unconfirmed' and job.get('error')=='無法確認': return
         job=copy.deepcopy(job)
         job.update(state='unconfirmed',error='無法確認')
@@ -360,6 +434,7 @@ class EventReducer:
     def health(self, health):
         if not self.enabled: return
         self.aux.health(health)
+        self.results.health(health)
         self.channel_healthy=bool(not health.get('needs_reconcile') and health.get('log_consistent',True) and health.get('state')=='receiving')
         self.ready=bool(self.snapshot_ready and not self.reconcile.pending and self.channel_healthy)
         running=health.get('running')
@@ -374,6 +449,7 @@ class EventReducer:
 
     def heartbeat(self):
         self.aux.heartbeat()
+        self.results.heartbeat()
         # A fresh valid heartbeat permits one new bounded evidence window.
         # A long-running, positively queued/running prompt has no expiry timer.
         for ident,row in list(self.reconcile.pending.items()):
@@ -384,3 +460,4 @@ class EventReducer:
         self.generation+=1
         self.reconcile.close()
         self.aux.close()
+        self.results.close()

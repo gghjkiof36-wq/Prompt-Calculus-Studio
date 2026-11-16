@@ -183,11 +183,14 @@ def migrate(source, destination, *, allow_inflight=False, source_aliases=(), che
                         receipt['sizes']['before_transform'] = path.stat().st_size
                         if kind == 'studio':
                             receipt['transforms'] = []
+                            # pending_steps includes the complete virtual chain,
+                            # including event_apply 0 -> 1 -> 2 after journal 0.
                             for step in storage_layout.pending_steps(db):
                                 step.inspect(db)
                                 converted = step.transform(db, checkpoint=lambda phase, detail: event('transform', dict(file=relative, phase=phase)))
                                 receipt['transforms'].append(dict(key=step.key, version=step.to_version, inventory=converted))
                             storage_layout.inspect_layout(db)
+                            receipt['layout'] = dict(db.execute('SELECT key,version FROM storage_layout'))
                         data.rewrite_database(db, kind, schema, relocation)
                         receipt['sizes']['after_transform'] = path.stat().st_size
                         event('verify', relative)

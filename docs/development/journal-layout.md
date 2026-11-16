@@ -13,8 +13,10 @@ local continuation／修復 receipt 使用既有 channel_applied_events；`serve
 
 | 表 | 欄位與用途 |
 | --- | --- |
-| `storage_layout` | `key TEXT PRIMARY KEY, version INTEGER NOT NULL`。目前寫 `journal=1` 與 `event_apply=1`；`local_state` 尚未拆分，不寫標記，明確標為 0 亦可讀。 |
+| `storage_layout` | `key TEXT PRIMARY KEY, version INTEGER NOT NULL`。目前寫 `journal=1` 與 `event_apply=2`；`local_state` 尚未拆分，不寫標記，明確標為 0 亦可讀。 |
 | `channel_applied_events` | `server, epoch, seq` 為複合 PK；另有 `digest, entity, revision, disposition, created`。文件接受收據與 job／attempt／frame／parameter_state 同交易；不進 Canvas Undo。 |
+| `channel_result_candidates` | PK `(manifest,source,semantic)`；另有 `owner,operation,ordinal,state,body,receipt,derived_pending`，皆 NOT NULL；ordinal 與 derived_pending 為 INTEGER，其餘為 TEXT。derived_pending 預設 0。source 為 candidates／history，state 為 pending／ready。索引為 `channel_candidate_owner(owner,operation,state)`、唯一 `channel_candidate_order(manifest,source,ordinal)`、`channel_candidate_operation(operation)`，以及下述兩個部分索引，由 event_apply 1→2 建立並驗證。 |
+| `channel_result_retention` | `id INTEGER NOT NULL PRIMARY KEY CHECK(id=1), after_rowid INTEGER NOT NULL`；至多一筆本機孤兒掃掠進度，與候選刪除同交易。event_apply 1→2 建立並驗證，不是另一套工作狀態機。 |
 | `stage_header` | `id TEXT PRIMARY KEY, kind TEXT, workspace TEXT, owner TEXT, position INTEGER, body TEXT NOT NULL, projection TEXT NOT NULL, content_paths TEXT NOT NULL`。`body` 是原紀錄的骨架；`projection` 是衍生摘要；`content_paths` 是預期的 pointer→hash 清單。 |
 | `stage_content` | `sha256 TEXT PRIMARY KEY, encoding TEXT NOT NULL, bytes INTEGER NOT NULL, body BLOB NOT NULL`。encoding 固定 `json-utf8-v1`，bytes 為實際 BLOB 長度。 |
 | `stage_content_ref` | `record_id TEXT NOT NULL, pointer TEXT NOT NULL, sha256 TEXT NOT NULL, PRIMARY KEY(record_id,pointer)`；record_id 外鍵指向 header，刪除動作 CASCADE；sha256 外鍵指向 content。另有 `stage_ref_hash(sha256)`。 |
@@ -28,7 +30,17 @@ SQL `position` 是排序槽，可有間隙；attempt body 的 `position` 是 Sta
 兩者獨立保存。`replace_record(body, position)` 不把 SQL 欄位加進 body，亦不重編 id。
 遷移同時保留舊 SQL 的 id/kind/workspace/owner，而不是從 body 推導替換它們。
 
+候選 `receipt` 的 `source` 保存原圖相對路徑、SHA-256、尺寸；`thumb`／`metadata` 為衍生檔相對路徑。`derived=null`（或缺少）表示衍生檔待建，完成後補入各檔 hash；它不改 `state=ready` 的原圖語意。原圖驗證與 fsync 在 worker，GUI 只提交 metadata。恢復未完成的收取會重核原圖；已完成歷史在開啟／bind 時不讀檔、不重 hash。
+
+final 接受與 frame 推進的同一交易刪除該 manifest 的 candidates 列，並把尚無 derived hash 的 history 列標為 `derived_pending=1`。`channel_candidate_deriving(operation) WHERE derived_pending=1` 只索引待補的小集合；worker 完成後同交易寫回 receipt 與清零標記。bind 只查這個部分索引，不解析所有歷史 receipt。正常開庫只驗形狀，候選 COUNT 清冊僅用於明確搬遷核驗。
+
+顯示失敗或實際使用時發現 hash 不符，經 `ResultFetch.request_repair` 對單張圖片排 worker；`channel_candidate_asset(json_extract(receipt,'$.source.sha256')) WHERE source='history' AND state='ready'` 提供精確查找。既有縮圖元件依檔案 stamp 合併檢查，並行請求只建一次；此入口也供後續顯示管線使用。已接受 final 的原圖若缺漏或 hash 不符，只以原封存 header 的 revision／checksum 及相同 asset key 補檔，不另寫結果、不新增 continuation 或再次推進 frame。
+
+候選列跟隨既有 generation job 保留時機清除；被移除的 job 以 operation 索引刪除其列。每次同一保留交易另以 rowid keyset 最多檢查 128 列孤兒，游標逐次前進，不在每次寫入掃全表；`channel_result_retention` 保存此游標，重開繼續，交易失敗也一起回滾，避免頻繁重開永遠只檢查前 128 列。attempt 或 job 已不存在者可清除；results_pending、未結案 operation、仍被 frame 指向或 complete 但尚無 continuation 收據者受保護。failed／cancelled 的候選保留到此時，不在取消當下刪除。本段不刪原圖、縮圖或 metadata，重用 asset 不受候選列清理影響。
+
 ## 內容切割
+
+manifest final 的 result、operation_evidence 與 run 續行內容可先在 worker 用同一 codec 準備；GUI 交易核對 job／run fence 後寫入內容與參照，hash collision 與引用完整性仍由 `write_parts` 檢查。候選 intent／ready 使用序列背景 writer、WAL／FULL synchronous，GUI 僅接收提交後摘要；final 接受會在原交易重讀候選 ready／owner。writer 不得寫 job、stage journal 或 document。
 
 只抽下列已知位置，未知欄位不遞迴猜測、不因欄位恰好叫 scene 就抽取。空容器、null、
 其他假值及全為 null 的 parameters 對照留在標頭，避免空 frame 的不必要查表。
@@ -125,7 +137,7 @@ PreviewRuntime 明確初始化獨立的 `:memory:` 新庫。
 
 `storage_layout.REGISTRY` 的每項為
 `LayoutStep(key, from_version, to_version, inspect, transform, verify)`；目前只註冊
-journal 0→1，後續 local_state 可加入自己的步驟。正常開庫只 initialize/inspect，
+journal 0→1、event_apply 0→1 與 1→2，後續 local_state 可加入自己的步驟。正常開庫只 initialize/inspect，
 不呼叫 transform。
 
 `transform_journal(connection, checkpoint=None)` 的輸入必須是呼叫方**已複製**的舊庫。

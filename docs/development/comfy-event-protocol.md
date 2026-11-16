@@ -171,7 +171,19 @@ native 與 frozen 都持久保存 cancel_requested，排隊中精確比對 promp
 
 擴充的 `result_manifest.py` 提供 `result_manifest_v1`：**final 由原 prompt 的成功 history 封存；原生 executed 的早到候選僅盡力提供顯示**。只有預設 observer、可用的 queue history reader、存活的 result worker，以及耐久版本、原子 outbox、分頁、受限資產讀取都接好時，`events/capability` 和單使用者模式的 `desktop/status` 才宣告能力。注入測試 adapter、缺 history reader 或 worker 已停止時不宣告。早到候選可能不完整；cache 節點沒有 executed 就不會有早到候選，仍由 history 收齊，不依賴原生 occurrence 或 subgraph 映射。
 
-有 `execution_events_v1` 而沒有 `result_manifest_v1` 的擴充，PCS 維持既有最終收圖，D 功能關閉。完全沒有 C1 通道能力的擴充仍按既有規則要求更新、禁止新生成。本次只有擴充實作，PCS 的候選接收、終態 gate、frame、UI 和資料格式均未改；D-B 候選表確定使用 **event_apply=2**，目前 C2/C3 仍為 1。不得為這個擴充先行改 PCS 格式，亦不得把 candidate 當成已接受的 Stage 結果。
+有 `execution_events_v1` 而沒有 `result_manifest_v1` 的擴充，PCS 新 operation 維持既有最終收圖，D 功能關閉。完全沒有 C1 通道能力的擴充仍按既有規則要求更新、禁止新生成。PCS 候選表使用 **event_apply=2**，由 S5B 先複製再搬遷；C2/C3 本身沒有佔用這個版本。已開始 manifest 收取的 operation 若能力暫失，保留待確認，不中途改用另一份結果。
+
+PCS 的 `comfy_result_fetch` 在 worker 讀取 bind／分頁／asset，拒絕 redirect，核對 owner、operation、prompt、graph、server、epoch、revision／checksum、完整 ordinal／digest。`result.manifest` 有獨立耐久通知路由，不隨 DeliveryFilter 的 executed／progress 合併而丟棄。單一背景 writer 先持久化 candidate intent；worker 從同一份 bytes 驗證 hash、PNG 邊界並原子保存原圖。最多 4 路收取（不超過可用 CPU 數減 1，單核心至少 1 路），候選每批至多 32 筆、封存 history 每批至多 64 筆 ready 依序提交，完成後立即接續下一批。writer 只寫候選表，WAL／FULL synchronous、busy_timeout=8 ms；取消與 generation 在提交前核對，摘要在提交後交 GUI。GUI 不等背景 future，鎖衝突走原 DB retry，job／文件／final 接受仍由 GUI 原交易負責。
+
+final metadata 與 journal 內容編碼由 worker 準備；GUI accepting 交易重讀候選 ready／owner、成功證據與封存 header，並以 job／run fence 拒絕過時準備，然後一起寫 result、frame 與 continuation。候選通知可在短窗合併，成功證據略過合併窗。PCS 採方案 C：候選只背景預取原圖，不建立預覽、不通知提前顯示；最終接受後沿既有投影一次顯示完整 history 集合。這些是本機排程與顯示方式，不更改 manifest 或 C1/C2/C3 接受條件。
+
+新寫原圖先 flush／fsync，再原子替換內容定址的檔案，才提交 ready receipt；未完成收取重開時，worker 重核原圖 hash，缺漏或不符就重取原 operation。原圖是 final gate 的必要資產。縮圖與 metadata 是可重建的衍生檔，原子寫入但不逐檔 fsync，`receipt.derived` 在背景補上兩檔 hash；不阻擋 frame。bind 只透過 `derived_pending=1` 的部分索引處理 frame 已提交而衍生收據未補完者；已有 derived hash 的歷史不讀檔、不重 hash。顯示失敗或實際使用時 hash 不符，由單張 asset 索引交 worker 修復。早到預覽使用 worker 的 QImage，只在既有位置合併更新一次。收取路徑不在 GUI 讀圖、解碼或計算圖片 hash。
+
+PCS final 接受在同一 accepting 交易刪除該 manifest 的 candidates 列，保留被 final 重用的檔案。history 與失敗候選沿既有 job／attempt 保留時機清除，孤兒以每次最多 128 列的 keyset sweep 處理；未結案 index、results_pending 及尚持有 frame 的 operation 不清除。不新增檔案清理，亦不改擴充端 manifest 的保留契約。並行 chunk 失敗時，可重用其他 chunk 已驗證寫入的原圖。
+
+`channel_result_candidates` 以 manifest、source、semantic 為 PK；source 區分 candidates 與 history。候選不能作為最終結果；PCS 僅拿來背景預取，不寫 execution projection 或 StageRunner.results。final 的同 node／檔案描述／hash 可重用本機原圖，仍由 worker 重新驗證。成功證據存為 job.result_terminal，封存版存為 job.result_manifest；`results_pending` 保留在原狀態欄位，並納入重開、保留、未結案與 reconcile。三項條件（成功、history seal、所有本機 asset ready）齊備才進原 accepting 交易，一次接受 result、frame 與 continuation／event receipt。失敗、interrupted 或確認取消不推進 frame，候選紀錄保留；收圖／DB 失敗不重送 prompt。
+
+本機已 failed／cancelled／interrupted 且沒有成功證據時，ResultFetch 不安排 manifest 補查。epoch／連線恢復或明確更新僅從既有未結案 operation index 核對，不掃全表 DISTINCT，不重查已確認的歷史 failed／cancelled。新的歸屬正確 manifest 通知仍可觸發一次核對，重播以事件收據去重；不重啟已取消的圖片複製，終態確認仍由原 reconcile／取消流程負責。取消、關閉及 owner 變更會中止工作 token 與在途 socket；晚到工作不得寫 ready 或推進 frame。
 
 ### 身分、來源與順序
 
@@ -259,7 +271,7 @@ asset_token 是以啟動期隨機密鑰 HMAC 綁定完整 identity、revision、
 | apply | input_batch 保存順序與 continuation；每次接受原 input ID 後才進下一步。foreign_ready、free_state 與原收據同交易；重開後保留 restart pause，不自動重新派送。使用者繼續時以原 attempt／input ID 接回尚未送出的下一步。 |
 | open | 保存原生定位結果並釋放 lane，不改綁定或觸發生成。 |
 
-12 秒未取得證據即定點查原 operation；單次讀回有絕對期限，失敗以 1／2／4／8 秒退避，30 秒保存「無法確認」。正在等待的 HTTP 也受截止時間約束，不以回呼一定會到達為前提。通道健康恢復、新事件或明確更新後可再核對同一 ID。120 秒診斷沿既有通道，不將長執行判成 failed。
+12 秒未取得證據即定點查原 operation；單次讀回有絕對期限，失敗以 1／2／4／8 秒退避，30 秒保存「無法確認」。期限後跨窗採 30／60／120／300 秒退避，300 秒持續核對，不永久放棄。一般心跳不重啟查詢窗；新事件、epoch／連線恢復、明確更新或取消允許立即核對一次，不清除退避或「無法確認」、不釋放 lane、不重送。正在等待的 HTTP 也受截止時間約束，不以回呼一定會到達為前提。120 秒診斷沿既有通道，不將長執行判成 failed。
 
 HTTP rejected 與 failed 收據不同；只有核對原收據，或取消後取得同 epoch 的 missing fence，才能結案。delivered apply 的 cancelling 須等原瀏覽器 cancel_confirmed；已 applied 的收據勝過晚到取消 ACK。純 unavailable、未收到取消確認都保留 lane。刪失的 aux 收據須從持久 event_receipts 核對原 intent，並建立拒絕晚到寫入的 fence；無投影時不得猜 missing。
 

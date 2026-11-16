@@ -14,7 +14,23 @@ def receipt(attempt, action):
                 payload=dict(owner=attempt['owner'], action=action))
 
 
-def continue_result(runner, attempt, result, *, repair=False):
+def advance_result(current, attempt, result, *, produced=None):
+    """Pure continuation transformation, shared by preparation and acceptance."""
+    frame=next((f for f in current['stack'] if f.get('job')==attempt['id']),None)
+    if frame:
+        if current['status']!='cancelled':
+            from .stage_runner import merge_results
+            if produced is None:merge_results(frame['produced'],{attempt['stage']:result})
+            else:frame['produced']=produced
+            frame['index']+=1
+            autos={key for s in current['plan']['stages'].values() if s['auto'] for key in (s.get('suppliers') or [s['auto']])}
+            for key,value in attempt.get('sources',{}).items():
+                if key not in autos:current.setdefault('source_positions',{}).setdefault(key,value)
+        frame['job']=None
+    return frame
+
+
+def continue_result(runner, attempt, result, *, repair=False, produced=None, encoding=None):
     """Called inside the same accepting transaction as result/job acceptance."""
     events=EventStore(runner.store.db)
     event=receipt(attempt,'continue')
@@ -24,15 +40,9 @@ def continue_result(runner, attempt, result, *, repair=False):
         if frame and current['status']!='cancelled':raise ValueError('資料不一致')
         return current,frame
     if frame:
-        if current['status']!='cancelled':
-            from .stage_runner import merge_results
-            merge_results(frame['produced'],{attempt['stage']:result})
-            frame['index']+=1
-            autos={key for s in current['plan']['stages'].values() if s['auto'] for key in (s.get('suppliers') or [s['auto']])}
-            for key,value in attempt.get('sources',{}).items():
-                if key not in autos:current.setdefault('source_positions',{}).setdefault(key,value)
-        frame['job']=None
-        runner.save(current)
+        frame=advance_result(current,attempt,result,produced=produced)
+        if encoding is None:runner.save(current)
+        else:runner.save(current,encoding=encoding)
     elif repair:
         return current,None
     events.accept(event,'local_continuation')
@@ -53,7 +63,7 @@ class InvariantChecker:
         args=[]
         owned=''
         if owner is not None:owned=' AND owner=?';args.append(owner)
-        values={r[0] for r in self.store.db.execute("SELECT id FROM stage_header WHERE kind='attempt' AND json_extract(body,'$.status') IN ('preparing','submitted','unconfirmed','result_error')"+owned,args)}
+        values={r[0] for r in self.store.db.execute("SELECT id FROM stage_header WHERE kind='attempt' AND json_extract(body,'$.status') IN ('preparing','submitted','unconfirmed','result_error','results_pending')"+owned,args)}
         args=[]
         owned=''
         if owner is not None:owned=' AND r.id=?';args.append(owner)
@@ -107,7 +117,7 @@ class InvariantChecker:
                         if self.fault:self.fault('before_repair_commit')
                         if notify:self.store._transactions.after_commit(runner.notify)
             return
-        if origin not in ('preparing','submitted','unconfirmed','result_error'):return
+        if origin not in ('preparing','submitted','unconfirmed','result_error','results_pending'):return
         from .comfy_aux_inputs import pending_foreign
         if pending_foreign(self.store,attempt):return
         evidence=attempt.get('operation_evidence')

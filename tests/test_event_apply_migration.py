@@ -26,7 +26,7 @@ class EventMigrationTests(unittest.TestCase):
             _,data=workspace_profile.read(target)
             for _ in range(2):
                 storage=Storage(data)
-                self.assertEqual(dict(storage.db.execute('SELECT key,version FROM storage_layout')),dict(journal=1,event_apply=1))
+                self.assertEqual(dict(storage.db.execute('SELECT key,version FROM storage_layout')),dict(journal=1,event_apply=layout.SUPPORTED['event_apply']))
                 self.assertEqual(storage.db.execute('SELECT COUNT(*) FROM channel_applied_events').fetchone()[0],0)
                 storage.close()
                 inbox=EventInbox(data);inbox.close()

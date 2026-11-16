@@ -18,6 +18,8 @@ STUDIO = {
     'stage_content': 'sha256 encoding bytes body',
     'stage_content_ref': 'record_id pointer sha256',
     'channel_applied_events': 'server epoch seq digest entity revision disposition created',
+    'channel_result_candidates': 'manifest source semantic owner operation ordinal state body receipt derived_pending',
+    'channel_result_retention': 'id after_rowid',
     'document': 'id body', 'stage_journal': 'id kind workspace owner position body',
     'content_history': 'id body', 'cache': 'key body saved', 'cache_access': 'key accessed',
     'usage': 'workspace tag count last', 'accepted': 'workspace tag body last',

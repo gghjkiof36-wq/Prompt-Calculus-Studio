@@ -1,6 +1,20 @@
 # Stage 模塊、接點與執行邊界
 
-適用：0.8.6 Alpha 1。Stage 基本契約自 0.8.4 引入，參數保存與回執規則另見[資料相容性](data-compatibility.md)。
+## 結果候選與最終接受
+
+支援結果 manifest 的連線由 `comfy_result_fetch` 收取。原生 executed 的圖片只形成候選；不寫 `StageRunner.results`、execution projection 或已接線的輸入來源。PCS 採方案 C：候選只在背景預取原圖，不建立候選預覽、不提前顯示，最終接受後才沿既有結果卡顯示完整集合。候選分組不保證涵蓋 cache、迴圈或 subgraph 的所有輸出。
+
+成功證據與本機結果就緒分開保存。`results_pending` 是原 job／attempt 的待收圖狀態，列入 ACTIVE、重開查詢、保留與未結案 index。成功 history 封存的 final manifest 是唯一輸出集合；其全部 asset ready 後，沿原 `accepting()` 一次提交 attempt.result、frame advance 與 continuation／event receipt。早到候選不能滿足這個 gate。輸入 graph 核對保留；manifest 模式不以靜態 batch 數猜最終圖片數。
+
+每個 intent 先持久化，worker 才並行讀 bytes、驗證 hash、原子保存原圖；候選每批最多 32 筆、封存 history 每批最多 64 筆 ready，提交後合併通知 owner。`comfy_result_writer` 的單一序列池只寫候選表 intent／ready，使用自行開啟並關閉的背景連線，WAL、FULL synchronous 與 8 ms busy_timeout；GUI 鎖等待亦上限 8 ms，鎖衝突沿既有 DB 重試。提交前重核 generation／cancel，提交後才交摘要；取消或換代的晚到通知不能接受。job、文件、final 與衍生收據仍在 GUI 原交易。原圖新寫入時 flush／fsync；未完成收取重開時重核原圖，不完整就回到重取。縮圖與 metadata 的補建／hash receipt 在背景完成，不進 final 關鍵路徑。bind 僅從 derived_pending 部分索引恢復 frame 後尚未補完的收據；已完成歷史保持冷資料，實際顯示失敗或使用時 hash 不符才交 worker 修復。候選僅預取原圖，不建立或發布早到預覽；final 接受同交易清除 candidates 列，重用原圖不刪。其餘列沿 job／attempt retention 清除，孤兒以有界 keyset 批次處理，未結案與尚未推 frame 的資料受保護。
+
+`comfy_result_projection` 在 worker 準備 final 的結果、recent metadata、獨立顯示副本及 journal 編碼。續行轉換與原 `stage_invariants` 共用純函式；GUI 在原 accepting 交易重讀 ready／owner，核對成功證據、history seal、job 與 run fence，才寫入已準備內容。準備期間取消、更新收據或修改 run 時丟棄舊準備、重收原 operation；不把 worker 的推算當作已接受的 frame。receipt 只作不可變交接，GUI 不逐張 deepcopy。密集候選通知以 250 ms 窗合併，只安排原 operation 的工作；success 不等這個窗，完整 graph 核對仍在派工與最終接受。每個 worker chunk 只解析一次文件根路徑，每張重用原圖仍核路徑歸屬、重讀 bytes 並驗證 hash；同份 bytes 不重複 hash。
+
+檔案或 DB 失敗只重收原 operation，不再生成；並行 chunk 的成功原圖可供失敗重試重用。error／interrupted／確認取消保留候選、不推進 frame，也不自行安排 manifest 補查。epoch／連線恢復與明確更新只檢查原未結案 operation index，不查所有歷史 failed。新的歸屬正確 manifest 事件仍可對已停止 operation 補查一次；重播去重、不重新生成。終態待收圖仍顯示「結果待確認」。
+
+只有收取路徑要求 GUI 圖片讀檔／解碼／hash 為 0。既有最終結果卡、最近生成與來源卡的顯示解碼仍沿原路徑，須另行量測，不把顯示成本算成 worker 收圖。未宣告 result_manifest_v1 時，新 operation 沿舊最終收圖；已建立 manifest intent 的 operation 不得中途降級到舊收圖。
+
+上述結果收取契約對應 Pre-alpha3。以下既有架構說明適用 0.8.6 Alpha 1；Stage 基本契約自 0.8.4 引入，參數保存與回執規則另見[資料相容性](data-compatibility.md)。
 
 本頁保留上述版本的架構說明。2026-10-23 候選的單次圖片來源快照與服務接點，見[擴充接點補充](extension-boundaries-20261023.md)。
 

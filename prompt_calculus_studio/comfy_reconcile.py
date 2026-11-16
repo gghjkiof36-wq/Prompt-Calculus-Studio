@@ -17,6 +17,10 @@ class Reconcile:
         if getattr(self.reducer,'invariants',None):
             self.reducer.invariants.check(ident)
         job=self.reducer.job(ident)
+        if job and job['state']=='results_pending' and job.get('result_terminal') and event is None:
+            self.reducer.results.ensure(job,force=force)
+            if done:done()
+            return
         if job and (job['state']=='retired' or job['state'] in ('complete','failed') and reason!='parameters'):
             if done:done()
             return
@@ -88,8 +92,9 @@ class Reconcile:
             if value.get('prompt_id'):
                 job.update(prompt_id=value['prompt_id'])
             terminal = row.get('event', {}).get('kind','') if row.get('event') else ''
-            if value.get('state')=='results_pending':failed(value.get('error','Result files unavailable'));return
-            if proof.get('location') == 'history' or terminal in ('native.execution_success','native.execution_error','native.execution_interrupted','operation.terminal') or value.get('state') == 'complete':
+            if value.get('state')=='results_pending' and not self.reducer.results.eligible(job):
+                failed(value.get('error','Result files unavailable'));return
+            if proof.get('location') == 'history' or terminal in ('native.execution_success','native.execution_error','native.execution_interrupted','operation.terminal') or value.get('state') in ('complete','results_pending'):
                 prompt = job.get('prompt_id')
                 if not prompt: failed('Missing terminal prompt identity'); return
                 def history(result):

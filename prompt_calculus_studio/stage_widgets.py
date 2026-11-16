@@ -10,8 +10,8 @@ from .output_order import OutputOrderList
 from .stage_model import choose,compile_plan
 
 NAMES=dict(waiting='等待',running='執行中',preparing='準備輸入',submitted='已提交',collecting='保存結果',
-    complete='完成',paused='已暫停',failed='失敗',unconfirmed='無法確認',result_error='圖片尚未取得',cancelling='取消待確認',cancelled='已取消',removed='已移除',retained='已保留',retried='已建立新嘗試')
-ACTIVE_GROUP_STATES=('preparing','submitted','collecting','running','unconfirmed','cancelling')
+    complete='完成',paused='已暫停',failed='失敗',unconfirmed='無法確認',result_error='圖片尚未取得',results_pending='結果待確認',cancelling='取消待確認',cancelled='已取消',removed='已移除',retained='已保留',retried='已建立新嘗試')
+ACTIVE_GROUP_STATES=('preparing','submitted','collecting','running','unconfirmed','cancelling','results_pending')
 
 
 def scheduler_action(canvas,key,method):
@@ -324,7 +324,7 @@ class SchedulePageContent(QFrame):
         wait_reasons=None;scheduling=None
         for index,group in enumerate(self.groups):
             entry=self.groups_list.item(index);counts=projected[group['id']]
-            important=next((key for key in ('unconfirmed','cancelling','failed','result_error','preparing','submitted','collecting','running','retained') if counts.get(key)),None)
+            important=next((key for key in ('unconfirmed','cancelling','failed','result_error','results_pending','preparing','submitted','collecting','running','retained') if counts.get(key)),None)
             executing=any(counts.get(s,0) for s in ('preparing','submitted','collecting','running'))
             status=NAMES[important] if important else (f"{counts.get('complete',0):,} 已完成" if counts.get('complete') else '等待')
             if group['cancelled']:status='取消待確認' if any(counts.get(s,0) for s in ACTIVE_GROUP_STATES) else '已取消'

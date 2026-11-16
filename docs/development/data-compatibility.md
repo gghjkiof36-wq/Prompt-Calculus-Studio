@@ -6,6 +6,16 @@
 
 ## 格式、遷移與使用位置
 
+manifest 收取的候選 writer 使用 studio DB 的 WAL 模式；WAL／SHM 屬同一文件資料。只有候選表 intent／ready 由單一背景連線寫入，FULL synchronous 與原圖 fsync 保證不降低。job、文件及 final 接受仍在 GUI 原交易。這不新增欄位、不改 event_apply=2；搬遷仍要求停止舊程序，複製並恢復 SQLite 日誌後核驗原件不變。
+
+目前 studio DB 使用 `event_apply=2`、`journal=1`。結果收取新增 `channel_result_candidates`，分開保存 display candidates 與 history final 的 intent／ready receipt。原圖、縮圖、metadata 位於文件資料目錄內，以相對路徑記錄，搬遷隨資料副本複製；文件／PNG 格式不變。正常開庫只驗證版本、表與索引形狀，缺表不得補建。
+
+S5B registry 在複製完成的目標依序執行 `journal 0→1`、`event_apply 0→1→2`；已有 event_apply=1 的副本只跑 1→2。原庫與原偏好檔不變。舊程式不能開新 studio DB，pre-alpha3 不支援降版。下面兩段記錄先前 0→1 的歷史步驟，仍是完整搬遷鏈的一部分。
+
+ready receipt 表示原圖已驗證及保存，不代表縮圖／metadata 已完成。`receipt.derived` 缺少或為 null 時背景補建；有值時保存兩個衍生檔的 hash。未發布的 event_apply=2 DDL 包含 `derived_pending INTEGER NOT NULL DEFAULT 0`、operation 索引、待補部分索引與 history asset hash 部分索引，以及單列 `channel_result_retention` 孤兒掃掠游標；registry、形狀驗證及搬遷清冊使用同一形狀，不在正常開庫補表、補欄或索引。游標與刪除同交易，兩次重開也從原進度續行。
+
+未完成收取重開時在 worker 重核原圖，缺漏／hash 不符就重取；已完成的歷史不因開啟／bind 全量驗檔。只有 frame 已提交而衍生收據未補完的列，才由待補部分索引恢復。顯示失敗或使用時 hash 不符，按單張圖片交 worker 重建。衍生檔不逐檔 fsync，原圖新寫入仍先 flush／fsync 再原子替換；原圖修復只取原封存 final，不再次推 frame。final 接受同交易刪除候選列；其餘列跟隨既有 job／attempt 保留與有界孤兒清理，不新增檔案清理規則。詳見 [journal layout](journal-layout.md)。
+
 本機一致性檢查沿用 event_apply=1、journal=1，沒有新增 SQL 表或欄位。attempt 的可選 submission_intent／operation_evidence／local_issue／local_origin 與 local continuation receipt 不需要新的 registry 步驟；operation_evidence 使用既有 generic content_paths 拆分，已知讀取器可按 pointer 還原。缺少意圖的舊資料視為傳輸不確定，不能推論未送出。document／PNG 版本不變，pre-alpha3 仍不支援降版；此處的 generic reader 相容性不等於批准整個應用程式降版。
 
 Pre-alpha3 CHANNEL-C1 新增 studio DB 的 `storage_layout('event_apply',1)` 與 `channel_applied_events`；journal 仍為 1，document／PNG 格式不變。S5B registry 只在複製後的搬遷目標執行缺少的步驟：journal=0 先升 journal=1，再加 event_apply；既有 journal=1 只加 event_apply。正常開庫先核對標記與表結構，缺少標記時拒讀，不能順手補表。搬遷包含 comfy-channel.sqlite3 sidecar，原件與舊偏好檔保持不動；舊 PCS 不能開新 studio DB，pre-alpha3 不支援降版。

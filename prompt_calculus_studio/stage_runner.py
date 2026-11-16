@@ -32,6 +32,13 @@ def merge_results(target,values):
             target[key]['texts']=copy.deepcopy(value.get('texts',[]))
 
 
+def progress_fields(run):
+    fields={key:run[key] for key in ('stack','initial','round')}
+    fields.update({key:run.get(key,{}) for key in ('source_positions','supply_progress','supply_images','supply_shared')})
+    if 'scope_progress' in run:fields['scope_progress']=run['scope_progress']
+    return fields
+
+
 class StageRunner(QObject):
     def __init__(self,flow):
         super().__init__(flow.client);self.flow=flow;self.client=flow.client;self.window=flow.window
@@ -381,11 +388,10 @@ class StageRunner(QObject):
         current=compile_plan(self.window.state)
         if execution_signature(current)!=execution_signature(run['plan']):raise ValueError('Stage 或接線已修改；原項目保留，恢復接線後可繼續。')
 
-    def save(self,run):
+    def save(self,run,*,encoding=None):
         if getattr(self,'_advancing_run',None) is run:
             self._advancing_dirty=True;return
-        progress={'scope_progress':run['scope_progress']} if 'scope_progress' in run else {}
-        self.store.patch(run['id'],stack=run['stack'],initial=run['initial'],round=run['round'],source_positions=run.get('source_positions',{}),supply_progress=run.get('supply_progress',{}),supply_images=run.get('supply_images',{}),supply_shared=run.get('supply_shared',{}),**progress)
+        self.store.patch(run['id'],_prepared=encoding,**progress_fields(run))
 
     def pump(self):
         if self.closed or self.pumping or not self.client.connected:return
@@ -540,7 +546,7 @@ class StageRunner(QObject):
         if attempt:
             status=attempt['status']
             if attempt.get('cancel_requested'):return 'cancelling'
-            if status in ('unconfirmed','failed','result_error','preparing','collecting'):return status
+            if status in ('unconfirmed','failed','result_error','preparing','collecting','results_pending'):return status
             if status=='submitted':return 'submitted'
         return 'paused' if self.store.status_value(item['run'])=='paused' else item['status']
 
@@ -902,29 +908,48 @@ class StageRunner(QObject):
             try:
                 from .image_bindings import import_source
                 images=[];recent=[]
-                for node,i,image in expected:
-                    match=next((r for r in rows if r.get('prompt_id')==job['prompt_id'] and str(r.get('node_id'))==node and r.get('image')==image and r.get('path')),None)
-                    if not match:raise ValueError('第 '+str(i+1)+' 張指定結果無法讀取。')
-                    source=import_source(match['path'],self.window.store.directory);source['reference']=dict(run=run['id'],stage=stage['id'],attempt=attempt['id'],prompt_id=job['prompt_id'],node=node,index=i,
+                final=job.get('result_prepared')
+                if final:
+                    # The worker owns these independent projections. Recheck the
+                    # run fence in the accepting transaction before using them.
+                    prepared=[]
+                elif 'result_assets' in job:
+                    prepared=[(item['node_id'],item['item_index'],item['image'],copy.deepcopy(receipt['source'])) for item,receipt in job['result_assets']]
+                else:prepared=[(node,i,image,None) for node,i,image in expected]
+                for node,i,image,source in prepared:
+                    if source is None:
+                        match=next((r for r in rows if r.get('prompt_id')==job['prompt_id'] and str(r.get('node_id'))==node and r.get('image')==image and r.get('path')),None)
+                        if not match:raise ValueError('第 '+str(i+1)+' 張指定結果無法讀取。')
+                        source=import_source(match['path'],self.window.store.directory)
+                    else:
+                        match=dict(prompt_id=job['prompt_id'],node_id=node,image=image,
+                                   path=str(self.window.store.directory/source['relative']))
+                    source['reference']=dict(run=run['id'],stage=stage['id'],attempt=attempt['id'],prompt_id=job['prompt_id'],node=node,index=i,
                         round=attempt.get('round'),parent=attempt.get('parent'))
                     images.append(source)
                     recent.append(copy.deepcopy(match))
-                field=stage.get('text_output');text=None
-                if field:text=job.get('payload',{}).get('prompt',{}).get(field[0],{}).get('inputs',{}).get(field[1])
-                from .generation import profile_text_fields
-                graph=job.get('payload',{}).get('prompt',{})
-                profile=next((p for p in attempt.get('snapshot_state',{}).get('generation',{}).get('profiles',[]) if p['id']==stage['workflow']),{})
-                texts=[dict(node=node,field=field,text=graph[node]['inputs'][field]) for node,field in profile_text_fields(dict(profile,graph=graph))]
-                result=dict(run=run['id'],images=images,text=text,texts=texts,attempts=[attempt['id']],records=[dict(attempt=attempt['id'],text=text,texts=texts)])
+                if final:result=final['result'];images=result['images'];recent=final['recent']
+                else:
+                    field=stage.get('text_output');text=None
+                    if field:text=job.get('payload',{}).get('prompt',{}).get(field[0],{}).get('inputs',{}).get(field[1])
+                    from .generation import profile_text_fields
+                    graph=job.get('payload',{}).get('prompt',{})
+                    profile=next((p for p in attempt.get('snapshot_state',{}).get('generation',{}).get('profiles',[]) if p['id']==stage['workflow']),{})
+                    texts=[dict(node=node,field=field,text=graph[node]['inputs'][field]) for node,field in profile_text_fields(dict(profile,graph=graph))]
+                    result=dict(run=run['id'],images=images,text=text,texts=texts,attempts=[attempt['id']],records=[dict(attempt=attempt['id'],text=text,texts=texts)])
                 # Accept the result and advance its owning frame together.
                 # Publishing either half alone costs an extra commit and can
                 # strand a completed attempt if the second write fails.
                 try:
                     with self.accepting():
+                        if final and self.store.db.execute('SELECT body,content_paths FROM stage_header WHERE id=?',(run['id'],)).fetchone()!=final['fence']:
+                            raise ValueError('Result continuation changed during preparation')
                         if accept is not None:accept()
-                        self.store.patch(attempt['id'],status='complete',result=result,error='',cancel_requested=False)
+                        self.store.patch(attempt['id'],status='complete',result=result,error='',cancel_requested=False,
+                                         _prepared=final['result_parts'] if final else None)
                         from .stage_invariants import continue_result
-                        current,frame=continue_result(self,attempt,result)
+                        current,frame=continue_result(self,attempt,result,produced=final['produced'] if final else None,
+                                                      encoding=final['run_parts'] if final else None)
                         if before_commit is not None:before_commit()
                 except sqlite3.Error as exc:
                     # request() converts escaped callback errors to backend
@@ -941,8 +966,8 @@ class StageRunner(QObject):
                     # Also defer when collect() is nested in an outer acceptance.
                     if recent:self.client.resultsReceived.emit(recent)
                     if current['workspace']==self.window.state['workspace']:
-                        self.remember_preview(attempt,result)
-                        self.results[stage['id']]=copy.deepcopy(frame['produced'][stage['id']]) if frame and stage['id'] in frame['produced'] else result
+                        self.remember_preview(attempt,final['preview'] if final else result,owned=bool(final))
+                        self.results[stage['id']]=final['display'] if final else copy.deepcopy(frame['produced'][stage['id']]) if frame and stage['id'] in frame['produced'] else result
                         self.refresh_results(preview_changed=bool(images))
                     if current['status']=='paused':self.settle(self.store.read(current['id']))
                     self.notify();self.later()
@@ -955,7 +980,8 @@ class StageRunner(QObject):
                 # changing it into a backend error or resubmitting its prompt.
                 self.collecting.discard(attempt['id'])
                 raise
-        if expected:self.client.request('desktop/results?prompt_id='+quote(job['prompt_id'],safe=''),done=received,failed=fail)
+        if 'result_assets' in job:received([])
+        elif expected:self.client.request('desktop/results?prompt_id='+quote(job['prompt_id'],safe=''),done=received,failed=fail)
         else:received([])
 
     def advance_sources(self,attempt):
@@ -1164,7 +1190,7 @@ class StageRunner(QObject):
                 self.pause(run['id'],'已切換工作區，後續保留並暫停。',reason='workspace');self.cancel_inputs(run)
         self.results={};self.preview_results={};self.preview_stamps={}
 
-    def remember_preview(self,attempt,result):
+    def remember_preview(self,attempt,result,*,owned=False):
         """Keep the last completed image batch while the next one is pending.
 
         Ordered attempt creation prevents a late download from restoring an old
@@ -1180,7 +1206,7 @@ class StageRunner(QObject):
         if previous and scope==previous[1]:
             shown=self.preview_results[key]
             if attempt['id'] not in shown.get('attempts',[]):merge_results(self.preview_results,{key:result})
-        else:self.preview_results[key]=copy.deepcopy(result)
+        else:self.preview_results[key]=result if owned else copy.deepcopy(result)
         self.preview_stamps[key]=(max(stamp,previous[0]) if previous else stamp,scope)
 
     def load_results(self):

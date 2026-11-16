@@ -103,6 +103,7 @@ def request_cancel(runner,attempt):
     store=runner.store
     events=getattr(runner.client,'events',None)
     if events is not None and events.enabled:
+        events.results.stop_operation(attempt['id'])
         events.reconcile.require(attempt['id'],'cancel',force=True)
         runner.client.request('workflow/native/cancel',dict(id=attempt['id']),
             done=lambda value:events.reconcile.require(attempt['id'],'cancel_ack',force=True),
@@ -141,7 +142,7 @@ def cancel_current(runner,entry_id=None):
     else:
         owners={r['id'] for r in runner.runs(True) if r['server']==runner.client.url}
         attempts=[a for a in runner.store.rows('attempt',runner.window.state['workspace'],active=True) if a['owner'] in owners]
-    attempt=next((a for a in attempts if a['status'] in ('preparing','submitted','unconfirmed','collecting')),None)
+    attempt=next((a for a in attempts if a['status'] in ('preparing','submitted','unconfirmed','collecting','results_pending')),None)
     if attempt is None:attempt=next((a for a in attempts if a['status']=='failed'),None)
     if attempt:cancel_attempt(runner,attempt);return
     if runner.applying:runner.cancel_apply('已取消目前輸入同步。')

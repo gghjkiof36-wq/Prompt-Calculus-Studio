@@ -9,7 +9,7 @@ from .sqlite_schema import schema_transaction
 
 OLD_MESSAGE = '這份資料是舊版格式，請用搬遷功能匯入。'
 NEW_MESSAGE = '這份資料來自較新版本，無法開啟。'
-SUPPORTED = {'journal': 1, 'local_state': 0, 'event_apply': 1}
+SUPPORTED = {'journal': 1, 'local_state': 0, 'event_apply': 2}
 TABLES = {
     'stage_header': ('id', 'kind', 'workspace', 'owner', 'position', 'body', 'projection', 'content_paths'),
     'stage_content': ('sha256', 'encoding', 'bytes', 'body'),
@@ -37,7 +37,7 @@ def inspect_layout(db, *, require_events=True):
             raise LayoutError(OLD_MESSAGE)
         if 'local_state' in versions and versions['local_state'] != 0:
             raise LayoutError(OLD_MESSAGE)
-        if require_events and versions.get('event_apply') != 1:
+        if require_events and versions.get('event_apply') != SUPPORTED['event_apply']:
             raise LayoutError(OLD_MESSAGE)
         for table, fields in TABLES.items():
             columns = db.execute('PRAGMA table_info(' + table + ')').fetchall()
@@ -55,8 +55,10 @@ def inspect_layout(db, *, require_events=True):
         foreign = {(row[2], row[3], row[4], row[6]) for row in db.execute('PRAGMA foreign_key_list(stage_content_ref)')}
         if foreign != {('stage_header', 'record_id', 'id', 'CASCADE'), ('stage_content', 'sha256', 'sha256', 'NO ACTION')}:
             raise LayoutError(OLD_MESSAGE)
-        if versions.get('event_apply') == 1:
+        if versions.get('event_apply', 0) >= 1:
             verify_events(db)
+        if versions.get('event_apply') == 2:
+            verify_candidates(db, inventory=False)
     except sqlite3.DatabaseError as exc:
         raise LayoutError(OLD_MESSAGE) from exc
     return True
@@ -107,6 +109,7 @@ def initialize(db):
         create_journal(db)
         mark_journal(db)
         create_events(db)
+        create_candidates(db)
 
 
 class MigrationError(ValueError):
@@ -259,8 +262,74 @@ def pending_steps(db):
     versions = dict(db.execute('SELECT key,version FROM storage_layout')) if 'storage_layout' in names else {}
     if any(type(v) is not int or v > SUPPORTED.get(k, -1) for k, v in versions.items()):
         raise LayoutError(NEW_MESSAGE)
-    return [step for step in REGISTRY if versions.get(step.key, 0) == step.from_version]
+    pending = []
+    for step in REGISTRY:
+        if versions.get(step.key, 0) == step.from_version:
+            pending.append(step)
+            versions[step.key] = step.to_version
+    return pending
+
+
+CANDIDATE_COLUMNS = ('manifest', 'source', 'semantic', 'owner', 'operation', 'ordinal', 'state', 'body', 'receipt', 'derived_pending')
+
+
+def verify_candidates(db, old=None, *, inventory=True):
+    columns = db.execute('PRAGMA table_info(channel_result_candidates)').fetchall()
+    if (tuple(row[1] for row in columns) != CANDIDATE_COLUMNS or
+            tuple(row[5] for row in columns) != (1, 2, 3, 0, 0, 0, 0, 0, 0, 0) or
+            any(not row[3] or row[2].upper() != ('INTEGER' if row[1] in ('ordinal','derived_pending') else 'TEXT') for row in columns)):
+        raise LayoutError(OLD_MESSAGE)
+    indexes = {row[1]: (row[2],row[4]) for row in db.execute('PRAGMA index_list(channel_result_candidates)')}
+    for name, fields, unique in (
+            ('channel_candidate_owner', ('owner', 'operation', 'state'), 0),
+            ('channel_candidate_order', ('manifest', 'source', 'ordinal'), 1),
+            ('channel_candidate_operation', ('operation',), 0)):
+        if indexes.get(name) != (unique,0) or tuple(r[2] for r in db.execute('PRAGMA index_info('+name+')')) != fields:
+            raise LayoutError(OLD_MESSAGE)
+    for name, definition in CANDIDATE_PARTIAL_INDEXES.items():
+        row=db.execute("SELECT sql FROM sqlite_master WHERE type='index' AND name=?",(name,)).fetchone()
+        if indexes.get(name)!=(0,1) or not row or ' '.join(row[0].lower().split())!=' '.join(definition.lower().split()):
+            raise LayoutError(OLD_MESSAGE)
+    if columns[-1][4]!='0':raise LayoutError(OLD_MESSAGE)
+    cursor=db.execute('PRAGMA table_info(channel_result_retention)').fetchall()
+    if (tuple(row[1] for row in cursor)!=('id','after_rowid') or tuple(row[5] for row in cursor)!=(1,0)
+            or any(row[2].upper()!='INTEGER' or not row[3] for row in cursor)):
+        raise LayoutError(OLD_MESSAGE)
+    return dict(candidates=db.execute('SELECT COUNT(*) FROM channel_result_candidates').fetchone()[0]) if inventory else {}
+
+
+CANDIDATE_PARTIAL_INDEXES = {
+    'channel_candidate_deriving': 'CREATE INDEX channel_candidate_deriving ON channel_result_candidates(operation) WHERE derived_pending=1',
+    'channel_candidate_asset': "CREATE INDEX channel_candidate_asset ON channel_result_candidates(json_extract(receipt,'$.source.sha256')) WHERE source='history' AND state='ready'",
+}
+
+
+def create_candidates(db):
+    db.execute('CREATE TABLE channel_result_candidates (manifest TEXT NOT NULL,source TEXT NOT NULL,'
+               'semantic TEXT NOT NULL,owner TEXT NOT NULL,operation TEXT NOT NULL,ordinal INTEGER NOT NULL,'
+               'state TEXT NOT NULL,body TEXT NOT NULL,receipt TEXT NOT NULL,derived_pending INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(manifest,source,semantic))')
+    db.execute('CREATE INDEX channel_candidate_owner ON channel_result_candidates(owner,operation,state)')
+    db.execute('CREATE UNIQUE INDEX channel_candidate_order ON channel_result_candidates(manifest,source,ordinal)')
+    db.execute('CREATE INDEX channel_candidate_operation ON channel_result_candidates(operation)')
+    for definition in CANDIDATE_PARTIAL_INDEXES.values():db.execute(definition)
+    db.execute('CREATE TABLE channel_result_retention (id INTEGER NOT NULL PRIMARY KEY CHECK(id=1),after_rowid INTEGER NOT NULL)')
+    db.execute("UPDATE storage_layout SET version=2 WHERE key='event_apply'")
+
+
+def inspect_before_candidates(db):
+    inspect_layout(db, require_events=False)
+    if db.execute("SELECT version FROM storage_layout WHERE key='event_apply'").fetchone() != (1,):
+        raise LayoutError('Candidates require event acceptance layout 1')
+
+
+def transform_candidates(db, *, checkpoint=None):
+    inspect_before_candidates(db)
+    with migration_transaction(db):
+        create_candidates(db)
+        if checkpoint: checkpoint('result_candidates', None)
+        return verify_candidates(db)
 
 
 REGISTRY = (LayoutStep('journal', 0, 1, inspect_legacy, transform_journal, verify_journal),
-            LayoutStep('event_apply', 0, 1, inspect_before_events, transform_events, verify_events))
+            LayoutStep('event_apply', 0, 1, inspect_before_events, transform_events, verify_events),
+            LayoutStep('event_apply', 1, 2, inspect_before_candidates, transform_candidates, verify_candidates))
