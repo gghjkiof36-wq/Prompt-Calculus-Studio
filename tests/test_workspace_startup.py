@@ -1,4 +1,5 @@
 """Real startup phases and stable first frames, without online side effects."""
+from _qt_wait import wait_ms
 import unittest
 from collections import defaultdict
 from unittest.mock import patch
@@ -60,7 +61,7 @@ class WorkspaceStartupTests(unittest.TestCase):
                    side_effect=lambda w: w.show()) as focus:
             startup.start()
             for _ in range(200):
-                QTest.qWait(10)
+                wait_ms(10)
                 if startup.finished_loading:
                     break
             self.assertEqual(failures, [])
@@ -87,7 +88,7 @@ class WorkspaceStartupTests(unittest.TestCase):
             with patch('prompt_calculus_studio.workspace_startup.foreground'), \
                     patch.object(self.w, 'close'), patch.object(self.app, 'exit') as exit_:
                 startup.start()
-                QTest.qWait(50)
+                wait_ms(50)
                 self.assertTrue(startup.cancelled)
                 self.assertEqual(str(failures[0]), 'startup fixture failure')
                 self.assertEqual(ready, [])
@@ -128,7 +129,7 @@ class WorkspaceStartupTests(unittest.TestCase):
                                    side_effect=foreground_for_test):
                             startup.start()
                             for _ in range(200):
-                                QTest.qWait(10)
+                                wait_ms(10)
                                 if startup.finished_loading or startup.cancelled:
                                     break
                         self.assertEqual(failures, [])
@@ -178,7 +179,7 @@ class WorkspaceStartupTests(unittest.TestCase):
             for route in ('gallery', 'explore', 'export', 'settings'):
                 frames.frames.clear()
                 self.w.open_route(route)
-                QTest.qWait(160)
+                wait_ms(160)
                 self.assertTrue(frames.frames, route)
                 moving = [(obj.text(), positions) for obj, positions in frames.frames.items() if len(positions) > 1]
                 self.assertEqual(moving, [], route)

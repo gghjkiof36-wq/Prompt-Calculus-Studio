@@ -1,4 +1,5 @@
 """The real workspace borrows its live sidebar without moving document views."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -31,7 +32,7 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
     def reveal(self):
         QTest.mouseMove(self.w, QPoint(4, 200))
         for _ in range(80):
-            QTest.qWait(10)
+            wait_ms(10)
             if self.w.sidebar_peek.is_open:return
         peek=self.w.sidebar_peek
         self.fail(str((self.errors,peek._edge_blocked,peek._pending,self.w.sidebar.isHidden(),
@@ -41,9 +42,9 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
         entry = self.w.routes[route]
         QTest.mouseMove(entry, entry.rect().center())
         for _ in range(70):
-            QTest.qWait(10)
+            wait_ms(10)
             if self.w.sidebar_peek.is_open and self.w.sidebar_peek.hover_route == route:
-                QTest.qWait(160)
+                wait_ms(160)
                 return self.w.sidebar_peek.target
         self.fail(str((route, self.errors, self.w.sidebar_peek.hover_route,
                        self.w.sidebar_peek.is_open, self.w.sidebar_peek._pending)))
@@ -88,7 +89,7 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
                 self.assertIs(target, self.w.sidebar)
                 self.assertTrue(self.w.tree.isVisible())
         self.away()
-        QTest.qWait(350)
+        wait_ms(350)
         self.assertFalse(self.w.sidebar_peek.is_open)
         self.assertIs(self.w.sidebar.parentWidget(), self.w.home_split)
         self.assertEqual(self.w.active_route, 'gallery')
@@ -126,7 +127,7 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
             for route in ('export', 'settings', 'home'):
                 entry = self.w.routes[route]
                 QTest.mouseMove(entry, entry.rect().center())
-                QTest.qWait(20)
+                wait_ms(20)
                 self.assertEqual(peek.hover_route, route)
                 self.assertTrue(peek.is_open)
                 self.assertTrue(peek.overlay.isVisible())
@@ -135,7 +136,7 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
                 self.assertFalse(peek.effect.isEnabled())
             animate.assert_not_called()
         self.away()
-        QTest.qWait(350)
+        wait_ms(350)
         self.assertFalse(peek.is_open)
 
     def test_resize_preview_keeps_collapsed_preference_and_outer_edge(self):
@@ -160,7 +161,7 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
         self.assertEqual(self.tab.widget.geometry(), before)
         self.assertEqual(self.w.active_route, 'export')
         self.away()
-        QTest.qWait(350)
+        wait_ms(350)
         self.assertFalse(peek.is_open)
         self.assertFalse(self.w.sidebar_preference)
 
@@ -202,19 +203,19 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
     def test_edge_dwell_leave_and_document_geometry(self):
         self.collapse()
         QTest.mouseMove(self.w, QPoint(4, 200))
-        QTest.qWait(30)
+        wait_ms(30)
         self.assertFalse(self.w.sidebar_peek.is_open)
-        QTest.qWait(150)
+        wait_ms(150)
         self.assertTrue(self.w.sidebar_peek.is_open)
         self.assertEqual(self.tab.widget.geometry(), self.before)
-        QTest.qWait(120)  # The opening animation completes after the dwell.
+        wait_ms(120)  # The opening animation completes after the dwell.
         self.assertGreater(self.w.sidebar_peek.overlay.x(), self.w.rail.width())
         self.assertLess(self.w.sidebar_peek.overlay.geometry().bottom(), self.w.height()-1)
         self.assertIs(self.w.notebook.selector.parentWidget(), self.w.tree_heading)
         self.away()
-        QTest.qWait(45)
+        wait_ms(45)
         self.assertTrue(self.w.sidebar_peek.is_open)
-        QTest.qWait(280)
+        wait_ms(280)
         self.assertFalse(self.w.sidebar_peek.is_open)
         self.assertTrue(self.w.sidebar.isHidden())
         self.assertIs(self.w.sidebar.parentWidget(), self.w.home_split)
@@ -227,14 +228,14 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
         self.w.sidebar.layout().addWidget(field)
         field.show();field.setFocus()
         QTest.mouseMove(self.w, QPoint(self.w.width()-90, 260))
-        QTest.qWait(220)
+        wait_ms(220)
         self.assertTrue(self.w.sidebar_peek.is_open)
         self.assertEqual(field.text(), '保留中的名稱')
         self.w.toggle_sidebar()
         self.events()
         self.assertFalse(self.w.sidebar_peek.is_open)
         self.assertTrue(self.w.sidebar.isVisible())
-        self.away();QTest.qWait(220)
+        self.away();wait_ms(220)
         self.assertTrue(self.w.sidebar.isVisible())
 
     def test_document_gutter_triggers_right_fade_in_and_left_fade_out(self):
@@ -243,13 +244,13 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
         point = QPoint(self.w.rail.width()+16, 210)
         QTest.mouseMove(self.w, point)
         for _ in range(35):
-            QTest.qWait(5)
+            wait_ms(5)
             if peek.is_open:
                 break
         self.assertTrue(peek.is_open)
         initial_x = peek.overlay.x()
         for _ in range(100):
-            QTest.qWait(5)
+            wait_ms(5)
             if not peek.effect.isEnabled():break
         final_x = peek.overlay.x()
         self.assertGreater(final_x, initial_x)
@@ -259,7 +260,7 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
         peek.motion.valueChanged.connect(lambda _: frames.append((peek.overlay.x(), peek.effect.opacity())))
         self.away()
         for _ in range(100):
-            QTest.qWait(5)
+            wait_ms(5)
             if not peek.is_open:break
         self.assertTrue(any(x < final_x and opacity < 1. for x, opacity in frames), frames)
         self.assertFalse(peek.is_open)
@@ -268,11 +269,11 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
     def test_disabled_feature_and_drag_do_not_reveal(self):
         self.collapse()
         self.w.set_sidebar_hover(False, 100, 150)
-        QTest.mouseMove(self.w, QPoint(4, 200));QTest.qWait(180)
+        QTest.mouseMove(self.w, QPoint(4, 200));wait_ms(180)
         self.assertFalse(self.w.sidebar_peek.is_open)
         self.away();self.w.set_sidebar_hover(True, 100, 150)
         QTest.mousePress(self.w, Qt.MouseButton.LeftButton, pos=QPoint(500, 260))
-        QTest.mouseMove(self.w, QPoint(4, 200));QTest.qWait(180)
+        QTest.mouseMove(self.w, QPoint(4, 200));wait_ms(180)
         self.assertFalse(self.w.sidebar_peek.is_open)
         QTest.mouseRelease(self.w, Qt.MouseButton.LeftButton, pos=QPoint(500, 260))
         self.away();self.reveal()
@@ -309,12 +310,12 @@ class WorkspaceSidebarHoverTests(unittest.TestCase):
         self.collapse();self.reveal()
         selector=self.w.notebook.selector;menu=selector.menu()
         menu.popup(selector.mapToGlobal(QPoint(0,selector.height())))
-        QTest.qWait(40);self.away();QTest.qWait(220)
+        wait_ms(40);self.away();wait_ms(220)
         self.assertTrue(self.w.sidebar_peek.is_open)
         menu.close();self.away()
         for _ in range(100):
             if not self.w.sidebar_peek.is_open:break
-            QTest.qWait(10)
+            wait_ms(10)
         self.assertFalse(self.w.sidebar_peek.is_open)
 
     def test_canvas_camera_data_and_history_survive_hover_in_both_navigation_positions(self):

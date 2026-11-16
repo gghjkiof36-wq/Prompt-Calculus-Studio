@@ -1,4 +1,5 @@
 """Rev9 modal editing boundaries, real Qt events, isolated in-memory project."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -46,7 +47,7 @@ class EditorRev9Tests(unittest.TestCase):
 
     def test_category_plus_menu_opens_creation_and_cancel_preserves_state(self):
         for width in (1440, 640):
-            self.page.resize(width, 800); self.app.processEvents(); QTest.qWait(35)
+            self.page.resize(width, 800); self.app.processEvents(); wait_ms(35)
             self.assertTrue(self.page.category_add.isVisible())
             if not self.page.narrow:
                 self.assertGreater(self.page.category_add.x(), self.page.category_heading.geometry().right())
@@ -96,7 +97,7 @@ class EditorRev9Tests(unittest.TestCase):
                 dialog = self.page.active_dialog
                 self.assertIsNotNone(dialog)
                 for delay in (30, 170, self.app.doubleClickInterval()+60):
-                    QTest.qWait(delay)
+                    wait_ms(delay)
                     self.assertIs(self.page.active_dialog, dialog)
                     self.assertTrue(dialog.isVisible())
                     self.assertIsNone(dialog.target_id)
@@ -117,21 +118,21 @@ class EditorRev9Tests(unittest.TestCase):
                 self.page.set_browser_category(None)
                 if preview: self.page.preview_material(self.ident)
                 else: self.page.close_preview()
-                self.app.processEvents(); QTest.qWait(40)
+                self.app.processEvents(); wait_ms(40)
                 entry = next(self.page.listing.item(i) for i in range(self.page.listing.count())
                              if self.page.listing.item(i).data(Qt.ItemDataRole.UserRole) == self.ident)
                 self.page.listing.scrollToItem(entry)
                 self.app.processEvents()
                 position = self.page.listing.visualItemRect(entry).center()
                 QTest.mouseClick(self.page.listing.viewport(), Qt.MouseButton.LeftButton, pos=position)
-                QTest.qWait(35)
+                wait_ms(35)
                 self.assertIsNone(self.page.active_dialog)
                 QTest.mouseDClick(self.page.listing.viewport(), Qt.MouseButton.LeftButton, pos=position)
                 QTest.mouseRelease(self.page.listing.viewport(), Qt.MouseButton.LeftButton, pos=position)
                 dialog = self.page.active_dialog
                 self.assertIsNotNone(dialog)
                 for delay in (30, 170, self.app.doubleClickInterval()+60):
-                    QTest.qWait(delay)
+                    wait_ms(delay)
                     self.assertIs(self.page.active_dialog, dialog)
                     self.assertTrue(dialog.isVisible())
                     self.assertEqual(dialog.target_id, self.ident)
@@ -146,10 +147,10 @@ class EditorRev9Tests(unittest.TestCase):
         self.page.set_browser_category(self.w.state['items'][0]['module'])
         entry = next(self.page.listing.item(i) for i in range(self.page.listing.count()) if self.page.listing.item(i).data(Qt.ItemDataRole.UserRole) == self.ident)
         before = copy.deepcopy(self.w.state)
-        self.app.processEvents(); QTest.qWait(30)
+        self.app.processEvents(); wait_ms(30)
         QTest.mouseClick(self.page.listing.viewport(), Qt.MouseButton.LeftButton, pos=self.page.listing.visualItemRect(entry).center())
         self.assertIsNone(self.page.active_dialog)
-        QTest.qWait(self.app.doubleClickInterval()+60)
+        wait_ms(self.app.doubleClickInterval()+60)
         self.assertEqual(self.page.preview_id, self.ident); self.assertTrue(self.page.preview_text.isReadOnly())
         self.assertEqual(self.w.state, before)
         self.page.listing.setFocus(); QTest.keyClick(self.page.listing, Qt.Key.Key_F2)
@@ -164,7 +165,7 @@ class EditorRev9Tests(unittest.TestCase):
                     self.page.resize(width, height)
                     if preview: self.page.preview_material(self.ident)
                     else: self.page.close_preview()
-                    self.app.processEvents(); QTest.qWait(40)
+                    self.app.processEvents(); wait_ms(40)
                     viewport = self.page.scroll.viewport()
                     bottom = self.page.listing.mapTo(viewport, QPoint(0, self.page.listing.height())).y()
                     self.assertAlmostEqual(viewport.height()-bottom, 24, delta=2)
@@ -179,7 +180,7 @@ class EditorRev9Tests(unittest.TestCase):
             materials.save(self.w.state, dict(name=f'Overflow {i:02}', prompt='more', module=None))
         self.page.refresh(); self.page.set_browser_category(None)
         self.page.resize(1024, 640); self.page.preview_material(self.ident)
-        self.app.processEvents(); QTest.qWait(40)
+        self.app.processEvents(); wait_ms(40)
         self.assertGreater(self.page.listing.verticalScrollBar().maximum(), 0)
         self.assertEqual(self.page.scroll.verticalScrollBar().maximum(), 0)
         self.page.listing.scrollToBottom(); self.app.processEvents()
@@ -194,7 +195,7 @@ class EditorRev9Tests(unittest.TestCase):
         self.page.refresh(); self.page.resize(1024, 640); self.page.preview_material(self.ident)
         self.w.state['settings']['reduce_motion'] = False
         listing = self.page.listing; bar = listing.verticalScrollBar()
-        self.app.processEvents(); QTest.qWait(40)
+        self.app.processEvents(); wait_ms(40)
         start, layers = listing._stack()
         targets = {}
         for y in range(start, listing.viewport().height()):
@@ -220,7 +221,7 @@ class EditorRev9Tests(unittest.TestCase):
             QApplication.sendEvent(listing.viewport(), event)
         before = bar.value(); wheel()
         self.assertEqual(listing.scroll_motion.state(), QAbstractAnimation.State.Running)
-        QTest.qWait(70); self.assertGreater(bar.value(), before)
+        wait_ms(70); self.assertGreater(bar.value(), before)
         first_target = listing.scroll_motion.endValue(); wheel()
         self.assertGreater(listing.scroll_motion.endValue(), first_target)
         # Reverse from the visible position, not an outstanding far target.
@@ -240,7 +241,7 @@ class EditorRev9Tests(unittest.TestCase):
             self.page.resize(width, 900); self.page.set_browser_category(None)
             first, second = self.page.listing.item(0), self.page.listing.item(1)
             self.page.preview_material(first.data(Qt.ItemDataRole.UserRole))
-            self.app.processEvents(); QTest.qWait(35)
+            self.app.processEvents(); wait_ms(35)
             self.page.listing.scrollToItem(second); self.app.processEvents()
             position = self.page.listing.visualItemRect(second).center()
             ident = second.data(Qt.ItemDataRole.UserRole)
@@ -579,7 +580,7 @@ class EditorRev9Tests(unittest.TestCase):
                     scroll = dialog.panels.scroll if dialog.panels.side.isAncestorOf(control) else dialog.form_scroll
                     viewport = scroll.viewport()
                     scroll.ensureWidgetVisible(control, 8, 8)
-                    self.app.processEvents(); QTest.qWait(10)
+                    self.app.processEvents(); wait_ms(10)
                     # Qt's ensureWidgetVisible follows a text edit's cursor,
                     # which can leave its bottom clipped. Exercise the outer
                     # scrollbar to reveal the complete active field as well.
@@ -590,7 +591,7 @@ class EditorRev9Tests(unittest.TestCase):
                     self.assertTrue(viewport.rect().contains(position), type(control).__name__)
                     return control
                 QTest.mouseClick(reveal(dialog.advanced_toggle), Qt.MouseButton.LeftButton)
-                QTest.qWait(260)
+                wait_ms(260)
                 tabs=dialog.pages.details
                 self.assertEqual([tabs.tabText(i) for i in range(tabs.count())], ['資訊', '排除 Tag', '預覽圖'])
                 for index,controls in enumerate(((dialog.form.edit_category,dialog.form.kind,dialog.form.aliases,dialog.form.notes,dialog.form.lookup),
@@ -624,7 +625,7 @@ class EditorRev9Tests(unittest.TestCase):
         dialog = self.edit()
         dialog.prompt.setPlainText('\n'.join('long draft line' for _ in range(100)))
         for opened in (True, False):
-            dialog.pages.details_toggle.setChecked(opened); QTest.qWait(260)
+            dialog.pages.details_toggle.setChecked(opened); wait_ms(260)
             self.assertLessEqual(dialog.height(), self.w.height()-24)
             self.assertTrue(dialog.rect().contains(dialog.save_button.mapTo(dialog, dialog.save_button.rect().center())))
             self.assertGreater(dialog.prompt.verticalScrollBar().maximum(), 0)

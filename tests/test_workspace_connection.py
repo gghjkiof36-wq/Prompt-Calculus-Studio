@@ -1,4 +1,5 @@
 """Exercise the workspace's real Qt network path against an isolated HTTP peer."""
+from _qt_wait import wait_ms
 import copy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -98,7 +99,7 @@ class WorkspaceConnectionTests(unittest.TestCase):
             window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
             window.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         window.show()
-        QTest.qWait(30)
+        wait_ms(30)
         return window
 
     def close_window(self):
@@ -121,7 +122,7 @@ class WorkspaceConnectionTests(unittest.TestCase):
     def wait(self, predicate):
         deadline = time.monotonic()+5
         while not predicate() and time.monotonic() < deadline:
-            QTest.qWait(15)
+            wait_ms(15)
         self.assertTrue(predicate())
 
     def connected(self):
@@ -177,7 +178,7 @@ class WorkspaceConnectionTests(unittest.TestCase):
         self.assertTrue(self.w.connection.isEnabled())
         self.assertIn('PCS extension unavailable', self.w.connection.toolTip())
         self.peer.failure = False
-        QTest.qWait(800)
+        wait_ms(800)
         self.w.connection.click()
         self.connected()
         self.assertIn('已連線', self.w.connection.brand.text())
@@ -249,7 +250,7 @@ class WorkspaceConnectionTests(unittest.TestCase):
         self.close_window()
         count = len(self.peer.calls)
         self.w = self.window()
-        QTest.qWait(100)
+        wait_ms(100)
         self.assertIsNone(self.w.utility)
         self.assertEqual(self.w.comfy_connection.url, self.peer.url)
         self.assertFalse(self.w.comfy_connection.enabled)
@@ -262,7 +263,7 @@ class WorkspaceConnectionTests(unittest.TestCase):
         self.wait(lambda: any(route.endswith('/desktop/status') for _, route, _ in self.peer.calls))
         client.disconnect()
         self.peer.hold_status.set()
-        QTest.qWait(100)
+        wait_ms(100)
         self.assertFalse(client.enabled)
         self.assertFalse(client.connected)
         self.assertFalse(client.connection_checking)
@@ -352,7 +353,7 @@ class WorkspaceConnectionTests(unittest.TestCase):
         client.run_id = 'frozen-owner'
         epoch, state = client.epoch, copy.deepcopy(first.host.state['multi_output'])
         with patch.object(client, 'reset_connection') as reset, patch.object(client, 'check_run'):
-            QTest.qWait(800)
+            wait_ms(800)
             client.recheck_connection()
             self.wait(lambda: not client.connection_checking)
             reset.assert_not_called()

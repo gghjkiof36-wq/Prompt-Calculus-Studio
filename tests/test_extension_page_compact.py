@@ -1,4 +1,5 @@
 """Compact extension settings, with inert metadata and no installation."""
+from _qt_wait import wait_ms
 import os
 from pathlib import Path
 import tempfile
@@ -60,7 +61,7 @@ class CompactExtensionPageTests(unittest.TestCase):
         self.scroll.setPalette(widget_palette(settings))
         self.scroll.resize(width, height)
         self.scroll.show()
-        self.app.processEvents(); QTest.qWait(15); self.app.processEvents()
+        self.app.processEvents(); wait_ms(15); self.app.processEvents()
 
     def screenshot(self, name):
         evidence = os.environ.get('PCS_EXTENSION_EVIDENCE')

@@ -1,4 +1,5 @@
 """Download-style history uses per-row actions and keeps files independent."""
+from _qt_wait import wait_ms
 import base64
 from datetime import datetime, timedelta
 import hashlib
@@ -119,7 +120,7 @@ class ConnectorHistoryInterfaceTests(unittest.TestCase):
         self.assertTrue(self.page.poll.isActive())
         self.service.store.chunk(operation, 0, base64.b64encode(b'x' * 40).decode())
         # chunk deliberately emits no service.changed; the visible page polls.
-        QTest.qWait(750)
+        wait_ms(750)
         self.assertIs(self.page.rows[operation], widget)
         self.assertEqual(widget.progress.value(), 40)
         self.assertIn('40%', widget.metadata.text())

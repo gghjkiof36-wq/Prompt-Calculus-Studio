@@ -1,4 +1,5 @@
 """Canvas deletion uses real mouse/key events without contacting ComfyUI."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from PySide6.QtCore import Qt,QPointF
@@ -15,7 +16,7 @@ class CanvasDeleteKeysTests(unittest.TestCase):
     tearDown=fixture.StageFixture.tearDown
 
     def press(self,key,modifiers=Qt.KeyboardModifier.NoModifier):
-        QTest.keyClick(self.c.view,key,modifiers);QTest.qWait(15)
+        QTest.keyClick(self.c.view,key,modifiers);wait_ms(15)
 
     def select_header(self,card):
         # Isolate the target visually, then exercise the ordinary header click.
@@ -29,12 +30,12 @@ class CanvasDeleteKeysTests(unittest.TestCase):
         # Text composition cards are rebuilt during layout changes.
         card=self.c.cards.get(card.key,card)
         view=self.c.view;view.resetTransform();view.scale(.7,.7)
-        view.centerOn(card.sceneBoundingRect().center());QTest.qWait(10)
+        view.centerOn(card.sceneBoundingRect().center());wait_ms(10)
         # Card preview geometry can schedule another layout refresh. Resolve
         # the live text card after event delivery; keep the selection assertion.
         card=self.c.cards.get(key,card)
         pos=view.mapFromScene(card.mapToScene(QPointF(80,24)))
-        QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=pos);QTest.qWait(10)
+        QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=pos);wait_ms(10)
         card=self.c.cards.get(key,card)
         self.assertTrue(card.isSelected(),(card.key,pos,view.viewport().rect(),type(view.itemAt(pos)).__name__,card.scenePos()))
 
@@ -78,7 +79,7 @@ class CanvasDeleteKeysTests(unittest.TestCase):
             with self.subTest(kind=kind,key=delete_key):
                 page=self.c.outputs[self.out].panel.open_page();editor=page.content.editor
                 QTest.mouseClick(editor.viewport(),Qt.MouseButton.LeftButton)
-                editor.setFocus();QTest.qWait(5)
+                editor.setFocus();wait_ms(5)
                 self.assertTrue(editor.hasFocus());page.finish();fixture.APP.processEvents()
                 card=next(c for c in [self.c.preview_card,*self.c.clips.values(),*self.c.outputs.values(),
                                      *self.c.functions.cards.values(),*self.c.flow_cards.values(),

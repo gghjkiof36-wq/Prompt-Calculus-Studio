@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt,QPoint,QPointF,QMimeData
 from PySide6.QtGui import QWheelEvent,QDragEnterEvent,QDragMoveEvent,QDropEvent
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
+from _qt_wait import wait_ms
 from prompt_calculus_studio import composition as comp
 from prompt_calculus_studio.core import build_prompt
 from prompt_calculus_studio.window import Window
@@ -16,7 +17,7 @@ class CanvasGestureTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(); self.directory=Path(self.temp.name)/'data'
         self.w=Window(self.directory); self.w.state['settings'].update(online=False,material='solid'); self.w.apply_theme()
-        self.w.resize(1440,950); self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(40)
+        self.w.resize(1440,950); self.w.show(); self.w.set_interface_mode('canvas'); wait_ms(40)
         self.c=self.w.canvas; self.tree=self.w.selected; self.view=self.c.view
     def tearDown(self):
         self.tree._drag_source=None; self.tree._scroll_timer.stop()

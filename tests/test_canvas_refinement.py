@@ -14,6 +14,7 @@ os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtCore import Qt, QPoint, QPointF
 from PySide6.QtGui import QWheelEvent
 from PySide6.QtTest import QTest
+from _qt_wait import wait_ms
 from PySide6.QtWidgets import QApplication, QPushButton, QDialog
 from prompt_calculus_studio import composition as c
 from prompt_calculus_studio.core import initial_state, validate_state, build_prompt, apply_workspace, Storage, output_groups, reorder_output
@@ -102,7 +103,7 @@ class CanvasRefinementUiTests(unittest.TestCase):
     def point(self,card,point): return self.canvas.view.mapFromScene(card.mapToScene(point))
 
     def click(self,card,rect):
-        QTest.mouseClick(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=self.point(card,rect.center())); QTest.qWait(25)
+        QTest.mouseClick(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=self.point(card,rect.center())); wait_ms(25)
 
     def test_removed_buttons_and_source_binding_without_library_writes(self):
         before=copy.deepcopy((self.w.state['modules'],self.w.state['items'],self.w.state['selections']))
@@ -148,7 +149,7 @@ class CanvasRefinementUiTests(unittest.TestCase):
         view=self.canvas.view; child=self.canvas.cards[ident].parts[0]; key=child.key; old_width=child.width
         start=self.point(child,child.resize_rect().center()); end=start+QPoint(70,35)
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=start); QTest.mouseMove(view.viewport(),end)
-        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=end); QTest.qWait(30)
+        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=end); wait_ms(30)
         resized=self.canvas.cards[key]; self.assertGreater(resized.width,old_width)
         self.assertTrue(self.canvas.cards[ident].boundingRect().contains(resized.mapRectToParent(resized.boundingRect())))
         self.assertIn(key,self.w.state['text_sizes']); self.canvas.undo(); self.assertEqual(self.canvas.cards[key].width,old_width)
@@ -179,7 +180,7 @@ class CurrentPickerRefinementTests(current_fixture.StageFixture):
         point=view.mapFromScene(card.mapToScene(card.actions()['add'].center()))
         QTest.mouseMove(view.viewport(),point);APP.processEvents();self.assertEqual(card.hot,'add')
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=point);self.assertEqual(card.pressed,'add')
-        before=self.c.history_state();QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(20)
+        before=self.c.history_state();QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=point);wait_ms(20)
         palette=self.w.active_material_picker;self.assertIsInstance(palette,CanvasPalette)
         asset=next(a for a in self.w.state['items'] if a['prompt']=='smile')
         palette.set_browser_category(asset['module']);palette.search.setText(asset['name'])

@@ -1,4 +1,5 @@
 """Additional bounded Canvas gestures, window modes and saved workspace views."""
+from _qt_wait import wait_ms
 import copy
 from _dialog_driver import drive_dialog
 import sys
@@ -24,12 +25,12 @@ class CanvasRegressionTests(StageFixture):
         APP.clipboard().clear();super().tearDown();self.assertFalse(self.errors,self.errors)
 
     def drag_rect(self,rect):
-        view=self.c.view;view.centerOn(rect.center());QTest.qWait(10)
+        view=self.c.view;view.centerOn(rect.center());wait_ms(10)
         a=view.mapFromScene(rect.topLeft());b=view.mapFromScene(rect.bottomRight())
         self.assertTrue(view.viewport().rect().contains(a));self.assertTrue(view.viewport().rect().contains(b))
         QTest.mousePress(view.viewport(),Qt.MouseButton.RightButton,pos=a)
         QTest.mouseMove(view.viewport(),b,10)
-        QTest.mouseRelease(view.viewport(),Qt.MouseButton.RightButton,pos=b);QTest.qWait(20)
+        QTest.mouseRelease(view.viewport(),Qt.MouseButton.RightButton,pos=b);wait_ms(20)
 
     def test_rubber_selects_function_cards_and_container_scope_selects_members(self):
         stage=next(iter(self.c.data()['stages']))
@@ -53,12 +54,12 @@ class CanvasRegressionTests(StageFixture):
         self.c.move_selection({self.cid:[4500,4500],'root':[4550,4660],self.clip:[5400,4500]})
         before=copy.deepcopy(self.w.state['text_positions']);canvas_before=list(self.c.data()['canvases'][self.cid]['position'])
         connections=copy.deepcopy(self.c.data()['connections']);stack=len(self.c.undo_stack)
-        self.c.view.resetTransform();self.c.view.scale(.7,.7);self.c.view.centerOn(5000,4730);QTest.qWait(10)
+        self.c.view.resetTransform();self.c.view.scale(.7,.7);self.c.view.centerOn(5000,4730);wait_ms(10)
         self.c.view.scene().clearSelection();container.setSelected(True);self.c.clips[self.clip].setSelected(True)
         point=self.c.view.mapFromScene(container.mapToScene(QPointF(container.width/2,20)));end=point+QPoint(84,49)
         QTest.mousePress(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
         QTest.mouseMove(self.c.view.viewport(),end,10)
-        QTest.mouseRelease(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=end);QTest.qWait(20)
+        QTest.mouseRelease(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=end);wait_ms(20)
         self.assertEqual(len(self.c.undo_stack),stack+1)
         for key in ('root',self.clip):
             self.assertAlmostEqual(self.w.state['text_positions'][key][0]-before[key][0],120,places=4)
@@ -71,12 +72,12 @@ class CanvasRegressionTests(StageFixture):
 
     def test_fullscreen_and_maximized_survive_editor_navigation(self):
         for show,predicate in ((self.w.showMaximized,self.w.isMaximized),(self.w.showFullScreen,self.w.isFullScreen)):
-            show();QTest.qWait(15);self.assertTrue(predicate())
+            show();wait_ms(15);self.assertTrue(predicate())
             self.c.view.resetTransform();self.c.view.scale(.73,.73);self.c.view.centerOn(1350,630)
             origin=self.c.view.mapToScene(0,0)
-            self.w.set_interface_mode('list');QTest.qWait(15)
+            self.w.set_interface_mode('list');wait_ms(15)
             self.assertIs(self.w.surface_stack.currentWidget(),self.w.prompt_editor);self.assertTrue(predicate())
-            self.w.enter_canvas();QTest.qWait(15);self.assertTrue(predicate())
+            self.w.enter_canvas();wait_ms(15);self.assertTrue(predicate())
             self.assertAlmostEqual(self.c.view.transform().m11(),.73,places=6)
             self.assertLess((self.c.view.mapToScene(0,0)-origin).manhattanLength(),4)
 
@@ -85,7 +86,7 @@ class CanvasRegressionTests(StageFixture):
         other=workspace_scene.create(self.w.state,'other')
         self.c.view.resetTransform();self.c.view.scale(.61,.61);self.c.view.centerOn(780,890)
         self.w.remember_canvas_view();outer=list(self.w.state['canvas_view'])
-        self.c.open_editor(self.cid);QTest.qWait(20);editor=self.c.editor_page
+        self.c.open_editor(self.cid);wait_ms(20);editor=self.c.editor_page
         editor.view.resetTransform();editor.view.scale(1.19,1.19);editor.view.centerOn(310,390)
         from prompt_calculus_studio.text_canvas import NodeDialog
         def save(dialog):
@@ -93,9 +94,9 @@ class CanvasRegressionTests(StageFixture):
             dialog.accept()
         drive_dialog(lambda:editor.edit_text('root'),NodeDialog,save)
         editor.save_view();inside=list(editor.data()['edit_view'])
-        self.w.change_workspace(other);QTest.qWait(20)
+        self.w.change_workspace(other);wait_ms(20)
         self.assertEqual(self.w.state['workspace'],other);self.assertIsNone(self.c.editor_page)
-        self.w.change_workspace(original);QTest.qWait(20)
+        self.w.change_workspace(original);wait_ms(20)
         self.assertEqual(self.w.state['uses']['root']['prompt'],'pending before switching')
         self.assertAlmostEqual(self.c.view.transform().m11(),outer[0],places=6)
         self.assertLess((self.c.view.mapToScene(self.c.view.viewport().rect().center())-QPointF(*outer[1:])).manhattanLength()*outer[0],3)
@@ -103,10 +104,10 @@ class CanvasRegressionTests(StageFixture):
         from _qt_cleanup import close_window
         close_window(self.w)
         self.executor.close()
-        self.w=Window(self.tmp.name);self.c=self.w.canvas;self.w.show();QTest.qWait(25)
+        self.w=Window(self.tmp.name);self.c=self.w.canvas;self.w.show();wait_ms(25)
         self.assertEqual(self.w.state['workspace'],original)
         self.assertEqual(self.w.state['uses']['root']['prompt'],'pending before switching')
-        self.c.open_editor(self.cid);QTest.qWait(25)
+        self.c.open_editor(self.cid);wait_ms(25)
         self.assertAlmostEqual(self.c.editor_page.view.transform().m11(),inside[0],places=6)
         center=self.c.editor_page.view.mapToScene(self.c.editor_page.view.viewport().rect().center())
         self.assertLess((center-QPointF(*inside[1:])).manhattanLength(),4)

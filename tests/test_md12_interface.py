@@ -1,4 +1,5 @@
 """Reachable Qt flows for retained demos, manual review and portable copies."""
+from _qt_wait import wait_ms
 import json
 import os
 from pathlib import Path
@@ -32,7 +33,7 @@ class RetentionInterfaceTests(unittest.TestCase):
 
     def wait_job(self, sheet):
         for _ in range(1000):
-            QTest.qWait(10); time.sleep(.002)
+            wait_ms(10); time.sleep(.002)
             if not isValid(sheet) or sheet.job is None:
                 self.events(); return
         self.fail('background job timeout: ' + sheet.status.text())
@@ -45,7 +46,7 @@ class RetentionInterfaceTests(unittest.TestCase):
     def screenshot(self, sheet, name):
         folder=os.environ.get('PCS_MD12_SCREENSHOTS')
         if folder:
-            self.events(); QTest.qWait(200)
+            self.events(); wait_ms(200)
             self.assertTrue(sheet.grab().save(str(Path(folder)/name)))
 
     def demo_sheet(self):
@@ -368,7 +369,7 @@ class RetentionInterfaceTests(unittest.TestCase):
             sheet.save_button.click()
             for _ in range(100):
                 if ready.is_set():break
-                QTest.qWait(5);time.sleep(.001)
+                wait_ms(5);time.sleep(.001)
             other=self.open('Empty.md');expected=other.widget.buffer.snapshot().text
             release.set();self.wait_job(sheet)
         self.assertEqual(tab.widget.buffer.snapshot().text,before)

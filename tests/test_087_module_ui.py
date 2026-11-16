@@ -1,4 +1,5 @@
 """Synthetic/offscreen editing; no real ComfyUI service or generated images."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -18,12 +19,12 @@ class ModuleUITests(StageParameterUITests):
         before=copy.deepcopy(self.c.data()['stages'][self.stage])
         sheet=self.sheet();self.edit(sheet,'35','cfg','-')
         with patch.object(sheet,'confirm_close',return_value=True):sheet.request_close()
-        QTest.qWait(10);sheet=self.sheet()
+        wait_ms(10);sheet=self.sheet()
         self.assertEqual(sheet.findChild(QLineEdit,'parameter_35_cfg').text(),'-')
         self.assertFalse(sheet.apply_button.isEnabled())
         self.assertEqual(self.c.data()['stages'][self.stage],before)
         editor=self.edit(sheet,'35','cfg','');QTest.keyClick(editor,Qt.Key.Key_Backspace)
-        write(self.w.store,'skip-close-reminder',True);sheet.request_close();QTest.qWait(10)
+        write(self.w.store,'skip-close-reminder',True);sheet.request_close();wait_ms(10)
         sheet=self.sheet();self.assertEqual(sheet.findChild(QLineEdit,'parameter_35_cfg').text(),'')
         self.assertFalse(self.executor.submissions);sheet.finish()
 
@@ -35,7 +36,7 @@ class ModuleUITests(StageParameterUITests):
             if dialog:
                 box=dialog.findChild(QCheckBox);observed.append(box.text());box.setChecked(True);dialog.accept()
         QTimer.singleShot(30,accept_reminder)
-        QTest.mouseClick(sheet,Qt.MouseButton.LeftButton,pos=QPoint(2,2));QTest.qWait(20)
+        QTest.mouseClick(sheet,Qt.MouseButton.LeftButton,pos=QPoint(2,2));wait_ms(20)
         self.assertEqual(observed,['不再提醒']);self.assertTrue(read(self.w.store,'skip-close-reminder'))
         sheet=self.sheet();self.assertEqual(sheet.findChild(QLineEdit,'parameter_35_cfg').text(),'3')
         with patch.object(sheet,'confirm_close',side_effect=AssertionError('must not prompt')):sheet.request_close()
@@ -43,22 +44,22 @@ class ModuleUITests(StageParameterUITests):
 
     def test_reopened_draft_conflict_is_not_silently_applied(self):
         sheet=self.sheet();self.edit(sheet,'35','cfg','3');write(self.w.store,'skip-close-reminder',True)
-        sheet.request_close();QTest.qWait(10)
+        sheet.request_close();wait_ms(10)
         self.c.commit(lambda state:state['multi_output']['stages'][self.stage].update(name='changed elsewhere'))
-        sheet=self.sheet();sheet.apply();QTest.qWait(40)
+        sheet=self.sheet();sheet.apply();wait_ms(40)
         self.assertIn('已被修改',sheet.status.text());self.assertFalse(sheet.closed)
         self.assertNotIn('parameters',self.c.data()['stages'][self.stage]);sheet.finish()
 
     def test_apply_clears_stored_draft_only_after_success(self):
         sheet=self.sheet();self.edit(sheet,'35','cfg','3');write(self.w.store,'skip-close-reminder',True)
-        key=sheet.draft_key;sheet.request_close();QTest.qWait(10);self.assertIsNotNone(read(self.w.store,key))
-        sheet=self.sheet();sheet.apply();QTest.qWait(40)
+        key=sheet.draft_key;sheet.request_close();wait_ms(10);self.assertIsNotNone(read(self.w.store,key))
+        sheet=self.sheet();sheet.apply();wait_ms(40)
         self.assertIsNone(read(self.w.store,key));self.assertEqual(self.c.data()['stages'][self.stage]['parameters']['patches'][0]['value'],3)
         self.assertFalse(self.executor.submissions)
 
     def test_draft_autosave_survives_independent_storage_reopen(self):
         from prompt_calculus_studio.core import Storage
-        sheet=self.sheet();self.edit(sheet,'35','cfg','3');QTest.qWait(550)
+        sheet=self.sheet();self.edit(sheet,'35','cfg','3');wait_ms(550)
         reopened=Storage(self.tmp.name)
         try:
             saved=read(reopened,sheet.draft_key)
@@ -88,7 +89,7 @@ class ModuleUITests(StageParameterUITests):
         self.assertEqual(self.c.data()['outputs'][self.out]['draft'],'')
         self.c.undo();self.assertEqual(panel.editor.toPlainText(),old)
         self.c.redo();self.assertEqual(self.c.data()['outputs'][self.out]['draft'],'')
-        panel.toggle_preview();QTest.qWait(5);self.assertFalse(panel.editor.isVisible())
+        panel.toggle_preview();wait_ms(5);self.assertFalse(panel.editor.isVisible())
         self.assertTrue(panel.copy_button.isVisible());self.assertEqual(panel.preview_toggle.text(),'展開預覽')
         panel.refresh();self.assertFalse(panel.editor.isVisible());self.assertFalse(self.executor.submissions)
 
@@ -97,7 +98,7 @@ class ModuleUITests(StageParameterUITests):
         keys=[];self.c.commit(lambda state:keys.append(add_scheduler(state)))
         panel=self.c.flow_cards[keys[0]].panel;panel.list.show();panel.empty.hide()
         self.c.view.resetTransform();self.c.view.scale(.62,.62);self.c.view.centerOn(self.c.flow_cards[keys[0]])
-        QTest.qWait(10);panel.list.show();panel.list.addItem('synthetic');panel.list.item(0).setData(Qt.ItemDataRole.UserRole,'one')
+        wait_ms(10);panel.list.show();panel.list.addItem('synthetic');panel.list.item(0).setData(Qt.ItemDataRole.UserRole,'one')
         panel.list.doItemsLayout();position=panel.list.visualItemRect(panel.list.item(0)).center()
         event=QContextMenuEvent(QContextMenuEvent.Reason.Mouse,position,QPoint(999,999))
         expected=widget_global_position(panel.list.viewport(),position,self.c.view)

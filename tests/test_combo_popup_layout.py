@@ -1,4 +1,5 @@
 """Short ComboBox geometry in the real Stage sheet; no external service."""
+from _qt_wait import wait_ms
 import copy
 import json
 import os
@@ -53,16 +54,16 @@ class ComboPopupLayoutTests(StageFixture):
         QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
 
     def sheet(self):
-        sheet=open_parameters(self.c,self.stage);QTest.qWait(25);sheet.jump(['35']);QTest.qWait(15)
+        sheet=open_parameters(self.c,self.stage);wait_ms(25);sheet.jump(['35']);wait_ms(15)
         self.assertFalse(sheet.loading,sheet.status.text())
         combo=sheet.findChild(ParameterChoices,'parameter_35_sampler_name');self.assertIsNotNone(combo)
-        sheet.scroll.ensureWidgetVisible(combo);QTest.qWait(10)
+        sheet.scroll.ensureWidgetVisible(combo);wait_ms(10)
         return sheet,combo
 
     def check_open(self,combo):
         # Do not inspect visualRect before opening: that can refresh the stale
         # layout and conceal the original first-open regression.
-        QTest.mouseClick(combo,Qt.MouseButton.LeftButton);QTest.qWait(15)
+        QTest.mouseClick(combo,Qt.MouseButton.LeftButton);wait_ms(15)
         self.assertIsNone(combo._choices_popup)
         self.assertIs(APP.activePopupWidget(),combo._popup)
         view=combo.view();rects=[view.visualRect(combo.model().index(i,0)) for i in range(combo.count())]
@@ -103,10 +104,10 @@ class ComboPopupLayoutTests(StageFixture):
                                     name=f'short-popup-{style}-font-{int(scale*100)}-open-{opening}.png'
                                     self.assertTrue(combo._popup.grab().save(str(target/name)));row['image']=name
                                 results.append(dict(style=style,font_scale=scale,count=count,opening=opening,**row))
-                                QTest.keyClick(combo.view(),Qt.Key.Key_Escape);QTest.qWait(10)
+                                QTest.keyClick(combo.view(),Qt.Key.Key_Escape);wait_ms(10)
                                 self.assertEqual(combo.currentData(),self.choices[-1]);self.assertEqual(changes,[])
                         finally:
-                            combo.hidePopup();sheet.finish();QTest.qWait(10)
+                            combo.hidePopup();sheet.finish();wait_ms(10)
         self.assertFalse(self.executor.submissions)
         (target/'SHORT_POPUP_LAYOUT.json').write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding='utf-8')
 
@@ -114,12 +115,12 @@ class ComboPopupLayoutTests(StageFixture):
         available={name.lower():name for name in QStyleFactory.keys()}
         APP.setStyle(available.get('windows11',available['fusion']))
         self.selected=1;sheet,combo=self.sheet();self.check_open(combo)
-        QTest.keyClick(combo.view(),Qt.Key.Key_Down);QTest.keyClick(combo.view(),Qt.Key.Key_Return);QTest.qWait(15)
+        QTest.keyClick(combo.view(),Qt.Key.Key_Down);QTest.keyClick(combo.view(),Qt.Key.Key_Return);wait_ms(15)
         self.assertEqual(combo.currentData(),'Half Tile')
         self.assertEqual(sheet.proposed()['patches'][0]['value'],'Half Tile')
         self.check_open(combo);view=combo.view();target=combo.model().index(0,0)
-        point=view.visualRect(target).center();QTest.mouseMove(view.viewport(),point);QTest.qWait(20)
-        QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(15)
+        point=view.visualRect(target).center();QTest.mouseMove(view.viewport(),point);wait_ms(20)
+        QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=point);wait_ms(15)
         self.assertEqual(combo.currentData(),'None');self.assertTrue(combo.hasFocus())
         self.assertEqual(sheet.proposed()['patches'][0]['value'],'None')
         self.assertNotIn('parameters',self.c.data()['stages'][self.stage]);self.assertFalse(self.executor.submissions)
@@ -134,7 +135,7 @@ class ComboPopupLayoutTests(StageFixture):
                 before=copy.deepcopy(self.c.data());revision=sheet.revision
                 try:
                     def open_choice():
-                        QTest.mouseClick(combo,Qt.MouseButton.LeftButton);QTest.qWait(15)
+                        QTest.mouseClick(combo,Qt.MouseButton.LeftButton);wait_ms(15)
                         popup=combo._choices_popup
                         return popup.search if popup else combo.view()
                     target=open_choice()

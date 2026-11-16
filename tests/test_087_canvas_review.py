@@ -1,4 +1,5 @@
 """Independent Canvas review regressions using synthetic/offscreen Qt only."""
+from _qt_wait import wait_ms
 import copy
 from _dialog_driver import drive_dialog
 import unittest
@@ -23,7 +24,7 @@ class CanvasReviewTests(StageFixture):
         self.c.move_selection({self.cid:[4500,4500],'root':[4550,4660]})
         container=self.c.containers[self.cid]
         child=next(card for key,card in self.c.cards.items() if key.startswith('root:'))
-        self.c.view.resetTransform();self.c.view.scale(.7,.7);self.c.view.centerOn(4900,4730);QTest.qWait(10)
+        self.c.view.resetTransform();self.c.view.scale(.7,.7);self.c.view.centerOn(4900,4730);wait_ms(10)
         self.c.view.scene().clearSelection();container.setSelected(True);child.setSelected(True)
         point=self.c.view.mapFromScene(container.mapToScene(QPointF(container.width/2,20)));child_key=child.key
         before=QPointF(child.scenePos());relative=QPointF(child.pos());stack=len(self.c.undo_stack)
@@ -33,7 +34,7 @@ class CanvasReviewTests(StageFixture):
         keys=set(group[1])
         self.assertNotIn(child.key,keys,'child remains in moving set alongside the auto-added root: '+repr(keys))
         QTest.mouseMove(self.c.view.viewport(),point+QPoint(70,35),10)
-        QTest.mouseRelease(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point+QPoint(70,35));QTest.qWait(10)
+        QTest.mouseRelease(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point+QPoint(70,35));wait_ms(10)
         moved=self.c.cards[child_key]
         self.assertEqual(moved.scenePos(),before+QPointF(100,50))
         self.assertEqual(moved.pos(),relative);self.assertEqual(len(self.c.undo_stack),stack+1)
@@ -42,14 +43,14 @@ class CanvasReviewTests(StageFixture):
     def test_failed_group_drag_restores_visible_position(self):
         stage=next(iter(self.c.data()['stages']))
         self.c.move_selection({self.clip:[4500,4500],stage:[5000,4500]})
-        self.c.view.resetTransform();self.c.view.scale(.7,.7);self.c.view.centerOn(4950,4700);QTest.qWait(10)
+        self.c.view.resetTransform();self.c.view.scale(.7,.7);self.c.view.centerOn(4950,4700);wait_ms(10)
         self.c.view.scene().clearSelection();self.c.clips[self.clip].setSelected(True);self.c.flow_cards[stage].setSelected(True)
         old_state=copy.deepcopy(self.w.state);before=QPointF(self.c.clips[self.clip].pos())
         point=self.c.view.mapFromScene(self.c.clips[self.clip].mapToScene(QPointF(90,20)))
         with patch('prompt_calculus_studio.content_history.record',side_effect=ValueError('synthetic rejection')):
             QTest.mousePress(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
             QTest.mouseMove(self.c.view.viewport(),point+QPoint(70,35),10)
-            QTest.mouseRelease(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point+QPoint(70,35));QTest.qWait(10)
+            QTest.mouseRelease(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point+QPoint(70,35));wait_ms(10)
         self.assertEqual(self.w.state,old_state)
         self.assertEqual(self.c.clips[self.clip].pos(),before,'data stayed intact but card retained failed drag position')
 
@@ -57,7 +58,7 @@ class CanvasReviewTests(StageFixture):
         stage=next(iter(self.c.data()['stages']))
         self.c.move_selection({stage:[5000,5000]})
         card=self.c.flow_cards[stage];view=self.c.view
-        view.resetTransform();view.scale(2,2);view.centerOn(card);QTest.qWait(10)
+        view.resetTransform();view.scale(2,2);view.centerOn(card);wait_ms(10)
         self.c.view.scene().clearSelection()
         a=view.mapFromScene(card.mapToScene(QPointF(40,card.height+2)))
         b=view.mapFromScene(card.mapToScene(QPointF(80,card.height+6)))
@@ -91,7 +92,7 @@ class CanvasReviewTests(StageFixture):
         self.c.commit(lambda s:s['uses']['root'].update(collapsed=False,children=[node('nested','detail')]))
         self.c.move_selection({self.cid:[4500,4500],'root':[4550,4660]})
         container=self.c.containers[self.cid];child=next(c for k,c in self.c.cards.items() if k.startswith('root:'))
-        self.c.view.resetTransform();self.c.view.scale(.7,.7);self.c.view.centerOn(4900,4730);QTest.qWait(10)
+        self.c.view.resetTransform();self.c.view.scale(.7,.7);self.c.view.centerOn(4900,4730);wait_ms(10)
         self.c.view.scene().clearSelection();container.setSelected(True);child.setSelected(True)
         before=copy.deepcopy(self.w.state)
         geometry={k:(QPointF(c.scenePos()),QPointF(c.pos()),c.width,c.height) for k,c in self.c.cards.items()}
@@ -99,7 +100,7 @@ class CanvasReviewTests(StageFixture):
         with patch('prompt_calculus_studio.content_history.record',side_effect=ValueError('synthetic rejection')):
             QTest.mousePress(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
             QTest.mouseMove(self.c.view.viewport(),point+QPoint(70,35),10)
-            QTest.mouseRelease(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point+QPoint(70,35));QTest.qWait(10)
+            QTest.mouseRelease(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point+QPoint(70,35));wait_ms(10)
         self.assertEqual(self.w.state,before);self.assertEqual(container.pos(),container_pos)
         for k,c in self.c.cards.items():self.assertEqual((c.scenePos(),c.pos(),c.width,c.height),geometry[k])
 

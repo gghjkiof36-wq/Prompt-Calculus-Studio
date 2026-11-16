@@ -15,6 +15,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT)); sys.path.insert(0,str(ROOT/"vendor"))
 os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 from PySide6.QtWidgets import QApplication
+from _qt_wait import wait_ms
 from PySide6.QtGui import QFontDatabase, QImage, QTextCursor, QInputMethodEvent
 from PySide6.QtCore import Qt, QTimer, QModelIndex
 from prompt_calculus_studio.core import initial_state, build_prompt, apply_workspace, validate_state, current_token, insertion, Storage, reorder_output, output_groups, TEMPORARY_GROUP
@@ -173,7 +174,7 @@ class UiTests(unittest.TestCase):
         w.module_fold.set_expanded(False,animated=False)
         saved=copy.deepcopy(w.state); recovery=w.display_recovery
         recovery.native_notification(0x218,0x12)
-        QTest.qWait(450)
+        wait_ms(450)
         self.assertEqual(w.state,saved); self.assertEqual(w.final.textCursor().position(),4)
         self.assertTrue(w.module_panel.isHidden()); self.assertFalse(w.selected.isEnabled())
         self.assertEqual(w.final.font().pixelSize(),font_pixels(w.state["settings"]["prompt_size"]))
@@ -185,7 +186,7 @@ class UiTests(unittest.TestCase):
         w=self.window; w.add_temporary("white wall")
         self.assertFalse(w.clear_draft.isEnabled()); self.assertTrue(w.selected.isEnabled())
         w.final.setPlainText("")  # Empty is still a deliberately edited version.
-        QTest.qWait(220)
+        wait_ms(220)
         self.assertTrue(w.clear_draft.isEnabled()); self.assertFalse(w.selected.isEnabled())
         self.assertAlmostEqual(w.selected.activity,0.42,places=2)
         self.assertIn("正在使用手動版本",w.draft_status.text())
@@ -193,7 +194,7 @@ class UiTests(unittest.TestCase):
         with patch("prompt_calculus_studio.window.ClearDraftDialog.exec",return_value=0): w.clear_draft.click()
         self.assertEqual(w.state["draft"],""); self.assertEqual(w.final.toPlainText(),"")
         with patch("prompt_calculus_studio.window.ClearDraftDialog.exec",return_value=1): w.clear_draft.click()
-        QTest.qWait(220)
+        wait_ms(220)
         self.assertIsNone(w.state["draft"]); self.assertEqual(w.final.toPlainText(),"white wall")
         self.assertEqual(w.state["selections"],selections); self.assertEqual(w.state["temporary"],["white wall"])
         self.assertTrue(w.selected.isEnabled()); self.assertFalse(w.clear_draft.isEnabled())
@@ -261,7 +262,7 @@ class UiTests(unittest.TestCase):
         w.copy_button.click(); self.assertTrue(w.copy_timer.isActive())
         w.final.setPlainText("red wall"); self.assertFalse(w.copy_timer.isActive())
         self.assertEqual(w.copy_button.text(),"複製完整 Prompt")
-        w.copy_button.click(); QTest.qWait(1500)
+        w.copy_button.click(); wait_ms(1500)
         self.assertEqual(APP.clipboard().text(),"red wall"); self.assertFalse(w.copy_button.property("feedback"))
         w.copy_button.click(); w.add_temporary("soft lighting")
         self.assertFalse(w.copy_button.property("feedback"))
@@ -271,10 +272,10 @@ class UiTests(unittest.TestCase):
         from PySide6.QtCore import QAbstractAnimation
         w=self.window; w.add_temporary("retained")
         for fold in (w.module_fold,w.builder_fold):
-            fold.set_expanded(False); QTest.qWait(230)
+            fold.set_expanded(False); wait_ms(230)
             self.assertTrue(fold.widget.isHidden())
-            fold.set_expanded(True); QTest.qWait(70); fold.set_expanded(False); QTest.qWait(70)
-            fold.set_expanded(True); QTest.qWait(250)
+            fold.set_expanded(True); wait_ms(70); fold.set_expanded(False); wait_ms(70)
+            fold.set_expanded(True); wait_ms(250)
             self.assertFalse(fold.widget.isHidden()); self.assertTrue(fold.expanded)
             self.assertEqual(fold.animation.state(),QAbstractAnimation.State.Stopped)
             self.assertGreater(fold.splitter.sizes()[fold.splitter.indexOf(fold.widget)],60)

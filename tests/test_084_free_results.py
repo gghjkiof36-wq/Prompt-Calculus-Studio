@@ -1,4 +1,5 @@
 """Unconnected terminals consume only the result of their own explicit run."""
+from _qt_wait import wait_ms
 import unittest
 from PySide6.QtTest import QTest
 import stage_fixture as fixture
@@ -28,7 +29,7 @@ class FreeResultTests(unittest.TestCase):
         stage,reader,target=self.downstream();self.click()
         self.assertEqual(self.workflows(),['flow']);self.assertFalse(self.executor.applied)
         self.assertFalse(any('尚未產生' in n for n in self.notices),self.notices)
-        self.executor.finish();QTest.qWait(30)
+        self.executor.finish();wait_ms(30)
         self.assertEqual(self.workflows(),['flow'])
         self.assertEqual([r['workflow'] for r in self.executor.applied],['B'],self.notices)
         image=self.runner.results[stage]['images'][0]
@@ -37,9 +38,9 @@ class FreeResultTests(unittest.TestCase):
         self.assertEqual((run['status'],run['free_state']),('complete','applied'),self.notices)
 
     def test_repeat_clicks_do_not_use_previous_preview(self):
-        stage,reader,target=self.downstream();self.click();self.executor.finish();QTest.qWait(20)
+        stage,reader,target=self.downstream();self.click();self.executor.finish();wait_ms(20)
         self.click();self.assertEqual(len(self.executor.applied),1)
-        self.executor.finish();QTest.qWait(20)
+        self.executor.finish();wait_ms(20)
         self.assertEqual(len(self.executor.applied),2)
         attempts=self.runner.store.rows('attempt')
         self.assertNotEqual(attempts[0]['result']['images'][0]['reference']['prompt_id'],attempts[1]['result']['images'][0]['reference']['prompt_id'])
@@ -52,7 +53,7 @@ class FreeResultTests(unittest.TestCase):
             state['multi_output']['image_inputs'].pop(target)
             state['multi_output']['connections']=[c for c in state['multi_output']['connections'] if c['destination']!=target]
         self.assertTrue(self.c.commit(remove),self.notices)
-        self.executor.finish();QTest.qWait(20)
+        self.executor.finish();wait_ms(20)
         self.assertFalse(self.executor.applied)
         self.assertEqual(self.runner.runs()[0]['free_state'],'retained')
 
@@ -66,7 +67,7 @@ class FreeResultTests(unittest.TestCase):
         self.executor.finish();self.assertTrue(pending)
         self.runner.cancel(ident)
         for response in pending:response()
-        QTest.qWait(20)
+        wait_ms(20)
         self.assertFalse(self.executor.applied)
         self.assertEqual(self.runner.runs()[0]['status'],'cancelled')
 
@@ -75,7 +76,7 @@ class FreeResultTests(unittest.TestCase):
         def reject(route,data=None,done=None,failed=None,**kwargs):
             if route=='workflow/native/apply':failed('目標工作流尚未開啟。')
             else:return request(route,data,done,failed,**kwargs)
-        self.w.comfy.request=reject;self.executor.finish();QTest.qWait(20)
+        self.w.comfy.request=reject;self.executor.finish();wait_ms(20)
         run=self.runner.runs()[0]
         self.assertEqual((run['status'],run['free_state']),('complete','failed'),self.notices)
         self.assertIn('同步失敗',run['message']);self.assertIn('尚未開啟',run['free_error'])

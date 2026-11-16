@@ -25,13 +25,13 @@ sys.modules['integration_test.shared'] = shared
 Service = importlib.import_module('integration_test.service').Service
 
 
-def png(path, metadata):
+def png(path, metadata, *, rgb=(255, 0, 0)):
     def chunk(kind, data):
         return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
     data = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0))
     for key, value in metadata.items():
         data += chunk(b'tEXt', key.encode() + b'\0' + json.dumps(value, ensure_ascii=False).encode())
-    data += chunk(b'IDAT', zlib.compress(b'\0\xff\0\0')) + chunk(b'IEND', b'')
+    data += chunk(b'IDAT', zlib.compress(b'\0' + bytes(rgb))) + chunk(b'IEND', b'')
     path.write_bytes(data)
 
 

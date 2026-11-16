@@ -12,6 +12,7 @@ os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtCore import Qt,QModelIndex,QEvent
 from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
+from _qt_wait import wait_ms
 from PySide6.QtWidgets import QApplication,QPushButton,QLineEdit
 from prompt_calculus_studio.window import Window
 from prompt_calculus_studio import clean_metadata
@@ -30,7 +31,7 @@ class ExportUiTests(unittest.TestCase):
 
     def wait_job(self):
         end=time.monotonic()+10
-        while self.w.jobs.active and time.monotonic()<end: QTest.qWait(10)
+        while self.w.jobs.active and time.monotonic()<end: wait_ms(10)
         self.assertIsNone(self.w.jobs.active); self.assertEqual(self.errors,[])
 
     def test_async_preview_export_audit_and_no_gallery_copies(self):

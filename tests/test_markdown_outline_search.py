@@ -1,4 +1,5 @@
 """Responsive outline and render-only search under real Qt input."""
+from _qt_wait import wait_ms
 import json
 import unittest
 from PySide6.QtCore import Qt, QPoint
@@ -17,30 +18,30 @@ class OutlineSearchTests(unittest.TestCase):
         result=[];rich.page().runJavaScript(script,result.append)
         for _ in range(100):
             if result:return result[0]
-            QTest.qWait(20)
+            wait_ms(20)
         self.fail('WebEngine callback did not complete')
 
     def test_outline_reserves_space_in_narrow_and_split_views_until_closed(self):
         raw=''.join('#'*level+' '+('第幾章與長標題測試😀'*3)+'\n\n正文。\n\n' for level in range(1,7))
         (self.root/'Notes.md').write_bytes(raw.encode());tab=self.open('Notes.md');s=tab.widget.md_surface
         self.w.resize(2200,960);self.events();before=s.title_host.mapTo(s,s.page.file_title.pos()).x()
-        s.toggle_outline();QTest.qWait(220)
+        s.toggle_outline();wait_ms(220)
         self.assertEqual(s.outline_layout.placement,'gutter')
         self.assertEqual(s.title_host.mapTo(s,s.page.file_title.pos()).x(),before)
         self.assertEqual(s.outline_panel.x(),0)
         for zoom in (70,100,140):
-            s.set_zoom(zoom);QTest.qWait(80)
+            s.set_zoom(zoom);wait_ms(80)
             self.assertEqual(s.outline_panel.x(),0)
         self.assertEqual(len(s.outline.items),6)
         self.assertGreater(s.outline.visualItemRect(s.outline.items[-1]).height(),s.outline.fontMetrics().lineSpacing())
         self.assertTrue(s.outline.visualItemRect(s.outline.items[-1]).bottom()<s.outline.viewport().height())
         height=s.outline_panel.card.height();s.outline.items[0].setExpanded(False);self.events()
         self.assertLess(s.outline_panel.card.height(),height)
-        self.w.resize(960,960);self.w.sidebar_preference=True;self.w.sync_sidebar();QTest.qWait(80)
+        self.w.resize(960,960);self.w.sidebar_preference=True;self.w.sync_sidebar();wait_ms(80)
         self.assertEqual(s.outline_layout.placement,'column');self.assertTrue(s.outline_panel.isVisible())
         width=s.editor.width();self.assertGreater(width,250)
         self.assertLess(s.outline_panel.geometry().right(),s.stack.geometry().left()+1)
-        QTest.mouseClick(s.outline_button,Qt.MouseButton.LeftButton);QTest.qWait(160);self.events()
+        QTest.mouseClick(s.outline_button,Qt.MouseButton.LeftButton);wait_ms(160);self.events()
         self.assertFalse(s.outline_panel.isVisible());self.assertGreater(s.editor.width(),width)
         QTest.mouseClick(s.outline_button,Qt.MouseButton.LeftButton);self.events();self.assertEqual(s.editor.width(),width)
         QTest.mouseClick(s.editor.viewport(),Qt.MouseButton.LeftButton,pos=QPoint(s.editor.viewport().width()-20,40))
@@ -142,19 +143,19 @@ class OutlineSearchTests(unittest.TestCase):
         (self.root/'Notes.md').write_bytes(raw.encode());tab=self.open('Notes.md');s=tab.widget.md_surface;s.set_mode('read');rich=s.reader.rich
         for _ in range(100):
             if rich.render_state=='ready':break
-            QTest.qWait(30)
+            wait_ms(30)
         original=self.js(rich,'document.querySelector("main").innerHTML')
         self.js(rich,"(()=>{const r=new Range();r.selectNodeContents(document.querySelector('p'));const s=getSelection();s.removeAllRanges();s.addRange(r);return s.toString()})()")
-        selection=rich.selectedText();s.open_find();s.query.setText('地圖');s.find_next(-1);QTest.qWait(60)
+        selection=rich.selectedText();s.open_find();s.query.setText('地圖');s.find_next(-1);wait_ms(60)
         self.assertEqual(s.match_count.text(),'3/3')
         ranges=json.loads(self.js(rich,"JSON.stringify([...CSS.highlights.get('find-matches')].map(r=>r.toString()))"))
         self.assertEqual(ranges,['地圖']*3)
         self.assertEqual(self.js(rich,'document.querySelector("main").innerHTML'),original)
         self.assertEqual(rich.selectedText(),selection)
-        s.query.setText('map');s.case_sensitive.setChecked(True);s.find_next();QTest.qWait(60)
+        s.query.setText('map');s.case_sensitive.setChecked(True);s.find_next();wait_ms(60)
         self.assertEqual(s.match_count.text(),'1/1')
-        s.case_sensitive.setChecked(False);s.find_next();QTest.qWait(60);self.assertEqual(s.match_count.text(),'1/2')
-        s.query.setText('[literal]');s.find_next();QTest.qWait(60);self.assertEqual(s.match_count.text(),'1/1')
+        s.case_sensitive.setChecked(False);s.find_next();wait_ms(60);self.assertEqual(s.match_count.text(),'1/2')
+        s.query.setText('[literal]');s.find_next();wait_ms(60);self.assertEqual(s.match_count.text(),'1/1')
         s.close_panel(s.find_bar);self.assertFalse(self.js(rich,"CSS.highlights.has('find-matches')"))
         self.assertEqual(tab.widget.encoded(),raw.encode());self.assertFalse(tab.widget.dirty)
 

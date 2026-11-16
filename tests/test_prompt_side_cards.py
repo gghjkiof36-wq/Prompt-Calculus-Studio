@@ -1,4 +1,5 @@
 """Native editor placement and interruptible side cards use one geometry path."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from PySide6.QtCore import Qt, QEvent, QObject, QPoint
@@ -30,7 +31,7 @@ class SideCardTests(unittest.TestCase):
                     if event.type()==QEvent.Type.Paint:frames.append(dialog.geometry())
                     return False
             probe=PaintProbe(dialog);dialog.installEventFilter(probe)
-            dialog.show();QTest.qWait(100)
+            dialog.show();wait_ms(100)
             self.assertTrue(frames)
             self.assertEqual(frames[0],dialog.geometry())
             center=dialog.panels.bounds().center()
@@ -40,17 +41,17 @@ class SideCardTests(unittest.TestCase):
             dialog.reject();dialog.deleteLater();self.app.processEvents()
 
     def test_reversing_animation_keeps_card_width_and_final_position(self):
-        self.w.resize(1440,1000);dialog=self.page.new_material();QTest.qWait(30)
+        self.w.resize(1440,1000);dialog=self.page.new_material();wait_ms(30)
         panels=dialog.panels;closed=dialog.geometry();width=panels.main.width();frames=[]
         panels.motion.valueChanged.connect(lambda _:frames.append(panels.main.width()))
-        dialog.pages.details_toggle.setChecked(True);QTest.qWait(70)
+        dialog.pages.details_toggle.setChecked(True);wait_ms(70)
         before=panels.main.mapToGlobal(QPoint())
         dialog.pages.details_toggle.setChecked(False)
         self.assertLessEqual((panels.main.mapToGlobal(QPoint())-before).manhattanLength(),2)
-        QTest.qWait(35);before=panels.main.mapToGlobal(QPoint())
+        wait_ms(35);before=panels.main.mapToGlobal(QPoint())
         dialog.pages.details_toggle.setChecked(True)
         self.assertLessEqual((panels.main.mapToGlobal(QPoint())-before).manhattanLength(),2)
-        QTest.qWait(240);panels.collapse.click();QTest.qWait(210)
+        wait_ms(240);panels.collapse.click();wait_ms(210)
         self.assertTrue(frames);self.assertEqual(set(frames),{width})
         self.assertEqual(dialog.geometry(),closed)
         self.assertFalse(panels.side.isVisible());dialog.reject()
@@ -59,7 +60,7 @@ class SideCardTests(unittest.TestCase):
         self.w.resize(1440,1000)
         for grouped in (False,True):
             dialog=self.page.edit_material(self.grouped()) if grouped else self.page.new_material()
-            QTest.qWait(30);panels=dialog.panels;events=[];frames=[]
+            wait_ms(30);panels=dialog.panels;events=[];frames=[]
             class Probe(QObject):
                 def eventFilter(probe,widget,event):
                     if event.type() in (QEvent.Type.Move,QEvent.Type.Resize):events.append(event.type())
@@ -67,13 +68,13 @@ class SideCardTests(unittest.TestCase):
                     return False
             probe=Probe(dialog);dialog.installEventFilter(probe)
             for _ in range(2):
-                panels.set_open(True);QTest.qWait(80)
-                panels.set_open(False);QTest.qWait(210)
+                panels.set_open(True);wait_ms(80)
+                panels.set_open(False);wait_ms(210)
             if grouped:
-                ed=dialog.pages.group_editor;ed.edit_group(ed.sequence['groups'][0]['id']);QTest.qWait(30)
-                events.clear();ed.preview_toggle.setChecked(True);QTest.qWait(240)
-                ed.input_tabs.setCurrentIndex(1);QTest.qWait(30)
-                events.clear();ed.preview_toggle.setChecked(False);QTest.qWait(210)
+                ed=dialog.pages.group_editor;ed.edit_group(ed.sequence['groups'][0]['id']);wait_ms(30)
+                events.clear();ed.preview_toggle.setChecked(True);wait_ms(240)
+                ed.input_tabs.setCurrentIndex(1);wait_ms(30)
+                events.clear();ed.preview_toggle.setChecked(False);wait_ms(210)
             self.assertEqual(events,[]);self.assertTrue(frames);self.assertTrue(all(frames))
             self.assertFalse(panels.side.isVisible())
             center=panels.main.mapToGlobal(panels.main.rect().center())
@@ -81,7 +82,7 @@ class SideCardTests(unittest.TestCase):
             dialog.reject()
 
     def test_group_format_is_a_compact_aligned_field(self):
-        dialog=self.page.edit_material(self.grouped());dialog.pages.show_group_details();QTest.qWait(240)
+        dialog=self.page.edit_material(self.grouped());dialog.pages.show_group_details();wait_ms(240)
         value=dialog.pages.group_format;fields=dialog.pages.info_fields
         caption=fields.labelForField(value)
         self.assertTrue(value.isVisible());self.assertEqual(value.text(),'流程')
@@ -93,26 +94,26 @@ class SideCardTests(unittest.TestCase):
     def test_preview_tracks_both_input_drafts_in_the_same_side_card(self):
         dialog=self.page.edit_material(self.grouped());ed=dialog.pages.group_editor
         before=copy.deepcopy(materials.item(self.w.state,dialog.target_id))
-        ed.edit_group(ed.sequence['groups'][0]['id']);QTest.qWait(30)
-        height=dialog.height();ed.preview_toggle.setChecked(True);QTest.qWait(240)
+        ed.edit_group(ed.sequence['groups'][0]['id']);wait_ms(30)
+        height=dialog.height();ed.preview_toggle.setChecked(True);wait_ms(240)
         self.assertTrue(dialog.panels.side.isAncestorOf(ed.preview))
         self.assertEqual(dialog.height(),height);self.assertIn('tag_0_0',ed.preview.toPlainText())
         ed.input_tabs.setCurrentIndex(1);ed.direct_text.setPlainText('direct draft')
         self.assertEqual(ed.preview.toPlainText(),'direct draft')
         ed.input_tabs.setCurrentIndex(0);self.assertIn('tag_0_0',ed.preview.toPlainText())
-        ed.back();QTest.qWait(220)
+        ed.back();wait_ms(220)
         self.assertFalse(dialog.panels.side.isVisible());self.assertFalse(ed.preview_toggle.isChecked())
         self.assertEqual(materials.item(self.w.state,dialog.target_id),before)
         dialog.reject()
 
     def test_parent_resize_and_reduced_motion_leave_both_cards_reachable(self):
         dialog=self.page.edit_material(self.grouped());ed=dialog.pages.group_editor
-        ed.edit_group(ed.sequence['groups'][0]['id']);ed.preview_toggle.setChecked(True);QTest.qWait(50)
-        self.w.resize(960,640);QTest.qWait(50)
+        ed.edit_group(ed.sequence['groups'][0]['id']);ed.preview_toggle.setChecked(True);wait_ms(50)
+        self.w.resize(960,640);wait_ms(50)
         self.assertTrue(dialog.panels.bounds().contains(dialog.geometry()))
         self.assertTrue(dialog.panels.rect().contains(dialog.panels.side.geometry()))
         self.assertTrue(dialog.done_button.isVisible())
-        dialog.panels.collapse.click();QTest.qWait(210)
+        dialog.panels.collapse.click();wait_ms(210)
         self.w.state['settings']['reduce_motion']=True
         ed.preview_toggle.setChecked(True)
         self.assertEqual(dialog.panels.progress,1.)
@@ -127,14 +128,14 @@ class SideCardTests(unittest.TestCase):
         part['sequence']=dict(version=1,mode='fixed',start=child['id'],selected=child['id'],groups=[child])
         ed.edit_module(part['id']);ed.edit_nested()
         page=ed.stack.currentWidget();nested=page.findChild(GroupEditor)
-        nested.edit_group(child['id']);nested.preview_toggle.setChecked(True);QTest.qWait(260)
+        nested.edit_group(child['id']);nested.preview_toggle.setChecked(True);wait_ms(260)
         self.assertIn('nested prompt',nested.preview.toPlainText())
         self.assertTrue(dialog.panels.side.isVisible())
         finish=next(button for button in page.findChildren(QPushButton) if button.text()=='完成' and button.parentWidget() is page)
-        QTest.mouseClick(finish,Qt.MouseButton.LeftButton);QTest.qWait(30)
+        QTest.mouseClick(finish,Qt.MouseButton.LeftButton);wait_ms(30)
         self.assertFalse(dialog.panels.side.isVisible())
         self.assertEqual(dialog.panels.side_pages.count(),1)
-        ed.preview_toggle.setChecked(True);QTest.qWait(260)
+        ed.preview_toggle.setChecked(True);wait_ms(260)
         self.assertTrue(dialog.panels.side.isVisible());self.assertIn('nested prompt',ed.preview.toPlainText())
         self.assertFalse(self.errors);dialog.reject()
 

@@ -1,4 +1,5 @@
 """Category menus preserve library content and history across native Qt actions."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -54,7 +55,7 @@ class CategoryActionsTests(unittest.TestCase):
             menu.setActiveAction(action); QTest.keyClick(menu, Qt.Key.Key_Return)
         else:
             QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=menu.actionGeometry(action).center())
-        QTest.qWait(40); self.assertEqual(len(answered), 1)
+        wait_ms(40); self.assertEqual(len(answered), 1)
 
     def reopen(self):
         from prompt_calculus_studio.window import Window

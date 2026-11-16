@@ -1,4 +1,5 @@
 """Native command/payload evidence. All backend history and images are fixtures."""
+from _qt_wait import wait_ms
 import copy
 import json
 import sqlite3
@@ -396,7 +397,7 @@ class NativeDesktopTests(unittest.TestCase):
             payload=dict(prompt=actual,client_id='sid',extra_data=dict(extra_pnginfo=dict(workflow=dict(extra=dict(pcs_native_operation=command['id'])))))
             service.prepare_prompt(payload);queue.reply(dict(command,session='tab',prompt_id=payload['prompt_id']))
             from PySide6.QtTest import QTest
-            QTest.qWait(550)
+            wait_ms(550)
             runner.observe(dict(running_ids=[payload['prompt_id']],queued_ids=[],executing_node='3'))
             job=runner.records()[0];self.assertEqual(job['node'],'3')
             self.assertEqual(job['payload']['prompt']['5']['inputs']['batch_size'],2)

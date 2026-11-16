@@ -1,4 +1,5 @@
 """Q2: each click accepts a distinct group, including before the first pump."""
+from _qt_wait import wait_ms
 import unittest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
@@ -21,11 +22,11 @@ class ClickRegressionTests(unittest.TestCase):
         QTest.mouseClick(self.controls.run_button,Qt.MouseButton.LeftButton)
         # Intentionally no processEvents/qWait between these two physical clicks.
         QTest.mouseClick(self.controls.run_button,Qt.MouseButton.LeftButton)
-        QTest.qWait(40)
+        wait_ms(40)
         completed=0
         for _ in range(3*count):
             if not self.executor.pending:
-                QTest.qWait(60)
+                wait_ms(60)
                 if not self.executor.pending:break
             self.executor.finish();completed+=1
         observed=dict(entries=len(self.runner.store.rows('entry')),

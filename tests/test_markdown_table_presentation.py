@@ -1,4 +1,5 @@
 """Readable Markdown tables preserve source, anchors and narrow-view scrolling."""
+from _qt_wait import wait_ms
 import json
 import os
 from pathlib import Path
@@ -44,7 +45,7 @@ class TablePresentationTests(unittest.TestCase):
     def wait(self, predicate):
         deadline = time.monotonic() + 10
         while not predicate() and time.monotonic() < deadline:
-            QTest.qWait(20)
+            wait_ms(20)
         self.assertTrue(predicate())
 
     def open(self, width):
@@ -56,7 +57,7 @@ class TablePresentationTests(unittest.TestCase):
         self.page.md_surface.set_mode('read')
         self.wait(lambda: self.page.md_surface.reader.rich is not None and
                   self.page.md_surface.reader.rich.render_state == 'ready')
-        QTest.qWait(60)
+        wait_ms(60)
 
     def javascript(self, script):
         values = []
@@ -131,7 +132,7 @@ class TablePresentationTests(unittest.TestCase):
         })())''')
         self.assertGreater(moved['offset'], 0)
         self.assertEqual(moved['last'], 'Within limit')
-        QTest.qWait(60)
+        wait_ms(60)
         self.screenshot('table-narrow-scrolled.png')
         self.assertEqual(self.page.encoded(), SOURCE.encode('utf-8'))
         self.assertFalse(self.page.dirty)

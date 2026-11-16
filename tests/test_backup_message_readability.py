@@ -1,4 +1,5 @@
 """Recovery messages remain usable through the real backup/Jobs UI boundary."""
+from _qt_wait import wait_ms
 import os
 import json
 import tempfile
@@ -65,7 +66,7 @@ class InformationReadabilityTests(unittest.TestCase):
                 dialog.resize(480, 320)
                 try:
                     dialog.show()
-                    QTest.qWait(20)
+                    wait_ms(20)
                     self.assertEqual(dialog.message.toPlainText(), message)
                     self.assertTrue(dialog.message.isReadOnly())
                     self.assertEqual(dialog.message.horizontalScrollBar().maximum(), 0)
@@ -103,7 +104,7 @@ class InformationReadabilityTests(unittest.TestCase):
         dialog._prompt_instant_show = True
         try:
             dialog.show()
-            QTest.qWait(10)
+            wait_ms(10)
             self.assertEqual(dialog.confirm.text(), '知道了')
             self.assertIsNone(dialog.copy_button)
             self.assertEqual(dialog.message.toPlainText(), '原檔 <圖片> & 😀 可能已搬動。')
@@ -132,7 +133,7 @@ class BackupMessageFlowTests(unittest.TestCase):
         self.w.start_interface()
         self.w.resize(640, 480)
         self.w.show()
-        QTest.qWait(20)
+        wait_ms(20)
         folder = self.root / ('備份目的地-😀-' + 'long-name-' * 4)
         folder.mkdir()
         self.destination = folder / '備份.zip'
@@ -162,7 +163,7 @@ class BackupMessageFlowTests(unittest.TestCase):
                 after_start()
             deadline = time.monotonic() + 10
             while self.w.jobs.active and time.monotonic() < deadline:
-                QTest.qWait(10)
+                wait_ms(10)
             self.assertIsNone(self.w.jobs.active, 'backup worker did not finish')
         self.assertTrue(self.w.jobs.pool.waitForDone(1000))
         self.assertEqual(self.dialog_errors, [])
@@ -183,7 +184,7 @@ class BackupMessageFlowTests(unittest.TestCase):
             self.w.completion.timer.stop()
         else:
             self.w.settings('data')
-        QTest.qWait(20)
+        wait_ms(20)
         buttons = [entry for entry in self.w.settings_page.findChildren(QPushButton)
                    if entry.text() == '備份 ZIP…']
         self.assertEqual(len(buttons), 1)

@@ -1,4 +1,5 @@
 """Native navigation and small-window behavior with isolated data."""
+from _qt_wait import wait_ms
 import copy
 import os
 import tempfile
@@ -27,7 +28,7 @@ class VisualNavigationTests(unittest.TestCase):
     def tearDown(self):
         self.w.close();APP.processEvents();self.request.stop();self.env.stop();self.temp.cleanup()
 
-    def settle(self):QTest.qWait(40)
+    def settle(self):wait_ms(40)
 
     def test_route_parent_and_icons_survive_download_selection(self):
         p=self.w.settings_page

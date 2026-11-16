@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import copy,os,tempfile,unittest
 from unittest.mock import patch
 from PySide6.QtCore import Qt,QTimer,QPoint,QPointF
@@ -15,7 +16,7 @@ APP=QApplication.instance() or QApplication([])
 class Alpha3Tests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(); self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'}); self.env.start()
-        self.w=Window(self.temp.name); self.w.state['settings'].update(online=False,material='solid',reduce_motion=True); self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(20)
+        self.w=Window(self.temp.name); self.w.state['settings'].update(online=False,material='solid',reduce_motion=True); self.w.show(); self.w.set_interface_mode('canvas'); wait_ms(20)
         self.c=self.w.canvas; self.cid=next(iter(self.c.data()['canvases'])); self.oid=self.c.data()['current_output']
     def tearDown(self):
         for widget in APP.topLevelWidgets():
@@ -33,13 +34,13 @@ class Alpha3Tests(unittest.TestCase):
         try: result=callback()
         finally: timer.stop()
         self.assertEqual(seen,[title]); return result
-    def editor(self): self.c.open_editor(self.cid); QTest.qWait(20); return self.c.editor_page
+    def editor(self): self.c.open_editor(self.cid); wait_ms(20); return self.c.editor_page
     def test_actual_first_tool_dimensions_crop_preview_and_binding_dialogs(self):
         e=self.editor()
         self.modal(lambda:QTest.mouseClick(e.tool_buttons['rect'],Qt.MouseButton.LeftButton),'底圖尺寸')
         self.assertEqual(e.image()['width'],1024); self.assertEqual(e.tool,'rect')
         view=e.view; a=view.mapFromScene(QPointF(100,100)); b=view.mapFromScene(QPointF(300,300))
-        QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a); QTest.mouseMove(view.viewport(),b,20); QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b); QTest.qWait(20)
+        QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a); QTest.mouseMove(view.viewport(),b,20); QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b); wait_ms(20)
         self.assertEqual(e.image()['layers'][-1]['type'],'rect')
         self.modal(e.preview,'輸出預覽',False)
         path=self.w.store.directory/'crop.png'; image=QImage(32,24,QImage.Format.Format_RGB32); image.fill(QColor('red')); image.save(str(path))
@@ -52,11 +53,11 @@ class Alpha3Tests(unittest.TestCase):
             QTest.mousePress(view.viewport(),button,pos=a); QTest.mouseMove(view.viewport(),b,20); QTest.mouseRelease(view.viewport(),button,pos=b)
             self.assertGreater((view.mapToScene(a)-before).manhattanLength(),20)
         before=self.c.data()['canvases'][self.cid]['members'][:]
-        e.text_canvas.add_tag('test composition',QPointF(141,152)); QTest.qWait(20)
+        e.text_canvas.add_tag('test composition',QPointF(141,152)); wait_ms(20)
         data=self.c.data()['canvases'][self.cid]; key=next(k for k in data['members'] if k not in before)
         self.assertEqual(data['edit_positions'][key],[141,152]); self.assertEqual(model.owner(self.w.state,key),self.cid)
         outer=copy.deepcopy(self.w.state['text_positions'][key]); card=e.text_canvas.cards[key]
-        e.text_canvas.resize_card(key,card.width+20,card.height+20,[120,130]); QTest.qWait(20)
+        e.text_canvas.resize_card(key,card.width+20,card.height+20,[120,130]); wait_ms(20)
         self.assertEqual(self.c.data()['canvases'][self.cid]['edit_positions'][key],[120,130]); self.assertEqual(self.w.state['text_positions'][key],outer)
         captured=[]
         with patch.object(RoundMenu,'open_at',lambda menu,pos:captured.extend(a.text() for a in menu.actions())):

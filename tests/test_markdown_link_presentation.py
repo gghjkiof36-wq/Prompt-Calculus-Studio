@@ -1,4 +1,5 @@
 """Inactive links show complete labels; editing reveals intact source syntax."""
+from _qt_wait import wait_ms
 import os
 from pathlib import Path
 import tempfile
@@ -48,7 +49,7 @@ class LinkPresentationTests(unittest.TestCase):
 
     def events(self):
         self.app.processEvents()
-        QTest.qWait(20)
+        wait_ms(20)
         self.app.processEvents()
 
     def shown(self, editor, number):

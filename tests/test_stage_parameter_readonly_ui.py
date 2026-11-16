@@ -1,4 +1,5 @@
 """Bounded Qt checks for compact readonly fields and local scrollbar arrows."""
+from _qt_wait import wait_ms
 import copy
 import re
 from unittest.mock import patch
@@ -41,8 +42,8 @@ class StageParameterReadOnlyUITests(StageFixture):
         self.reader.start();self.addCleanup(self.reader.stop)
 
     def sheet(self):
-        sheet=open_parameters(self.c,self.stage);QTest.qWait(35)
-        self.assertFalse(sheet.loading,sheet.status.text());sheet.jump(['35']);QTest.qWait(15)
+        sheet=open_parameters(self.c,self.stage);wait_ms(35)
+        self.assertFalse(sheet.loading,sheet.status.text());sheet.jump(['35']);wait_ms(15)
         return sheet
 
     def arrow_rect(self,bar,control):
@@ -59,9 +60,9 @@ class StageParameterReadOnlyUITests(StageFixture):
             self.assertEqual(rect.width(),12);self.assertGreaterEqual(rect.height(),16)
             self.assertTrue(bar.rect().contains(rect),(bar.rect(),rect))
         bar.setValue(0)
-        QTest.mouseClick(bar,Qt.MouseButton.LeftButton,pos=down.center());QTest.qWait(10)
+        QTest.mouseClick(bar,Qt.MouseButton.LeftButton,pos=down.center());wait_ms(10)
         after=bar.value();self.assertGreater(after,0)
-        QTest.mouseClick(bar,Qt.MouseButton.LeftButton,pos=up.center());QTest.qWait(10)
+        QTest.mouseClick(bar,Qt.MouseButton.LeftButton,pos=up.center());wait_ms(10)
         self.assertLess(bar.value(),after)
 
     def test_workflow_reason_appears_once_and_fields_are_compact_copyable_values(self):
@@ -78,7 +79,7 @@ class StageParameterReadOnlyUITests(StageFixture):
         QTest.keyClicks(editor,'99');self.assertEqual(editor.text(),'8.0')
         self.assertFalse(sheet.dirty());self.assertFalse(sheet.apply_button.isEnabled())
         self.assertEqual(sheet.status.text(),'未修改');self.assertFalse(self.executor.submissions)
-        rect=sheet.panel.geometry();sheet.jump(['5']);QTest.qWait(15)
+        rect=sheet.panel.geometry();sheet.jump(['5']);wait_ms(15)
         self.assertEqual(sheet.panel.geometry(),rect)
         self.assertEqual(len([w for w in sheet.form.findChildren(QLabel) if self.reason in w.text()]),1)
         sheet.finish()
@@ -98,15 +99,15 @@ class StageParameterReadOnlyUITests(StageFixture):
 
     def test_empty_saved_overrides_are_unchanged_but_workflow_selection_can_apply(self):
         self.c.commit(lambda state:state['multi_output']['stages'][self.stage].update(parameters=empty(self.profile)))
-        sheet=self.sheet();self.assertFalse(sheet.dirty());self.assertFalse(sheet.apply_button.isEnabled());sheet.finish();QTest.qWait(10)
+        sheet=self.sheet();self.assertFalse(sheet.dirty());self.assertFalse(sheet.apply_button.isEnabled());sheet.finish();wait_ms(10)
         alternative=copy.deepcopy(self.profile);alternative.update(id='alternate',frontend_id='native-alternate',name='Alternative')
         alternative['origin']['path']='B.json';self.profiles['B.json']=alternative
         self.w.generation_panel.save_profile(alternative);self.catalog.files.append('B.json')
-        sheet=self.sheet();sheet.workflow.setCurrentIndex(sheet.workflow.findData('alternate'));QTest.qWait(35)
+        sheet=self.sheet();sheet.workflow.setCurrentIndex(sheet.workflow.findData('alternate'));wait_ms(35)
         self.assertTrue(sheet.dirty());self.assertTrue(sheet.apply_button.isEnabled())
         self.assertEqual(sheet.status.text(),'工作流選擇尚未套用')
         self.assertFalse(sheet.proposed()['patches'])
-        QTest.mouseClick(sheet.apply_button,Qt.MouseButton.LeftButton);QTest.qWait(40)
+        QTest.mouseClick(sheet.apply_button,Qt.MouseButton.LeftButton);wait_ms(40)
         self.assertTrue(sheet.closed)
         self.assertEqual(self.c.data()['stages'][self.stage]['workflow'],'alternate')
         self.assertFalse(self.c.data()['stages'][self.stage]['parameters']['patches'])
@@ -118,14 +119,14 @@ class StageParameterReadOnlyUITests(StageFixture):
         for i in range(20):self.profile['graph']['35']['inputs']['extra_'+str(i)]=i
 
     def test_both_scrollbars_have_clickable_arrows_and_preserve_panel_geometry(self):
-        self.add_long_content();self.w.resize(1280,900);QTest.qWait(15)
+        self.add_long_content();self.w.resize(1280,900);wait_ms(15)
         sheet=self.sheet();rect=sheet.panel.geometry()
         positions=[widget.mapTo(sheet,QPoint(0,0)) for widget in (sheet.close_button,sheet.apply_button)]
         for bar in (sheet.list.verticalScrollBar(),sheet.scroll.verticalScrollBar()):
             self.click_arrows(bar);bar.setValue(bar.maximum()//2)
             thumb=self.arrow_rect(bar,QStyle.SubControl.SC_ScrollBarSlider)
             self.assertEqual(thumb.width(),12)
-            QTest.mouseMove(sheet.close_button,sheet.close_button.rect().center());QTest.qWait(15)
+            QTest.mouseMove(sheet.close_button,sheet.close_button.rect().center());wait_ms(15)
             image=bar.grab().toImage();scale=image.devicePixelRatio()
             y=round(thumb.center().y()*scale)
             visible=[x for x in range(image.width()) if image.pixelColor(x,y).name()==sheet.tokens['scrollbar']]
@@ -133,19 +134,19 @@ class StageParameterReadOnlyUITests(StageFixture):
             self.assertEqual(visible,list(range(round(3*scale),round(9*scale))))
         bar=sheet.scroll.verticalScrollBar();bar.setValue(bar.maximum()//2)
         thumb=self.arrow_rect(bar,QStyle.SubControl.SC_ScrollBarSlider)
-        QTest.mouseMove(sheet.close_button,sheet.close_button.rect().center());QTest.qWait(15);idle=bar.grab().toImage()
-        QTest.mouseMove(bar,thumb.center());QTest.qWait(15);hover=bar.grab().toImage()
+        QTest.mouseMove(sheet.close_button,sheet.close_button.rect().center());wait_ms(15);idle=bar.grab().toImage()
+        QTest.mouseMove(bar,thumb.center());wait_ms(15);hover=bar.grab().toImage()
         self.assertNotEqual(idle,hover)
         self.assertEqual(sheet.panel.geometry(),rect)
         self.assertEqual(positions,[widget.mapTo(sheet,QPoint(0,0)) for widget in (sheet.close_button,sheet.apply_button)])
         self.assertEqual(sheet.rail_effect.opacity(),1);self.assertFalse(self.executor.submissions);sheet.finish()
 
     def test_short_form_hides_idle_rail_without_changing_reserved_width(self):
-        self.w.resize(1920,1080);QTest.qWait(15);sheet=self.sheet();sheet.jump(['5']);QTest.qWait(20)
+        self.w.resize(1920,1080);wait_ms(15);sheet=self.sheet();sheet.jump(['5']);wait_ms(20)
         rail=sheet.scroll.verticalScrollBar();width=sheet.scroll.viewport().width()
         self.assertEqual(rail.maximum(),0);self.assertEqual(sheet.rail_effect.opacity(),0)
         self.profile['graph']['5']['inputs'].update({f'extra_{i}':i for i in range(30)})
-        sheet.reload();QTest.qWait(40);sheet.jump(['5']);QTest.qWait(20)
+        sheet.reload();wait_ms(40);sheet.jump(['5']);wait_ms(20)
         self.assertGreater(rail.maximum(),0);self.assertEqual(sheet.rail_effect.opacity(),1)
         self.assertEqual(sheet.scroll.viewport().width(),width);sheet.finish()
 
@@ -156,7 +157,7 @@ class StageParameterReadOnlyUITests(StageFixture):
                 host.resize(width,height)
                 host.setStyleSheet(re.sub(r'font-size:(\d+)px',lambda m:'font-size:'+str(round(int(m[1])*scale))+'px',self.w.styleSheet()))
                 with patch.object(self.w,'centralWidget',return_value=host):sheet=self.sheet()
-                sheet.place();QTest.qWait(20);rect=sheet.panel.geometry()
+                sheet.place();wait_ms(20);rect=sheet.panel.geometry()
                 self.assertTrue(host.rect().contains(rect))
                 for action in (sheet.close_button,sheet.apply_button,sheet.reset_button):
                     self.assertTrue(rect.contains(action.rect().translated(action.mapTo(sheet,QPoint(0,0)))))
@@ -165,7 +166,7 @@ class StageParameterReadOnlyUITests(StageFixture):
                     self.assertTrue(editor.parentWidget().rect().contains(editor.geometry()))
                     self.assertGreaterEqual(editor.height(),editor.fontMetrics().height())
                 self.click_arrows(sheet.scroll.verticalScrollBar())
-                sheet.toggle_nodes();QTest.qWait(10);self.click_arrows(sheet.list.verticalScrollBar())
+                sheet.toggle_nodes();wait_ms(10);self.click_arrows(sheet.list.verticalScrollBar())
                 self.assertEqual(sheet.panel.geometry(),rect)
-                sheet.finish();QTest.qWait(10)
+                sheet.finish();wait_ms(10)
         self.assertFalse(self.executor.submissions)

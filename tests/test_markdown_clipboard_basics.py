@@ -1,4 +1,5 @@
 """Ordinary clipboard images, links and unsupported visuals retain meaning."""
+from _qt_wait import wait_ms
 import json
 import html
 from pathlib import Path
@@ -119,7 +120,7 @@ class ClipboardReaderTests(unittest.TestCase):
 
     def wait(self, predicate):
         deadline = time.monotonic() + 15
-        while not predicate() and time.monotonic() < deadline:QTest.qWait(20)
+        while not predicate() and time.monotonic() < deadline:wait_ms(20)
         self.assertTrue(predicate())
 
     def open(self):
@@ -144,7 +145,7 @@ class ClipboardReaderTests(unittest.TestCase):
             images = json.loads(values[0])
             if all(item['loaded'] for item in images):return images
             self.assertLess(time.monotonic(), deadline)
-            QTest.qWait(20)
+            wait_ms(20)
 
     def test_bitmap_and_html_png_paste_save_reopen_and_undo_keep_images(self):
         for bitmap in (True, False):

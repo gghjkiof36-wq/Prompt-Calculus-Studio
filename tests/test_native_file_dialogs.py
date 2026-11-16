@@ -1,4 +1,5 @@
 """Picker contracts through the offscreen fallback; native Windows visuals need manual QA."""
+from _qt_wait import wait_ms
 import copy,os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -21,7 +22,7 @@ class NativeFileDialogTests(unittest.TestCase):
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_DATA':str(self.root/'data')})
         self.env.start();self.w=Window(self.root/'data')
         self.w.state['settings'].update(online=False,material='solid')
-        self.w.show();self.w.set_interface_mode('canvas');QTest.qWait(30)
+        self.w.show();self.w.set_interface_mode('canvas');wait_ms(30)
         self.folder=self.root/'圖片 sources';self.folder.mkdir()
         self.files=[self.folder/name for name in ('sample 10.png','sample 2.png')]
         for path in self.files:png(path,{})

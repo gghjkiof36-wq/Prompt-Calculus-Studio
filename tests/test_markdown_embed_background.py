@@ -1,4 +1,5 @@
 """Actual embed handoff, complete read evidence and first-publication races."""
+from _qt_wait import wait_ms
 import os
 from pathlib import Path
 import sys
@@ -172,7 +173,7 @@ class EmbeddedBackgroundTests(unittest.TestCase):
 
     def wait(self,condition):
         deadline=time.monotonic()+10
-        while not condition() and time.monotonic()<deadline:QTest.qWait(10)
+        while not condition() and time.monotonic()<deadline:wait_ms(10)
         self.assertTrue(condition(),self.errors)
 
     def open_parent(self):

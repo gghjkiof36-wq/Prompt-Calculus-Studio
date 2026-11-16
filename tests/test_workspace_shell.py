@@ -1,4 +1,5 @@
 """Real Qt document lifetimes, write targets and user-visible tab operations."""
+from _qt_wait import wait_ms
 import copy
 import gc
 import os
@@ -52,7 +53,7 @@ class WorkspaceShellTests(unittest.TestCase):
 
     def events(self):
         self.app.processEvents()
-        QTest.qWait(15)
+        wait_ms(15)
         if hasattr(self, 'w') and self.w.sidebar_resize.motion_target is not None:
             self.w.sidebar_resize.motion.setCurrentTime(self.w.sidebar_resize.motion.duration())
         self.app.processEvents()
@@ -94,7 +95,7 @@ class WorkspaceShellTests(unittest.TestCase):
                      if page.listing.item(i).data(Qt.ItemDataRole.UserRole) == ident)
         pos = page.listing.visualItemRect(entry).center()
         QTest.mouseClick(page.listing.viewport(), Qt.MouseButton.LeftButton, pos=pos)
-        QTest.qWait(QApplication.doubleClickInterval()+20)
+        wait_ms(QApplication.doubleClickInterval()+20)
         self.assertEqual(page.preview_id, ident)
         QTest.mouseDClick(page.listing.viewport(), Qt.MouseButton.LeftButton, pos=pos)
         self.events()
@@ -601,7 +602,7 @@ class WorkspaceShellTests(unittest.TestCase):
         entry = page.listing.item(0)
         QTest.mouseClick(page.listing.viewport(), Qt.MouseButton.LeftButton,
                         pos=page.listing.visualItemRect(entry).center())
-        QTest.qWait(QApplication.doubleClickInterval()+20)
+        wait_ms(QApplication.doubleClickInterval()+20)
         self.events()
         self.assertIsNotNone(page.preview_id)
         preview_text = page.preview_text.toPlainText()

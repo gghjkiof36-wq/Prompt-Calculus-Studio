@@ -1,4 +1,5 @@
 """Whole-document context, explicit EOF drafting and local rewrite adoption."""
+from _qt_wait import wait_ms
 import hashlib
 import json
 import unittest
@@ -40,7 +41,7 @@ class MarkdownDocumentAssistTests(unittest.TestCase):
 
     def settle(self):
         self.events()
-        QTest.qWait(130)
+        wait_ms(130)
         self.app.processEvents()
 
     def page(self, raw=RAW, name='Draft.md'):

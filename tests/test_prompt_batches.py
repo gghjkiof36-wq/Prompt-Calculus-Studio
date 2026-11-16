@@ -1,4 +1,5 @@
 """Rev5 batch acceptance through the real Stage journal and native receipt path."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -38,7 +39,7 @@ class BatchExecutionTests(unittest.TestCase):
                 if not scheduled:
                     self.tearDown();self.setUp()
                 self.setup_batch(scheduled)
-                self.runner.start(3);QTest.qWait(40)
+                self.runner.start(3);wait_ms(40)
                 self.complete_all(30)
                 self.assertEqual(self.submitted_texts(),[c+f'\n1-{i}' for i in range(1,4) for c in 'abcdefghij'])
                 self.assertEqual(comp.render(self.w.state['uses']['root']),'1-4')
@@ -114,7 +115,7 @@ class BatchExecutionTests(unittest.TestCase):
         config=self.setup_batch(length=6);self.click();self.executor.finish(error=True)
         attempt=self.runner.store.rows('attempt')[0]
         before=copy.deepcopy(supply.source(self.w.state,config['reader'])['root'])
-        self.runner.retry(attempt['id']);QTest.qWait(40)
+        self.runner.retry(attempt['id']);wait_ms(40)
         self.assertEqual(self.submitted_texts(),['a\n1-1']*2)
         self.assertEqual(supply.source(self.w.state,config['reader'])['root'],before)
 
@@ -131,7 +132,7 @@ class BatchExecutionTests(unittest.TestCase):
             state['uses']['root']['variants']['groups'][0]['text']='new canvas'
             supply.source(state,config['reader'])['root']['sequence']['groups'][0]['text']='new reader'
         self.assertTrue(self.c.commit(edit))
-        self.runner.resume(run['id']);QTest.qWait(40);self.complete_all(12)
+        self.runner.resume(run['id']);wait_ms(40);self.complete_all(12)
         self.assertEqual(self.submitted_texts(),[c+'\n1-1' for c in 'abcdefghijabc'])
 
     def test_text_ten_image_six_cycles_and_second_batch_resumes_image_five(self):
@@ -152,7 +153,7 @@ class BatchExecutionTests(unittest.TestCase):
             self.executor.graphs['flow']['10']=copy.deepcopy(profile['graph']['10'])
             image=add_image_input(state);state['multi_output']['image_inputs'][image].update(workflow='flow',node='10')
             wiring.connect(state,source,image,'image');wiring.connect(state,image,config['scheduler']+'::bindings','control')
-        self.assertTrue(self.c.commit(connect),self.notices);self.runner.start(2);QTest.qWait(40);self.complete_all(20)
+        self.assertTrue(self.c.commit(connect),self.notices);self.runner.start(2);wait_ms(40);self.complete_all(20)
         pictures=[p['prompt']['10']['inputs']['image'] for p in self.executor.submissions]
         for i,picture in enumerate(pictures):self.assertIn(items[i%6]['sha256'],picture)
         self.assertEqual(self.submitted_texts(),[c+f'\n1-{i}' for i in (1,2) for c in 'abcdefghij'])

@@ -1,4 +1,5 @@
 """A foundation through workspace timers, file commands and split views."""
+from _qt_wait import wait_ms
 import unittest
 from unittest.mock import patch
 from PySide6.QtCore import Qt
@@ -34,7 +35,7 @@ class MarkdownWorkspaceTests(unittest.TestCase):
         cursor=s.editor.textCursor();cursor.select(QTextCursor.SelectionType.Document);s.editor.setTextCursor(cursor)
         s.format_selection({'bold':True,'color':'#123456','size':16})
         right=self.w.duplicate_view(left,True);right.widget.md_surface.set_mode('read')
-        QTest.qWait(120);saved=left.path.read_bytes()
+        wait_ms(120);saved=left.path.read_bytes()
         self.assertIn('中文筆記'.encode(),saved);self.assertFalse(left.dirty)
         self.assertEqual(len(self.w.autosave.timers),1)
         s.set_preference('reading_size',14);s.set_mode('source')
@@ -57,17 +58,17 @@ class MarkdownWorkspaceTests(unittest.TestCase):
         right = self.w.duplicate_view(left, True)
         source = left.path.read_bytes()
         left.widget.apply_text_style(2, 7, family='Microsoft JhengHei UI', size=14, color='#112233')
-        QTest.qWait(110)
+        wait_ms(110)
         self.assertFalse(left.dirty)
         styled = left.path.read_bytes()
         self.assertIn(b'<span', styled)
         self.assertEqual(len(self.w.autosave.timers), 1)
         right.widget.undo()
-        QTest.qWait(110)
+        wait_ms(110)
         self.assertEqual(left.path.read_bytes(), source)
         self.assertTrue(left.widget.document().isRedoAvailable())
         left.widget.redo()
-        QTest.qWait(110)
+        wait_ms(110)
         self.assertEqual(left.path.read_bytes(), styled)
 
     def test_preedit_pauses_autosave_file_commands_and_close_until_commit(self):
@@ -78,7 +79,7 @@ class MarkdownWorkspaceTests(unittest.TestCase):
         left.widget.moveCursor(QTextCursor.MoveOperation.End)
         left.widget.insertPlainText('before ')
         self.app.sendEvent(left.widget, QInputMethodEvent('中文', []))
-        QTest.qWait(110)
+        wait_ms(110)
         self.w.autosave.flush(right)
         self.assertEqual(left.path.read_bytes(), original)
         self.assertFalse(self.w.prepare_close(right))
@@ -88,7 +89,7 @@ class MarkdownWorkspaceTests(unittest.TestCase):
         commit = QInputMethodEvent()
         commit.setCommitString('中文')
         self.app.sendEvent(left.widget, commit)
-        QTest.qWait(110)
+        wait_ms(110)
         self.assertTrue(left.path.read_bytes().endswith('before 中文'.encode()))
         self.assertFalse(left.dirty)
 
@@ -126,12 +127,12 @@ class MarkdownWorkspaceTests(unittest.TestCase):
         self.assertTrue(tab.widget.error)
         tab.widget.moveCursor(QTextCursor.MoveOperation.End)
         tab.widget.insertPlainText('pending')
-        QTest.qWait(80)
+        wait_ms(80)
         self.assertFalse(tab.path.exists())
         parked.rename(tab.path)  # Same identity, mtime and bytes as last success.
         self.poll_external()
         self.assertEqual(tab.widget.error, '')
-        QTest.qWait(110)
+        wait_ms(110)
         self.assertEqual(tab.path.read_bytes(), original+b'pending')
         self.assertFalse(tab.dirty)
 
@@ -142,7 +143,7 @@ class MarkdownWorkspaceTests(unittest.TestCase):
         tab.widget.moveCursor(QTextCursor.MoveOperation.End)
         with patch('prompt_calculus_studio.workspace_files.QSaveFile.commit', return_value=False):
             tab.widget.insertPlainText('failed')
-            QTest.qWait(110)
+            wait_ms(110)
         self.assertTrue(tab.widget.error)
         tab.widget.undo()
         self.assertFalse(tab.dirty)
@@ -150,7 +151,7 @@ class MarkdownWorkspaceTests(unittest.TestCase):
         self.assertFalse(tab.widget.error)
         self.assertEqual(tab.path.read_bytes(), original)
         tab.widget.insertPlainText('next')
-        QTest.qWait(110)
+        wait_ms(110)
         self.assertEqual(tab.path.read_bytes(), original+b'next')
         self.assertFalse(tab.dirty)
 

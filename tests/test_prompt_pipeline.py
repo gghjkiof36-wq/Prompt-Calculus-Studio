@@ -1,4 +1,5 @@
 """Prompt owns round composition; only bound inputs enter new schedulers."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from PySide6.QtCore import Qt
@@ -68,12 +69,12 @@ class PromptPipelineTests(unittest.TestCase):
             model.disconnect(state,edge['id'])
             state['text_positions'].update({reader:[100,0],self.out:[650,0],self.clip:[1100,0],config['stage']:[1600,0]})
         self.assertTrue(self.c.commit(remove))
-        view=self.c.view;view.resetTransform();view.scale(.5,.5);view.centerOn(900,250);QTest.qWait(25)
+        view=self.c.view;view.resetTransform();view.scale(.5,.5);view.centerOn(900,250);wait_ms(25)
         first=self.c.ports[(reader,'clip',True)];last=self.c.ports[(self.out,'text',False)]
         self.assertTrue(first.compatible(last))
         a=view.mapFromScene(first.scenePos());b=view.mapFromScene(last.scenePos())
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a);QTest.mouseMove(view.viewport(),b,30)
-        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b);QTest.qWait(25)
+        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b);wait_ms(25)
         self.assertEqual(self.text(),'a\n1',self.notices)
         self.assertEqual(self.c.data()['outputs'][self.out]['text_sources'],[reader,self.cid])
         edge=next(e for e in self.c.data()['connections'] if e['source']==reader and e['destination']==self.out)
@@ -133,7 +134,7 @@ class PromptPipelineTests(unittest.TestCase):
         targets=[b['target'] for s in stage_model.compile_plan(self.w.state)['stages'].values() for b in s['bindings']]
         panel=self.c.flow_cards[q].panel
         self.assertTrue(panel.legacy_button.isVisible())
-        QTest.mouseClick(panel.legacy_button,Qt.MouseButton.LeftButton);QTest.qWait(20)
+        QTest.mouseClick(panel.legacy_button,Qt.MouseButton.LeftButton);wait_ms(20)
         self.assertEqual(wiring.legacy_edges(self.w.state,q),[])
         self.assertEqual([b['target'] for s in stage_model.compile_plan(self.w.state)['stages'].values() for b in s['bindings']],targets)
         after=self.c.history_state();self.c.undo();self.assertEqual(self.c.history_state(),before)

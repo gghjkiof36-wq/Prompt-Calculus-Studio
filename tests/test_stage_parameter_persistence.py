@@ -3,6 +3,7 @@
 The Qt cases use native receipt fixtures, never a real service or GPU. Reopening
 or restoring must preserve intentions without manufacturing completed jobs.
 """
+from _qt_wait import wait_ms
 import copy
 import hashlib
 import json
@@ -248,7 +249,7 @@ class StageParameterRestartTests(unittest.TestCase):
         self.executor = Executor(self.w, Path(self.tmp.name) / 'reopened-executor')
         self.runner = self.w.comfy.input_flow.chain
         self.runner.later()
-        QTest.qWait(50)
+        wait_ms(50)
         self.runner.pump()
         self.assertEqual(self.runner.store.rows('entry'), expected)
         runs = self.runner.runs(True)
@@ -308,7 +309,7 @@ class StageParameterRestartTests(unittest.TestCase):
         target.state = loaded
         executor = Executor(target, Path(self.tmp.name) / 'png-target-executor')
         target.comfy.input_flow.chain.later()
-        QTest.qWait(50)
+        wait_ms(50)
         self.assertEqual(executor.submissions, [])
         for kind in ('run', 'entry', 'attempt', 'parameter_state'):
             self.assertEqual(target.comfy.input_flow.chain.store.rows(kind), [])

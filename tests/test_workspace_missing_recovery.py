@@ -349,7 +349,8 @@ class MissingRecoveryTests(unittest.TestCase):
             from unittest.mock import patch
             from PySide6.QtWidgets import QApplication
             from PySide6.QtCore import Qt
-            from PySide6.QtTest import QTest
+            sys.path.insert(0, str(Path.cwd()/'tests'))
+            from _qt_wait import wait_ms
             from prompt_calculus_studio.workspace_shell import WorkspaceShell
             from prompt_calculus_studio.workspace_layout import MissingDocument
             from prompt_calculus_studio.workspace_home import WorkspaceHome
@@ -363,7 +364,7 @@ class MissingRecoveryTests(unittest.TestCase):
                     (root/(name+'.md')).write_bytes(b'\\xef\\xbb\\xbf# original\\r\\n')
             w = WorkspaceShell(root, data)
             w.autosave.delay_ms = 60000
-            w.show(); app.processEvents(); QTest.qWait(30)
+            w.show(); app.processEvents(); wait_ms(30)
             if mode == 'seed':
                 for name in ('Open', 'Closed'):
                     tab = w.open_path(root/(name+'.md'), True, new_tab=True)

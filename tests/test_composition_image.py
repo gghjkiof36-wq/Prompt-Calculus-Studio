@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt,QPointF
 from PySide6.QtGui import QImage,QColor
 from PySide6.QtTest import QTest
+from _qt_wait import wait_ms, wait_until
 from prompt_calculus_studio.composition_image import document,layer,validate_image
 from prompt_calculus_studio.composition_render import render_image,freeze_source,PreviewCache
 from prompt_calculus_studio.window import Window
@@ -22,7 +23,7 @@ class CompositionImageTests(unittest.TestCase):
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'}); self.env.start(); self.addCleanup(self.env.stop)
         self.w=Window(self.root/'data');self.addCleanup(self.close_window,self.w)
         self.w.comfy.enabled=False;self.w.comfy.timer.stop()
-        self.w.state['settings'].update(online=False,material='solid',reduce_motion=True); self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(15)
+        self.w.state['settings'].update(online=False,material='solid',reduce_motion=True); self.w.show(); self.w.set_interface_mode('canvas'); wait_ms(15)
         self.canvas=self.w.canvas; self.cid=next(iter(self.canvas.containers)); self.doc=document(120,80)
         from test_multi_output import workflow
         self.oid=self.canvas.data()['current_output'];profile=workflow();profile['frontend_id']='native-A';self.w.generation_panel.save_profile(profile)
@@ -86,14 +87,18 @@ class CompositionImageTests(unittest.TestCase):
     def test_editor_shape_gesture_and_return_restores_outer_view(self):
         self.canvas.commit(lambda s:s['multi_output']['canvases'][self.cid].update(image=self.doc))
         transform=self.canvas.view.transform(); center=self.canvas.view.mapToScene(self.canvas.view.viewport().rect().center())
-        self.canvas.open_editor(self.cid); QTest.qWait(20); editor=self.canvas.editor_page; editor.view.fit(); editor.set_tool('rect')
+        self.canvas.open_editor(self.cid); wait_ms(20); editor=self.canvas.editor_page; editor.view.fit(); editor.set_tool('rect')
         start=editor.view.mapFromScene(QPointF(10,10)); end=editor.view.mapFromScene(QPointF(80,60))
         QTest.mousePress(editor.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier,start)
         QTest.mouseMove(editor.view.viewport(),end,25); QTest.mouseRelease(editor.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier,end)
         self.assertEqual(len(editor.image()['layers']),1); self.assertAlmostEqual(editor.image()['layers'][0]['width'],70,delta=1)
         editor.undo(); self.assertEqual(editor.image()['layers'],[]); editor.redo(); self.assertEqual(len(editor.image()['layers']),1)
-        editor.close_editor(); QTest.qWait(5); self.assertEqual(self.canvas.view.transform(),transform)
-        new_center=self.canvas.view.mapToScene(self.canvas.view.viewport().rect().center()); self.assertLess((new_center-center).manhattanLength(),5)
+        editor.close_editor(); wait_ms(5); self.assertEqual(self.canvas.view.transform(),transform)
+        new_center=self.canvas.view.mapToScene(self.canvas.view.viewport().rect().center())
+        # QGraphicsView centerOn rounds its integer scroll bars. At a small
+        # fit scale a sub-pixel viewport error exceeds five scene units.
+        delta=transform.map(new_center)-transform.map(center)
+        self.assertLessEqual(abs(delta.x()),1);self.assertLessEqual(abs(delta.y()),1)
     def test_unreadable_source_and_excessive_dimensions_stop_generation(self):
         invalid=document(16000,16000)
         with self.assertRaises(ValueError): validate_image(invalid)

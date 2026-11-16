@@ -1,4 +1,5 @@
 """Execute clicks, native receipts and real queue/history reconciliation for Stage routing."""
+from _qt_wait import wait_ms
 import unittest
 from unittest.mock import patch
 from PySide6.QtCore import Qt
@@ -102,7 +103,7 @@ class StageLifecycleTests(StageTests):
         current=self.runner.store.read(run)
         self.assertEqual((current['status'],current['free_state']),('running','retained'),self.notices)
         self.assertFalse(self.executor.cancelled)
-        pending.pop()();QTest.qWait(30)
+        pending.pop()();wait_ms(30)
         self.assertEqual([r['workflow'] for r in self.executor.applied],['D'])
         self.assertEqual(self.workflows(),['flow'],self.notices)
         self.executor.finish();self.assertEqual(self.runner.store.read(run)['status'],'complete',self.notices)
@@ -123,7 +124,7 @@ class StageLifecycleTests(StageTests):
         restored=restore_snapshot(original,make_snapshot(self.w.state))
         self.runner.workspace_changed(original['workspace']);self.w.state=restored
         self.c.last_state=self.c.history_state();self.w.refresh_workspaces();self.w.refresh_builder()
-        QTest.qWait(40);self.w.remember_canvas_view()
+        wait_ms(40);self.w.remember_canvas_view()
         after=capture(self.c);imported=self.w.state['workspace']
         self.assertNotEqual(imported,original['workspace'])
         request=self.w.comfy.request;held=[];cancelled=[]
@@ -143,13 +144,13 @@ class StageLifecycleTests(StageTests):
         operation=held[0][0]['id'];self.assertEqual(self.executor.native.status(operation)['state'],'pending')
         self.c.undo_stack=[(before,after)];self.c.redo_stack=[]
         self.c.view.setFocus();self.c.view.scene().clearFocus()
-        QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(30)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(30)
         self.assertEqual(self.w.state['workspace'],original['workspace'],self.notices)
         self.assertNotIn(targets[0],self.c.data()['image_inputs'])
         self.assertEqual(cancelled,[operation])
         self.assertEqual(self.executor.native.poll(self.executor.live)['commands'],[])
         for data,done in held:done(self.executor.native.status(data['id']))
-        QTest.keyClick(self.c.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);QTest.qWait(80)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);wait_ms(80)
         self.assertEqual(self.w.state['workspace'],imported,self.notices)
         self.assertIn(targets[0],self.c.data()['image_inputs'])
         self.assertEqual(self.runner.store.rows('attempt',owner=run['id']),attempts)
@@ -184,7 +185,7 @@ class StageLifecycleTests(StageTests):
         self.assertEqual(self.runner.current()['status'],'paused')
         self.controls.refresh();self.assertEqual(self.controls.run_button.text(),'繼續')
         groups=self.runner.store.schedule_groups(self.w.state['workspace'],key)
-        QTest.mouseClick(self.controls.run_button,Qt.MouseButton.LeftButton);QTest.qWait(40)
+        QTest.mouseClick(self.controls.run_button,Qt.MouseButton.LeftButton);wait_ms(40)
         self.assertEqual([g['id'] for g in self.runner.store.schedule_groups(self.w.state['workspace'],key)],[g['id'] for g in groups])
         self.assertEqual(len(self.executor.submissions),2,self.notices);self.executor.finish()
         self.click();self.assertEqual(len(self.executor.submissions),3,self.notices);self.executor.finish()

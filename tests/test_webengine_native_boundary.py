@@ -1,4 +1,5 @@
 """Browser loading must not change the workspace's Windows rendering surface."""
+from _qt_wait import wait_ms
 import os
 import unittest
 from unittest.mock import patch
@@ -28,7 +29,7 @@ class NativeBrowserBoundaryTests(unittest.TestCase):
         if self.app.platformName() != 'windows':
             self.skipTest('Windows native child / raster backing store')
         self.window.show()
-        QTest.qWait(30)
+        wait_ms(30)
         self.handle = int(self.window.winId())
         self.events = []
         events = self.events
@@ -69,21 +70,21 @@ class NativeBrowserBoundaryTests(unittest.TestCase):
         self.check_shell('reader-ready')
         for mode in ('write', 'source', 'read'):
             surface.set_mode(mode)
-            QTest.qWait(30)
+            wait_ms(30)
             if mode == 'read':
                 self.assert_reading(surface)
             else:
                 self.assertFalse(surface.reader.rich.isVisible())
             self.check_shell(mode)
         self.window.resize(1000, 700)
-        QTest.qWait(80)
+        wait_ms(80)
         self.assert_reading(surface)
         self.window.move_view(tab)
-        QTest.qWait(80)
+        wait_ms(80)
         self.assert_reading(surface)
         self.check_shell('moved-pane')
         self.window.open_path(self.other)
-        QTest.qWait(30)
+        wait_ms(30)
         self.assertFalse(surface.reader.rich.isVisible())
         self.check_shell('other-tab')
 
@@ -132,7 +133,7 @@ class NativeBrowserBoundaryTests(unittest.TestCase):
         self.assertFalse(body.testAttribute(Qt.WidgetAttribute.WA_NativeWindow))
         bar = page.scroll.verticalScrollBar()
         bar.setValue(max(0, bar.maximum()//2))
-        QTest.qWait(30)
+        wait_ms(30)
         self.assertFalse(page.scroll.viewport().testAttribute(Qt.WidgetAttribute.WA_NativeWindow))
         self.check_shell('chat-ready')
         self.window.workspace_stack.setCurrentWidget(previous)

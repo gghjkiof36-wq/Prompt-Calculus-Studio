@@ -1,4 +1,5 @@
 """Scoped module UI checks using real Qt events and disposable state."""
+from _qt_wait import wait_ms
 import copy
 import sys
 from unittest.mock import patch
@@ -27,10 +28,10 @@ class ModuleRedesignTests(StageFixture):
         self.assertFalse(self.qt_errors, self.qt_errors)
 
     def click_card(self, card, rect):
-        self.view.centerOn(card); QTest.qWait(5)
+        self.view.centerOn(card); wait_ms(5)
         point = self.view.mapFromScene(card.mapToScene(rect.center()))
         QTest.mouseClick(self.view.viewport(), Qt.MouseButton.LeftButton, pos=point)
-        QTest.qWait(5)
+        wait_ms(5)
 
     def weight_editor(self, key='root'):
         card = self.c.cards[key]
@@ -76,7 +77,7 @@ class ModuleRedesignTests(StageFixture):
         edit = self.weight_editor()
         QTest.keyClicks(edit, '-1.5')
         self.assertEqual(self.w.state['uses']['root']['weight'], 10)
-        QTest.keyClick(edit, Qt.Key.Key_Return); QTest.qWait(15)
+        QTest.keyClick(edit, Qt.Key.Key_Return); wait_ms(15)
         self.assertEqual(self.w.state['uses']['root']['weight'], -15)
         self.assertEqual(len(self.c.undo_stack), count + 1)
         self.c.undo(); self.assertEqual(self.w.state['uses']['root']['weight'], 10)
@@ -94,7 +95,7 @@ class ModuleRedesignTests(StageFixture):
             edit = self.weight_editor(); edit.setText(text)
             QTest.mouseClick(self.view.viewport(), Qt.MouseButton.LeftButton,
                              pos=self.view.viewport().rect().bottomRight() - QPoint(10,10))
-            QTest.qWait(15)
+            wait_ms(15)
             self.assertEqual(self.w.state['uses']['root']['weight'], expected, text)
 
     def test_weight_escape_and_input_method_do_not_edit_canvas(self):
@@ -106,7 +107,7 @@ class ModuleRedesignTests(StageFixture):
         QTest.keyClick(edit,Qt.Key.Key_Return)
         self.assertFalse(edit.finished)
         self.assertEqual(self.w.state['uses']['root']['weight'], 10)
-        QTest.keyClick(edit, Qt.Key.Key_Escape); QTest.qWait(10)
+        QTest.keyClick(edit, Qt.Key.Key_Escape); wait_ms(10)
         self.assertEqual(len(self.c.undo_stack), count)
         self.assertEqual(self.w.state['uses']['root']['weight'], 10)
         edit = self.weight_editor()
@@ -120,7 +121,7 @@ class ModuleRedesignTests(StageFixture):
         self.c.commit(lambda s: s['uses']['root'].update(collapsed=False, children=[child]))
         key = 'root:' + child['id']
         edit = self.weight_editor(key); QTest.keyClicks(edit, '-100')
-        QTest.keyClick(edit, Qt.Key.Key_Return); QTest.qWait(15)
+        QTest.keyClick(edit, Qt.Key.Key_Return); wait_ms(15)
         self.assertEqual(self.w.state['uses']['root']['children'][0]['weight'], -1000)
         self.assertEqual(self.w.state['uses']['root']['weight'], 10)
         self.click_card(self.c.cards[key], self.c.cards[key].minus_rect)
@@ -188,13 +189,13 @@ class ModuleRedesignTests(StageFixture):
         from prompt_calculus_studio.function_picker import FunctionPicker, FUNCTIONS
         from prompt_calculus_studio.canvas_items import TextCard
         from prompt_calculus_studio.flow_items import CanvasContainer
-        QTest.qWait(400);self.w.persist()
+        wait_ms(400);self.w.persist()
         before=copy.deepcopy(self.w.state); count=len(self.c.undo_stack)
-        dialog=FunctionPicker(self.c,QPointF(2100,1200));dialog.show();QTest.qWait(15)
+        dialog=FunctionPicker(self.c,QPointF(2100,1200));dialog.show();wait_ms(15)
         try:
             self.assertEqual(dialog.list.count(),11)
             for i,kind in enumerate(FUNCTIONS):
-                dialog.list.setCurrentRow(i);QTest.qWait(5)
+                dialog.list.setCurrentRow(i);wait_ms(5)
                 self.assertIsInstance(dialog.preview.card,(TextCard,CanvasContainer))
                 self.assertFalse(dialog.preview.isInteractive())
                 self.assertEqual(dialog.name.text(),kind[1])
@@ -205,13 +206,13 @@ class ModuleRedesignTests(StageFixture):
             self.assertTrue(dialog.empty.isVisible());self.assertIsNone(dialog.preview.card)
             dialog.search.clear();dialog.reject()
             self.assertEqual(self.w.state,before)
-        finally:dialog.close();dialog.deleteLater();QTest.qWait(1)
+        finally:dialog.close();dialog.deleteLater();wait_ms(1)
 
     def test_function_picker_enter_inserts_once_at_requested_position(self):
         from prompt_calculus_studio.function_picker import FunctionPicker
-        dialog=FunctionPicker(self.c,QPointF(2100,1200));dialog.show();QTest.qWait(10)
+        dialog=FunctionPicker(self.c,QPointF(2100,1200));dialog.show();wait_ms(10)
         existing=set(self.c.data()['canvases']);count=len(self.c.undo_stack)
-        dialog.search.setText('畫布');QTest.keyClick(dialog.search,Qt.Key.Key_Return);QTest.qWait(15)
+        dialog.search.setText('畫布');QTest.keyClick(dialog.search,Qt.Key.Key_Return);wait_ms(15)
         added=set(self.c.data()['canvases'])-existing;self.assertEqual(len(added),1)
         self.assertEqual(self.c.data()['canvases'][added.pop()]['position'],[2100,1200])
         self.assertEqual(len(self.c.undo_stack),count+1)
@@ -222,7 +223,7 @@ class ModuleRedesignTests(StageFixture):
     def test_function_picker_single_click_and_add_button_insert_once(self):
         from prompt_calculus_studio.function_picker import FunctionPicker
         for by_button in (False,True):
-            dialog=FunctionPicker(self.c,QPointF(2100,1200));dialog.show();QTest.qWait(10)
+            dialog=FunctionPicker(self.c,QPointF(2100,1200));dialog.show();wait_ms(10)
             dialog.search.setText('CLIP 輸入');existing=set(self.c.data()['clip_inputs'])
             if by_button:QTest.mouseClick(dialog.add_button,Qt.MouseButton.LeftButton)
             else:
@@ -230,7 +231,7 @@ class ModuleRedesignTests(StageFixture):
                 QTest.mouseClick(dialog.list.viewport(),Qt.MouseButton.LeftButton,pos=point)
                 self.assertEqual(len(set(self.c.data()['clip_inputs'])-existing),1)
                 QTest.mouseDClick(dialog.list.viewport(),Qt.MouseButton.LeftButton,pos=point)
-            QTest.qWait(15)
+            wait_ms(15)
             self.assertEqual(len(set(self.c.data()['clip_inputs'])-existing),1)
             dialog.deleteLater()
 
@@ -242,12 +243,12 @@ class ModuleRedesignTests(StageFixture):
         for key in self.c.data()['canvases'][self.cid]['members']:
             card=self.c.cards[key]
             self.assertFalse(card.mapRectToScene(card.shape().boundingRect()).intersects(footer))
-        self.view.centerOn(center);QTest.qWait(10)
-        QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=self.view.mapFromScene(center));QTest.qWait(20)
+        self.view.centerOn(center);wait_ms(10)
+        QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=self.view.mapFromScene(center));wait_ms(20)
         self.assertIsNone(self.view.pan)
         self.assertIsNotNone(self.c.editor_page)
         self.assertTrue(self.c.editor_page.isVisible())
-        self.c.editor_page.close_editor();QTest.qWait(15)
+        self.c.editor_page.close_editor();wait_ms(15)
         self.assertIsNone(self.c.editor_page)
 
     def test_container_size_menu_and_collapsed_function_resize_preserve_expanded_size(self):
@@ -267,7 +268,7 @@ class ModuleRedesignTests(StageFixture):
         from PySide6.QtWidgets import QDialog
         from prompt_calculus_studio.clip_widgets import ClipBindingDialog
         self.w.settings_page.workflow_manager.catalog.loaded=True
-        d=ClipBindingDialog(self.c,self.clip);d.show();QTest.qWait(10)
+        d=ClipBindingDialog(self.c,self.clip);d.show();wait_ms(10)
         self.assertTrue(d.save_button.isEnabled())
         d.workflow.setCurrentIndex(d.workflow.findData('B'))
         self.assertFalse(d.save_button.isEnabled());QTest.mouseClick(d.save_button,Qt.MouseButton.LeftButton)
@@ -305,7 +306,7 @@ class ModuleRedesignTests(StageFixture):
         created=[];self.c.commit(lambda s:created.append(add_image_input(s)))
         key=created[0];panel=self.c.flow_cards[key].panel
         self.assertEqual(panel.choose.text(),'未綁定 · 選擇節點');self.assertTrue(panel.choose.property('modulePending'))
-        d=ImageInputDialog(self.c,key);d.show();QTest.qWait(5)
+        d=ImageInputDialog(self.c,key);d.show();wait_ms(5)
         d.workflow.setCurrentIndex(d.workflow.findData('B'));d.target.setCurrentIndex(d.target.findData('10'))
         self.assertTrue(d.save_button.isEnabled());QTest.mouseClick(d.save_button,Qt.MouseButton.LeftButton);d.apply();d.deleteLater()
         self.assertEqual(self.c.data()['image_inputs'][key]['node'],'10');self.assertIn('#10',panel.choose.text())

@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -36,14 +37,14 @@ class CivitAIUiTests(unittest.TestCase):
 
     def test_identification_commits_completed_batch(self):
         model=self.models/'loras'/'x.safetensors'; model.write_bytes(b'x'); self.w.models.scan()
-        while self.w.jobs.active: QTest.qWait(10)
+        while self.w.jobs.active: wait_ms(10)
         rows=self.w.catalog.rows('model',str(self.models.resolve()),limit=20)
         enriched=[{**rows[0],'sha256':'A'*64,'hash_size':1,'hash_mtime':model.stat().st_mtime_ns,
             'civitai_status':'matched','civitai_model_id':11,'civitai_version_id':22,'base_model':'Illustrious',
             'creator':'maker','civitai':{'provider':'civitai','model_id':11,'version_id':22,'sha256':'A'*64}}]
         with patch('prompt_calculus_studio.pages.load_token',return_value=''),patch('prompt_calculus_studio.pages.identify_models',return_value=enriched):
             self.w.models.identify_civitai()
-            while self.w.jobs.active: QTest.qWait(10)
+            while self.w.jobs.active: wait_ms(10)
         saved=self.w.catalog.get(rows[0]['id']); self.assertEqual(saved['civitai_version_id'],22)
         self.assertEqual(self.w.catalog.source_for_hash('A'*64)['model_id'],11)
 

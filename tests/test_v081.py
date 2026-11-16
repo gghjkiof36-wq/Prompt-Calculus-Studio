@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import copy,hashlib,json,os,tempfile,threading,unittest,zipfile
 from pathlib import Path
 from unittest.mock import patch
@@ -108,7 +109,7 @@ class UiTests(unittest.TestCase):
     def wait(self):
         for _ in range(1000):
             if not self.w.jobs.active and not self.p.browse_jobs.active and not self.p.pending_search:return
-            QTest.qWait(10)
+            wait_ms(10)
         self.fail('worker did not finish')
     def test_download_dialog_freezes_selected_file_type_category_and_location(self):
         dialog=DownloadDialog(self.w,self.parent,self.v); dialog.category.setCurrentText('角色'); dialog.confirm()

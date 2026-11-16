@@ -1,4 +1,5 @@
 """Disclosure geometry, hover feedback and the rendered material draft agree."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from PySide6.QtCore import Qt,QPoint,QPointF,QTimer,QEvent,QObject
@@ -31,7 +32,7 @@ class PromptDialogTests(unittest.TestCase):
         dialog,ed=self.create();first=ed.sequence['groups'][0]
         first.update(input='modules',modules=[comp.node('自然站立','standing, smile, smile'),comp.node('微笑','smile, (smile:1.2)')])
         ed.sequence['groups'].append(groups.new_group('組合 2','garden, garden'))
-        ed.refresh_overview();QTest.qWait(30)
+        ed.refresh_overview();wait_ms(30)
         return dialog,ed
 
     def cycle(self,dialog,toggle):
@@ -40,11 +41,11 @@ class PromptDialogTests(unittest.TestCase):
         surface=dialog.presentation.surface;closed=QRect(surface.geometry());native=QRect(dialog.geometry())
         for _ in range(3):
             QTest.mouseClick(toggle,Qt.MouseButton.LeftButton)
-            QTest.qWait(220)
+            wait_ms(220)
             self.assertGreater(surface.height(),closed.height())
             self.assertEqual(dialog.geometry(),native,'disclosure must not move or resize the native window')
             QTest.mouseClick(toggle,Qt.MouseButton.LeftButton)
-            QTest.qWait(220)
+            wait_ms(220)
             # Fractional DPI can round the centered child by one logical pixel.
             # Compare every edge to the original, so repeated cycles cannot drift.
             actual=surface.geometry()
@@ -57,7 +58,7 @@ class PromptDialogTests(unittest.TestCase):
         def settle():
             for _ in range(60):
                 if dialog.panels.motion.state()==dialog.panels.motion.State.Stopped:return
-                QTest.qWait(10)
+                wait_ms(10)
             self.fail('side-card animation did not finish')
         for _ in range(3):
             QTest.mouseClick(toggle,Qt.MouseButton.LeftButton)
@@ -72,12 +73,12 @@ class PromptDialogTests(unittest.TestCase):
             self.assertFalse(dialog.panels.side.isVisible())
 
     def test_close_during_side_motion_stops_timer_and_reopen_is_collapsed(self):
-        dialog=self.page.new_material(); QTest.qWait(30)
+        dialog=self.page.new_material(); wait_ms(30)
         dialog.pages.details_toggle.setChecked(True)
         self.assertEqual(dialog.panels.motion.state(), dialog.panels.motion.State.Running)
         dialog.reject()
         self.assertEqual(dialog.panels.motion.state(), dialog.panels.motion.State.Stopped)
-        reopened=self.page.new_material(); QTest.qWait(30)
+        reopened=self.page.new_material(); wait_ms(30)
         self.assertFalse(reopened.panels.opened)
         self.assertFalse(reopened.panels.side.isVisible())
         reopened.reject()
@@ -97,9 +98,9 @@ class PromptDialogTests(unittest.TestCase):
         self.assertFalse(hasattr(ed,'overview_preview_toggle'))
         self.assertEqual([c for c in dialog.pages.findChildren(QCheckBox) if c.isVisible()],[])
         listing_fits()
-        ed.edit_group(ed.sequence['groups'][0]['id']);QTest.qWait(30)
+        ed.edit_group(ed.sequence['groups'][0]['id']);wait_ms(30)
         self.side_cycle(dialog,ed.preview_toggle)
-        ed.back();QTest.qWait(30)
+        ed.back();wait_ms(30)
         listing_fits()
         self.assertEqual(dialog.form_scroll.verticalScrollBar().maximum(),0)
         dialog.reject()
@@ -107,7 +108,7 @@ class PromptDialogTests(unittest.TestCase):
     def test_excludes_visibility_and_height_change_together_and_keep_edits(self):
         self.w.resize(1440,1100)
         root=comp.node('自然站立','standing, smile, smile')
-        dialog=NodeDialog(self.w,root);dialog.show();QTest.qWait(40)
+        dialog=NodeDialog(self.w,root);dialog.show();wait_ms(40)
         self.cycle(dialog,dialog.excludes_toggle)
         dialog.excludes_toggle.setChecked(True)
         dialog.excludes.setPlainText('standing');dialog.dedupe.setChecked(True)
@@ -121,33 +122,33 @@ class PromptDialogTests(unittest.TestCase):
         root=comp.node('運動')
         a=groups.new_group('跑步','running, stadium');b=groups.new_group('跳躍','jumping, stadium')
         root['sequence']=dict(version=1,mode='increment',selected=a['id'],start=a['id'],groups=[a,b])
-        self.w.resize(1440,900);dialog=NodeDialog(self.w,root);dialog.show();QTest.qWait(30)
+        self.w.resize(1440,900);dialog=NodeDialog(self.w,root);dialog.show();wait_ms(30)
         for _ in range(3):
-            dialog.excludes_toggle.setChecked(True);QTest.qWait(20)
+            dialog.excludes_toggle.setChecked(True);wait_ms(20)
             bounds=dialog.screen().availableGeometry().adjusted(20,20,-20,-20)
             self.assertTrue(bounds.contains(dialog.geometry()),str(dialog.geometry()))
             self.assertGreaterEqual(self.w.mapToGlobal(self.w.rect().bottomRight()).y()-dialog.geometry().bottom(),12)
-            dialog.excludes_toggle.setChecked(False);QTest.qWait(20)
+            dialog.excludes_toggle.setChecked(False);wait_ms(20)
         dialog.reject()
 
     def test_small_window_scrolls_without_losing_controls_or_footer(self):
         dialog,ed=self.populated();self.w.resize(1040,560)
-        dialog.fit_page();QTest.qWait(20)
-        ed.edit_group(ed.sequence['groups'][0]['id']);QTest.qWait(20)
+        dialog.fit_page();wait_ms(20)
+        ed.edit_group(ed.sequence['groups'][0]['id']);wait_ms(20)
         for _ in range(2):
-            ed.preview_toggle.setChecked(True);QTest.qWait(20)
+            ed.preview_toggle.setChecked(True);wait_ms(20)
             self.assertLessEqual(dialog.height(),self.w.height()-24)
-            dialog.form_scroll.ensureWidgetVisible(ed.preview_toggle);QTest.qWait(20)
+            dialog.form_scroll.ensureWidgetVisible(ed.preview_toggle);wait_ms(20)
             point=ed.preview_toggle.mapTo(dialog.form_scroll.viewport(),QPoint(8,8))
             self.assertTrue(dialog.form_scroll.viewport().rect().contains(point))
             self.assertTrue(dialog.rect().contains(dialog.done_button.mapTo(dialog,dialog.done_button.rect().center())))
-            ed.preview_toggle.setChecked(False);QTest.qWait(20)
+            ed.preview_toggle.setChecked(False);wait_ms(20)
         dialog.reject()
 
     def test_dedupe_preview_save_reopen_and_prose_match_rendered_output(self):
         dialog,ed=self.populated()
         original=copy.deepcopy(ed.sequence)
-        ed.edit_group(ed.sequence['groups'][0]['id']);QTest.qWait(20)
+        ed.edit_group(ed.sequence['groups'][0]['id']);wait_ms(20)
         self.assertEqual(ed.preview.toPlainText(),'standing, smile, smile, smile, (smile:1.2)')
         def enable_dedupe():
             node=ed.active_node_dialog;node.excludes_toggle.setChecked(True)
@@ -158,17 +159,17 @@ class PromptDialogTests(unittest.TestCase):
         self.assertEqual(ed.current_group['modules'][0]['prompt'],original['groups'][0]['modules'][0]['prompt'])
         ed.back()
         self.assertEqual(comp.render(dialog._value()['composition']),expected)
-        ident=dialog.initial_id;QTest.mouseClick(dialog.save_button,Qt.MouseButton.LeftButton);QTest.qWait(20)
+        ident=dialog.initial_id;QTest.mouseClick(dialog.save_button,Qt.MouseButton.LeftButton);wait_ms(20)
         saved=materials.item(self.w.state,ident)
         self.assertEqual(comp.render(saved['composition']),expected)
-        dialog=self.page.edit_material(ident);ed=dialog.pages.group_editor;QTest.qWait(20)
+        dialog=self.page.edit_material(ident);ed=dialog.pages.group_editor;wait_ms(20)
         self.assertFalse(hasattr(dialog.pages,'dedupe'));self.assertFalse(hasattr(ed,'overview_preview'))
         ed.edit_group(ed.sequence['groups'][1]['id']);ed.direct_kind.setCurrentIndex(ed.direct_kind.findData('text'))
         self.assertEqual(ed.preview.toPlainText(),'garden, garden','prose must not be treated as tags')
         dialog.reject()
 
     def test_highlight_follows_pointer_and_keyboard_without_sticky_selection(self):
-        dialog,ed=self.populated();ed.edit_group(ed.sequence['groups'][0]['id']);QTest.qWait(30)
+        dialog,ed=self.populated();ed.edit_group(ed.sequence['groups'][0]['id']);wait_ms(30)
         listing=ed.modules;first=listing.visualItemRect(listing.item(0));second=listing.visualItemRect(listing.item(1))
         def colors():
             image=listing.viewport().grab().toImage()
@@ -177,13 +178,13 @@ class PromptDialogTests(unittest.TestCase):
             # Offscreen QTest.mouseMove changes the cursor but does not deliver a native move.
             event=QMouseEvent(QEvent.Type.MouseMove,QPointF(pos),QPointF(listing.viewport().mapToGlobal(pos)),
                 Qt.MouseButton.NoButton,Qt.MouseButton.NoButton,Qt.KeyboardModifier.NoModifier)
-            self.app.sendEvent(listing.viewport(),event);QTest.qWait(20)
-        QTest.mouseClick(listing.viewport(),Qt.MouseButton.LeftButton,pos=first.center());QTest.qWait(20)
+            self.app.sendEvent(listing.viewport(),event);wait_ms(20)
+        QTest.mouseClick(listing.viewport(),Qt.MouseButton.LeftButton,pos=first.center());wait_ms(20)
         hover(second.center())
         a,b=colors();self.assertNotEqual(a,b)
         self.app.sendEvent(listing.viewport(),QEvent(QEvent.Type.Leave))
-        QTest.qWait(20);self.assertEqual(*colors(),'mouse selection must not remain highlighted')
-        listing.setFocus(Qt.FocusReason.TabFocusReason);QTest.keyClick(listing,Qt.Key.Key_Down);QTest.qWait(20)
+        wait_ms(20);self.assertEqual(*colors(),'mouse selection must not remain highlighted')
+        listing.setFocus(Qt.FocusReason.TabFocusReason);QTest.keyClick(listing,Qt.Key.Key_Down);wait_ms(20)
         self.assertNotEqual(*colors(),'keyboard navigation retains visible focus')
         hover(first.center())
         self.assertEqual(colors(),[b,a]);dialog.reject()
@@ -192,17 +193,17 @@ class PromptDialogTests(unittest.TestCase):
         dialog,ed=self.populated();root=dialog._value()['composition'];dialog.reject();keys=[]
         self.w.canvas.commit(lambda state:keys.append(sources.add(state,root=root)))
         self.w.enter_canvas();dialog=GroupSourceDialog(self.w.canvas,keys[0]);dialog.show()
-        dialog.open_group(root['sequence']['groups'][0]['id']);QTest.qWait(40)
+        dialog.open_group(root['sequence']['groups'][0]['id']);wait_ms(40)
         self.side_cycle(dialog,dialog.preview_toggle)
         self.assertEqual(dialog.preview.toPlainText(),comp.render(root));dialog.reject()
 
     def test_single_material_grows_right_without_compressing_prompt(self):
-        self.w.resize(1440,1100);dialog=self.page.new_material();QTest.qWait(40)
+        self.w.resize(1440,1100);dialog=self.page.new_material();wait_ms(40)
         self.assertLessEqual(dialog.panels.main.width(),600);self.assertGreaterEqual(dialog.prompt.height(),280)
         original=dialog.geometry();prompt_width=dialog.prompt.width();prompt_height=dialog.prompt.height();name_width=dialog.name.width()
         main_position=dialog.panels.main.mapToGlobal(QPoint())
         closed_icon=dialog.pages.details_toggle.icon().cacheKey()
-        QTest.mouseClick(dialog.pages.details_toggle,Qt.MouseButton.LeftButton);QTest.qWait(260)
+        QTest.mouseClick(dialog.pages.details_toggle,Qt.MouseButton.LeftButton);wait_ms(260)
         self.assertEqual(dialog.geometry(),original)
         self.assertGreater(dialog.panels.side.width(),300)
         self.assertLess(dialog.panels.main.mapToGlobal(QPoint()).x(),main_position.x());self.assertAlmostEqual(dialog.prompt.width(),prompt_width,delta=2)
@@ -211,18 +212,18 @@ class PromptDialogTests(unittest.TestCase):
         self.assertGreaterEqual(dialog.prompt.height(),prompt_height)
         self.assertNotEqual(dialog.pages.details_toggle.icon().cacheKey(),closed_icon)
         self.assertTrue(dialog.pages.details.isVisible())
-        QTest.mouseClick(dialog.pages.details_toggle,Qt.MouseButton.LeftButton);QTest.qWait(260)
+        QTest.mouseClick(dialog.pages.details_toggle,Qt.MouseButton.LeftButton);wait_ms(260)
         self.assertEqual(dialog.width(),original.width());self.assertEqual(dialog.prompt.width(),prompt_width)
         self.assertFalse(dialog.pages.details.isVisible());dialog.reject()
 
     def test_picker_adds_once_and_returns_to_group_immediately(self):
-        dialog,ed=self.populated();ed.edit_group(ed.sequence['groups'][0]['id']);ed.open_picker();QTest.qWait(30)
-        ed.search.setText('Bravo');QTest.qWait(20);before=len(ed.current_group['modules'])
+        dialog,ed=self.populated();ed.edit_group(ed.sequence['groups'][0]['id']);ed.open_picker();wait_ms(30)
+        ed.search.setText('Bravo');wait_ms(20);before=len(ed.current_group['modules'])
         listing=ed.candidates;item=listing.item(0)
         QTest.mouseClick(listing.viewport(),Qt.MouseButton.LeftButton,pos=listing.visualItemRect(item).center())
         self.assertEqual(ed.stack.currentIndex(),1);self.assertEqual(len(ed.current_group['modules']),before+1)
         ed.pick_material(self.ids[0]);self.assertEqual(len(ed.current_group['modules']),before+1)
-        ed.open_picker();QTest.qWait(20);self.assertEqual(ed.search.text(),'Bravo')
+        ed.open_picker();wait_ms(20);self.assertEqual(ed.search.text(),'Bravo')
         listing.setCurrentRow(0);QTest.keyClick(listing,Qt.Key.Key_Return)
         self.assertEqual(ed.stack.currentIndex(),1);self.assertEqual(len(ed.current_group['modules']),before+2)
         self.assertFalse(ed.listing.item(0).toolTip());self.assertFalse(ed.modules.item(0).toolTip());dialog.reject()
@@ -239,32 +240,32 @@ class PromptDialogTests(unittest.TestCase):
         self.assertTrue(dialog._value()['composition']['deduplicate']);dialog.reject()
 
     def test_direct_input_preview_collapse_restores_editor_height(self):
-        dialog,ed=self.populated();ed.edit_group(ed.sequence['groups'][1]['id']);QTest.qWait(30)
+        dialog,ed=self.populated();ed.edit_group(ed.sequence['groups'][1]['id']);wait_ms(30)
         height=ed.direct_text.height();self.side_cycle(dialog,ed.preview_toggle)
         self.assertEqual(ed.direct_text.height(),height)
         self.assertEqual(ed.direct_text.toPlainText(),'garden, garden');dialog.reject()
 
     def test_group_advanced_only_has_relevant_fields_and_adjacent_excludes(self):
         dialog,ed=self.populated();dialog.form.lookup.setChecked(True)
-        dialog.pages.show_group_details();QTest.qWait(30)
+        dialog.pages.show_group_details();wait_ms(30)
         self.assertFalse(dialog.form.prompt.lookup_active())
         self.assertFalse(dialog.form.lookup.isVisible());self.assertFalse(dialog.form.kind.isVisible())
         self.assertEqual([dialog.pages.details.tabText(i) for i in range(dialog.pages.details.count())],['資訊','排除 Tag','預覽圖'])
-        dialog.pages.details.setCurrentIndex(1);QTest.qWait(30)
+        dialog.pages.details.setCurrentIndex(1);wait_ms(30)
         pane=dialog.pages.details.currentWidget();title=pane.layout().itemAt(0).widget()
         self.assertLessEqual(dialog.form.excludes.y()-title.geometry().bottom(),12)
         self.assertEqual(dialog.form.excludes.placeholderText(),'')
-        self.assertTrue(dialog.history_button.isVisible());dialog.pages.close_group_details();QTest.qWait(260)
+        self.assertTrue(dialog.history_button.isVisible());dialog.pages.close_group_details();wait_ms(260)
         self.assertEqual(dialog.pages.stack.currentIndex(),1);dialog.reject()
 
     def test_history_selects_latest_and_can_restore_group_content(self):
         from prompt_calculus_studio.prompt_editor import HistoryPanel
         dialog,ed=self.populated();ident=dialog.initial_id
-        QTest.mouseClick(dialog.save_button,Qt.MouseButton.LeftButton);QTest.qWait(20)
+        QTest.mouseClick(dialog.save_button,Qt.MouseButton.LeftButton);wait_ms(20)
         dialog=self.page.edit_material(ident);ed=dialog.pages.group_editor
         ed.edit_group(ed.sequence['groups'][1]['id']);ed.direct_text.setPlainText('rainy street')
-        ed.back();QTest.mouseClick(dialog.save_button,Qt.MouseButton.LeftButton);QTest.qWait(20)
-        panel=HistoryPanel(self.w,ident);panel.resize(820,420);panel.show();QTest.qWait(20)
+        ed.back();QTest.mouseClick(dialog.save_button,Qt.MouseButton.LeftButton);wait_ms(20)
+        panel=HistoryPanel(self.w,ident);panel.resize(820,420);panel.show();wait_ms(20)
         self.assertEqual(panel.listing.currentRow(),0);self.assertIn('rainy street',panel.detail.toPlainText())
         self.assertIn('garden, garden',panel.detail.toPlainText());self.assertFalse(panel.targets.isVisible())
         panel.restore(True)
@@ -280,24 +281,24 @@ class PromptDialogTests(unittest.TestCase):
                 return False
         probe=ShowProbe();self.app.installEventFilter(probe)
         try:
-            dialog=self.page.new_material();QTest.qWait(30)
+            dialog=self.page.new_material();wait_ms(30)
             self.assertEqual(shown,['MaterialEditDialog'])
             self.assertNotIn('展開長文',[b.text() for b in dialog.findChildren(QPushButton)])
-            dialog.pages.type_picker.setCurrentIndex(1);QTest.qWait(20)
-            self.assertEqual(shown,['MaterialEditDialog']);dialog.reject();QTest.qWait(20)
+            dialog.pages.type_picker.setCurrentIndex(1);wait_ms(20)
+            self.assertEqual(shown,['MaterialEditDialog']);dialog.reject();wait_ms(20)
             # Follow the actual library double-click entry, for every visible item.
             for i in range(self.page.listing.count()):
-                listing=self.page.listing;listing.scrollToItem(listing.item(i));QTest.qWait(10)
+                listing=self.page.listing;listing.scrollToItem(listing.item(i));wait_ms(10)
                 shown.clear();point=listing.visualItemRect(listing.item(i)).center()
                 QTest.mouseClick(listing.viewport(),Qt.MouseButton.LeftButton,pos=point)
                 QTest.mouseDClick(listing.viewport(),Qt.MouseButton.LeftButton,pos=point)
                 self.assertIsNotNone(self.page.active_dialog,'the second click opens immediately, without another click or timeout')
-                QTest.qWait(30)
+                wait_ms(30)
                 self.assertEqual(shown,['MaterialEditDialog'])
-                self.assertIsNotNone(self.page.active_dialog);self.page.active_dialog.reject();QTest.qWait(10)
+                self.assertIsNotNone(self.page.active_dialog);self.page.active_dialog.reject();wait_ms(10)
             shown.clear()
-            dialog=NodeDialog(self.w,comp.node('模組','smile'));dialog.show();QTest.qWait(20)
-            dialog.excludes_toggle.setChecked(True);QTest.qWait(20)
+            dialog=NodeDialog(self.w,comp.node('模組','smile'));dialog.show();wait_ms(20)
+            dialog.excludes_toggle.setChecked(True);wait_ms(20)
             self.assertEqual(shown,['NodeDialog']);dialog.reject()
         finally:self.app.removeEventFilter(probe)
 
@@ -305,11 +306,11 @@ class PromptDialogTests(unittest.TestCase):
         dialog=self.page.new_material();dialog.name.setText('單模組');dialog.prompt.setPlainText('smile')
         self.assertEqual(dialog.form.kind.currentData(),'tags');single=dialog.initial_id;self.assertTrue(dialog.save())
         dialog=self.page.new_material();dialog.name.setText('流程 A');dialog.pages.type_picker.setCurrentIndex(dialog.pages.type_picker.findData('flow'))
-        dialog.pages.show_group_details();QTest.qWait(20)
+        dialog.pages.show_group_details();wait_ms(20)
         self.assertTrue(dialog.pages.group_format.isVisible());self.assertEqual(dialog.pages.group_format.text(),'流程')
         grouped=dialog.initial_id;self.assertTrue(dialog.save())
         keys=[];self.w.canvas.commit(lambda state:keys.append(sources.add(state)))
-        reader=GroupSourceDialog(self.w.canvas,keys[0]);reader.show();QTest.qWait(20)
+        reader=GroupSourceDialog(self.w.canvas,keys[0]);reader.show();wait_ms(20)
         reader.open_picker()
         found={reader.candidates.item(i).data(Qt.ItemDataRole.UserRole) for i in range(reader.candidates.count())}
         self.assertIn(grouped,found);self.assertNotIn(single,found);reader.reject()
@@ -322,7 +323,7 @@ class PromptDialogTests(unittest.TestCase):
         for control in (self.page.new_button,):
             point=control.rect().center();self.app.sendEvent(control,QHelpEvent(QEvent.Type.ToolTip,point,control.mapToGlobal(point)))
             self.assertFalse(QToolTip.isVisible())
-        dialog=self.page.new_material();QTest.qWait(20)
+        dialog=self.page.new_material();wait_ms(20)
         close=dialog.findChild(QPushButton,'DialogClose');point=close.rect().center()
         self.app.sendEvent(close,QHelpEvent(QEvent.Type.ToolTip,point,close.mapToGlobal(point)))
         self.assertFalse(QToolTip.isVisible());self.assertTrue(close.accessibleName());dialog.reject()
@@ -337,7 +338,7 @@ class PromptDialogTests(unittest.TestCase):
         point=ed.listing.regions(ed.listing.visualItemRect(ed.listing.item(1)))['name'].center()
         QTest.mouseClick(ed.listing.viewport(),Qt.MouseButton.LeftButton,pos=point)
         self.assertEqual(ed.stack.currentIndex(),0)
-        QTest.mouseDClick(ed.listing.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(20)
+        QTest.mouseDClick(ed.listing.viewport(),Qt.MouseButton.LeftButton,pos=point);wait_ms(20)
         self.assertEqual(ed.stack.currentIndex(),1);self.assertEqual(ed.current_group['id'],before[0])
         modules=[m['id'] for m in ed.current_group['modules']]
         EditorReorderTests.drag(self,ed.modules,modules[1],modules[0])
@@ -351,24 +352,24 @@ class PromptDialogTests(unittest.TestCase):
         self.assertEqual(ed.current_group['modules'],before);dialog.reject()
 
     def test_separated_panels_animate_reverse_and_obey_reduced_motion(self):
-        dialog=self.page.new_material();QTest.qWait(30);panels=dialog.panels
+        dialog=self.page.new_material();wait_ms(30);panels=dialog.panels
         closed=dialog.geometry();main_start=panels.main.mapToGlobal(QPoint()).x()
-        dialog.pages.details_toggle.setChecked(True);QTest.qWait(70)
+        dialog.pages.details_toggle.setChecked(True);wait_ms(70)
         middle=panels.main.mapToGlobal(QPoint()).x();side_middle=panels.side.mapToGlobal(QPoint()).x()
         self.assertLess(middle,main_start);self.assertGreater(panels.progress,0);self.assertLess(panels.progress,1)
-        QTest.qWait(190)
+        wait_ms(190)
         self.assertLess(panels.main.mapToGlobal(QPoint()).x(),middle)
         self.assertGreater(panels.side.mapToGlobal(QPoint()).x(),side_middle)
         # Reverse a partly completed movement without leaving a detached panel.
-        dialog.pages.details_toggle.setChecked(False);QTest.qWait(60)
-        dialog.pages.details_toggle.setChecked(True);QTest.qWait(260)
+        dialog.pages.details_toggle.setChecked(False);wait_ms(60)
+        dialog.pages.details_toggle.setChecked(True);wait_ms(260)
         self.assertEqual(dialog.name.width(),dialog.prompt.width())
-        dialog.pages.details_toggle.setChecked(False);QTest.qWait(260)
+        dialog.pages.details_toggle.setChecked(False);wait_ms(260)
         self.assertEqual(dialog.geometry(),closed);self.assertFalse(panels.side.isVisible())
         self.w.state['settings']['reduce_motion']=True
         dialog.pages.details_toggle.setChecked(True)
         self.assertEqual(panels.progress,1.);self.assertEqual(panels.motion.state(),panels.motion.State.Stopped)
-        self.w.resize(900,640);QTest.qWait(30)
+        self.w.resize(900,640);wait_ms(30)
         self.assertTrue(panels.bounds().contains(dialog.geometry()))
         self.assertTrue(panels.rect().contains(panels.main.geometry()))
         self.assertTrue(panels.rect().contains(panels.side.geometry()))
@@ -382,7 +383,7 @@ class PromptDialogTests(unittest.TestCase):
         source=Path(self.folder.name)/'fixture.png';picture=QImage(800,600,QImage.Format.Format_RGB32)
         picture.fill(QColor('#758d80'));self.assertTrue(picture.save(str(source)))
         dialog=self.page.edit_material(self.ids[0]);dialog.pages.details_toggle.setChecked(True)
-        dialog.pages.details.setCurrentIndex(2);dialog.form.receive_image(str(source));QTest.qWait(260)
+        dialog.pages.details.setCurrentIndex(2);dialog.form.receive_image(str(source));wait_ms(260)
         preview=dialog.form.preview
         self.assertGreaterEqual(preview.width(),360);self.assertGreaterEqual(preview.height(),300)
         self.assertAlmostEqual(preview.pixmap().width()/preview.pixmap().height(),4/3,delta=.01)

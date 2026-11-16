@@ -1,4 +1,5 @@
 """Exercise the single-list workflow with actual Qt controls and isolated local files."""
+from _qt_wait import wait_ms
 import gc
 import os
 from pathlib import Path
@@ -112,7 +113,7 @@ class ResourceWindowTests(unittest.TestCase):
     def picture(self, name, widget=None):
         value = os.environ.get('PCS_RESOURCE_QA_SCREENSHOTS')
         if value:
-            QTest.qWait(160)
+            wait_ms(160)
             path = Path(value); path.mkdir(parents=True, exist_ok=True)
             self.assertTrue((widget or self.w).grab().save(str(path/(name+'.png'))))
 

@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 from _qt_cleanup import close_window
 """Affected Canvas ownership and copy-editor contracts, isolated Qt only."""
 import copy
@@ -33,7 +34,7 @@ class CanvasRev9Tests(unittest.TestCase):
         self.w.state['settings'].update(online=False, comfy_enabled=False, material='solid', reduce_motion=True)
         self.notices = []; self.w.notice = self.notices.append
         self.w.resize(1360, 900); self.w.show(); self.w.set_interface_mode('canvas')
-        QTest.qWait(10)
+        wait_ms(10)
         self.c = self.w.canvas
         self.cid = next(iter(self.c.data()['canvases']))
         self.other = self.c.add_canvas(QPointF(2200, 200))
@@ -73,7 +74,7 @@ class CanvasRev9Tests(unittest.TestCase):
         APP.processEvents()
         QTest.mouseDClick(viewport,Qt.MouseButton.LeftButton,pos=point)
         QTest.mouseRelease(viewport,Qt.MouseButton.LeftButton,pos=point)
-        QTest.qWait(5)
+        wait_ms(5)
 
     def test_routing_collapsed_card_body_edits_once_without_hidden_add(self):
         key=self.add_copy(); card=self.c.cards[key]; self.assertTrue(card.collapsed)
@@ -90,7 +91,7 @@ class CanvasRev9Tests(unittest.TestCase):
                         add.assert_not_called(); edit.assert_not_called()
                         QTest.mouseDClick(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
                         QTest.mouseRelease(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=point)
-                        QTest.qWait(5)
+                        wait_ms(5)
                         edit.assert_called_once_with(key); add.assert_not_called()
                         quick.assert_not_called(); functions.assert_not_called()
         self.assertEqual(self.c.history_state(),before)
@@ -123,7 +124,7 @@ class CanvasRev9Tests(unittest.TestCase):
         view=self.c.view; view.resetTransform(); view.scale(.8,.8); view.centerOn(card); APP.processEvents()
         point=view.mapFromScene(card.mapToScene(card.actions()['add'].center()))
         with patch.object(self.c,'palette') as add, patch.object(self.c,'edit') as edit:
-            QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=point); QTest.qWait(5)
+            QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=point); wait_ms(5)
             add.assert_called_once_with(target=key); edit.assert_not_called()
         before=self.c.history_state(); container=self.c.containers[self.cid]
         scene_point=container.mapToScene(QPointF(72,container.height-70))
@@ -162,7 +163,7 @@ class CanvasRev9Tests(unittest.TestCase):
         with patch.object(self.c,'palette') as add, patch.object(self.c,'quick_text') as quick, \
              patch.object(self.c,'function_palette') as functions:
             timer.timeout.connect(cancel); timer.start()
-            self.double_click(point); QTest.qWait(25); timer.stop()
+            self.double_click(point); wait_ms(25); timer.stop()
             add.assert_not_called(); quick.assert_not_called(); functions.assert_not_called()
         if errors: raise errors[0]
         self.assertEqual(opened,[('編輯文字模組',key)])
@@ -261,7 +262,7 @@ class CanvasRev9Tests(unittest.TestCase):
             point=view.mapFromScene(card.mapToScene(rect.center()))
             self.assertIs(view.interaction.card_at(point),card)
             with patch.object(self.c,'edit') as edit,patch.object(self.c,'palette') as add:
-                QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(5)
+                QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=point);wait_ms(5)
                 edit.assert_not_called();add.assert_not_called()
             self.assertIs(self.c.cards[target].collapsed,not before)
             self.assertEqual(self.asset(),original)
@@ -293,7 +294,7 @@ class CanvasRev9Tests(unittest.TestCase):
             self.assertEqual(card.toolTip(),'')
             event=QHelpEvent(QEvent.Type.ToolTip,point,view.viewport().mapToGlobal(point))
             self.assertTrue(QApplication.sendEvent(view.viewport(),event));self.assertTrue(event.isAccepted())
-            QTest.qWait(5)
+            wait_ms(5)
             self.assertFalse(QToolTip.isVisible());self.assertEqual(card.boundingRect(),size)
         self.assertEqual(self.c.history_state(),before)
         from prompt_calculus_studio.widgets import RoundMenu

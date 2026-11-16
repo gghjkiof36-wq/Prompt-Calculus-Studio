@@ -1,4 +1,5 @@
 """Every new document starts in its clicked home slot without a naming detour."""
+from _qt_wait import wait_ms
 from pathlib import Path
 import sys
 import tempfile
@@ -45,7 +46,7 @@ class HomeWorkflowCreationTests(unittest.TestCase):
 
     def events(self):
         self.app.processEvents()
-        QTest.qWait(20)
+        wait_ms(20)
         if self.w.sidebar_resize.motion_target is not None:
             self.w.sidebar_resize.motion.setCurrentTime(self.w.sidebar_resize.motion.duration())
         self.app.processEvents()

@@ -13,6 +13,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtWidgets import QApplication, QDialog, QGraphicsPathItem
 from PySide6.QtCore import Qt, QPointF, QPoint
 from PySide6.QtTest import QTest
+from _qt_wait import wait_ms
 from PySide6.QtGui import QWheelEvent, QContextMenuEvent, QTextCursor
 from prompt_calculus_studio.window import Window
 from prompt_calculus_studio import composition as c
@@ -78,7 +79,7 @@ class CanvasUiTests(unittest.TestCase):
         self.w.enter_canvas();APP.processEvents();before=copy.deepcopy(self.w.state)
         with patch.object(NodeDialog,'exec') as editor:
             QTest.mouseDClick(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=QPoint(12,12))
-            QTest.mouseRelease(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=QPoint(12,12));QTest.qWait(20)
+            QTest.mouseRelease(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=QPoint(12,12));wait_ms(20)
             editor.assert_not_called()
         self.assertEqual(self.w.state,before)
         self.w.persist();self.assertEqual(build_prompt(self.w.store.load()),build_prompt(before))
@@ -100,7 +101,7 @@ class CanvasUiTests(unittest.TestCase):
         self.assertEqual(self.w.state['draft'],'中央 Text\n原文保留')
         with patch.object(self.canvas,'palette') as popup:
             point=self.canvas.view.mapFromScene(output.pos()+QPointF(40,75))
-            QTest.mouseDClick(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=point); QTest.qWait(20)
+            QTest.mouseDClick(self.canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=point); wait_ms(20)
             popup.assert_not_called()
         self.w.leave_canvas(); self.assertEqual(self.w.final.toPlainText(),'中央 Text\n原文保留')
 

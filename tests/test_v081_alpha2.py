@@ -1,4 +1,5 @@
 """User-visible Alpha 2 regressions. No live services, clipboard, or desktop input."""
+from _qt_wait import wait_ms
 import copy,hashlib,json,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -45,13 +46,13 @@ class SettingsTests(unittest.TestCase):
     def tearDown(self):self.w.close(); APP.processEvents(); self.tmp.cleanup()
     def wait(self):
         for _ in range(1200):
-            QTest.qWait(5)
+            wait_ms(5)
             if not self.c.browse_jobs.active and not self.c.pending_search:return
         self.fail('browse worker did not settle')
     def test_dictionary_visible_and_autosaves_without_footer(self):
         self.w.settings('dictionary'); APP.processEvents(); edit=self.p.preferences.dictionary
         self.assertTrue(edit.isVisible()); self.assertGreater(edit.height(),250)
-        edit.setPlainText('晨光 = morning light'); QTest.qWait(450)
+        edit.setPlainText('晨光 = morning light'); wait_ms(450)
         self.assertEqual(self.w.state['dictionary'],{'晨光':'morning light'})
         self.assertFalse(any(b.isVisible() and b.text() in ('儲存設定','取消變更') for b in self.p.findChildren(QPushButton)))
         with _StorageRead(self.tmp.name) as store:
@@ -90,7 +91,7 @@ class SettingsTests(unittest.TestCase):
         self.w.settings('civitai'); APP.processEvents(); self.w.state['settings']['online']=True
         with patch('prompt_calculus_studio.civitai_ui.CivitAIClient') as client:
             client.return_value.search_models.return_value={'items':[record()]}
-            QTest.keyClicks(self.c.query,'land'); QTest.qWait(520); self.wait()
+            QTest.keyClicks(self.c.query,'land'); wait_ms(520); self.wait()
             self.assertEqual(client.return_value.search_models.call_count,1)
             self.assertEqual(client.return_value.search_models.call_args.kwargs['query'],'land')
             self.assertEqual(self.c.suggestions.stringList(),['Landscape studio 1'])

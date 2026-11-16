@@ -2,6 +2,7 @@
 
 All transport is stubbed; screenshots and widget events use Qt offscreen.
 """
+from _qt_wait import wait_ms
 import os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -30,7 +31,7 @@ class SettingsEdgesTests(unittest.TestCase):
         self.w.resize(1440,920); self.w.apply_theme(); self.w.show(); self.p=self.w.settings_page
     def tearDown(self):
         self.w.close(); APP.processEvents(); self.transport.stop(); self.env.stop(); self.temp.cleanup()
-    def settle(self):QTest.qWait(60)
+    def settle(self):wait_ms(60)
     def point(self,widget):return widget.mapTo(self.p,QPoint(0,0))
     def test_every_settings_section_uses_palette_surface_and_rounded_edges(self):
         for section in ('interface','appearance','completion','dictionary','civitai','workflows','models','nodes','data'):

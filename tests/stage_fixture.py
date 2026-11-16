@@ -3,6 +3,7 @@
 No test fabricates a completed desktop job or invokes ChainRunner.collect as a
 completion shortcut. The fake executor replaces ComfyUI/GPU only.
 """
+from _qt_wait import wait_ms
 import copy
 from _qt_cleanup import close_window
 import tempfile
@@ -107,7 +108,7 @@ class ChainExecutor(ReceiptExecutor):
     def tick(self):
         self.client.running=len(self.pending);status=dict(running_ids=list(self.pending),queued_ids=[])
         self.native.occupied([],[],lambda key:{key:self.history[key]} if key in self.history else {})
-        self.client.generation.observe(status);self.client.input_flow.observe(status);QTest.qWait(30)
+        self.client.generation.observe(status);self.client.input_flow.observe(status);wait_ms(30)
 
 
 class StageFixture(unittest.TestCase):
@@ -116,7 +117,7 @@ class StageFixture(unittest.TestCase):
         env=patch.dict('os.environ',{'PROMPT_STUDIO_V08':'1'});env.start();self.addCleanup(env.stop)
         self.w=Window(self.tmp.name);self.w.comfy.timer.stop();self.w.comfy.enabled=False
         self.w.state['settings'].update(online=False,material='solid');self.notices=[];self.w.notice=self.notices.append;self.w.error=self.notices.append
-        self.w.show();self.w.set_interface_mode('canvas');QTest.qWait(10)
+        self.w.show();self.w.set_interface_mode('canvas');wait_ms(10)
         self.c=self.w.canvas;self.cid=next(iter(self.c.data()['canvases']));self.out=self.c.data()['current_output']
         profile=workflow();profile['frontend_id']='native-A';profile['graph']['9']=dict(class_type='PreviewImage',inputs=dict(images=['5',0]))
         for p in (profile,pure_profile('B'),pure_profile('C')):self.w.generation_panel.save_profile(p)
@@ -137,6 +138,6 @@ class StageFixture(unittest.TestCase):
 
     def click(self):
         self.controls.refresh();self.assertTrue(self.controls.run_button.isEnabled())
-        QTest.mouseClick(self.controls.run_button,Qt.MouseButton.LeftButton);QTest.qWait(25)
+        QTest.mouseClick(self.controls.run_button,Qt.MouseButton.LeftButton);wait_ms(25)
 
     def workflows(self):return [p['extra_data']['extra_pnginfo']['prompt_studio']['generation']['workflow_id'] for p in self.executor.submissions]

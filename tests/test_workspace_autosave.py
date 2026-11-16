@@ -1,4 +1,5 @@
 """Timed file writes, failed-close retention and non-layout notifications."""
+from _qt_wait import wait_ms
 import copy
 from pathlib import Path
 import unittest
@@ -26,7 +27,7 @@ class WorkspaceAutosaveTests(unittest.TestCase):
         self.w.autosave.delay_ms = 100
 
     def settled(self):
-        QTest.qWait(220)
+        wait_ms(220)
         self.events()
 
     def test_markdown_coalesces_edits_preserves_encoding_undo_and_closes_latest_text(self):
@@ -37,7 +38,7 @@ class WorkspaceAutosaveTests(unittest.TestCase):
         with patch.object(page, 'save', wraps=page.save) as writes:
             for text in ('first', ' second', ' third'):
                 QTest.keyClicks(page, text)
-                QTest.qWait(25)
+                wait_ms(25)
             self.assertEqual(tab.path.read_bytes(), before)
             self.settled()
             self.assertEqual(writes.call_count, 1)

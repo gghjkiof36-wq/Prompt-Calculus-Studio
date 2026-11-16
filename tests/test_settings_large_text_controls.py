@@ -1,4 +1,5 @@
 """Large setting fonts retain readable selected values and reachable actions."""
+from _qt_wait import wait_ms
 import os,tempfile,unittest
 from unittest.mock import patch
 from PySide6.QtCore import QPoint,QRect
@@ -34,7 +35,7 @@ class SettingsLargeTextControlsTests(unittest.TestCase):
         control=self.w.settings_page.preferences.ui_size
         control.blockSignals(True);control.setValue(size);control.blockSignals(False)
         self.w.state['settings']['ui_size']=size;self.w.apply_theme(preserve_layout=True)
-        self.w.settings(route);QTest.qWait(100)
+        self.w.settings(route);wait_ms(100)
 
     def field(self,combo):
         option=QStyleOptionComboBox();combo.initStyleOption(option)
@@ -70,12 +71,12 @@ class SettingsLargeTextControlsTests(unittest.TestCase):
     def test_long_folder_has_complete_tooltip_and_keeps_selected_filter_after_resize(self):
         self.configure(640,22,'workflows');manager=self.w.settings_page.workflow_manager
         combo=manager.folder;index=next(i for i in range(combo.count()) if combo.itemText(i).startswith('a very long'))
-        combo.setCurrentIndex(index);QTest.qWait(30)
+        combo.setCurrentIndex(index);wait_ms(30)
         text=combo.currentText();selected=combo.currentData()
         self.assertEqual(combo.toolTip(),text)
         self.assertGreater(combo.fontMetrics().horizontalAdvance(text),self.field(combo).width())
         self.assertEqual(manager.list.count(),1)
-        self.w.resize(1440,900);QTest.qWait(60)
+        self.w.resize(1440,900);wait_ms(60)
         self.assertEqual(combo.currentData(),selected);self.assertEqual(combo.toolTip(),text)
         self.assertEqual(manager.list.count(),1)
 

@@ -1,4 +1,5 @@
 """Accent persistence, menu selection, custom input and readable controls."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from PySide6.QtCore import Qt, QPoint
@@ -78,7 +79,7 @@ class AccentPickerTests(unittest.TestCase):
         controls.accent_row.open_picker();self.events();popup=controls.accent_row.popover
         QTest.mouseClick(popup.plane,Qt.MouseButton.LeftButton,pos=QPoint(100,80))
         QTest.keyClick(popup.strip,Qt.Key.Key_Right)
-        QTest.qWait(80);self.events()
+        wait_ms(80);self.events()
         changed=controls.accent_hex.text()
         self.assertNotEqual(changed,'#124567')
         self.assertTrue(popup.isVisible())

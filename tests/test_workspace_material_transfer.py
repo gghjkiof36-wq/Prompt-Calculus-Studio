@@ -1,4 +1,5 @@
 """Cross-document placements retain originals, writer identity and shared Undo."""
+from _qt_wait import wait_ms
 import copy
 from pathlib import Path
 from unittest.mock import patch
@@ -175,7 +176,7 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
         self.assertEqual(source.document.state['items'], before)
         self.assertEqual((self.root/'Scene.pcs-category').read_bytes(), original)
         self.assertIsNone(self.transfer.notification)
-        QTest.qWait(250)
+        wait_ms(250)
         self.assertFalse(tab.dirty)
         saved = io.load(self.root, 'Street.pcs-workflow').document['payload']['state']
         self.assertEqual(saved['uses'][key]['source_document'], source.document_id)
@@ -426,9 +427,9 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
         bar = pane.strip.bar
         point = bar.tabRect(self.w.index_of(target.key)).center()
         self.assertTrue(self.drag_event(bar, mime, point, QDragEnterEvent).isAccepted())
-        QTest.qWait(250)
+        wait_ms(250)
         self.assertIs(pane.pages.currentWidget(), current)
-        QTest.qWait(320)
+        wait_ms(320)
         self.assertIs(pane.pages.currentWidget(), target.widget)
         self.assertEqual(self.w.active_key, self.source_tab.key)
         QTest.keyClick(bar, Qt.Key.Key_Escape)
@@ -447,7 +448,7 @@ class WorkspaceMaterialTransferTests(unittest.TestCase):
         drag, mime = self.begin_drag()
         point = bar.tabRect(self.w.index_of(tab.key)).center()
         self.drag_event(bar, mime, point, QDragEnterEvent)
-        QTest.qWait(550)
+        wait_ms(550)
         view = tab.host.canvas.view
         output = next(iter(tab.host.canvas.outputs.values()))
         view.centerOn(output.sceneBoundingRect().center())

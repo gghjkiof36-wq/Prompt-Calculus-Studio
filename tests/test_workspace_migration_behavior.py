@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from PySide6.QtTest import QTest
+from _qt_wait import wait_ms
 from _qt_cleanup import close_window
 from prompt_calculus_studio import journal_codec as codec, workspace_migration as migration
 from prompt_calculus_studio.window import Window
@@ -46,7 +46,7 @@ class MigratedBehaviorTests(unittest.TestCase):
                 (source / 'data').mkdir()
                 if action in ('retry', 'inflight'):
                     case.runner.start(count)
-                    QTest.qWait(50)
+                    wait_ms(50)
                     self.assertTrue(case.executor.pending, case.notices)
                     if action == 'retry':
                         case.executor.finish(error=True)
@@ -78,11 +78,11 @@ class MigratedBehaviorTests(unittest.TestCase):
                     runner = window.comfy.input_flow.chain
                     self.assertEqual(runner.store.read(run_id)['status'], 'paused')
                     self.assertEqual([a.get('prompt_id') for a in runner.store.rows('attempt')], prompt_ids)
-                    QTest.qWait(40)
+                    wait_ms(40)
                     self.assertEqual(executor.submissions, [])
                     if action == 'cancel':
                         runner.cancel(run_id)
-                        QTest.qWait(40)
+                        wait_ms(40)
                         self.assertEqual(runner.store.read(run_id)['status'], 'cancelled')
                         self.assertEqual(executor.submissions, [])
                         print(json.dumps(dict(action=action, requested=count, submissions=0, status='cancelled')), flush=True)
@@ -104,10 +104,10 @@ class MigratedBehaviorTests(unittest.TestCase):
                         else:
                             runner.resume(run_id)
                         for _ in range(count):
-                            QTest.qWait(50)
+                            wait_ms(50)
                             self.assertTrue(executor.pending, notices)
                             executor.finish()
-                        QTest.qWait(50)
+                        wait_ms(50)
                         entries = runner.store.rows('entry')
                         completed = sum(row['status']['status_str'] == 'success' for row in executor.history.values())
                         self.assertEqual((len(entries), len(executor.submissions), completed), (count, count, count))

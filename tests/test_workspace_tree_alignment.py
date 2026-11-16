@@ -1,4 +1,5 @@
 """File labels reflect their containing folder without changing tree ownership."""
+from _qt_wait import wait_ms
 import os
 from pathlib import Path
 import tempfile
@@ -50,7 +51,7 @@ class WorkspaceTreeAlignmentTests(unittest.TestCase):
 
     def events(self):
         self.app.processEvents()
-        QTest.qWait(20)
+        wait_ms(20)
         self.app.processEvents()
 
     def item(self, path):

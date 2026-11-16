@@ -3,6 +3,7 @@
 Generation goes through the production native receipt and queue/history path;
 only transport replies are delayed. No task is directly marked complete.
 """
+from _qt_wait import wait_ms
 import unittest
 import sqlite3
 from prompt_calculus_studio import journal_codec
@@ -48,7 +49,7 @@ class StageApplyBoundaryTests(unittest.TestCase):
         self.assertEqual(cancelled,[ident]);self.assertEqual(self.executor.native.poll(self.executor.live)['commands'],[])
         for data,done in held:
             if done:done(self.executor.native.status(data['id']))
-        QTest.qWait(30)
+        wait_ms(30)
         self.assertFalse(self.executor.applied);self.assertIsNone(self.runner.applying)
         self.assertFalse(self.runner.apply_queue);self.assertFalse(self.workflows())
 
@@ -118,7 +119,7 @@ class StageApplyBoundaryTests(unittest.TestCase):
         run,pending=self.hold_result_upload()
         self.runner.cancel(run['id'])
         for reply in pending:reply()
-        QTest.qWait(30)
+        wait_ms(30)
         self.assertFalse(self.executor.applied)
         self.assertEqual(self.runner.store.read(run['id'])['status'],'cancelled')
         self.assertIsNone(self.runner.applying)
@@ -128,7 +129,7 @@ class StageApplyBoundaryTests(unittest.TestCase):
         target=workspace_scene.create(self.w.state,'other workspace')
         self.w.change_workspace(target)
         for reply in pending:reply()
-        QTest.qWait(30)
+        wait_ms(30)
         self.assertFalse(self.executor.applied)
         self.assertIsNone(self.runner.applying)
         self.assertEqual(self.w.state['workspace'],target)
@@ -138,7 +139,7 @@ class StageApplyBoundaryTests(unittest.TestCase):
         self.w.comfy.connected=False;self.runner.disconnected()
         self.w.comfy.connected=True;self.runner.resume(run['id'])
         for reply in pending:reply()
-        QTest.qWait(80);self.executor.tick()
+        wait_ms(80);self.executor.tick()
         current=self.runner.store.read(run['id'])
         self.assertEqual(current['status'],'complete',current)
         self.assertEqual(current['free_state'],'failed')
@@ -158,7 +159,7 @@ class StageApplyBoundaryTests(unittest.TestCase):
         self.click();self.assertTrue(pending)
         self.c.commit(lambda s:s['uses']['root'].update(prompt='second click prompt'))
         self.click();self.assertEqual(len(self.runner.apply_queue),1)
-        pending[0]('first apply failed');QTest.qWait(80)
+        pending[0]('first apply failed');wait_ms(80)
         self.assertEqual(len(self.executor.applied),1,self.notices)
         self.assertEqual(self.executor.graphs['flow']['6']['inputs']['text'],'second click prompt')
         self.assertFalse(self.workflows())
@@ -200,7 +201,7 @@ class StageApplyBoundaryTests(unittest.TestCase):
                     f.assertEqual(f.executor.native.poll(f.executor.live)['commands'],[])
                     for data,done in held:
                         if done:done(f.executor.native.status(data['id']))
-                    QTest.qWait(30)
+                    wait_ms(30)
                     f.assertEqual(f.executor.graphs['B']['10']['inputs']['image'],before)
                     f.assertFalse(f.executor.applied);f.assertIsNone(f.runner.applying)
                 finally:f.tearDown();f.doCleanups()

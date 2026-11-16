@@ -1,4 +1,5 @@
 """Management panels retain one content column across window sizes."""
+from _qt_wait import wait_ms
 import sys
 import tempfile
 import traceback
@@ -53,7 +54,7 @@ class ManagementContentWidthTests(unittest.TestCase):
         self.window.show()
         self.window.settings('nodes')
         self.page.show_view(key)
-        QTest.qWait(30)
+        wait_ms(30)
         scroll = self.page.pages.currentWidget()
         return scroll, scroll.widget().findChild(ReadingPanel)
 

@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import copy
 import unittest
 from PySide6.QtCore import Qt, QCoreApplication, QEvent,QPointF,QPoint,QTimer
@@ -121,14 +122,14 @@ class GroupUITests(unittest.TestCase):
             self.assertFalse(ed.preview.isVisible());self.assertFalse(ed.preview_toggle.isChecked())
             closed=dialog.geometry();width=ed.modules.width()
             QTest.mouseClick(ed.preview_toggle,Qt.MouseButton.LeftButton)
-            QTest.qWait(320)
+            wait_ms(320)
             self.assertTrue(ed.preview.isVisible())
             listing=ed.modules.mapTo(dialog,QPoint(0,0));preview=ed.preview.mapTo(dialog,QPoint(0,0))
             self.assertGreater(preview.x(),listing.x()+ed.modules.width())
             self.assertEqual(ed.modules.width(),width);self.assertEqual(dialog.height(),closed.height())
             self.assertEqual(dialog.panels.side.y(),dialog.panels.main.y())
             self.assertEqual(dialog.form_scroll.horizontalScrollBar().maximum(),0)
-            QTest.mouseClick(ed.preview_toggle,Qt.MouseButton.LeftButton);QTest.qWait(260)
+            QTest.mouseClick(ed.preview_toggle,Qt.MouseButton.LeftButton);wait_ms(260)
             self.assertEqual(dialog.geometry(),closed)
         dialog.reject()
 
@@ -195,12 +196,12 @@ class GroupUITests(unittest.TestCase):
         def click(action):
             card=canvas.cards[key];canvas.view.centerOn(card);self.app.processEvents()
             point=canvas.view.mapFromScene(card.mapToScene(card.actions()[action].center()))
-            QTest.mouseClick(canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(20)
+            QTest.mouseClick(canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=point);wait_ms(20)
         click('group_next');root=self.w.state['uses'][key]
         self.assertEqual(groups.selected(root['sequence'])['name'],'B')
         click('weight');self.assertIsNotNone(canvas.cards[key].weight_editor)
         edit=canvas.cards[key].weight_editor.widget();self.assertIsInstance(edit,QLineEdit)
-        QTest.keyClicks(edit,'1.7');QTest.keyClick(edit,Qt.Key.Key_Return);QTest.qWait(20)
+        QTest.keyClicks(edit,'1.7');QTest.keyClick(edit,Qt.Key.Key_Return);wait_ms(20)
         self.assertEqual(self.w.state['uses'][key]['weight'],17)
         canvas.undo();self.assertEqual(self.w.state['uses'][key]['weight'],10)
         self.assertEqual(groups.selected(self.w.state['uses'][key]['sequence'])['name'],'B')

@@ -1,4 +1,5 @@
 """Offscreen acceptance, all studio open routes, and cross-table failures."""
+from _qt_wait import wait_ms
 import copy
 from contextlib import closing
 import hashlib
@@ -26,12 +27,12 @@ class JournalBehaviorTests(unittest.TestCase):
         for count in (1, 10):
             with self.subTest(count=count), scenario(False) as (case, config):
                 case.runner.start(count)
-                QTest.qWait(50)
+                wait_ms(50)
                 for _ in range(count):
-                    if not case.executor.pending:QTest.qWait(50)
+                    if not case.executor.pending:wait_ms(50)
                     self.assertTrue(case.executor.pending, case.notices)
                     case.executor.finish()
-                QTest.qWait(50)
+                wait_ms(50)
                 counts = dict(requested=count, entries=len(case.runner.store.rows('entry')),
                               submitted=len(case.executor.submissions),
                               completed=sum(v['status']['status_str'] == 'success' for v in case.executor.history.values()))

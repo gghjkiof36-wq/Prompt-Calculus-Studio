@@ -1,4 +1,5 @@
 """Real output-picker signals must not rewrite another output's Prompt order."""
+from _qt_wait import wait_ms
 import copy
 import json
 import os
@@ -72,7 +73,7 @@ class OutputSwitchOrderTests(unittest.TestCase):
                 window.enter_canvas()
                 window.activate_prompt_view(view)
                 window.refresh_builder()
-                QTest.qWait(10)
+                wait_ms(10)
                 yield window
                 self.assertEqual(errors, [])
             finally:
@@ -84,7 +85,7 @@ class OutputSwitchOrderTests(unittest.TestCase):
         index = picker.findData(key)
         self.assertGreaterEqual(index, 0)
         picker.setCurrentIndex(index)
-        QTest.qWait(10)
+        wait_ms(10)
         self.assertEqual(window.state['multi_output']['current_output'], key)
 
     def assert_outputs(self, window, expected, bindings):
@@ -160,7 +161,7 @@ class OutputSwitchOrderTests(unittest.TestCase):
             self.choose(window, 'out3')
             panel = window.canvas.outputs['out2'].panel
             panel.editor.setPlainText('')
-            QTest.qWait(10)
+            wait_ms(10)
             self.assertEqual(window.state['multi_output']['outputs']['out2']['draft'], '')
             self.assert_outputs(window, expected, bindings)
             window.canvas.undo()

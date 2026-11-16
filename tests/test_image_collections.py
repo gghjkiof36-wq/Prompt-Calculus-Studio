@@ -95,6 +95,9 @@ class BoundCollectionUITests(unittest.TestCase):
     tearDown=_Fixture.tearDown
 
     def test_bound_preview_shows_both_and_second_choice_drives_output_without_browser_selection(self):
+        # This retained contract is specifically the serialized pre-v7 binding
+        # UI. v7 uses Stage -> Source -> input/preview, covered below.
+        self.w.state['multi_output']['version']=6
         from PySide6.QtGui import QImage,QColor
         from PySide6.QtCore import Qt
         from PySide6.QtTest import QTest
@@ -157,6 +160,60 @@ class BoundCollectionUITests(unittest.TestCase):
                 done({q['key']:dict(path=str(root/'red.png'),image=dict(filename='red.png',subfolder='',type='output')) for q in data['queries']})
             with patch.object(client,'request',old_extension):client.images.poll()
             self.assertIsNone(client.images.source(key));self.assertIn('更新 ComfyUI 擴充',client.images.errors[key])
+
+
+from stage_fixture import StageFixture
+
+
+class StageCollectionUITests(StageFixture):
+    def setUp(self):
+        from test_084_stages import StageTests
+        StageTests.setUp(self)
+
+    def test_stage_source_preview_keeps_full_collection_while_input_choice_changes(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QColor
+        from PySide6.QtTest import QTest
+        from prompt_calculus_studio import multi_output as model
+        from _qt_wait import wait_until
+        from test_084_stages import StageTests
+        stage=StageTests.stages(self)[0]
+        source=self.c.functions.add_image()
+        self.assertTrue(self.c.commit(lambda s:(model.connect(s,stage,source,'image'),
+                                               model.connect(s,source,model.PREVIEW,'image'))))
+        def colored_png(path,metadata):
+            # Keep the same ComfyUI tEXt metadata as native receipts. Qt's PNG
+            # writer compresses long text, which is a different input format.
+            from test_comfy_integration import png
+            png(path,metadata,rgb=(255,0,0) if str(path).endswith('-0.png') else (0,0,255))
+        self.executor.graphs['flow']['5']['inputs']['batch_size']=2
+        self.click()
+        with patch('stage_fixture.png',side_effect=colored_png):self.executor.finish(count=2)
+        client=self.w.comfy;panel=self.c.functions.cards[source].panel;preview=self.c.results
+        self.assertTrue(wait_until(lambda:len(preview.preview.pictures)==2),
+                        (self.notices,self.runner.results,self.runner.preview_results))
+        collection=client.images.collection(source)
+        self.assertEqual(len(collection['items']),2)
+        self.assertEqual([p.toImage().pixelColor(0,0) for p in preview.preview.pictures],
+                         [QColor('red'),QColor('blue')])
+        self.assertEqual(panel.counter.text(),'1 / 2')
+        self.assertEqual(client.images.source(source),collection['items'][0])
+        QTest.mouseClick(panel.input_mode.buttons['one'],Qt.MouseButton.LeftButton)
+        self.assertEqual(self.w.state['canvas_functions']['images'][source]['input_index'],0)
+        self.assertEqual(len(preview.preview.pictures),2)
+        QTest.mouseClick(panel.next,Qt.MouseButton.LeftButton)
+        self.assertEqual(client.images.source(source),collection['items'][1])
+        self.assertEqual(self.w.state['canvas_functions']['images'][source]['input_index'],1)
+        self.assertEqual(len(preview.preview.pictures),2)
+        self.c.undo();self.assertEqual(client.images.source(source),collection['items'][0])
+        self.c.redo();self.assertEqual(client.images.source(source),collection['items'][1])
+        self.assertTrue(self.w.persist())
+        self.assertEqual(self.w.store.load()['canvas_functions']['images'][source]['input_index'],1)
+        self.assertEqual(len(client.images.collection(source)['items']),2)
+        before=copy.deepcopy(self.w.state)
+        client.images.choose(source,'stale-collection',0)
+        self.assertEqual(self.w.state,before)
+        self.assertEqual(len(self.executor.submissions),1)
 
 
 if __name__=='__main__':unittest.main()

@@ -1,4 +1,5 @@
 """Real Qt input events and independent workspace round trips."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -20,7 +21,7 @@ class EditingRepairTests(unittest.TestCase):
     tearDown=runtime.RuntimeRepairTests.tearDown
 
     def switch(self,key):
-        self.w.workspace.setCurrentIndex(self.w.workspace.findData(key));QTest.qWait(20)
+        self.w.workspace.setCurrentIndex(self.w.workspace.findData(key));wait_ms(20)
 
     def test_empty_new_duplicate_edit_switch_reopen_and_snapshot_scope(self):
         first=self.w.state['workspace'];first_graph=copy.deepcopy(self.c.data())
@@ -44,22 +45,22 @@ class EditingRepairTests(unittest.TestCase):
         # Reopening adds explicit types at the load boundary; all original
         # fields, IDs and Prompt bodies must otherwise remain exactly equal.
         for value in second_uses.values():value['material_type']='text'
-        self.w.show();self.w.set_interface_mode('canvas');QTest.qWait(20)
+        self.w.show();self.w.set_interface_mode('canvas');wait_ms(20)
         self.switch(first);self.assertEqual(self.w.state['uses']['test-root']['prompt'],'A');self.assertEqual(self.w.state['draft'],'')
         self.switch(second);self.assertEqual(self.w.state['uses'],second_uses)
         validate_state(self.w.state)
 
     def test_delete_undo_after_async_refresh_and_redo_with_keys(self):
         self.c.view.setFocus();self.c.view.scene().clearSelection();self.c.cards['test-root'].setSelected(True)
-        QTest.keyClick(self.c.view,Qt.Key.Key_Delete);QTest.qWait(10)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Delete);wait_ms(10)
         self.assertNotIn('test-root',self.w.state['uses'])
         self.w.state['generation']['profiles'][0]['graph']['3']['inputs']['seed']=999
         self.c.refresh();self.w.comfy.stateChanged.emit()
-        QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(10)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(10)
         self.assertIn('test-root',self.w.state['uses'],self.notices)
         self.assertEqual(model.owner(self.w.state,'test-root'),self.cid)
         self.assertEqual(self.w.state['generation']['profiles'][0]['graph']['3']['inputs']['seed'],999)
-        QTest.keyClick(self.c.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);QTest.qWait(10)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);wait_ms(10)
         self.assertNotIn('test-root',self.w.state['uses'])
 
     def test_drag_connected_input_blank_disconnect_esc_and_undo(self):
@@ -70,13 +71,13 @@ class EditingRepairTests(unittest.TestCase):
         before=copy.deepcopy(self.c.data()['connections'])
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=start)
         QTest.mouseMove(view.viewport(),end,20);QTest.keyClick(view,Qt.Key.Key_Escape)
-        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=end);QTest.qWait(10)
+        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=end);wait_ms(10)
         self.assertEqual(self.c.data()['connections'],before)
         start=view.mapFromScene(self.c.ports[(self.clip,'clip',False)].scenePos());end=start+QPointF(-100,-140).toPoint()
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=start);QTest.mouseMove(view.viewport(),end,20)
-        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=end);QTest.qWait(15)
+        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=end);wait_ms(15)
         self.assertEqual(len(self.c.data()['connections']),len(before)-1,self.notices)
-        QTest.keyClick(view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(10)
+        QTest.keyClick(view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(10)
         self.assertEqual(self.c.data()['connections'],before)
 
     def test_direct_image_text_port_and_visible_raw_source_no_duplicate(self):
@@ -89,7 +90,7 @@ class EditingRepairTests(unittest.TestCase):
         source=self.c.ports[(key,'clip',True)];dest=self.c.ports[(self.out,'text',False)]
         a=view.mapFromScene(source.scenePos());b=view.mapFromScene(dest.scenePos())
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a);QTest.mouseMove(view.viewport(),b,25)
-        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b);QTest.qWait(15)
+        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b);wait_ms(15)
         self.assertEqual(model.compile_output(self.w.state,self.out)['final_prompt'],'A\nopaque, full sentence',self.notices)
         self.c.commit(lambda s:model.connect(s,key,self.cid,'clip'))
         members=self.c.data()['canvases'][self.cid]['source_members'];self.assertEqual(len(members),1)
@@ -120,7 +121,7 @@ class EditingRepairTests(unittest.TestCase):
                       QDragMoveEvent(point,Qt.DropAction.MoveAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier),
                       QDropEvent(QPointF(point),Qt.DropAction.MoveAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier)):
             event.ignore();APP.sendEvent(listing.viewport(),event);self.assertTrue(event.isAccepted())
-        listing._source=None;listing._drag_token=b'';listing.dragging=False;QTest.qWait(10);panel.refresh()
+        listing._source=None;listing._drag_token=b'';listing.dragging=False;wait_ms(10);panel.refresh()
         self.assertEqual([r['id'] for r in runner.store.rows(sid)],[ids[2],ids[0],ids[1]])
         self.assertEqual(listing.currentItem().data(Qt.ItemDataRole.UserRole),ids[2])
         results=[]
@@ -150,7 +151,7 @@ class EditingRepairTests(unittest.TestCase):
         view=self.c.view;start=view.mapFromScene(graphics.mapToScene(graphics.path().pointAtPercent(.88)))
         end=start+QPointF(10,-130).toPoint()
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=start);QTest.mouseMove(view.viewport(),end,25)
-        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=end);QTest.qWait(15)
+        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=end);wait_ms(15)
         self.assertNotIn(line['id'],[c['id'] for c in self.c.data()['connections']])
         self.assertIn(other,self.c.data()['connections']);QTest.keyClick(view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier)
         self.assertIn(line,self.c.data()['connections'])

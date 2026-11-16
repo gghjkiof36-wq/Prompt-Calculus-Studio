@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import unittest
 import time
 from unittest.mock import patch
@@ -23,7 +24,7 @@ class NotebookWorkspaceTests(unittest.TestCase):
         (self.root/name).write_bytes(text.encode());return self.open(name).widget.md_surface
     def wait_index(self):
         for _ in range(100):
-            QTest.qWait(20)
+            wait_ms(20)
             # qWait pumps Qt, but tight repeated calls can starve Python
             # QRunnable workers on Windows. Yield the GIL as well.
             time.sleep(.002)

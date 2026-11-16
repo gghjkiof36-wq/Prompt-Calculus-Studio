@@ -1,4 +1,5 @@
 """Native-style embedded surfaces stay seamless at canvas zoom factors."""
+from _qt_wait import wait_ms
 import copy,os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -27,11 +28,11 @@ class CanvasProxyEdgeTests(unittest.TestCase):
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_DATA':self.tmp.name});self.env.start()
         self.w=Window(self.tmp.name);self.w.state['settings'].update(online=False,material='solid');self.w.apply_theme()
         self.w.comfy.timer.stop();self.w.display_recovery.stop()
-        self.w.resize(1440,1200);self.w.show();self.w.enter_canvas();QTest.qWait(60)
+        self.w.resize(1440,1200);self.w.show();self.w.enter_canvas();wait_ms(60)
         self.c=self.w.canvas;self.c.onboarding.dismiss();self.refs=guide(self.w.state)
 
     def tearDown(self):
-        self.w.close();QTest.qWait(40);self.w.deleteLater();QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+        self.w.close();wait_ms(40);self.w.deleteLater();QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
         self.app.processEvents();self.env.stop();self.tmp.cleanup();self.app.setStyle(self.original_style)
 
     def test_actual_native_canvas_proxy_edges_have_no_second_dark_outline(self):
@@ -44,7 +45,7 @@ class CanvasProxyEdgeTests(unittest.TestCase):
                 self.c.view.resetTransform();self.c.view.scale(scale,scale)
                 for card in cards:
                     body=card.surface_colors()['canvas_body']
-                    self.c.view.centerOn(card);QTest.qWait(10)
+                    self.c.view.centerOn(card);wait_ms(10)
                     image=self.c.view.viewport().grab().toImage();rect=card.proxy.rect();dpr=image.devicePixelRatio()
                     samples=[]
                     for offset in (-1,0,1):
@@ -57,7 +58,7 @@ class CanvasProxyEdgeTests(unittest.TestCase):
         self.assertEqual(self.c.data(),graph);self.assertEqual(self.c.undo_stack,undo)
 
     def test_large_font_workspace_caption_fits_and_long_names_remain_discoverable(self):
-        self.w.state['settings']['ui_size']=18;self.w.apply_theme(preserve_layout=True);self.w.resize(640,640);QTest.qWait(40)
+        self.w.state['settings']['ui_size']=18;self.w.apply_theme(preserve_layout=True);self.w.resize(640,640);wait_ms(40)
         combo=self.w.canvas_workspace;bar=self.w.canvas_workspace_bar;bar.refresh()
         option=QStyleOptionComboBox();combo.initStyleOption(option)
         field=combo.style().subControlRect(QStyle.ComplexControl.CC_ComboBox,option,QStyle.SubControl.SC_ComboBoxEditField,combo)
@@ -71,7 +72,7 @@ class CanvasProxyEdgeTests(unittest.TestCase):
     def test_resized_proxy_surfaces_keep_edges_clean_at_fractional_zoom(self):
         # Include image/text source panels with legacy Panel/InsetPanel roles.
         self.c.functions.add_image()
-        self.c.add_flow_node('image_inputs',QPointF(0,0));QTest.qWait(20)
+        self.c.add_flow_node('image_inputs',QPointF(0,0));wait_ms(20)
         from prompt_calculus_studio.canvas_items import ModuleProxyWidget
         cards=list({item.parentItem() for item in self.c.view.scene().items() if isinstance(item,ModuleProxyWidget)})
         graph=copy.deepcopy(self.c.data());sizes=copy.deepcopy(self.w.state['text_sizes']);undo=copy.deepcopy(self.c.undo_stack)
@@ -83,12 +84,12 @@ class CanvasProxyEdgeTests(unittest.TestCase):
                 # Raise only the inspected card; enlarged adjacent cards may overlap.
                 card.setZValue(100)
                 for width,height in ((500.7,620.3),(360.4,170.6)):
-                    card.requested_size=[width,height];card.layout_card();QTest.qWait(5)
+                    card.requested_size=[width,height];card.layout_card();wait_ms(5)
                     self.assertTrue(card.boundingRect().contains(card.proxy.geometry()))
                     self.assertEqual(card.proxy.size().width(),card.panel.width())
                     self.assertEqual(card.proxy.size().height(),card.panel.height())
                     for scale in (.44,.86,1,1.15):
-                        self.c.view.resetTransform();self.c.view.scale(scale,scale);self.c.view.centerOn(card);QTest.qWait(5)
+                        self.c.view.resetTransform();self.c.view.scale(scale,scale);self.c.view.centerOn(card);wait_ms(5)
                         frame=self.c.view.viewport().grab().toImage();dpr=frame.devicePixelRatio();rect=card.proxy.rect()
                         points=[QPointF(rect.width()*f,rect.height()) for f in (.3,.5,.7)]
                         points+=[QPointF(rect.width(),rect.height()*f) for f in (.3,.5,.7)]
@@ -115,7 +116,7 @@ class CanvasProxyEdgeTests(unittest.TestCase):
                     card.requested_size=[360.4,height];card.layout_card()
                     notice=card.panel.status
                     notice.setText('佇列與後端紀錄中找不到這項任務；可能已移除或清空，未自動重送。')
-                    notice.show();QTest.qWait(25)
+                    notice.show();wait_ms(25)
                     self.assertGreaterEqual(action.height(),action.sizeHint().height())
                     self.assertLessEqual(action.y(),10)
                     self.assertGreaterEqual(notice.height(),notice.heightForWidth(notice.width()))

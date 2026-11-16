@@ -1,4 +1,5 @@
 """Expanded text canvas gestures with isolated state and synthetic ComfyUI."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -11,7 +12,7 @@ from prompt_calculus_studio import content_history
 class CompositionEditorTests(StageFixture):
     def editor(self):
         self.w.state['settings']['reduce_motion']=True
-        self.c.open_editor(self.cid);QTest.qWait(30)
+        self.c.open_editor(self.cid);wait_ms(30)
         editor=self.c.editor_page
         self.assertIs(self.w.surface_stack.currentWidget(),editor)
         return editor
@@ -21,7 +22,7 @@ class CompositionEditorTests(StageFixture):
         point=editor.view.viewport().rect().bottomRight()-QPoint(25,25)
         position=editor.view.mapToScene(point)
         with patch('prompt_calculus_studio.text_canvas.InputDialog.getMultiLineText',return_value=('local\ntext',True)):
-            QTest.mouseDClick(editor.view.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(35)
+            QTest.mouseDClick(editor.view.viewport(),Qt.MouseButton.LeftButton,pos=point);wait_ms(35)
         added=(set(self.w.state['uses'])-before).pop()
         self.assertIn(added,editor.data()['members'])
         self.assertEqual(self.w.state['uses'][added]['prompt'],'local\ntext')
@@ -34,12 +35,12 @@ class CompositionEditorTests(StageFixture):
     def test_card_double_click_uses_shared_editor_in_expanded_page(self):
         editor=self.editor();card=editor.text_canvas.cards['root'];editor.view.centerOn(card)
         position=editor.view.mapFromScene(card.mapToScene(QPointF(75,15)))
-        QTest.mouseDClick(editor.view.viewport(),Qt.MouseButton.LeftButton,pos=position);QTest.qWait(30)
+        QTest.mouseDClick(editor.view.viewport(),Qt.MouseButton.LeftButton,pos=position);wait_ms(30)
         self.assertIsNotNone(editor.prompt_editor)
         self.assertEqual(editor.prompt_editor.target,('canvas','root'))
         self.assertIs(self.w.surface_stack.currentWidget(),editor)
         self.assertIn(editor.data()['name'],editor.prompt_editor.heading.text())
-        editor.prompt_editor.prompt.setPlainText('edited local copy');QTest.qWait(410)
+        editor.prompt_editor.prompt.setPlainText('edited local copy');wait_ms(410)
         self.assertEqual(self.w.state['uses']['root']['prompt'],'edited local copy')
         self.assertTrue(content_history.entries(self.w.state,target=self.cid,content_only=True))
         self.assertFalse(self.executor.submissions)
@@ -49,7 +50,7 @@ class CompositionEditorTests(StageFixture):
         outer_center=self.c.view.mapToScene(self.c.view.viewport().rect().center());editor=self.editor()
         editor.view.resetTransform();editor.view.scale(1.31,1.31);editor.view.centerOn(320,460)
         center=editor.view.mapToScene(editor.view.viewport().rect().center());stack=len(self.c.undo_stack)
-        editor.close_editor();QTest.qWait(20)
+        editor.close_editor();wait_ms(20)
         self.assertAlmostEqual(self.c.view.transform().m11(),.63,places=6)
         self.assertLess((self.c.view.mapToScene(self.c.view.viewport().rect().center())-outer_center).manhattanLength(),4)
         self.assertEqual(len(self.c.undo_stack),stack)
@@ -58,7 +59,7 @@ class CompositionEditorTests(StageFixture):
         self.assertLess((editor.view.mapToScene(editor.view.viewport().rect().center())-center).manhattanLength(),4)
 
     def test_text_shortcuts_and_close_flush_do_not_delete_canvas_items(self):
-        editor=self.editor();editor.edit_text('root');QTest.qWait(15)
+        editor=self.editor();editor.edit_text('root');wait_ms(15)
         card=editor.text_canvas.cards['root'];card.setSelected(True)
         prompt=editor.prompt_editor.prompt;prompt.setFocus();stack=len(self.c.undo_stack)
         QTest.keyClick(prompt,Qt.Key.Key_A,Qt.KeyboardModifier.ControlModifier)

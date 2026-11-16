@@ -1,4 +1,5 @@
 """The browser sanitizer must retain verified table spans and meter bounds."""
+from _qt_wait import wait_ms
 import json
 from pathlib import Path
 import tempfile
@@ -51,7 +52,7 @@ class HtmlTableReaderTests(unittest.TestCase):
     def wait(self, predicate):
         deadline = time.monotonic() + 10
         while not predicate() and time.monotonic() < deadline:
-            QTest.qWait(20)
+            wait_ms(20)
         self.assertTrue(predicate())
 
     def test_table_semantics_survive_both_sanitizers_and_keep_source_unchanged(self):

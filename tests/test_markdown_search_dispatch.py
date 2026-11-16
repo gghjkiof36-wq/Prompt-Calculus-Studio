@@ -1,4 +1,5 @@
 """Public rich-find operations preserve navigation while coalescing refreshes."""
+from _qt_wait import wait_ms
 import json
 import time
 import unittest
@@ -41,7 +42,7 @@ class RichSearchDispatchTests(unittest.TestCase):
     def wait(self, predicate):
         deadline = time.monotonic()+10
         while not predicate() and time.monotonic() < deadline:
-            QTest.qWait(5)
+            wait_ms(5)
         self.assertTrue(predicate(), 'public rich-find operation did not settle')
 
     def js(self, script):

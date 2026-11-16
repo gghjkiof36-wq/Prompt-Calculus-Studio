@@ -1,4 +1,5 @@
 """The optional decoration preserves editing, input, preferences and idle work."""
+from _qt_wait import wait_ms
 import json
 import copy
 import os
@@ -164,7 +165,7 @@ class WorkspaceAmbientTests(unittest.TestCase):
             for effect in ('sakura', 'rain', 'snow'):
                 self.w.set_ambient_effect(effect)
                 self.events()
-                QTest.qWait(80)
+                wait_ms(80)
                 if folder := os.environ.get('PCS_AMBIENT_SCREENSHOTS'):
                     destination = Path(folder)
                     destination.mkdir(parents=True, exist_ok=True)

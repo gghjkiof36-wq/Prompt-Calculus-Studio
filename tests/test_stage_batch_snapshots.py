@@ -1,4 +1,5 @@
 """Click acceptance, frozen expansion and cursor withdrawal as durable operations."""
+from _qt_wait import wait_ms
 from journal_fixtures import snapshot as journal_snapshot
 import copy
 import json
@@ -28,15 +29,15 @@ class BatchSnapshotTests(unittest.TestCase):
             case.executor.graphs['flow']['5']['inputs']['batch_size']=2
             case.runner.start(2)
             self.assertTrue(case.runner.store.rows('batch_snapshot')[0]['deferred'])
-            QTest.qWait(60)
+            wait_ms(60)
             for _ in range(2):
                 self.assertEqual(case.workflows()[-1],'flow')
                 case.executor.finish(2)
-                QTest.qWait(80)
+                wait_ms(80)
                 for _ in range(2):
                     self.assertEqual(case.workflows()[-1],'B',dict(notices=case.notices,heads=case.runner.store.batch_heads(case.w.state['workspace']),workflows=case.workflows()))
                     case.executor.finish()
-                    QTest.qWait(80)
+                    wait_ms(80)
             self.assertEqual(case.workflows(),['flow','B','B']*2)
             self.assertEqual(len(case.runner.store.rows('entry')),4)
             self.assertEqual(case.runner.store.rows('batch_snapshot'),[])
@@ -47,12 +48,12 @@ class BatchSnapshotTests(unittest.TestCase):
     def test_one_hundred_items_finish_once_across_five_windows(self):
         with scenario(False) as (case, config):
             case.runner.start(100)
-            QTest.qWait(50)
+            wait_ms(50)
             for _ in range(100):
-                if not case.executor.pending:QTest.qWait(50)
+                if not case.executor.pending:wait_ms(50)
                 self.assertTrue(case.executor.pending,case.notices)
                 case.executor.finish()
-            QTest.qWait(50)
+            wait_ms(50)
             self.assertTrue(all(r['status']=='complete' for r in case.runner.store.rows('run')),case.notices)
             self.assertEqual(len(case.runner.store.rows('entry')),100)
             ids=[p['prompt_id'] for p in case.executor.submissions]
@@ -129,7 +130,7 @@ class BatchSnapshotTests(unittest.TestCase):
             before=stage_batches.cursors(case.w.state,controls[0]['cursor_keys'])
             actions.cancel(case.runner,config['scheduler'],controls[0]['group'])
             self.assertEqual(stage_batches.cursors(case.w.state,controls[0]['cursor_keys']),before)
-            QTest.qWait(50)
+            wait_ms(50)
             self.assertTrue(case.executor.pending)
             actions.cancel(case.runner,config['scheduler'],controls[1]['group'])
             self.assertEqual(stage_batches.cursors(case.w.state,controls[1]['cursor_keys']),before)

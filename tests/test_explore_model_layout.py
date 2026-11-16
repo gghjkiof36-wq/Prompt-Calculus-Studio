@@ -1,4 +1,5 @@
 """Explore and model-library changes preserve navigation and personal edits."""
+from _qt_wait import wait_ms
 import os
 import tempfile
 import unittest
@@ -29,7 +30,7 @@ class ExploreModelLayoutTests(unittest.TestCase):
     def tearDown(self):
         self.w.close(); APP.processEvents(); self.requests.stop(); self.environment.stop(); self.temp.cleanup()
 
-    def settle(self):QTest.qWait(60)
+    def settle(self):wait_ms(60)
 
     def add_model(self):
         root=Path(self.temp.name)/'models'; root.mkdir()

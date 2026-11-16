@@ -1,4 +1,5 @@
 """Viewport notices remain readable independently of the draggable run bar."""
+from _qt_wait import wait_ms
 import os,tempfile,unittest
 from unittest.mock import patch
 
@@ -31,7 +32,7 @@ class CanvasStatusLayoutTests(unittest.TestCase):
     def configure(self,width,size):
         self.w.resize(width,800 if width>1000 else 640)
         self.w.state['settings'].update(ui_size=size,execution_bar_position=[.5,1.])
-        self.w.apply_theme(preserve_layout=True);self.bar.update_progress();QTest.qWait(60)
+        self.w.apply_theme(preserve_layout=True);self.bar.update_progress();wait_ms(60)
 
     def assert_layout(self):
         notices=[label for label in (self.w.canvas_status,self.bar.status) if label.isVisible()]
@@ -52,7 +53,7 @@ class CanvasStatusLayoutTests(unittest.TestCase):
                 self.w.notice('');self.configure(width,size)
                 self.assertEqual(self.bar.status.text(),'CLIP 待綁定')
                 self.assertTrue(self.bar.status.isVisible());self.assert_layout()
-                self.w.notice('已儲存工作區');QTest.qWait(10)
+                self.w.notice('已儲存工作區');wait_ms(10)
                 self.assertTrue(self.w.canvas_status.isVisible());self.assert_layout()
 
     def test_dragged_execution_bar_does_not_carry_notices(self):
@@ -67,14 +68,14 @@ class CanvasStatusLayoutTests(unittest.TestCase):
                     (QEvent.Type.MouseButtonRelease,Qt.MouseButton.LeftButton,Qt.MouseButton.NoButton,global_start+delta)):
                     event=QMouseEvent(event_type,QPointF(handle.mapFromGlobal(global_pos)),QPointF(global_pos),button,buttons,Qt.KeyboardModifier.NoModifier)
                     APP.sendEvent(handle,event)
-                QTest.qWait(10);self.assertNotEqual(self.bar.pos(),start);self.assert_layout()
+                wait_ms(10);self.assertNotEqual(self.bar.pos(),start);self.assert_layout()
                 self.assertEqual(self.bar.status.x(),12);self.assertEqual(self.w.canvas_status.x(),12)
 
     def test_canvas_list_switch_hides_and_restores_execution_hint(self):
         self.configure(640,18);self.w.notice('已儲存工作區');self.assert_layout()
-        self.w.set_interface_mode('list');QTest.qWait(20)
+        self.w.set_interface_mode('list');wait_ms(20)
         self.assertFalse(self.bar.status.isVisible());self.assertFalse(self.w.canvas_status.isVisible())
-        self.w.set_interface_mode('canvas');QTest.qWait(20)
+        self.w.set_interface_mode('canvas');wait_ms(20)
         self.assertTrue(self.bar.status.isVisible());self.assertTrue(self.w.canvas_status.isVisible())
         self.assertEqual(self.bar.status.text(),'CLIP 待綁定');self.assert_layout()
 
@@ -85,20 +86,20 @@ class CanvasStatusLayoutTests(unittest.TestCase):
                 text='此工作區尚未選擇工作流，請先前往連線與工作流確認設定，完成後再返回畫布繼續。'
                 self.w.notice(text*3)
                 self.bar._status_text='CLIP 待綁定，請確認目前工作流中的文字輸入節點。';self.bar.present_status()
-                QTest.qWait(10);self.assert_layout()
+                wait_ms(10);self.assert_layout()
 
     def test_oversized_notice_is_visually_elided_without_losing_source_text(self):
         self.configure(640,18)
         text='無法讀取工作流，請確認所選資料夾與連線設定。'*20
-        self.w.notice(text);QTest.qWait(10);self.assert_layout()
+        self.w.notice(text);wait_ms(10);self.assert_layout()
         notice=self.w.canvas_status
         self.assertEqual(notice.text(),text);self.assertEqual(notice.accessibleName(),text)
         self.assertTrue(notice._canvas_status_elided)
         self.assertLessEqual(notice.height(),notice.fontMetrics().lineSpacing()*3+12)
         self.assertTrue(self.bar.status.isVisible())
-        self.bar.move(12,12);QTest.qWait(10);self.assert_layout()
+        self.bar.move(12,12);wait_ms(10);self.assert_layout()
         self.assertGreater(notice.y(),self.bar.geometry().bottom())
-        self.w.notice('已儲存工作區');QTest.qWait(10);self.assert_layout()
+        self.w.notice('已儲存工作區');wait_ms(10);self.assert_layout()
         self.assertFalse(notice._canvas_status_elided);self.assertEqual(notice.text(),'已儲存工作區')
 
 

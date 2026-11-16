@@ -5,6 +5,8 @@ ROOT=Path(__file__).resolve().parents[1]; sys.path[:0]=[str(ROOT/'vendor'),str(R
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen'); os.environ['PROMPT_STUDIO_V08']='1'
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
+sys.path.insert(0,str(ROOT/'tests'))
+from _qt_wait import wait_ms
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QImage
 from prompt_calculus_studio.window import Window
@@ -19,11 +21,11 @@ def wait(predicate,seconds=30):
     deadline=time.monotonic()+seconds
     while not predicate():
         if time.monotonic()>deadline: raise AssertionError('Timed out: '+window.comfy.message+' / '+window.comfy.generation.message)
-        QTest.qWait(30)
+        wait_ms(30)
 
 folder=ROOT/'qa'/('v08-live-'+uuid.uuid4().hex[:8]); window=Window(folder)
 try:
-    window.state['settings'].update(online=False,material='solid'); window.show(); window.set_interface_mode('canvas'); QTest.qWait(20)
+    window.state['settings'].update(online=False,material='solid'); window.show(); window.set_interface_mode('canvas'); wait_ms(20)
     canvas=window.canvas; cid=next(iter(canvas.containers)); output=canvas.data()['current_output']
     positive='positive original '+uuid.uuid4().hex[:8]; expected_text='('+positive+':1.0)'
     canvas.add_tag(positive,canvas.containers[cid].pos()+QPointF(30,70))

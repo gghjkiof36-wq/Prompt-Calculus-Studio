@@ -1,4 +1,5 @@
 """Standard source footnotes remain portable; PCS adds a local hover view."""
+from _qt_wait import wait_ms
 import json
 import os
 from pathlib import Path
@@ -110,7 +111,7 @@ class CitationReaderTests(unittest.TestCase):
     def wait(self, predicate):
         deadline = time.monotonic() + 12
         while not predicate() and time.monotonic() < deadline:
-            QTest.qWait(20)
+            wait_ms(20)
         self.assertTrue(predicate())
 
     def open(self, width=960):
@@ -121,7 +122,7 @@ class CitationReaderTests(unittest.TestCase):
         self.page.resize(width, 680);self.page.show()
         self.page.md_surface.set_mode('read')
         self.wait(lambda: self.page.md_surface.reader.rich is not None and self.page.md_surface.reader.rich.render_state == 'ready')
-        QTest.qWait(60)
+        wait_ms(60)
 
     def js(self, script):
         result = []
@@ -133,7 +134,7 @@ class CitationReaderTests(unittest.TestCase):
         # An offscreen WebEngine is never the native focused window. Exercise
         # the browser event path explicitly, without moving the user's mouse.
         self.js('document.querySelector('+json.dumps(selector)+').dispatchEvent(new PointerEvent("pointerover",{bubbles:true}));return true;')
-        QTest.qWait(70)
+        wait_ms(70)
 
     def focus(self, selector, index=0):
         self.js('const p=document.querySelectorAll('+json.dumps(selector)+')['+str(index)+'];p.focus();p.dispatchEvent(new FocusEvent("focusin",{bubbles:true}));return true;')
@@ -150,7 +151,7 @@ class CitationReaderTests(unittest.TestCase):
         self.assertTrue(self.js('return !document.querySelector(".pcs-citation-popover").hidden;'))
         self.js('document.querySelector(".pcs-citation").dispatchEvent(new PointerEvent("pointerout",{bubbles:true}));return true;')
         self.hover('.pcs-citation-popover')
-        QTest.qWait(240)
+        wait_ms(240)
         detail = self.js('const p=document.querySelector(".pcs-citation-popover");return {open:!p.hidden,text:p.innerText,images:[...p.querySelectorAll("img")].map(i=>i.complete&&i.naturalWidth>0),url:p.querySelector(".pcs-citation-url").textContent,ids:p.querySelectorAll("[id]").length};')
         self.assertTrue(detail['open'])
         self.assertIn('Chromium', detail['text']);self.assertIn('2026-10-21', detail['text'])
@@ -162,7 +163,7 @@ class CitationReaderTests(unittest.TestCase):
             self.wait(lambda: launch.called)
             self.assertEqual(launch.call_args.args[0].toString(), detail['url'])
         self.js('document.querySelector(".pcs-citation-popover").dispatchEvent(new PointerEvent("pointerout",{bubbles:true}));return true;')
-        self.hover('h1');QTest.qWait(240)
+        self.hover('h1');wait_ms(240)
         self.assertTrue(self.js('return document.querySelector(".pcs-citation-popover").hidden;'))
 
     def test_keyboard_focus_card_tab_escape_and_regular_footnote(self):

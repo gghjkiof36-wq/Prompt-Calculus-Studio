@@ -1,4 +1,5 @@
 """Real Manager/Canvas adapters retain shared Undo, file writes and flow hooks."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -37,7 +38,7 @@ class DocumentOperationsUITests(unittest.TestCase):
         self.assertEqual(materials.item(host.state, ident)['prompt'], text)
         self.assertIs(host.document_operations.history, left.document.history)
         self.assertEqual(len(host.canvas.undo_stack), history_count+1)
-        QTest.qWait(180)
+        wait_ms(180)
         self.events()
         self.assertFalse(left.dirty)
         self.assertNotEqual(left.path.read_bytes(), original)

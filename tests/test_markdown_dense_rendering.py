@@ -1,4 +1,5 @@
 """Dense Markdown must not format or convert the full document on the GUI thread."""
+from _qt_wait import wait_ms
 import threading
 import time
 import unittest
@@ -25,7 +26,7 @@ class DenseRenderingTests(unittest.TestCase):
 
     def wait(self, predicate):
         deadline = time.monotonic()+15
-        while not predicate() and time.monotonic()<deadline:QTest.qWait(10)
+        while not predicate() and time.monotonic()<deadline:wait_ms(10)
         self.assertTrue(predicate())
 
     def test_dense_source_highlights_visible_blocks_and_preserves_edit_history(self):

@@ -1,4 +1,5 @@
 """The same Prompt placement keeps its selections across separate Stage routes."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -85,7 +86,7 @@ class StageFanoutTests(unittest.TestCase):
         self.runner.close();self.w.comfy.input_flow.chain=self.runner=StageRunner(self.w.comfy.input_flow)
         self.executor.finish()
         self.assertEqual(self.runner.current()['status'],'paused')
-        self.runner.resume(run['id']);QTest.qWait(40);self.complete_all(25)
+        self.runner.resume(run['id']);wait_ms(40);self.complete_all(25)
         values=self.values_by_workflow();expected=[c+'\n1-1' for c in 'abcdefghijabc']
         self.assertEqual(values,dict(flow=expected,B=expected))
         self.assertEqual(comp.render(supply.source(self.w.state,config['reader'])['root']),'d')
@@ -118,13 +119,13 @@ class StageFanoutTests(unittest.TestCase):
                 if len(entries)==2:raise OSError('synthetic fanout write failure')
             return original(kind,*args,**kwargs)
         with patch.object(self.runner.store,'add',side_effect=fail_second):
-            self.click();QTest.qWait(100)
+            self.click();wait_ms(100)
         # Q2 commits each short slice independently: the first survives, while
         # the failing second slice leaves its cursor and row uncommitted.
         accepted=self.runner.store.rows('entry')
         self.assertEqual(len(accepted),1)
         self.assertEqual(sum(b['expanded'] for b in self.runner.store.rows('batch_snapshot')),1)
-        run=self.runner.current();self.runner.resume(run['id']);QTest.qWait(40);self.complete_all(6)
+        run=self.runner.current();self.runner.resume(run['id']);wait_ms(40);self.complete_all(6)
         self.assertEqual(self.values_by_workflow(),dict(flow=[v+'\n1-1' for v in 'abc'],B=[v+'\n1-1' for v in 'abc']))
         self.assertEqual(self.runner.store.read(accepted[0]['id'])['saved'],accepted[0]['saved'])
 
@@ -153,7 +154,7 @@ class StageFanoutTests(unittest.TestCase):
         self.runner.close();self.w.comfy.input_flow.chain=self.runner=StageRunner(self.w.comfy.input_flow)
         self.executor.finish()
         self.assertEqual(self.runner.current()['status'],'paused')
-        self.runner.resume(run['id']);QTest.qWait(40);self.complete_all(5)
+        self.runner.resume(run['id']);wait_ms(40);self.complete_all(5)
         self.assertEqual(self.values_by_workflow(),dict(flow=[v+'\n1-1' for v in 'abc'],B=[v+'\n1-1' for v in 'abc']))
         self.assertEqual(comp.render(supply.source(self.w.state,config['reader'])['root']),'d')
 
@@ -169,7 +170,7 @@ class StageFanoutTests(unittest.TestCase):
         # failure retains its frozen choices and the whole reserved prefix.
         self.assertEqual(comp.render(supply.source(self.w.state,config['reader'])['root']),'d')
         self.assertEqual(comp.render(self.w.state['uses']['root']),'1-2')
-        self.runner.resume(self.runner.current()['id']);QTest.qWait(40);self.complete_all(6)
+        self.runner.resume(self.runner.current()['id']);wait_ms(40);self.complete_all(6)
         self.assertEqual(self.values_by_workflow(),dict(flow=[v+'\n1-1' for v in 'abc'],B=[v+'\n1-1' for v in 'abc']))
 
     def test_direct_canvas_only_branch_keeps_one_shared_value(self):
@@ -206,7 +207,7 @@ class StageFanoutTests(unittest.TestCase):
                 destination=config['scheduler']+'::bindings' if workflow=='flow' else stage
                 wiring.connect(state,image,destination,'control')
         self.assertTrue(self.c.commit(connect),self.notices)
-        self.runner.start(2);QTest.qWait(40);self.complete_all(12)
+        self.runner.start(2);wait_ms(40);self.complete_all(12)
         expected=[c+'\n1-'+str(i) for i,letters in ((1,'abc'),(2,'def')) for c in letters]
         self.assertEqual(self.values_by_workflow(),dict(flow=expected,B=expected))
         for workflow in ('flow','B'):

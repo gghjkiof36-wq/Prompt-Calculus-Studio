@@ -1,4 +1,5 @@
 """Actual offline KaTeX rendering, paste and document round-trip contracts."""
+from _qt_wait import wait_ms
 import json
 import os
 from pathlib import Path
@@ -47,7 +48,7 @@ class MathReaderTests(unittest.TestCase):
     def wait(self, predicate):
         deadline = time.monotonic() + 20
         while not predicate() and time.monotonic() < deadline:
-            QTest.qWait(20)
+            wait_ms(20)
         self.assertTrue(predicate())
 
     def js(self, page, expression):
@@ -90,11 +91,11 @@ class MathReaderTests(unittest.TestCase):
         if output:
             folder = Path(output)
             folder.mkdir(parents=True, exist_ok=True)
-            QTest.qWait(150)
+            wait_ms(150)
             self.assertTrue(page.md_surface.reader.rich.grab().save(str(folder / 'math-physics-reader-wide.png')))
             (folder / 'math-physics-source.md').write_text(source, encoding='utf-8')
         page.resize(420, 900)
-        QTest.qWait(150)
+        wait_ms(150)
         self.assertLessEqual(self.js(page, 'document.documentElement.scrollWidth'), self.js(page, 'innerWidth') + 2)
         if output:
             self.assertTrue(page.md_surface.reader.rich.grab().save(str(folder / 'math-physics-reader-narrow.png')))

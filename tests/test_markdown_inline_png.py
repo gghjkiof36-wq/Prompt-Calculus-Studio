@@ -1,4 +1,5 @@
 """The Chrome Markdown export opens without importing JSON or writing assets."""
+from _qt_wait import wait_ms
 import base64
 import json
 import os
@@ -73,7 +74,7 @@ class InlinePngReaderTests(unittest.TestCase):
     def wait(self, predicate):
         deadline = time.monotonic() + 15
         while not predicate() and time.monotonic() < deadline:
-            QTest.qWait(20)
+            wait_ms(20)
         self.assertTrue(predicate())
 
     def js(self, expression):
@@ -116,7 +117,7 @@ class InlinePngReaderTests(unittest.TestCase):
         self.wait(lambda: self.js('[...document.querySelectorAll("main img")].every(i=>i.complete&&i.naturalWidth>0)'))
         for width in (1000, 360):
             self.page.resize(width, 700)
-            QTest.qWait(80)
+            wait_ms(80)
             state = self.js('''({sources:[...document.querySelectorAll('main img')].map(i=>i.getAttribute('src')),
                 missing:document.querySelectorAll('main .missing').length,
                 width:innerWidth,scroll:document.documentElement.scrollWidth})''')

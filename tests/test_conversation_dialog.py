@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import json
 import threading
 import unittest
@@ -26,7 +27,7 @@ class ImportDialogTests(unittest.TestCase):
         if dialog is not None and isValid(dialog):
             dialog.reject()
             for _ in range(300):
-                QTest.qWait(10)
+                wait_ms(10)
                 if not isValid(dialog) or dialog.job is None:break
             if isValid(dialog):dialog.close()
         fixture.WorkspacePaneTests.tearDown(self)
@@ -40,7 +41,7 @@ class ImportDialogTests(unittest.TestCase):
 
     def wait_job(self):
         for _ in range(500):
-            QTest.qWait(10)
+            wait_ms(10)
             # QTest's nested wait can retain the Python GIL on Windows; give
             # the actual Python file worker time, as app.exec does in production.
             time.sleep(.002)
@@ -167,7 +168,7 @@ class ImportDialogTests(unittest.TestCase):
             d.load_source(self.source)
             for _ in range(100):
                 if entered.is_set():break
-                QTest.qWait(10)
+                wait_ms(10)
             d.reject()
             self.assertTrue(d.job.cancel.is_set())
             self.wait_job()
@@ -202,7 +203,7 @@ class ImportDialogTests(unittest.TestCase):
         with patch('prompt_calculus_studio.conversation_dialog.load_archive', delayed):
             d.load_source(self.source)
             for _ in range(100):
-                QTest.qWait(5)
+                wait_ms(5)
                 time.sleep(.002)
                 if entered.is_set():break
             flag = d.job.cancel

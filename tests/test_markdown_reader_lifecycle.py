@@ -1,4 +1,5 @@
 """Rich reading must remain visible and leave the workspace usable."""
+from _qt_wait import wait_ms
 import json
 from pathlib import Path
 import tempfile
@@ -57,13 +58,13 @@ class RichReaderLifecycleTests(unittest.TestCase):
     def wait(self, predicate):
         deadline = time.monotonic()+10
         while not predicate() and time.monotonic() < deadline:
-            QTest.qWait(25)
+            wait_ms(25)
         self.assertTrue(predicate())
 
     def assert_reading(self, surface):
         reader = surface.reader
         self.wait(lambda: reader.rich is not None and reader.rich.render_state == 'ready')
-        QTest.qWait(50)
+        wait_ms(50)
         self.assertTrue(reader.isVisible(), 'loaded HTML cannot count as a visible reader')
         self.assertTrue(reader.rich.isVisible())
         self.assertEqual(reader.rich.geometry(), reader.rect())
@@ -85,7 +86,7 @@ class RichReaderLifecycleTests(unittest.TestCase):
         self.window.show()
         self.assert_reading(tab.widget.md_surface)
         self.window.resize(960, 720)
-        QTest.qWait(80)
+        wait_ms(80)
         self.assert_reading(tab.widget.md_surface)
 
     def test_mode_switches_leave_search_editing_and_other_tabs_usable(self):
@@ -94,7 +95,7 @@ class RichReaderLifecycleTests(unittest.TestCase):
         surface = tab.widget.md_surface
         for mode in ('read', 'write', 'source', 'read', 'write', 'read'):
             surface.set_mode(mode)
-            QTest.qWait(40)
+            wait_ms(40)
             if mode == 'read':
                 self.assert_reading(surface)
             else:
@@ -118,7 +119,7 @@ class RichReaderLifecycleTests(unittest.TestCase):
         self.assertIn('新增內容', tab.widget.toPlainText())
         tab.widget.undo()
         other = self.window.open_path(self.other)
-        QTest.qWait(40)
+        wait_ms(40)
         self.assertEqual(self.window.active_key, other.key)
         self.assertTrue(other.widget.md_surface.editor.isVisible())
         self.assertFalse(surface.reader.rich.isVisible())
@@ -137,7 +138,7 @@ class RichReaderLifecycleTests(unittest.TestCase):
         # Layout restoration finishes on the first show/event-loop turn.
         self.assert_reading(surface)
         surface.set_mode('write')
-        QTest.qWait(40)
+        wait_ms(40)
         self.assertTrue(surface.editor.isVisible())
         surface.set_mode('read')
         self.assert_reading(surface)
@@ -147,14 +148,14 @@ class RichReaderLifecycleTests(unittest.TestCase):
         first = self.window.open_path(self.welcome)
         other = self.window.open_path(self.other, pane=self.window.ensure_split())
         first.widget.md_surface.set_mode('read')
-        QTest.qWait(80)
+        wait_ms(80)
         self.assert_reading(first.widget.md_surface)
         self.assertTrue(other.widget.md_surface.reader.isVisible())
         self.window.sidebar.hide()
-        QTest.qWait(80)
+        wait_ms(80)
         self.assert_reading(first.widget.md_surface)
         self.window.sidebar.show()
-        QTest.qWait(80)
+        wait_ms(80)
         self.assertTrue(other.widget.md_surface.reader.isVisible())
         first.widget.md_surface.set_mode('source')
         self.assertFalse(first.widget.md_surface.reader.rich.isVisible())

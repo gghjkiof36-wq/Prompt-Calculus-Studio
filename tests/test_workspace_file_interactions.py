@@ -1,4 +1,5 @@
 """Captured submenu, drag/drop, confirmation and disclosure interactions."""
+from _qt_wait import wait_ms
 import json
 from pathlib import Path
 import unittest
@@ -319,11 +320,11 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
         drag = self.w.tree.file_drag
         self.assertTrue(drag.begin())
         self.assertTrue(self.drag_to(self.root/'Folder', drop=False).isAccepted())
-        QTest.qWait(700)
+        wait_ms(700)
         self.assertTrue(self.w.path_items[path_key(self.root/'Folder')].isExpanded())
         drag.position = QPoint(100, self.w.tree.viewport().height()-4)
         before = self.w.tree.verticalScrollBar().value()
-        QTest.qWait(180)
+        wait_ms(180)
         self.assertGreater(self.w.tree.verticalScrollBar().value(), before)
         self.assertEqual(self.w.active_key, active)
         drag.finish()
@@ -369,7 +370,7 @@ class WorkspaceFileInteractionsTests(unittest.TestCase):
         self.assertEqual(tree.currentItem().data(0, Qt.ItemDataRole.UserRole+1), str(selected))
         self.assertFalse(self.w.path_items[path_key(self.root/'Folder/Branch 30')].isExpanded())
         self.assertEqual(tree.verticalScrollBar().value(), before)
-        QTest.qWait(420)
+        wait_ms(420)
         self.assertFalse(self.w.tree_state.dirty)
         self.w.close()
         other = WorkspaceShell(self.root, self.w.data)

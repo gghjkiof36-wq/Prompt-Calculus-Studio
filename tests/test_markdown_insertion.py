@@ -1,4 +1,5 @@
 """Shared-view input and persistence during a real asynchronous HTML paste."""
+from _qt_wait import wait_ms
 import time
 import unittest
 
@@ -51,7 +52,7 @@ class InsertionViewTests(unittest.TestCase):
         deadline = time.monotonic()+20
         try:
             while (not state or buffer.mutation is not None) and time.monotonic() < deadline:
-                QTest.qWait(3)
+                wait_ms(3)
                 time.sleep(.001)
             if 'error' in state:
                 raise state['error']
@@ -74,7 +75,7 @@ class InsertionViewTests(unittest.TestCase):
         reopened = self.w.open_path(path, True, new_tab=True)
         deadline = time.monotonic()+15
         while reopened.widget.buffer.opening and time.monotonic() < deadline:
-            QTest.qWait(5)
+            wait_ms(5)
         self.assertFalse(reopened.widget.buffer.opening)
         self.assertEqual(self.assert_source(reopened, expected_text), expected_bytes)
         self.assertEqual(path.read_bytes(), expected_bytes)
@@ -86,7 +87,7 @@ class InsertionViewTests(unittest.TestCase):
         editor.insertFromMimeData(mime)
         deadline = time.monotonic()+15
         while editor.prepared_paste.job is not None and time.monotonic() < deadline:
-            QTest.qWait(5)
+            wait_ms(5)
         self.assertEqual(self.errors, [])
         self.assertIsNone(editor.prepared_paste.job)
         self.assertIsNone(editor.prepared_paste.insertion)

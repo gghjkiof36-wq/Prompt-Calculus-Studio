@@ -1,4 +1,5 @@
 """Captured tab gestures and visible drop destinations, without desktop input."""
+from _qt_wait import wait_ms
 import unittest
 from unittest.mock import patch
 
@@ -255,7 +256,7 @@ class WorkspaceTabDragTests(unittest.TestCase):
         point = control.mapToGlobal(control.rect().center())
         self.pointer(bar, point)
         self.assertIs(self.w.tab_drag.scroll_control, control)
-        QTest.qWait(280)
+        wait_ms(280)
         self.events()
         self.assertNotEqual(bar.tabRect(0).x(), before)
         QTest.keyClick(bar, Qt.Key.Key_Escape)

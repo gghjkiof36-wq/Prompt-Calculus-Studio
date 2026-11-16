@@ -1,4 +1,5 @@
 """First-run Markdown welcome respects explicit launches and saved sessions."""
+from _qt_wait import wait_ms
 from pathlib import Path
 import tempfile
 import unittest
@@ -25,7 +26,7 @@ class WorkspaceWelcomeTests(unittest.TestCase):
         self.note.write_text('保留這份筆記', encoding='utf-8')
         self.window = WorkspaceShell(self.root, self.data)
         self.window.show()
-        QTest.qWait(30)
+        wait_ms(30)
 
     def tearDown(self):
         self.window.close()
@@ -36,7 +37,7 @@ class WorkspaceWelcomeTests(unittest.TestCase):
     def test_first_run_opens_ordinary_editable_markdown_in_reading_mode(self):
         original = self.welcome.read_bytes()
         tab = open_initial_documents(self.window)
-        QTest.qWait(30)
+        wait_ms(30)
         self.assertEqual(tab.path, self.welcome)
         self.assertEqual(self.window.active_key, tab.key)
         self.assertEqual(tab.widget.md_surface.mode, 'read')
@@ -57,7 +58,7 @@ class WorkspaceWelcomeTests(unittest.TestCase):
         self.app.processEvents()
         self.window = WorkspaceShell(self.root, self.data)
         self.window.show()
-        QTest.qWait(30)
+        wait_ms(30)
         self.assertTrue(self.window.layout_restored)
         self.assertIsNone(open_initial_documents(self.window))
         self.assertEqual(self.window.tabs_by_key[self.window.active_key].path, self.note)

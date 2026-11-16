@@ -1,4 +1,5 @@
 """B: reachable editing actions, rendering semantics, shared data, and Undo."""
+from _qt_wait import wait_ms
 from pathlib import Path
 import json
 import sys
@@ -63,7 +64,7 @@ class MarkdownEditingTests(unittest.TestCase):
             for _ in range(250):
                 self.app.processEvents()
                 if rich.render_state=='ready':break
-                QTest.qWait(10)
+                wait_ms(10)
             self.assertEqual(rich.render_state,'ready')
             result=[]
             rich.page().runJavaScript('''(() => {
@@ -79,7 +80,7 @@ class MarkdownEditingTests(unittest.TestCase):
             for _ in range(250):
                 self.app.processEvents()
                 if result:break
-                QTest.qWait(10)
+                wait_ms(10)
             self.assertTrue(result and result[0],'Formatted text must be visible in the reading DOM')
             return json.loads(result[0])
         finally:surface.set_mode(mode)

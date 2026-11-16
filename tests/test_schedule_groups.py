@@ -1,4 +1,5 @@
 """Execution groups, bounded display and isolated ordering over persistent rows."""
+from _qt_wait import wait_ms
 from journal_fixtures import snapshot as journal_snapshot
 import copy
 import sqlite3
@@ -139,7 +140,7 @@ class GroupExecutionTests(unittest.TestCase):
         from prompt_calculus_studio.schedule_batch_actions import prioritize
         prioritize(self.runner,key,groups[1]['id'])
         for _ in range(2):expand(self.runner,CAPACITY)
-        QTest.qWait(40)
+        wait_ms(40)
         entries=store.rows('entry')
         self.assertEqual(entries[-1]['saved']['values'][self.clip]['value'],'second click')
         self.assertNotEqual(entries[0]['execution_group'],entries[-1]['execution_group'])
@@ -223,7 +224,7 @@ class GroupExecutionTests(unittest.TestCase):
         self.assertEqual(self.executor.submissions[-1]['prompt']['6']['inputs']['text'],'future run')
         self.executor.finish()
         from PySide6.QtTest import QTest
-        QTest.qWait(100)
+        wait_ms(100)
         self.assertEqual(len(self.executor.submissions),3,dict(notices=self.notices,runs=[(r['status'],r.get('pause_reason'),[(f['kind'],f.get('active'),f.get('job')) for f in r['stack']]) for r in self.runner.runs()],entries=[(r['execution_group'],r['status']) for r in store.rows('entry')]))
 
     def test_cancel_group_reconciles_current_and_keeps_sibling_batch(self):
@@ -280,7 +281,7 @@ class GroupExecutionTests(unittest.TestCase):
         self.assertTrue(store.rows('attempt')[0]['cancel_requested'])
         self.executor.finish(error=True)
         from PySide6.QtTest import QTest
-        QTest.qWait(100)
+        wait_ms(100)
         self.assertEqual(len(self.executor.submissions),2)
         self.assertFalse(store.rows('attempt')[0]['cancel_requested'])
 

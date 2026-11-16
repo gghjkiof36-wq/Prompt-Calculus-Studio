@@ -1,4 +1,5 @@
 """Disconnected status is not a repeating work interruption; no server or model."""
+from _qt_wait import wait_ms
 from journal_fixtures import snapshot as journal_snapshot
 import unittest
 from types import SimpleNamespace
@@ -126,10 +127,10 @@ class WorkspaceNoticeLifetimeTests(unittest.TestCase):
 
     def test_repeated_identical_text_keeps_original_deadline(self):
         self.notice.present(NOTICE, 90)
-        QTest.qWait(40)
+        wait_ms(40)
         self.notice.present(NOTICE, 5000)
         self.assertLess(self.notice.expire.remainingTime(), 100)
-        QTest.qWait(100)
+        wait_ms(100)
         self.assertTrue(self.notice.isHidden())
         self.notice.present(NOTICE, 90)  # A later explicit occurrence still works.
         self.assertFalse(self.notice.isHidden())

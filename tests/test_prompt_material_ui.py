@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import copy
 import unittest
 from PySide6.QtTest import QTest
@@ -145,7 +146,7 @@ class MaterialLevelsUITests(unittest.TestCase):
         editor.search.setText('搜尋素材 0999');self.app.processEvents();self.assertEqual(editor.candidates.count(),1)
         editor.pick_material('scale-999');self.app.processEvents();self.assertEqual(editor.modules.count(),9)
         self.assertTrue(dialog.panels.bounds().contains(dialog.geometry()))
-        editor.preview_toggle.setChecked(True);QTest.qWait(250)
+        editor.preview_toggle.setChecked(True);wait_ms(250)
         main=dialog.panels.main.geometry();side=dialog.panels.side.geometry()
         self.assertGreaterEqual(side.left()-main.right(),dialog.panels.GAP)
         self.assertEqual(side.top(),main.top());dialog.reject()

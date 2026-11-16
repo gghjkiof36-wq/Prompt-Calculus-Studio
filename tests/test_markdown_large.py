@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import unittest
 from unittest.mock import patch
 from PySide6.QtCore import QThreadPool
@@ -22,7 +23,7 @@ class LargeMarkdownTests(unittest.TestCase):
         self.assertTrue(e.lazy_presentation);self.assertLess(len(e._presented),500)
         self.assertEqual(s.outline.items,[])
         text=s.page.buffer.snapshot().text
-        e.moveCursor(QTextCursor.MoveOperation.End);QTest.qWait(50);e.present_visible()
+        e.moveCursor(QTextCursor.MoveOperation.End);wait_ms(50);e.present_visible()
         number=text[:text.index('## Last')].count('\n');block=e.document().findBlockByNumber(number)
         self.assertIn(number,e._presented)
         self.assertEqual(block.blockFormat().lineHeight(),120)
@@ -30,9 +31,9 @@ class LargeMarkdownTests(unittest.TestCase):
         self.assertEqual(s.page.encoded(),raw);self.assertFalse(s.page.dirty)
         s.apply([SourceEdit(len(text),len(text),'改')]);self.assertTrue(s.page.encoded().endswith('結尾。改'.encode()))
         s.page.undo();self.assertEqual(s.page.encoded(),raw)
-        s.set_mode('source');QTest.qWait(50);e.present_visible()
+        s.set_mode('source');wait_ms(50);e.present_visible()
         self.assertFalse(any(item.format.fontPointSize()>=20 for item in block.layout().formats()))
-        s.set_mode('write');QTest.qWait(50);e.present_visible()
+        s.set_mode('write');wait_ms(50);e.present_visible()
         self.assertTrue(any(item.format.fontPointSize()>=20 for item in block.layout().formats()))
 
     def test_layout_pending_hit_test_cannot_expand_work_to_whole_document(self):

@@ -1,4 +1,5 @@
 """Visible supply position must agree with the next queued and native payload."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from PySide6.QtCore import QEvent, Qt, QPointF
@@ -41,7 +42,7 @@ class FlowConsistencyTests(unittest.TestCase):
     def test_bound_run_reaches_connected_image_preview(self):
         self.canvas_sequence(bound=True)
         self.assertTrue(self.c.commit(lambda state:model.connect(state,self.stage,model.PREVIEW,'image')))
-        self.click();self.executor.finish();QTest.qWait(40)
+        self.click();self.executor.finish();wait_ms(40)
         preview=self.c.preview_cards[model.PREVIEW].panel
         self.assertEqual(len(preview.input_records),1,self.notices)
         self.assertEqual(self.submitted_texts(),['prompt 0'])
@@ -102,7 +103,7 @@ class FlowConsistencyTests(unittest.TestCase):
         config=self.group_source((1,1,1),batch=True)
         self.click()
         self.assertEqual(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText(),'prompt 0')
-        self.executor.finish();self.executor.finish();QTest.qWait(30)
+        self.executor.finish();self.executor.finish();wait_ms(30)
         root=supply.definitions(self.w.state)[config['source']]['root']
         # All three rounds were saved at Execute; completion must not consume
         # another round. The visible live cursor already points to the next cycle.
@@ -115,13 +116,13 @@ class FlowConsistencyTests(unittest.TestCase):
         stage=self.stages()[0];keys=[]
         self.assertTrue(self.c.commit(lambda state:keys.append(add_scheduler(state,(1600,0)))))
         q=keys[0];view=self.c.view
-        view.resetTransform();view.scale(.6,.6);view.centerOn(1500,140);QTest.qWait(20)
+        view.resetTransform();view.scale(.6,.6);view.centerOn(1500,140);wait_ms(20)
         initial=self.c.ports[(q+'::bindings','control',False)]
         self.assertEqual(initial.caption.text(),'輸入')
         start=view.mapFromScene(self.c.ports[(stage,'flow',True)].scenePos())
         end=view.mapFromScene(initial.scenePos())
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=start)
-        QTest.mouseMove(view.viewport(),end,25);QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=end);QTest.qWait(30)
+        QTest.mouseMove(view.viewport(),end,25);QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=end);wait_ms(30)
         edge=next(e for e in self.c.data()['connections'] if e['destination']==q+'::flow')
         self.assertEqual(edge['source'],stage)
         port=self.c.line_port(edge,False)
@@ -129,7 +130,7 @@ class FlowConsistencyTests(unittest.TestCase):
         self.assertEqual(self.c.ports[(q+'::flow','flow',False)].caption.text(),'輸入2')
         start=view.mapFromScene(port.scenePos());end=start+QPointF(-20,-110).toPoint()
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=start)
-        QTest.mouseMove(view.viewport(),end,25);QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=end);QTest.qWait(30)
+        QTest.mouseMove(view.viewport(),end,25);QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=end);wait_ms(30)
         self.assertNotIn(edge,self.c.data()['connections'])
         self.assertIsNone(self.c.connection_gesture.preview)
         self.c.undo();self.assertIn(edge,self.c.data()['connections'])

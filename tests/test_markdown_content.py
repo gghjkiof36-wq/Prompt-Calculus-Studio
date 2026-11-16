@@ -1,4 +1,5 @@
 """C operations preserve the source authority and cancellation/Undo boundaries."""
+from _qt_wait import wait_ms
 from pathlib import Path
 import tempfile
 import unittest
@@ -123,10 +124,10 @@ class ContentTests(unittest.TestCase):
         path.write_text('# 圖片\n\n![](missing.png)\n',encoding='utf-8')
         window=WorkspaceShell(root,self.path.parent/'settings')
         window.resize(1440,900);tab=window.open_path(path);surface=tab.widget.md_surface
-        surface.set_mode('read');window.show();QTest.qWait(80)
+        surface.set_mode('read');window.show();wait_ms(80)
         try:
             for width in (1440,960):
-                window.resize(width,900);QTest.qWait(80)
+                window.resize(width,900);wait_ms(80)
                 self.assertEqual(surface.geometry(),tab.widget.rect())
                 self.assertEqual(surface.reader.rich.geometry(),surface.reader.rect())
                 self.assertFalse(surface.reader.viewport().isVisible())

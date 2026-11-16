@@ -1,4 +1,5 @@
 """Offscreen Canvas checks with generated 1-pixel fixtures only."""
+from _qt_wait import wait_ms
 import os
 import tempfile
 import unittest
@@ -24,7 +25,7 @@ class InputCanvasTests(unittest.TestCase):
         self.w=Window(self.tmp.name);self.addCleanup(self.close_window,self.w)
         self.w.comfy.enabled=False;self.w.comfy.timer.stop();self.notices=[];self.w.notice=self.notices.append
         request=patch.object(self.w.comfy,'request');self.request=request.start();self.addCleanup(request.stop)
-        self.w.state['settings'].update(online=False,material='solid');self.w.show();self.w.set_interface_mode('canvas');QTest.qWait(30)
+        self.w.state['settings'].update(online=False,material='solid');self.w.show();self.w.set_interface_mode('canvas');wait_ms(30)
         self.c=self.w.canvas;self.cid=next(iter(self.c.data()['canvases']));self.out=self.c.data()['current_output']
         from prompt_calculus_studio.canvas_starter import guide
         self.starter=guide(self.w.state);self.assertIsNotNone(self.starter)
@@ -48,7 +49,7 @@ class InputCanvasTests(unittest.TestCase):
         runner=self.w.comfy.input_flow.chain
         runner.store.set_scheduler_paused(self.w.state['workspace'],self.sid,True)
         self.w.comfy.connected=True;self.w.comfy.running=1
-        self.w.comfy.input_flow.execute(count);QTest.qWait(10)
+        self.w.comfy.input_flow.execute(count);wait_ms(10)
         self.request.assert_not_called()
         return runner
 
