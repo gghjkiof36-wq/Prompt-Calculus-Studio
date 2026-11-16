@@ -1,7 +1,14 @@
-"""Native receipts/history plus actual downstream reader controls, without GPU."""
+"""Native receipts/history plus the legacy reader controls, without GPU.
+
+These cases exercise ResultSelector and the legacy item menu. V7's redesigned
+card no longer exposes those controls; its UI has separate source_redesign
+coverage. Pin only this fixture's card factory, retaining the real controls,
+native receipt path, model, selection, and Undo/Redo assertions below.
+"""
 from _qt_wait import wait_ms
 import copy
 import unittest
+from unittest.mock import patch
 from PySide6.QtCore import Qt,QPointF,QTimer
 from PySide6.QtGui import QContextMenuEvent
 from PySide6.QtTest import QTest
@@ -13,7 +20,11 @@ from prompt_calculus_studio.flow_data import image_list
 
 
 class ResultSelectionTests(unittest.TestCase):
-    setUp=stages.StageTests.setUp
+    def setUp(self):
+        stages.StageTests.setUp(self)
+        from prompt_calculus_studio.canvas_functions import SourcePanel
+        legacy=patch('prompt_calculus_studio.source_panel.SourcePanelV7',SourcePanel)
+        legacy.start();self.addCleanup(legacy.stop)
     tearDown=fixture.StageFixture.tearDown
     click=fixture.StageFixture.click
     workflows=fixture.StageFixture.workflows

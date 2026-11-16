@@ -28,8 +28,8 @@ class Segments(QFrame):
 
 
 class Preview(SourcePreview):
-    def load_path(self,path):
-        super().load_path(path)
+    def _load_path(self,path,*args,**kwargs):
+        super()._load_path(path,*args,**kwargs)
         if path is None:self.setText('')
 
     def paintEvent(self,event):
@@ -45,7 +45,7 @@ class SourcePanelV7(SourcePanel):
         self._import_actions=weakref.WeakKeyDictionary()
         self.setObjectName('CanvasModuleBody');body=QVBoxLayout(self);body.setContentsMargins(4,8,4,4);body.setSpacing(8)
         self.origin=ElidedLabel();self.origin.setObjectName('Subtle');self.origin.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred);body.addWidget(self.origin)
-        self.preview=Preview(owner.window.store);self.preview.setMinimumSize(240,160)
+        self.preview=Preview(owner.window.store,owner.window);self.preview.setMinimumSize(240,160)
         self.preview.clicked.connect(self.open_preview);self.preview.pathReady.connect(self.load)
         self.preview.failed.connect(owner.window.notice if hasattr(owner.window,'notice') else lambda *_:None)
         body.addWidget(self.preview,1)
@@ -155,7 +155,7 @@ class SourcePanelV7(SourcePanel):
 
     def update_image(self):
         shown=self.owner.data()['images'][self.key].get('show_image',True)
-        self.preview.load_path(self.owner.window.store.directory/self.current['relative'] if shown and self.current else None)
+        self.preview.load_path(self.owner.window.store.directory/self.current['relative'] if shown and self.current else None,self.current)
 
     def menu_actions(self,menu):
         value=self.owner.data()['images'][self.key]

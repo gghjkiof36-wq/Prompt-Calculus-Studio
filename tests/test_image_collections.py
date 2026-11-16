@@ -92,7 +92,10 @@ class CollectionTests(unittest.TestCase):
 class BoundCollectionUITests(unittest.TestCase):
     from test_multi_canvas import MultiCanvasTests as _Fixture
     setUp=_Fixture.setUp
-    tearDown=_Fixture.tearDown
+    def tearDown(self):
+        from _qt_cleanup import close_window
+        close_window(self.w)
+        self.env.stop();self.tmp.cleanup()
 
     def test_bound_preview_shows_both_and_second_choice_drives_output_without_browser_selection(self):
         # This retained contract is specifically the serialized pre-v7 binding

@@ -151,10 +151,11 @@ class SourceListDialog(StudioDialog):
         if token==self.start_token:
             self.start_token=self.listing.item(min(at,self.listing.count()-1)).data(ROLE)[0] if self.listing.count() else None
         self.update_title();self.listing.viewport().update()
+        self.load_thumbnails()
 
     def clear_items(self):
         if self.locked:return
-        self.listing.clear();self.start_token=None;self.update_title()
+        self.listing.clear();self.start_token=None;self.update_title();self.load_thumbnails()
 
     def busy(self):
         from .source_import import active

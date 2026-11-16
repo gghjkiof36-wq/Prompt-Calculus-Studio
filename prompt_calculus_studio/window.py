@@ -1599,6 +1599,9 @@ class Window(QMainWindow):
         if self.__dict__.get('_source_thumbnail_jobs'):
             from .source_thumbnails import close_window as close_source_thumbnails
             source_thumbnails=close_source_thumbnails(self)
+        if self.__dict__.get('_preview_loader') or getattr(self.store,'_preview_loader',None):
+            from .preview_loader import close_window as close_previews
+            source_thumbnails=close_previews(self) or source_thumbnails
         self.recent.stop_previews()
         self.close_recent_sheet()
         if hasattr(self,'sidebar_resize') and self.sidebar_resize.dragging:self.sidebar_resize.finish()

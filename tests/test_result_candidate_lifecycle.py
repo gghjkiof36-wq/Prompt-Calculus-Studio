@@ -8,6 +8,7 @@ import threading
 import time
 import unittest
 from _result_files import change_result_file
+from _nested_cleanup import cleanup_nested
 from unittest.mock import patch
 
 import test_partial_node_results as fixtures
@@ -20,7 +21,7 @@ class CandidateLifecycleTests(unittest.TestCase):
     def setUpClass(cls):fixtures.PartialNodeResultsTests.setUpClass()
 
     def setUp(self):
-        self.t=fixtures.PartialNodeResultsTests('runTest');self.t.setUp();self.addCleanup(self.t.doCleanups)
+        self.t=fixtures.PartialNodeResultsTests('runTest');self.t.setUp();self.addCleanup(cleanup_nested,self.t)
 
     def complete(self, count=1):
         t=self.t;t.terminal({'9':dict(images=t.images(count))});t.assert_complete(count)
@@ -28,6 +29,15 @@ class CandidateLifecycleTests(unittest.TestCase):
 
     def seed(self):
         t=self.t;db=t.client.window.store.db
+        original_ids={table:[row[0] for row in db.execute('SELECT id FROM '+table)]
+                      for table in ('stage_header','generation_jobs')}
+        def remove_header_only_fixtures():
+            # These retention-only rows intentionally have no journal body.
+            # Remove them after assertions, before real UI shutdown reads it.
+            with db:
+                for table,ids in original_ids.items():
+                    db.execute('DELETE FROM '+table+' WHERE id NOT IN ('+','.join('?' for _ in ids)+')',ids)
+        self.addCleanup(remove_header_only_fixtures)
         receipt=json.loads(t.candidates('history')[0][2]);owner=t.manager.identity(t.client.events.job(t.ident))['owner']
         candidates=[];jobs=[];attempts=[];events=[]
         for prefix,count,state in (('history',5000,'complete'),('failed',500,'failed'),('orphan',50,'failed')):

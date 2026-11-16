@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt,QRectF,QPointF,QSize
 from PySide6.QtGui import QPainterPath,QPainter
 from PySide6.QtWidgets import QFrame,QVBoxLayout,QCheckBox,QDialog,QPushButton
 from .widgets import label,button,row,ElidedLabel,RoundMenu
-from .image_preview import SourcePreview
+from .image_preview import SourcePreview,source_batch
 from .error_dialog import import_error
 from .local_files import choose_file
 from .canvas_items import TextCard
@@ -29,7 +29,7 @@ class SourcePanel(QFrame):
         self.result_node=ResultSelector(owner,key,'image');body.addWidget(self.result_node)
         self.show_image=QCheckBox('顯示圖片'); self.show_image.setChecked(True); self.show_image.toggled.connect(self.toggle_preview)
         body.addLayout(row(label('圖片預覽','Subtle'),None,self.show_image))
-        self.preview=SourcePreview(owner.window.store); self.preview.setMinimumSize(240,160); self.preview.clicked.connect(self.open_preview)
+        self.preview=SourcePreview(owner.window.store,owner.window); self.preview.setMinimumSize(240,160); self.preview.clicked.connect(self.open_preview)
         self.preview.setWordWrap(True); self.preview.pathReady.connect(self.load); self.preview.failed.connect(lambda message:import_error(owner.window,message))
         body.addWidget(self.preview,1); self.name=ElidedLabel('');self.name.setMinimumWidth(0)
         from .source_controls import edit_list,step,choose_prompt
@@ -199,7 +199,7 @@ class SourcePanel(QFrame):
         value=self.owner.data()['images'][self.key]
         collection=self.owner.window.comfy.images.collection(self.key) if value.get('binding') else None
         if not value.get('show_image',True):self.preview.load_path(None);return
-        self.preview.load_path(self.owner.window.store.directory/self.current['relative'] if self.current else None)
+        self.preview.load_path(self.owner.window.store.directory/self.current['relative'] if self.current else None,self.current)
         if collection and not self.current:self.preview.setText(str(len(collection['items']))+' 張圖片\n整批內容請看預覽節點')
 
 
@@ -320,6 +320,9 @@ class CanvasFunctions:
         self.canvas.commit(lambda state:self.data(state).update(preview=True)); self.canvas.fit()
     def refresh(self):
         if self.canvas.output is None: return
+        with source_batch():self.refresh_cards()
+
+    def refresh_cards(self):
         data=self.data()
         for key in list(self.cards):
             if key not in data['images']:

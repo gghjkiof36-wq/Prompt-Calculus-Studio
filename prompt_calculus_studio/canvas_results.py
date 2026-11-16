@@ -1,25 +1,30 @@
 """Canvas-local viewing and collection over the existing recent-result catalog."""
 from pathlib import Path
-from PySide6.QtCore import Qt,QSize,QRectF,Signal
+from os.path import join as join_path,normpath
+from PySide6.QtCore import Qt,QSize,QRectF,Signal,QTimer
 from PySide6.QtGui import QImageReader,QPixmap,QIcon,QPainter,QColor
 from PySide6.QtWidgets import QFrame,QVBoxLayout,QListWidget,QListWidgetItem,QPlainTextEdit,QPushButton,QSizePolicy
-from .widgets import label,button,row,ComboBox,StudioDialog,dialog_buttons,thumb_icon,ElidedLabel
+from .widgets import label,button,row,ComboBox,StudioDialog,dialog_buttons,thumb_icon,preview_path,ElidedLabel
 from .metadata_view import readable_metadata
 from .snapshots import image_snapshots
 from .preview_scope import current_iteration
+from .preview_requests import use_worker,decoded_bytes,worker_batch,live_result
 
 
 class ResultImage(QPushButton):
     """The picture follows the space allocated by the graphics card."""
     imageActivated=Signal(int)
     def __init__(self):
-        super().__init__('尚無圖片'); self.picture=QPixmap(); self.pictures=[]
+        super().__init__('尚無圖片'); self.picture=QPixmap(); self.pictures=[];self.pending=set()
+        self.apply_timer=QTimer(self);self.apply_timer.setSingleShot(True);self.apply_timer.timeout.connect(self.update)
         self.setObjectName('ResultPreview'); self.setMinimumSize(160,120)
         self.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Expanding)
     def sizeHint(self): return QSize(280,320)
     def set_picture(self,picture):
+        self.apply_timer.stop();self.pending.clear()
         self.pictures=[]; self.picture=picture; self.setIcon(QIcon(picture)); self.fit_picture(); self.update()
     def set_pictures(self,pictures):
+        self.apply_timer.stop();self.pending.clear()
         self.pictures=pictures; self.picture=QPixmap(); self.setIcon(QIcon()); self.setText(''); self.update()
     def image_rects(self):
         import math
@@ -40,7 +45,7 @@ class ResultImage(QPushButton):
                 size=picture.size().scaled(area.size().toSize(),Qt.AspectRatioMode.KeepAspectRatio)
                 target=QRectF(0,0,size.width(),size.height()); target.moveCenter(area.center())
                 painter.drawPixmap(target,picture,QRectF(picture.rect()))
-            if caption:
+            if caption and index not in self.pending:
                 painter.setPen(self.palette().color(self.foregroundRole()))
                 painter.drawText(cell.adjusted(0,cell.height()-caption,0,0),Qt.AlignmentFlag.AlignCenter,str(index+1) if not picture.isNull() else str(index+1)+' · 圖片無法讀取')
     def mouseReleaseEvent(self,event):
@@ -60,6 +65,8 @@ class CanvasResults(QFrame):
     def __init__(self,window,key='__result_preview__'):
         super().__init__(); self.window=window; self.record=None; self.ids=[]; self.loading=False; self.image_key=None; self.input_active=False; self.input_record=None;self.input_signature=None; self.input_records=[]
         self.key=key
+        self.adapter=None;self.thumb_adapter=None;self._thumb_items={};self._thumb_relatives={}
+        self._picture_paths=[];self._preview_sources=[];self._single=False
         self.setObjectName('CanvasModuleBody'); layout=QVBoxLayout(self); layout.setContentsMargins(4,8,4,4); layout.setSpacing(10)
         self.preview=ResultImage(); self.preview.clicked.connect(self.show_image); self.preview.imageActivated.connect(self.show_image); layout.addWidget(self.preview,1)
         self.images=QListWidget(self); self.images.hide(); self.images.currentItemChanged.connect(self.select)
@@ -82,6 +89,63 @@ class CanvasResults(QFrame):
         if fetch is not None:fetch.repaired.connect(self.result_repaired)
         self.refresh()
 
+    def cancel_pictures(self):
+        if self.adapter is not None:self.adapter.load([])
+
+    def refresh_preview_owner(self):
+        if self.adapter is None and self.thumb_adapter is None:return
+        from .preview_loader import scope
+        current=scope(self.window,self.window.store)
+        if any(adapter is not None and adapter.current_scope!=current
+               for adapter in (self.adapter,self.thumb_adapter)):
+            self.cancel_pictures();self.clear_thumbs()
+            self.image_key=None;self.input_signature=None;self.ids=[]
+            self._picture_paths=[];self.preview.set_picture(QPixmap())
+
+    def schedule_thumbs(self,specs):
+        if not specs:return
+        if self.thumb_adapter is None:
+            from .preview_loader import PreviewAdapter
+            self.thumb_adapter=PreviewAdapter(self,self.window,self.window.store,'legacy')
+            self.thumb_adapter.ready.connect(self.thumb_ready)
+        self.thumb_adapter.load(specs)
+
+    def clear_thumbs(self):
+        if self.thumb_adapter is not None:self.thumb_adapter.load([])
+        self._thumb_items={};self._thumb_relatives={}
+
+    def thumb_ready(self,index,image,status):
+        item=self._thumb_items.get(index)
+        if item is not None:item.setIcon(QIcon(QPixmap.fromImage(image)))
+        relative=self._thumb_relatives.get(index,'')
+        repair=getattr(self.window.store,'result_repair',None)
+        if repair and relative.startswith('thumbnails/results/'):repair(relative,failed=image.isNull())
+
+    def schedule_pictures(self,specs,records,sources=(),single=False):
+        self._picture_paths=[r['path'] for r in records]
+        self._preview_sources=list(sources);self._single=single
+        self.preview.pending={s[0] for s in specs}
+        if not specs:return
+        if self.adapter is None:
+            from .preview_loader import PreviewAdapter
+            self.adapter=PreviewAdapter(self,self.window,self.window.store,'result')
+            self.adapter.ready.connect(self.picture_ready)
+        self.adapter.load(specs)
+
+    def picture_ready(self,index,image,status):
+        picture=QPixmap.fromImage(image)
+        if self._single:
+            self.preview.set_picture(picture);self.preview.setText('' if not picture.isNull() else '圖片無法讀取')
+        elif index<len(self.preview.pictures):
+            first=all(p.isNull() for p in self.preview.pictures)
+            self.preview.pictures[index]=picture;self.preview.pending.discard(index)
+            if first or not self.preview.pending:
+                self.preview.apply_timer.stop();self.preview.update()
+            elif not self.preview.apply_timer.isActive():self.preview.apply_timer.start(16)
+        if picture.isNull() and index<len(self._preview_sources):
+            fetch=getattr(getattr(self.window.comfy,'events',None),'results',None)
+            if fetch is not None:fetch.request_repair(self._preview_sources[index]['relative'],failed=True)
+
     def result_repaired(self, relative):
         path=str(self.window.store.directory/relative)
         if any(record['path']==path for record in self.input_records):
@@ -94,6 +158,7 @@ class CanvasResults(QFrame):
         if self.refresh_input():return
         # Canvas v4 displays only its image input, never the global catalog.
         if self.window.state.get('multi_output',{}).get('version',1)>=4:
+            self.cancel_pictures();self.clear_thumbs()
             self.record=None; self.input_record=None; self.image_key=None; self.input_signature=None; self.ids=[]
             self.images.blockSignals(True); self.images.clear(); self.images.blockSignals(False)
             for widget in (self.images,self.destination,self.choose_folder,self.save_button,self.reuse,self.feedback):widget.hide()
@@ -129,11 +194,18 @@ class CanvasResults(QFrame):
         prior=self.record['id'] if self.record else self.window.state.get('canvas_result_id')
         follow=not prior or (self.ids and prior==self.ids[0])
         if ids!=self.ids:
-            self.loading=True; self.images.clear()
-            for record in rows:
+            self.loading=True;self.clear_thumbs();thumbs=[];self.images.clear()
+            paths=[preview_path(self.window.store,record.get('thumb','')) for record in rows]
+            deferred=worker_batch(paths)
+            for index,record in enumerate(rows):
                 item=QListWidgetItem('')
-                item.setIcon(thumb_icon(self.window.store,record.get('thumb',''),72))
+                path=paths[index]
+                if index in deferred:
+                    self._thumb_items[index]=item;self._thumb_relatives[index]=record.get('thumb','')
+                    thumbs.append((index,path,'',72,72,'legacy-thumb'))
+                else:item.setIcon(thumb_icon(self.window.store,record.get('thumb',''),72))
                 item.setToolTip(record['name']); item.setData(Qt.ItemDataRole.UserRole,record['id']); self.images.addItem(item)
+            self.schedule_thumbs(thumbs)
             selected=0 if follow or prior not in ids else ids.index(prior)
             self.images.setCurrentRow(selected); self.ids=ids; self.loading=False
         self.images.setVisible(len(ids)>1)
@@ -142,6 +214,7 @@ class CanvasResults(QFrame):
 
     def refresh_input(self):
         if self.window.state.get('multi_output',{}).get('version',0)>=7:return self.refresh_stage_input()
+        self.refresh_preview_owner()
         data=self.window.state.get('multi_output',{})
         line=next((c for c in data.get('connections',[]) if c['destination']==self.key and c['kind']=='image'),None)
         was_input=self.input_active;self.input_active=bool(line); self.input_record=None; self.input_records=[]
@@ -156,13 +229,21 @@ class CanvasResults(QFrame):
         signature=(line['source'],collection['collection']) if collection else None
         self.images.blockSignals(True)
         if signature!=self.input_signature or (was_input is False):
-            self.images.clear();self.ids=[];self.input_signature=signature
+            self.clear_thumbs();thumbs=[];self.images.clear();self.ids=[];self.input_signature=signature
+            sources=collection['items'] if collection else []
+            deferred=worker_batch([self.window.store.directory/item['relative'] for item in sources],sources)
             for index,item_source in enumerate(collection['items'] if collection else []):
                 item=QListWidgetItem('');item.setToolTip(item_source['name'])
-                reader=QImageReader(str(self.window.store.directory/item_source['relative']));size=reader.size()
-                if size.isValid():size.scale(72,56,Qt.AspectRatioMode.KeepAspectRatio);reader.setScaledSize(size)
-                item.setIcon(QIcon(QPixmap.fromImage(reader.read())))
+                path=str(self.window.store.directory/item_source['relative'])
+                if index in deferred:
+                    self._thumb_items[index]=item
+                    thumbs.append((index,path,item_source['sha256'],72,56,'legacy-icon'))
+                else:
+                    reader=QImageReader(path);size=reader.size()
+                    if size.isValid():size.scale(72,56,Qt.AspectRatioMode.KeepAspectRatio);reader.setScaledSize(size)
+                    item.setIcon(QIcon(QPixmap.fromImage(reader.read())))
                 item.setData(Qt.ItemDataRole.UserRole,dict(key=line['source'],collection=collection['collection'],index=index));self.images.addItem(item)
+            self.schedule_thumbs(thumbs)
         selected=next((i for i,v in enumerate(collection['items']) if source and v['reference']['image']==source.get('reference',{}).get('image')),-1) if collection else -1
         self.images.setCurrentRow(selected);self.images.blockSignals(False)
         self.recent_button.setEnabled(True)
@@ -171,14 +252,18 @@ class CanvasResults(QFrame):
             key=('batch',line['source'],collection['collection'],tuple(item['sha256'] for item in collection['items']))
             self.preview.setEnabled(True);self.preview.setStyleSheet('')
             if self.image_key!=key:
-                self.image_key=key; pictures=[]
+                self.cancel_pictures();self.image_key=key; pictures=[];specs=[]
                 # Keep total decoded preview pixels bounded even for 64 images.
                 limit=min(1536,int((4_000_000/len(self.input_records))**.5))
-                for record in self.input_records:
+                deferred=worker_batch([r['path'] for r in self.input_records],collection['items'])
+                for index,record in enumerate(self.input_records):
+                    if index in deferred:
+                        pictures.append(QPixmap());specs.append((index,record['path'],'',limit,limit,'shrink'));continue
                     reader=QImageReader(record['path']);reader.setAutoTransform(True);reader.setAllocationLimit(128);size=reader.size()
                     if size.isValid() and max(size.width(),size.height())>limit:size.scale(limit,limit,Qt.AspectRatioMode.KeepAspectRatio);reader.setScaledSize(size)
                     pictures.append(QPixmap.fromImage(reader.read()))
                 self.preview.set_pictures(pictures)
+                self.schedule_pictures(specs,self.input_records)
                 self.preview.setAccessibleName(str(len(pictures))+' 張圖片，依輸出順序排列；點選可放大')
             return True
         key=source['sha256'] if source else None
@@ -186,8 +271,13 @@ class CanvasResults(QFrame):
         picture=canvas.image_previews.get(line['source']) if hasattr(canvas,'image_previews') else None
         self.preview.setEnabled(bool(source)); self.preview.setStyleSheet('')
         if key!=self.image_key or key is None:
+            self.cancel_pictures()
             self.image_key=key; self.preview.set_picture(QPixmap()); self.preview.setText('請從下方選擇圖片' if collection and len(collection['items'])>1 else '尚未載入圖片')
             if source:
+                if worker_batch([self.input_record['path']],[source]):
+                    self.preview.setText('')
+                    self.schedule_pictures([(0,self.input_record['path'],key,2048,2048,'fit')],[self.input_record],single=True)
+                    return True
                 reader=QImageReader(self.input_record['path']); reader.setAutoTransform(True); size=reader.size()
                 if size.isValid():size.scale(2048,2048,Qt.AspectRatioMode.KeepAspectRatio); reader.setScaledSize(size)
                 pixmap=QPixmap.fromImage(reader.read()); self.preview.set_picture(pixmap); self.preview.setText('' if not pixmap.isNull() else '圖片無法讀取')
@@ -195,11 +285,12 @@ class CanvasResults(QFrame):
         return True
 
     def refresh_stage_input(self):
+        self.refresh_preview_owner()
         data=self.window.state['multi_output'];self.recent_button.hide()
         for widget in (self.images,self.destination,self.choose_folder,self.save_button,self.reuse,self.feedback):widget.hide()
         line=next((c for c in data['connections'] if c['destination']==self.key and c['kind']=='image'),None)
-        self.input_active=True;self.input_records=[];self.input_record=None
-        if not line:self.preview.set_picture(QPixmap());self.preview.setText('');self.preview.setEnabled(False);self.image_key=None;return True
+        self.input_active=True;previous_records=self.input_records;self.input_records=[];self.input_record=None
+        if not line:self.cancel_pictures();self.preview.set_picture(QPixmap());self.preview.setText('');self.preview.setEnabled(False);self.image_key=None;return True
         key=line['source'];images=self.window.comfy.images
         runner=getattr(getattr(self.window.comfy,'input_flow',None),'chain',None)
         fetch=getattr(getattr(self.window.comfy,'events',None),'results',None)
@@ -211,6 +302,7 @@ class CanvasResults(QFrame):
             signature=('candidates',tuple((i['sha256'],str(i['reference'])) for i in items))
             self.input_records=[dict(path=str(self.window.store.directory/i['relative']),name=i['name']) for i in items]
             if self.image_key!=signature:
+                self.cancel_pictures()
                 self.preview.set_pictures([QPixmap.fromImage(image) for image in candidate['pictures']])
                 self.image_key=signature
             self.input_record=self.input_records[0];self.preview.setEnabled(True)
@@ -223,21 +315,48 @@ class CanvasResults(QFrame):
         # Filter before creating image readers. Historical and downstream
         # collections remain complete; only this display uses the latest scope.
         items=current_iteration(collection['items'] if collection else [source] if source else [])
-        self.input_records=[dict(path=str(self.window.store.directory/i['relative']),name=i['name']) for i in items]
-        signature=tuple((i['sha256'],str(i.get('reference'))) for i in items)
+        signature=tuple((i['sha256'],str(i.get('reference')),i['relative'],i['name']) for i in items)
+        directory=str(self.window.store.directory)
+        self.input_records=(previous_records if self.image_key==signature else
+                            [dict(path=normpath(join_path(directory,i['relative'])),name=i['name']) for i in items])
         if items:
             self.preview.setEnabled(True)
             if self.image_key!=signature:
+                self.cancel_pictures();specs=[]
                 pictures=[];limit=min(1536,int((4_000_000/max(1,len(items)))**.5))
+                # D-B publishes while the accepted attempt still belongs to
+                # fetch.pending. Preserve its old synchronous display path;
+                # reopening history (no matching live attempt) uses the batch
+                # policy. This never changes fetch IO, receipts or scheme C.
+                live=live_result(items,getattr(fetch,'pending',{}))
+                deferred=(set() if live else
+                          worker_batch([r['path'] for r in self.input_records],items))
                 for item,record in zip(items,self.input_records):
-                    reader=QImageReader(record['path']);reader.setAutoTransform(True);reader.setAllocationLimit(128);size=reader.size()
+                    if deferred and len(pictures) in deferred:
+                        index=len(pictures)
+                        previous=self.preview.pictures
+                        pictures.append(previous[index] if index<len(previous) and index<len(self._picture_paths) and self._picture_paths[index]==record['path'] else QPixmap())
+                        specs.append((index,record['path'],item['sha256'],limit,limit,'fit',decoded_bytes(item)));continue
+                    reader=QImageReader(record['path']);reader.setAutoTransform(True);reader.setAllocationLimit(128)
+                    # Accepted D receipts already contain the validated raw
+                    # header dimensions. Keep the same reader/transform and
+                    # pixels, without a second GUI header query competing with
+                    # the fetch pool. Unclassified legacy sources still ask
+                    # their reader exactly as before.
+                    size=QSize(item['width'],item['height']) if live and decoded_bytes(item) else reader.size()
                     if size.isValid():size.scale(limit,limit,Qt.AspectRatioMode.KeepAspectRatio);reader.setScaledSize(size)
                     picture=QPixmap.fromImage(reader.read());pictures.append(picture)
                     if picture.isNull() and fetch is not None:fetch.request_repair(item['relative'],failed=True)
                 self.preview.set_pictures(pictures);self.image_key=signature
+                self._picture_paths=[record['path'] for record in self.input_records]
+                if specs:self.schedule_pictures(specs,self.input_records,items)
             self.input_record=self.input_records[0]
         else:
             canvas=getattr(self.window,'canvas',None);picture=canvas.image_previews.get(key) if canvas else None
+            empty_key=picture.cacheKey() if picture is not None and not picture.isNull() else 0
+            if (self.image_key is None and not self.preview.pictures and not self.preview.isEnabled() and
+                    getattr(self,'_empty_picture_key',None)==empty_key):return True
+            self._empty_picture_key=empty_key;self.cancel_pictures()
             self.image_key=None;self.preview.set_picture(QPixmap.fromImage(picture) if picture is not None and not picture.isNull() else QPixmap())
             self.preview.setText('');self.preview.setEnabled(False)
         return True
@@ -274,8 +393,13 @@ class CanvasResults(QFrame):
         if self.input_active:self.refresh_input();return
         key=self.record['id'] if self.record else None
         if key==self.image_key: return
+        self.cancel_pictures()
         self.image_key=key; self.preview.set_picture(QPixmap()); self.preview.setText('尚無圖片')
         if not self.record: return
+        if worker_batch([self.record['path']]):
+            self.preview.setText('')
+            self.schedule_pictures([(0,self.record['path'],'',2048,2048,'fit')],[self.record],single=True)
+            return
         reader=QImageReader(self.record['path']); reader.setAutoTransform(True); target=reader.size()
         if not target.isValid(): self.preview.setText('原圖已移動或暫存已清除'); return
         target.scale(2048,2048,Qt.AspectRatioMode.KeepAspectRatio); reader.setScaledSize(target)

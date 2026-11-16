@@ -1,5 +1,5 @@
 """Real document/Stage journals with a shared synthetic ComfyUI executor."""
-from _qt_wait import wait_ms
+from _qt_wait import wait_ms, wait_until
 import copy
 import json
 from pathlib import Path
@@ -164,7 +164,7 @@ class WorkspaceExecutionTests(unittest.TestCase):
         self.tick()
 
     def reopen(self, *, restore_tabs=True):
-        self.w.close()
+        self.assertTrue(wait_until(self.w.close,3000),'Workspace close barrier did not finish')
         self.w.deleteLater()
         self.app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         if not restore_tabs:
@@ -179,7 +179,7 @@ class WorkspaceExecutionTests(unittest.TestCase):
         self.tick()
 
     def tearDown(self):
-        self.w.close()
+        self.assertTrue(wait_until(self.w.close,3000),'Workspace close barrier did not finish')
         self.w.deleteLater()
         self.app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         self.transport.stop()

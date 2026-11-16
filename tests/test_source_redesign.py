@@ -354,20 +354,21 @@ class SourceRedesignTests(StageFixture):
 
     def test_close_barrier_waits_for_thumbnail_file_readers(self):
         key,panel,_=self.source();gate=threading.Event();entered=threading.Event()
-        from prompt_calculus_studio import source_thumbnails
-        source_thumbnails._cache.clear();real=source_thumbnails.QImageReader
+        from prompt_calculus_studio import preview_loader
+        loader=preview_loader.loader_for(self.w,self.w.store)
+        loader.cache.clear();loader.cache_bytes=0;real=preview_loader.QImageReader
         class HeldReader:
             def __init__(self,path):self.reader=real(path)
             def __getattr__(self,name):return getattr(self.reader,name)
             def read(self):entered.set();gate.wait(2);return self.reader.read()
-        with patch.object(source_thumbnails,'QImageReader',HeldReader):
+        with patch.object(preview_loader,'QImageReader',HeldReader):
             dialog=SourceListDialog(panel);dialog.show()
-            self.assertTrue(wait_until(entered.is_set));job=dialog.thumbs.job
-            self.w.close();self.assertTrue(self.w.closing);self.assertTrue(job.cancel.is_set())
+            self.assertTrue(wait_until(entered.is_set))
+            self.w.close();self.assertTrue(self.w.closing);self.assertTrue(loader.closed)
             self.assertFalse(getattr(self.w,'_close_completed',False))
             self.w.store.db.execute('SELECT 1').fetchone()
             gate.set()
-            self.assertTrue(wait_until(job.done.is_set))
+            self.assertTrue(wait_until(lambda:not loader.shutdown()))
             self.w.close();self.assertTrue(self.w._close_completed)
 
 

@@ -123,6 +123,22 @@ class StallRecorder:
         if self.writer is None and not self.closed:
             self.writer = JsonlWriter(data)
 
+    def image(self, phase, *, consumer='result', **values):
+        """Fixed display labels and bounded numbers; never content or paths."""
+        if self.closed or self.writer is None:
+            return
+        if phase not in ('request', 'cache', 'decode', 'apply'):
+            return
+        if consumer not in ('source', 'result', 'picker', 'legacy'):
+            consumer = 'result'
+        record = dict(schema=1, event_type='Image', feature='image '+phase, consumer=consumer)
+        for key in ('request', 'request_count', 'hit', 'miss', 'merged', 'dropped',
+                    'queue_ms', 'duration_ms', 'bytes', 'pixels', 'worker'):
+            value = values.get(key)
+            if type(value) is int or (type(value) is float and math.isfinite(value)):
+                record[key] = min(2**53-1, max(0, value))
+        self.writer.submit(record)
+
     def begin(self, event_type, class_name):
         if self.closed or self.writer is None or threading.get_ident() != self.owner:
             return None

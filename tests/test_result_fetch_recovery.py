@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import test_partial_node_results as fixtures
 from _result_files import change_result_file
+from _nested_cleanup import cleanup_nested
 from prompt_calculus_studio import comfy_result_fetch as fetch
 
 
@@ -23,7 +24,7 @@ class ResultFetchRecoveryTests(unittest.TestCase):
 
     def setUp(self):
         gc.collect()
-        self.t=fixtures.PartialNodeResultsTests('runTest');self.t.setUp();self.addCleanup(self.t.doCleanups)
+        self.t=fixtures.PartialNodeResultsTests('runTest');self.t.setUp();self.addCleanup(cleanup_nested,self.t)
 
     def test_http_reader_does_not_initialize_tls(self):
         t=self.t
