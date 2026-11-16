@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt,QPoint,QPointF,QMimeData
 from PySide6.QtGui import QDropEvent
 from PySide6.QtWidgets import QDialog,QFileDialog
 from PySide6.QtTest import QTest
+from _qt_wait import wait_ms, wait_until
 from stage_fixture import StageFixture,APP
 import test_workspace_panes as pane_fixture
 from test_comfy_integration import png
@@ -153,7 +154,7 @@ class SourceRedesignTests(StageFixture):
         key,panel,_=self.source();stage=StageTests.stages(self)[0]
         self.c.commit(lambda s:s['canvas_functions']['images'][key].update(stage_reference=stage,iterate=True))
         self.executor.graphs['flow']['5']['inputs']['batch_size']=3
-        self.click();self.executor.finish(count=3);QTest.qWait(60)
+        self.click();self.executor.finish(count=3);wait_ms(60)
         from prompt_calculus_studio.flow_data import image_list
         def resolved():return image_list(self.runner.context(self.runner.results),key)
         before=resolved();self.assertEqual(len(before),3);self.assertFalse(panel.origin.isHidden());self.assertTrue(panel.add_row.isHidden())
@@ -237,7 +238,7 @@ class SourceRedesignTests(StageFixture):
         key,panel,paths=self.source();step(panel,1);self.notices.clear()
         with held_import(panel,paths) as task:
             self.c.undo();undo=len(self.c.undo_stack)
-            QTest.qWait(130)
+            self.assertTrue(wait_until(lambda:task.cancelled))
             # Persist captures the restored viewport and workspace-scene cache;
             # compare the canonical document, not a pending autosave projection.
             self.assertTrue(self.w.persist());saved=self.w.store.load()
@@ -286,7 +287,7 @@ class SourceRedesignTests(StageFixture):
                 with held_import(panel,paths) as task:
                     if action=='delete':self.c.functions.remove(key)
                     else:self.w.change_workspace(workspace[0])
-                    QTest.qWait(130);self.assertTrue(self.w.persist())
+                    self.assertTrue(wait_until(lambda:task.cancelled));self.assertTrue(self.w.persist())
                     after=copy.deepcopy(self.w.state);undo=len(self.c.undo_stack)
                     self.assertTrue(task.cancelled);self.assertEqual(self.notices,[SOURCE_CHANGED])
                 self.assertEqual(self.w.state,after);self.assertEqual(len(self.c.undo_stack),undo)
@@ -294,10 +295,13 @@ class SourceRedesignTests(StageFixture):
 
     def test_output_preview_copy_empty_manual_and_order_focus_no_navigation_compile(self):
         panel=self.c.outputs[self.out].panel
+        # Other module dialogs may have been the active top-level window.
+        # Focus assertions require an active host, as a real user click does.
+        self.w.activateWindow();self.assertTrue(wait_until(self.w.isActiveWindow))
         self.assertEqual(panel.preview.text(),model.compile_output(self.w.state,self.out)['final_prompt'])
         with patch.object(self.w,'copy_text') as copied:panel.copy_button.click();copied.assert_called_once_with(panel.preview.text())
         panel.copy_button.click();self.assertEqual(APP.clipboard().text(),panel.preview.text())
-        panel.open_button.click();page=panel.page;APP.processEvents();self.assertTrue(page.content.order.hasFocus())
+        panel.open_button.click();page=panel.page;self.assertTrue(wait_until(page.content.order.hasFocus))
         # Legacy QPushButton.clicked may pass False; raising an already open
         # page must keep its existing focus, as the original no-arg slot did.
         self.assertIs(panel.open_page(False),page);self.assertTrue(page.content.order.hasFocus())
@@ -308,7 +312,8 @@ class SourceRedesignTests(StageFixture):
             self.c.commit(lambda s:edit(s,text,self.out));self.assertEqual(panel.preview.text(),text);self.assertEqual(panel.summary.text(),'手動')
             old_clipboard=APP.clipboard().text();panel.copy_button.click()
             self.assertEqual(APP.clipboard().text(),text or old_clipboard)
-            QTest.mouseClick(panel.preview,Qt.MouseButton.LeftButton,pos=QPoint(5,5));APP.processEvents()
+            QTest.mouseClick(panel.preview,Qt.MouseButton.LeftButton,pos=QPoint(5,5))
+            self.assertTrue(wait_until(lambda:panel.page is not None and panel.page.content.editor.hasFocus()))
             self.assertEqual(panel.page.content.editor.toPlainText(),text);self.assertTrue(panel.page.content.editor.hasFocus())
             panel.page.content.copy_button.click();self.assertEqual(APP.clipboard().text(),text or old_clipboard);panel.page.finish()
             self.assertLessEqual(len(panel.preview.lines),6)
@@ -357,18 +362,12 @@ class SourceRedesignTests(StageFixture):
             def read(self):entered.set();gate.wait(2);return self.reader.read()
         with patch.object(source_thumbnails,'QImageReader',HeldReader):
             dialog=SourceListDialog(panel);dialog.show()
-            for _ in range(200):
-                if entered.is_set():break
-                QTest.qWait(5)
-            self.assertTrue(entered.is_set());job=dialog.thumbs.job
+            self.assertTrue(wait_until(entered.is_set));job=dialog.thumbs.job
             self.w.close();self.assertTrue(self.w.closing);self.assertTrue(job.cancel.is_set())
             self.assertFalse(getattr(self.w,'_close_completed',False))
             self.w.store.db.execute('SELECT 1').fetchone()
             gate.set()
-            for _ in range(200):
-                if job.done.is_set():break
-                QTest.qWait(5)
-            self.assertTrue(job.done.is_set())
+            self.assertTrue(wait_until(job.done.is_set))
             self.w.close();self.assertTrue(self.w._close_completed)
 
 
@@ -392,8 +391,13 @@ class SourceImportViewTests(unittest.TestCase):
             self.assertFalse(panel.supply_row.buttons['step'].isEnabled())
             self.assertTrue(other.supply_row.buttons['step'].isEnabled())
             other.supply_row.buttons['step'].click();self.events()
+            # The other view queues its edit; snapshot only after that edit
+            # and the owner-invalidating timer are observable in shared state.
+            self.assertTrue(wait_until(lambda:host.state['canvas_functions']['images'][key].get('supply')=='step'
+                                      and task.cancelled))
+            self.assertTrue(host.persist())
             expected=copy.deepcopy(host.state);undo=len(canvas.undo_stack)
-            QTest.qWait(130);self.assertTrue(task.cancelled);self.assertEqual(notices,[SOURCE_CHANGED])
+            self.assertTrue(task.cancelled);self.assertEqual(notices,[SOURCE_CHANGED])
         self.assertEqual(notices,[SOURCE_CHANGED]);self.assertEqual(host.state,expected)
         self.assertEqual(right.host.state,expected);self.assertEqual(len(canvas.undo_stack),undo)
         self.assertEqual(host.state['canvas_functions']['images'][key]['supply'],'step')

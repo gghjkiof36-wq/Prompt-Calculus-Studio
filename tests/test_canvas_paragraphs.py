@@ -13,6 +13,7 @@ os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtCore import Qt, QPoint, QPointF, QObject, QEvent
 from PySide6.QtGui import QImage, QPainter, QColor
 from PySide6.QtTest import QTest
+from _qt_wait import wait_ms
 from PySide6.QtWidgets import QApplication
 from prompt_calculus_studio.core import (initial_state, build_prompt, validate_state, output_groups,
     activate_selection_view, set_selection_separation, reorder_output)
@@ -156,18 +157,18 @@ class ParagraphAndIsolationUiTests(unittest.TestCase):
 
     def test_drag_pan_resize_and_zoom_repaint_visible_background(self):
         self.fill_both(); view=self.w.canvas.view; observer=PaintObserver(view.viewport())
-        view.viewport().installEventFilter(observer); QTest.qWait(500); observer.regions.clear()
+        view.viewport().installEventFilter(observer); wait_ms(500); observer.regions.clear()
         for factor in (1.0,.73,1.25):
             self.w.canvas.fit(); view.scale(factor,factor); APP.processEvents()
             card=next(iter(self.w.canvas.cards.values()))
             start=view.mapFromScene(card.mapToScene(QPointF(35,45)))
             QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=start)
             for offset in (QPoint(24,16),QPoint(65,38),QPoint(-28,54)):
-                QTest.mouseMove(view.viewport(),start+offset); QTest.qWait(20)
-            QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=start+QPoint(-28,54)); QTest.qWait(25)
+                QTest.mouseMove(view.viewport(),start+offset); wait_ms(20)
+            QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=start+QPoint(-28,54)); wait_ms(25)
             QTest.mousePress(view.viewport(),Qt.MouseButton.MiddleButton,pos=QPoint(30,30))
-            QTest.mouseMove(view.viewport(),QPoint(110,80)); QTest.mouseRelease(view.viewport(),Qt.MouseButton.MiddleButton,pos=QPoint(110,80)); QTest.qWait(25)
-            self.w.canvas.resize_card('__text_output__',640,710); QTest.qWait(25)
+            QTest.mouseMove(view.viewport(),QPoint(110,80)); QTest.mouseRelease(view.viewport(),Qt.MouseButton.MiddleButton,pos=QPoint(110,80)); wait_ms(25)
+            self.w.canvas.resize_card('__text_output__',640,710); wait_ms(25)
         self.assertGreater(len(observer.regions),8)
         for rect in observer.regions: self.assertEqual(rect,view.viewport().rect())
         # Background painting must replace arbitrary previous pixels opaquely.

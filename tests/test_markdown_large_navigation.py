@@ -1,4 +1,5 @@
 """Large-file navigation survives the later application of paragraph heights."""
+from _qt_wait import wait_ms
 import time
 import unittest
 
@@ -43,7 +44,7 @@ class LargeMarkdownNavigationTests(unittest.TestCase):
     def wait(self, predicate, message):
         deadline = time.monotonic() + 15
         while not predicate() and time.monotonic() < deadline:
-            QTest.qWait(10)
+            wait_ms(10)
         self.assertTrue(predicate(), message)
 
     def assert_visible(self, editor):

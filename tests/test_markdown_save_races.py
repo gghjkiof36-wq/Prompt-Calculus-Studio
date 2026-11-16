@@ -1,4 +1,5 @@
 """089-002: actual displaced bytes, post-replace races and transaction callers."""
+from _qt_wait import wait_ms
 import json
 import os
 from pathlib import Path
@@ -155,7 +156,7 @@ class MarkdownRaceWorkspaceTests(unittest.TestCase):
         with patch.object(left.widget, 'save', wraps=left.widget.save) as saves:
             self.w.autosave.flush(left)  # A timeout already queued before failure.
             self.w.autosave.schedule(right)
-            QTest.qWait(1100)
+            wait_ms(1100)
             self.assertEqual(saves.call_count, 0)
         self.assertEqual(copies, tuple(self.root.glob('*.recovery-*')))
         self.assertEqual(right.widget.encoded(), candidate)

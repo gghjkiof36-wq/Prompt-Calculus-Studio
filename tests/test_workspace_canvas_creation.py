@@ -1,4 +1,5 @@
 """Nonblocking material selection and immediate creation at the content root."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from pathlib import Path
@@ -67,7 +68,7 @@ class CanvasCreationTests(unittest.TestCase):
         self.events()
         QTest.mouseMove(self.w, QPoint(4, 200))
         for _ in range(70):
-            QTest.qWait(10)
+            wait_ms(10)
             if self.w.sidebar_peek.is_open:
                 break
         self.assertTrue(self.w.sidebar_peek.is_open)

@@ -16,6 +16,8 @@ os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
+sys.path.insert(0,str(ROOT/'tests'))
+from _qt_wait import wait_ms
 from prompt_calculus_studio.window import Window
 from prompt_calculus_studio.pnginfo import png_metadata
 from prompt_calculus_studio.snapshots import image_snapshots
@@ -26,7 +28,7 @@ def wait(predicate,seconds=30):
     deadline=time.monotonic()+seconds
     while not predicate():
         if time.monotonic()>deadline: raise AssertionError('Timed out waiting for backend or UI')
-        QTest.qWait(40)
+        wait_ms(40)
 
 def profile():
     return dict(id='cpu-img2img',name='CPU transport fixture',mode='img2img',prompt=['2','text'],image='1',
@@ -35,7 +37,8 @@ def profile():
         '2':dict(class_type='PromptStudioTestFixture',inputs=dict(image=['1',0],text='test')),
         '3':dict(class_type='PreviewImage',inputs=dict(images=['2',0]))})
 
-with tempfile.TemporaryDirectory() as folder:
+temp_root=ROOT/'qa/live-img2img/tmp';temp_root.mkdir(parents=True,exist_ok=True)
+with tempfile.TemporaryDirectory(dir=temp_root) as folder:
     path=Path(folder); source=path/'source.png'; other=path/'other.png'
     for file,color in ((source,0xff426a92),(other,0xff8c7350)):
         image=QImage(64,48,QImage.Format.Format_RGB32); image.fill(color); image.save(str(file))

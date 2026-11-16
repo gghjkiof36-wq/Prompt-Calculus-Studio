@@ -1,4 +1,5 @@
 """Management-card entry points, draft ownership and short-window geometry."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -24,7 +25,7 @@ class MaterialManagementUITests(unittest.TestCase):
         finally:self.screen.stop()
 
     def settle(self):
-        QTest.qWait(250)
+        wait_ms(250)
 
     def click(self,widget):
         QTest.mouseClick(widget,Qt.MouseButton.LeftButton);self.settle()

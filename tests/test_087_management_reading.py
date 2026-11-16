@@ -1,4 +1,5 @@
 """Offline Qt checks for management-only text rhythm and large-font reflow."""
+from _qt_wait import wait_ms
 import sys,tempfile,unittest,traceback
 from pathlib import Path
 from unittest.mock import patch
@@ -35,10 +36,10 @@ class ManagementReadingTests(unittest.TestCase):
 
     def appearance(self,width,height,points):
         self.w.state['settings'].update(ui_size=points,online=False,material='solid',reduce_motion=True)
-        self.w.resize(width,height);self.w.apply_theme();self.w.show();self.w.settings('nodes');QTest.qWait(20)
+        self.w.resize(width,height);self.w.apply_theme();self.w.show();self.w.settings('nodes');wait_ms(20)
 
     def content(self,key):
-        self.page.show_view(key);QTest.qWait(20)
+        self.page.show_view(key);wait_ms(20)
         return self.page.extension if key=='extension' else self.page.tools_page.widget() if key=='tools' else self.page.auto_page.widget()
 
     def assert_readable(self,content):
@@ -70,7 +71,7 @@ class ManagementReadingTests(unittest.TestCase):
             scroll=self.page.pages.currentWidget();self.assertIsInstance(scroll,QScrollArea)
             self.assertEqual(scroll.horizontalScrollBar().maximum(),0)
             self.assertLessEqual(content.width(),scroll.viewport().width())
-            scroll.verticalScrollBar().setValue(scroll.verticalScrollBar().maximum());QTest.qWait(5)
+            scroll.verticalScrollBar().setValue(scroll.verticalScrollBar().maximum());wait_ms(5)
         self.assertEqual(extension.location.text(),path);self.assertTrue(extension.location.isReadOnly())
         self.assertEqual(extension.location.verticalScrollBar().maximum(),0)
         extension.location.selectAll();extension.location.copy();self.assertEqual(APP.clipboard().text(),path)
@@ -81,7 +82,7 @@ class ManagementReadingTests(unittest.TestCase):
         self.content('tools');self.assertEqual(self.page.heading.font().pixelSize(),font_pixels(16))
         self.appearance(1440,900,18);self.assertEqual(self.page.heading.font().pixelSize(),font_pixels(23))
         for key in ('packages','history'):
-            self.page.show_view(key);QTest.qWait(5)
+            self.page.show_view(key);wait_ms(5)
             self.assertEqual(self.page.heading.styleSheet(),'')
             self.assertEqual(self.page.heading.font().pixelSize(),font_pixels(22))
 

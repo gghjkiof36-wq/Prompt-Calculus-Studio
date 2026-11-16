@@ -1,4 +1,5 @@
 """Reading navigation, live layout and motion preserve document ownership."""
+from _qt_wait import wait_ms
 import json
 import unittest
 from PySide6.QtCore import QPoint,Qt
@@ -18,7 +19,7 @@ class ReadingNavigationTests(unittest.TestCase):
         for _ in range(250):
             self.app.processEvents()
             if predicate():return
-            QTest.qWait(10)
+            wait_ms(10)
         self.fail('Reading operation did not finish')
 
     def js(self,rich,script):
@@ -64,7 +65,7 @@ class ReadingNavigationTests(unittest.TestCase):
             self.w.resize(width,920);self.w.sidebar_preference=sidebar;self.w.sync_sidebar()
             s.set_zoom(zoom)
             if s.outline_layout.requested!=outline:s.toggle_outline()
-            QTest.qWait(220);self.events()
+            wait_ms(220);self.events()
             rich=s.reader.rich
             bounds=json.loads(self.js(rich,'JSON.stringify([document.querySelector("main").getBoundingClientRect().left,innerWidth])'))
             expected=rich.mapTo(s,QPoint()).x()+round(bounds[0]*rich.zoomFactor())

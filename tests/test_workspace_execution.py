@@ -1,4 +1,5 @@
 """Real document/Stage journals with a shared synthetic ComfyUI executor."""
+from _qt_wait import wait_ms
 import copy
 import json
 from pathlib import Path
@@ -156,7 +157,7 @@ class WorkspaceExecutionTests(unittest.TestCase):
                 if not client.stopped:
                     client.generation.observe(status)
                     client.input_flow.observe(status)
-            QTest.qWait(20)
+            wait_ms(20)
 
     def finish(self):
         self.peer.finish()
@@ -251,7 +252,7 @@ class WorkspaceExecutionTests(unittest.TestCase):
                 self.w.focus_tab(self.b);self.finish()
                 deadline=time.monotonic()+6
                 while page.processing or page.pending or self.a.host.jobs.active or page.refresh_timer.isActive():
-                    self.assertLess(time.monotonic(),deadline,self.errors);QTest.qWait(20)
+                    self.assertLess(time.monotonic(),deadline,self.errors);wait_ms(20)
                 self.assertEqual(self.a.host.catalog.count('recent'),total)
                 self.assertEqual(page.images.count(),total)
                 self.assertEqual(page.counter.text(),f'{total} 張')
@@ -260,7 +261,7 @@ class WorkspaceExecutionTests(unittest.TestCase):
                 if selected is None:
                     page.images.setCurrentRow(0);selected=page.record['id']
                 else:self.assertEqual(page.record['id'],selected)
-            self.tick();QTest.qWait(180)
+            self.tick();wait_ms(180)
             self.assertEqual(imports.call_count,2)
             self.assertEqual(len(self.a.document.execution.received),2)
         results=[route for _,route,_ in self.calls if route.startswith('desktop/results')]
@@ -293,7 +294,7 @@ class WorkspaceExecutionTests(unittest.TestCase):
             self.w.focus_tab(sibling if index==0 else self.b)
             self.assertEqual(sibling.host.canvas.isVisible(),index==0)
             finish_with(color)
-            self.w.focus_tab(sibling);QTest.qWait(40)
+            self.w.focus_tab(sibling);wait_ms(40)
             panel=sibling.host.canvas.preview_cards[previews[0]].panel
             source=owner.comfy.input_flow.chain.preview_results[stage]['images'][0]
             self.assertEqual(source['reference']['prompt_id'],prompt)
@@ -662,7 +663,7 @@ class WorkspaceExecutionTests(unittest.TestCase):
             self.assertFalse(controls['查看原任務回覆'].isEnabled())
             self.assertTrue(controls['取消這份流程'].isEnabled())
             self.finish()
-            QTest.qWait(600)
+            wait_ms(600)
             self.assertEqual(listing.count(), 2)
             listing.setCurrentRow(1)
             self.assertTrue(controls['查看原任務回覆'].isEnabled())
@@ -670,7 +671,7 @@ class WorkspaceExecutionTests(unittest.TestCase):
             dialog.findChild(QCheckBox).setChecked(True)
             self.assertIn('實際提交工作流：', detail.toPlainText())
             self.finish()
-            QTest.qWait(600)
+            wait_ms(600)
             self.assertIn('完成', listing.item(1).text())
             self.assertFalse(controls['取消這份流程'].isEnabled())
             self.assertFalse(controls['繼續'].isEnabled())

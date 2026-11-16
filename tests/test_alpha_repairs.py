@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt,QEvent,QPoint
 from PySide6.QtGui import QImage,QImageReader
 from PySide6.QtWidgets import QApplication,QFrame,QScrollArea,QPushButton
 from PySide6.QtTest import QTest
+from _qt_wait import wait_ms
 from shiboken6 import isValid
 from prompt_calculus_studio.core import Storage
 from prompt_calculus_studio.media import Catalog,import_image
@@ -59,7 +60,7 @@ class InterfaceRepairTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(); self.root=Path(self.temp.name)
         self.window=Window(self.root/'data'); self.window.state['settings'].update(online=False,material='solid'); self.window.apply_theme()
-        self.window.resize(1440,900); self.window.show(); self.window.set_interface_mode('canvas'); QTest.qWait(30)
+        self.window.resize(1440,900); self.window.show(); self.window.set_interface_mode('canvas'); wait_ms(30)
     def tearDown(self):
         for toast in self.window.findChildren(ImportErrorToast):
             if isValid(toast): toast.dispose()
@@ -71,15 +72,15 @@ class InterfaceRepairTests(unittest.TestCase):
         w.generation_panel.import_workflow(path); error=w.findChild(ImportErrorToast)
         self.assertIsNotNone(error); self.assertTrue(error.motion.state()==error.motion.State.Running)
         self.assertGreaterEqual(error.y(),w.height()-2); self.assertIs(APP.focusWidget(),focused); self.assertIsNone(APP.activeModalWidget())
-        QTest.qWait(210); self.assertEqual(error.geometry().bottom(),w.height()-25)
+        wait_ms(210); self.assertEqual(error.geometry().bottom(),w.height()-25)
         self.assertEqual(len(error.findChildren(QPushButton)),0); self.assertFalse(error.isWindow())
         QTest.keyClicks(editor,'x'); self.assertTrue(editor.text().endswith('x'))
         self.assertTrue(w.settings_page.workflows.feedback.isHidden()); self.assertEqual(w.state['generation'],before)
-        QTest.qWait(2100); self.assertFalse(isValid(error)); self.assertTrue(w.isVisible())
+        wait_ms(2100); self.assertFalse(isValid(error)); self.assertTrue(w.isVisible())
     def test_repeated_error_reuses_notice_and_tracks_resized_window(self):
-        toast=import_error(self.window,'first'); QTest.qWait(220)
+        toast=import_error(self.window,'first'); wait_ms(220)
         self.assertIs(import_error(self.window,'second'),toast); self.assertEqual(len(self.window.findChildren(ImportErrorToast)),1)
-        self.window.resize(1200,820); QTest.qWait(220)
+        self.window.resize(1200,820); wait_ms(220)
         self.assertEqual(toast.geometry().bottom(),self.window.height()-25); self.assertEqual(toast.message.text(),'second')
         self.window.hide(); APP.sendPostedEvents(None,QEvent.Type.DeferredDelete); self.assertFalse(isValid(toast))
     def test_media_import_failure_uses_one_dialog_instead_of_small_status_text(self):
@@ -92,7 +93,7 @@ class InterfaceRepairTests(unittest.TestCase):
         sub=self.window.canvas.functions.menu(root,QPoint(0,0)); action=root.addMenu(sub); root.addAction('新增模組')
         root.open_at(self.window.mapToGlobal(QPoint(50,70)))
         for _ in range(3):
-            sub.popup(root.pos()+QPoint(root.width(),20)); QTest.qWait(10); sub.hide()
+            sub.popup(root.pos()+QPoint(root.width(),20)); wait_ms(10); sub.hide()
             APP.sendPostedEvents(None,QEvent.Type.DeferredDelete)
             self.assertTrue(isValid(sub)); self.assertIn(action,root.actions()); self.assertEqual(len(sub.actions()),3)
         root.close(); APP.sendPostedEvents(None,QEvent.Type.DeferredDelete)
@@ -116,7 +117,7 @@ class InterfaceRepairTests(unittest.TestCase):
         image=QImage(8,8,QImage.Format.Format_RGB32); image.fill(Qt.GlobalColor.red); image.save(str(path)); preview.load_path(path)
         self.assertEqual(preview.image.size(),image.size()); self.assertEqual(preview.image.pixelColor(0,0),Qt.GlobalColor.red); preview.deleteLater()
     def test_settings_reading_area_is_bounded_but_model_tab_uses_full_width(self):
-        w=self.window; w.resize(2000,1050); w.settings('appearance'); QTest.qWait(30)
+        w=self.window; w.resize(2000,1050); w.settings('appearance'); wait_ms(30)
         area=w.settings_page.pages.currentWidget(); self.assertIsInstance(area,QScrollArea)
         self.assertLessEqual(w.settings_page.preferences.material.width(),1440)
         self.assertGreater(w.settings_page.reading.width(),1400)
@@ -127,7 +128,7 @@ class InterfaceRepairTests(unittest.TestCase):
             w.settings_page.preferences.material.setCurrentIndex(w.settings_page.preferences.material.findData(material)); APP.processEvents()
             self.assertTrue(reading.isVisible())
             self.assertTrue(page.rect().contains(reading.mapTo(page,reading.rect().bottomRight())))
-        w.settings('models'); QTest.qWait(30); self.assertGreater(w.models.width(),1200)
+        w.settings('models'); wait_ms(30); self.assertGreater(w.models.width(),1200)
 
 
 if __name__=='__main__': unittest.main()

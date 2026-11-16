@@ -1,4 +1,5 @@
 """Cold rich-reader activation must not recreate the visible workspace window."""
+from _qt_wait import wait_ms
 import unittest
 from PySide6.QtCore import QObject, QEvent, QThreadPool
 from PySide6.QtTest import QTest
@@ -26,7 +27,7 @@ class ReadingWindowTests(unittest.TestCase):
                 return False
         watch=Watch(self.w);handle=int(self.w.winId());geometry=self.w.geometry()
         for mode in ('read','write','read'):
-            s.set_mode(mode);QTest.qWait(150)
+            s.set_mode(mode);wait_ms(150)
             self.assertEqual(int(self.w.winId()),handle)
             self.assertEqual(self.w.geometry(),geometry)
             self.assertTrue(self.w.isVisible())
@@ -34,7 +35,7 @@ class ReadingWindowTests(unittest.TestCase):
         self.assertTrue(s.reader.advanced)
         for _ in range(100):
             if s.reader.rich.render_state=='ready':break
-            QTest.qWait(30)
+            wait_ms(30)
         self.assertEqual(s.reader.rich.render_state,'ready')
         self.assertTrue(s.reader.isVisible())
         self.assertTrue(s.reader.rich.isVisible())

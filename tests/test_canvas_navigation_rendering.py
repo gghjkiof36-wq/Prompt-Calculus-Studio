@@ -1,4 +1,5 @@
 """Navigation reuse must keep native controls, camera and live state accurate."""
+from _qt_wait import wait_ms
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
@@ -123,7 +124,7 @@ class ProxyPaintTests(unittest.TestCase):
                 self.events()
             counts.append(self.proxy.paint_count)
         before=self.capture();self.proxy.paint_count=0
-        self.edit.setText('目前節點更新後仍須立即顯示');QTest.qWait(30);self.events()
+        self.edit.setText('目前節點更新後仍須立即顯示');wait_ms(30);self.events()
         after=self.capture()
         self.assertGreater(self.proxy.paint_count,0)
         self.assertNotEqual(before,after)
@@ -271,7 +272,7 @@ class CanvasNavigationTests(unittest.TestCase):
                 APP.sendEvent(view.viewport(),event)
             self.assertEqual(controls.value.text(),'70%')
             place.assert_not_called()
-            QTest.qWait(150)
+            wait_ms(150)
             self.assertEqual(controls.value.text(),f'{round(view.transform().m11()*100)}%')
             self.assertLessEqual(place.call_count,1)
         canvas.zoom_to(1.04)

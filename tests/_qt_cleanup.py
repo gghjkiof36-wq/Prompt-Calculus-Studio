@@ -1,4 +1,5 @@
 """Wait for the real Window shutdown before deleting a fixture's directory."""
+from _qt_wait import wait_ms
 import time
 
 from PySide6.QtCore import QCoreApplication, QEvent
@@ -26,4 +27,4 @@ def close_window(window, timeout=2.0):
                 f'jobs.active={active!r}, function={getattr(active, "function", None)!r}, '
                 f'completion.tasks={getattr(completion, "tasks", None)!r}, '
                 f'recent.collecting={getattr(window.recent, "collecting", None)!r}')
-        QTest.qWait(10)
+        wait_ms(10)

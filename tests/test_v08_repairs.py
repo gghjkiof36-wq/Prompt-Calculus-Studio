@@ -4,6 +4,7 @@ from unittest.mock import patch
 from PySide6.QtCore import Qt,QPointF,QPoint,QMimeData
 from PySide6.QtGui import QImage,QColor,QDragEnterEvent,QDragMoveEvent,QDropEvent
 from PySide6.QtTest import QTest
+from _qt_wait import wait_ms, wait_until
 from PySide6.QtWidgets import QApplication
 from prompt_calculus_studio.window import Window
 from prompt_calculus_studio import multi_output as model
@@ -44,21 +45,23 @@ class FlowRulesTests(unittest.TestCase):
             service.publish_workflow('id',library,value)
             self.assertEqual(service.take_workflow('another'),{}); self.assertEqual(service.take_workflow(library)['id'],'id')
             restarted=Service(folder/'service',folder,folder); self.assertEqual(restarted.take_workflow(library)['value'],value)
-            service.acknowledge_workflow('id',library); self.assertEqual(service.take_workflow(library),{}); self.assertEqual(service.workflow_status('id')['status'],'done')
+            # Restart acquires a new event-publisher generation. Acknowledge
+            # through the live service, not the deliberately stale instance.
+            restarted.acknowledge_workflow('id',library); self.assertEqual(restarted.take_workflow(library),{}); self.assertEqual(restarted.workflow_status('id')['status'],'done')
 
 class FlowUITests(unittest.TestCase):
     def setUp(self):
         starter=patch('prompt_calculus_studio.canvas_starter.initialize',side_effect=lambda state,**_:state)
         starter.start();self.addCleanup(starter.stop)
         self.temp=tempfile.TemporaryDirectory(); self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'}); self.env.start()
-        self.w=Window(self.temp.name); self.w.state['settings'].update(online=False,material='solid',reduce_motion=True); self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(20)
+        self.w=Window(self.temp.name); self.w.state['settings'].update(online=False,material='solid',reduce_motion=True); self.w.show(); self.w.set_interface_mode('canvas'); wait_ms(20)
         self.c=self.w.canvas; self.cid=next(iter(self.c.containers)); self.oid=self.c.data()['current_output']; self.c.view.resetTransform()
     def tearDown(self): self.w.close(); APP.processEvents(); self.env.stop(); self.temp.cleanup()
     def drag(self,start,end):
-        view=self.c.view; view.centerOn((start+end)/2); QTest.qWait(5)
+        view=self.c.view; view.centerOn((start+end)/2); wait_ms(5)
         a=view.mapFromScene(start); b=view.mapFromScene(end)
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a); QTest.mouseMove(view.viewport(),b,25)
-        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b); QTest.qWait(20)
+        QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b); wait_ms(20)
     def test_rewire_tail_to_blank_click_and_drag_then_undo(self):
         self.c.view.scale(.6,.6)
         port=self.c.ports[(self.oid,'text',False,self.cid)]; a=port.scenePos(); self.drag(a,a+QPointF(0,-360))
@@ -66,7 +69,7 @@ class FlowUITests(unittest.TestCase):
         port=self.c.ports[(self.oid,'text',False,self.cid)]; view=self.c.view; a=port.scenePos(); view.centerOn(a)
         QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=view.mapFromScene(a)); self.assertTrue(self.c.connection_gesture.latched)
         QTest.mouseMove(view.viewport(),view.mapFromScene(a+QPointF(0,-360)),15)
-        QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=view.mapFromScene(a+QPointF(0,-360))); QTest.qWait(15)
+        QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=view.mapFromScene(a+QPointF(0,-360))); wait_ms(15)
         self.assertIsNone(self.c.data()['outputs'][self.oid]['canvas']); self.c.undo()
         QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=view.mapFromScene(self.c.ports[(self.oid,'text',False,self.cid)].scenePos()))
         QTest.keyClick(view,Qt.Key.Key_Escape); self.assertEqual(self.c.data()['outputs'][self.oid]['canvas'],self.cid)
@@ -87,21 +90,28 @@ class FlowUITests(unittest.TestCase):
             self.c.move_cards({card.key:[-3000,-3000]})
     def test_order_ghost_scale_grab_point_and_ratio_persistence(self):
         at=self.c.containers[self.cid].pos()+QPointF(25,80)
-        self.c.add_tag('first',at); self.c.add_tag('second',at+QPointF(0,100)); panel=self.c.outputs[self.oid].panel; order=panel.order
+        self.c.add_tag('first',at); self.c.add_tag('second',at+QPointF(0,100)); panel=self.c.outputs[self.oid].panel.open_page('order').content; order=panel.order
+        APP.processEvents()
         order.setCurrentItem(order.topLevelItem(0).child(0)); rect=order.visualItemRect(order.currentItem()); order._press_pos=rect.topLeft()+QPoint(23,9)
         for scale in (.45,1,1.8):
             self.c.view.resetTransform(); self.c.view.scale(scale,scale); image,hot=order.drag_preview()
-            self.assertAlmostEqual(image.width()/image.devicePixelRatioF(),rect.width()*scale,delta=2); self.assertEqual(hot,QPoint(round(23*scale),round(9*scale)))
-        token=order.token(order.currentItem());key=token[2];order.move_entry(token,2); QTest.qWait(15); self.assertEqual(self.c.data()['canvases'][self.cid]['members'][-1],key)
-        panel.split.setSizes([260,120]); panel.save_ratio(); ratio=self.c.data()['outputs'][self.oid]['panel_ratio']; self.w.persist()
-        self.w.close(); APP.processEvents(); self.w=Window(self.temp.name); self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(20); self.c=self.w.canvas
-        panel=self.c.outputs[self.oid].panel; sizes=panel.split.sizes(); self.assertAlmostEqual(sizes[0]/sum(sizes),ratio,delta=.02)
+            # The source list lives in the dedicated QWidget page now. Canvas
+            # zoom must not scale its drag image or change the grab point.
+            self.assertAlmostEqual(image.width()/image.devicePixelRatioF(),rect.width(),delta=2); self.assertEqual(hot,QPoint(23,9))
+        token=order.token(order.currentItem());key=token[2];order.move_entry(token,2); wait_ms(15); self.assertEqual(self.c.data()['canvases'][self.cid]['members'][-1],key)
+        panel.split.setSizes([280,720]); panel.save_ratio(); ratio=self.c.data()['outputs'][self.oid]['panel_ratio']; self.w.persist()
+        self.w.close(); APP.processEvents(); self.w=Window(self.temp.name); self.w.show(); self.w.set_interface_mode('canvas'); wait_ms(20); self.c=self.w.canvas
+        panel=self.c.outputs[self.oid].panel.open_page('order').content; APP.processEvents(); sizes=panel.split.sizes(); self.assertAlmostEqual(sizes[0]/sum(sizes),ratio,delta=.02)
     def test_images_need_outgoing_yellow_and_execution_and_embed_survives_disconnect(self):
         p=workflow(); self.w.generation_panel.save_profile(p); model.bind(self.w.state,'flow',next(iter(self.c.clips)),'6','text')
         path=Path(self.temp.name)/'photo.png'; image=QImage(80,40,QImage.Format.Format_RGB32); image.fill(QColor('red')); image.save(str(path))
         source=self.c.functions.add_image(path=path); self.c.commit(lambda s:model.connect(s,source,self.cid,'image'))
         with self.assertRaisesRegex(ValueError,'黃色|黄色'): freeze_source(self.w.state,self.w.store.directory)
-        self.c.commit(lambda s:model.connect(s,self.cid,self.oid,'image')); frozen=freeze_source(self.w.state,self.w.store.directory)
+        # Existing pre-v7 Prompt image wires remain readable; current UI wire
+        # creation intentionally rejects them (covered by generation_v7).
+        self.c.commit(lambda s:s['multi_output']['connections'].append(
+            dict(id=model.ident('wire_'),source=self.cid,destination=self.oid,kind='image')))
+        frozen=freeze_source(self.w.state,self.w.store.directory)
         self.assertEqual((frozen['width'],frozen['height']),(80,40)); self.assertEqual(QImage(str(self.w.store.directory/frozen['relative'])).pixelColor(2,2).name(),'#ff0000')
         self.c.embed_source(source,self.cid); edge=next(c for c in self.c.data()['connections'] if c['destination']==self.cid and c['kind']=='image'); self.c.commit(lambda s:model.disconnect(s,edge['id']))
         doc=canvas_document(self.w.state,self.cid); self.assertEqual(len(doc['layers']),1); self.assertEqual(render_image(doc,self.w.store.directory).pixelColor(2,2).name(),'#ff0000')
@@ -109,21 +119,23 @@ class FlowUITests(unittest.TestCase):
         self.assertEqual(self.w.run_controls.run_button.text(),'執行'); self.assertIn('取消',self.w.run_controls.stop.accessibleName())
     def test_order_native_proxy_drop_uses_token_and_commits_new_order(self):
         at=self.c.containers[self.cid].pos()+QPointF(25,80)
-        self.c.add_tag('first',at); self.c.add_tag('second',at+QPointF(0,100)); card=self.c.outputs[self.oid]; order=card.panel.order
-        self.c.view.scale(.7,.7); self.c.view.centerOn(card); QTest.qWait(10)
+        self.c.add_tag('first',at); self.c.add_tag('second',at+QPointF(0,100)); card=self.c.outputs[self.oid]; order=card.panel.open_page('order').content.order
+        self.c.view.scale(.7,.7); self.c.view.centerOn(card); wait_ms(10)
         source=order.token(order.topLevelItem(0).child(1)); order._source=source; order._drag_token=b'owned'; mime=QMimeData(); mime.setData(order.mime,b'owned')
-        rect=order.visualItemRect(order.topLevelItem(0).child(0)); local=rect.topLeft()+QPoint(15,3); point=self.c.view.mapFromScene(card.proxy.mapToScene(QPointF(order.viewport().mapTo(card.panel,local))))
+        # Output ordering moved from the graphics proxy to its dedicated page;
+        # deliver the complete native sequence to that actual viewport.
+        rect=order.visualItemRect(order.topLevelItem(0).child(0)); point=rect.topLeft()+QPoint(15,3)
         for cls in (QDragEnterEvent,QDragMoveEvent):
-            event=cls(point,Qt.DropAction.MoveAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier); event.ignore(); APP.sendEvent(self.c.view.viewport(),event); self.assertTrue(event.isAccepted())
-        event=QDropEvent(QPointF(point),Qt.DropAction.MoveAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier); APP.sendEvent(self.c.view.viewport(),event)
-        self.assertTrue(event.isAccepted()); order._source=None; order._drag_token=b''; QTest.qWait(15)
+            event=cls(point,Qt.DropAction.MoveAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier); event.ignore(); APP.sendEvent(order.viewport(),event); self.assertTrue(event.isAccepted())
+        event=QDropEvent(QPointF(point),Qt.DropAction.MoveAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier); APP.sendEvent(order.viewport(),event)
+        self.assertTrue(event.isAccepted()); order._source=None; order._drag_token=b''; wait_ms(15)
         self.assertEqual(self.c.data()['canvases'][self.cid]['members'][0],source[2])
     def test_manager_bind_switch_remove_undo_and_canvas_names(self):
         c2=self.c.add_canvas(); self.assertEqual(self.c.data()['canvases'][self.cid]['name'],'畫布1'); self.assertEqual(self.c.data()['canvases'][c2]['name'],'畫布2')
         manager=self.w.settings_page.workflow_manager; self.w.generation_panel.save_profile(workflow()); manager.refresh()
         self.assertEqual(manager.list.count(),1)
         from prompt_calculus_studio.clip_flow import set_binding
-        self.c.commit(lambda s:set_binding(s,'flow',next(iter(self.c.clips)),('7','text')));QTest.qWait(10)
+        self.c.commit(lambda s:set_binding(s,'flow',next(iter(self.c.clips)),('7','text')));wait_ms(10)
         self.assertEqual(self.c.data()['bindings'][0]['node'],'7'); self.w.state['settings']['skip_workflow_delete_confirmation']=True; manager.remove(); self.assertEqual(manager.list.count(),0); manager.undo_remove(); self.assertEqual(manager.list.count(),1)
         self.assertEqual(self.c.data()['bindings'][0]['node'],'7'); self.w.settings_page.open('workflow_manager'); self.assertEqual(self.w.settings_page.comfy_tabs.currentIndex(),0)
 

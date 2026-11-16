@@ -1,4 +1,5 @@
 """Theme and viewport changes must not rewrite an active Canvas document."""
+from _qt_wait import wait_ms
 import copy,os,tempfile,unittest
 from unittest.mock import patch
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
@@ -21,7 +22,7 @@ class CanvasVisualTests(unittest.TestCase):
         from prompt_calculus_studio.window import Window
         self.tmp=tempfile.TemporaryDirectory();self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_DATA':self.tmp.name})
         self.env.start();self.w=Window(self.tmp.name);self.w.state['settings'].update(online=False,material='solid')
-        self.w.apply_theme();self.w.resize(1280,800);self.w.show();self.w.enter_canvas();QTest.qWait(60)
+        self.w.apply_theme();self.w.resize(1280,800);self.w.show();self.w.enter_canvas();wait_ms(60)
         self.canvas=self.w.canvas;self.refs=guide(self.w.state)
 
     def tearDown(self):
@@ -51,7 +52,7 @@ class CanvasVisualTests(unittest.TestCase):
 
     def test_live_light_dark_theme_preserves_items_draft_selection_and_view(self):
         from prompt_calculus_studio.drafts import edit
-        key=self.refs['output'];self.canvas.commit(lambda state:edit(state,'',key));QTest.qWait(30)
+        key=self.refs['output'];self.canvas.commit(lambda state:edit(state,'',key));wait_ms(30)
         card=self.canvas.outputs[key];card.setSelected(True);self.canvas.onboarding.focus(key)
         graph=copy.deepcopy(self.canvas.data());positions=copy.deepcopy(self.w.state['text_positions'])
         transform=self.canvas.view.transform();center=self.canvas.view.mapToScene(self.canvas.view.viewport().rect().center())
@@ -71,11 +72,11 @@ class CanvasVisualTests(unittest.TestCase):
             self.assertEqual(self.canvas.data()['outputs'][key]['draft'],'')
 
     def test_visible_zoom_controls_keep_saved_graph_and_work_after_guide_dismissal(self):
-        self.canvas.onboarding.dismiss();QTest.qWait(20)
+        self.canvas.onboarding.dismiss();wait_ms(20)
         graph=copy.deepcopy(self.canvas.data());positions=copy.deepcopy(self.w.state['text_positions'])
         controls=self.canvas.zoom_controls
         self.assertTrue(controls.isVisible())
-        controls.overview.click();QTest.qWait(10);small=self.canvas.view.transform().m11()
+        controls.overview.click();wait_ms(10);small=self.canvas.view.transform().m11()
         controls.value.click();self.assertEqual(self.canvas.view.transform().m11(),1)
         controls.plus.click();self.assertGreater(self.canvas.view.transform().m11(),1)
         controls.minus.click();self.assertAlmostEqual(self.canvas.view.transform().m11(),1)
@@ -85,7 +86,7 @@ class CanvasVisualTests(unittest.TestCase):
     def test_paper_modules_distinguish_header_body_and_embedded_fields(self):
         document=copy.deepcopy(self.canvas.data());history=copy.deepcopy(self.canvas.undo_stack)
         for palette in ('paper','graphite','mist'):
-            self.w.state['settings']['visual_palette']=palette;self.w.apply_theme(preserve_layout=True);QTest.qWait(20)
+            self.w.state['settings']['visual_palette']=palette;self.w.apply_theme(preserve_layout=True);wait_ms(20)
             from prompt_calculus_studio.canvas_items import canvas_colors
             colors=canvas_colors(self.canvas)
             cards=(self.canvas.containers[self.refs['canvas']],self.canvas.outputs[self.refs['output']],
@@ -140,13 +141,13 @@ class CanvasVisualTests(unittest.TestCase):
         def bind(state):
             store_profile(state,workflow());clip_flow.set_binding(state,'flow',self.refs['clip'],('6','text'))
             edit(state,'',self.refs['output'])
-        self.assertTrue(self.canvas.commit(bind));QTest.qWait(20)
+        self.assertTrue(self.canvas.commit(bind));wait_ms(20)
         self.assertEqual(clip.setup_status.text(),'已綁定')
         self.assertFalse(clip.binding.property('setupCurrent'))
         self.assertTrue(stage.edit_button.property('setupCurrent'))
         with patch('prompt_calculus_studio.stage_parameter_panel.open_parameters') as params:
             stage.edit_button.click();params.assert_called_once_with(self.canvas,self.refs['stage'])
-        self.assertTrue(self.canvas.commit(lambda s:choose(s,self.refs['stage'],'flow')));QTest.qWait(20)
+        self.assertTrue(self.canvas.commit(lambda s:choose(s,self.refs['stage'],'flow')));wait_ms(20)
         self.assertFalse(stage.edit_button.property('setupPending'))
         self.assertNotEqual(stage.edit_button.objectName(),'Primary')
         self.assertEqual(stage.edit_button.text(),'flow · 參數')
@@ -158,7 +159,7 @@ class CanvasVisualTests(unittest.TestCase):
             self.assertEqual(self.canvas.view.transform(),transform)
             self.assertEqual(self.canvas.data()['outputs'][self.refs['output']]['draft'],'')
             self.assertFalse(clip.binding.property('setupCurrent'));self.assertFalse(stage.edit_button.property('setupCurrent'))
-        self.canvas.undo();QTest.qWait(20)
+        self.canvas.undo();wait_ms(20)
         self.assertTrue(stage.edit_button.property('setupCurrent'))
         self.assertEqual(self.canvas.data()['outputs'][self.refs['output']]['draft'],'')
 
@@ -169,7 +170,7 @@ class CanvasVisualTests(unittest.TestCase):
         from test_multi_output import workflow
         def bind(state):
             store_profile(state,workflow());clip_flow.set_binding(state,'flow',self.refs['clip'],('6','text'))
-        self.assertTrue(self.canvas.commit(bind));QTest.qWait(20)
+        self.assertTrue(self.canvas.commit(bind));wait_ms(20)
         self.w.state['generation']['profiles'][0]['graph']['6']['inputs']['text']=['7',0]
         document=copy.deepcopy(self.w.state)
         self.canvas.clips[self.refs['clip']].panel.refresh()
@@ -232,7 +233,7 @@ class CanvasVisualTests(unittest.TestCase):
         for size in (11,18):
             self.w.state['settings']['ui_size']=size
             self.w.apply_theme(preserve_layout=True);self.w.resize(640,480)
-            QTest.qWait(40);bar.update_progress();QTest.qWait(20)
+            wait_ms(40);bar.update_progress();wait_ms(20)
             self.assertTrue(self.canvas.view.viewport().rect().contains(bar.geometry()))
             self.assertLessEqual(bar.minimumSizeHint().width(),self.canvas.view.viewport().width()-24)
             rectangles=[]
@@ -253,12 +254,12 @@ class CanvasVisualTests(unittest.TestCase):
         # A taller status can appear without any viewport resize.
         self.w.comfy.running=1
         self.w.comfy.input_flow.last_status['executing_node']='A long workflow node identifier '*3
-        bar.update_progress();QTest.qWait(20)
+        bar.update_progress();wait_ms(20)
         self.assertLessEqual(bar.height(),96)
         self.assertIn('A long workflow node identifier',bar.status.toolTip())
         self.assertEqual(bar.status.toolTip(),bar.status.accessibleName())
         self.assertTrue(self.canvas.view.viewport().rect().contains(bar.geometry()))
-        self.w.resize(1280,800);QTest.qWait(40)
+        self.w.resize(1280,800);wait_ms(40)
         self.assertFalse(controls.compact)
         self.assertFalse(self.canvas.zoom_controls.isHidden())
         self.assertFalse(controls.activity.isHidden());self.assertFalse(hasattr(bar,'more'))
@@ -267,7 +268,7 @@ class CanvasVisualTests(unittest.TestCase):
 
     def test_compact_more_keeps_zoom_history_without_duplicate_recent(self):
         from prompt_calculus_studio.widgets import RoundMenu
-        self.canvas.onboarding.dismiss();self.w.resize(640,480);QTest.qWait(40)
+        self.canvas.onboarding.dismiss();self.w.resize(640,480);wait_ms(40)
         bar=self.canvas.execution_bar;self.assertFalse(hasattr(bar,'more'))
         graph=copy.deepcopy(self.canvas.data());history=copy.deepcopy(self.canvas.undo_stack)
         with patch.object(self.w.generation_panel,'history') as tasks,patch.object(self.w,'show_recent_sheet') as recent:

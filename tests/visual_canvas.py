@@ -6,6 +6,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]; sys.path[:0] = [str(ROOT/'vendor'), str(ROOT)]
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 from PySide6.QtWidgets import QApplication
+sys.path.insert(0,str(ROOT/'tests'))
+from _qt_wait import wait_ms
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
 from prompt_calculus_studio.window import Window
@@ -28,7 +30,7 @@ w.canvas.commit(lambda s: w.canvas.add_root(s, character))
 ident = next(iter(w.state['uses']))
 w.canvas.commit(lambda s: w.canvas.add_root(s, c.node('背景', 'simple background',children=[c.node('白色','white background')])))
 w.enter_canvas(); w.canvas.fit(); app.processEvents()
-QTest.qWait(220)
+wait_ms(220)
 w.grab().save(str(ROOT/'qa'/'canvas-root.png'))
 w.canvas.open_root(ident); app.processEvents(); w.grab().save(str(ROOT/'qa'/'canvas-nested.png'))
 palette=CanvasPalette(w.canvas,None); palette.show(); palette.query.setPlainText('紅色衣服'); app.processEvents()
@@ -36,7 +38,7 @@ palette.grab().save(str(ROOT/'qa'/'canvas-palette.png')); palette.reject()
 w.canvas.commit(lambda s:c.usage_root(s,ident,True)['children'][1]['overlays'].append(c.node('眼罩','blindfold')))
 w.canvas.path = [eyes['id']]; w.canvas.refresh(); w.canvas.fit(); app.processEvents()
 w.grab().save(str(ROOT/'qa'/'canvas-overlay.png'))
-w.resize(960, 650); w.canvas.fit(); app.processEvents(); QTest.qWait(220); w.grab().save(str(ROOT/'qa'/'canvas-small.png'))
-w.state['settings']['ui_size'] = 18; w.apply_theme(); app.processEvents(); w.canvas.refresh(); app.processEvents(); w.canvas.fit(); QTest.qWait(220)
+w.resize(960, 650); w.canvas.fit(); app.processEvents(); wait_ms(220); w.grab().save(str(ROOT/'qa'/'canvas-small.png'))
+w.state['settings']['ui_size'] = 18; w.apply_theme(); app.processEvents(); w.canvas.refresh(); app.processEvents(); w.canvas.fit(); wait_ms(220)
 w.grab().save(str(ROOT/'qa'/'canvas-large-font.png'))
 w.close(); app.processEvents(); print('Saved 7 Canvas review screens.')

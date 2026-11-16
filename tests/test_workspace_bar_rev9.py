@@ -1,4 +1,5 @@
 """Shared workspace controls against the real, isolated desktop Window."""
+from _qt_wait import wait_ms
 import copy
 import os
 import tempfile
@@ -32,7 +33,7 @@ class WorkspaceBarRev9Tests(unittest.TestCase):
         self.w.state['settings'].update(online=False, comfy_enabled=False, material='solid', reduce_motion=True)
         self.w.notice = lambda message: None
         self.w.resize(1440, 900); self.w.show(); self.w.set_interface_mode('list')
-        QTest.qWait(15)
+        wait_ms(15)
         self.page = self.w.prompt_editor
 
     def tearDown(self):

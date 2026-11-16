@@ -1,4 +1,5 @@
 """Search drafts and image-first CivitAI details, with no external requests."""
+from _qt_wait import wait_ms
 import os
 import tempfile
 import unittest
@@ -26,7 +27,7 @@ class CivitAIRevisionLayoutTests(unittest.TestCase):
         self.w.apply_theme(); self.w.show(); self.w.settings('civitai')
         self.page = self.w.settings_page.civitai
         self.page.initial_requested = True
-        QTest.qWait(40)
+        wait_ms(40)
 
     def tearDown(self):
         self.w.close(); APP.processEvents(); self.request.stop(); self.temp.cleanup()
@@ -82,7 +83,7 @@ class CivitAIRevisionLayoutTests(unittest.TestCase):
         image = QImage(600, 900, QImage.Format.Format_RGB32); image.fill(0xff65827a)
         page.preview.set_image(image)
         for width, height in ((2560, 1440), (1280, 800), (800, 640), (640, 540)):
-            self.w.resize(width, height); QTest.qWait(60)
+            self.w.resize(width, height); wait_ms(60)
             self.assertEqual(self.w.width(), width)
             self.assertGreater(page.preview.width(), page.detail_body.width() * .9)
             self.assertGreaterEqual(page.preview.height(), 180)
@@ -100,7 +101,7 @@ class CivitAIRevisionLayoutTests(unittest.TestCase):
                 self.assertTrue(page.detail_scroll.viewport().rect().intersects(
                     page.version.rect().translated(page.version.mapTo(page.detail_scroll.viewport(), page.version.rect().topLeft()))))
                 page.detail_scroll.verticalScrollBar().setValue(0)
-        page.hide_details(); QTest.qWait(20)
+        page.hide_details(); wait_ms(20)
         self.assertIs(page.list.currentItem(), item)
         self.assertTrue(page.query.isVisible())
         self.assertTrue(page.filter_button.isVisible())
@@ -119,12 +120,12 @@ class CivitAIRevisionLayoutTests(unittest.TestCase):
         image=QImage(600,900,QImage.Format.Format_RGB32);image.fill(0xff65827a)
         for attempt in range(40):
             page.list.setCurrentRow(attempt%30);page.preview.set_image(image)
-            QTest.mouseClick(page.details_toggle,Qt.MouseButton.LeftButton);QTest.qWait(5)
-            QTest.mouseClick(page.detail_back,Qt.MouseButton.LeftButton);QTest.qWait(5)
-            QTest.mouseClick(page.detail_toggle,Qt.MouseButton.LeftButton);QTest.qWait(5)
+            QTest.mouseClick(page.details_toggle,Qt.MouseButton.LeftButton);wait_ms(5)
+            QTest.mouseClick(page.detail_back,Qt.MouseButton.LeftButton);wait_ms(5)
+            QTest.mouseClick(page.detail_toggle,Qt.MouseButton.LeftButton);wait_ms(5)
             if attempt%8==0:
-                self.w.resize(*((800,640) if attempt%16 else (1440,960)));QTest.qWait(5)
-        QTest.qWait(30)
+                self.w.resize(*((800,640) if attempt%16 else (1440,960)));wait_ms(5)
+        wait_ms(30)
         self.assertTrue(self.w.isVisible());self.assertEqual(page.current['id'],9)
         expected=min(page.preview.height_limit,round(page.preview.width()*1.5))
         self.assertEqual(page.preview.height(),expected)

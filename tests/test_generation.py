@@ -11,6 +11,7 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]; sys.path[:0]=[str(ROOT/'vendor'),str(ROOT)]
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtWidgets import QApplication
+from _qt_wait import wait_ms
 from PySide6.QtGui import QImage
 from prompt_calculus_studio.core import initial_state,validate_state
 from prompt_calculus_studio.generation import api_graph,validate_profile,submission,uploaded_image,suggested_text
@@ -195,14 +196,14 @@ class GenerationUiTests(unittest.TestCase):
 
     def test_generation_controls_remain_accessible_in_small_list_and_large_canvas(self):
         from PySide6.QtTest import QTest
-        self.configure(); self.w.resize(960,650); QTest.qWait(100)
+        self.configure(); self.w.resize(960,650); wait_ms(100)
         panel=self.w.generation_panel
         self.w.builder_scroll.ensureWidgetVisible(self.w.run_controls,0,0)
         self.assertGreaterEqual(panel.height(),panel.minimumSizeHint().height())
         self.assertGreaterEqual(self.w.final.height(),130)
         self.assertGreaterEqual(panel.preview.height(),104)
-        self.w.enter_canvas(); self.w.state['settings']['ui_size']=18; self.w.apply_theme(); QTest.qWait(100)
-        self.w.canvas.refresh(); QTest.qWait(100)
+        self.w.enter_canvas(); self.w.state['settings']['ui_size']=18; self.w.apply_theme(); wait_ms(100)
+        self.w.canvas.refresh(); wait_ms(100)
         self.assertTrue(self.w.canvas.output.boundingRect().contains(self.w.canvas.output.proxy.geometry()))
 
 if __name__=='__main__': unittest.main()

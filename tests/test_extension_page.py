@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import hashlib
 import importlib.util
 import json
@@ -59,7 +60,7 @@ class ExtensionPageTests(unittest.TestCase):
         for _ in range(300):
             self.app.processEvents()
             if not self.page.busy: return
-            QTest.qWait(40)
+            wait_ms(40)
         self.fail('Synthetic installer did not finish')
 
     def select(self, path=None):
@@ -189,7 +190,7 @@ function Test-Path { param($LiteralPath,$PathType)
         self.assertEqual(comfy_root(self.comfy/'custom_nodes'),self.comfy)
 
     def test_narrow_page_buttons_stack_and_keep_install_available(self):
-        self.page.resize(510,650); self.page.show(); QTest.qWait(20)
+        self.page.resize(510,650); self.page.show(); wait_ms(20)
         self.assertEqual(self.page.actions.direction(),QBoxLayout.Direction.TopToBottom)
         self.assertTrue(self.page.choose.isEnabled())
         self.assertTrue(self.page.choose.isVisible())

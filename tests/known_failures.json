@@ -1,9 +1,1 @@
-[
-  {
-    "test_ids": ["test_canvas_functions.FunctionTests.test_drop_picture_creates_independent_card_and_survives_reopen"],
-    "reason": "Q8a: 合成拖放事件未新增圖片卡，等待使用者以試用版實測。",
-    "fix_in": "Q8a 使用者實測後判定",
-    "registered_commit": "148cec55c2b70164b9ca6d0106f1a16d2ad25ddc",
-    "match": "0 != 1"
-  }
-]
+[]

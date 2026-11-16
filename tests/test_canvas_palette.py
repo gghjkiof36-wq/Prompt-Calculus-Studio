@@ -1,4 +1,5 @@
 """Current category picker; see FAST_SUITE.md for retired lookup test inventory."""
+from _qt_wait import wait_ms
 import copy
 import os
 import tempfile
@@ -26,7 +27,7 @@ class PaletteTests(unittest.TestCase):
             context.start();self.addCleanup(context.stop)
         self.w=Window(self.temp.name)
         self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
-        self.w.resize(1280,860);self.w.show();self.w.enter_canvas();QTest.qWait(20)
+        self.w.resize(1280,860);self.w.show();self.w.enter_canvas();wait_ms(20)
         self.c=self.w.canvas;self.cid=next(iter(self.c.data()['canvases']))
         self.category=materials.add_category(self.w.state,'Palette fixture')
         self.ids=[materials.save(self.w.state,dict(id=uid(),module=self.category,
@@ -37,7 +38,7 @@ class PaletteTests(unittest.TestCase):
     def open(self):
         if self.p:self.p.reject()
         self.p=CanvasPalette(self.c,self.position,destination_id=self.cid)
-        self.p.show();self.p.activateWindow();self.p.set_browser_category(self.category);QTest.qWait(10)
+        self.p.show();self.p.activateWindow();self.p.set_browser_category(self.category);wait_ms(10)
 
     def tearDown(self):
         if self.p:self.p.reject()

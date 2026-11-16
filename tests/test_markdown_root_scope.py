@@ -1,4 +1,5 @@
 """HP-02-001: logical root changes invalidate only affected reading views."""
+from _qt_wait import wait_ms
 import unittest
 from unittest.mock import patch
 
@@ -92,7 +93,7 @@ class RootScopeTests(unittest.TestCase):
                 with patch.object(rich.projection_worker, 'request', wraps=rich.projection_worker.request) as request:
                     self.assertTrue(operation())
                     self.assertIsNone(reader._render_key)
-                    QTest.qWait(250)
+                    wait_ms(250)
                     request.assert_not_called()
                     self.assertEqual(rich.version, version)
                     self.assertIs(rich.projection, projection)
@@ -112,7 +113,7 @@ class RootScopeTests(unittest.TestCase):
             with patch.object(self.window, 'save_locations', side_effect=OSError('scope save failed')):
                 self.assertFalse(operation())
             self.assertEqual(self.errors.pop(), 'scope save failed')
-        QTest.qWait(250)
+        wait_ms(250)
         self.assertEqual(rich.version, version)
         self.assertIs(rich.projection, projection)
         self.assertEqual(reader._render_key, key)

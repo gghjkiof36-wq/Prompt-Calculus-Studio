@@ -1,4 +1,5 @@
 """Jobs owns runner state; callbacks own business state and may re-enter."""
+from _qt_wait import wait_ms
 import time
 import unittest
 from unittest.mock import patch
@@ -91,7 +92,7 @@ class JobsLifecycleTests(unittest.TestCase):
             return JobOutcome.completed({'published': True})
         self.assertTrue(self.jobs.start('write', write, delivered.append, failed.append))
         end = time.monotonic() + 5
-        while self.jobs.active is not None and time.monotonic() < end:QTest.qWait(10)
+        while self.jobs.active is not None and time.monotonic() < end:wait_ms(10)
         self.assertIsNone(self.jobs.active)
         self.assertEqual(delivered, [{'published': True}])
         self.assertEqual(failed, [])

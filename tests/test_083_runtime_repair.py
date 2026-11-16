@@ -3,6 +3,7 @@
 The ComfyUI executor is a local fixture; no GPU or user data is used. Tests never
 set a desktop job's terminal state or call InputRunner.finished directly.
 """
+from _qt_wait import wait_ms
 import copy
 from _qt_cleanup import close_window
 import tempfile
@@ -89,7 +90,7 @@ class ReceiptExecutor:
         self.client.running=len(self.pending);status=dict(running_ids=list(self.pending),queued_ids=[])
         self.native.occupied([],[],lambda key:{key:self.history[key]} if key in self.history else {})
         self.client.generation.observe(status);self.client.input_flow.observe(status)
-        QTest.qWait(15)
+        wait_ms(15)
 
 
 class RuntimeRepairTests(unittest.TestCase):
@@ -115,7 +116,7 @@ class RuntimeRepairTests(unittest.TestCase):
         self.w=Window(self.tmp.name);self.w.comfy.timer.stop();self.w.comfy.enabled=False
         self.w.state['settings'].update(online=False,material='solid');self.notices=[];self.w.notice=self.notices.append
         self.w.error=self.notices.append
-        self.w.show();self.w.set_interface_mode('canvas');QTest.qWait(20)
+        self.w.show();self.w.set_interface_mode('canvas');wait_ms(20)
         self.c=self.w.canvas;self.cid=next(iter(self.c.data()['canvases']));self.out=self.c.data()['current_output']
         profile=workflow();profile['frontend_id']='native-A'
         self.w.generation_panel.save_profile(profile);self.clip=next(iter(self.c.data()['clip_inputs']))
@@ -135,7 +136,7 @@ class RuntimeRepairTests(unittest.TestCase):
 
     def click(self):
         self.controls.refresh();self.assertTrue(self.controls.run_button.isEnabled())
-        QTest.mouseClick(self.controls.run_button,Qt.MouseButton.LeftButton);QTest.qWait(5)
+        QTest.mouseClick(self.controls.run_button,Qt.MouseButton.LeftButton);wait_ms(5)
 
     def text(self,value):self.c.commit(lambda s:s['uses']['test-root'].update(prompt=value))
 
@@ -150,7 +151,7 @@ class RuntimeRepairTests(unittest.TestCase):
         self.executor.finish()
 
     def test_count_three_is_three_immediate_submissions_from_ui(self):
-        self.controls.count.setValue(3);self.click();QTest.qWait(35)
+        self.controls.count.setValue(3);self.click();wait_ms(35)
         self.assertEqual(len(self.executor.submissions),3,self.notices)
         for _ in range(3):self.executor.finish()
         self.assertIsNone(self.w.comfy.input_flow.current)
@@ -193,7 +194,7 @@ class RuntimeRepairTests(unittest.TestCase):
         with patch('prompt_calculus_studio.window.QInputDialog.getText',return_value=('empty',True)):self.w.new_workspace()
         self.executor.finish();self.executor.finish()
         self.assertTrue(all(j['workspace']==first and j['state']=='complete' for j in self.w.comfy.generation.records()))
-        self.w.workspace.setCurrentIndex(self.w.workspace.findData(first));QTest.qWait(10)
+        self.w.workspace.setCurrentIndex(self.w.workspace.findData(first));wait_ms(10)
         self.assertEqual(len(self.executor.submissions),2)
 
     def test_manual_claim_is_idempotent_and_paused_head_cannot_fall_through(self):

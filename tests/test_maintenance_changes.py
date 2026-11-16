@@ -1,4 +1,5 @@
 """Protect side-effect boundaries and actual saved geometry, not implementation shape."""
+from _qt_wait import wait_ms
 import os,tempfile,unittest,copy
 from pathlib import Path
 from unittest.mock import patch
@@ -13,7 +14,7 @@ class ChangeTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
         with patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'}):self.w=Window(self.tmp.name)
-        self.w.state['settings'].update(online=False,material='solid'); self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(50)
+        self.w.state['settings'].update(online=False,material='solid'); self.w.show(); self.w.set_interface_mode('canvas'); wait_ms(50)
     def tearDown(self):self.w.close(); APP.processEvents(); self.tmp.cleanup()
     def test_burst_prompt_updates_coalesce_and_never_generate(self):
         with patch.object(self.w.canvas,'update_output',wraps=self.w.canvas.update_output) as paint,patch.object(self.w.comfy,'schedule_sync') as sync,patch.object(self.w.comfy,'run') as run:
@@ -24,7 +25,7 @@ class ChangeTests(unittest.TestCase):
             for _ in range(3):self.w.generation_panel.changed()
             APP.processEvents(); self.assertEqual(paint.call_count,1); self.assertEqual(sync.call_count,1)
     def test_settings_and_collection_destination_do_not_recompile_prompt(self):
-        self.w.settings('completion'); QTest.qWait(30)
+        self.w.settings('completion'); wait_ms(30)
         with patch.object(self.w,'refresh_builder') as compile,patch.object(self.w.comfy,'schedule_sync') as sync:
             self.w.settings_page.preferences.online.setChecked(False); self.w.settings_page.flush()
             self.w.run_controls.count.setValue(4); self.w.recent.destination_changed(); APP.processEvents()

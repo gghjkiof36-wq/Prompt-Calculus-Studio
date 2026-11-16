@@ -1,4 +1,5 @@
 """Snapshot ownership across actual document tabs and shell/store reopening."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 
@@ -26,7 +27,7 @@ class BatchWorkspaceTests(unittest.TestCase):
         for tab in list(self.w.all_pages()):
             if tab.host:tab.host.comfy.input_flow.chain.timer.stop()
             self.w.focus_tab(tab)
-            QTest.qWait(10)
+            wait_ms(10)
         self._fixture_teardown()
 
     def queue(self,count):

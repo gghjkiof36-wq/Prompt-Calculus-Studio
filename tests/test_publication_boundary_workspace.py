@@ -1,4 +1,5 @@
 """Directory refusal preserves the reachable editor save/recovery workflow."""
+from _qt_wait import wait_ms
 import os
 from pathlib import Path
 import unittest
@@ -42,7 +43,7 @@ class PublicationBoundaryWorkspaceTests(unittest.TestCase):
         with patch.object(left.widget, 'save', wraps=left.widget.save) as saves:
             self.w.autosave.flush(left)
             self.w.autosave.schedule(right)
-            QTest.qWait(1100)
+            wait_ms(1100)
             self.assertEqual(saves.call_count, 0)
         # Explicit retry is safe once the external operation has stopped.
         self.assertTrue(self.w.save_tab(right), self.errors)

@@ -1,4 +1,5 @@
 """Cross-category Qt viewport drag transactions; OS drag transport is isolated."""
+from _qt_wait import wait_ms
 import copy
 import os
 import unittest
@@ -22,7 +23,7 @@ class MaterialCategoryDragTests(unittest.TestCase):
         screen=patch.object(QScreen,'availableGeometry',return_value=QRect(0,0,1920,1080))
         screen.start();self.addCleanup(screen.stop)
         fixture.EditorReorderTests.setUp(self)
-        QTest.qWait(350);self.w.persist()
+        wait_ms(350);self.w.persist()
 
     @classmethod
     def setUpClass(cls):

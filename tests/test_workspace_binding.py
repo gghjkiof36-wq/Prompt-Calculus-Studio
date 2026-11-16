@@ -1,4 +1,5 @@
 """Canvas binding dialogs keep the document client and survive tab changes."""
+from _qt_wait import wait_ms
 import copy
 from pathlib import Path
 import sys
@@ -14,6 +15,7 @@ from shiboken6 import isValid
 from prompt_calculus_studio.comfy_client import ComfyClient
 from prompt_calculus_studio.clip_widgets import ClipBindingDialog
 from prompt_calculus_studio.image_binding_dialog import ImageBindingDialog
+from prompt_calculus_studio.flow_widgets import ImageInputDialog
 from prompt_calculus_studio.stage_parameter_panel import open_parameters
 from prompt_calculus_studio.workspace_files import create_file
 from prompt_calculus_studio.workspace_shell import WorkspaceShell
@@ -49,7 +51,7 @@ class WorkspaceBindingTests(unittest.TestCase):
         self.requests.append((client,route,copy.deepcopy(data)))
         if route.startswith('/userdata?') and done:done(['A.json'])
         elif route.startswith('/userdata/') and done:
-            graph=workflow()['graph'];graph['9']=dict(class_type='PreviewImage',inputs={})
+            graph=workflow()['graph'];graph['9']=dict(class_type='PreviewImage',inputs={});graph['10']=dict(class_type='LoadImage',inputs=dict(image='fixture.png'))
             done(graph)
 
     def tearDown(self):
@@ -58,7 +60,7 @@ class WorkspaceBindingTests(unittest.TestCase):
         for tab in self.w.tabs_by_key.values():
             sheet=getattr(tab.host,'stage_parameter_sheet',None) if tab.host else None
             if sheet and isValid(sheet) and not sheet.closed:sheet.finish()
-        QTest.qWait(30);self.w.close();QTest.qWait(30);self.w.deleteLater()
+        wait_ms(30);self.w.close();wait_ms(30);self.w.deleteLater()
         self.app.sendPostedEvents(None,QEvent.Type.DeferredDelete);self.app.processEvents()
         self.transport.stop();sys.excepthook=self.old_hook;self.area.cleanup()
         self.assertFalse(self.errors,self.errors)
@@ -80,15 +82,15 @@ class WorkspaceBindingTests(unittest.TestCase):
         self.assertIs(dialog.catalog.client,host.comfy)
         self.assertFalse(hasattr(host,'settings_page'))
 
-    def bind_from_button(self,control,target,*,image=False):
+    def bind_from_button(self,control,target,*,image=False,input_image=False):
         seen=[];failures=[]
         def select():
             dialog=self.app.activeModalWidget()
             try:
-                self.assertIsInstance(dialog,ImageBindingDialog if image else ClipBindingDialog)
+                self.assertIsInstance(dialog,ImageInputDialog if input_image else ImageBindingDialog if image else ClipBindingDialog)
                 seen.append(dialog.catalog.client)
-                if image:dialog.workflow.setCurrentIndex(1)
-                index=dialog.target.findData(target) if image else dialog.target_index(target)
+                if image or input_image:dialog.workflow.setCurrentIndex(1)
+                index=dialog.target.findData(target) if image or input_image else dialog.target_index(target)
                 self.assertGreaterEqual(index,0)
                 dialog.target.setCurrentIndex(index)
                 self.assertTrue(dialog.save_button.isEnabled())
@@ -114,7 +116,7 @@ class WorkspaceBindingTests(unittest.TestCase):
         binding=copy.deepcopy(canvas.data()['bindings'])
         self.assertEqual(binding[0]['node'],'6');self.assertEqual(binding[0]['clip'],clip)
         self.assertEqual(b.host.state,before)
-        self.w.activateWindow();QTest.qWait(20)
+        self.w.activateWindow();wait_ms(20)
         QTest.mouseClick(canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=QPoint(5,5))
         QTest.keyClick(canvas.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier)
         self.assertEqual(canvas.data()['bindings'],[])
@@ -123,7 +125,7 @@ class WorkspaceBindingTests(unittest.TestCase):
         self.assertTrue(self.a.document.save(),self.a.document.error)
         path=self.a.path
         self.assertTrue(self.w.close_tab(self.w.index_of(self.a.key),pane=self.w.pane_for(self.a)))
-        QTest.qWait(30)
+        wait_ms(30)
         reopened=self.w.open_path(path,new_tab=True)
         self.assertEqual(reopened.host.canvas.data()['bindings'][0]['node'],'6')
         dialog=ClipBindingDialog(reopened.host.canvas,next(iter(reopened.host.canvas.data()['clip_inputs'])))
@@ -149,9 +151,19 @@ class WorkspaceBindingTests(unittest.TestCase):
         from stage_parameter_fixture import add_samplers,inspection
         canvas=self.a.host.canvas;host=self.a.host
         image=canvas.functions.add_image()
-        self.bind_from_button(canvas.functions.cards[image].panel.binding,'9',image=True)
-        binding=host.state['canvas_functions']['images'][image]['binding']
-        self.assertEqual(binding['node'],'9')
+        # v7 binds the receiving LoadImage input; a source card only supplies images.
+        from prompt_calculus_studio.flow_data import add_image_input
+        from prompt_calculus_studio import scheduler_wiring
+        inputs=[]
+        self.assertTrue(canvas.commit(lambda state:inputs.append(add_image_input(state))))
+        target=inputs[0]
+        client=self.bind_from_button(canvas.flow_cards[target].panel.choose,'10',input_image=True)
+        self.assertIs(client,host.comfy)
+        self.assertTrue(canvas.commit(lambda state:scheduler_wiring.connect(state,image,target,'image')))
+        binding=canvas.data()['image_inputs'][target]
+        self.assertEqual(binding['node'],'10')
+        self.assertTrue(binding['workflow'])
+        self.assertEqual(next(e['source'] for e in canvas.data()['connections'] if e['destination']==target),image)
         profile=add_samplers(copy.deepcopy(host.state['generation']['profiles'][0]))
         profile['frontend_id']='native-A';host.comfy.connected=True
         stage=next(iter(canvas.data()['stages']))
@@ -159,8 +171,8 @@ class WorkspaceBindingTests(unittest.TestCase):
             QTest.mouseClick(canvas.flow_cards[stage].panel.edit_button,Qt.MouseButton.LeftButton)
             sheet=host.stage_parameter_sheet
             sheet.workflow.setCurrentIndex(sheet.workflow.findData(profile['id']))
-            QTest.qWait(20);self.assertFalse(sheet.loading,sheet.status.text())
-            sheet.jump(['35']);QTest.qWait(10)
+            wait_ms(20);self.assertFalse(sheet.loading,sheet.status.text())
+            sheet.jump(['35']);wait_ms(10)
             field=sheet.findChild(QLineEdit,'parameter_35_cfg');self.assertIsNotNone(field)
             field.setFocus();QTest.keyClick(field,Qt.Key.Key_A,Qt.KeyboardModifier.ControlModifier);QTest.keyClicks(field,'3')
             QTest.mouseClick(sheet.apply_button,Qt.MouseButton.LeftButton)

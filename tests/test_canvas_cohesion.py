@@ -1,4 +1,5 @@
 """Stable picker slots and shared material-list motion using real Qt events."""
+from _qt_wait import wait_ms
 import copy
 from unittest.mock import patch
 from PySide6.QtCore import Qt,QObject,QEvent,QPoint,QPointF,QRect,QSize
@@ -29,43 +30,43 @@ class CanvasCohesionTests(StageFixture):
 
     def test_switching_real_nodes_and_empty_search_never_resizes_or_flashes_bars(self):
         with patch.object(QScreen,'availableGeometry',return_value=QRect(0,0,1920,1080)):
-            dialog=FunctionPicker(self.c);dialog.show();QTest.qWait(30)
+            dialog=FunctionPicker(self.c);dialog.show();wait_ms(30)
         try:
             geometry=dialog.geometry();slot=dialog.preview.geometry();watch=BarEvents()
             for bar in (dialog.preview.verticalScrollBar(),dialog.preview.horizontalScrollBar()):bar.installEventFilter(watch)
             for _ in range(2):
                 for i,(kind,*_) in enumerate(FUNCTIONS):
-                    dialog.list.setCurrentRow(i);QTest.qWait(20)
+                    dialog.list.setCurrentRow(i);wait_ms(20)
                     self.assertEqual(dialog.geometry(),geometry,kind)
                     self.assertEqual(dialog.preview.geometry(),slot,kind)
                     view=dialog.preview
                     self.assertTrue(view.viewport().rect().adjusted(-1,-1,1,1).contains(
                         view.mapFromScene(view.sceneRect()).boundingRect()),kind)
-                dialog.search.setText('no-such-module');QTest.qWait(10)
+                dialog.search.setText('no-such-module');wait_ms(10)
                 self.assertEqual(dialog.geometry(),geometry)
-                dialog.search.clear();QTest.qWait(10)
+                dialog.search.clear();wait_ms(10)
             self.assertFalse(watch.shows)
-        finally:dialog.close();dialog.deleteLater();QTest.qWait(1)
+        finally:dialog.close();dialog.deleteLater();wait_ms(1)
 
     def test_short_screen_and_large_font_keep_search_list_and_add_action_reachable(self):
         self.w.state['settings']['ui_size']=16;self.w.apply_theme(preserve_layout=True)
         with patch.object(QScreen,'availableGeometry',return_value=QRect(0,0,1000,760)):
-            dialog=FunctionPicker(self.c);dialog.show();QTest.qWait(20)
+            dialog=FunctionPicker(self.c);dialog.show();wait_ms(20)
             try:
                 geometry=dialog.geometry()
                 for i in range(len(FUNCTIONS)):
-                    dialog.list.setCurrentRow(i);QTest.qWait(10)
+                    dialog.list.setCurrentRow(i);wait_ms(10)
                     self.assertEqual(dialog.geometry(),geometry)
                     self.assertLessEqual(dialog.surface.height(),720)
                     for child in (dialog.search,dialog.list,dialog.add_button,dialog.description):
                         rect=QRect(child.mapTo(dialog,QPoint()),child.size())
                         self.assertTrue(dialog.rect().contains(rect),rect)
-            finally:dialog.close();dialog.deleteLater();QTest.qWait(1)
+            finally:dialog.close();dialog.deleteLater();wait_ms(1)
 
     def palette(self):
         for i in range(28):materials.save(self.w.state,dict(name=f'素材 {i:02}',prompt='sample text',module=None))
         dialog=CanvasPalette(self.c,QPointF(800,700),destination_id=self.cid)
-        dialog.sheet_size=QSize(900,600);dialog.show();QTest.qWait(25)
+        dialog.sheet_size=QSize(900,600);dialog.show();wait_ms(25)
         self.addCleanup(dialog.reject)
         return dialog
 
@@ -81,7 +82,7 @@ class CanvasCohesionTests(StageFixture):
         before=copy.deepcopy(self.c.data());uses=copy.deepcopy(self.w.state['uses'])
         count=len(self.c.undo_stack)
         with patch.object(self.c,'insert_asset_with_destination',wraps=self.c.insert_asset_with_destination) as insert:
-            QTest.mouseClick(listing.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(15)
+            QTest.mouseClick(listing.viewport(),Qt.MouseButton.LeftButton,pos=point);wait_ms(15)
             self.assertEqual(insert.call_count,1)
             self.assertEqual(insert.call_args.args[0]['id'],ident)
         self.assertEqual(len(self.c.undo_stack),count+1)
@@ -90,7 +91,7 @@ class CanvasCohesionTests(StageFixture):
     def test_stack_unfolds_at_end_and_reduced_motion_keeps_direct_wheel_input(self):
         dialog=self.palette();listing=dialog.assets;bar=listing.verticalScrollBar()
         self.assertIsNotNone(listing._stack())
-        bar.setValue(bar.maximum());QTest.qWait(10)
+        bar.setValue(bar.maximum());wait_ms(10)
         self.assertIsNone(listing._stack())
         self.assertTrue(listing.viewport().rect().contains(listing.visualItemRect(listing.item(listing.count()-1))))
         bar.setValue(0);self.w.state['settings']['reduce_motion']=True
@@ -102,15 +103,15 @@ class CanvasCohesionTests(StageFixture):
         self.assertEqual(listing.scroll_motion.state(),listing.scroll_motion.State.Stopped)
 
     def test_canvas_operation_and_nested_dialogs_share_finish_without_editing_data(self):
-        QTest.qWait(400);self.w.persist()
+        wait_ms(400);self.w.persist()
         before=copy.deepcopy(self.w.state);dialogs=[]
         def inspect(dialog):
             dialogs.append(dialog)
-            dialog.show();QTest.qWait(10)
+            dialog.show();wait_ms(10)
             self.assertTrue(hasattr(dialog,'_module_dialog_context'))
             close=dialog.findChild(QPushButton,'DialogClose')
             self.assertFalse(close.icon().isNull())
-            nested=NodeDialog(dialog);nested.show();QTest.qWait(10)
+            nested=NodeDialog(dialog);nested.show();wait_ms(10)
             self.assertEqual(nested.heading.font().pixelSize(),dialog.heading.font().pixelSize())
             self.assertEqual(nested.findChild(QFrame,'DialogSurface').palette().window().color(),
                              dialog.findChild(QFrame,'DialogSurface').palette().window().color())
@@ -135,7 +136,7 @@ class CanvasCohesionTests(StageFixture):
                 else:self.w.show_page(getattr(self.w,target))
                 dialog=StudioDialog(self.w)
                 field=QLineEdit('未儲存的名稱');dialog.body.addWidget(field)
-                dialog.show();QTest.qWait(10)
+                dialog.show();wait_ms(10)
                 try:
                     with self.subTest(palette=palette,page=target):
                         surface=dialog.findChild(QFrame,'DialogSurface')
@@ -145,4 +146,4 @@ class CanvasCohesionTests(StageFixture):
                         self.assertEqual(dialog.heading.font().pixelSize(),max(16,font_pixels(11)))
                         self.assertEqual(field.text(),'未儲存的名稱')
                         self.assertFalse(dialog.findChild(QPushButton,'DialogClose').icon().isNull())
-                finally:dialog.reject();dialog.deleteLater();QTest.qWait(1)
+                finally:dialog.reject();dialog.deleteLater();wait_ms(1)

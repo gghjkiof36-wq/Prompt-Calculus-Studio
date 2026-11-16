@@ -1,4 +1,5 @@
 """Rendering work stays local without changing source or selection semantics."""
+from _qt_wait import wait_ms
 import json
 import unittest
 from unittest.mock import patch
@@ -49,7 +50,7 @@ class MarkdownPerformanceTests(unittest.TestCase):
                 self.app.processEvents()
             self.app.sendEvent(e,QKeyEvent(QEvent.Type.KeyRelease,key,Qt.KeyboardModifier.NoModifier))
             at=e.textCursor().position();scroll=e.verticalScrollBar().value()
-            QTest.qWait(180)
+            wait_ms(180)
             self.assertEqual(e.textCursor().position(),at)
             self.assertEqual(e.verticalScrollBar().value(),scroll)
         self.assertFalse(s.page.dirty);self.assertEqual(s.page.encoded(),text.encode())
@@ -63,11 +64,11 @@ class MarkdownPerformanceTests(unittest.TestCase):
             def eventFilter(self,owner,event):
                 if event.type()==QEvent.Type.Paint:self.count+=1
                 return False
-        QTest.qWait(250)
+        wait_ms(250)
         view=Paints(e.viewport());overlay=Paints(e.markers)
         # Let cursor blinking repaint, but do not let the transparent overlay
         # invalidate its underlay from inside every viewport paint.
-        QTest.qWait(350)
+        wait_ms(350)
         self.assertLessEqual(view.count,6)
         self.assertLessEqual(overlay.count,6)
         before=s.page.encoded();e.moveCursor(QTextCursor.MoveOperation.End)
@@ -199,7 +200,7 @@ class MarkdownPerformanceTests(unittest.TestCase):
         old=SourceSnapshot('old word '*33000,1,'stats');new=SourceSnapshot('new '*90000,2,'stats')
         self.assertIsNone(counter.request(old));counter.start();counter.request(new)
         for _ in range(100):
-            QTest.qWait(20)
+            wait_ms(20)
             if counter.snapshot is new:break
         self.assertIs(counter.snapshot,new);self.assertEqual(counter.request(new),word_count(new.text))
         self.assertIsNone(counter.job);self.assertIsNone(counter.pending)
@@ -211,18 +212,18 @@ class MarkdownPerformanceTests(unittest.TestCase):
         def wait_ready():
             for _ in range(250):
                 if rich.render_state=='ready':break
-                QTest.qWait(20)
+                wait_ms(20)
             self.assertEqual(rich.render_state,'ready')
         def script(source):
             result=[];rich.page().runJavaScript(source,result.append)
             for _ in range(100):
                 if result:return result[0]
-                QTest.qWait(20)
+                wait_ms(20)
             self.fail('Reading script did not complete')
         wait_ready()
         self.assertFalse(script('window.pcsUnsafeProbe === true'))
         script('window.originalTable=document.querySelector("table");window.refreshDocument();window.refreshDocument()')
-        QTest.qWait(100)
+        wait_ms(100)
         self.assertTrue(script('document.querySelector("table")===window.originalTable'))
         old_version=rich.version
         rich.refresh(s.page.buffer.snapshot().text,projection=Projection(body='<p>新版 &amp; 😀</p><script>window.pcsUnsafeProbe=true</script><img onerror="window.pcsUnsafeProbe=true"><a href="https://example.invalid/">blocked</a>'))
@@ -237,7 +238,7 @@ class MarkdownPerformanceTests(unittest.TestCase):
         (self.root/'Notes.md').write_bytes(text.encode());s=self.open('Notes.md').widget.md_surface
         for _ in range(500):
             if not s.page.buffer.opening:break
-            QTest.qWait(10)
+            wait_ms(10)
         self.assertFalse(s.page.buffer.opening)
         self.assertLess(len(text),128_000);self.assertTrue(s.editor.lazy_presentation)
         with patch.object(s.reader,'setHtml',side_effect=AssertionError('hidden rich-text import')):
@@ -245,12 +246,12 @@ class MarkdownPerformanceTests(unittest.TestCase):
         rich=s.reader.rich
         for _ in range(250):
             if rich.render_state=='ready':break
-            QTest.qWait(20)
+            wait_ms(20)
         self.assertEqual(rich.render_state,'ready')
         result=[];rich.page().runJavaScript('JSON.stringify([document.querySelector("main").innerText.endsWith("END 😀"),document.querySelectorAll("input[type=checkbox]").length,document.querySelectorAll("input:checked").length])',result.append)
         for _ in range(100):
             if result:break
-            QTest.qWait(20)
+            wait_ms(20)
         self.assertEqual(json.loads(result[0]),[True,2,1]);self.assertTrue(s.reader.document().isEmpty())
         s.set_mode('write');self.assertEqual(s.page.encoded(),text.encode());self.assertFalse(s.page.dirty)
 
@@ -286,7 +287,7 @@ class MarkdownPerformanceTests(unittest.TestCase):
                 gate.set()
                 for _ in range(250):
                     if s.reader.rich.render_state=='ready':break
-                    QTest.qWait(20)
+                    wait_ms(20)
                 self.assertEqual(s.reader.rich.render_state,'ready')
                 self.assertEqual(len(calls),2)
                 self.assertTrue(all(thread!=main_thread for thread in worker_threads))
@@ -324,7 +325,7 @@ class MarkdownPerformanceTests(unittest.TestCase):
     def test_folded_long_section_does_not_hide_later_visible_controls(self):
         text='## First\n\n'+('Hidden paragraph.\n\n'*5100)+'## Next\n\n- [ ] Visible task\n\n'
         (self.root/'Notes.md').write_bytes(text.encode());s=self.open('Notes.md').widget.md_surface;e=s.editor
-        e.toggle_fold(0);QTest.qWait(50);e.present_visible();self.events()
+        e.toggle_fold(0);wait_ms(50);e.present_visible();self.events()
         number=text[:text.index('## Next')].count('\n');block=e.document().findBlockByNumber(number)
         self.assertIn(number,[b.blockNumber() for b in e.visible_blocks()])
         self.assertIn(number,e._presented)

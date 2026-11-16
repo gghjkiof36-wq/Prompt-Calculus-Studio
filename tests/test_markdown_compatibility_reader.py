@@ -1,4 +1,5 @@
 """Exercise the final WebEngine sanitizer, not only the HTML projection."""
+from _qt_wait import wait_ms
 import json
 from pathlib import Path
 import tempfile
@@ -18,7 +19,7 @@ class CompatibilityReaderTests(unittest.TestCase):
 
     def wait(self,predicate):
         deadline=time.monotonic()+20
-        while not predicate() and time.monotonic()<deadline:QTest.qWait(25)
+        while not predicate() and time.monotonic()<deadline:wait_ms(25)
         self.assertTrue(predicate())
 
     def js(self,page,code):

@@ -1,4 +1,5 @@
 """Regression for retained Anima #11 vs selected illustrious #9 destinations."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from PySide6.QtCore import Qt
@@ -48,7 +49,7 @@ class BindingRepairTests(unittest.TestCase):
         from integration_test.workflow_state import live_state
         self.c.commit(lambda s:s['multi_output']['clip_inputs'][self.clip].update(text_source='web'))
         self.c.commit(lambda s:s['uses']['root'].update(prompt='changed at PCS'))
-        QTest.qWait(420);self.assertEqual(self.executor.applied,[])
+        wait_ms(420);self.assertEqual(self.executor.applied,[])
         library=dict(state=self.w.state,library_id='test',connection=dict(enabled=True,server=self.w.comfy.url))
         self.assertIsNone(live_state(self.executor.identities['flow'],library,self.w.comfy.url))
         before=copy.deepcopy(self.executor.graphs['flow']['3']['inputs'])
@@ -82,13 +83,13 @@ class BindingRepairTests(unittest.TestCase):
     def test_stage_order_drag_uses_one_purple_output_and_undo_preserves_edge(self):
         a,b=self.stages(('flow','B'))
         self.c.commit(lambda s:s['multi_output'].update(connections=[c for c in s['multi_output']['connections'] if not(c['source']==a and c['destination']==b)]))
-        view=self.c.view;view.resetTransform();view.scale(.7,.7);view.centerOn(1450,220);QTest.qWait(10)
+        view=self.c.view;view.resetTransform();view.scale(.7,.7);view.centerOn(1450,220);wait_ms(10)
         source=self.c.ports[(a,'flow',True)];target=self.c.ports[(b,'control',False)]
         p,q=view.mapFromScene(source.scenePos()),view.mapFromScene(target.scenePos())
-        QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=p);QTest.mouseMove(view.viewport(),q,20);QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=q);QTest.qWait(20)
+        QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=p);QTest.mouseMove(view.viewport(),q,20);QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=q);wait_ms(20)
         edge=next(c for c in self.c.data()['connections'] if c['source']==a and c['destination']==b)
         self.assertEqual(edge['kind'],'done');self.assertIsNotNone(self.c.line_port(edge,False))
-        view.setFocus();QTest.keyClick(view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
+        view.setFocus();QTest.keyClick(view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(20)
         self.assertFalse(any(c['source']==a and c['destination']==b for c in self.c.data()['connections']))
 
     def test_text_reader_selects_actual_field_without_regenerating(self):
@@ -100,7 +101,7 @@ class BindingRepairTests(unittest.TestCase):
         self.assertTrue(self.c.commit(setup),self.notices);self.click();self.executor.finish()
         self.assertEqual(resolve(self.runner.context(self.runner.results),readers[0],'clip')['value'],'white shirt')
         selector=self.c.functions.cards[readers[0]].panel.selector
-        selector.setFocus();QTest.keyClick(selector,Qt.Key.Key_Down);QTest.qWait(20)
+        selector.setFocus();QTest.keyClick(selector,Qt.Key.Key_Down);wait_ms(20)
         self.assertEqual(self.w.state['canvas_functions']['images'][readers[0]]['text_field'],['7','text'])
         self.assertEqual(resolve(self.runner.context(self.runner.results),readers[0],'clip')['value'],self.executor.submissions[0]['prompt']['7']['inputs']['text'])
         self.assertEqual(len(self.executor.submissions),1)
@@ -156,7 +157,7 @@ class BindingRepairTests(unittest.TestCase):
         self.executor.graphs['flow']=copy.deepcopy(next(p for p in self.w.state['generation']['profiles'] if p['id']=='flow')['graph'])
         self.click();self.click()
         selector=self.c.functions.cards[source].panel.result_node
-        selector.setFocus();QTest.keyClick(selector,Qt.Key.Key_Down);QTest.qWait(20)
+        selector.setFocus();QTest.keyClick(selector,Qt.Key.Key_Down);wait_ms(20)
         self.assertEqual(self.w.state['canvas_functions']['images'][source]['output_node'],'12')
         for _ in range(2):
             self.executor.finish(nodes=['9','12'])

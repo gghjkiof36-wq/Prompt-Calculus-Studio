@@ -1,4 +1,5 @@
 """P3 file commands through real Qt pages, with isolated files and fault seams."""
+from _qt_wait import wait_ms
 import copy
 import os
 from pathlib import Path
@@ -62,7 +63,7 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
         timer.start()
         try:
             result = trigger()
-            QTest.qWait(30)
+            wait_ms(30)
             self.events()
         finally:
             timer.stop()
@@ -162,7 +163,7 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
         QTest.keyClicks(a.widget, 'A')
         QTest.keyClicks(b.widget, 'B')
         def inspect(dialog):
-            QTest.qWait(170)
+            wait_ms(170)
             self.assertEqual(a.path.read_bytes(), original)
             self.assertEqual(b.path.read_text(), 'B')
             self.assertFalse(self.w.save_tab(a))
@@ -171,7 +172,7 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
             self.assertIsNone(self.execute('rename', a, name='blocked'))
             dialog.reject()
         self.dialog(lambda: self.execute('save_as', a), inspect, SaveAsDialog)
-        QTest.qWait(170)
+        wait_ms(170)
         self.assertTrue(a.path.read_bytes().startswith(b'\xef\xbb\xbfA'))
         self.assertFalse(self.w.commands.files.pending)
 
@@ -248,13 +249,13 @@ class WorkspaceFileOperationsTests(unittest.TestCase):
         self.dialog(lambda: self.execute('save_as', a), lambda d: d.reject(), SaveAsDialog)
         self.assertTrue(a.widget.error)
         self.w.autosave.delay_ms = 20
-        QTest.qWait(70)
+        wait_ms(70)
         self.assertEqual(a.path.read_bytes(), b'external')
         source = a.path
         self.assertIsNotNone(self.execute('save_as', a, name='Rescued'))
         self.assertEqual(a.widget.error, '')
         QTest.keyClicks(a.widget, 'new')
-        QTest.qWait(80)
+        wait_ms(80)
         self.assertEqual(source.read_bytes(), b'external')
         self.assertIn(b'local', a.path.read_bytes())
 

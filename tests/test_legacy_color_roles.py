@@ -1,4 +1,5 @@
 """Legacy painted controls follow the palette without recoloring documents."""
+from _qt_wait import wait_ms
 import copy,os,tempfile,unittest
 from unittest.mock import patch
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
@@ -20,13 +21,13 @@ class LegacyColorRoleTests(unittest.TestCase):
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1','PROMPT_STUDIO_DATA':self.temp.name});self.env.start()
         self.transport=patch('prompt_calculus_studio.comfy_client.ComfyClient.request',return_value=None);self.transport.start()
         self.w=Window(self.temp.name);self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
-        self.w.resize(1200,800);self.w.show();self.w.enter_canvas();QTest.qWait(30)
+        self.w.resize(1200,800);self.w.show();self.w.enter_canvas();wait_ms(30)
 
     def tearDown(self):
         self.w.close();APP.processEvents();self.transport.stop();self.env.stop();self.temp.cleanup()
 
     def palette(self,name):
-        self.w.state['settings']['visual_palette']=name;self.w.apply_theme(preserve_layout=True);QTest.qWait(20)
+        self.w.state['settings']['visual_palette']=name;self.w.apply_theme(preserve_layout=True);wait_ms(20)
         return visual_tokens(self.w.state['settings'])
 
     def test_painted_lists_and_embedded_owner_follow_each_palette(self):
@@ -59,7 +60,7 @@ class LegacyColorRoleTests(unittest.TestCase):
         cid=next(iter(self.w.canvas.containers));drawing=document(120,80)
         shape=layer('rect',10,10,60,45);shape.update(fill='#bc412d',stroke='#124b88');drawing['layers'].append(shape)
         self.w.canvas.commit(lambda state:state['multi_output']['canvases'][cid].update(image=drawing))
-        self.w.canvas.open_editor(cid);QTest.qWait(20);editor=self.w.canvas.editor_page
+        self.w.canvas.open_editor(cid);wait_ms(20);editor=self.w.canvas.editor_page
         saved=copy.deepcopy(editor.image());history=copy.deepcopy(self.w.canvas.undo_stack)
         rendered=render_image(saved,self.w.store.directory)
         for name in ('paper','mist','graphite'):

@@ -1,4 +1,5 @@
 """Observe the first painted document, not only the final callback state."""
+from _qt_wait import wait_ms
 import json
 import unittest
 from PySide6.QtCore import QObject, QEvent, QPoint
@@ -39,7 +40,7 @@ class MarkdownFirstFrameTests(unittest.TestCase):
         tab = self.w.open_path(path, True)
         surface = tab.widget.md_surface
         frames = Frames(surface)
-        QTest.qWait(200)
+        wait_ms(200)
         self.assertTrue(frames.frames)
         for body, title, size, width in frames.frames:
             self.assertEqual(size, 16)

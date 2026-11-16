@@ -2,10 +2,10 @@
 
 `test_stage_invariants.py` 納入 `WORKSPACE`：本機缺 job／缺結果／提交意圖、修復交易失敗、兩次重開與核對、已取消 run 的 group／clear_pending 矩陣及提交次數。沿用原始單 Stage＋scheduler 的合成資料，透過既有繼續／取消入口驗證狀態，不將壓力量測放入快速套件。
 
-從 checkout 根目錄執行。每個檔案使用獨立的 Python 程序，按清單順序執行；效能檔也不與其他測試程序並行。執行時不要另開一套測試或效能量測。
+從 checkout 根目錄執行。每個檔案使用獨立的 Python 程序，預設 `--jobs 2`；`--jobs 1` 保留串列基準。清單與結果仍按原順序保存，效能檔前後設有屏障，不與本次執行器的其他測試程序並行。執行時不要另開一套測試或效能量測。
 
 ```powershell
-& 'D:/Prompt Calculus Studio/tools/pcs-dev-environments/20261105/python/python.exe' -I tests/fast_suite.py --vendor 'D:/Prompt Calculus Studio/tools/pcs-dev-environments/20261105/vendor' --output 'D:/Prompt Calculus Studio/qa/03-prealpha3-batch1-20261109/s0/my-run'
+& 'D:/Prompt Calculus Studio/tools/pcs-dev-environments/20261105/python/python.exe' -I tests/fast_suite.py --vendor 'D:/Prompt Calculus Studio/tools/pcs-dev-environments/20261105/vendor' --output 'qa/my-fast-run'
 ```
 
 `--output` 必須是尚不存在的目錄。預設清單來自 B1-S0 的 F-PROPOSAL：19 個 stage／queue 檔、B 的雙擊回歸、21 個 canvas 檔，最後執行 `test_084_stages` 的三個重開、暫停／繼續案例。清單與精簡案例完整 id 在 `fast_suite.py` 的 `STAGE`、`CANVAS`、`QUICK_STAGES`。單檔 120 秒，整套上限 360 秒。
@@ -69,13 +69,58 @@ save 注入錯誤，檢查 0 筆 entry、游標／已存文件不變及下一次
 
 上述 `$python`、`$vendor`、`$newOutput`、清單路徑須先指定；清單是一行一個 `test_*.py`。沒有 `.git` 的唯讀內容匯出可用 `--source-commit <來源 SHA>` 記錄來源。
 
+## 時間分析與平行基準
+
+B4-S0b 在測試清單之外新增排程機制；原有檔案、順序及 `084_stages` 精簡子集均保留。每個子程序有各自的 Qt application、資料庫、`PROMPT_STUDIO_DATA` 及 tempfile 根目錄，沒有跨程序共用可寫 fixture。預設同時最多兩個檔案，適合同機另有工作時的保守起點；`--jobs` 必須大於零。`--files`／`--file-list` 沿用相同排程規則。
+
+名稱以 `_performance.py` 或 `_cost.py` 結尾的檔案，以及 `EXCLUSIVE_FILES` 所列的 `workspace_ambient`（固定幀／paint）、`event_snapshot`（真實 long poll 時間）、`modal_guard`（五秒期限）各自獨占執行。前面的檔案全部結束後才啟動該檔，結束後才啟動後面的檔案。此屏障只控制本執行器，不宣稱停止同機其他工作；新增有真實時間門檻的測試檔時，應同步更新這個獨立區塊。操作／呼叫計數式效能測試仍保留在快速清單，沒有為時間預算刪除或移出重要覆蓋。
+
+```powershell
+# 同時段 A/B 交錯；各輸出目錄都必須尚不存在。
+& $python -I tests/fast_suite.py --vendor $vendor --output 'qa/03h-prealpha3-b4-s0b-20261116/B1' --jobs 2
+& $python -I "$baseline/tests/fast_suite.py" --vendor $vendor --output 'qa/03h-prealpha3-b4-s0b-20261116/A1' --jobs 1 --source-commit df9247a22043b4058eb06af65ea69c55dc66f0cf
+```
+
+`$baseline` 是該提交的隔離匯出，若要用相同計時／負載工具比較，僅置換匯出中的 `tests/fast_suite.py` 及其 `_test_runtime.py` 輔助檔，並明確記錄這項 instrumentation。A／B 需使用同一 Python、vendor、測試清單、guard 與 timeout，不能同時執行兩套；再以 A2／B2、B3／A3 交錯以減少負載漂移。比較每組秒數比值、逐項結果與略過數，不能把過去另一時段的絕對秒數當改善幅度。無負載六分鐘目標與實測負載下的六分鐘結果須分開描述；`accepted` 照常執行 360 秒預算，不會因負載高而放寬。
+
+時間與負載資料：
+
+- `timings.json` 按耗時由高至低列出逐檔 `files` 與逐項 `tests`，不改動 `results.json` 的原清單順序。
+- 各項 `seconds` 從 unittest `startTest` 到 `stopTest`，包含該項的 `setUp`、test body、`tearDown` 與 cleanup。沒有改寫 unittest 生命週期；不把這個數字誤稱為純 test body 時間。
+- `timings.bootstrap_seconds` 包含 PySide6／guard 初始化；`discovery_seconds` 包含 unittest discovery 與測試模組 import，因此模組層的 QApplication 建立也在其中；`suite_seconds` 是執行測試套件的時間。
+- `test_seconds` 是逐項秒數合計；`fixture_and_reporting_seconds` 是 `suite_seconds` 扣除這個合計，含 class／module fixtures 及 unittest 報告成本。`child_seconds` 是 child 模組進入至寫報告前；`process_overhead_seconds` 是父程序觀測總時間扣除此數，包含 Python 啟動、最初 imports、最後寫 JSON 及退出，不宣稱是單獨的 Python 啟動時間。
+- `load.json` 每兩秒保留整機負載原始採樣。Windows 使用 `GetSystemTimes` 的 idle／total CPU ticks 及 `GlobalMemoryStatusEx` 的記憶體佔用；CPU 平均按整段 ticks 加權，峰值來自採樣區間。其他平台可用時記錄 load average。`summary.json` 保存開始／結束 UTC、`jobs`、CPU 核心數、負載摘要及總通過／略過數。整機數字包含本套件和其他工作，不能據此單獨推算外部負載。
+- 每檔 `started_monotonic`、`ended_monotonic` 及 `exclusive` 可核對實際重疊與屏障；子程序的測試成功／失敗、skip、看門狗、借用監看及暫存殘留判定不變。
+- unittest 在 `startTest` 之前或 `stopTest` 之後回報的 class／module fixture 錯誤另存 `fixture_outcomes`，納入失敗判定而不冒充多跑一項；空的逐項 outcomes 不計通過並使整檔失敗。
+
+`test_fast_suite.py` 使用合成 callback 與程序替身驗證並行／獨占屏障、串列順序、每檔環境隔離及失敗分類，另檢查負載計算和排行榜；不啟動產品 UI，也不列入既有快速或 91 檔矩陣以改變其比較母數。
+
 ## 結果解讀
+
+### 原生崩潰、暫存與穩定性診斷
+
+`tests/run_checks.py` 是同一執行器的串列入口，預設 `--jobs 1`，接受相同的 `--vendor`、`--output`、`--files` 參數。Windows 父／子程序均保留現有 error mode 並加上 `SEM_NOGPFAULTERRORBOX`；子程序在載入 Qt 之前啟用 `faulthandler`，直到程序退出仍保留檔案描述元。原生錯誤與逾時前的所有 Python thread stack 寫入該檔輸出目錄的 `stacks.txt`，退出碼照實保存，不將崩潰當成已知失敗。
+
+`TEMP`、`TMP`、`TMPDIR` 和 `tempfile` cache 全部指向該檔的輸出目錄；`PROMPT_STUDIO_DATA` 也獨立。執行器不讀或清理使用者 `%TEMP%/pcs-*`。`test_test_runtime.py` 以真正故障的隔離子程序驗證錯誤模式、堆疊、退出碼及暫存位置，證據保留在該檔的 `data/crash-evidence-*`。
+
+```powershell
+# 20 次使用新的 test fixture，保留同一程序與 QApplication，檢出累積狀態問題。
+& $python -I tests/run_checks.py --vendor $vendor --output $newOutput --files test_source_redesign.py --case test_source_redesign.SourceRedesignTests.test_output_preview_copy_empty_manual_and_order_focus_no_navigation_compile --repeat 20 --timeout 600
+```
+
+`--case` 必須搭配單一明確檔名與完整 unittest id；id 請以原檔定義為準。`--repeat`／`--case` 不可用於預設快速套件，不改變三次快速套件及矩陣的比較母數。逐項重複結果各自保留，不去重，也不以成功的一次覆蓋失敗。
+
+同程序重複是額外的累積狀態診斷；若完整程序退出逾時，即使已寫出成功斷言，也不能列為通過。一般穩定性驗收可連續啟動 20 個獨立程序，每輪使用不同輸出目錄及原 120 秒上限，不能失敗後重試而只保留成功。
+
+具有背景工作風險的測試使用 `_qt_wait.wait_ms` 進入正常 `QEventLoop.exec()`；原固定等待時間不變。焦點與跨視窗匯入等特定時序則使用 `wait_until` 等待可觀察條件。D-B 所有的檔案只列入盤點，未替換其 qWait；純 GUI／mock owner 的等待也保留。逐檔風險與呼叫位置見本次 QA 的 `qwait-audit.json`。
+
+`wait_until` 完成時會停止計時器並斷開回呼，避免 Qt 訊號持有 predicate 而延長 fixture 生命週期；工具回歸同時檢查背景 Python 執行緒、排入訊號、逾時／例外及條件物件釋放。
 
 - `summary.json`：來源提交、工作樹、環境、總秒數及是否符合本次清單；未提交差異要另外保留 diff／內容雜湊，提交 SHA 本身不能代表改動內容。
 - `results.json` 與各檔的 `result.json`：原始退出碼、耗時、Python／PySide 版本、通過數、失敗 id／traceback、WinError 32／3、暫存殘留數與路徑。
 - 各檔 `tests.json`、`stdout.txt`、`stderr.txt`、`stacks.txt`：逐案例結果、完整輸出及程序逾時前的堆疊。
 - `tmp` 的殘留在程序退出後、任何人工清理前計數；執行器不刪掉殘留來製造成功。`data` 是明確保留的隔離測試資料，不是 tempfile 殘留。
-- `known_failures.json` 只分類符合 **完整 test id 與錯誤內容** 的失敗。它不改 unittest 結果、不 skip、不使用 expectedFailure；目前只剩完整 Canvas 清單中的 Q8a，子程序仍回傳 exit 1。B 的雙擊回歸已修正並留在快速套件。未知失敗、零案例、skip、看門狗攔截、逾時、暫存殘留皆使整套失敗。
+- `known_failures.json` 只分類符合 **完整 test id 與錯誤內容** 的失敗。它不改 unittest 結果、不 skip、不使用 expectedFailure；目前清單為空，Q8a 已補 DragMove 並在現行 v7 入口驗證。B 的雙擊回歸已修正並留在快速套件。未知失敗、零案例、skip、看門狗攔截、逾時、暫存殘留皆使整套失敗。
 - 關閉後啟動縮圖的 S0-3 P2 與預覽 store 的 S0-4e 已從已知失敗清單移除。`test_close_barrier.py` 鎖住直接／延後關閉及已接受收藏的登記；`test_module_preview_store.py` 遍歷全部功能預覽，檢查記憶體 journal、資料檔案不變與連線釋放，可用上述 `--files` 用法執行。WinError 32 或暫存殘留仍直接使驗證失敗。
 
 ## 看門狗及 fixture
@@ -123,7 +168,7 @@ S0-4a 的舊 picker 在 setUp 就呼叫已刪除的 `toggle_lookup`／`query`，
 - OutputPanel editor 改從 open_page().content 取得，保留文字編輯與事件歸屬。B1-3B 將預排程管理與 CLIP 工具移到卡片更多選單；管理回歸仍實際排序、移除、套用及 Undo／Redo。pause 圖示的語意由 accessibleName 驗證，5B 的「繼續」文字改驗證主執行按鈕及原 run 恢復。popup 仍透過正常主題切換驗證暫停與 compact output action 的樣式及既有 module_field 色彩，沒有手動刷新面板。
 - CAPACITY 測試以 patch 將對應 runner 的上限設為 10，資料量大於上限並實際完成／補入；初始、後續序號、總數與參數繼承皆有斷言，不只把預期數字改成 100。
 - work_queue 的 PNG 還原先 prepare_state，保留原工作區與空白草稿比較，再驗證輸入未變及新工作區根節點的 material_type 全為 text。
-- Q8b 在現行圖片卡實際連接／斷開，驗證模式、profile、prompt、來源均保留且不送出。Q8a 的拖放失敗保留。
+- Q8b 在現行圖片卡實際連接／斷開，驗證模式、profile、prompt、來源均保留且不送出。Q8a 在現行 v7 畫布送出 DragEnter、DragMove、Drop，保留獨立圖片卡與重開斷言；舊 Window 缺 multi_output 的產品問題記於本次 QA 報告。
 - visual_batch 用 id 找 clip；B1-3B 續經 01 核定，rev9 只將過時的父 padding 座標改為子卡底緣與父卡高度的中點，保留原期望並新增舊位置命中子卡的回歸；產品命中範圍不改。restart 舊完成尾端先繼續並結案，再由第二次點擊建立新批次。release_089 過時的 `==35` 已隨圖片繪製模組拆分移除，改由上述共用邊界測試驗證清單，對應的 known_failures 項目也已刪除。
 
 B1-S0 沒有修改產品程式、資料格式或架構；當時程式導航圖無須變更。後續圖片模組拆分的責任入口見 [架構設計參考](../docs/development/architecture-reference.md)。已知失敗清單不是產品修復證據，完整驗收以任務輸出目錄的實測報告為準。

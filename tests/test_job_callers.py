@@ -1,4 +1,5 @@
 """Public local-writer flows keep terminal receipts and finish cancellation."""
+from _qt_wait import wait_ms
 import tempfile
 import threading
 import time
@@ -50,13 +51,13 @@ class JobCallerTests(unittest.TestCase):
 
     def wait(self, predicate, label='job'):
         deadline = time.monotonic() + 12
-        while not predicate() and time.monotonic() < deadline:QTest.qWait(10)
+        while not predicate() and time.monotonic() < deadline:wait_ms(10)
         self.assertTrue(predicate(), label)
 
     def idle(self):
         self.wait(lambda: self.w.jobs.active is None)
         self.assertTrue(self.w.jobs.pool.waitForDone(1000))
-        QTest.qWait(20)
+        wait_ms(20)
 
     def album(self):
         self.w.catalog.put('album', {'id': 'a', 'name': 'Synthetic album'})
@@ -113,7 +114,7 @@ class JobCallerTests(unittest.TestCase):
         try:
             gallery.start_import([str(self.source), str(self.source)])
             self.wait(entered.is_set, 'interleaved worker entered')
-            QTest.qWait(30)
+            wait_ms(30)
             self.assertEqual(gallery.import_done, 1)
             self.assertEqual(gallery.queue, [str(self.source)])
             self.assertTrue(gallery.importing)

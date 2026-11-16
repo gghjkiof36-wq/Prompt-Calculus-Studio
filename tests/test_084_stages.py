@@ -1,6 +1,7 @@
 """Qt clicks through native prepare -> server receipt -> queue/history -> assets.
 Only the ComfyUI executor/GPU is replaced; jobs never become complete by fiat.
 """
+from _qt_wait import wait_ms
 import copy
 import unittest
 from pathlib import Path
@@ -210,7 +211,7 @@ class StageTests(unittest.TestCase):
         self.assertEqual(len(self.runner.store.rows('entry',active=True)),12)
         self.runner.stop_feed(current['id'],source)
         self.executor.finish();self.assertEqual(len(self.executor.submissions),2)
-        self.runner.resume(current['id']);QTest.qWait(35)
+        self.runner.resume(current['id']);wait_ms(35)
         for _ in range(11):self.executor.finish()
         self.assertEqual(len(self.executor.submissions),13)
         self.assertEqual(self.runner.store.read(current['id'])['status'],'complete')
@@ -267,8 +268,8 @@ class StageTests(unittest.TestCase):
     def test_results_failure_refetch_without_generation_and_pause_resume(self):
         self.stages(('flow','B'));self.click();run=self.runner.current();self.executor.result_failure=True;self.executor.finish()
         item=self.runner.store.rows('attempt')[0];self.assertEqual(item['status'],'result_error');self.assertEqual(self.runner.current()['status'],'paused')
-        self.executor.result_failure=False;self.runner.retry(item['id']);QTest.qWait(20)
-        self.assertEqual(self.workflows(),['flow']);self.runner.resume(run['id']);QTest.qWait(30)
+        self.executor.result_failure=False;self.runner.retry(item['id']);wait_ms(20)
+        self.assertEqual(self.workflows(),['flow']);self.runner.resume(run['id']);wait_ms(30)
         self.assertEqual(self.workflows(),['flow','B']);self.executor.finish();self.assertIsNone(self.runner.current())
 
     def test_reopen_and_workspace_results_do_not_restart(self):
@@ -277,8 +278,8 @@ class StageTests(unittest.TestCase):
         self.runner.close();self.w.comfy.input_flow.chain=self.runner=StageRunner(self.w.comfy.input_flow)
         self.executor.finish();self.assertEqual(self.runner.current()['status'],'paused');self.assertEqual(len(self.executor.submissions),1)
         with patch('prompt_calculus_studio.window.QInputDialog.getText',return_value=('other',True)):self.w.new_workspace()
-        self.assertFalse(self.runner.results);self.w.workspace.setCurrentIndex(self.w.workspace.findData(first));QTest.qWait(20)
-        self.assertTrue(self.runner.results);self.runner.resume(run['id']);QTest.qWait(30);self.executor.finish()
+        self.assertFalse(self.runner.results);self.w.workspace.setCurrentIndex(self.w.workspace.findData(first));wait_ms(20)
+        self.assertTrue(self.runner.results);self.runner.resume(run['id']);wait_ms(30);self.executor.finish()
         self.assertEqual(self.workflows(),['flow','B'])
 
     def test_cancel_preserves_foreign_tasks_and_late_completion_does_not_advance(self):
@@ -300,7 +301,7 @@ class StageTests(unittest.TestCase):
         self.stages();self.click();original=copy.deepcopy(self.executor.submissions[0]);self.executor.finish(error=True)
         item=self.runner.store.rows('attempt')[0];self.assertEqual(item['status'],'failed')
         self.c.commit(lambda s:s['uses']['root'].update(prompt='later'));self.executor.graphs['flow']['3']['inputs']['seed']=999
-        self.runner.retry(item['id']);QTest.qWait(30)
+        self.runner.retry(item['id']);wait_ms(30)
         self.assertEqual(len(self.executor.submissions),2,self.notices)
         self.assertEqual(self.executor.submissions[-1]['prompt']['6']['inputs']['text'],original['prompt']['6']['inputs']['text'])
         self.assertEqual(self.executor.submissions[-1]['prompt']['3']['inputs']['seed'],original['prompt']['3']['inputs']['seed'])
@@ -376,7 +377,7 @@ class StageTests(unittest.TestCase):
         self.assertEqual(sum(e['status']=='complete' for e in self.runner.store.rows('entry')),1)
         victim=next(i for i in pending if i['status']=='waiting');self.runner.store.remove(victim['id'])
         removed=next(v['value']['sha256'] for v in victim['saved']['inputs'].values() if v['type']=='image')
-        self.runner.resume(run['id']);QTest.qWait(30)
+        self.runner.resume(run['id']);wait_ms(30)
         for _ in range(10):self.executor.finish()
         self.assertEqual(len(self.executor.submissions),11,self.notices)
         self.assertFalse(any(removed in p['prompt']['10']['inputs']['image'] for p in self.executor.submissions))
@@ -485,9 +486,9 @@ class StageInterfaceTests(unittest.TestCase):
     def test_control_drag_auto_choice_stable_manual_choice_undo(self):
         stages=[]
         self.c.commit(lambda s:(stages.append(stage_model.add(s,(1000,0))),s['text_positions'].update({self.clip:[400,0]})))
-        stage=stages[0];view=self.c.view;view.resetTransform();view.scale(.7,.7);view.centerOn(850,200);QTest.qWait(10)
+        stage=stages[0];view=self.c.view;view.resetTransform();view.scale(.7,.7);view.centerOn(850,200);wait_ms(10)
         a=view.mapFromScene(self.c.ports[(self.clip,'control',True)].scenePos());b=view.mapFromScene(self.c.ports[(stage,'control',False)].scenePos())
-        QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a);QTest.mouseMove(view.viewport(),b,20);QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b);QTest.qWait(20)
+        QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a);QTest.mouseMove(view.viewport(),b,20);QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b);wait_ms(20)
         self.assertEqual(self.c.data()['stages'][stage]['workflow'],'flow',self.notices)
         self.w.settings_page.workflow_manager.catalog.loaded=True
         from prompt_calculus_studio.stage_parameter_panel import ParameterSheet
@@ -499,9 +500,9 @@ class StageInterfaceTests(unittest.TestCase):
         self.executor.live['identity']=copy.deepcopy(self.executor.identities['flow'])
         def read(path,profile,done,failed):QTimer.singleShot(0,lambda:done(inspection(profile),'native'))
         with patch.object(catalog,'read_draft',side_effect=read):
-            self.c.flow_cards[stage].panel.edit();QTest.qWait(30)
-            dialog=self.w.findChild(ParameterSheet);dialog.workflow.setCurrentIndex(dialog.workflow.findData('B'));QTest.qWait(30)
-            QTest.mouseClick(dialog.apply_button,Qt.MouseButton.LeftButton);QTest.qWait(30)
+            self.c.flow_cards[stage].panel.edit();wait_ms(30)
+            dialog=self.w.findChild(ParameterSheet);dialog.workflow.setCurrentIndex(dialog.workflow.findData('B'));wait_ms(30)
+            QTest.mouseClick(dialog.apply_button,Qt.MouseButton.LeftButton);wait_ms(30)
         self.assertEqual(self.c.data()['stages'][stage]['workflow'],'B',self.notices)
         self.c.view.setFocus();QTest.mouseClick(view.viewport(),Qt.MouseButton.LeftButton,pos=view.mapFromScene(self.c.flow_cards[stage].scenePos()+QPointF(80,15)))
         from prompt_calculus_studio.stage_widgets import StageDialog
@@ -511,11 +512,11 @@ class StageInterfaceTests(unittest.TestCase):
         self.click();self.assertEqual(self.workflows(),['B'],self.notices)
         view.setFocus();b=view.mapFromScene(self.c.ports[(stage,'control',False,self.clip)].scenePos());blank=b+QPoint(0,-110)
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=b);QTest.mouseMove(view.viewport(),blank,20);QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=blank)
-        self.executor.finish();QTest.qWait(150);self.assertIsNone(self.runner.current())
+        self.executor.finish();wait_ms(150);self.assertIsNone(self.runner.current())
         self.assertEqual(self.runner.runs()[-1]['status'],'complete')
         actual=self.c.history_state();expected=self.c.undo_stack[-1][1]
         self.assertEqual([k for k in set(actual)|set(expected) if actual.get(k)!=expected.get(k)],[],self.notices)
-        QTest.keyClick(view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
+        QTest.keyClick(view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(20)
         self.assertIn(self.clip,stage_model.controls(self.w.state,stage),self.notices);self.assertEqual(len(self.executor.submissions),1)
 
     def test_pending_drag_full_editor_and_runtime_readonly(self):
@@ -561,21 +562,21 @@ class StageInterfaceTests(unittest.TestCase):
         before=copy.deepcopy(self.w.state)
         with patch.object(self.c.results,'show_image') as shown:self.c.results.select(type('Item',(),{'data':lambda self,role:dict(index=2)})())
         self.assertEqual(self.w.state,before)
-        self.w.resize(1280,800);QTest.qWait(20);history=self.w.canvas_workspace_bar.history
-        QTest.mouseClick(history,Qt.MouseButton.LeftButton);QTest.qWait(20)
+        self.w.resize(1280,800);wait_ms(20);history=self.w.canvas_workspace_bar.history
+        QTest.mouseClick(history,Qt.MouseButton.LeftButton);wait_ms(20)
         self.assertTrue(self.w.recent_sheet.isVisible());self.assertTrue(self.c.view.isVisible())
         self.assertTrue(self.w.recent_sheet.isAncestorOf(self.w.recent))
-        QTest.mouseClick(self.w.recent.close_button,Qt.MouseButton.LeftButton);QTest.qWait(15)
+        QTest.mouseClick(self.w.recent.close_button,Qt.MouseButton.LeftButton);wait_ms(15)
         self.assertIsNone(self.w.recent_sheet);self.assertGreaterEqual(self.w.tabs.indexOf(self.w.recent),0)
         self.assertTrue(self.c.view.isVisible())
         buttons=[b.text() for b in self.controls.findChildren(QPushButton) if b.isVisible()]
         self.assertEqual(len(buttons),3,buttons)
         for width,height in ((1280,800),(1024,720)):
-            self.w.resize(width,height);self.c.fit();QTest.qWait(20)
+            self.w.resize(width,height);self.c.fit();wait_ms(20)
             bar=self.controls;self.assertLessEqual(bar.width(),self.w.width())
             self.assertTrue(history.isVisible())
             self.assertTrue(self.w.canvas_workspace_bar.rect().contains(history.geometry()))
             self.assertTrue(self.w.canvas_header.rect().contains(self.w.canvas_workspace_bar.geometry()))
             self.assertTrue(self.controls.activity.isVisible());self.assertIn('個活動任務',self.controls.activity.text())
         target=Path(__import__('os').environ.get('PCS_TEST_ARTIFACT_DIR',self.tmp.name));target.mkdir(parents=True,exist_ok=True)
-        self.w.resize(1280,800);self.c.fit();QTest.qWait(25);self.w.grab().save(str(target/'stage-layout-1280.png'))
+        self.w.resize(1280,800);self.c.fit();wait_ms(25);self.w.grab().save(str(target/'stage-layout-1280.png'))

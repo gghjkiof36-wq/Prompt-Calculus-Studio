@@ -1,4 +1,5 @@
 """Real manager/Markdown/chat editing while a workflow waits and recovers."""
+from _qt_wait import wait_ms
 import unittest
 
 from PySide6.QtCore import Qt
@@ -25,7 +26,7 @@ class CrossTypeSchedulingTests(unittest.TestCase):
     editor = EditorFixture.editor
 
     def events(self):
-        self.app.processEvents(); QTest.qWait(20)
+        self.app.processEvents(); wait_ms(20)
 
     def test_manager_md_chat_edit_save_reopen_during_wait_and_recovery(self):
         runner, key = self.scheduler()

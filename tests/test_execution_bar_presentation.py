@@ -1,4 +1,5 @@
 """Compact execution controls preserve their real actions and readable paint."""
+from _qt_wait import wait_ms
 import copy,json,os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -39,7 +40,7 @@ class ExecutionBarPresentationTests(unittest.TestCase):
         self.w.comfy.input_flow.last_status['running_ids']=['fixture-'+str(i) for i in range(self.w.comfy.running)]
         self.w.state['settings'].update(visual_palette=palette,ui_size=size,execution_bar_position=[.5,1.])
         self.w.resize(width,900 if width>1000 else 640)
-        self.w.apply_theme(preserve_layout=True);self.controls.refresh();self.bar.update_progress();QTest.qWait(30)
+        self.w.apply_theme(preserve_layout=True);self.controls.refresh();self.bar.update_progress();wait_ms(30)
         QTest.mouseMove(self.w,QPoint(1,1));APP.processEvents()
 
     def test_actual_bar_geometry_and_paint_across_themes_sizes_and_activity(self):
@@ -120,10 +121,10 @@ class ExecutionBarPresentationTests(unittest.TestCase):
     def test_disconnected_controls_and_editor_switch_keep_canvas_actions(self):
         self.configure();self.w.comfy.connected=False;self.controls.refresh()
         self.assertFalse(self.controls.run_button.isEnabled());self.assertFalse(self.controls.stop.isEnabled())
-        self.w.set_interface_mode('list');QTest.qWait(20)
+        self.w.set_interface_mode('list');wait_ms(20)
         self.assertTrue(self.w.prompt_editor.isVisible())
         self.assertFalse(self.controls.isVisible())
-        self.w.set_interface_mode('canvas');QTest.qWait(20)
+        self.w.set_interface_mode('canvas');wait_ms(20)
         self.assertTrue(self.controls.isVisible())
         self.assertEqual(self.controls.stop.text(),'')
         self.assertTrue(self.controls.activity.detailed)
@@ -151,7 +152,7 @@ class ExecutionBarPresentationTests(unittest.TestCase):
             observed.append(self.bar.pos())
         timer.timeout.connect(tick);timer.start()
         try:
-            QTest.qWait(180)
+            wait_ms(180)
         finally:
             timer.stop();timer.deleteLater()
         self.assertGreaterEqual(len(observed),3)
@@ -169,7 +170,7 @@ class ExecutionBarPresentationTests(unittest.TestCase):
         store=Storage(self.tmp.name)
         try:self.assertEqual(store.load()['settings']['execution_bar_position'],self.w.state['settings']['execution_bar_position'])
         finally:store.close()
-        self.w.set_interface_mode('list');self.w.set_interface_mode('canvas');QTest.qWait(30)
+        self.w.set_interface_mode('list');self.w.set_interface_mode('canvas');wait_ms(30)
         self.assertEqual(self.bar.pos(),target)
         self.assertEqual(self.w.canvas.data(),graph);self.run.assert_not_called()
 
@@ -178,7 +179,7 @@ class ExecutionBarPresentationTests(unittest.TestCase):
         pointer=self.bar.handle.mapToGlobal(self.bar.handle.rect().center());start=self.bar.pos()
         self.drag_event(QEvent.Type.MouseButtonPress,pointer)
         self.drag_event(QEvent.Type.MouseMove,pointer+QPoint(900,-190))
-        self.w.resize(640,480);QTest.qWait(30);self.w.comfy_changed()
+        self.w.resize(640,480);wait_ms(30);self.w.comfy_changed()
         area=self.bar.parentWidget().rect().adjusted(12,12,-12,-12)
         self.assertTrue(area.contains(self.bar.geometry()))
         position=self.bar.pos()

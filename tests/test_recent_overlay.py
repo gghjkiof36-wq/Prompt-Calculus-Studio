@@ -1,4 +1,5 @@
 """Offline interaction checks for the temporary canvas image browser."""
+from _qt_wait import wait_ms
 import copy
 import os
 import tempfile
@@ -19,7 +20,7 @@ for font in ('msjh.ttc','msjhbd.ttc','segoeui.ttf'):QFontDatabase.addApplication
 class RecentOverlayTests(unittest.TestCase):
     def test_image_navigation_crosses_grid_pages_and_keeps_selection(self):
         records=self.w.catalog.rows('recent',limit=120)
-        self.w.open_recent_details(records[29]['id']);QTest.qWait(30)
+        self.w.open_recent_details(records[29]['id']);wait_ms(30)
         QTest.mouseClick(self.r.next_image,Qt.MouseButton.LeftButton)
         self.assertEqual(self.r.record['id'],records[30]['id']);self.assertEqual(self.r.page,1)
         self.r.images.setFocus();QTest.keyClick(self.r.images,Qt.Key.Key_Left)
@@ -43,7 +44,7 @@ class RecentOverlayTests(unittest.TestCase):
         changes=[]
         viewer=ImageViewerDialog(self.w,records[0]['path'],records[0]['name'],records=records,
                                  selected_id=records[0]['id'],on_select=changes.append)
-        viewer.show();QTest.qWait(30);viewer.setFocus()
+        viewer.show();wait_ms(30);viewer.setFocus()
         QTest.keyClick(viewer,Qt.Key.Key_Right)
         self.assertEqual(viewer.index,1);self.assertTrue(viewer.display.text())
         QTest.mouseClick(viewer.next,Qt.MouseButton.LeftButton)
@@ -56,7 +57,7 @@ class RecentOverlayTests(unittest.TestCase):
         self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'});self.env.start()
         self.network=patch('prompt_calculus_studio.comfy_client.ComfyClient.request',side_effect=AssertionError('No network'));self.network.start()
         self.w=Window(self.temp.name);self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
-        self.w.resize(1440,900);self.w.apply_theme();self.w.show();self.w.enter_canvas();QTest.qWait(100)
+        self.w.resize(1440,900);self.w.apply_theme();self.w.show();self.w.enter_canvas();wait_ms(100)
         self.w.display_recovery.stop();self.r=self.w.recent
         image=QImage(180,260,QImage.Format.Format_RGB32);image.fill(Qt.GlobalColor.darkGreen)
         path=Path(self.temp.name)/'生成圖片.png';image.save(str(path))
@@ -71,13 +72,13 @@ class RecentOverlayTests(unittest.TestCase):
     def test_overlay_outside_escape_preserve_canvas_and_data(self):
         canvas=self.w.canvas
         from prompt_calculus_studio.drafts import edit
-        key=next(iter(canvas.data()['outputs']));canvas.commit(lambda state:edit(state,'',key));QTest.qWait(500)
+        key=next(iter(canvas.data()['outputs']));canvas.commit(lambda state:edit(state,'',key));wait_ms(500)
         canvas.view.setFocus();canvas.view.resetTransform();canvas.view.scale(.9,.9);canvas.view.centerOn(800,300)
         self.w.persist();self.w.save_timer.stop()
         geometry=canvas.geometry();transform=canvas.view.transform();center=canvas.view.mapToScene(canvas.view.viewport().rect().center())
         state=copy.deepcopy(self.w.state);undo=copy.deepcopy(canvas.undo_stack)
         for close in ('outside','escape','hide'):
-            self.w.show_recent_sheet();QTest.qWait(50);sheet=self.w.recent_sheet
+            self.w.show_recent_sheet();wait_ms(50);sheet=self.w.recent_sheet
             self.assertTrue(sheet.isAncestorOf(self.r));self.assertFalse(self.w.context_rail.isVisible());self.assertIsNone(self.w.context_sidebar_target())
             self.assertEqual(sheet.geometry(),self.w.surface_stack.rect());self.assertGreater(sheet.surface.x(),0)
             self.assertFalse(self.r.detail_scroll.isVisible());self.assertFalse(self.r.images.item(0).icon().isNull())
@@ -85,7 +86,7 @@ class RecentOverlayTests(unittest.TestCase):
             if close=='outside':QTest.mouseClick(sheet,Qt.MouseButton.LeftButton,pos=QPoint(3,3))
             elif close=='escape':QTest.keyClick(self.r.images,Qt.Key.Key_Escape)
             else:sheet.hide()
-            QTest.qWait(30);self.assertIsNone(self.w.recent_sheet)
+            wait_ms(30);self.assertIsNone(self.w.recent_sheet)
             self.assertEqual(canvas.geometry(),geometry);self.assertEqual(canvas.view.transform(),transform)
             self.assertEqual(canvas.view.mapToScene(canvas.view.viewport().rect().center()),center)
             self.assertEqual(self.w.state,state);self.assertEqual(canvas.undo_stack,undo)
@@ -94,13 +95,13 @@ class RecentOverlayTests(unittest.TestCase):
 
     def test_missing_thumbnail_and_resize_preserve_record_and_readonly_preview(self):
         record=self.w.catalog.get('recent-01');record.update(path=str(Path(self.temp.name)/'missing.png'),thumb='');self.w.catalog.put('recent',record)
-        self.w.open_recent_details(record['id']);QTest.qWait(60)
+        self.w.open_recent_details(record['id']);wait_ms(60)
         self.assertTrue(self.r.images.currentItem().icon().isNull());self.assertTrue(self.r.preview.text())
         self.assertEqual(self.r.images.currentItem().data(Qt.ItemDataRole.AccessibleTextRole),record['name'])
         before=self.w.catalog.get(record['id'])
         with patch.object(self.r.preview,'receive') as receive:
             QTest.keyClick(self.r.preview,Qt.Key.Key_V,Qt.KeyboardModifier.ControlModifier)
-            self.w.resize(800,640);QTest.qWait(60)
+            self.w.resize(800,640);wait_ms(60)
             receive.assert_not_called();self.assertTrue(self.r.preview.text());self.assertEqual(self.w.catalog.get(record['id']),before)
 
     def test_header_icons_share_hit_area_and_keep_refresh_and_close_actions(self):
@@ -118,8 +119,8 @@ class RecentOverlayTests(unittest.TestCase):
             APP.processEvents();self.assertIsNone(self.w.recent_sheet)
 
     def test_selection_grid_sizes_and_small_detail_actions_remain_reachable(self):
-        self.w.show_recent_sheet();QTest.qWait(50);size=self.r.images.gridSize()
-        item=self.r.images.item(2);QTest.mouseClick(self.r.images.viewport(),Qt.MouseButton.LeftButton,pos=self.r.images.visualItemRect(item).center());QTest.qWait(50)
+        self.w.show_recent_sheet();wait_ms(50);size=self.r.images.gridSize()
+        item=self.r.images.item(2);QTest.mouseClick(self.r.images.viewport(),Qt.MouseButton.LeftButton,pos=self.r.images.visualItemRect(item).center());wait_ms(50)
         record=copy.deepcopy(self.r.record)
         self.assertTrue(self.r.detail_scroll.isVisible());self.assertEqual(self.r.images.gridSize(),size)
         self.assertEqual(self.r.detail_name.text(),record['name'])
@@ -127,27 +128,27 @@ class RecentOverlayTests(unittest.TestCase):
         close=self.r.detail_close
         self.assertFalse(close.icon().isNull());self.assertEqual(close.iconSize().width(),18)
         self.assertGreaterEqual(close.width(),36);self.assertGreaterEqual(close.height(),36)
-        QTest.mouseClick(close,Qt.MouseButton.LeftButton,pos=QPoint(close.width()-5,close.height()-5));QTest.qWait(10)
+        QTest.mouseClick(close,Qt.MouseButton.LeftButton,pos=QPoint(close.width()-5,close.height()-5));wait_ms(10)
         self.assertFalse(self.r.detail_scroll.isVisible());self.assertEqual(self.r.record,record)
-        self.r.show_details(item);QTest.qWait(10)
+        self.r.show_details(item);wait_ms(10)
         for width,height,font in ((800,640,11),(640,480,18)):
-            self.w.resize(width,height);self.w.state['settings']['ui_size']=font;self.w.apply_theme();QTest.qWait(100)
+            self.w.resize(width,height);self.w.state['settings']['ui_size']=font;self.w.apply_theme();wait_ms(100)
             self.assertTrue(self.r.detail_scroll.isVisible());self.assertFalse(self.r.grid_panel.isVisible())
             self.assertTrue(self.r.back_button.isVisible());self.assertEqual(self.r.detail_scroll.horizontalScrollBar().maximum(),0)
             image_rect=self.r.preview.geometry();actions_rect=self.r.operations.geometry()
             self.assertFalse(image_rect.intersects(actions_rect))
             if height==480:
-                self.r.detail_scroll.verticalScrollBar().setValue(0);QTest.qWait(20)
+                self.r.detail_scroll.verticalScrollBar().setValue(0);wait_ms(20)
                 action_top=self.r.save_button.mapTo(self.r.detail_scroll.viewport(),QPoint()).y()
                 self.assertGreaterEqual(action_top,0);self.assertLessEqual(action_top+self.r.save_button.height(),self.r.detail_scroll.viewport().height())
-            self.r.detail_scroll.ensureWidgetVisible(self.r.save_button);QTest.qWait(30)
+            self.r.detail_scroll.ensureWidgetVisible(self.r.save_button);wait_ms(30)
             pos=self.r.save_button.mapTo(self.r.detail_scroll.viewport(),QPoint())
             self.assertGreaterEqual(pos.y(),0);self.assertLessEqual(pos.y()+self.r.save_button.height(),self.r.detail_scroll.viewport().height())
             self.assertEqual(self.r.record,record)
-        self.r.hide_details();QTest.qWait(30);self.assertTrue(self.r.grid_panel.isVisible());self.assertFalse(self.r.detail_scroll.isVisible())
+        self.r.hide_details();wait_ms(30);self.assertTrue(self.r.grid_panel.isVisible());self.assertFalse(self.r.detail_scroll.isVisible())
 
     def test_save_is_primary_and_keeps_destination_connection_and_duplicate_guards(self):
-        self.w.open_recent_details('recent-02');QTest.qWait(50)
+        self.w.open_recent_details('recent-02');wait_ms(50)
         self.assertEqual(self.r.save_button.objectName(),'Primary')
         self.assertEqual(self.r.save_button.text(),'儲存圖片')
         self.assertFalse(self.r.save_button.isEnabled())
@@ -179,15 +180,15 @@ class RecentOverlayTests(unittest.TestCase):
 
     def test_canvas_capsule_and_bidirectional_mode_switch_preserve_drafts(self):
         self.assertTrue(self.w.canvas_workspace_bar.isVisible());self.assertFalse(self.w.context_rail.isVisible())
-        self.w.resize(640,480);QTest.qWait(30);self.assertEqual(self.w.canvas_workspace_bar.list_mode.text(),'Prompt Editor')
-        self.w.resize(1440,900);QTest.qWait(30);self.assertEqual(self.w.canvas_workspace_bar.list_mode.text(),'Prompt Editor')
+        self.w.resize(640,480);wait_ms(30);self.assertEqual(self.w.canvas_workspace_bar.list_mode.text(),'Prompt Editor')
+        self.w.resize(1440,900);wait_ms(30);self.assertEqual(self.w.canvas_workspace_bar.list_mode.text(),'Prompt Editor')
         state=self.w.state
         from prompt_calculus_studio.drafts import edit
-        key=next(iter(self.w.canvas.data()['outputs']));self.w.canvas.commit(lambda current:edit(current,'',key));QTest.qWait(40)
+        key=next(iter(self.w.canvas.data()['outputs']));self.w.canvas.commit(lambda current:edit(current,'',key));wait_ms(40)
         expected=copy.deepcopy(self.w.canvas.data())
-        self.w.canvas_workspace_bar.list_mode.click();QTest.qWait(40)
+        self.w.canvas_workspace_bar.list_mode.click();wait_ms(40)
         self.assertFalse(self.w.canvas_mode);self.assertEqual(self.w.state['settings']['interface_mode'],'list')
-        self.w.set_interface_mode('canvas');QTest.qWait(50)
+        self.w.set_interface_mode('canvas');wait_ms(50)
         self.assertTrue(self.w.canvas_mode);self.assertEqual(self.w.canvas.data(),expected)
         self.assertEqual(self.w.canvas.data()['outputs'][key]['draft'],'')
 

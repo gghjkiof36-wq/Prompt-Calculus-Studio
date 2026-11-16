@@ -1,4 +1,5 @@
 """Bounded background work preserves source ownership and stale-result guards."""
+from _qt_wait import wait_ms
 import unittest
 import sys
 import traceback
@@ -26,7 +27,7 @@ class MarkdownBackgroundTests(unittest.TestCase):
 
     def wait(self,predicate):
         for _ in range(1000):
-            QTest.qWait(10)
+            wait_ms(10)
             if predicate():return
         self.fail('Background operation did not reach its visible ready state.')
 

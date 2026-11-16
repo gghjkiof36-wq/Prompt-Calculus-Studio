@@ -1,4 +1,5 @@
 """Main execution button resumes the matching persisted Stage run."""
+from _qt_wait import wait_ms
 import copy
 from pathlib import Path
 from unittest.mock import patch
@@ -40,7 +41,7 @@ class MainResumeTests(StageFixture):
         self.assertEqual([e['id'] for e in self.runner.store.rows('entry')],entries)
         self.assertEqual([r['id'] for r in self.runner.runs()],runs)
         self.assertEqual(self.controls.run_button.text(),'執行')
-        QTest.qWait(40)
+        wait_ms(40)
 
     def test_main_button_resumes_without_appending_entries(self):
         self.queue();self.click();ident=self.runner.current()['id']
@@ -111,7 +112,7 @@ class MainResumeTests(StageFixture):
                 self.c.flow_cards[key].open_menu(QPoint())
             selected=next(a for a in menus[0].actions() if a.text()==text)
             self.assertTrue(selected.isEnabled());selected.trigger();menus[0].deleteLater()
-            QTest.qWait(40)
+            wait_ms(40)
         action('取消目前項目')
         self.assertEqual(self.executor.cancelled,[attempt['id']])
         self.assertEqual(self.runner.store.read(entries[0]['id'])['status'],'cancelled')

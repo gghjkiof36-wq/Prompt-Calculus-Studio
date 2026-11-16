@@ -1,4 +1,5 @@
 """Search opening preserves the clicked pane, drafts and file boundaries."""
+from _qt_wait import wait_ms
 from pathlib import Path
 import sys
 import threading
@@ -48,7 +49,7 @@ class WorkspaceFileSearchTests(unittest.TestCase):
         self.assertIsNotNone(dialog)
         for _ in range(100):
             if not dialog.loading:break
-            QTest.qWait(10)
+            wait_ms(10)
         self.assertFalse(dialog.loading)
         self.assertIs(self.app.focusWidget(), dialog.search)
         return dialog

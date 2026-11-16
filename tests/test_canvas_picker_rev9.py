@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 from _qt_cleanup import close_window
 """Real Qt local-module picker events with isolated data and no services."""
 import copy
@@ -67,7 +68,7 @@ class PickerRev9Tests(unittest.TestCase):
         if self.p: self.p.reject()
         args = dict(destination_id=self.a); args.update(kwargs)
         self.p = CanvasPalette(self.c,QPointF(450,250),**args)
-        self.p.show(); self.p.activateWindow(); QTest.qWait(15)
+        self.p.show(); self.p.activateWindow(); wait_ms(15)
         return self.p
 
     def select(self,ident):
@@ -116,7 +117,7 @@ class PickerRev9Tests(unittest.TestCase):
             self.open(); self.select(self.cat); self.p.search.setText('rev9唯一別名')
             QTest.keyClick(self.p.modules,Qt.Key.Key_Right)
             QTest.keyClick(self.p.assets,Qt.Key.Key_Tab)
-            self.select(self.empty_cat); self.p.reject(); QTest.qWait(30)
+            self.select(self.empty_cat); self.p.reject(); wait_ms(30)
             schedule.assert_not_called(); lookup.assert_not_called(); cancel.assert_not_called()
         self.assertEqual(self.pending,[]); self.tag_api.assert_not_called()
 
@@ -314,7 +315,7 @@ class PickerRev9Tests(unittest.TestCase):
         self.assertEqual(self.c.history_state(),before)
         self.assertEqual(self.w.state,original,'history reads must be side effect free')
         self.select(self.cat);self.p.search.setText('red dress')
-        self.w.persist();QTest.qWait(400)
+        self.w.persist();wait_ms(400)
         self.assertEqual(self.c.history_state(),before)
         self.assertEqual((self.c.undo_stack,self.c.redo_stack),stacks)
         self.p.reject();self.c.undo()

@@ -1,4 +1,5 @@
 """Settings routes share geometry while existing controls remain reachable."""
+from _qt_wait import wait_ms
 import os
 import tempfile
 import unittest
@@ -33,11 +34,11 @@ class SettingsReadingLayoutTests(unittest.TestCase):
         self.w.close(); APP.processEvents(); self.requests.stop(); self.env.stop(); self.temp.cleanup()
 
     def page(self,route):
-        self.w.settings(route); QTest.qWait(70)
+        self.w.settings(route); wait_ms(70)
         settings=self.w.settings_page
         page=settings.comfy_tabs.widget(0) if route=='workflows' else settings.pages.widget(settings.index[route])
         self.assertIsInstance(page,ReadingPage)
-        page.verticalScrollBar().setValue(0); QTest.qWait(20)
+        page.verticalScrollBar().setValue(0); wait_ms(20)
         return page
 
     def configure(self,width,height,size,palette):
@@ -46,7 +47,7 @@ class SettingsReadingLayoutTests(unittest.TestCase):
         control=self.w.settings_page.preferences.ui_size
         control.blockSignals(True); control.setValue(size); control.blockSignals(False)
         self.w.state['settings'].update(ui_size=size,visual_palette=palette)
-        self.w.apply_theme(preserve_layout=True); QTest.qWait(80)
+        self.w.apply_theme(preserve_layout=True); wait_ms(80)
 
     def test_every_form_uses_the_same_column_and_heading_origin(self):
         for width,height,size,palette in ((1680,1000,11,'graphite'),(800,640,18,'paper'),(640,480,18,'mist')):
@@ -79,7 +80,7 @@ class SettingsReadingLayoutTests(unittest.TestCase):
                     self.assertGreaterEqual(rect.left(),0)
                     self.assertLessEqual(rect.right(),content.width()-1)
                     self.assertGreater(control.width(),0)
-                    page.ensureWidgetVisible(control,0,0); QTest.qWait(5)
+                    page.ensureWidgetVisible(control,0,0); wait_ms(5)
                     shown=QRect(control.mapTo(page.viewport(),QPoint()),control.size())
                     self.assertTrue(shown.intersects(page.viewport().rect()))
         self.assertEqual(self.w.width(),640)

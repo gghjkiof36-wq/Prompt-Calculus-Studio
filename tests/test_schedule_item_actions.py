@@ -1,4 +1,5 @@
 """Real item actions over isolated Qt/SQLite with a synthetic native executor."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -36,7 +37,7 @@ class ScheduleItemActionsTests(StageTests):
         self.assertIn(key,self.c.data()['schedulers']);self.assertEqual(self.c.data()['connections'],connections)
         self.assertEqual([self.runner.store.read(e['id']) for e in saved],saved)
         self.assertEqual(self.runner.store.read(entries[0]['id'])['status'],'removed')
-        self.runner.resume(entries[0]['run']);QTest.qWait(40)
+        self.runner.resume(entries[0]['run']);wait_ms(40)
         self.executor.finish();self.executor.finish()
         self.assertEqual(len(self.executor.submissions),3)
 
@@ -51,12 +52,12 @@ class ScheduleItemActionsTests(StageTests):
 
     def test_bottom_cancel_preserves_waiting_rows_until_explicit_resume(self):
         key,entries=self.queue();attempt=self.runner.store.rows('attempt')[0]
-        QTest.mouseClick(self.controls.stop,Qt.MouseButton.LeftButton);QTest.qWait(40)
+        QTest.mouseClick(self.controls.stop,Qt.MouseButton.LeftButton);wait_ms(40)
         self.assertEqual(self.executor.cancelled,[attempt['id']])
         self.assertEqual(self.runner.store.read(entries[0]['id'])['status'],'cancelled',self.notices)
         self.assertEqual([self.runner.store.read(e['id']) for e in entries[1:]],entries[1:])
         self.assertEqual(len(self.executor.submissions),1)
-        self.runner.resume(entries[0]['run']);QTest.qWait(40)
+        self.runner.resume(entries[0]['run']);wait_ms(40)
         self.executor.finish();self.executor.finish();self.assertEqual(len(self.executor.submissions),3)
 
     def test_cancel_acknowledgement_is_not_completion_and_unknown_cannot_be_removed(self):
@@ -75,7 +76,7 @@ class ScheduleItemActionsTests(StageTests):
         with self.assertRaises(ValueError):self.runner.retry(attempt['id'])
         from prompt_calculus_studio.stage_store import StageStore
         self.assertTrue(StageStore(self.w.store.db).read(attempt['id'])['cancel_requested'])
-        self.executor.finish(error=True);QTest.qWait(30)
+        self.executor.finish(error=True);wait_ms(30)
         self.assertEqual(self.runner.store.read(entries[0]['id'])['status'],'cancelled')
         self.assertEqual([self.runner.store.read(e['id']) for e in entries[1:]],entries[1:])
 
@@ -87,7 +88,7 @@ class ScheduleItemActionsTests(StageTests):
     def test_more_menu_cancel_uses_current_item_in_this_scheduler(self):
         key,entries=self.queue();panel=self.c.flow_cards[key].panel.open_page().content;panel.open_group(panel.groups[0]['id']);menus=[]
         with patch('prompt_calculus_studio.widgets.RoundMenu.open_for',lambda menu,*_:menus.append(menu)):panel.more_actions()
-        next(a for a in menus[0].actions() if a.text()=='取消目前項目').trigger();QTest.qWait(30)
+        next(a for a in menus[0].actions() if a.text()=='取消目前項目').trigger();wait_ms(30)
         self.assertEqual(self.runner.store.read(entries[0]['id'])['status'],'cancelled')
         self.assertEqual([self.runner.store.read(e['id']) for e in entries[1:]],entries[1:])
 
@@ -115,7 +116,7 @@ class ScheduleItemActionsTests(StageTests):
         self.assertEqual([self.runner.store.read(e['id']) for e in siblings],siblings)
         self.assertEqual(self.runner.store.read(parent['id'])['status'],'running')
         self.assertEqual(self.runner.store.read(child['id'])['status'],'removed')
-        self.runner.resume(parent['run']);QTest.qWait(40)
+        self.runner.resume(parent['run']);wait_ms(40)
         self.assertEqual(len(self.executor.submissions),2,self.notices)
         self.executor.finish();self.assertIsNone(self.runner.current())
 
@@ -130,7 +131,7 @@ class ScheduleItemActionsTests(StageTests):
             return original(route,data,done,failed,**kw)
         self.w.comfy.request=delay;key,entries=self.queue()
         self.assertEqual(len(held),1);self.assertEqual(self.runner.entry_status(entries[0]),'preparing')
-        self.runner.cancel_current();data,done=held[0];done(self.executor.native.status(data['id']));QTest.qWait(30)
+        self.runner.cancel_current();data,done=held[0];done(self.executor.native.status(data['id']));wait_ms(30)
         self.assertEqual(self.executor.native.poll(self.executor.live)['commands'],[])
         self.assertFalse(self.executor.submissions)
         self.assertEqual(self.runner.store.read(entries[0]['id'])['status'],'cancelled')

@@ -1,4 +1,5 @@
 """Document controls through real Qt input; display choices never change bytes."""
+from _qt_wait import wait_ms
 import unittest
 from PySide6.QtCore import Qt, QPoint, QPointF
 from PySide6.QtGui import QWheelEvent
@@ -120,7 +121,7 @@ class MarkdownUiTests(unittest.TestCase):
         chips.input.setText('車站');QTest.keyClick(chips.input,Qt.Key.Key_Return)
         chips.edit(0);chips.input.setText('小說/修訂');QTest.keyClick(chips.input,Qt.Key.Key_Return)
         chips.remove(1);self.assertEqual(chips.toPlainText(),'小說/修訂\n車站')
-        dialog.add_row(focus=True);dialog.submit();QTest.qWait(60)
+        dialog.add_row(focus=True);dialog.submit();wait_ms(60)
         _,name,kind,value=dialog.rows[-1]
         self.assertTrue(dialog.message.isVisible())
         self.assertTrue(dialog.scroll.viewport().rect().contains(name.mapTo(dialog.scroll.viewport(),name.rect().center())))
@@ -139,11 +140,11 @@ class MarkdownUiTests(unittest.TestCase):
         self.assertIsNotNone(rich)
         for _ in range(60):
             if rich.render_state == 'ready':break
-            QTest.qWait(50)
+            wait_ms(50)
         self.assertEqual(rich.render_state,'ready')
         for _ in range(30):
             if hasattr(rich,'content_margins'):break
-            QTest.qWait(30)
+            wait_ms(30)
         self.assertTrue(hasattr(rich,'content_margins'))
         before_margin = rich.content_margins[0]
         self.assertEqual(s.title_layout.contentsMargins().left(),before_margin)
@@ -153,19 +154,19 @@ class MarkdownUiTests(unittest.TestCase):
         rich.page().runJavaScript('document.querySelector("main").getBoundingClientRect().left',lambda left:expected.append(round(left*rich.zoomFactor())))
         for _ in range(30):
             if expected and s.title_layout.contentsMargins().left() == expected[0]:break
-            QTest.qWait(30)
+            wait_ms(30)
         self.assertTrue(expected)
         self.assertEqual(s.title_layout.contentsMargins().left(),expected[0])
         s.open_find();s.query.setText('stopped');s.find_next()
         for _ in range(30):
             if s.match_count.text() == '1/1':break
-            QTest.qWait(30)
+            wait_ms(30)
         self.assertEqual(s.match_count.text(),'1/1')
         def highlighted():
             result=[];rich.page().runJavaScript("CSS.highlights.get('find-matches')?.size || 0",result.append)
             for _ in range(30):
                 if result:break
-                QTest.qWait(20)
+                wait_ms(20)
             return result[0]
         self.assertEqual(highlighted(),1)
         s.query.clear()
@@ -173,7 +174,7 @@ class MarkdownUiTests(unittest.TestCase):
         s.query.setText('stopped');s.find_next()
         for _ in range(30):
             if s.match_count.text() == '1/1':break
-            QTest.qWait(30)
+            wait_ms(30)
         self.assertEqual(s.match_count.text(),'1/1')
         s.close_panel(s.find_bar)
         self.assertEqual(highlighted(),0);self.assertFalse(s.find_bar.isVisible())
@@ -184,7 +185,7 @@ class MarkdownUiTests(unittest.TestCase):
         (self.root/'Notes.md').write_bytes('正文。\n'.encode())
         self.w.resize(1440,900);self.events();s=self.open('Notes.md').widget.md_surface
         for sidebar in (True,False,True):
-            self.w.sidebar_preference=sidebar;self.w.sync_sidebar();QTest.qWait(60)
+            self.w.sidebar_preference=sidebar;self.w.sync_sidebar();wait_ms(60)
             expected=s.editor.viewportMargins().left()+round(s.editor.document().documentMargin())
             self.assertEqual(s.title_layout.contentsMargins().left(),expected)
 

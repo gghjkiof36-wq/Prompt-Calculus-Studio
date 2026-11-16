@@ -1,4 +1,5 @@
 """IME coordinates, preedit presentation and source-preserving image actions."""
+from _qt_wait import wait_ms
 import json
 import time
 import os
@@ -130,7 +131,7 @@ class MarkdownRepairTests(fixture.unittest.TestCase):
         s.set_mode('read');s.toggle_outline()
         def wait(condition):
             until=time.monotonic()+12
-            while not condition() and time.monotonic()<until:QTest.qWait(20)
+            while not condition() and time.monotonic()<until:wait_ms(20)
             self.assertTrue(condition())
         wait(lambda:s.reader.rich is not None and s.reader.rich.render_state=='ready')
         rich=s.reader.rich
@@ -139,7 +140,7 @@ class MarkdownRepairTests(fixture.unittest.TestCase):
             wait(lambda:bool(values));return json.loads(values[0])
         wait(lambda:js('document.querySelector("main img")?.naturalWidth>0'))
         for zoom in (70,140):
-            s.set_zoom(zoom);QTest.qWait(250)
+            s.set_zoom(zoom);wait_ms(250)
             state=js('''(()=>{const img=document.querySelector('main img');const r=img.getBoundingClientRect();
                 const walk=document.createTreeWalker(document.querySelector('main'),NodeFilter.SHOW_TEXT);
                 let node;while(node=walk.nextNode())if(node.textContent.includes('後段文字')){

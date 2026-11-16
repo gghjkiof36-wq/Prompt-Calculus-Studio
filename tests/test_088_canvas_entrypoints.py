@@ -1,4 +1,5 @@
 """Actual Qt viewport events and constrained picker geometry; no live services."""
+from _qt_wait import wait_ms
 import copy
 import os
 from pathlib import Path
@@ -30,11 +31,11 @@ class CanvasEntrypointTests(StageFixture):
     def test_picker_short_large_text_and_normal_layout_have_no_overlap(self):
         for width,height,font in ((640,480,18),(1360,900,11)):
             self.w.state['settings']['ui_size']=font; self.w.apply_theme(preserve_layout=True)
-            self.w.resize(width,height); QTest.qWait(25)
-            dialog=FunctionPicker(self.c); dialog.show(); QTest.qWait(30)
+            self.w.resize(width,height); wait_ms(25)
+            dialog=FunctionPicker(self.c); dialog.show(); wait_ms(30)
             try:
                 for index in range(len(FUNCTIONS)):
-                    dialog.list.setCurrentRow(index); QTest.qWait(10)
+                    dialog.list.setCurrentRow(index); wait_ms(10)
                     children=(dialog.preview,dialog.name,dialog.description,dialog.kind)
                     for left,right in zip(children,children[1:]):
                         self.assertLess(left.geometry().bottom(),right.geometry().top())
@@ -49,12 +50,12 @@ class CanvasEntrypointTests(StageFixture):
                 self.capture(dialog,f'functions-{width}x{height}-{font}pt.png')
                 dialog.details.ensureWidgetVisible(dialog.description,0,0)
                 if width==640:self.capture(dialog,'functions-640x480-description.png')
-            finally:dialog.reject(); dialog.deleteLater(); QTest.qWait(1)
+            finally:dialog.reject(); dialog.deleteLater(); wait_ms(1)
 
     def test_picker_filters_add_escape_and_backdrop(self):
         self.w.resize(640,480); self.w.state['settings']['ui_size']=18; self.w.apply_theme(preserve_layout=True)
         for category in ('文字','圖片','執行'):
-            dialog=FunctionPicker(self.c); dialog.show(); QTest.qWait(15)
+            dialog=FunctionPicker(self.c); dialog.show(); wait_ms(15)
             QTest.mouseClick(dialog.filters[category],Qt.MouseButton.LeftButton)
             self.assertEqual(dialog.list.count(),sum(value[2]==category for value in FUNCTIONS))
             ident=dialog.current_id(); calls=[]; dialog.actions[ident]=lambda:calls.append(ident)
@@ -62,7 +63,7 @@ class CanvasEntrypointTests(StageFixture):
             self.assertEqual(calls,[ident]); self.assertFalse(dialog.isVisible())
             dialog.deleteLater()
         for cancel in ('escape','backdrop'):
-            dialog=FunctionPicker(self.c); dialog.show(); QTest.qWait(10)
+            dialog=FunctionPicker(self.c); dialog.show(); wait_ms(10)
             before=copy.deepcopy(self.c.data())
             if cancel=='escape':QTest.keyClick(dialog,Qt.Key.Key_Escape)
             else:QTest.mouseClick(dialog,Qt.MouseButton.LeftButton,pos=QPoint(2,2))
@@ -84,7 +85,7 @@ class CanvasEntrypointTests(StageFixture):
     def preview_point(self,key,scale):
         card=self.c.functions.cards[key]; preview=card.panel.preview
         self.c.view.resetTransform(); self.c.view.scale(scale,scale)
-        self.c.view.centerOn(card.sceneBoundingRect().center()); QTest.qWait(20)
+        self.c.view.centerOn(card.sceneBoundingRect().center()); wait_ms(20)
         point=self.c.view.mapFromScene(card.proxy.mapToScene(QPointF(preview.mapTo(card.panel,preview.rect().center()))))
         self.assertTrue(self.c.view.viewport().rect().contains(point)); return point
 

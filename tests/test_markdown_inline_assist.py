@@ -1,4 +1,5 @@
 """Inline selection and disposable preview through a real offscreen workspace."""
+from _qt_wait import wait_ms
 import json
 import unittest
 from unittest.mock import patch
@@ -76,7 +77,7 @@ class MarkdownInlineAssistTests(unittest.TestCase):
 
     def settle(self):
         self.events()
-        QTest.qWait(130)
+        wait_ms(130)
         self.app.processEvents()
 
     def page(self, raw=RAW):

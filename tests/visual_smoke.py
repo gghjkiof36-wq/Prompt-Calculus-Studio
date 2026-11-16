@@ -9,6 +9,8 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT)); sys.path.insert(0,str(ROOT/"vendor"))
 if "--native" not in sys.argv: os.environ["QT_QPA_PLATFORM"]="offscreen"
 from PySide6.QtWidgets import QApplication
+sys.path.insert(0,str(ROOT/'tests'))
+from _qt_wait import wait_ms
 from PySide6.QtGui import QFontDatabase,QImage,QPainter,QColor,QFont
 from PySide6.QtCore import Qt,QTimer
 from prompt_calculus_studio.window import Window
@@ -30,7 +32,7 @@ window.refresh_library(); window.refresh_builder(); window.show(); app.processEv
 startup=time.perf_counter()-started
 window.grab().save(str(OUT/"prompt.png"))
 if app.platformName()=="windows":
-    QTest.qWait(150); window.screen().grabWindow(int(window.winId())).save(str(OUT/"prompt-desktop.png"))
+    wait_ms(150); window.screen().grabWindow(int(window.winId())).save(str(OUT/"prompt-desktop.png"))
 root=Path(r"D:\ComfyUI_windows_portable_nvidia\ComfyUI_windows_portable\ComfyUI\models")
 if root.is_dir():
     started=time.perf_counter(); records=scan_models(root); scan_time=time.perf_counter()-started

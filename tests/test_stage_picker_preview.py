@@ -1,4 +1,5 @@
 """Keyboard previews use an empty journal and never alter the real document."""
+from _qt_wait import wait_ms
 from journal_fixtures import snapshot as journal_snapshot
 import copy
 import unittest
@@ -21,8 +22,8 @@ class StagePickerPreviewTests(unittest.TestCase):
 
     @contextmanager
     def picker(self):
-        self.w.enter_canvas();QTest.qWait(400);self.w.persist()
-        dialog=FunctionPicker(self.w.canvas);dialog.show();QTest.qWait(30)
+        self.w.enter_canvas();wait_ms(400);self.w.persist()
+        dialog=FunctionPicker(self.w.canvas);dialog.show();wait_ms(30)
         try:yield dialog
         finally:
             dialog.reject();dialog.deleteLater();self.app.processEvents()
@@ -32,7 +33,7 @@ class StagePickerPreviewTests(unittest.TestCase):
                 if dialog.list.item(i).data(Qt.ItemDataRole.UserRole)=='stage')
         dialog.list.setFocus();QTest.keyClick(dialog.list,Qt.Key.Key_Home)
         for _ in range(at):QTest.keyClick(dialog.list,Qt.Key.Key_Down)
-        QTest.qWait(20)
+        wait_ms(20)
         self.assertEqual(dialog.current_id(),'stage')
         self.assertIsNotNone(dialog.preview.card)
         self.assertEqual(self.errors,[],'Qt callback exceptions must fail this test')
@@ -48,9 +49,9 @@ class StagePickerPreviewTests(unittest.TestCase):
                     self.select_stage(dialog)
                     self.assertFalse(dialog.preview.card.panel.status.isVisible())
                     self.assertIsNot(dialog.preview.context.window.comfy.input_flow.chain.store,runner.store)
-                    QTest.keyClick(dialog.list,Qt.Key.Key_Home);QTest.qWait(10)
+                    QTest.keyClick(dialog.list,Qt.Key.Key_Home);wait_ms(10)
                 self.select_stage(dialog)
-                QTest.keyClick(dialog.list,Qt.Key.Key_Escape);QTest.qWait(20)
+                QTest.keyClick(dialog.list,Qt.Key.Key_Escape);wait_ms(20)
             self.assertFalse(dialog.isVisible())
             self.assertEqual(self.w.state,before);self.assertEqual(self.w.store.load(),saved)
             self.assertEqual(self.w.canvas.history_projection(self.w.state),history)
@@ -60,7 +61,7 @@ class StagePickerPreviewTests(unittest.TestCase):
         with self.picker() as dialog:
             before=set(self.w.state['multi_output']['stages'])
             self.select_stage(dialog)
-            QTest.mouseClick(dialog.add_button,Qt.MouseButton.LeftButton);QTest.qWait(30)
+            QTest.mouseClick(dialog.add_button,Qt.MouseButton.LeftButton);wait_ms(30)
             added=set(self.w.state['multi_output']['stages'])-before
             self.assertEqual(len(added),1);self.assertFalse(dialog.isVisible())
             key=added.pop();panel=self.w.canvas.flow_cards[key].panel
@@ -77,7 +78,7 @@ class StagePickerPreviewTests(unittest.TestCase):
         with self.picker() as dialog:
             before=len(self.w.state['multi_output']['stages'])
             self.select_stage(dialog)
-            QTest.keyClick(dialog.list,Qt.Key.Key_Return);QTest.qWait(30)
+            QTest.keyClick(dialog.list,Qt.Key.Key_Return);wait_ms(30)
             self.assertFalse(dialog.isVisible())
             self.assertEqual(len(self.w.state['multi_output']['stages']),before+1)
             self.assertEqual(self.errors,[])

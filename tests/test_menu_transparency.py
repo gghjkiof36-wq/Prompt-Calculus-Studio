@@ -1,4 +1,5 @@
 """Menu translucency is a saved appearance choice, independent of the shell."""
+from _qt_wait import wait_ms
 import copy,os,tempfile,unittest,sys
 from unittest.mock import patch
 from PySide6.QtCore import QPoint,Qt,QEvent,QCoreApplication
@@ -103,7 +104,7 @@ class MenuTransparencySettingsTests(unittest.TestCase):
         # Dispose the settings page and its queued autosave before deleting
         # its temporary storage or allowing a later test to change fonts.
         QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete);APP.processEvents()
-        QTest.qWait(30)
+        wait_ms(30)
         self.network.stop();self.env.stop();self.tmp.cleanup()
         sys.excepthook=self.old_hook
         self.assertEqual(self.callback_errors,[])

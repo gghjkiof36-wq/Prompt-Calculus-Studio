@@ -1,4 +1,5 @@
 """Published dependencies remain fresh without rendering hidden readers."""
+from _qt_wait import wait_ms
 import tempfile
 import time
 import unittest
@@ -35,7 +36,7 @@ class DependencyCacheTests(unittest.TestCase):
 
     def wait(self,condition):
         deadline=time.monotonic()+8
-        while not condition() and time.monotonic()<deadline:QTest.qWait(10)
+        while not condition() and time.monotonic()<deadline:wait_ms(10)
         self.assertTrue(condition())
 
     def ready(self,text):
@@ -64,10 +65,10 @@ class DependencyCacheTests(unittest.TestCase):
         self.wait(lambda:self.reader._render_key is None and not self.rich.relations.timer.isActive())
         self.assertEqual(self.rich.version,version);self.assertIs(self.rich.projection,projection)
         self.surface.set_mode('read');self.wait(lambda:self.ready('NEW'))
-        QTest.qWait(30)
+        wait_ms(30)
         self.assertEqual(self.rich.version,version+1)
         projection=self.rich.projection;key=self.reader._render_key
-        self.surface.set_mode('write');self.surface.set_mode('read');QTest.qWait(30)
+        self.surface.set_mode('write');self.surface.set_mode('read');wait_ms(30)
         self.assertIs(self.rich.projection,projection);self.assertEqual(self.reader._render_key,key)
         self.assertEqual(self.rich.version,version+1);self.assert_source_preserved()
 
@@ -79,11 +80,11 @@ class DependencyCacheTests(unittest.TestCase):
         self.wait(lambda:self.reader._render_key is None and not self.rich.relations.timer.isActive())
         self.window.tab_strip.bar.setCurrentIndex(self.window.index_of(self.tab.key))
         self.window.tab_strip.bar.setCurrentIndex(self.window.index_of(other.key))
-        QTest.qWait(30)
+        wait_ms(30)
         self.assertFalse(self.reader.isVisible());self.assertIsNone(self.reader._render_key)
         self.assertEqual(self.rich.version,version)
         self.window.tab_strip.bar.setCurrentIndex(self.window.index_of(self.tab.key))
-        self.wait(lambda:self.ready('NEW'));QTest.qWait(30)
+        self.wait(lambda:self.ready('NEW'));wait_ms(30)
         self.assertEqual(self.rich.version,version+1);self.assert_source_preserved()
 
     def test_late_hidden_read_projection_does_not_restore_invalid_key(self):
@@ -111,7 +112,7 @@ class DependencyCacheTests(unittest.TestCase):
         try:
             self.assertFalse(hasattr(preview,'_invalidate_cache'))
             with patch.object(preview,'refresh') as refresh:
-                preview.show();QTest.qWait(10)
+                preview.show();wait_ms(10)
                 preview.rich.relations.refresh();refresh.assert_called_once_with()
                 preview.hide();preview.rich.relations.refresh();refresh.assert_called_once_with()
         finally:

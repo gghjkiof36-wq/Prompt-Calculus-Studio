@@ -1,4 +1,5 @@
 """Reader modal closure and separately forced QObject disposal, with real events."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from PySide6.QtCore import Qt,QTimer,QCoreApplication,QEvent
@@ -36,7 +37,7 @@ class ReaderLifecycleTests(unittest.TestCase):
                         close=next(b for b in dialog.findChildren(QPushButton) if b.accessibleName()=='關閉視窗')
                         if delay:QTimer.singleShot(delay,dialog,lambda:QTest.mouseClick(close,Qt.MouseButton.LeftButton))
                         else:QTest.mouseClick(close,Qt.MouseButton.LeftButton)
-                    QTimer.singleShot(0,self.panel,interact);self.panel.edit();QTest.qWait(40)
+                    QTimer.singleShot(0,self.panel,interact);self.panel.edit();wait_ms(40)
                     self.assertEqual(inspected,[1]);self.assertIsNone(self.panel.active_dialog)
                     self.assertEqual(self.errors,[])
                     self.assertEqual(self.w.canvas.history_projection(self.w.state),self.before)
@@ -47,19 +48,19 @@ class ReaderLifecycleTests(unittest.TestCase):
                 dialog=GroupSourceDialog(self.w.canvas,self.key);dialog.show()
                 dialog.open_group(dialog.root['sequence']['groups'][0]['id'])
                 dialog.reject();dialog.deleteLater()
-                QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete);QTest.qWait(40)
+                QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete);wait_ms(40)
                 self.assertEqual(self.errors,[])
                 self.assertEqual(self.w.canvas.history_projection(self.w.state),self.before)
 
     def test_live_reader_layout_and_edit_apply_still_work(self):
-        dialog=GroupSourceDialog(self.w.canvas,self.key);dialog.show();QTest.qWait(30)
+        dialog=GroupSourceDialog(self.w.canvas,self.key);dialog.show();wait_ms(30)
         try:
             self.assertGreater(dialog.stack.width(),0)
-            key=dialog.root['sequence']['groups'][0]['id'];dialog.open_group(key);QTest.qWait(30)
+            key=dialog.root['sequence']['groups'][0]['id'];dialog.open_group(key);wait_ms(30)
             self.assertEqual(dialog.stack.currentIndex(),1);self.assertEqual(dialog.preview.toPlainText(),'garden')
-            dialog.back();QTest.qWait(30);self.assertEqual(dialog.stack.currentIndex(),0)
+            dialog.back();wait_ms(30);self.assertEqual(dialog.stack.currentIndex(),0)
             dialog.mode.setCurrentIndex(dialog.mode.findData('decrement'))
-            QTest.mouseClick(dialog.apply_button,Qt.MouseButton.LeftButton);QTest.qWait(30)
+            QTest.mouseClick(dialog.apply_button,Qt.MouseButton.LeftButton);wait_ms(30)
             self.assertEqual(sources.definitions(self.w.state)[self.key]['root']['sequence']['mode'],'decrement')
             self.w.canvas.undo();self.assertEqual(self.w.canvas.history_projection(self.w.state),self.before)
             self.w.canvas.redo();self.w.persist()

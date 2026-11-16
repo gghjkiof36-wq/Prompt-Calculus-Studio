@@ -1,4 +1,5 @@
 """Public backup entry and real Jobs completion, using synthetic local data."""
+from _qt_wait import wait_ms
 import tempfile
 import threading
 import time
@@ -62,7 +63,7 @@ class BackupJobsTests(unittest.TestCase):
                 after_start()
             deadline = time.monotonic() + 10
             while self.w.jobs.active and time.monotonic() < deadline:
-                QTest.qWait(10)
+                wait_ms(10)
             self.assertIsNone(self.w.jobs.active, 'backup worker did not finish')
         self.assertTrue(self.w.jobs.pool.waitForDone(1000))
         self.assertEqual(self.w.jobs.pool.activeThreadCount(), 0)

@@ -1,4 +1,5 @@
 """Actual Canvas cards, clipboard operations and persistence for image views."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -56,7 +57,7 @@ class PreviewTests(unittest.TestCase):
         dialog=FunctionPicker(self.c,QPointF(x,300));dialog.show()
         for i in range(dialog.list.count()):
             if dialog.list.item(i).data(Qt.ItemDataRole.UserRole)=='preview':dialog.list.setCurrentRow(i);break
-        QTest.mouseClick(dialog.add_button,Qt.MouseButton.LeftButton);QTest.qWait(20)
+        QTest.mouseClick(dialog.add_button,Qt.MouseButton.LeftButton);wait_ms(20)
         created=set(self.c.preview_cards)-before
         self.assertEqual(len(created),1,self.notices)
         dialog.deleteLater();return created.pop()
@@ -78,7 +79,7 @@ class PreviewTests(unittest.TestCase):
             self.assertNotEqual(show.call_args_list[0].args[1],show.call_args_list[1].args[1])
         self.assertEqual(self.w.state['canvas_functions']['images'][source],before)
         self.assertFalse(self.executor.submissions)
-        toggle_module(self.c,first);QTest.qWait(20)
+        toggle_module(self.c,first);wait_ms(20)
         self.assertTrue(self.c.preview_cards[first].collapsed)
         self.assertFalse(self.c.preview_cards[second].collapsed)
 
@@ -88,13 +89,13 @@ class PreviewTests(unittest.TestCase):
         self.assertTrue(self.c.commit(lambda s:model.connect(s,other,first,'image')),self.notices)
         self.assertEqual(len(self.c.preview_cards[first].panel.input_records),1)
         unchanged=copy.deepcopy(self.c.preview_cards[second].panel.input_records)
-        self.c.functions.remove(first);QTest.qWait(20)
+        self.c.functions.remove(first);wait_ms(20)
         self.assertNotIn(first,self.c.preview_cards)
         self.assertEqual(self.c.preview_cards[second].panel.input_records,unchanged)
-        self.c.view.setFocus();QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
+        self.c.view.setFocus();QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(20)
         self.assertIn(first,self.c.preview_cards)
         self.assertEqual(len(self.c.preview_cards[first].panel.input_records),1)
-        QTest.keyClick(self.c.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);wait_ms(20)
         self.assertNotIn(first,self.c.preview_cards)
 
     def test_clipboard_copy_creates_independent_instance_without_external_edge(self):
@@ -103,7 +104,7 @@ class PreviewTests(unittest.TestCase):
         self.c.view.scene().clearSelection();self.c.preview_cards[first].setSelected(True)
         self.c.view.setFocus();QTest.keyClick(self.c.view,Qt.Key.Key_C,Qt.KeyboardModifier.ControlModifier)
         before=set(self.c.preview_cards)
-        QTest.keyClick(self.c.view,Qt.Key.Key_V,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
+        QTest.keyClick(self.c.view,Qt.Key.Key_V,Qt.KeyboardModifier.ControlModifier);wait_ms(20)
         created=set(self.c.preview_cards)-before;self.assertEqual(len(created),1,self.notices)
         clone=created.pop();self.assertTrue(self.c.preview_cards[clone].collapsed)
         self.assertFalse(any(e['destination']==clone for e in self.c.data()['connections']))
@@ -136,9 +137,9 @@ class PreviewTests(unittest.TestCase):
         expected_connections=copy.deepcopy(self.c.data()['connections'])
         expected_previews=copy.deepcopy(self.w.state['canvas_functions'])
         self.assertEqual(self.w.state['version'],7)
-        self.w.persist();self.w.close();QTest.qWait(20)
+        self.w.persist();self.w.close();wait_ms(20)
         self.w=Window(self.tmp.name);self.w.comfy.timer.stop();self.w.comfy.enabled=False
-        self.w.show();self.w.set_interface_mode('canvas');QTest.qWait(25);self.c=self.w.canvas
+        self.w.show();self.w.set_interface_mode('canvas');wait_ms(25);self.c=self.w.canvas
         self.assertEqual(self.w.state['version'],7)
         self.assertEqual(self.c.data()['connections'],expected_connections)
         self.assertEqual(self.w.state['canvas_functions'],expected_previews)

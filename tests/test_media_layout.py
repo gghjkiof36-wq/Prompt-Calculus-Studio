@@ -1,4 +1,5 @@
 """Native media navigation preserves catalog state across layout changes."""
+from _qt_wait import wait_ms
 import copy
 import json
 import os
@@ -40,7 +41,7 @@ class MediaLayoutTests(unittest.TestCase):
     def tearDown(self):
         self.w.close(); APP.processEvents(); self.transport.stop(); self.environment.stop(); self.temp.cleanup()
 
-    def settle(self):QTest.qWait(40)
+    def settle(self):wait_ms(40)
 
     def add_images(self,count=4):
         source=Path(self.temp.name)/'fixture.png'; image=QImage(96,144,QImage.Format.Format_RGB32); image.fill(Qt.GlobalColor.darkGreen); image.save(str(source))

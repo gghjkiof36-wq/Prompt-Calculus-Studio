@@ -1,4 +1,5 @@
 """Click -> real native receipt -> native backlog; no GPU completion shortcut."""
+from _qt_wait import wait_ms
 import copy
 import json
 import time
@@ -58,7 +59,7 @@ class DirectClickTests(unittest.TestCase):
         self.assertEqual(len(self.executor.submissions),1)
         receipts[0][0](receipts[0][1])
         deadline=time.monotonic()+2
-        while len(self.executor.pending)<3 and time.monotonic()<deadline:QTest.qWait(10)
+        while len(self.executor.pending)<3 and time.monotonic()<deadline:wait_ms(10)
         self.assertEqual(len(self.executor.pending),3)
         self.assertEqual([p['prompt']['6']['inputs']['text'] for p in self.executor.submissions],['A','B','C'])
         for _ in range(3):self.executor.finish()
@@ -87,7 +88,7 @@ class DirectClickTests(unittest.TestCase):
             if route=='workflow/native/cancel':calls.append(copy.deepcopy(data))
             return transport(route,data,done,failed,**kwargs)
         self.w.comfy.request=record
-        QTest.mouseClick(self.controls.stop,Qt.MouseButton.LeftButton);QTest.qWait(10)
+        QTest.mouseClick(self.controls.stop,Qt.MouseButton.LeftButton);wait_ms(10)
         self.assertEqual(calls,[dict(id=job['id'])])
         self.assertTrue(self.controls.run_button.isEnabled())
         self.text('after cancel');self.click();self.assertEqual(len(self.executor.submissions),2)
@@ -112,7 +113,7 @@ class DirectClickTests(unittest.TestCase):
         self.assertEqual([p['prompt']['6']['inputs']['text'] for p in self.executor.submissions],['fresh A','fresh B'])
 
     def test_bottom_bar_has_four_controls_and_task_count_opens_history(self):
-        self.w.resize(1024,760);QTest.qWait(25)
+        self.w.resize(1024,760);wait_ms(25)
         bar=self.c.execution_bar;bar.place();self.controls.refresh()
         visible=[b for b in bar.findChildren(QPushButton) if b.isVisible()]
         self.assertEqual(set(visible),{self.controls.run_button,self.controls.stop,self.controls.activity})

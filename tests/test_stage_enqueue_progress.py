@@ -1,4 +1,5 @@
 """Durable click routing, including the interpreter's 80-transition yield."""
+from _qt_wait import wait_ms
 from contextlib import contextmanager
 import copy
 import unittest
@@ -54,10 +55,10 @@ def scenario(auto, outer=False):
 
 
 def finish(case):
-    QTest.qWait(40)
+    wait_ms(40)
     for _ in range(40):
         if not case.executor.pending:
-            QTest.qWait(40)
+            wait_ms(40)
             if not case.executor.pending:
                 break
         case.executor.finish()
@@ -81,7 +82,7 @@ class EnqueueProgressTests(unittest.TestCase):
             with scenario(auto, outer=outer) as (case, config):
                 for index in range(clicks):
                     if index and gap:
-                        QTest.qWait(gap)
+                        wait_ms(gap)
                     QTest.mouseClick(case.controls.run_button, Qt.MouseButton.LeftButton)
                     if not gap:
                         # Every click really precedes the first pump, not merely a short delay.
@@ -145,7 +146,7 @@ class EnqueueProgressTests(unittest.TestCase):
                     self.assertTrue(case.runner.timer.isActive())
                     self.assertEqual(case.executor.submissions, [])
                     if after_enter:
-                        QTest.qWait(25)
+                        wait_ms(25)
                         self.assertEqual(case.runner.store.read(run['id'])['scope_progress']['state'], 'entered')
                     case.runner.start(1 if auto else 2)
                     observed.append(finish(case))
@@ -178,7 +179,7 @@ class EnqueueProgressTests(unittest.TestCase):
                         run = case.runner.create_run(stage_model.compile_plan(case.w.state), 1 if auto else 2, status=status)
                     if entered:
                         case.runner.pump()
-                        QTest.qWait(25)
+                        wait_ms(25)
                     # Hand-write a pre-Q1 journal body: no progress key at all.
                     with case.runner.store.transaction():
                         case.runner.store.db.execute("UPDATE stage_header SET body=json_remove(body,'$.scope_progress') WHERE id=?", (run['id'],))

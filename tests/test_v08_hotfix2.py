@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import copy,os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -19,7 +20,7 @@ class ExecutionInputTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(); self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'}); self.env.start()
         self.w=Window(self.temp.name); self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
-        self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(20)
+        self.w.show(); self.w.set_interface_mode('canvas'); wait_ms(20)
         self.c=self.w.canvas; self.oid=self.c.data()['current_output']; self.cid=next(iter(self.c.containers))
         self.file=Path(self.temp.name)/'source.png'; image=QImage(64,48,QImage.Format.Format_RGB32); image.fill(0xff4488aa); image.save(str(self.file))
         self.w.comfy.connected=True; self.w.comfy.direct_supported=True
@@ -90,7 +91,7 @@ class ExecutionInputTests(unittest.TestCase):
         self.assertEqual(self.c.functions.data()['images'][key],old)
         self.w.persist(); self.assertEqual(self.w.store.load()['text_positions'][key],self.w.state['text_positions'][key])
     def test_count_changes_never_reveal_activity_or_resize_run_button(self):
-        self.configure('txt2img'); self.w.comfy.stateChanged.emit(); QTest.qWait(30)
+        self.configure('txt2img'); self.w.comfy.stateChanged.emit(); wait_ms(30)
         bar=self.w.run_controls; events=[]
         class Watch(QObject):
             def eventFilter(self,obj,event):
@@ -99,7 +100,7 @@ class ExecutionInputTests(unittest.TestCase):
         watcher=Watch(); bar.activity.installEventFilter(watcher)
         sizes=[]
         for value in (1,2,10,99,100,1,3):
-            bar.count.setValue(value); bar.refresh(); QTest.qWait(10); sizes.append((bar.run_button.width(),bar.run_button.height()))
+            bar.count.setValue(value); bar.refresh(); wait_ms(10); sizes.append((bar.run_button.width(),bar.run_button.height()))
         self.assertEqual(len(set(sizes)),1,sizes); self.assertEqual(events,[])
 
 class ImportedSeedTests(unittest.TestCase):

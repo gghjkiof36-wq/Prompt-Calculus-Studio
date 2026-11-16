@@ -1,4 +1,5 @@
 """Bound inputs retain their targets and values across queued native executions."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from PySide6.QtCore import Qt
@@ -72,7 +73,7 @@ class BoundSchedulerTests(unittest.TestCase):
         config=self.bound_text((1,1));self.click();self.executor.finish(error=True)
         attempt=self.runner.store.rows('attempt')[0]
         self.executor.graphs['flow']['6']['inputs']['text']='changed native field'
-        self.runner.retry(attempt['id']);QTest.qWait(30);self.executor.finish()
+        self.runner.retry(attempt['id']);wait_ms(30);self.executor.finish()
         self.click();self.executor.finish()
         self.assertEqual(self.submitted_texts(),['prompt 0','prompt 0','prompt 1'],self.notices)
 
@@ -146,7 +147,7 @@ class BoundSchedulerTests(unittest.TestCase):
         self.runner.close();self.w.comfy.input_flow.chain=self.runner=StageRunner(self.w.comfy.input_flow)
         self.executor.finish();self.assertEqual(self.runner.current()['status'],'paused')
         supply.definitions(self.w.state)[config['source']]['root']['sequence']['groups'][0]['text']='later edit'
-        self.runner.resume(run['id']);QTest.qWait(30)
+        self.runner.resume(run['id']);wait_ms(30)
         for _ in range(2):self.executor.finish()
         self.assertEqual(self.submitted_texts(),['prompt 0','prompt 0','prompt 1'],self.notices)
         self.assertEqual([e['saved'] for e in self.runner.store.rows('entry')],[e['saved'] for e in entries])
@@ -158,11 +159,11 @@ class BoundSchedulerTests(unittest.TestCase):
             keys['stage']=stage_model.add(state,(1150,0));keys['scheduler']=add_scheduler(state,(650,0))
             state['text_positions'][self.clip]=[200,0]
         self.assertTrue(self.c.commit(setup),self.notices)
-        view=self.c.view;view.resetTransform();view.scale(.6,.6);view.centerOn(900,200);QTest.qWait(20)
+        view=self.c.view;view.resetTransform();view.scale(.6,.6);view.centerOn(900,200);wait_ms(20)
         def drag(first,last):
             a=view.mapFromScene(self.c.ports[first].scenePos());b=view.mapFromScene(self.c.ports[last].scenePos())
             QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a);QTest.mouseMove(view.viewport(),b,30)
-            QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b);QTest.qWait(30)
+            QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b);wait_ms(30)
         q=keys['scheduler']+'::bindings';stage=keys['stage']
         drag((self.clip,'control',True),(q,'control',False))
         drag((q,'control',True),(stage,'control',False))
@@ -171,9 +172,9 @@ class BoundSchedulerTests(unittest.TestCase):
         self.assertEqual(self.w.state['version'],7)
         edge=next(e for e in self.c.data()['connections'] if e['destination']==q)
         self.assertIs(self.c.line_port(edge,False),self.c.ports[(q,'control',False,self.clip)])
-        view.setFocus();QTest.keyClick(view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
+        view.setFocus();QTest.keyClick(view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(20)
         self.assertEqual(stage_model.connected_terminals(self.w.state),set())
-        QTest.keyClick(view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
+        QTest.keyClick(view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);wait_ms(20)
         self.assertEqual(stage_model.connected_terminals(self.w.state),{self.clip})
 
     def test_queued_target_change_pauses_without_rewriting_saved_entries(self):
@@ -186,7 +187,7 @@ class BoundSchedulerTests(unittest.TestCase):
         self.assertTrue(self.c.commit(extra_field));self.click()
         run=copy.deepcopy(self.runner.current());entries=copy.deepcopy(self.runner.store.rows('entry'))
         self.assertTrue(self.c.commit(lambda s:clip_flow.set_binding(s,'flow',self.clip,('7','text'))))
-        self.executor.finish();QTest.qWait(25)
+        self.executor.finish();wait_ms(25)
         self.assertEqual(len(self.executor.submissions),1,self.notices)
         current=self.runner.store.read(run['id'])
         self.assertEqual(current['plan'],run['plan'])
@@ -201,9 +202,9 @@ class BoundSchedulerTests(unittest.TestCase):
         old=copy.deepcopy(self.w.state);old['version']=5
         with self.assertRaises(ValueError):validate_state(old)
         self.w.comfy.snapshot_versions=[1,2,3,4,5];self.assertFalse(self.w.comfy.can_run)
-        self.w.persist();self.w.close();QTest.qWait(20)
+        self.w.persist();self.w.close();wait_ms(20)
         self.w=Window(self.tmp.name);self.w.comfy.timer.stop();self.w.comfy.enabled=False
-        self.w.show();self.w.set_interface_mode('canvas');QTest.qWait(25);self.c=self.w.canvas
+        self.w.show();self.w.set_interface_mode('canvas');wait_ms(25);self.c=self.w.canvas
         self.assertEqual(stage_model.compile_plan(self.w.state),original)
         self.assertIn((config['scheduler']+'::bindings','control',True),self.c.ports)
 

@@ -1,4 +1,5 @@
 """Owned cancellation via actual Qt actions and journals; native service is synthetic."""
+from _qt_wait import wait_ms
 import copy
 import sys
 import unittest
@@ -33,7 +34,7 @@ class CancelAllTests(unittest.TestCase):
             QApplication.sendEvent(self.controls.stop,event)
             self.assertEqual(len(menus),1)
             next(a for a in menus[0].actions() if a.text()=='取消此工作區全部流程（含等待項目）').trigger()
-            QTest.qWait(20)
+            wait_ms(20)
         self.assertFalse(errors,errors)
 
     def retain_cancel_reply(self,*,error=False):
@@ -154,7 +155,7 @@ class CancelAllTests(unittest.TestCase):
         self.retain_cancel_reply(error=True);self.runner.cancel();self.reopen_runner()
         self.assertTrue(self.runner.store.read(attempt['id'])['cancel_requested'])
         with self.assertRaises(ValueError):self.runner.retry(attempt['id'])
-        self.runner.resume(attempt['owner']);QTest.qWait(20)
+        self.runner.resume(attempt['owner']);wait_ms(20)
         self.assertEqual(len(self.executor.submissions),1)
         self.executor.finish(error=True)
         current=self.runner.store.read(attempt['id'])
@@ -171,7 +172,7 @@ class CancelAllTests(unittest.TestCase):
                 self.executor.cancelled.append(data['id']);done(self.executor.native.cancel(data['id'],None,None));return
             return original(route,data,done,failed,**kw)
         self.w.comfy.request=request;_,entries=self.queue();self.menu_cancel()
-        data,done=held[0];done(self.executor.native.status(data['id']));QTest.qWait(30)
+        data,done=held[0];done(self.executor.native.status(data['id']));wait_ms(30)
         self.assertFalse(self.executor.native.poll(self.executor.live)['commands'])
         self.assertFalse(self.executor.submissions)
         self.assertEqual(self.runner.store.read(data['id'])['status'],'cancelled')
@@ -184,10 +185,10 @@ class CancelAllTests(unittest.TestCase):
         self.runner.cancel()
         self.assertEqual(self.runner.store.read(run['id']),before);self.assertFalse(self.executor.cancelled)
         with self.assertRaises(ValueError):self.runner.cancel(run['id'])
-        self.w.workspace.setCurrentIndex(self.w.workspace.findData(run['workspace']));QTest.qWait(20)
+        self.w.workspace.setCurrentIndex(self.w.workspace.findData(run['workspace']));wait_ms(20)
         self.retain_cancel_reply();self.runner.cancel()
         other=next(w['id'] for w in self.w.state['workspaces'] if w['id']!=run['workspace'])
-        self.w.workspace.setCurrentIndex(self.w.workspace.findData(other));QTest.qWait(20)
+        self.w.workspace.setCurrentIndex(self.w.workspace.findData(other));wait_ms(20)
         scene=copy.deepcopy(self.w.state);self.executor.finish(ident=attempt['prompt_id'])
         self.assertEqual(self.w.state,scene);self.assertEqual(len(self.executor.submissions),1)
 

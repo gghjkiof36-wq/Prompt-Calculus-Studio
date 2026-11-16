@@ -1,4 +1,5 @@
 """Material preview must not repolish editors or lose saved settings."""
+from _qt_wait import wait_ms
 import json
 import unittest
 from unittest.mock import patch
@@ -47,7 +48,7 @@ class AppearancePreviewTests(unittest.TestCase):
         saved=json.loads((self.w.data/'workspace-ui.json').read_text(encoding='utf-8'))
         self.assertEqual(saved['mica_transparency'],100);self.assertEqual(saved['menu_transparency'],50)
         scroll=page.preference_pages[0].verticalScrollBar()
-        scroll.setValue(scroll.maximum());QTest.qWait(20)
+        scroll.setValue(scroll.maximum());wait_ms(20)
         self.assertEqual(scroll.value(),scroll.maximum())
         self.w.open_route('home');self.w.open_route('settings')
         self.assertEqual(p.transparency.value(),100)

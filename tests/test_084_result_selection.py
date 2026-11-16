@@ -1,4 +1,5 @@
 """Native receipts/history plus actual downstream reader controls, without GPU."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from PySide6.QtCore import Qt,QPointF,QTimer
@@ -32,13 +33,13 @@ class ResultSelectionTests(unittest.TestCase):
 
     def select_node(self,key,node):
         panel=self.c.functions.cards[key].panel
-        self.c.view.centerOn(self.c.functions.cards[key]);self.c.view.resetTransform();QTest.qWait(10)
+        self.c.view.centerOn(self.c.functions.cards[key]);self.c.view.resetTransform();wait_ms(10)
         selector=panel.result_node;index=selector.findData(node)
         self.assertGreaterEqual(index,0,(node,[selector.itemData(i) for i in range(selector.count())]))
         QTest.mouseClick(selector,Qt.MouseButton.LeftButton)
         QTest.keyClick(selector,Qt.Key.Key_Home)
         for _ in range(index):QTest.keyClick(selector,Qt.Key.Key_Down)
-        QTest.keyClick(selector,Qt.Key.Key_Return);QTest.qWait(20)
+        QTest.keyClick(selector,Qt.Key.Key_Return);wait_ms(20)
         self.assertEqual(self.w.state['canvas_functions']['images'][key].get('output_node'),node)
 
     def items(self,key):return image_list(self.runner.context(self.runner.results),key)
@@ -105,16 +106,16 @@ class ResultSelectionTests(unittest.TestCase):
             self.assertEqual(self.w.state['uses'][roots[0]]['prompt'],value['content']['text'])
         assert_source('12')
         self.c.view.setFocus();self.c.view.scene().clearFocus()
-        QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(20)
         assert_source('9')
         self.assertIsNone(self.c.view.scene().focusItem())
-        QTest.keyClick(self.c.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);wait_ms(20)
         assert_source('12')
         panel=self.c.functions.cards[key].panel
-        QTest.mouseClick(panel.choose,Qt.MouseButton.LeftButton);QTest.qWait(10)
+        QTest.mouseClick(panel.choose,Qt.MouseButton.LeftButton);wait_ms(10)
         menu=QApplication.activePopupWidget();self.assertIsInstance(menu,QMenu)
         action=next(a for a in menu.actions() if a.text().startswith('2 · '))
-        QTest.mouseClick(menu,Qt.MouseButton.LeftButton,pos=menu.actionGeometry(action).center());QTest.qWait(20)
+        QTest.mouseClick(menu,Qt.MouseButton.LeftButton,pos=menu.actionGeometry(action).center());wait_ms(20)
         self.assertEqual(self.w.state['canvas_functions']['images'][key]['input_index'],1)
         self.assertEqual([(v['reference']['node'],v['reference']['index']) for v in self.items(key)],[('12',1)])
         self.select_node(key,'13')
@@ -141,26 +142,26 @@ class ResultSelectionTests(unittest.TestCase):
             self.assertEqual(self.runner.runs(),runs)
         assert_text('white shirt')
         selector=self.c.functions.cards[key].panel.selector
-        self.c.view.centerOn(self.c.functions.cards[key]);self.c.view.resetTransform();QTest.qWait(10)
+        self.c.view.centerOn(self.c.functions.cards[key]);self.c.view.resetTransform();wait_ms(10)
         index=selector.findData(['7','text']);self.assertGreaterEqual(index,0)
         QTest.mouseClick(selector,Qt.MouseButton.LeftButton);QTest.keyClick(selector,Qt.Key.Key_Home)
         for _ in range(index):QTest.keyClick(selector,Qt.Key.Key_Down)
-        QTest.keyClick(selector,Qt.Key.Key_Return);QTest.qWait(20)
+        QTest.keyClick(selector,Qt.Key.Key_Return);wait_ms(20)
         self.assertEqual(self.w.state['canvas_functions']['images'][key]['text_field'],['7','text'])
         assert_text('original negative')
         self.c.view.setFocus();self.c.view.scene().clearFocus()
-        QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(20)
         self.assertEqual(self.w.state['canvas_functions']['images'][key]['text_field'],['6','text'],self.notices)
         assert_text('white shirt')
-        QTest.keyClick(self.c.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);wait_ms(20)
         assert_text('original negative')
         # Ordinary edits also materialize their inputs. A Canvas rename must
         # not erase a text result just because task data is stored separately.
         original_name=self.c.data()['canvases'][canvas]['name']
-        container=self.c.containers[canvas];self.c.view.centerOn(container);QTest.qWait(10)
+        container=self.c.containers[canvas];self.c.view.centerOn(container);wait_ms(10)
         pos=self.c.view.mapFromScene(container.mapToScene(QPointF(80,24)))
         QApplication.sendEvent(self.c.view.viewport(),QContextMenuEvent(QContextMenuEvent.Reason.Mouse,pos,
-            self.c.view.viewport().mapToGlobal(pos)));QTest.qWait(10)
+            self.c.view.viewport().mapToGlobal(pos)));wait_ms(10)
         menu=QApplication.activePopupWidget();self.assertIsInstance(menu,QMenu)
         action=next(a for a in menu.actions() if a.text()=='重新命名')
         def rename():
@@ -169,12 +170,12 @@ class ResultSelectionTests(unittest.TestCase):
             buttons=dialog.findChild(QDialogButtonBox)
             QTest.mouseClick(buttons.button(QDialogButtonBox.StandardButton.Save),Qt.MouseButton.LeftButton)
         QTimer.singleShot(20,rename)
-        QTest.mouseClick(menu,Qt.MouseButton.LeftButton,pos=menu.actionGeometry(action).center());QTest.qWait(20)
+        QTest.mouseClick(menu,Qt.MouseButton.LeftButton,pos=menu.actionGeometry(action).center());wait_ms(20)
         self.assertEqual(self.c.data()['canvases'][canvas]['name'],'Text results');assert_text('original negative')
         self.c.view.setFocus();self.c.view.scene().clearFocus()
-        QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(20)
         self.assertEqual(self.c.data()['canvases'][canvas]['name'],original_name);assert_text('original negative')
-        QTest.keyClick(self.c.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);QTest.qWait(20)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);wait_ms(20)
         self.assertEqual(self.c.data()['canvases'][canvas]['name'],'Text results');assert_text('original negative')
         self.assertEqual(self.workflows(),['flow'])
 

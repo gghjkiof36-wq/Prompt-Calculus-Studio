@@ -1,4 +1,5 @@
 """Two real document owners and Qt worker; no model, executable or GPU runs."""
+from _qt_wait import wait_ms
 import copy
 import os
 from pathlib import Path
@@ -99,7 +100,7 @@ class AgentReviewOwnership(unittest.TestCase):
         request, ticket = self.reviews[index]
         # Cross the dialog's 200 ms check: a foreign receiver must not cause it
         # to close, nor let the worker continue before the actual decision.
-        QTest.qWait(230)
+        wait_ms(230)
         self.assertFalse(ticket['done'].is_set(), 'another document ended the approval')
         self.assertFalse(ticket['allow'])
         self.assertTrue(self.a._owns(request))

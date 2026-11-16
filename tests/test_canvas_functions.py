@@ -4,8 +4,9 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]; sys.path[:0]=[str(ROOT/'vendor'),str(ROOT)]
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtCore import Qt,QPoint,QPointF,QMimeData,QUrl
-from PySide6.QtGui import QImage,QDragEnterEvent,QDropEvent
+from PySide6.QtGui import QImage,QDragEnterEvent,QDragMoveEvent,QDropEvent
 from PySide6.QtTest import QTest
+from _qt_wait import wait_ms, wait_until
 from PySide6.QtWidgets import QApplication
 from prompt_calculus_studio.window import Window
 from prompt_calculus_studio.core import build_prompt,validate_state
@@ -51,7 +52,7 @@ class FunctionTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name)
         self.w=Window(self.root/'data'); self.w.state['settings'].update(online=False,material='solid'); self.w.apply_theme(); self.w.show()
-        self.w.set_interface_mode('canvas'); QTest.qWait(35); self.c=self.w.canvas
+        self.w.set_interface_mode('canvas'); wait_ms(35); self.c=self.w.canvas
         self.image=self.root/'來源.png'; picture=QImage(320,240,QImage.Format.Format_RGB32); picture.fill(0xff426078); picture.save(str(self.image))
     def tearDown(self): close_window(self.w); self.tmp.cleanup()
     def tags(self):
@@ -69,7 +70,7 @@ class FunctionTests(unittest.TestCase):
         finish=view.mapFromScene(self.c.cards[parent].sceneBoundingRect().topLeft()-QPointF(220,160))
         destination=view.mapToScene(finish)-anchor
         QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=start)
-        QTest.mouseMove(view.viewport(),finish,30); QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=finish); QTest.qWait(40)
+        QTest.mouseMove(view.viewport(),finish,30); QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=finish); wait_ms(40)
         self.assertEqual(len(self.w.state['uses']),2)
         new_id=next(k for k in self.w.state['uses'] if k!=parent)
         self.assertEqual(self.w.state['uses'][new_id]['prompt'],'smile'); self.assertFalse(self.w.state['uses'][parent]['children'])
@@ -99,7 +100,7 @@ class FunctionTests(unittest.TestCase):
     def test_drag_module_into_module_then_undo_keeps_order_and_weights(self):
         parent,child=self.tags(); before=build_prompt(self.w.state); self.c.move_cards({parent:[-500,-220],child:[-500,120]}); self.c.fit()
         view=self.c.view; a=view.mapFromScene(self.c.cards[child].mapToScene(QPointF(45,45))); b=view.mapFromScene(self.c.cards[parent].mapToScene(QPointF(45,45)))
-        QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a); QTest.mouseMove(view.viewport(),b,30); QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b); QTest.qWait(40)
+        QTest.mousePress(view.viewport(),Qt.MouseButton.LeftButton,pos=a); QTest.mouseMove(view.viewport(),b,30); QTest.mouseRelease(view.viewport(),Qt.MouseButton.LeftButton,pos=b); wait_ms(40)
         self.assertEqual(build_prompt(self.w.state),'(1girl, smile:1.0)'); self.assertEqual(len(self.w.state['uses']),1)
         self.c.undo(); self.assertEqual(build_prompt(self.w.state),before); self.c.redo(); self.assertEqual(build_prompt(self.w.state),'(1girl, smile:1.0)')
     def test_receiving_preview_expands_then_returns_and_cycles_reject(self):
@@ -109,13 +110,26 @@ class FunctionTests(unittest.TestCase):
         self.c.nest(child,parent); nested=next(k for k in self.c.cards if ':' in k); before=copy.deepcopy(self.w.state)
         self.assertFalse(self.c.nest(parent,nested)); self.assertEqual(self.w.state,before)
     def test_drop_picture_creates_independent_card_and_survives_reopen(self):
+        # Image-list import is a v7 Canvas contract. The legacy Window used by
+        # the unrelated text-card tests has no multi_output state at all.
+        from unittest.mock import patch
+        current=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'});current.start();self.addCleanup(current.stop)
+        close_window(self.w)
+        self.w=Window(self.root/'v7-data');self.w.show();self.w.set_interface_mode('canvas')
+        self.w.comfy.enabled=False;self.w.comfy.timer.stop();self.c=self.w.canvas
         self.w.final.setPlainText('manual'); mime=QMimeData(); mime.setUrls([QUrl.fromLocalFile(str(self.image))])
         point=QPoint(30,40); enter=QDragEnterEvent(point,Qt.DropAction.CopyAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier)
-        APP.sendEvent(self.c.view.viewport(),enter); self.assertTrue(enter.isAccepted())
-        drop=QDropEvent(QPointF(point),Qt.DropAction.CopyAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier); APP.sendEvent(self.c.view.viewport(),drop)
+        enter.ignore();APP.sendEvent(self.c.view.viewport(),enter); self.assertTrue(enter.isAccepted())
+        # QGraphicsView establishes its scene drop target during DragMove.
+        # A native drag always supplies this event between Enter and Drop.
+        move=QDragMoveEvent(point,Qt.DropAction.CopyAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier)
+        move.ignore();APP.sendEvent(self.c.view.viewport(),move);self.assertTrue(move.isAccepted())
+        drop=QDropEvent(QPointF(point),Qt.DropAction.CopyAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier);drop.ignore();APP.sendEvent(self.c.view.viewport(),drop)
+        self.assertTrue(drop.isAccepted())
+        self.assertTrue(wait_until(lambda:len(self.c.functions.data()['images'])==1))
         self.assertEqual(len(self.c.functions.data()['images']),1); self.assertEqual(self.w.final.toPlainText(),'manual')
         self.assertNotEqual(self.w.state.get('generation',{}).get('mode'),'img2img'); validate_state(self.w.state)
-        close_window(self.w); self.w=Window(self.root/'data'); self.w.show(); QTest.qWait(60)
+        close_window(self.w); self.w=Window(self.root/'v7-data'); self.w.show(); wait_ms(60)
         self.assertEqual(len(self.w.canvas.functions.cards),1)
     def test_empty_preview_has_no_dead_thumbnail_or_save_controls(self):
         record=import_image(self.image,self.w.store.directory,''); record['path']=str(self.root/'deleted.png'); self.w.catalog.put('recent',record)
@@ -133,12 +147,12 @@ class FunctionTests(unittest.TestCase):
         self.w.generation_panel.mode.setCurrentIndex(1); self.assertEqual(len(self.c.functions.cards),1)
     def test_current_picture_expands_and_recent_sheet_preserves_canvas_view(self):
         record=import_image(self.image,self.w.store.directory,''); self.w.catalog.put('recent',record); self.c.results.refresh()
-        card=self.c.preview_card; card.requested_size=[540,760]; card.layout_card(); QTest.qWait(40)
+        card=self.c.preview_card; card.requested_size=[540,760]; card.layout_card(); wait_ms(40)
         large=self.c.results.preview.iconSize(); self.assertGreater(self.c.results.preview.height(),self.c.results.height()*.65)
-        card.requested_size=[400,360]; card.layout_card(); QTest.qWait(40)
+        card.requested_size=[400,360]; card.layout_card(); wait_ms(40)
         self.assertLess(self.c.results.preview.iconSize().height(),large.height()); self.assertTrue(self.c.results.images.isHidden())
         self.c.view.scale(.8,.8); transform=self.c.view.transform(); center=self.c.view.mapToScene(self.c.view.viewport().rect().center())
-        self.w.show_page(self.w.recent); QTest.qWait(40); sheet=self.w.recent_sheet
+        self.w.show_page(self.w.recent); wait_ms(40); sheet=self.w.recent_sheet
         self.assertTrue(self.c.isVisible()); self.assertIs(self.w.canvas_content.currentWidget(),self.c)
         self.assertEqual(sheet.geometry(),self.w.surface_stack.rect())
         self.assertLess(sheet.surface.width(),sheet.width());self.assertLess(sheet.surface.height(),sheet.height())
@@ -146,7 +160,7 @@ class FunctionTests(unittest.TestCase):
         self.assertLess(sheet.surface.geometry().right(),sheet.width()-1)
         self.assertLess(sheet.surface.geometry().bottom(),sheet.height()-1)
         self.assertTrue(sheet.isAncestorOf(self.w.recent)); self.assertTrue(self.w.recent.images.isVisible())
-        QTest.keyClick(sheet,Qt.Key.Key_Escape); QTest.qWait(30)
+        QTest.keyClick(sheet,Qt.Key.Key_Escape); wait_ms(30)
         self.assertIsNone(self.w.recent_sheet); self.assertEqual(self.c.view.transform(),transform)
         self.assertEqual(self.c.view.mapToScene(self.c.view.viewport().rect().center()),center)
         self.assertGreaterEqual(self.w.tabs.indexOf(self.w.recent),0)
@@ -155,7 +169,7 @@ class FunctionTests(unittest.TestCase):
         self.assertIs(w.settings_page.comfy_tabs.currentWidget(),w.models)
         w.go_back(); self.assertEqual(w.settings_page.comfy_tabs.currentIndex(),0)
         w.go_forward(); self.assertEqual(w.settings_page.comfy_tabs.currentIndex(),1)
-        QTest.keyClick(w.settings_page,Qt.Key.Key_Escape); QTest.qWait(30)
+        QTest.keyClick(w.settings_page,Qt.Key.Key_Escape); wait_ms(30)
         self.assertIs(w.surface_stack.currentWidget(),w.canvas_shell); w.go_back(); self.assertIs(w.surface_stack.currentWidget(),w.settings_page)
     def test_workflow_drop_autobinds_and_preserves_prompt(self):
         path=self.root/'圖生圖.json'; path.write_text(json.dumps(canvas_workflow()),encoding='utf-8')
@@ -165,7 +179,7 @@ class FunctionTests(unittest.TestCase):
         drop=QDropEvent(QPointF(point),Qt.DropAction.CopyAction,mime,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier); APP.sendEvent(target,drop)
         self.assertEqual(active_profile(self.w.state)['mode'],'img2img'); self.assertEqual(self.w.final.toPlainText(),'preserved'); self.assertIn('已匯入圖生圖',target.feedback.text())
     def test_palette_search_is_single_line_and_clearing_restores_results(self):
-        palette=CanvasPalette(self.c,None);palette.show();QTest.qWait(20)
+        palette=CanvasPalette(self.c,None);palette.show();wait_ms(20)
         try:
             count=palette.assets.count();height=palette.search.height()
             palette.search.setText('long tag '*100)

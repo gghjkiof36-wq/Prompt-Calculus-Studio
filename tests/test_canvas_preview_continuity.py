@@ -1,4 +1,5 @@
 """Real local result collection with a synthetic ComfyUI executor, no GPU."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from PySide6.QtTest import QTest
@@ -16,7 +17,7 @@ class CanvasPreviewContinuityTests(unittest.TestCase):
         key=self.stages()[0]
         self.c.commit(lambda s:model.connect(s,key,'__result_preview__','image'))
         self.controls.count.setValue(3);self.click()
-        self.executor.finish();QTest.qWait(20)
+        self.executor.finish();wait_ms(20)
         view=self.c.results;view.refresh()
         self.assertEqual(len(self.executor.pending),2)
         self.assertEqual(len(view.preview.pictures),1)

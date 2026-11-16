@@ -1,4 +1,5 @@
 """Document replacement and hidden Canvas caches, through actual Qt entry points."""
+from _qt_wait import wait_ms
 import copy
 import hashlib
 import json
@@ -32,7 +33,7 @@ class ImportRefreshRepairTests(StageFixture):
                 patch('prompt_calculus_studio.window.ask', return_value=True), patch.object(self.w, 'error', side_effect=errors.append):
             self.w.import_json()
             self.w.changes.flush()
-            QTest.qWait(20)
+            wait_ms(20)
         return errors
 
     def test_settings_import_replaces_stale_cards_preserves_blank_and_resets_old_history(self):
@@ -63,7 +64,7 @@ class ImportRefreshRepairTests(StageFixture):
         with closing(sqlite3.connect(backups[-1])) as db:
             original = json.loads(db.execute('SELECT body FROM document WHERE id=1').fetchone()[0])
         self.assertIn(old_clip, original['multi_output']['clip_inputs'])
-        self.w.return_to_prompt(); QTest.qWait(25)
+        self.w.return_to_prompt(); wait_ms(25)
         self.assertEqual(set(self.c.clips), set(self.c.data()['clip_inputs']))
         self.assertEqual(set(self.c.outputs), set(self.c.data()['outputs']))
         self.c.commit(lambda state: state['multi_output']['outputs'][output].update(name='renamed'))
@@ -86,7 +87,7 @@ class ImportRefreshRepairTests(StageFixture):
         self.assertEqual(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText(), '')
         self.w.change_workspace(second); self.w.changes.flush()
         self.assertNotIn(self.clip, self.c.clips)
-        self.w.change_workspace(first); self.w.return_to_prompt(); QTest.qWait(25)
+        self.w.change_workspace(first); self.w.return_to_prompt(); wait_ms(25)
         self.assertIn(self.clip, self.c.clips)
         self.assertEqual(self.c.undo_stack, history)
         self.assertEqual(self.c.data()['outputs'][self.out]['draft'], '')
@@ -98,7 +99,7 @@ class ImportRefreshRepairTests(StageFixture):
         self.assertNotIn(self.clip, self.c.clips)
         self.assertEqual({key: port for key, port in self.c.ports.items() if key[0] == other}, other_ports)
         self.c.undo(); self.w.changes.flush()
-        self.w.return_to_prompt(); QTest.qWait(25)
+        self.w.return_to_prompt(); wait_ms(25)
         self.assertIn(self.clip, self.c.clips)
         self.assertTrue(any(binding['clip'] == self.clip for binding in self.c.data()['bindings']))
         self.assertEqual(self.c.data()['outputs'][self.out]['draft'], '')
@@ -114,7 +115,7 @@ class ImportRefreshRepairTests(StageFixture):
         self.w.changes.flush()
         self.assertNotIn(self.clip, self.c.clips)
         self.assertFalse(any(port.parentItem() is None for port in self.c.ports.values()))
-        self.w.return_to_prompt(); QTest.qWait(25)
+        self.w.return_to_prompt(); wait_ms(25)
         self.assertEqual(set(self.c.clips), set(self.c.data()['clip_inputs']))
         self.assertFalse(self.executor.submissions)
 

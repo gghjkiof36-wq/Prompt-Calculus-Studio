@@ -1,4 +1,5 @@
 """Two live views across delayed drafts, file relocation and recycling."""
+from _qt_wait import wait_ms
 import copy
 from pathlib import Path
 import unittest
@@ -60,7 +61,7 @@ class WorkspaceMultiviewFileTests(unittest.TestCase):
             self.w.autosave.delay_ms = 50
             editors[1].prompt.setPlainText('另存後繼續編輯')
             editors[1].flush_canvas()
-            QTest.qWait(180)
+            wait_ms(180)
             right.host.canvas.undo()
             self.events()
             self.assertTrue(self.w.close_tab(self.w.index_of(right.key), pane=self.w.pane_for(right)))
@@ -130,7 +131,7 @@ class WorkspaceMultiviewFileTests(unittest.TestCase):
             return True
         with patch('prompt_calculus_studio.workspace_commands.WorkspaceCommands.move_to_trash', side_effect=recycle):
             self.assertTrue(self.w.commands.trash(self.context(left)))
-        QTest.qWait(140)
+        wait_ms(140)
         self.events()
         self.assertFalse(path.exists())
         self.assertEqual(recycled.read_bytes(), before)

@@ -1,4 +1,5 @@
 """P3-A: real creation controls, explicit locations and protected editors."""
+from _qt_wait import wait_ms
 import json
 from pathlib import Path
 import sys
@@ -45,7 +46,7 @@ class WorkspaceFileCommandsTests(unittest.TestCase):
 
     def events(self):
         self.app.processEvents()
-        QTest.qWait(20)
+        wait_ms(20)
         if hasattr(self, 'w') and self.w.sidebar_resize.motion_target is not None:
             self.w.sidebar_resize.motion.setCurrentTime(self.w.sidebar_resize.motion.duration())
         self.app.processEvents()

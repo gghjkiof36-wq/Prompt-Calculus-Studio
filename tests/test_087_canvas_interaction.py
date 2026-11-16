@@ -1,4 +1,5 @@
 """Actual Qt gestures and transaction failures with synthetic/offline data."""
+from _qt_wait import wait_ms
 import copy
 import sys
 from unittest.mock import patch
@@ -29,7 +30,7 @@ class CanvasInteractionTests(StageFixture):
         self.assertFalse(self.errors,self.errors)
 
     def point(self,card,x=70,y=18):
-        self.c.view.centerOn(card);QTest.qWait(5)
+        self.c.view.centerOn(card);wait_ms(5)
         return self.c.view.mapFromScene(card.mapToScene(QPointF(x,y)))
 
     def test_focused_function_clipboard_and_single_undo(self):
@@ -40,9 +41,9 @@ class CanvasInteractionTests(StageFixture):
         QTest.keyClick(self.c.view,Qt.Key.Key_C,Qt.KeyboardModifier.ControlModifier)
         self.assertTrue(QApplication.clipboard().mimeData().hasFormat(MIME))
         before=set(self.c.data()['stages']);self.c.view.pointer_scene=QPointF(8000,1200)
-        QTest.keyClick(self.c.view,Qt.Key.Key_V,Qt.KeyboardModifier.ControlModifier);QTest.qWait(15)
+        QTest.keyClick(self.c.view,Qt.Key.Key_V,Qt.KeyboardModifier.ControlModifier);wait_ms(15)
         self.assertEqual(len(set(self.c.data()['stages'])-before),1,self.notices)
-        QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(5)
         self.assertEqual(set(self.c.data()['stages']),before,self.notices)
         self.assertFalse(self.executor.submissions)
 
@@ -51,9 +52,9 @@ class CanvasInteractionTests(StageFixture):
         QTest.mouseClick(self.c.view.viewport(),Qt.MouseButton.LeftButton,pos=self.point(root))
         QTest.mouseClick(self.c.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier,self.point(clip))
         self.assertEqual(set(self.c.selection_keys()),{'root',self.clip})
-        QTest.keyClick(self.c.view,Qt.Key.Key_Delete);QTest.qWait(10)
+        QTest.keyClick(self.c.view,Qt.Key.Key_Delete);wait_ms(10)
         self.assertNotIn('root',self.w.state['uses']);self.assertNotIn(self.clip,self.c.data()['clip_inputs'])
-        self.c.undo();QTest.qWait(5)
+        self.c.undo();wait_ms(5)
         self.assertIn('root',self.w.state['uses']);self.assertIn(self.clip,self.c.data()['clip_inputs'])
         self.assertFalse(self.executor.submissions)
 
@@ -98,20 +99,20 @@ class CanvasInteractionTests(StageFixture):
 
     def test_editor_transition_preserves_canvas_position_and_maximized_state(self):
         self.c.view.resetTransform();self.c.view.scale(.75,.75);self.c.view.centerOn(450,280)
-        self.w.showMaximized();QTest.qWait(10)
+        self.w.showMaximized();wait_ms(10)
         self.w.remember_canvas_view();saved=list(self.w.state['canvas_view'])
         origin=self.c.view.mapToScene(QPoint(0,0))
-        self.w.set_interface_mode('list');QTest.qWait(5)
+        self.w.set_interface_mode('list');wait_ms(5)
         self.assertIs(self.w.surface_stack.currentWidget(),self.w.prompt_editor)
         self.assertEqual(self.w.state['selection_view'],'canvas')
         self.assertTrue(self.w.isMaximized())
-        self.w.enter_canvas();QTest.qWait(10);self.assertTrue(self.w.isMaximized())
+        self.w.enter_canvas();wait_ms(10);self.assertTrue(self.w.isMaximized())
         self.assertAlmostEqual(self.c.view.transform().m11(),saved[0],places=4)
         point=self.c.view.mapToScene(QPoint(0,0))
         self.assertLess((point-origin).manhattanLength(),5)
 
     def test_wheel_anchors_current_cursor_even_after_different_context_point(self):
-        view=self.c.view;view.centerOn(5000,5000);QTest.qWait(5)
+        view=self.c.view;view.centerOn(5000,5000);wait_ms(5)
         view.pointer_scene=QPointF(-999,-999);point=QPoint(100,110);before=view.mapToScene(point)
         event=QWheelEvent(QPointF(point),QPointF(view.viewport().mapToGlobal(point)),QPoint(),QPoint(0,120),
                           Qt.MouseButton.NoButton,Qt.KeyboardModifier.NoModifier,Qt.ScrollPhase.NoScrollPhase,False)
@@ -123,13 +124,13 @@ class CanvasInteractionTests(StageFixture):
     def test_binding_outside_closes_without_applying_and_inside_preserves_dialog(self):
         from prompt_calculus_studio.clip_widgets import ClipBindingDialog
         before=copy.deepcopy(self.c.data()['bindings'])
-        dialog=ClipBindingDialog(self.c,self.clip);dialog.show();QTest.qWait(10)
+        dialog=ClipBindingDialog(self.c,self.clip);dialog.show();wait_ms(10)
         QTest.mouseClick(dialog.target,Qt.MouseButton.LeftButton)
-        QTest.qWait(5);self.assertTrue(dialog.isVisible())
+        wait_ms(5);self.assertTrue(dialog.isVisible())
         dialog.target.hidePopup()
         point=QPoint(3,3)
         self.assertFalse(dialog.frameGeometry().contains(self.w.mapToGlobal(point)))
-        QTest.mouseClick(self.w,Qt.MouseButton.LeftButton,pos=point);QTest.qWait(5)
+        QTest.mouseClick(self.w,Qt.MouseButton.LeftButton,pos=point);wait_ms(5)
         self.assertFalse(dialog.isVisible());self.assertTrue(dialog.closed)
         self.assertEqual(self.c.data()['bindings'],before)
         self.assertFalse(self.executor.submissions)

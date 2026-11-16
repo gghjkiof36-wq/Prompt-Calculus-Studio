@@ -1,4 +1,5 @@
 """Refresh work stays bounded without losing styles or edit-history semantics."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -109,21 +110,21 @@ class CanvasRefreshStyleTests(StageFixture):
             *self.c.flow_cards.values(),*self.c.functions.cards.values(),self.c.preview_card] if card is not None]
 
     def test_refresh_does_not_repolish_unchanged_panels(self):
-        self.c.functions.add_image();QTest.qWait(30)
+        self.c.functions.add_image();wait_ms(30)
         counter=StyleEvents()
         for panel in self.panels():panel.installEventFilter(counter)
         graph=copy.deepcopy(self.c.data())
-        self.c.refresh();QTest.qWait(20)
+        self.c.refresh();wait_ms(20)
         self.assertEqual(counter.count,0)
         self.assertEqual(self.c.data(),graph)
         self.assertTrue(all(p.styleSheet()==self.w.styleSheet() for p in self.panels()))
 
     def test_real_theme_and_font_changes_still_reach_every_panel(self):
-        self.c.functions.add_image();QTest.qWait(20)
+        self.c.functions.add_image();wait_ms(20)
         self.w.state['settings'].update(visual_palette='paper',ui_size=16)
-        self.w.apply_theme(preserve_layout=True);QTest.qWait(30)
+        self.w.apply_theme(preserve_layout=True);wait_ms(30)
         self.assertTrue(all(p.styleSheet()==self.w.styleSheet() for p in self.panels()))
         self.assertEqual(self.c.outputs[self.out].panel.open_page().content.editor.toPlainText(),'white shirt')
-        self.w.set_interface_mode('list');self.w.set_interface_mode('canvas');QTest.qWait(20)
+        self.w.set_interface_mode('list');self.w.set_interface_mode('canvas');wait_ms(20)
         self.assertTrue(all(p.styleSheet()==self.w.styleSheet() for p in self.panels()))
         self.assertFalse(self.executor.submissions)

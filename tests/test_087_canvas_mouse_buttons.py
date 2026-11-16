@@ -1,4 +1,5 @@
 """Actual viewport events for left-pan/right-select; no native desktop or service."""
+from _qt_wait import wait_ms
 import copy
 import sys
 from unittest.mock import patch
@@ -26,23 +27,23 @@ class CanvasMouseButtonTests(StageFixture):
         for point in (a,b):self.assertTrue(self.view.viewport().rect().contains(point),point)
         QTest.mousePress(self.view.viewport(),button,modifiers,a)
         QTest.mouseMove(self.view.viewport(),b,10)
-        QTest.mouseRelease(self.view.viewport(),button,modifiers,b);QTest.qWait(15)
+        QTest.mouseRelease(self.view.viewport(),button,modifiers,b);wait_ms(15)
 
     def context(self,point,reason=QContextMenuEvent.Reason.Mouse):
         event=QContextMenuEvent(reason,point,self.view.viewport().mapToGlobal(point))
         APP.sendEvent(self.view.viewport(),event);APP.processEvents()
 
     def point(self,card,local=QPointF(70,20)):
-        self.view.centerOn(card);QTest.qWait(5)
+        self.view.centerOn(card);wait_ms(5)
         return self.view.mapFromScene(card.mapToScene(local))
 
     def box(self,rect,modifiers=Qt.KeyboardModifier.NoModifier,button=Qt.MouseButton.RightButton):
-        self.view.centerOn(rect.center());QTest.qWait(5)
+        self.view.centerOn(rect.center());wait_ms(5)
         a=self.view.mapFromScene(rect.topLeft());b=self.view.mapFromScene(rect.bottomRight())
         self.drag(a,b,button,modifiers);return b
 
     def test_left_blank_drag_pans_without_layout_or_undo_changes(self):
-        self.view.centerOn(8000,8000);QTest.qWait(5)
+        self.view.centerOn(8000,8000);wait_ms(5)
         a=self.view.viewport().rect().center();b=a+QPoint(70,42)
         self.assertIsNone(self.view.itemAt(a))
         before=self.view.mapToScene(a);positions=copy.deepcopy(self.w.state['text_positions']);history=len(self.c.undo_stack)
@@ -52,7 +53,7 @@ class CanvasMouseButtonTests(StageFixture):
         self.assertIsNone(self.view.interaction.box);self.assertFalse(self.view.rubber.isVisible());self.assertIsNone(self.view.pan)
 
     def test_ctrl_left_blank_waits_for_threshold_then_selects_without_pan(self):
-        self.view.centerOn(8000,8000);QTest.qWait(5)
+        self.view.centerOn(8000,8000);wait_ms(5)
         point=self.view.viewport().rect().center();before=self.view.mapToScene(point)
         self.c.clips[self.clip].setSelected(True);history=len(self.c.undo_stack)
         QTest.mousePress(self.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier,point)
@@ -102,20 +103,20 @@ class CanvasMouseButtonTests(StageFixture):
         for key in (self.clip,stage):
             self.assertEqual(self.w.state['text_positions'][key],[before[key][0]+100,before[key][1]+50])
         self.assertEqual(len(self.c.undo_stack),history+1)
-        QTest.keyClick(self.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        QTest.keyClick(self.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(5)
         for key in (self.clip,stage):self.assertEqual(self.w.state['text_positions'][key],before[key])
-        QTest.keyClick(self.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        QTest.keyClick(self.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);wait_ms(5)
         QTest.keyClick(self.view,Qt.Key.Key_C,Qt.KeyboardModifier.ControlModifier)
         self.assertTrue(APP.clipboard().mimeData().hasFormat(MIME))
         clips=set(self.c.data()['clip_inputs']);stages=set(self.c.data()['stages']);history=len(self.c.undo_stack)
         self.view.pointer_scene=QPointF(8000,8000)
-        QTest.keyClick(self.view,Qt.Key.Key_V,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        QTest.keyClick(self.view,Qt.Key.Key_V,Qt.KeyboardModifier.ControlModifier);wait_ms(5)
         self.assertEqual(len(set(self.c.data()['clip_inputs'])-clips),1)
         self.assertEqual(len(set(self.c.data()['stages'])-stages),1)
         self.assertEqual(len(self.c.undo_stack),history+1)
-        QTest.keyClick(self.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        QTest.keyClick(self.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(5)
         self.assertEqual(set(self.c.data()['clip_inputs']),clips);self.assertEqual(set(self.c.data()['stages']),stages)
-        QTest.keyClick(self.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        QTest.keyClick(self.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);wait_ms(5)
         self.assertEqual(len(set(self.c.data()['stages'])-stages),1)
 
     def test_expanded_text_marquee_matches_right_and_group_move_keeps_outer_positions(self):
@@ -126,7 +127,7 @@ class CanvasMouseButtonTests(StageFixture):
             canvas['members'].append('second');canvas['edit_positions']={'root':[0,0],'second':[600,0]}
         self.c.commit(setup);outer=copy.deepcopy(self.w.state['text_positions'])
         self.c.clips[self.clip].setSelected(True)
-        self.c.open_editor(self.cid);QTest.qWait(15)
+        self.c.open_editor(self.cid);wait_ms(15)
         page=self.c.editor_page;self.view=page.view;self.view.resetTransform();self.view.scale(.5,.5)
         def selected():return {i.key for i in self.view.scene().selectedItems() if hasattr(i,'key')}
         rect=page.text_canvas.cards['root'].sceneBoundingRect().adjusted(-15,-15,15,15)
@@ -144,15 +145,15 @@ class CanvasMouseButtonTests(StageFixture):
         for key in ('root','second'):
             self.assertEqual(page.data()['edit_positions'][key],[before[key][0]+80,before[key][1]+50])
         self.assertEqual(self.w.state['text_positions'],outer)
-        QTest.keyClick(self.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        QTest.keyClick(self.view,Qt.Key.Key_Z,Qt.KeyboardModifier.ControlModifier);wait_ms(5)
         self.assertEqual(page.data()['edit_positions'],before)
-        QTest.keyClick(self.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);QTest.qWait(5)
+        QTest.keyClick(self.view,Qt.Key.Key_Y,Qt.KeyboardModifier.ControlModifier);wait_ms(5)
         self.assertEqual(page.data()['edit_positions']['root'],[80,50])
         page.close_editor()
 
     def test_expanded_short_right_click_menu_survives_both_marquee_entries(self):
-        self.c.open_editor(self.cid);QTest.qWait(15);page=self.c.editor_page;self.view=page.view
-        self.view.centerOn(8000,8000);QTest.qWait(5)
+        self.c.open_editor(self.cid);wait_ms(15);page=self.c.editor_page;self.view=page.view
+        self.view.centerOn(8000,8000);wait_ms(5)
         point=self.view.viewport().rect().center();end=point+QPoint(60,40)
         with patch('prompt_calculus_studio.composition_editor.RoundMenu.open_at') as menu:
             self.drag(point,end,Qt.MouseButton.RightButton);self.context(end);menu.assert_not_called()
@@ -171,9 +172,9 @@ class CanvasMouseButtonTests(StageFixture):
         self.assertGreater(self.c.cards['root'].width,width);self.assertGreater(self.c.cards['root'].height,height)
         self.assertIsNone(self.view.interaction.box)
         from prompt_calculus_studio.composition_image import document
-        self.c.open_editor(self.cid);QTest.qWait(15);page=self.c.editor_page
+        self.c.open_editor(self.cid);wait_ms(15);page=self.c.editor_page
         page.commit_image(document(600,600));page.show_text.setChecked(False);page.tool='rect'
-        self.view=page.view;self.view.resetTransform();self.view.scale(.6,.6);self.view.centerOn(300,300);QTest.qWait(5)
+        self.view=page.view;self.view.resetTransform();self.view.scale(.6,.6);self.view.centerOn(300,300);wait_ms(5)
         a=self.view.mapFromScene(QPointF(50,50));b=self.view.mapFromScene(QPointF(200,200))
         self.drag(a,b,Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier)
         self.assertIsNone(self.view.interaction.box);self.assertEqual(len(page.image()['layers']),1)
@@ -215,7 +216,7 @@ class CanvasMouseButtonTests(StageFixture):
         self.assertEqual(set(self.c.selection_keys()),{'root'})
 
     def test_keyboard_context_menu_is_not_suppressed_after_right_drag(self):
-        self.view.centerOn(8000,8000);QTest.qWait(5)
+        self.view.centerOn(8000,8000);wait_ms(5)
         a=self.view.viewport().rect().center();b=a+QPoint(60,40)
         self.drag(a,b,Qt.MouseButton.RightButton)
         with patch.object(self.c,'tools_menu') as menu:
@@ -225,7 +226,7 @@ class CanvasMouseButtonTests(StageFixture):
         card=self.c.cards['root'];point=self.point(card,card.actions()['plus'].center())
         card.setSelected(True);self.c.clips[self.clip].setSelected(True)
         before=self.w.state['uses']['root']['weight'];position=QPointF(card.pos())
-        QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier,point);QTest.qWait(10)
+        QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier,point);wait_ms(10)
         self.assertEqual(self.w.state['uses']['root']['weight'],before+1)
         self.assertEqual(self.c.cards['root'].pos(),position);self.assertIsNone(self.view.interaction.group)
         self.c.undo();self.assertEqual(self.w.state['uses']['root']['weight'],before)
@@ -251,10 +252,10 @@ class CanvasMouseButtonTests(StageFixture):
 
     def test_output_entry_and_page_editor_own_clicks(self):
         card=self.c.outputs[self.out];panel=card.panel
-        self.view.centerOn(card);QTest.qWait(5);before=QPointF(card.pos())
+        self.view.centerOn(card);wait_ms(5);before=QPointF(card.pos())
         local=panel.open_button.mapTo(panel,panel.open_button.rect().center())
         point=self.view.mapFromScene(card.proxy.mapToScene(QPointF(local)))
-        QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(5)
+        QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=point);wait_ms(5)
         self.assertIsNotNone(panel.page)
         editor=panel.page.content.editor
         QTest.mouseClick(editor.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier)
@@ -266,7 +267,7 @@ class CanvasMouseButtonTests(StageFixture):
 
     def test_ports_keep_connection_and_context_operations_with_selected_cards(self):
         port=next(p for p in self.c.ports.values() if p.key==self.clip and p.output)
-        self.view.centerOn(port.scenePos());QTest.qWait(5);point=self.view.mapFromScene(port.scenePos())
+        self.view.centerOn(port.scenePos());wait_ms(5);point=self.view.mapFromScene(port.scenePos())
         self.c.clips[self.clip].setSelected(True);self.c.cards['root'].setSelected(True)
         self.assertIsNone(self.view.interaction.card_at(point))
         QTest.mouseClick(self.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.ControlModifier,point)
@@ -277,15 +278,15 @@ class CanvasMouseButtonTests(StageFixture):
             self.context(point);menu.assert_called_once();self.assertIs(menu.call_args.args[1],port)
 
     def test_double_click_blank_container_and_card_retain_original_actions(self):
-        self.view.centerOn(8000,8000);QTest.qWait(5);point=self.view.viewport().rect().center()
+        self.view.centerOn(8000,8000);wait_ms(5);point=self.view.viewport().rect().center()
         with patch.object(self.c,'function_palette') as palette:
-            QTest.mouseDClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(5)
+            QTest.mouseDClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=point);wait_ms(5)
             palette.assert_called_once()
         container=self.c.containers[self.cid];point=self.point(container,QPointF(container.width-70,container.height-90))
         with patch.object(self.c,'quick_text') as quick:
-            QTest.mouseDClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(5)
+            QTest.mouseDClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=point);wait_ms(5)
             quick.assert_called_once();self.assertEqual(quick.call_args.args[0],self.cid)
         point=self.point(self.c.cards['root'])
         with patch.object(self.c,'edit') as edit:
-            QTest.mouseDClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=point);QTest.qWait(5)
+            QTest.mouseDClick(self.view.viewport(),Qt.MouseButton.LeftButton,pos=point);wait_ms(5)
             edit.assert_called_once_with('root')

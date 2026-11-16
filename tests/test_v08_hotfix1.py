@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import copy,os,tempfile,unittest
 from unittest.mock import patch
 from PySide6.QtWidgets import QApplication,QLabel
@@ -12,7 +13,7 @@ class WorkflowWindowTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(); self.env=patch.dict(os.environ,{'PROMPT_STUDIO_V08':'1'}); self.env.start()
         self.w=Window(self.temp.name); self.w.state['settings'].update(online=False,material='solid',reduce_motion=True)
-        self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(20)
+        self.w.show(); self.w.set_interface_mode('canvas'); wait_ms(20)
     def tearDown(self):
         self.w.close(); APP.processEvents(); self.env.stop(); self.temp.cleanup()
         for widget in APP.topLevelWidgets():
@@ -23,11 +24,11 @@ class WorkflowWindowTests(unittest.TestCase):
     def test_activate_bind_refresh_and_reopen_does_not_show_floating_hint(self):
         self.w.generation_panel.save_profile(workflow()); self.w.settings('workflows')
         oid=self.w.state['multi_output']['current_output']; manager=self.w.settings_page.workflow_manager
-        manager.bind_output('flow',oid,('6','text')); QTest.qWait(20)
+        manager.bind_output('flow',oid,('6','text')); wait_ms(20)
         for _ in range(3): self.w.generation_panel.refresh()
         self.assert_main_window_only()
         self.w.return_to_prompt(); self.w.set_interface_mode('list'); self.w.generation_panel.refresh(); self.assert_main_window_only()
-        self.w.persist(); self.w.close(); APP.processEvents(); self.w=Window(self.temp.name); self.w.show(); QTest.qWait(20)
+        self.w.persist(); self.w.close(); APP.processEvents(); self.w=Window(self.temp.name); self.w.show(); wait_ms(20)
         self.w.settings('workflows'); self.assert_main_window_only()
     def test_denoise_stays_in_parameter_editor_and_summary_is_attached(self):
         from prompt_calculus_studio.generation_panel import ParametersDialog

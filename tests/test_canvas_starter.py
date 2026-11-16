@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import copy,json,os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -155,7 +156,7 @@ class CanvasStarterUiTests(unittest.TestCase):
 
     def wait(self):
         from PySide6.QtTest import QTest
-        QTest.qWait(40)
+        wait_ms(40)
 
     def tearDown(self):
         self.window.close();self.app.processEvents();self.env.stop();self.tmp.cleanup()

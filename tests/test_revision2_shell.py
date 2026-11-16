@@ -3,6 +3,7 @@
 Synthetic local data and an inert transport keep these tests independent of
 ComfyUI, downloads and native desktop composition.
 """
+from _qt_wait import wait_ms
 import os
 import tempfile
 import unittest
@@ -46,7 +47,7 @@ class RevisionTwoShellTests(unittest.TestCase):
         self.temp.cleanup()
 
     def settle(self):
-        QTest.qWait(60)
+        wait_ms(60)
 
     def test_five_destinations_share_one_content_top_edge(self):
         for width, height in ((1440, 920), (800, 640)):
@@ -199,7 +200,7 @@ class RevisionTwoShellTests(unittest.TestCase):
         self.w.sidebar_pinned_preference=False; self.w.settings('appearance'); self.settle()
         self.w.sidebar_peek.open_timer.setInterval(30)
         original=self.w.settings_page.reading.geometry()
-        QTest.mouseMove(self.w,QPoint(600,300)); QTest.mouseMove(self.w,QPoint(2,100)); QTest.qWait(75)
+        QTest.mouseMove(self.w,QPoint(600,300)); QTest.mouseMove(self.w,QPoint(2,100)); wait_ms(75)
         self.assertTrue(self.w.sidebar_peek.is_open); self.assertFalse(self.w.sidebar_peek.is_pinned_overlay)
         self.assertFalse(self.w.sidebar_pinned_preference); self.assertFalse(self.w.studio_navigation.sidebar.isChecked())
         self.assertEqual(self.w.settings_page.reading.geometry(),original)

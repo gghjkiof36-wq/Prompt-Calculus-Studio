@@ -1,4 +1,5 @@
 """Centered disclosures animate a child surface, never the native window."""
+from _qt_wait import wait_ms
 import copy
 import unittest
 from unittest.mock import patch
@@ -34,7 +35,7 @@ class NodeDialogMotionTests(unittest.TestCase):
         for _ in range(30):
             if dialog.presentation.motion.state()==dialog.presentation.motion.State.Stopped:
                 self.app.processEvents();return
-            QTest.qWait(10)
+            wait_ms(10)
         self.fail('disclosure motion did not finish')
 
     def assert_centered(self,dialog):
@@ -52,7 +53,7 @@ class NodeDialogMotionTests(unittest.TestCase):
                         frames.append((QRect(dialog.geometry()),QRect(dialog.presentation.surface.geometry())))
                     return False
             probe=Probe(dialog);dialog.installEventFilter(probe)
-            dialog.show();QTest.qWait(60)
+            dialog.show();wait_ms(60)
             self.assertEqual(dialog.windowTitle(),title);self.assertTrue(frames)
             self.assertEqual(frames[0],(dialog.geometry(),dialog.presentation.surface.geometry()))
             self.assert_centered(dialog);self.assertEqual(dialog.windowOpacity(),1.)
@@ -62,7 +63,7 @@ class NodeDialogMotionTests(unittest.TestCase):
 
     def test_expand_and_collapse_keep_native_window_fixed_and_restore_surface(self):
         for root in (comp.node('文字','smile'),self.flow()):
-            dialog=NodeDialog(self.w,root);dialog.show();QTest.qWait(30)
+            dialog=NodeDialog(self.w,root);dialog.show();wait_ms(30)
             sheet=dialog.presentation.surface;closed=QRect(sheet.geometry());native=QRect(dialog.geometry())
             events=[];frames=[]
             class Probe(QObject):
@@ -85,13 +86,13 @@ class NodeDialogMotionTests(unittest.TestCase):
             dialog.reject()
 
     def test_rapid_reversal_continues_from_current_geometry_and_last_toggle_wins(self):
-        dialog=NodeDialog(self.w,self.flow());dialog.show();QTest.qWait(30)
+        dialog=NodeDialog(self.w,self.flow());dialog.show();wait_ms(30)
         sheet=dialog.presentation.surface;closed=QRect(sheet.geometry());native=QRect(dialog.geometry())
         cursor=dialog.prompt.textCursor();cursor.setPosition(2);cursor.setPosition(8,cursor.MoveMode.KeepAnchor)
         dialog.prompt.setTextCursor(cursor);selection=(cursor.position(),cursor.anchor(),cursor.selectedText())
         for opened,delay in ((True,45),(False,30),(True,25),(False,10),(True,40)):
             before=QRect(sheet.geometry());dialog.excludes_toggle.setChecked(opened)
-            self.assertEqual(sheet.geometry(),before);QTest.qWait(delay)
+            self.assertEqual(sheet.geometry(),before);wait_ms(delay)
             current=dialog.prompt.textCursor()
             self.assertEqual((current.position(),current.anchor(),current.selectedText()),selection)
         self.settle(dialog);self.assertTrue(dialog.excludes_panel.isVisible());self.assert_centered(dialog)
@@ -100,7 +101,7 @@ class NodeDialogMotionTests(unittest.TestCase):
 
     def test_first_disclosure_reveals_only_with_sheet_without_scroll_or_content_jump(self):
         for value in (comp.node('文字','smile'),self.flow()):
-            dialog=NodeDialog(self.w,value);dialog.show();QTest.qWait(20)
+            dialog=NodeDialog(self.w,value);dialog.show();wait_ms(20)
             closed=QRect(dialog.presentation.surface.geometry());native=QRect(dialog.geometry())
             panel=dialog.excludes_panel;prompt_height=dialog.prompt.height();frames=[]
             dialog.presentation.motion.valueChanged.connect(lambda _,d=dialog,p=panel:frames.append(
@@ -117,9 +118,9 @@ class NodeDialogMotionTests(unittest.TestCase):
             self.assertEqual(dialog.presentation.surface.geometry(),closed);dialog.reject()
 
     def test_small_parent_resize_reduced_motion_and_error_keep_footer_reachable(self):
-        dialog=NodeDialog(self.w,self.flow());dialog.show();QTest.qWait(30)
-        dialog.excludes_toggle.setChecked(True);QTest.qWait(40)
-        self.w.resize(980,560);QTest.qWait(30)
+        dialog=NodeDialog(self.w,self.flow());dialog.show();wait_ms(30)
+        dialog.excludes_toggle.setChecked(True);wait_ms(40)
+        self.w.resize(980,560);wait_ms(30)
         self.assertEqual(dialog.presentation.motion.state(),dialog.presentation.motion.State.Stopped)
         self.assert_centered(dialog);self.assertTrue(dialog.presentation.bounds().contains(dialog.geometry()))
         self.assertGreater(dialog.form_scroll.verticalScrollBar().maximum(),0)
@@ -131,18 +132,18 @@ class NodeDialogMotionTests(unittest.TestCase):
             dialog.excludes_toggle.setChecked(opened)
             self.assertEqual(dialog.presentation.motion.state(),dialog.presentation.motion.State.Stopped)
             self.assertEqual(dialog.excludes_panel.isVisible(),opened);self.assert_centered(dialog)
-        self.w.resize(1440,1000);QTest.qWait(20)
+        self.w.resize(1440,1000);wait_ms(20)
         self.assertEqual(dialog.form_scroll.verticalScrollBar().maximum(),0);self.assert_centered(dialog);dialog.reject()
 
     def test_close_during_motion_stops_callbacks_and_reopen_preserves_text_undo(self):
         original=comp.node('文字','smile');saved=copy.deepcopy(original)
-        dialog=NodeDialog(self.w,original);dialog.show();QTest.qWait(30)
+        dialog=NodeDialog(self.w,original);dialog.show();wait_ms(30)
         dialog.prompt.insertPlainText('bright, ');dialog.excludes_toggle.setChecked(True)
-        dialog.excludes.setPlainText('shadow');QTest.qWait(40)
-        dialog.reject();geometry=QRect(dialog.presentation.surface.geometry());QTest.qWait(220)
+        dialog.excludes.setPlainText('shadow');wait_ms(40)
+        dialog.reject();geometry=QRect(dialog.presentation.surface.geometry());wait_ms(220)
         self.assertEqual(dialog.presentation.motion.state(),dialog.presentation.motion.State.Stopped)
         self.assertEqual(dialog.presentation.surface.geometry(),geometry);self.assertEqual(original,saved)
-        dialog.show();QTest.qWait(30);self.assert_centered(dialog)
+        dialog.show();wait_ms(30);self.assert_centered(dialog)
         self.assertEqual(dialog.excludes.toPlainText(),'shadow');dialog.prompt.undo()
         self.assertEqual(dialog.prompt.toPlainText(),'smile');dialog.prompt.redo()
         self.assertEqual(dialog.prompt.toPlainText(),'bright, smile');dialog.reject()

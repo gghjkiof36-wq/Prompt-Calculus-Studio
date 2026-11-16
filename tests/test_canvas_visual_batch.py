@@ -1,4 +1,5 @@
 """Real-widget interaction and rendering checks for the first Canvas finish pass."""
+from _qt_wait import wait_ms
 import copy
 import sys
 from collections import Counter
@@ -30,7 +31,7 @@ class CanvasVisualBatchTests(StageFixture):
         self.assertFalse(self.qt_errors,self.qt_errors)
 
     def test_hover_previews_without_inserting_then_single_click_adds_once(self):
-        dialog=FunctionPicker(self.c,QPointF(2100,1200));dialog.show();QTest.qWait(20)
+        dialog=FunctionPicker(self.c,QPointF(2100,1200));dialog.show();wait_ms(20)
         try:
             before=copy.deepcopy(self.c.data());count=len(self.c.undo_stack)
             item=next(dialog.list.item(i) for i in range(dialog.list.count()) if dialog.list.item(i).data(Qt.ItemDataRole.UserRole)=='clip')
@@ -40,28 +41,28 @@ class CanvasVisualBatchTests(StageFixture):
             APP.sendEvent(dialog.list.viewport(),QMouseEvent(QEvent.Type.MouseMove,
                 QPointF(point),QPointF(dialog.list.viewport().mapToGlobal(point)),
                 Qt.MouseButton.NoButton,Qt.MouseButton.NoButton,Qt.KeyboardModifier.NoModifier))
-            QTest.qWait(15)
+            wait_ms(15)
             self.assertEqual(dialog.current_id(),'clip')
             self.assertEqual(dialog.preview.card.__class__.__name__,'ClipCard')
             self.assertEqual(self.c.data(),before);self.assertEqual(len(self.c.undo_stack),count)
             self.assertFalse(any('雙擊新增' in label.text() for label in dialog.findChildren(QLabel)))
             QTest.mouseClick(dialog.list.viewport(),Qt.MouseButton.LeftButton,pos=point)
-            QTest.qWait(15);dialog.insert_current()
+            wait_ms(15);dialog.insert_current()
             added=set(self.c.data()['clip_inputs'])-set(before['clip_inputs'])
             self.assertEqual(len(added),1);self.assertEqual(len(self.c.undo_stack),count+1)
             self.assertFalse(dialog.isVisible())
             self.c.undo();self.assertEqual(self.c.data(),before)
-        finally:dialog.close();dialog.deleteLater();QTest.qWait(1)
+        finally:dialog.close();dialog.deleteLater();wait_ms(1)
 
     def test_all_real_previews_keep_legible_scale_and_fit_their_width(self):
-        QTest.qWait(400);self.w.persist()
+        wait_ms(400);self.w.persist()
         before=copy.deepcopy(self.w.state);history=len(self.c.undo_stack)
         with patch.object(QScreen,'availableGeometry',return_value=QRect(0,0,1920,1080)):
-            dialog=FunctionPicker(self.c);dialog.show();QTest.qWait(20)
+            dialog=FunctionPicker(self.c);dialog.show();wait_ms(20)
         slot=dialog.preview.size()
         try:
             for i,(kind,*_) in enumerate(FUNCTIONS):
-                dialog.list.setCurrentRow(i);QTest.qWait(25)
+                dialog.list.setCurrentRow(i);wait_ms(25)
                 view=dialog.preview
                 self.assertGreaterEqual(view.transform().m11(),.85,kind)
                 self.assertEqual(view.horizontalScrollBar().maximum(),0,kind)
@@ -72,7 +73,7 @@ class CanvasVisualBatchTests(StageFixture):
                     actual=next(card for card in self.c.flow_cards.values() if card.kind=='stages')
                     self.assertEqual(view.card.surface_colors(),actual.surface_colors())
             self.assertEqual(self.w.state,before);self.assertEqual(len(self.c.undo_stack),history)
-        finally:dialog.close();dialog.deleteLater();QTest.qWait(1)
+        finally:dialog.close();dialog.deleteLater();wait_ms(1)
 
     def source_pair(self):
         from prompt_calculus_studio.multi_output import connect
@@ -81,7 +82,7 @@ class CanvasVisualBatchTests(StageFixture):
         return second
 
     def reorder_in_dialog(self,dialog,save):
-        dialog.show();QTest.qWait(10)
+        dialog.show();wait_ms(10)
         listing=dialog.listing
         from prompt_calculus_studio.ui_icons import ICON_NAMES
         self.assertIn('grip-vertical',ICON_NAMES)

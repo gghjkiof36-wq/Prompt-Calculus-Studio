@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import copy,os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -23,7 +24,7 @@ class MultiCanvasTests(unittest.TestCase):
         from prompt_calculus_studio.state_loading import prepare_state
         store=Storage(self.tmp.name);store.save(prepare_state(initial_state(),multi=True));store.db.close()
         self.window=Window(self.tmp.name); self.w=self.window; self.w.state['settings'].update(online=False,material='solid',separate_selections=True)
-        self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(30); self.canvas=self.w.canvas
+        self.w.show(); self.w.set_interface_mode('canvas'); wait_ms(30); self.canvas=self.w.canvas
         self.cid=next(iter(self.canvas.containers)); self.oid=self.canvas.data()['current_output']
     def tearDown(self): self.w.close(); APP.processEvents(); self.env.stop(); self.tmp.cleanup()
     def add(self,text='test',cid=None):
@@ -32,25 +33,25 @@ class MultiCanvasTests(unittest.TestCase):
     def test_function_sizes_survive_first_move_refresh_resize_and_undo(self):
         canvas=self.canvas
         canvas.functions.add_image(position=QPointF(-700,100))
-        QTest.qWait(20)
+        wait_ms(20)
         def sizes():
             cards=[*canvas.outputs.values(),*canvas.clips.values(),*canvas.functions.cards.values(),canvas.preview_card]
             return {c.key:(c.width,c.height) for c in cards}
         initial=sizes(); source=next(iter(canvas.functions.cards))
-        canvas.move_cards({source:[-650,110]}); QTest.qWait(20)
+        canvas.move_cards({source:[-650,110]}); wait_ms(20)
         self.assertEqual(sizes(),initial)
-        canvas.refresh(); QTest.qWait(20); self.assertEqual(sizes(),initial)
+        canvas.refresh(); wait_ms(20); self.assertEqual(sizes(),initial)
         for key,(width,height) in initial.items():
             canvas.resize_card(key,width+170,height+120)
             expected=sizes()
-            canvas.move_cards({source:[-620,115]}); QTest.qWait(20)
+            canvas.move_cards({source:[-620,115]}); wait_ms(20)
             self.assertEqual(sizes(),expected)
-            canvas.refresh(); QTest.qWait(20); self.assertEqual(sizes(),expected)
+            canvas.refresh(); wait_ms(20); self.assertEqual(sizes(),expected)
         enlarged=sizes(); canvas.reset_size(canvas.preview_card.key)
         self.assertEqual(sizes()[canvas.preview_card.key],initial[canvas.preview_card.key])
         canvas.undo(); self.assertEqual(sizes(),enlarged)
         self.w.persist(); self.w.close(); APP.processEvents()
-        self.w=Window(self.tmp.name); self.w.show(); self.w.set_interface_mode('canvas'); QTest.qWait(50)
+        self.w=Window(self.tmp.name); self.w.show(); self.w.set_interface_mode('canvas'); wait_ms(50)
         canvas=self.w.canvas; self.assertEqual(sizes(),enlarged)
     def test_inside_and_outside_addition_and_undo(self):
         root=self.add(); before=build_prompt(self.w.state)
@@ -68,7 +69,7 @@ class MultiCanvasTests(unittest.TestCase):
     def test_drop_between_containers_preserves_content_and_order(self):
         root=self.add('first'); other=self.canvas.add_canvas(QPointF(1300,-400)); card=self.canvas.cards[root]
         card.setSelected(True); position=self.canvas.containers[other].pos()+QPointF(45,70); card.setPos(position)
-        self.canvas.finish_node_drop(card,position); QTest.qWait(15)
+        self.canvas.finish_node_drop(card,position); wait_ms(15)
         self.assertEqual(model.owner(self.w.state,root),other); self.assertEqual(build_prompt(self.w.state),'')
         self.canvas.undo(); self.assertEqual(model.owner(self.w.state,root),self.cid)
     def test_output_edit_binding_and_typed_replacement_undo(self):
@@ -97,7 +98,7 @@ class MultiCanvasTests(unittest.TestCase):
         start=QPointF(card.pos()); canvas.view.resetTransform(); canvas.view.centerOn(c)
         a=canvas.view.mapFromScene(c.pos()+QPointF(45,25)); b=a+QPointF(60,35).toPoint()
         QTest.mousePress(canvas.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier,a)
-        QTest.mouseMove(canvas.view.viewport(),b,30); QTest.mouseRelease(canvas.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier,b); QTest.qWait(20)
+        QTest.mouseMove(canvas.view.viewport(),b,30); QTest.mouseRelease(canvas.view.viewport(),Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier,b); wait_ms(20)
         card=canvas.cards[root]; self.assertAlmostEqual(card.x()-start.x(),60,delta=3); self.assertAlmostEqual(card.y()-start.y(),35,delta=3)
     def test_reopen_keeps_lines_text_and_manual_drafts(self):
         self.add('saved'); self.canvas.outputs[self.oid].panel.open_page().content.editor.setPlainText('kept draft'); self.w.persist()
@@ -121,9 +122,9 @@ class MultiCanvasTests(unittest.TestCase):
             edit(self.w.state,manual)
             saved=copy.deepcopy(self.w.state['multi_output']['outputs'][self.oid])
             self.w.persist();self.w.close();APP.processEvents()
-            self.w=Window(self.tmp.name);self.window=self.w;self.canvas=self.w.canvas;self.w.show();QTest.qWait(20)
+            self.w=Window(self.tmp.name);self.window=self.w;self.canvas=self.w.canvas;self.w.show();wait_ms(20)
             self.assertEqual(self.w.state['selection_view'],'canvas');self.assertEqual(self.w.state['draft'],'canvas manual')
-            self.w.set_interface_mode('list');QTest.qWait(10)
+            self.w.set_interface_mode('list');wait_ms(10)
             self.assertIs(self.w.surface_stack.currentWidget(),self.w.prompt_editor)
             self.assertEqual(self.w.state['selection_view'],'canvas');self.assertEqual(self.w.state['draft'],'canvas manual')
             before=copy.deepcopy(self.w.state);recovered=[];clipboard_before=QApplication.clipboard().text()
@@ -149,7 +150,7 @@ class MultiCanvasTests(unittest.TestCase):
             output=self.w.state['multi_output']['outputs'][self.oid]
             for field in ('list_state','list_draft'):self.assertEqual(output[field],saved[field])
             self.assertEqual(next(value for value in documents(self.w.state) if value['id']==self.oid)['final'],manual)
-            self.w.set_interface_mode('canvas');QTest.qWait(10)
+            self.w.set_interface_mode('canvas');wait_ms(10)
             self.assertEqual(self.w.state['draft'],'canvas manual')
             self.assertTrue(self.canvas.execution_bar.controls.isVisible())
         QApplication.clipboard().clear()
@@ -192,11 +193,11 @@ class MultiCanvasTests(unittest.TestCase):
         canvas.view.resetTransform(); canvas.view.scale(.5,.5)
         def drag(source,destination):
             a=canvas.ports[source].scenePos(); b=canvas.ports[destination].scenePos()
-            canvas.view.centerOn((a+b)/2); QTest.qWait(5)
+            canvas.view.centerOn((a+b)/2); wait_ms(5)
             start=canvas.view.mapFromScene(a); end=canvas.view.mapFromScene(b)
             QTest.mousePress(canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=start)
             QTest.mouseMove(canvas.view.viewport(),end,30)
-            QTest.mouseRelease(canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=end); QTest.qWait(20)
+            QTest.mouseRelease(canvas.view.viewport(),Qt.MouseButton.LeftButton,pos=end); wait_ms(20)
         drag((c2,'image',True),(self.oid,'text',False))
         self.assertEqual(canvas.data()['outputs'][self.oid]['canvas'],self.cid)
         drag((c2,'text',True),(self.oid,'text',False))

@@ -1,4 +1,5 @@
 """Read-only browsing, atomic binding and stale-response protection; offline."""
+from _qt_wait import wait_ms
 import copy,unittest
 from unittest.mock import patch
 from PySide6.QtCore import Qt,QEvent
@@ -113,7 +114,7 @@ class PickerTests(unittest.TestCase):
             else:raise AssertionError(route)
         with patch.object(self.w.comfy,'request',request):
             refresh=next(b for b in d.findChildren(QPushButton) if b.text()=='重新整理')
-            QTest.mouseClick(refresh,Qt.MouseButton.LeftButton);QTest.qWait(150)
+            QTest.mouseClick(refresh,Qt.MouseButton.LeftButton);wait_ms(150)
         self.assertFalse(d.loading)
         self.assertEqual({d.target.itemData(i) for i in range(d.target.count()) if d.target.itemData(i)},
                          {('6','text'),('7','text'),('8','text_g'),('91','text'),('92','text')})

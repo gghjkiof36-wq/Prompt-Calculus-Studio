@@ -1,3 +1,4 @@
+from _qt_wait import wait_ms
 import unittest
 import threading
 import time
@@ -163,14 +164,14 @@ class FormattedPasteTests(unittest.TestCase):
                 patch('prompt_calculus_studio.markdown_paste_job.from_html', delayed):
             s.editor.insertFromMimeData(mime)
             for _ in range(100):
-                QTest.qWait(5)
+                wait_ms(5)
                 time.sleep(.002)
                 if entered.is_set():break
             other = self.open('Empty.md')
             other_before = other.widget.toPlainText()
             release.set()
             for _ in range(300):
-                QTest.qWait(5)
+                wait_ms(5)
                 time.sleep(.002)
                 if s.editor.prepared_paste.job is None:break
             self.assertIn('**prepared**', s.page.toPlainText())
@@ -188,7 +189,7 @@ class FormattedPasteTests(unittest.TestCase):
             changed = s.page.toPlainText()
             release.set()
             for _ in range(300):
-                QTest.qWait(5)
+                wait_ms(5)
                 time.sleep(.002)
                 if s.editor.prepared_paste.job is None:break
             self.assertEqual(s.page.toPlainText(), changed)
