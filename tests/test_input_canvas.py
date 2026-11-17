@@ -1,5 +1,5 @@
 """Offscreen Canvas checks with generated 1-pixel fixtures only."""
-from _qt_wait import wait_ms
+from _qt_wait import wait_ms,wait_until
 import os
 import tempfile
 import unittest
@@ -35,8 +35,16 @@ class InputCanvasTests(unittest.TestCase):
         finally:window.store.close()
 
     def scheduler(self):
+        # These scenarios own their scheduler. Detach the starter's control
+        # route, then use today's input -> scheduler -> Stage contract.
+        original=self.starter['scheduler']
+        self.c.commit(lambda s:s['multi_output'].update(connections=[c for c in s['multi_output']['connections']
+            if c['source'].split('::')[0]!=original and c['destination'].split('::')[0]!=original]))
         before=set(self.c.data()['schedulers']);self.c.add_flow_node('schedulers',QPointF(1100,100))
-        added=set(self.c.data()['schedulers'])-before;self.assertEqual(len(added),1);self.sid=added.pop();return self.sid
+        added=set(self.c.data()['schedulers'])-before;self.assertEqual(len(added),1);self.sid=added.pop()
+        self.c.commit(lambda s:model.connect(s,self.starter['clip'],endpoint(self.sid,'bindings'),'control'))
+        self.c.commit(lambda s:model.connect(s,endpoint(self.sid,'bindings'),self.starter['stage'],'control'))
+        return self.sid
 
     def profile(self):
         p=workflow();p['frontend_id']='native-A';p['graph']['20']=dict(class_type='LoadImage',inputs={'image':'input.png'})
@@ -47,40 +55,46 @@ class InputCanvasTests(unittest.TestCase):
 
     def enqueue_waiting(self,count=1):
         runner=self.w.comfy.input_flow.chain
-        runner.store.set_scheduler_paused(self.w.state['workspace'],self.sid,True)
         self.w.comfy.connected=True;self.w.comfy.running=1
-        self.w.comfy.input_flow.execute(count);wait_ms(10)
+        self.w.comfy.input_flow.execute(count)
+        # This UI fixture has no event session, so dispatch is intentionally
+        # fenced. Materialize the accepted batch through its real journal path
+        # without opening that fence or submitting a native job.
+        from prompt_calculus_studio.stage_batches import expand
+        from prompt_calculus_studio.stage_runner import CAPACITY
+        for _ in range(count):expand(runner,CAPACITY)
+        self.assertTrue(wait_until(lambda:len([r for r in runner.store.rows('entry',self.w.state['workspace'])
+            if r['scheduler']==self.sid])==count,5000),self.notices)
         self.request.assert_not_called()
         return runner
 
     def test_canvas_nodes_visible_edit_waiting_remove_undo_does_not_execute(self):
         self.profile();self.c.add_tag('first',self.c.containers[self.cid].pos()+QPointF(50,160));self.scheduler()
         self.notices.clear()
-        self.c.commit(lambda s:model.connect(s,self.out,endpoint(self.sid,'clip1'),'clip'))
         clip=next(iter(self.c.data()['clip_inputs']))
-        self.c.commit(lambda s:model.connect(s,endpoint(self.sid,'clip1'),clip,'clip'))
         self.c.commit(lambda s:clip_flow.set_binding(s,'flow',clip,('6','text')))
         self.assertIn(self.sid,self.c.flow_cards);panel=self.c.flow_cards[self.sid].panel
-        runner=self.enqueue_waiting(2);panel.refresh();self.assertEqual(panel.list.count(),2)
-        panel.list.setCurrentRow(1);entry=panel.selected();first=panel.entries()[0];port=endpoint(self.sid,'clip1')
+        runner=self.enqueue_waiting(2);panel=panel.open_page().content;panel.open_group(panel.groups[0]['id'])
+        self.assertEqual(panel.list.count(),2)
+        panel.list.setCurrentRow(1);entry=panel.selected();first=panel.entries()[0];port=clip
         def edit(dialog):
             from prompt_calculus_studio.widgets import ComboBox
             picker=dialog.findChild(ComboBox)
             choices=[picker.itemData(i) for i in range(picker.count())]
-            self.assertIn(('inputs',port),choices)
-            picker.setCurrentIndex(choices.index(('inputs',port)))
-            self.assertEqual(picker.currentData(),('inputs',port))
+            self.assertIn(('values',port),choices)
+            picker.setCurrentIndex(choices.index(('values',port)))
+            self.assertEqual(picker.currentData(),('values',port))
             dialog.findChild(QPlainTextEdit).setPlainText('edited waiting')
             next(b for b in dialog.findChildren(QPushButton) if b.text()=='保存此項').click()
             return QDialog.DialogCode.Accepted
         with patch('prompt_calculus_studio.stage_widgets.StudioDialog.exec',edit):panel.detail()
-        self.assertEqual(runner.store.read(entry['id'])['saved']['inputs'][port]['value'],'edited waiting')
+        self.assertEqual(runner.store.read(entry['id'])['saved']['values'][port]['value'],'edited waiting')
         self.assertEqual(runner.store.read(first['id'])['saved'],first['saved'])
         self.c.remove_flow_node('schedulers',self.sid)
         self.assertEqual(runner.store.read(entry['run'])['status'],'paused')
         self.c.undo();self.assertIn(self.sid,self.c.data()['schedulers'])
         rows=[r for r in runner.store.rows('entry',self.w.state['workspace']) if r['scheduler']==self.sid]
-        self.assertEqual(len(rows),2);self.assertEqual(runner.store.read(entry['id'])['saved']['inputs'][port]['value'],'edited waiting')
+        self.assertEqual(len(rows),2);self.assertEqual(runner.store.read(entry['id'])['saved']['values'][port]['value'],'edited waiting')
         self.assertFalse(runner.store.rows('attempt',self.w.state['workspace']));self.request.assert_not_called()
         self.assertFalse(hasattr(self.w,'canvas_queue'))
 
@@ -111,7 +125,8 @@ class InputCanvasTests(unittest.TestCase):
 
     def test_execute_button_accepts_more_while_native_running(self):
         self.profile();clip=next(iter(self.c.data()['clip_inputs']));self.c.commit(lambda s:clip_flow.set_binding(s,'flow',clip,('6','text')))
-        client=self.w.comfy;client.connected=True;client.native_supported=True;client.flow_supported=True;client.snapshot_versions=[1,2,3,4]
+        from prompt_calculus_studio.core import SUPPORTED_STATE_VERSIONS
+        client=self.w.comfy;client.connected=True;client.native_supported=True;client.flow_supported=True;client.snapshot_versions=list(SUPPORTED_STATE_VERSIONS)
         client.running=1;client.run_id='old-run';client.stateChanged.emit()
         from prompt_calculus_studio.run_controls import RunControls
         controls=self.c.execution_bar.controls
@@ -119,10 +134,8 @@ class InputCanvasTests(unittest.TestCase):
 
     def test_retained_inputs_can_restore_removed_panel_without_submission(self):
         from prompt_calculus_studio.stage_widgets import entry_detail
-        self.profile();self.scheduler();port=endpoint(self.sid,'clip1')
-        self.c.commit(lambda s:model.connect(s,self.out,port,'clip'))
+        self.profile();self.scheduler()
         clip=next(iter(self.c.data()['clip_inputs']))
-        self.c.commit(lambda s:model.connect(s,port,clip,'clip'))
         self.c.commit(lambda s:clip_flow.set_binding(s,'flow',clip,('6','text')))
         runner=self.enqueue_waiting();entry=next(r for r in runner.store.rows('entry',self.w.state['workspace']) if r['scheduler']==self.sid)
         self.c.remove_flow_node('schedulers',self.sid)
