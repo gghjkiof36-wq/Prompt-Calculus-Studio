@@ -27,13 +27,29 @@ from prompt_calculus_studio.mcp_probe.local import make_pair, read_pair
 ROOT = Path(__file__).resolve().parents[1]
 
 def command(mode, directory, instance):
-    return ["-m", "prompt_calculus_studio.mcp_probe", mode, "--profile", str(directory), "--instance", instance]
+    # The selected dev Python may receive the optional SDK via sys.path rather
+    # than an installed venv. Forward the same dependencies to its real children.
+    bootstrap = ('import json,runpy,sys;sys.path[:0]=json.loads(sys.argv.pop(1));'
+                 'import pywin32_bootstrap;'
+                 "sys.argv[0]='prompt_calculus_studio.mcp_probe';"
+                 "runpy.run_module('prompt_calculus_studio.mcp_probe',run_name='__main__')")
+    return ['-I', '-B', '-c', bootstrap, json.dumps(sys.path), mode,
+            '--profile', str(directory), '--instance', instance]
+
+def process_environment(directory):
+    area = Path(directory).parent/'process-env'/uuid4().hex
+    temp, data = area/'tmp', area/'data'
+    temp.mkdir(parents=True); data.mkdir()
+    return dict(os.environ, PYTHONUTF8='1', PYTHONDONTWRITEBYTECODE='1',
+                QT_QPA_PLATFORM='offscreen', PROMPT_STUDIO_DATA=str(data),
+                TEMP=str(temp), TMP=str(temp), TMPDIR=str(temp))
 
 @contextmanager
 def owner(directory, instance):
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errors:
         p = subprocess.Popen([sys.executable,*command("owner", directory, instance)], cwd=ROOT,
-                             stdout=subprocess.PIPE, stderr=errors, creationflags=subprocess.CREATE_NO_WINDOW)
+                             stdout=subprocess.PIPE, stderr=errors, env=process_environment(directory),
+                             creationflags=subprocess.CREATE_NO_WINDOW)
         ready = queue.Queue()
         worker = None
         threading.Thread(target=lambda: ready.put(p.stdout.readline()), daemon=True).start()
@@ -64,7 +80,7 @@ def owner(directory, instance):
 @asynccontextmanager
 async def connected(directory, instance):
     params = StdioServerParameters(command=sys.executable, args=command("stdio", directory, instance),
-                                   cwd=ROOT, env={"PYTHONUTF8":"1"})
+                                   cwd=ROOT, env=process_environment(directory))
     async with stdio_client(params) as (read,write):
         async with ClientSession(read, write, read_timeout_seconds=timedelta(seconds=8)) as session:
             init = await session.initialize()
@@ -89,7 +105,7 @@ class ProbeTransportTests(unittest.IsolatedAsyncioTestCase):
             directory = Path(area)/"synthetic"
             directory.mkdir()
             async with connected(directory, namespace) as (session, init):
-                self.assertEqual(init.serverInfo.version, "0.8.10-pre-alpha.2")
+                self.assertEqual(init.serverInfo.version, "0.8.10-pre-alpha.3")
                 tools = (await session.list_tools()).tools
                 self.assertEqual(len(tools),4)
                 self.assertFalse(next(t for t in tools if t.name=="pcs_create_test_job").annotations.readOnlyHint)

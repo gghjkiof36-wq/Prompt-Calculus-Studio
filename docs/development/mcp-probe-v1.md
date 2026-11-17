@@ -14,7 +14,7 @@ flowchart LR
 
 ## 啟動及操作
 
-使用 Windows、Python 3.12 與專用虛擬環境，在本工作樹根目錄操作。桌面相依套件見 [requirements](../../requirements.txt)，選用的 MCP 工具相依套件見[專用清單](../../prompt_calculus_studio/mcp_probe/requirements.txt)。標準桌面啟動旗標為 `--v0.8.10-pre-alpha.2`。MCP 需獨立明確啟動。以固定的實例 UUID 及專用空目錄執行下面兩條命令；重開同一目錄時沿用同一 UUID。
+使用 Windows、Python 3.12 與專用虛擬環境，在本工作樹根目錄操作。桌面相依套件見 [requirements](../../requirements.txt)，選用的 MCP 工具相依套件見[專用清單](../../prompt_calculus_studio/mcp_probe/requirements.txt)。標準桌面啟動旗標為 `--v0.8.10-pre-alpha.3`；舊 `--v0.8.10-pre-alpha.2` 旗標仍可沿用，資料位置規則不變。MCP 需獨立明確啟動。以固定的實例 UUID 及專用空目錄執行下面兩條命令；重開同一目錄時沿用同一 UUID。
 
 ```powershell
 python -m prompt_calculus_studio.mcp_probe owner --profile C:\A01\synthetic --instance 76dc5b79-50ef-4b3f-a818-64ebf3993ee7

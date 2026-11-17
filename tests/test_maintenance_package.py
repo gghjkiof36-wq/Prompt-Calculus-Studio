@@ -1,5 +1,6 @@
 import json,sys,subprocess,tempfile,unittest,zipfile,hashlib
 from pathlib import Path
+from unittest.mock import patch
 from prompt_calculus_studio.releases import CURRENT,RELEASES,select_release,write_launchers,SHARED_MODULES,APP_BASENAME,EXTENSION_FOLDER,SOURCE_ARCHIVE
 from package_documents import bundle_documents,source_paths,validation_reference
 from build_comfyui import build
@@ -20,8 +21,17 @@ class PackagingTests(unittest.TestCase):
                 content=(Path(folder)/(release.launcher+'.'+ext)).read_text(encoding='utf-8')
                 self.assertIn(APP_BASENAME+'.exe',content); self.assertIn('--v081-alpha',content); self.assertIn('PROMPT_STUDIO_DATA',content)
     def test_source_bundle_hashes_match_and_contains_no_personal_data(self):
+        # The bundle contract can be checked before a newly added release report
+        # is staged. Supply that one declared document as a source fixture;
+        # production source_paths still admits Git-tracked files only.
+        report=ROOT/'docs/releases/0.8.10/validation/pre-alpha.3.md'
+        self.assertTrue(report.is_file())
+        paths=sorted(set(source_paths(ROOT))|{report})
         with tempfile.TemporaryDirectory() as folder:
-            folder=Path(folder); bundle_documents(folder); manifest=json.loads((folder/'SOURCE_MANIFEST.json').read_text(encoding='utf-8'))
+            folder=Path(folder)
+            with patch('package_documents.source_paths',return_value=paths):
+                bundle_documents(folder)
+            manifest=json.loads((folder/'SOURCE_MANIFEST.json').read_text(encoding='utf-8'))
             with zipfile.ZipFile(folder/SOURCE_ARCHIVE) as z:
                 self.assertEqual(set(z.namelist()),{v['path'] for v in manifest})
                 for entry in manifest:self.assertEqual(hashlib.sha256(z.read(entry['path'])).hexdigest(),entry['sha256'])
@@ -31,6 +41,7 @@ class PackagingTests(unittest.TestCase):
             required_validation={'--v0.8.9-beta.2':'docs/releases/0.8.9/validation/beta.2.md',
                                  '--v0.8.10-pre-alpha.1':'docs/releases/0.8.10/validation/pre-alpha.1.md',
                                  '--v0.8.10-pre-alpha.2':'docs/releases/0.8.10/validation/pre-alpha.2.md',
+                                 '--v0.8.10-pre-alpha.3':'docs/releases/0.8.10/validation/pre-alpha.3.md',
                                  '--v0.8.9-beta.3':'docs/releases/0.8.9/validation/beta.3.md'}
             self.assertIn(CURRENT.flag,required_validation,'A new current release needs its explicit validation contract')
             self.assertEqual(info['release'],CURRENT.flag)
@@ -90,6 +101,18 @@ for name in sys.argv[1:]:importlib.import_module(name)
             if value['validation']=='docs/releases/README.md':self.assertIn('validation_note',value)
         without_current_report=[path for path in paths if path.relative_to(ROOT).as_posix()!='docs/releases/0.8.6/validation/alpha.1.md']
         self.assertEqual(validation_reference(RELEASES['--v0.8.6-alpha.1'],without_current_report)['validation'],'docs/releases/README.md')
+
+    def test_pre_alpha3_validation_is_exact_and_requires_packaged_report(self):
+        report=ROOT/'docs/releases/0.8.10/validation/pre-alpha.3.md'
+        self.assertTrue(report.is_file())
+        available=sorted(set(source_paths(ROOT))|{report})
+        self.assertEqual(validation_reference(CURRENT,available),
+                         dict(validation='docs/releases/0.8.10/validation/pre-alpha.3.md'))
+        self.assertEqual(validation_reference(RELEASES['--v0.8.10-pre-alpha.2'],available),
+                         dict(validation='docs/releases/0.8.10/validation/pre-alpha.2.md'))
+        missing=validation_reference(CURRENT,[p for p in available if p!=report])
+        self.assertEqual(missing['validation'],'docs/releases/README.md')
+        self.assertIn('validation_note',missing)
     def test_packaged_shared_core_restores_old_snapshot_without_qt(self):
         with tempfile.TemporaryDirectory() as folder:
             folder=Path(folder); destination=folder/EXTENSION_FOLDER; archive=folder/'extension.zip'; build(destination,archive)

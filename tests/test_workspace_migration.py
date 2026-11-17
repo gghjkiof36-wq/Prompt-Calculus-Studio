@@ -563,7 +563,7 @@ runpy.run_path(sys.argv[0],run_name='__main__')
             self.assertEqual(missing.returncode, 2, missing.stderr)
             self.assertEqual(len(missing.stdout.splitlines()), 1)
             self.assertEqual(json.loads(missing.stdout)['status'], 'failed')
-            for extra in (['--check'], ['--root', str(source)], ['--data', str(source)], ['--choose-workspace'], ['--smoke-test'], ['--v08-alpha'], ['--v0.8.10-pre-alpha.2']):
+            for extra in (['--check'], ['--root', str(source)], ['--data', str(source)], ['--choose-workspace'], ['--smoke-test'], ['--v08-alpha'], ['--v0.8.10-pre-alpha.2'], ['--v0.8.10-pre-alpha.3']):
                 result = subprocess.run([sys.executable, '-X', 'utf8', '-B', '-c', script, str(project / entry), '--migrate-from', str(source), '--migrate-into', str(target), *alias_flags, *extra], cwd=project, capture_output=True, text=True, encoding='utf-8')
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertEqual(len(result.stdout.splitlines()), 1)
