@@ -163,6 +163,8 @@ class SchedulePanel(QFrame):
         body.addLayout(row(button('暫停',lambda:self.action('pause'),'Quiet'),button('繼續',lambda:self.action('resume'),'Quiet'),
                            button('取消目前',lambda:self.action('cancel'),'Quiet'),self.add_channel_button))
         self.listing=ScheduleList(self);self.listing.setMinimumHeight(210);self.listing.setIconSize(QSize(52,52));self.listing.currentItemChanged.connect(self.selection_changed);body.addWidget(self.listing,1)
+        from .queue_icons import QueueIconCache
+        self._icons=QueueIconCache(self.listing,canvas.window,lambda:self.key)
         self.listing.itemClicked.connect(self.open_detail)
         body.addWidget(label('拖曳等待項目調整順序；點擊查看完整內容。','Subtle',True))
         self.failure_button=button('處理失敗項目',self.failure_menu,'Quiet')
@@ -199,8 +201,12 @@ class SchedulePanel(QFrame):
         current=self.listing.currentItem();ident=current.data(Qt.ItemDataRole.UserRole) if current else self.selected
         rows=self.runner.store.rows(self.key);control=self.runner.store.control(self.key)
         signature=[(r['id'],r['state'],r.get('error'),r.get('label'),r.get('modified')) for r in rows]
+        changed=signature!=getattr(self,'signature',None)
+        icons_current=self._icons.current()
+        if (not changed and icons_current and not self.detail_id and (not rows or current is not None and self.ports.count())
+                and getattr(self,'_refresh_state',None)==(control,self.runner.message)):return
         self.updating=True
-        if signature!=getattr(self,'signature',None):
+        if changed:
             self.signature=signature
             names={'waiting':'等待','preparing':'提交中','submitted':'已提交','unconfirmed':'待核對','failed':'失敗'}
             existing={self.listing.item(i).data(Qt.ItemDataRole.UserRole):self.listing.item(i) for i in range(self.listing.count())}
@@ -213,15 +219,22 @@ class SchedulePanel(QFrame):
                 if title=='目前輸入':title='、'.join(dict.fromkeys(sources)) or next((v['value']['name'] for v in record['inputs'].values() if v['type']=='image'),'文字輸入')
                 item.setText(str(number+1)+' · '+title+'\n'+names.get(record['state'],record['state']))
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled|Qt.ItemFlag.ItemIsSelectable|(Qt.ItemFlag.ItemIsDragEnabled if record['state']=='waiting' else Qt.ItemFlag.NoItemFlags))
-                picture=next((v['value'] for v in record['inputs'].values() if v['type']=='image'),None)
-                if picture:
-                    reader=QImageReader(str(self.canvas.window.store.directory/picture['relative']));reader.setScaledSize(QSize(52,52));item.setIcon(QIcon(QPixmap.fromImage(reader.read())))
                 profile=next((p['name'] for p in self.canvas.window.state.get('generation',{}).get('profiles',[]) if p['id']==record['route'].get('workflow')),record['route'].get('workflow',''))
                 item.setData(Qt.ItemDataRole.UserRole,record['id']);item.setToolTip('\n'.join([profile,'、'.join(dict.fromkeys(sources)),record.get('error') or '點擊查看完整內容']))
                 if record['id']==ident:self.listing.setCurrentItem(item)
             for item in existing.values():self.listing.takeItem(self.listing.row(item))
+        # Preserve the existing no-change fast path. On an entry/status refresh
+        # validate each stamp, but only decode icons whose source has changed.
+        if changed or not icons_current:
+            pictures=[]
+            for index,record in enumerate(rows):
+                source=next((v['value'] for v in record['inputs'].values() if v['type']=='image'),None)
+                path=self.canvas.window.store.directory/source['relative'] if source else None
+                pictures.append((record['id'],self.listing.item(index),path,source))
+            self._icons.load(pictures)
         feed=control.get('feed');remaining=max(0,feed['total']-feed['next']) if feed else 0
         self.status.setText(('已暫停 · ' if control['paused'] else '')+str(len(rows))+' 項'+(' · 尚有 '+str(remaining)+' 張待補入' if feed else '')+'\n'+(self.runner.message or '按執行保存接入資料，空閒時自動送出。'))
+        self._refresh_state=(copy.deepcopy(control),self.runner.message)
         self.updating=False
         if not self.listing.currentItem() and self.listing.count():self.listing.setCurrentRow(0)
         if self.listing.currentItem() and self.ports.count()==0:self.selection_changed()
