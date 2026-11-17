@@ -95,7 +95,7 @@ class AuxOperations:
         workspace = getattr(self.client, 'workspace', None)
         if workspace is not None and not workspace.scheduler.acquire_operation(self.client):
             from .comfy_client import RequestFailure
-            if failed:failed(RequestFailure('無法確認', rejected=True))
+            if failed:failed(RequestFailure(workspace.scheduler.operation_blocker(self.client), rejected=True))
             return None
         item = self.create(action, request, continuation=continuation, owner=owner)
         self.send(item['id'], done=done, failed=failed)

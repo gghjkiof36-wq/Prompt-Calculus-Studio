@@ -61,4 +61,6 @@ open、inspect、capture、apply 的 intent 與 receipt 保存在原 runtime 的
 
 inspect 的持久結果是讀取資料，不是編輯命令；已關閉的參數面板不會在重開後套用。一般 capture 能補回尚未建立的 work_queue，底稿 capture 則不恢復圖片批次。apply 的續行保存到原 input_batch，重開保留 pause；明確繼續不重送已送出的 input。
 
+inspect 仍共用原生操作通道：讀取之前會切換至綁定的 ComfyUI 工作流，再使用原生 serializer；與另一筆正在套用／準備／送出的操作並行，會改變其 graph identity。其他文件有未結案工作時，拒絕狀態顯示「另一份文件（文件名）有待處理的工作」，不使用「無法確認」混淆讀取失敗與通道等待。已證實 missing 的生成可由預排程選單、Stage 卡或生成紀錄使用相同的停止追蹤操作；解除保留歷史，並釋放同一個 runtime 的在途權。
+
 `test_aux_event_acceptance.py` 由原生開啟、文件 catalog、Queue prepare、Stage apply 入口驗證失聯、錯誤身分、兩次重開與重播、交易回滾及取消；[協定](../comfy-event-protocol.md#原生輔助操作與輸入c3) 列出期限與仍保留的舊路徑。

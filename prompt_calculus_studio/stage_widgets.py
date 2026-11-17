@@ -123,12 +123,24 @@ class StagePanel(QFrame):
         self.edit_button.setIcon(icon('workflow'));self.edit_button.setProperty('iconName','workflow')
         body.addWidget(self.edit_button)
         self.status=label('','Subtle',True);body.addWidget(self.status)
+        from .recovery_actions import LABEL
+        self.release_button=button(LABEL,self.stop_tracking,'Quiet')
+        self.release_button.hide();body.addWidget(self.release_button)
         body.addStretch()
         self.canvas.window.comfy.stateChanged.connect(self.refresh)
 
     def edit(self):
         from .stage_parameter_panel import open_parameters
         open_parameters(self.canvas,self.key)
+
+    def stop_tracking(self):
+        generation=self.canvas.window.comfy.generation
+        ids=generation.abandonable(stage=self.key)
+        if len(ids)==1:generation.abandon(ids[0])
+        elif ids:
+            from .recovery_actions import add_actions
+            menu=RoundMenu(self);add_actions(menu,generation,stage=self.key)
+            menu.open_for(self.release_button,self.canvas.view)
 
     def refresh(self):
         from .canvas_onboarding import setup_action
@@ -145,6 +157,7 @@ class StagePanel(QFrame):
         if value.get('workflow') and not profile:error=error or '工作流已移除，請重新選擇。'
         from .execution_messages import display_message
         self.status.setText(display_message(error));self.status.setVisible(bool(error))
+        self.release_button.setVisible(bool(self.canvas.window.comfy.generation.abandonable(stage=self.key)))
 
 
 class SchedulePageContent(QFrame):
@@ -214,6 +227,8 @@ class SchedulePageContent(QFrame):
         group=next((g for g in self.groups if g['id']==ident),None)
         if group is None:return
         menu=RoundMenu(self)
+        from .recovery_actions import add_actions
+        add_actions(menu,self.canvas.window.comfy.generation,scheduler=self.key,group=ident)
         menu.addAction('優先執行',lambda:self.batch_action('prioritize',ident)).setEnabled(not group['cancelled'])
         menu.addAction('恢復執行' if group['bypassed'] else '繞過',lambda:self.batch_action('bypass',ident)).setEnabled(not group['cancelled'])
         menu.addSeparator()
@@ -243,6 +258,8 @@ class SchedulePageContent(QFrame):
 
     def more_actions(self,anchor=None,*,selection=True):
         menu=RoundMenu(anchor or self)
+        from .recovery_actions import add_actions
+        add_actions(menu,self.canvas.window.comfy.generation,scheduler=self.key,group=self.group)
         from .scheduler_wiring import legacy_edges
         if legacy_edges(self.canvas.window.state,self.key):menu.addAction('整理舊接線',self.convert_wiring)
         if self.canvas.data()['schedulers'].get(self.key,{}).get('mode')=='stage':menu.addAction('輸入取值',self.policies)
@@ -510,6 +527,8 @@ class SchedulePanel(QFrame):
         return self.page
 
     def add_menu_actions(self,menu):
+        from .recovery_actions import add_actions
+        add_actions(menu,self.canvas.window.comfy.generation,scheduler=self.key)
         workspace=self.canvas.window.state['workspace']
         groups=self.runner.store.schedule_groups(workspace,self.key)
         manage=menu.addMenu('管理');manage.setEnabled(bool(groups))

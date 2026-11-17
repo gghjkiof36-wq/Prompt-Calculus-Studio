@@ -29,12 +29,16 @@ class Reconcile:
                                       reason=reason, event=event, done=done, expired=False)
         else:
             row = self.pending[ident]
+            if reason=='abandon':row['reason']='abandon'
             if event is not None: row.update(event=event, done=done)
             if force: row.update(at=self.clock(), start=self.clock(), expired=False)
         self.timer.start(0)
 
     def resolved(self, ident):
-        self.pending.pop(ident, None)
+        row=self.pending.get(ident)
+        if row is not None:self.finish(ident,row)
+        elif not self.pending and self.reducer.snapshot_ready and self.reducer.channel_healthy:
+            self.reducer.ready=True
 
     def tick(self):
         if self.client.stopped: return
@@ -87,6 +91,12 @@ class Reconcile:
             row['probed']=True
             self.reducer.probed()
             proof = value.get('recovery', {})
+            # A durable failure is authoritative even when its (never queued)
+            # prompt is absent. Absence must not hide the original rejection.
+            if value.get('state')=='failed' and not value.get('cancel_requested') and proof.get('location')=='missing' and proof.get('fenced'):
+                self.reducer.accept_evidence(ident,value,row.get('event'),None,
+                    lambda:self.finish(ident,row),failed)
+                return
             if proof.get('location') in ('running','queued'):
                 value=dict(value,state=proof['location'])
             if value.get('prompt_id'):
@@ -109,6 +119,12 @@ class Reconcile:
                 return
             if proof.get('location') in ('missing','unavailable','submitting') and not value.get('cancel_confirmed'):
                 self.reducer.remember_proof(ident, value)
+                if proof.get('location')=='missing' and proof.get('fenced'):
+                    cancel=self.reducer.store.db.execute("SELECT json_extract(body,'$.cancel_requested') FROM stage_header WHERE id=? AND kind='attempt'",(ident,)).fetchone()
+                    if row.get('reason')=='abandon' or cancel and cancel[0]:
+                        self.reducer.accept_evidence(ident,dict(value,state='abandoned'),None,None,
+                            lambda:self.finish(ident,row),failed)
+                        return
                 failed(proof.get('location')); return
             if value.get('state') not in ('queued','running','failed','abandoned') and not value.get('cancel_confirmed'):
                 failed('Operation has no conclusive receipt'); return

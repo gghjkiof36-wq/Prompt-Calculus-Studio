@@ -478,7 +478,9 @@ class GenerationRunner:
             self.window.notice('這項工作已結案，不需要解除追蹤。');return
         if events is not None and events.enabled:
             proof=job.get('recovery',{})
-            if proof.get('location')!='missing' or not proof.get('fenced'):
+            if (proof.get('location')!='missing' or not proof.get('fenced') or
+                    events.identity is None or job.get('event_server')!=events.identity['server_instance'] or
+                    job.get('event_epoch')!=events.identity['epoch']):
                 events.reconcile.require(ident,'abandon',force=True);return
             events.accept_evidence(ident,dict(state='abandoned',recovery=proof),None,None,lambda:None,self.window.notice)
             return
@@ -487,6 +489,29 @@ class GenerationRunner:
                 self.window.notice(result.get('reason','工作仍待核對，尚未略過。'));self.recheck(ident);return
             self.retired(ident,result)
         self.client.request('workflow/native/abandon',dict(id=job['native_operation']),done=done,failed=self.window.notice)
+
+    def abandonable(self, *, stage=None, scheduler=None, group=None):
+        """Only active jobs; rendering never decodes retained frozen scenes."""
+        result=[]
+        for job in self.jobs.values():
+            proof=job.get('recovery',{})
+            if (job['state'] not in ACTIVE or job['server']!=self.client.url or
+                    job.get('workspace')!=self.window.state['workspace'] or
+                    proof.get('location')!='missing' or not proof.get('fenced') or not proof.get('can_abandon')):continue
+            chain=job.get('chain',{})
+            if stage is not None and chain.get('stage')!=stage:continue
+            if scheduler is not None:
+                parent=chain.get('parent')
+                # Menu construction is cold; follow just this attempt's ancestry.
+                while parent:
+                    row=self.db.execute("SELECT json_extract(body,'$.scheduler','$.execution_group','$.run','$.parent') FROM stage_header WHERE id=?",(parent,)).fetchone()
+                    if row is None:break
+                    key,batch,run,parent=json.loads(row[0])
+                    if key==scheduler and (group is None or (batch or 'legacy:'+run)==group):break
+                else:continue
+                if row is None or key!=scheduler or group is not None and (batch or 'legacy:'+run)!=group:continue
+            result.append(job['id'])
+        return result
 
     def record(self,ident):
         row=self.db.execute('SELECT body FROM generation_jobs WHERE id=?',(ident,)).fetchone()

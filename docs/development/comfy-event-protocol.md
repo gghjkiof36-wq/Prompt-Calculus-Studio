@@ -289,4 +289,8 @@ operation_evidence 依 journal=1 的既有 generic content_paths 拆到內容表
 
 只寫 `kind=operation.missing` 不構成 fence。事件須包含與其 epoch 相同的 missing_fence 及 checked 證據；缺少時改做原 operation 的定點對帳，不標 retired，也不釋放 lane。
 
+生成 recovery 的 `state=failed` 與 fenced missing 可以同時成立，例如瀏覽器交握在派送前失敗。此時優先接受原耐久失敗與原因，不能讓 missing 分支把失敗降成無限等待。HTTP 錯誤本身仍不是這份耐久證據。
+
+只有 fenced missing 而沒有失敗收據時，無法證明「從未送出」：佇列與歷史可能已清除。使用者已取消該 attempt，或明確選擇「停止追蹤此筆（保留紀錄）」後，才接受為 `retired`／`terminal_action=abandon`，不宣稱後端取消成功，也不自動重送。舊 epoch 的本機證據先定點重查，保留這次解除意圖，不要求再按一次。job、attempt 與所屬預排程 scope 在同一 accepting 交易結案；提交後移除 reconcile 等待、恢復 ready 並刷新工作區通道。兄弟項目保留，沒有結果的 Stage 不推進下游。
+
 已完成任務的晚到參數收據仍可在同一接受交易保存到 job、parameter_state 與 channel_applied_events；原 prompt／owner 與 receipt revision 必須相符。這條路徑不重收圖片、不再推 frame，也不改終態。retired tombstone 仍直接忽略晚到寫入。

@@ -591,7 +591,7 @@ class NativeQueue:
             status=entry.get('status',{})
             terminal=status.get('completed') is True or status.get('status_str')=='error'
             return dict(location='history',can_abandon=terminal,reason='已找到 ComfyUI 歷史，正在核對原工作結果。')
-        return dict(location='missing',can_abandon=True,reason='原任務已不在 ComfyUI 佇列，歷史也不存在。可按「解除阻塞」停止追蹤；保留紀錄，不重送。')
+        return dict(location='missing',can_abandon=True,reason='原任務已不在 ComfyUI 佇列，歷史也不存在。可按「停止追蹤此筆（保留紀錄）」；保留紀錄，不重送。')
 
     def recovery(self, ident, queue, *, proof_scope=None, expected_prompt=''):
         self.require_supported()

@@ -323,7 +323,7 @@ class WorkspaceComfyClient(ComfyClient):
         else:
             allowed = not mutation or scheduler.owns(self)
         if not allowed:
-            error = RequestFailure('另一份 PCS 工作流正在執行或等待確認，這次操作未送出。', rejected=True)
+            error = RequestFailure(scheduler.operation_blocker(self), rejected=True)
             (failed or self.window.notice)(error)
             return
         ident = data.get('id') if isinstance(data, dict) else None

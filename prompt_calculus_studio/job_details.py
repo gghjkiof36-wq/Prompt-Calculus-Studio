@@ -32,7 +32,7 @@ def describe(record,now=None,*,include_workflow=True):
     now=time.time() if now is None else now
     payload=record.get('payload',{}); marker=job_marker(record); gen=marker.get('generation',{})
     recovery=record.get('recovery',{})
-    recovery_text=('最近核對：'+recovery['reason']) if recovery.get('reason') else ''
+    recovery_text=('最近核對：'+recovery['reason'].replace('解除阻塞','停止追蹤此筆（保留紀錄）')) if recovery.get('reason') else ''
     if not marker:
         return '\n'.join(['狀態：'+NAMES.get(record['state'],record['state']),'原生操作：'+record['id'],
             '工作流：'+workflow_name(record),'尚未收到原生提交內容；不會顯示 PCS 舊副本。',record.get('error',''),native_details(record),recovery_text])

@@ -62,6 +62,19 @@ class WorkspaceScheduler(QObject):
     def pending(self, client):
         return unfinished(client.window.store.db)
 
+    def operation_blocker(self, client):
+        """Cold admission failure, shared by workflow reading and mutation."""
+        token=getattr(client.window,'runtime_token',None)
+        blockers=[self.owner,*self.waiting]
+        blockers.extend(key for key,other in self.clients.items()
+                        if key!=token and not other.stopped and self.pending(other))
+        for key in blockers:
+            other=self.clients.get(key)
+            if key!=token and other is not None:
+                name=getattr(other.window,'title','前次任務')
+                return f'另一份文件（{name}）有待處理的工作'
+        return '任務紀錄需要檢查' if self.runtime.errors else '工作區通道尚未就緒'
+
     def claim(self, client):
         token = getattr(client.window, 'runtime_token', None)
         if not token or self.stopped or not self.ready or self.runtime.errors:

@@ -394,11 +394,12 @@ class GenerationPanel(QWidget):
         timer=QTimer(dialog); timer.setInterval(2000); timer.timeout.connect(reload); dialog.finished.connect(timer.stop); timer.start()
         listing.currentRowChanged.connect(selected); dialog.body.addWidget(listing,1); dialog.body.addWidget(detail,2)
         from .flow_widgets import retained_records
+        from .recovery_actions import LABEL
         def recovery(method):
             index=listing.currentRow()
             if 0<=index<len(records):getattr(self.window.comfy.generation,method)(records[index]['id'])
         dialog.body.addLayout(row(button('更新這筆紀錄',lambda:recovery('recheck'),'Quiet'),
-                                  button('停止追蹤此筆（保留紀錄）',lambda:recovery('abandon'),'Quiet')))
+                                  button(LABEL,lambda:recovery('abandon'),'Quiet')))
         from .stage_widgets import show_history as chain_history
         dialog.body.addLayout(row(button('串接流程',lambda:chain_history(self.window),'Quiet'),button('保留的預排程／舊紀錄',lambda:retained_records(self.window),'Quiet'),None,button('關閉',dialog.accept,'Quiet')))
         listing.setCurrentRow(0); dialog.exec(); dialog.deleteLater()

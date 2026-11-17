@@ -260,7 +260,8 @@ class EventReducer:
             proof=value.get('recovery',candidate.get('recovery',{}))
             if proof.get('location')!='missing' or not proof.get('fenced'):
                 failed('Retirement requires fenced missing'); return
-            candidate.update(state='retired',terminal_action='abandon',tombstone=True,finished=time.time())
+            candidate.update(state='retired',terminal_action='abandon',tombstone=True,finished=time.time(),
+                             error='已停止追蹤；保留紀錄，沒有重送。')
         elif value.get('cancel_confirmed'):
             candidate.update(state='failed',terminal_action='cancel',cancel_confirmed=True,error='已取消',finished=time.time())
         elif value.get('state')=='failed':
@@ -366,9 +367,18 @@ class EventReducer:
             attempt=self.chain.store.read(job['id'])
             if disposition=='accepted' and attempt and attempt.get('kind')=='attempt':
                 if job['state'] in TERMINAL:
+                    if job['state']=='retired' and not attempt.get('cancel_requested'):
+                        # Retirement ends this scope too; leaving its entry and
+                        # frame running makes the one-click exit ineffective.
+                        attempt=self.chain.store.update(attempt['id'],cancel_requested=True)
                     if attempt.get('cancel_requested'):
                         from .stage_queue_actions import finish_cancel
                         finish_cancel(self.chain,attempt)
+                        if job['state']=='retired':
+                            self.chain.store.patch(attempt['id'],error=job['error'])
+                            if not attempt.get('parent'):
+                                run=self.chain.store.read(attempt['owner'])
+                                if run and run['status']=='running':self.chain.pause(run['id'],job['error'])
                     else:
                         self.chain.store.patch(job['id'],status='cancelled' if job['state']=='retired' else job['state'],error=job.get('error',''))
                         run=self.chain.store.read(attempt['owner'])
@@ -398,6 +408,7 @@ class EventReducer:
             original.update({k:v for k,v in job.items() if k not in ('result_assets','result_prepared')} if manifest_owned else copy.deepcopy(job))
         if job['state'] in TERMINAL:
             generation.jobs.pop(job['id'],None)
+            self.reconcile.resolved(job['id'])
         elif not job.get('queue_job'): generation.jobs[job['id']]=(original if original is not None else dict(job)) if manifest_owned else copy.deepcopy(job)
         if job.get('prompt_id') or job['state'] in TERMINAL:
             if job.get('prompt_id'): self.prompt_jobs[job['prompt_id']]=job['id']
@@ -410,6 +421,9 @@ class EventReducer:
             if job['state'] in ('failed','unconfirmed','retired'):self.client.queue.dispatching=False
             self.client.queue.notify(job.get('error',''))
             if job['state']=='complete':self.client.queue.pump()
+        if job['state'] in TERMINAL:
+            workspace=getattr(self.client,'workspace',None)
+            if workspace is not None:workspace.scheduler.refresh()
         done()
 
     def remember_proof(self, ident, value):

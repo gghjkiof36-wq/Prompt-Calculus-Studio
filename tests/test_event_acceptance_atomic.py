@@ -207,6 +207,7 @@ class AcceptanceTests(unittest.TestCase):
         self.clock.now=31;self.client.events.reconcile.tick()
         self.assertEqual(self.client.generation.record(ident)['state'],'unconfirmed')
         self.client.generation.abandon(ident)
+        self.client.events.reconcile.tick()  # A prior epoch's fence is rechecked once.
         self.assertEqual(self.client.generation.record(ident)['state'],'retired')
         self.assertEqual(len(self.peer.submissions),1)
 
