@@ -16,11 +16,11 @@ class ReceiptRepairTests(unittest.TestCase):
         self.queue.reply(dict(self.live,id='operation-1',prompt_id=payload['prompt_id']))
         return [0,payload['prompt_id'],payload['prompt'],payload['extra_data']]
 
-    def test_numeric_types_are_declared_and_seed_text_links_stay_exact(self):
+    def test_numeric_values_match_without_schema_and_seed_text_links_stay_exact(self):
         graph={'1':dict(class_type='KSampler',inputs=dict(cfg=2,seed=9007199254740993,positive=['2',0]))}
         actual=copy.deepcopy(graph);actual['1']['inputs']['cfg']=2.0
         self.assertTrue(graph_matches(graph,actual))
-        for field,value in [('seed',9007199254740992),('seed',float(9007199254740993)),('cfg',True),('positive',['2',0.0])]:
+        for field,value in [('seed',9007199254740992),('seed',float(9007199254740993)),('cfg',True),('positive',['2',1])]:
             changed=copy.deepcopy(actual);changed['1']['inputs'][field]=value
             self.assertFalse(graph_matches(graph,changed),field)
         class Custom:
@@ -28,7 +28,7 @@ class ReceiptRepairTests(unittest.TestCase):
             def INPUT_TYPES():return dict(required=dict(scale=('FLOAT',{}),seed=('INT',{}),text=('STRING',{})))
         graph={'1':dict(class_type='Custom',inputs=dict(scale=2,seed=4,text='2'))}
         actual=copy.deepcopy(graph);actual['1']['inputs']['scale']=2.0
-        self.assertFalse(graph_matches(graph,actual))
+        self.assertTrue(graph_matches(graph,actual))
         schema=input_schema(graph,{'Custom':Custom});self.assertTrue(graph_matches(graph,actual,schema))
         actual['1']['inputs']['text']=2;self.assertFalse(graph_matches(graph,actual,schema))
 

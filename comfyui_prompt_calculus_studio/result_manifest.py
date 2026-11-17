@@ -18,6 +18,7 @@ from collections import deque
 from pathlib import Path
 
 from . import event_protocol as p
+from .shared.native_graph import graph_matches
 
 CAPABILITY = 'result_manifest_v1'
 SCHEMA = 'pcs.result-manifest.v1'
@@ -157,27 +158,36 @@ class ResultManifests:
         """
         value = identity(value)
         self._check_server(value)
-        table = {'native': 'native_operations', 'frozen': 'queue_attempts'}[value['operation']['kind']]
         with self.service.connect() as db:
-            raw = db.execute('SELECT body FROM '+table+' WHERE id=?', (value['operation']['id'],)).fetchone()
-            if not raw:
-                raise ValueError('Original operation unavailable')
-            operation = json.loads(raw[0])
-            snapshot = operation.get('snapshot', {})
-            if table == 'queue_attempts':
-                raw = db.execute('SELECT body FROM queue_captures WHERE id=?', (operation.get('capture'),)).fetchone()
-                snapshot = json.loads(raw[0]).get('snapshot', {}) if raw else {}
-            graph = operation.get('payload', {}).get('prompt')
-            if (operation.get('prompt_id') != value['prompt_id'] or not isinstance(graph, dict)
-                    or digest(graph) != value['graph_digest']
-                    or snapshot.get('library_id') != value['owner']['library_id']
-                    or snapshot.get('state', {}).get('workspace') != value['owner']['workspace_id']):
-                raise ValueError('Original owner/prompt/graph mismatch')
+            graph = self._submitted_graph(db, value)
         header = self.register(value, [[key] for key in graph])
         publisher = getattr(self.service.events, 'publisher', None)
         if publisher is not None:
             publisher.results.request(value['prompt_id'])
         return header
+
+    def _submitted_graph(self, db, value):
+        """Resolve the immutable original; never reconstruct it from history.
+
+        The original digest/owner checks are shared by bind and the seal worker.
+        Numeric equivalence applies only after this identity has been verified.
+        """
+        table = {'native': 'native_operations', 'frozen': 'queue_attempts'}[value['operation']['kind']]
+        raw = db.execute('SELECT body FROM '+table+' WHERE id=?', (value['operation']['id'],)).fetchone()
+        if not raw:
+            raise ValueError('Original operation unavailable')
+        operation = json.loads(raw[0])
+        snapshot = operation.get('snapshot', {})
+        if table == 'queue_attempts':
+            raw = db.execute('SELECT body FROM queue_captures WHERE id=?', (operation.get('capture'),)).fetchone()
+            snapshot = json.loads(raw[0]).get('snapshot', {}) if raw else {}
+        graph = operation.get('payload', {}).get('prompt')
+        if (operation.get('prompt_id') != value['prompt_id'] or not isinstance(graph, dict)
+                or digest(graph) != value['graph_digest']
+                or snapshot.get('library_id') != value['owner']['library_id']
+                or snapshot.get('state', {}).get('workspace') != value['owner']['workspace_id']):
+            raise ValueError('Original owner/prompt/graph mismatch')
+        return graph
 
     def register(self, value, paths):
         """Server-side adapter boundary; paths must come from frozen graph evidence."""
@@ -531,8 +541,15 @@ class ResultManifests:
             return bool(state and state[0] == 'success')
         saved = entry.get('prompt')
         if (not isinstance(saved, (list, tuple)) or len(saved) < 5 or saved[1] != prompt
-                or not isinstance(saved[2], dict) or digest(saved[2]) != header['identity']['graph_digest']
+                or not isinstance(saved[2], dict)
                 or not isinstance(saved[4], (list, tuple))):
+            return True
+        with self.service.connect() as db:
+            try:
+                graph = self._submitted_graph(db, header['identity'])
+            except ValueError:
+                return True
+        if not graph_matches(graph, saved[2]):
             return True
         outputs, expected = entry.get('outputs'), saved[4]
         if not isinstance(outputs, dict) or any(not isinstance(n, str) for n in expected):

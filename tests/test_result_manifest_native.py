@@ -13,6 +13,7 @@ import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from _comfy_history import normalized_prompt
 
 from test_result_manifest import Fixture, Service, png, m, events, background, until, RouteClient, route_app
 
@@ -59,7 +60,7 @@ class NativeFixture(Fixture):
         assert self.sent[-1] == ('executed', data, 'native-client')
 
     def completed(self, outputs, *, expected=None):
-        self.history = {'prompt': dict(prompt=[0, 'prompt', self.graph, {}, list(self.graph) if expected is None else expected],
+        self.history = {'prompt': dict(prompt=[0, 'prompt', normalized_prompt(self.graph), {}, list(self.graph) if expected is None else expected],
             outputs=outputs, status=dict(status_str='success', completed=True,
                 messages=[['execution_start', {'prompt_id': 'prompt'}],
                           ['execution_success', {'prompt_id': 'prompt'}]]))}

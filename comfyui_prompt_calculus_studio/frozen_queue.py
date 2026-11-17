@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from .shared.queued_work import ACTIVE, digest, seal, validate, envelope, result_state
 from .shared.snapshots import validate_snapshot
 from .shared.generation import text_fields
+from .shared.native_graph import graph_matches
 
 
 class FrozenQueue:
@@ -360,7 +361,7 @@ class FrozenQueue:
             for item in matches:
                 actual=item[3].get('extra_pnginfo',{}).get('prompt_studio',{}) if len(item)>3 else {}
                 expected=saved['payload']['extra_data']['extra_pnginfo']['prompt_studio']
-                if actual!=expected or digest(item[2])!=digest(saved['payload']['prompt']):
+                if actual!=expected or not graph_matches(saved['payload']['prompt'],item[2]):
                     raise ValueError('Queue 任務歸屬不符。')
             if matches:
                 saved.update(cancel_requested=True,cancel_confirmed=False,cancel_deadline_at=time.time()+30)

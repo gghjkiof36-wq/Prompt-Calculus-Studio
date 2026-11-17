@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 import unittest
 from _result_files import change_result_file
 from unittest.mock import patch
+from _comfy_history import normalized_prompt
 
 from PySide6.QtCore import QEventLoop, QTimer
 import test_event_acceptance_atomic as acceptance
@@ -27,6 +28,7 @@ from prompt_calculus_studio.workspace_runtime import unfinished
 class ManifestServer:
     def __init__(self, peer):
         self.peer=peer;self.calls=[];self.fail_assets=False;self.corrupt=False;self.mutate=None
+        self.reconcile_on_bind=True
         outer=self
         class Handler(BaseHTTPRequestHandler):
             disable_nagle_algorithm=True
@@ -49,7 +51,7 @@ class ManifestServer:
                         body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                         store.bind(body)
                         queue=SimpleNamespace(get_history=lambda prompt_id:copy.deepcopy({prompt_id:outer.peer.history[prompt_id]}) if prompt_id in outer.peer.history else {})
-                        store.reconcile_native(body['prompt_id'],queue)
+                        if outer.reconcile_on_bind:store.reconcile_native(body['prompt_id'],queue)
                         with outer.peer.service.connect() as db:value=store._header(db,fetch.digest(body))
                     else:
                         ref=(q['manifest_id'],int(q['revision']),q['checksum'],owner)
@@ -143,7 +145,7 @@ class PartialNodeResultsTests(unittest.TestCase):
 
     def terminal(self, outputs, *, error=False, interrupted=False, deliver=True, requested=None):
         payload=self.peer.pending.pop(self.prompt,None) or self.peer.submissions[0]
-        self.peer.history[self.prompt]=dict(prompt=[0,self.prompt,copy.deepcopy(payload['prompt']),payload['extra_data'],requested if requested is not None else ['9']],
+        self.peer.history[self.prompt]=dict(prompt=[0,self.prompt,normalized_prompt(payload['prompt']),payload['extra_data'],requested if requested is not None else ['9']],
             outputs=outputs,status=dict(completed=True,status_str='error' if error or interrupted else 'success',
                 messages=[['execution_interrupted',{}]] if interrupted else [['execution_error',{}]] if error else []))
         event='execution_interrupted' if interrupted else 'execution_error' if error else 'execution_success'
@@ -372,6 +374,80 @@ class PartialNodeResultsTests(unittest.TestCase):
         self.until(lambda:self.client.generation.record(self.ident)['state']=='failed')
         self.assertEqual(self.continuations(),0);self.assertEqual(len(self.candidates()),2)
         self.assertNotIn('result',self.runner.store.read(self.ident));self.assertEqual(len(self.peer.submissions),1)
+
+    def recover_old_numeric_manifest(self, cancel=False):
+        from test_result_manifest_native import events, m
+        images=self.images(4);self.executed('9',images);self.ready_candidates(4)
+        store=self.peer.service.result_manifests
+        # Preserve an old unsealed manifest with real candidates and terminal
+        # observations. This gate models the old digest-only rejection.
+        original_seal=store.seal_history
+        def old_seal(ident,history):
+            entry=history.get(self.prompt)
+            if entry and m.digest(entry['prompt'][2])!=self.manager.identity(self.client.events.job(self.ident))['graph_digest']:
+                return True
+            return original_seal(ident,history)
+        with patch.object(store,'seal_history',old_seal):
+            self.terminal({'9':dict(images=images)})
+            self.until(lambda:self.client.generation.record(self.ident)['state']=='results_pending')
+            header=self.client.events.job(self.ident)['result_manifest']
+            self.assertFalse(header['sealed'])
+            self.assertNotEqual(m.digest(self.peer.history[self.prompt]['prompt'][2]),header['identity']['graph_digest'])
+            if cancel:
+                self.runner.cancel_current()
+                self.client.events.reconcile.tick();self.h.drain()
+                self.assertTrue(self.runner.store.read(self.ident)['cancel_requested'])
+            self.stop_workers()
+        originals={p:p.read_bytes() for p in (self.client.window.store.directory/'originals/generation').glob('*.png')}
+        self.assertEqual(len(originals),4)
+        service=self.peer.service
+        service.close()
+        self.peer.service=type(service)(service.directory, self.peer.root, self.peer.root)
+        self.peer.native=self.peer.service.native_queue
+        restarted=self.peer.service.result_manifests
+        self.assertIn(self.prompt,restarted.pending_native())
+        # No client bind or synthetic reconcile may seal this manifest: only
+        # the production worker's automatic startup scan does so.
+        self.server.reconcile_on_bind=False
+        queue=SimpleNamespace(get_current_queue_volatile=lambda:([],[]),
+            get_history=lambda prompt_id:copy.deepcopy({prompt_id:self.peer.history[prompt_id]}))
+        publisher=events.NativeEventBuffer(self.peer.service,queue)
+        self.addCleanup(publisher.stop)
+        publisher.start()
+        def latest():
+            with self.peer.service.connect() as db:return restarted._header(db,header['manifest_id'])
+        self.until(lambda:latest()['sealed'])
+        self.assertEqual(latest()['identity'],header['identity'])
+        self.assertEqual(len(self.peer.submissions),1)
+        # Normal reconnect/event delivery, no user refresh/retry/resubmit.
+        log=self.peer.service.events
+        self.h.identity=dict(server_instance=log.server_instance,epoch=log.epoch)
+        self.h.since='0'  # Event sequence restarts with the extension epoch.
+        self.bind();self.h.drain()
+        self.until(lambda:self.client.generation.record(self.ident)['state']=='complete')
+        final=self.client.generation.record(self.ident)
+        self.assertTrue(final['result_manifest']['sealed'])
+        self.assertEqual(len(final['results']),4)
+        attempt=self.runner.store.read(self.ident)
+        self.assertEqual(attempt['status'],'complete')
+        self.assertEqual(len(attempt['result']['images']),4)
+        self.assertFalse(attempt.get('cancel_requested'))
+        # This fixture has a single Stage: settling its last frame completes
+        # the run even after cancel-current paused further dispatch.
+        self.assertEqual(self.runner.store.read(attempt['owner'])['status'],'complete')
+        self.assertEqual(len(self.peer.submissions),1)
+        self.assertTrue(all(p.read_bytes()==data for p,data in originals.items()))
+        self.assertFalse(self.f.errors,self.f.errors)
+        print(json.dumps(dict(t2_restart=True, cancelled_before_restart=cancel,
+            job=final['state'], attempt=attempt['status'], sealed=final['result_manifest']['sealed'],
+            images=len(final['results']), cancel_requested=attempt.get('cancel_requested'),
+            submissions=len(self.peer.submissions), originals_preserved=len(originals))))
+
+    def test_23_old_numeric_manifest_restart_completes_without_resubmit(self):
+        self.recover_old_numeric_manifest()
+
+    def test_24_cancelled_results_pending_finishes_after_extension_restart(self):
+        self.recover_old_numeric_manifest(cancel=True)
 
     def test_18_file_failure_recovers_without_resubmit(self):
         with patch.object(fetch,'atomic_file',side_effect=OSError('disk unavailable')):

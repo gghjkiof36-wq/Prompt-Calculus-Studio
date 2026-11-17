@@ -5,6 +5,7 @@ import json
 import sqlite3
 import unittest
 from unittest.mock import patch
+from _comfy_history import normalized_prompt
 import test_binding_submission as bindings_tests
 from test_comfy_integration import png, Service
 from prompt_calculus_studio.work_queue import WorkQueue
@@ -65,7 +66,7 @@ class QueueTests(unittest.TestCase):
             name=result['id']+'-'+str(index)+'.png'
             png(self.root/name, result['payload']['extra_data']['extra_pnginfo'])
             images.append(dict(filename=name,subfolder='',type='output'))
-        return {result['prompt_id']:dict(prompt=[0,result['prompt_id'],copy.deepcopy(work['graph']),{}],
+        return {result['prompt_id']:dict(prompt=[0,result['prompt_id'],normalized_prompt(work['graph']),{}],
             outputs={'9':dict(images=images)},status=dict(completed=True,status_str='success'))}
 
     def test_three_batch10_work_items_keep_frozen_values_after_closed_web_and_edits(self):
