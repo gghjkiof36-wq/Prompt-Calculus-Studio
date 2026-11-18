@@ -118,7 +118,7 @@ def event_capability():
 async def events_capability(request):
     capabilities = [event_protocol.CAPABILITY]
     if event_publisher.results.available():
-        capabilities.append(result_manifest.CAPABILITY)
+        capabilities.extend((result_manifest.CAPABILITY,result_manifest.DELIVERY))
     return event_response(dict(capabilities=capabilities,
         event_channel=event_capability(),extension_info=LOADED_BUILD))
 
@@ -175,7 +175,15 @@ async def result_bind(request):
     value = await body(request)
     if value.get('owner') != expected_owner:
         raise ValueError('Foreign result owner')
-    return event_response(await asyncio.to_thread(service.result_manifests.bind, value))
+    return event_response(await asyncio.to_thread(service.result_manifests.bind, value,
+        retain=request.query.get('retain') == '1'))
+
+
+@routes.post('/prompt_studio/results/received')
+@event_route
+async def result_received(request):
+    return event_response(await asyncio.to_thread(service.result_manifests.acknowledge,
+        *result_reference(request), await body(request)))
 
 
 @routes.get('/prompt_studio/results/manifests')
@@ -287,7 +295,7 @@ async def desktop_status(request):
     status['extension_info']=LOADED_BUILD
     if service.native_queue.available():
         status['capabilities'].append(event_protocol.CAPABILITY)
-        if event_publisher.results.available():status['capabilities'].append(result_manifest.CAPABILITY)
+        if event_publisher.results.available():status['capabilities'].extend((result_manifest.CAPABILITY,result_manifest.DELIVERY))
         status['event_channel']=event_capability()
     if service.native_queue.available():status['capabilities'].extend(['native_recovery_v1','native_inspect_v1','native_parameters_v1'])
     return web.json_response(status)

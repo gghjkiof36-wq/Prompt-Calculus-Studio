@@ -93,6 +93,7 @@ def recognize(value):
         raise ValueError('Missing extension installation root')
     result.update(scope=scope(), scope_digest=scope_digest(), extension_info=dict(extension))
     if 'result_manifest_v1' in value.get('capabilities', []):result['result_manifest_v1']=True
+    if result.get('result_manifest_v1') and 'result_delivery_v1' in value['capabilities']:result['result_delivery_v1']=True
     return result
 
 

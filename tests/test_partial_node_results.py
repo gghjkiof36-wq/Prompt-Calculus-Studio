@@ -49,13 +49,20 @@ class ManifestServer:
                     if (q['server_instance'],q['epoch'])!=(log.server_instance,log.epoch):raise ValueError('epoch')
                     if route=='manifests/bind':
                         body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-                        store.bind(body)
+                        store.bind(body,retain=q.get('retain')=='1')
                         queue=SimpleNamespace(get_history=lambda prompt_id:copy.deepcopy({prompt_id:outer.peer.history[prompt_id]}) if prompt_id in outer.peer.history else {})
                         if outer.reconcile_on_bind:store.reconcile_native(body['prompt_id'],queue)
                         with outer.peer.service.connect() as db:value=store._header(db,fetch.digest(body))
                     else:
                         ref=(q['manifest_id'],int(q['revision']),q['checksum'],owner)
                         if route=='manifest':value=store.page(*ref,after=int(q['after']))
+                        elif route=='received':
+                            body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                            value=store.acknowledge(*ref,body)
+                            if getattr(outer,'lose_receipt',False):
+                                outer.lose_receipt=False
+                                self.close_connection=True
+                                return
                         elif route=='asset':
                             if outer.fail_assets:raise OSError('copy unavailable')
                             value=store.asset(*ref,ordinal=int(q['ordinal']),asset_sha256=q['asset_sha256'],
@@ -112,7 +119,7 @@ class PartialNodeResultsTests(unittest.TestCase):
 
     def stop_workers(self):
         manager=self.manager;manager.close()
-        self.until(lambda:not manager.work,timeout=10)
+        self.until(lambda:not manager.work and manager.receipt_work is None,timeout=10)
 
     def until(self, predicate, *, timeout=12):
         end=time.monotonic()+timeout
@@ -267,8 +274,8 @@ class PartialNodeResultsTests(unittest.TestCase):
         token=self.client.window.runtime_token
         with patch.object(self.f,'tick',lambda:None):self.f.reopen(restore_tabs=False)
         self.h.restored_client=self.f.w.scheduler.clients[token]
-        self.bind()
         self.client.events.reconcile.clock=self.h.clock
+        self.bind()
 
     def test_12_history_missing_then_complete_never_seals_false_zero(self):
         images=self.images(2);self.executed('9',images);self.ready_candidates(2)

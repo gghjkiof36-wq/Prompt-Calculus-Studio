@@ -53,7 +53,7 @@ class DocumentChannel:
                     self.channel.command.emit(dict(kind='delivered',page=page,running=self.client.events.running_prompts()))
                     if page['snapshot'] and page['done']:
                         self.client.events.snapshot_ready=True
-                        self.client.events.ready=self.client.events.channel_healthy and not self.client.events.reconcile.pending
+                        self.client.events.update_ready()
                         self.channel.command.emit(dict(kind='reconciled'))
                     return
                 self.client.events.receive(page['events'][index],lambda:apply(index+1),snapshot=bool(page['snapshot']))

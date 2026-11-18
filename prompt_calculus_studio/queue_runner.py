@@ -248,7 +248,10 @@ class QueueRunner:
         self.notify()
         if events is not None and events.enabled:
             events.reconcile.require(item['attempt'],'submit')
-            self.client.request('workflow/queue/submit',dict(job=item['id'],attempt=item['attempt'],capture=item['capture'],sha256=item['work']['sha256']),
+            request=dict(job=item['id'],attempt=item['attempt'],capture=item['capture'],sha256=item['work']['sha256'])
+            if (events.identity or {}).get('result_delivery_v1') and item['work']['snapshot'].get('library_id'):
+                request['result_document']=events.results.document_id
+            self.client.request('workflow/queue/submit',request,
                 done=lambda value:events.reconcile.require(item['attempt'],'submit_ack',force=True),
                 failed=lambda error:events.reconcile.require(item['attempt'],'submit_ack_lost'))
             return

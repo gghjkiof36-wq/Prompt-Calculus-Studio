@@ -78,12 +78,17 @@ class RouteClient:
     def make_url(self, path):
         return 'http://127.0.0.1:8188'+path
 
-    async def get(self, path, *, params=None, headers=None, remote='127.0.0.1'):
+    async def get(self, path, **options):
+        return await self.request('GET',path,**options)
+
+    async def request(self, method, path, *, params=None, headers=None, remote='127.0.0.1', data=None):
         headers = headers or {}
-        request = types.SimpleNamespace(query=params or {}, headers=headers, method='GET',
-                                        remote=remote, host=headers.get('Host', '127.0.0.1:8188'))
+        async def chunks(size):
+            yield json.dumps(data).encode()
+        request = types.SimpleNamespace(query=params or {}, headers=headers, method=method,
+            content=types.SimpleNamespace(iter_chunked=chunks),remote=remote, host=headers.get('Host', '127.0.0.1:8188'))
         try:
-            return await self.routes['GET', path](request)
+            return await self.routes[method, path](request)
         except HTTPException as exc:
             return Response(status=exc.status)
 
@@ -518,7 +523,7 @@ def route_app(service):
     tree = ast.parse((ROOT/'comfyui_prompt_calculus_studio/__init__.py').read_text(encoding='utf-8'))
     names = {'local_route', 'event_route', 'event_query', 'event_response', 'body',
              'result_query', 'result_reference', 'result_bind', 'result_headers',
-             'result_page', 'result_evidence', 'result_asset', 'event_capability', 'events_capability'}
+             'result_page', 'result_evidence', 'result_asset', 'result_received', 'event_capability', 'events_capability'}
     routes = web.RouteTableDef()
     context = dict(asyncio=asyncio, functools=functools, ipaddress=ipaddress, json=json,
                    logging=logging, secrets=secrets, urlsplit=urlsplit, web=web,

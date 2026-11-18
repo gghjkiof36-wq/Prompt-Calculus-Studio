@@ -19,7 +19,25 @@ class StageStore:
         from .storage_layout import initialize
         initialize(db)
         for run in self.open_runs():
+            if (run['status']=='paused' and run.get('pause_reason') not in ('restart','disconnect')
+                    or self.can_reconnect(run)):
+                continue
             self.update(run['id'],status='paused',pause_reason='restart',message='重新開啟後保留進度，請從紀錄繼續。')
+
+    def can_reconnect(self,run):
+        if run['status']!='running' or not run.get('stack'):
+            return False
+        frame=run['stack'][-1]
+        if (run.get('await_channel') and len(run['stack'])==1 and frame.get('kind')=='seq'
+                and frame.get('index')==0 and run.get('round')==1):
+            return True  # The original click is frozen and has not entered its first stage.
+        attempt=frame.get('job')
+        # An issued frame waits for the same attempt; only its accepted result advances it.
+        return bool(attempt and self.db.execute(
+            """SELECT 1 FROM stage_header WHERE id=? AND kind='attempt' AND owner=?
+            AND json_extract(body,'$.result_delivery')=1
+            AND COALESCE(json_extract(body,'$.cancel_requested'),0)=0""",
+            (attempt,run['id'])).fetchone())
 
     def open_runs(self,workspace=None):
         sql="SELECT "+codec.RECORD_COLUMNS+" FROM stage_header INDEXED BY stage_header_open_runs WHERE kind='run' AND json_extract(body,'$.status') NOT IN ('complete','cancelled')"

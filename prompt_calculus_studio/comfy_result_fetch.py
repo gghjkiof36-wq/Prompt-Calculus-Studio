@@ -12,6 +12,7 @@ from http.client import HTTPConnection, HTTPSConnection
 import json
 import os
 import socket
+import sqlite3
 from pathlib import Path
 import threading
 import time
@@ -135,7 +136,8 @@ class ManifestReader:
         return content if raw else json.loads(content)
 
     def manifest(self, expected, reference=None):
-        header = reference or self.request('manifests/bind', data=expected)
+        header = reference or self.request('manifests/bind', data=expected,
+                                          retain=int(bool(self.identity.get('result_delivery_v1'))))
         ref = {k:header[k] for k in ('manifest_id','revision','checksum')}
         items, leases, after = [], {}, -1
         while True:
@@ -172,6 +174,11 @@ def check_header(header, expected):
                 header.get('final_digest')!=header['items_digest'] or
                 (header['item_count']==0 and not header.get('zero_output'))):
             raise ValueError('Final requires a sealed successful history')
+        if header.get('delivery_requested'):
+            proof=header.get('history_digest','')
+            if (header.get('seal_evidence')!='history:'+expected['prompt_id'] or not isinstance(proof,str)
+                    or len(proof)!=64 or any(c not in '0123456789abcdef' for c in proof)):
+                raise ValueError('Missing retained history proof')
     elif header.get('item_source') not in (None, 'candidates'):
         raise ValueError('Unsealed final collection')
 
@@ -180,7 +187,7 @@ def check_item(item, ordinal):
     image=item.get('image',{})
     name=image.get('filename','')
     sub=image.get('subfolder','')
-    if (item.get('ordinal')!=ordinal or type(item.get('item_index')) is not int or item['item_index']<0 or
+    if (type(item.get('ordinal')) is not int or item['ordinal']!=ordinal or type(item.get('item_index')) is not int or item['item_index']<0 or
             not isinstance(item.get('node_path'),list) or not item['node_path'] or
             not all(isinstance(v,str) and v for v in item['node_path']) or
             not isinstance(item.get('occurrence'),str) or item.get('output_slot')!='images' or
@@ -353,9 +360,57 @@ class ResultFetch(QObject):
         self.reader_type=ManifestReader
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(self.tick)
         self.notice=QTimer(self);self.notice.setSingleShot(True);self.notice.timeout.connect(self.notify)
+        self.receipt_timer=QTimer(self);self.receipt_timer.setSingleShot(True)
+        self.receipt_timer.timeout.connect(self.send_receipt)
+        self.receipt_work=None
+        self.receipt_after=0
 
     @property
     def enabled(self):return bool((self.reducer.identity or {}).get(CAPABILITY))
+
+    @property
+    def document_id(self):
+        return getattr(self.window,'document_id',None) or self.window.store.library_id
+
+    def wake_receipts(self):
+        if (self.reducer.identity or {}).get('result_delivery_v1') and not self.closed and not self.receipt_timer.isActive() and self.receipt_work is None:
+            self.receipt_timer.start(0)
+
+    def send_receipt(self):
+        if not (self.reducer.identity or {}).get('result_delivery_v1') or self.closed or self.client.stopped or self.receipt_work is not None:return
+        channel=dict(self.reducer.identity)
+        query='SELECT rowid,body FROM generation_result_acks WHERE server=? AND instance=? AND rowid>? ORDER BY rowid LIMIT 1'
+        server=(self.client.url,channel['server_instance'])
+        db=self.reducer.store.db
+        row=db.execute(query,(*server,self.receipt_after)).fetchone()
+        if not row and self.receipt_after:row=db.execute(query,(*server,0)).fetchone()
+        if not row:return
+        self.receipt_after,body=row
+        receipt=json.loads(body)
+        reference={key:receipt[key] for key in ('manifest_id','revision','checksum')}
+        confirmation={key:receipt[key] for key in ('item_count','final_digest')}
+        reader_type,url,token,cancel=self.reader_type,self.client.url,self.client.token,self.cancel
+        def send():
+            reader=reader_type(url,token,channel,receipt['owner'],cancel)
+            if reader.request('received',data=confirmation,**reference)!=reference:
+                raise ValueError('Incorrect final result acknowledgement')
+        work=Work(send,(self.generation,receipt['manifest_id'],body))
+        self.receipt_work=work
+        work.signals.completed.connect(self.receipt_returned)
+        result_pool().start(work)
+
+    @Slot(object)
+    def receipt_returned(self, outcome):
+        _,(generation,manifest,body),_,error=outcome
+        self.receipt_work=None
+        if self.closed or self.client.stopped:return
+        if generation==self.generation and not error:
+            try:
+                with self.reducer.chain.accepting():
+                    self.reducer.store.db.execute('DELETE FROM generation_result_acks WHERE manifest=? AND body=?',
+                                                  (manifest,body))
+            except sqlite3.Error as exc:error=str(exc)
+        self.receipt_timer.start(2000 if error else 0)
 
     def eligible(self, job):
         return (self.enabled and job.get('server')==self.client.url and
@@ -372,7 +427,7 @@ class ResultFetch(QObject):
             saved=self.graphs[job['id']]=(copy.deepcopy(graph),digest(graph))
         return dict(owner=dict(library_id=job.get('event_library') or self.window.store.library_id,
             workspace_id=job.get('workspace',self.window.state['workspace']),
-            document_id=getattr(self.window,'document_id',None) or self.window.store.library_id),
+            document_id=self.document_id),
             server_instance=self.reducer.identity['server_instance'],
             operation=dict(kind='frozen' if job.get('queue_job') else 'native',id=job['id']),
             prompt_id=job['prompt_id'],graph_digest=saved[1])
@@ -614,6 +669,9 @@ class ResultFetch(QObject):
             raise ValueError('Conflicting result revision')
         source=header.get('item_source','candidates');manifest=header['manifest_id']
         events=list(row['events']);changed=previous!=header
+        recovered=(header.get('delivery_requested') and header['sealed'] and
+                   job['state'] in ('submitting','queued','running','unconfirmed','results_pending') and
+                   job.get('result_terminal')!='success')
         old_packet=row.get('packet')
         if old_packet and old_packet['header']==header and not events:
             row['packet']=packet  # Refresh expiring asset leases on retry.
@@ -627,7 +685,14 @@ class ResultFetch(QObject):
             self.write_candidates(ident,row,packet);return
         with self.reducer.chain.accepting():
             db=self.reducer.store.db
-            if changed:
+            if recovered:
+                # The extension already verified the original operation and
+                # successful complete history. Live history can now be empty.
+                job=dict(job,result_manifest=header,state='results_pending',result_terminal='success',
+                         finished=job.get('finished') or time.time(),error='結果待確認')
+                if job.get('typed_inputs'):job['input_check']='matched'
+                self.reducer.commit(job,self.reducer.event_for(job,dict(sealed_success=header['checksum'])),lambda:None)
+            elif changed:
                 job=dict(job,result_manifest=header)
                 updated=db.execute("UPDATE generation_jobs SET body=json_set(body,'$.result_manifest',json(?)) WHERE id=?",
                                    (packet['header_json'],ident))
@@ -710,6 +775,7 @@ class ResultFetch(QObject):
             job=self.reducer.job(ident)
             if job and job['state']=='complete':self.queue_derivatives(ident,json.loads(raw),(manifest,source,key))
         self.refresh_stopped(epoch_only=not self.refresh_requested)
+        self.wake_receipts()
         self.refresh_requested=False
         self.schedule()
 
@@ -796,6 +862,8 @@ class ResultFetch(QObject):
 
     def reset(self):
         self.closed=False
+        self.receipt_timer.stop()
+        self.receipt_after=0
         self.generation+=1;self.cancel.set();self.cancel=Cancellation()
         for row in self.pending.values():row['cancel'].set()
         self.timer.stop();self.notice.stop();self.pending.clear();self.manifests.clear();self.derived.clear();self.suspended.clear();self.display_checks.clear();self.graphs.clear();self.healthy=True

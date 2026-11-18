@@ -186,7 +186,11 @@ class WorkspaceRuntime:
             store = None
             try:
                 store = Storage(self.directory/token)
-                if not unfinished(store.db):
+                # An undelivered result receipt needs its original owner online,
+                # but does not occupy the generation lane.
+                if not unfinished(store.db) and not (store.db.execute(
+                        "SELECT 1 FROM sqlite_master WHERE name='generation_result_acks'").fetchone()
+                        and store.db.execute('SELECT 1 FROM generation_result_acks LIMIT 1').fetchone()):
                     store.close()
                     continue
                 state = store.load_current(multi=True)

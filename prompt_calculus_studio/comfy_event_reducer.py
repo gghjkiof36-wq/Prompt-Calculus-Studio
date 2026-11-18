@@ -345,7 +345,14 @@ class EventReducer:
         if prepared:self.client.generation._write_job(durable,encoded=prepared['job_json'])
         else:self.client.generation._write_job(durable)
         if job['state']=='complete' and job.get('result_manifest',{}).get('sealed'):
-            manifest=job['result_manifest']['manifest_id']
+            header=job['result_manifest']
+            manifest=header['manifest_id']
+            if header.get('delivery_requested') and 'final_manifest' in event['payload']:
+                receipt = {key:header[key] for key in ('manifest_id','revision','checksum','item_count','final_digest')}
+                receipt['owner'] = header['identity']['owner']
+                self.store.db.execute('INSERT OR IGNORE INTO generation_result_acks VALUES (?,?,?,?)',
+                    (manifest, job['server'], header['identity']['server_instance'], p.encode(receipt).decode()))
+                self.chain.store._transactions.after_commit(self.results.wake_receipts)
             self.store.db.execute("DELETE FROM channel_result_candidates WHERE manifest=? AND source='candidates'",(manifest,))
             self.store.db.execute("UPDATE channel_result_candidates SET derived_pending=1 WHERE manifest=? AND source='history' AND state='ready' AND COALESCE(json_type(receipt,'$.derived'),'null')='null'",(manifest,))
         attempt=self.chain.store.read(job['id'])
@@ -450,7 +457,6 @@ class EventReducer:
         self.aux.health(health)
         self.results.health(health)
         self.channel_healthy=bool(not health.get('needs_reconcile') and health.get('log_consistent',True) and health.get('state')=='receiving')
-        self.ready=bool(self.snapshot_ready and not self.reconcile.pending and self.channel_healthy)
         running=health.get('running')
         for job in self.active():
             if self.identity and job.get('event_server') not in (None,self.identity['server_instance']):continue
@@ -460,6 +466,16 @@ class EventReducer:
                 if health.get('state')=='unconfirmed':
                     try:self.unconfirmed(job['id'])
                     except (sqlite3.Error,OSError) as exc:self.diagnostic('unconfirmed receipt pending: '+str(exc))
+        self.update_ready()
+
+    def update_ready(self):
+        ready = self.snapshot_ready and self.channel_healthy and not self.reconcile.pending
+        wake = ready and not self.ready
+        self.ready = ready
+        if wake:
+            # A click can commit its frozen batch before this owner is allowed
+            # to claim the lane. Re-enter the usual gated pump with that batch.
+            self.chain.later()
 
     def heartbeat(self):
         self.aux.heartbeat()

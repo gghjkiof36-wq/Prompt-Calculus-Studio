@@ -18,9 +18,11 @@ from collections import deque
 from pathlib import Path
 
 from . import event_protocol as p
+from .result_delivery import Deliveries
 from .shared.native_graph import graph_matches
 
 CAPABILITY = 'result_manifest_v1'
+DELIVERY = 'result_delivery_v1'
 SCHEMA = 'pcs.result-manifest.v1'
 MAX_CAPTURE = 512 * 1024
 MAX_QUEUE_BYTES = 8 * 1024 * 1024
@@ -97,6 +99,7 @@ class ResultManifests:
     def __init__(self, service, roots, *, clock=time.time):
         self.service, self.clock = service, clock
         self.roots = {key: Path(value).absolute() for key, value in roots.items()}
+        self.deliveries = Deliveries(service.directory.absolute(), self._not_redirected)
         self.secret = secrets.token_bytes(32)
         self.write_transactions = 0
         self.transaction_times = deque(maxlen=4096)  # Diagnostics only; no idle writes.
@@ -108,6 +111,7 @@ class ResultManifests:
                     paths TEXT NOT NULL, revision INTEGER NOT NULL);
                 CREATE INDEX IF NOT EXISTS result_manifest_owner ON result_manifests(owner,id);
                 CREATE INDEX IF NOT EXISTS result_manifest_prompt ON result_manifests(prompt);
+                CREATE TABLE IF NOT EXISTS result_delivery_acks (manifest TEXT PRIMARY KEY);
                 CREATE TABLE IF NOT EXISTS result_versions (
                     sequence INTEGER PRIMARY KEY AUTOINCREMENT, manifest TEXT NOT NULL,
                     revision INTEGER NOT NULL, checksum TEXT NOT NULL, body TEXT NOT NULL,
@@ -150,7 +154,7 @@ class ResultManifests:
         if db.execute('SELECT epoch FROM event_meta WHERE id=1').fetchone()[0] != self.service.events.epoch:
             raise ValueError('Stale result publisher')
 
-    def bind(self, value):
+    def bind(self, value, *, retain=False):
         """Authenticated PCS supplies document mapping; verify the saved operation.
 
         This does not grant any occurrence, nested-path or zero-output proof.
@@ -159,10 +163,23 @@ class ResultManifests:
         value = identity(value)
         self._check_server(value)
         with self.service.connect() as db:
-            graph = self._submitted_graph(db, value)
-        header = self.register(value, [[key] for key in graph])
+            # A retained native/frozen submission has already fixed this exact
+            # owner, prompt, graph and path set before /prompt. Repeated binds
+            # can read the original immutable registration without a writer.
+            row = db.execute("""SELECT v.body,v.checksum FROM result_manifests m
+                JOIN result_versions v ON v.manifest=m.id AND v.revision=m.revision
+                WHERE m.id=? AND json_extract(v.body,'$.delivery_requested')=1""",
+                (digest(value),)).fetchone() if retain else None
+            if row:
+                self._current(db)
+                header=dict(json.loads(row[0]),checksum=row[1])
+                if header['identity']!=value:raise ValueError('Result identity changed')
+            else:
+                db.execute('BEGIN IMMEDIATE')
+                graph = self._submitted_graph(db, value)
+                header = self._register(db, value, [[key] for key in graph], retain)
         publisher = getattr(self.service.events, 'publisher', None)
-        if publisher is not None:
+        if publisher is not None and not header['sealed']:
             publisher.results.request(value['prompt_id'])
         return header
 
@@ -191,6 +208,20 @@ class ResultManifests:
 
     def register(self, value, paths):
         """Server-side adapter boundary; paths must come from frozen graph evidence."""
+        with self.service.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            return self._register(db, value, paths, False)
+
+    def register_submission(self, db, kind, operation, snapshot, document):
+        """Bind the PCS-declared document in the original pre-submit transaction."""
+        graph = operation['payload']['prompt']
+        value = dict(owner=dict(library_id=snapshot['library_id'], workspace_id=snapshot['state']['workspace'],
+                                document_id=document), server_instance=self.service.events.server_instance,
+                     operation=dict(kind=kind, id=operation['id']), prompt_id=operation['prompt_id'],
+                     graph_digest=digest(graph))
+        self._register(db, value, [[key] for key in graph], True)
+
+    def _register(self, db, value, paths, retain):
         value = identity(value)
         self._check_server(value)
         paths = sorted([node_path(path) for path in paths])
@@ -198,14 +229,15 @@ class ResultManifests:
             raise ValueError('Invalid path map')
         ident = digest(value)
         operation = digest(dict(server=value['server_instance'], operation=value['operation']))
-        with self.service.connect() as db:
-            db.execute('BEGIN IMMEDIATE')
-            self._current(db)
-            old = db.execute('SELECT id,identity,paths FROM result_manifests WHERE operation=?', (operation,)).fetchone()
-            if old:
-                if old != (ident, p.encode(value).decode(), p.encode(paths).decode()):
-                    raise ValueError('Result identity or path map changed')
-                return self._header(db, ident)
+        self._current(db)
+        old = db.execute('SELECT id,identity,paths FROM result_manifests WHERE operation=?', (operation,)).fetchone()
+        if old:
+            if old != (ident, p.encode(value).decode(), p.encode(paths).decode()):
+                raise ValueError('Result identity or path map changed')
+            header = self._header(db, ident)
+            if not retain or header.get('delivery_requested') or header['sealed']:
+                return header
+        else:
             db.execute('INSERT INTO result_manifests VALUES (?,?,?,?,?,?,0)',
                        (ident, p.encode(value).decode(), p.encode(value['owner']).decode(),
                         value['prompt_id'], operation, p.encode(paths).decode()))
@@ -213,7 +245,9 @@ class ResultManifests:
                           item_count=0, items_digest=digest([]), sealed=False,
                           terminal_state=None, expected_count=None, final_digest=None,
                           result_state='results_pending', source_epoch=self.service.events.epoch)
-            self._version(db, header)
+        if retain:
+            header['delivery_requested'] = True
+        self._version(db, header)
         self._written()
         return header
 
@@ -226,6 +260,13 @@ class ResultManifests:
         if not row or (checksum is not None and not hmac.compare_digest(row[1], checksum)):
             raise ValueError('Unknown manifest revision/checksum')
         return dict(json.loads(row[0]), checksum=row[1])
+
+    def has_delivery(self, db, kind, ident, prompt):
+        operation = digest(dict(server=self.service.events.server_instance, operation=dict(kind=kind, id=ident)))
+        return db.execute("""SELECT 1 FROM result_manifests m JOIN result_versions v
+            ON v.manifest=m.id AND v.revision=m.revision WHERE m.operation=? AND m.prompt=?
+            AND json_extract(v.body,'$.delivery_requested')=1 AND json_extract(v.body,'$.sealed')=1""",
+            (operation,prompt)).fetchone() is not None
 
     def _version(self, db, header):
         header.pop('checksum', None)
@@ -435,7 +476,7 @@ class ResultManifests:
         return dict(node_id=node, node_path=path, occurrence=occurrence,
                     output_slot='images', item_index=index, ordinal=ordinal,
                     image=image, asset_sha256=asset_hash, size=len(content), format='png',
-                    asset_key=digest([node, image, asset_hash])), stamp
+                    asset_key=digest([node, image, asset_hash])), stamp, content
 
     def _apply_native(self, ident, observation):
         sequence, raw, epoch = observation
@@ -463,7 +504,7 @@ class ResultManifests:
                     raise ValueError('Invalid executed images')
                 for index, image in enumerate(images):
                     verified.append(self._native_item(data['prompt_id'], node, image,
-                        index, count+len(verified), str(occurrence), path))
+                        index, count+len(verified), str(occurrence), path)[:2])
             except (ValueError, KeyError, TypeError, AttributeError, OSError) as exc:
                 # Display is best effort. Never let an expired/malformed early
                 # image block independent final history reconciliation.
@@ -500,16 +541,21 @@ class ResultManifests:
     def reconcile_native(self, prompt, queue):
         """Worker only. Return True while exact history still needs a retry."""
         with self.service.connect() as db:
-            manifests = [r[0] for r in db.execute('SELECT id FROM result_manifests WHERE prompt=?', (prompt,))]
+            manifests = db.execute("""SELECT m.id,v.body,COALESCE(s.sequence,0) FROM result_manifests m
+                JOIN result_versions v ON v.manifest=m.id AND v.revision=m.revision
+                LEFT JOIN result_native_state s ON s.manifest=m.id
+                WHERE m.prompt=? AND json_extract(v.body,'$.sealed')=0""",(prompt,)).fetchall()
         retry = False
-        for ident in manifests:
+        for ident,raw,sequence in manifests:
+            header=json.loads(raw)
+            if header.get('delivery_requested'):
+                saved = self.deliveries.recover(ident)
+                if saved:
+                    retry = self._seal_verified(header, *saved) or retry
+                    continue
             with self.service.connect() as db:
-                header = self._header(db, ident)
-                state = db.execute('SELECT sequence FROM result_native_state WHERE manifest=?', (ident,)).fetchone()
                 observations = db.execute('''SELECT sequence,body,epoch FROM result_observations
-                    WHERE prompt=? AND sequence>? ORDER BY sequence''', (prompt, state[0] if state else 0)).fetchall()
-            if header['sealed']:
-                continue
+                    WHERE prompt=? AND sequence>? ORDER BY sequence''', (prompt,sequence)).fetchall()
             for observation in observations:
                 self._apply_native(ident, observation)
             if queue is not None:
@@ -530,8 +576,11 @@ class ResultManifests:
             state = db.execute('SELECT terminal FROM result_native_state WHERE manifest=?', (ident,)).fetchone()
             if state and state[0] in ('error', 'interrupted'):
                 return False
-            candidates = [json.loads(r[0]) for r in db.execute(
-                'SELECT body FROM result_candidates WHERE manifest=? ORDER BY ordinal', (ident,))]
+            candidates = db.execute('SELECT 1 FROM result_candidates WHERE manifest=? LIMIT 1', (ident,)).fetchone()
+        if header.get('delivery_requested'):
+            saved_delivery = self.deliveries.recover(ident)
+            if saved_delivery:
+                return self._seal_verified(header, *saved_delivery)
         prompt = header['identity']['prompt_id']
         entry = history.get(prompt) if isinstance(history, dict) else None
         if not isinstance(entry, dict):
@@ -539,6 +588,9 @@ class ResultManifests:
         status = entry.get('status', {})
         if not isinstance(status, dict) or status.get('completed') is not True or status.get('status_str') != 'success':
             return bool(state and state[0] == 'success')
+        if any(isinstance(message, (list, tuple)) and message and message[0] in
+               ('execution_error', 'execution_interrupted') for message in status.get('messages', [])):
+            return False
         saved = entry.get('prompt')
         if (not isinstance(saved, (list, tuple)) or len(saved) < 5 or saved[1] != prompt
                 or not isinstance(saved[2], dict)
@@ -549,11 +601,21 @@ class ResultManifests:
                 graph = self._submitted_graph(db, header['identity'])
             except ValueError:
                 return True
+            if header.get('delivery_requested') and header['identity']['operation']['kind']=='frozen':
+                # Frozen Queue also declares its output nodes and static counts.
+                from .shared.queued_work import result_state
+                raw = db.execute("""SELECT c.body FROM queue_attempts a JOIN queue_captures c
+                    ON c.id=json_extract(a.body,'$.capture') WHERE a.id=?""",
+                    (header['identity']['operation']['id'],)).fetchone()
+                if not raw or result_state(json.loads(raw[0]), prompt, entry)[0]!='complete':
+                    return True
         if not graph_matches(graph, saved[2]):
             return True
         outputs, expected = entry.get('outputs'), saved[4]
         if not isinstance(outputs, dict) or any(not isinstance(n, str) for n in expected):
             return True
+        image_nodes = {node for node, definition in saved[2].items()
+                       if isinstance(definition, dict) and definition.get('class_type') in ('SaveImage', 'PreviewImage')}
         images = []
         for node, output in outputs.items():
             if not isinstance(node, str) or not isinstance(output, dict):
@@ -567,8 +629,8 @@ class ResultManifests:
                 # Same PNG selection as Service.results; no 64/120 item cap.
                 if str(image.get('filename', '')).lower().endswith('.png'):
                     images.append((node, index, image))
-        image_nodes = {node for node, definition in saved[2].items()
-                       if isinstance(definition, dict) and definition.get('class_type') in ('SaveImage', 'PreviewImage')}
+                elif header.get('delivery_requested') and node in image_nodes:
+                    return True  # A missing declared slot cannot be collected as a shorter batch.
         # Known top-level image outputs must be represented. Unknown/custom
         # and flattened subgraph keys are taken directly from history; never
         # force them into the candidate path map or invent native semantics.
@@ -586,14 +648,31 @@ class ResultManifests:
                 if db.execute('''SELECT 1 FROM result_observations WHERE prompt=?
                     AND json_array_length(body,'$.data.output.images')>0 LIMIT 1''', (prompt,)).fetchone():
                     return True
-        verified = [self._native_item(prompt, node, image, index, ordinal, 'history', [node], history=True)
-                    for ordinal, (node, index, image) in enumerate(images)]
+        originals = (self._native_item(prompt, node, image, index, ordinal, 'history', [node], history=True)
+                     for ordinal, (node, index, image) in enumerate(images))
+        epoch, history_digest = self.service.events.epoch, digest(entry)
+        if header.get('delivery_requested'):
+            delivery = self.deliveries.capture(ident, epoch, history_digest, originals)
+            return self._seal_verified(header, *delivery)
+        return self._seal_verified(header, epoch, history_digest, [original[:2] for original in originals])
+
+    def _seal_verified(self, header, epoch, history_digest, verified):
+        ident = header['manifest_id']
+        prompt = header['identity']['prompt_id']
         rows = [item for item, _ in verified]
         with self.service.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             self._current(db)
             current = self._header(db, ident)
             if current['sealed']:
+                # A concurrent worker may have reopened a private delivery
+                # after the original was acknowledged. Only a durable receipt
+                # authorizes releasing that copy.
+                if db.execute('SELECT 1 FROM result_delivery_acks WHERE manifest=?',(ident,)).fetchone():
+                    self.deliveries.release(ident)
+                return False
+            if db.execute("SELECT 1 FROM result_native_state WHERE manifest=? AND terminal IN ('error','interrupted')",
+                          (ident,)).fetchone():
                 return False
             if current['revision'] != header['revision']:
                 return True
@@ -606,8 +685,7 @@ class ResultManifests:
             header.update(item_source='history', item_count=len(rows), items_digest=digest(rows),
                           sealed=True, terminal_state='success', expected_count=len(rows),
                           final_digest=digest(rows), zero_output=not rows, result_state='ready',
-                          source_epoch=self.service.events.epoch, seal_evidence='history:'+prompt,
-                          history_digest=digest(entry))
+                          source_epoch=epoch, seal_evidence='history:'+prompt, history_digest=history_digest)
             self._version(db, header)
         self._written()
         return False
@@ -709,11 +787,29 @@ class ResultManifests:
         item = json.loads(row[0])
         if asset_sha256 != item['asset_sha256']:
             raise ValueError('Foreign asset checksum')
+        if header.get('delivery_requested') and header['sealed'] and item['image']['type'] == 'temp':
+            content = self.deliveries.asset(ident, item)
+            if content is not None:
+                return content
         content, stamp = self._read_file(item['image'], header['identity']['prompt_id'],
                                          history_authority=header.get('item_source') == 'history')
         if stamp != json.loads(row[1]) or hashlib.sha256(content).hexdigest() != asset_sha256:
             raise ValueError('Registered asset expired or changed')
         return content
+
+    def acknowledge(self, ident, revision, checksum, expected_owner, receipt):
+        with self.service.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            self._current(db)
+            header = self._owned(db, ident, revision, checksum, expected_owner)
+            if not (header.get('delivery_requested') and header['sealed'] and header['item_source']=='history'
+                    and header['terminal_state']=='success' and receipt == dict(
+                        item_count=header['expected_count'], final_digest=header['final_digest'])
+                    and type(receipt['item_count']) is int):
+                raise ValueError('Receipt does not name the complete final delivery')
+            db.execute('INSERT OR IGNORE INTO result_delivery_acks VALUES (?)',(ident,))
+        self.deliveries.release(ident)
+        return dict(manifest_id=ident, revision=revision, checksum=checksum)
 
 
 class ResultManifestBuffer:

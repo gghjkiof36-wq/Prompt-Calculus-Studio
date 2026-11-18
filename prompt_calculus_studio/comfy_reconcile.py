@@ -37,8 +37,7 @@ class Reconcile:
     def resolved(self, ident):
         row=self.pending.get(ident)
         if row is not None:self.finish(ident,row)
-        elif not self.pending and self.reducer.snapshot_ready and self.reducer.channel_healthy:
-            self.reducer.ready=True
+        else:self.reducer.update_ready()
 
     def tick(self):
         if self.client.stopped: return
@@ -73,10 +72,6 @@ class Reconcile:
             row.update(busy=False, at=self.clock()+min(8,2**min(row['tries']-1,3)), error=str(error))
             row['probed']=True
             self.reducer.probed()
-            if job['state'] in ('complete','failed'):
-                self.reducer.accept_evidence(ident,value,row.get('event'),None,
-                    lambda:self.finish(ident,row),failed)
-                return
             self.timer.start(250)
         def accepted(value):
             if not current(): return
@@ -99,13 +94,26 @@ class Reconcile:
                 return
             if proof.get('location') in ('running','queued'):
                 value=dict(value,state=proof['location'])
+            if proof.get('location')=='sealed' and self.reducer.results.enabled:
+                # The original reply may also have been lost. Accept its frozen
+                # payload/ID first; the authenticated manifest gates success.
+                def fetch_seal():
+                    self.reducer.results.ensure(self.reducer.job(ident),force=True)
+                    self.finish(ident,row)
+                self.reducer.accept_evidence(ident,value,row.get('event'),None,fetch_seal,failed)
+                return
             if value.get('prompt_id'):
-                job.update(prompt_id=value['prompt_id'])
+                if job.get('prompt_id') and job['prompt_id']!=value['prompt_id']:
+                    failed('Wrong prompt receipt');return
+            if job['state'] in ('complete','failed'):
+                self.reducer.accept_evidence(ident,value,row.get('event'),None,
+                    lambda:self.finish(ident,row),failed)
+                return
             terminal = row.get('event', {}).get('kind','') if row.get('event') else ''
             if value.get('state')=='results_pending' and not self.reducer.results.eligible(job):
                 failed(value.get('error','Result files unavailable'));return
             if proof.get('location') == 'history' or terminal in ('native.execution_success','native.execution_error','native.execution_interrupted','operation.terminal') or value.get('state') in ('complete','results_pending'):
-                prompt = job.get('prompt_id')
+                prompt = value.get('prompt_id') or job.get('prompt_id')
                 if not prompt: failed('Missing terminal prompt identity'); return
                 def history(result):
                     if not current(): return
@@ -144,7 +152,7 @@ class Reconcile:
         if self.pending.get(ident) is not row: return
         self.pending.pop(ident)
         self.reducer.probed()
-        if not self.pending and self.reducer.snapshot_ready and self.reducer.channel_healthy:self.reducer.ready=True
+        self.reducer.update_ready()
         if row.get('done'): row['done']()
 
     def close(self):

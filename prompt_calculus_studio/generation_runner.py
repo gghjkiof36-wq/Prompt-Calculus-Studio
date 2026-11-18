@@ -20,6 +20,8 @@ class GenerationRunner:
         from .sqlite_schema import schema_transaction
         with schema_transaction(self.db):
             self.db.execute('CREATE TABLE IF NOT EXISTS generation_jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL, created REAL NOT NULL)')
+            self.db.execute('CREATE TABLE IF NOT EXISTS generation_result_acks '
+                            '(manifest TEXT PRIMARY KEY, server TEXT NOT NULL, instance TEXT NOT NULL, body TEXT NOT NULL)')
             # Scheduler/status reads must not parse completed frozen payloads.
             self.db.execute("CREATE INDEX IF NOT EXISTS generation_state ON generation_jobs(json_extract(body,'$.state'))")
             self.db.execute("""CREATE INDEX IF NOT EXISTS generation_result_retention ON generation_jobs(created DESC)
@@ -167,13 +169,17 @@ class GenerationRunner:
             job['event_library']=snapshot.get('library_id','')
             if events.identity:
                 job.update(event_server=events.identity['server_instance'],event_epoch=events.identity['epoch'])
+            if (events.identity or {}).get('result_delivery_v1') and job.get('event_library'):
+                job['result_document'] = events.results.document_id
         if snapshot.get('chain') and hasattr(self.client.input_flow.chain,'accepting'):
             chain=self.client.input_flow.chain
             try:
                 with chain.accepting():
                     # Commit the send fence before entering HTTP. Absence of the
                     # job alone never proves that the request did not escape.
-                    chain.store.patch(ident,submission_intent='issued')
+                    intent = dict(submission_intent='issued')
+                    if 'result_document' in job:intent['result_delivery']=True
+                    chain.store.patch(ident,**intent)
                     self._write_job(job)
                     chain.store._transactions.after_commit(lambda:self.jobs.__setitem__(ident,job))
             except sqlite3.Error as exc:
@@ -186,6 +192,7 @@ class GenerationRunner:
         if events is not None and events.enabled:
             events.reconcile.require(ident,'submit')
             request=dict(id=ident,snapshot=snapshot,workflow=workflow,image=image)
+            if 'result_document' in job:request['result_document']=job['result_document']
             if images is not None:request['images']=images
             # Commands only create intent. Channel/point reconciliation accepts
             # the receipt; a late HTTP ACK cannot regress a terminal event.

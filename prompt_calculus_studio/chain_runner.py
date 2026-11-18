@@ -11,6 +11,9 @@ class ChainRunner:
         self.flow=flow;self.client=flow.client;self.window=flow.window
         self.store=ChainStore(self.window.store.db);self.preparing=None;self.collecting=set();self.pumping=False;self.epoch=0
 
+    def later(self):
+        QTimer.singleShot(0,self.client,self.pump)
+
     def current(self):
         return next((r for r in self.store.runs(self.window.state['workspace']) if r['status'] not in ('complete','cancelled')),None)
 

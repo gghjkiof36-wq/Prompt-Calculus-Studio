@@ -204,7 +204,7 @@ class WorkspaceConnection(QObject):
                     self.channel.command.emit(dict(kind='delivered',page=page,running=client.events.running_prompts()))
                     if page['snapshot'] and page['done']:
                         client.events.snapshot_ready=True
-                        client.events.ready=client.events.channel_healthy and not client.events.reconcile.pending
+                        client.events.update_ready()
                         self.channel.command.emit(dict(kind='reconciled'))
                     return
                 client.events.receive(page['events'][index],lambda:apply(index+1),snapshot=bool(page['snapshot']))

@@ -327,7 +327,7 @@ class RecentPage(QFrame):
                 if current:self.collecting.discard(ident)
                 if album and not catalog.get(album):
                     if not current:
-                        QTimer.singleShot(0,self.pump);return
+                        QTimer.singleShot(0,self,self.pump);return
                     # A late collection callback must not recreate records under
                     # a removed album or mark that collection as successful.
                     if self.window.state['settings'].get('recent_destination')=='album:'+album:
@@ -335,7 +335,7 @@ class RecentPage(QFrame):
                     self.refresh_destinations()
                     message='收藏資料夾已移除，請重新選擇。'
                     self.destination_warning.setToolTip(message); self.destination_warning.setAccessibleName(message); self.destination_warning.show()
-                    self.window.notice(message); self.refresh(); QTimer.singleShot(0,self.pump)
+                    self.window.notice(message); self.refresh(); QTimer.singleShot(0,self,self.pump)
                     return
                 if album:
                     duplicate=catalog.db.execute("SELECT id FROM resources WHERE kind='image' AND parent=? AND json_extract(body,'$.path')=?",(album,record['path'])).fetchone()
@@ -347,17 +347,17 @@ class RecentPage(QFrame):
                 if recent:
                     recent.setdefault('collected',{})[destination]=result; catalog.put('recent',recent)
                 if not current:
-                    QTimer.singleShot(0,self.pump);return
-                self.window.notice('已收藏：'+result['path']); self.refresh(); QTimer.singleShot(0,self.pump)
+                    QTimer.singleShot(0,self,self.pump);return
+                self.window.notice('已收藏：'+result['path']); self.refresh(); QTimer.singleShot(0,self,self.pump)
             def work(cancel):
                 try:return JobOutcome.completed((import_image(result['path'],store.directory,album),''))
                 except Exception as exc:return JobOutcome.failed(str(exc))
             def failed(message):
                 self.processing=False
                 if self.catalog is not catalog:
-                    QTimer.singleShot(0,self.pump);return
+                    QTimer.singleShot(0,self,self.pump);return
                 self.collecting.discard(ident)
-                self.window.notice('原圖已收藏，但媒體庫加入失敗：'+message); self.refresh(); QTimer.singleShot(0,self.pump)
+                self.window.notice('原圖已收藏，但媒體庫加入失敗：'+message); self.refresh(); QTimer.singleShot(0,self,self.pump)
             def done(value):
                 if value[0]: finished(value[0])
                 else:failed(value[1])
@@ -392,7 +392,7 @@ class RecentPage(QFrame):
                 # Receipts exist only for already accepted work in this batch.
                 # Retargeting replaces the dictionary, isolating late writers.
                 if self._preview_receipts is receipts and not self.pending:receipts.clear()
-                QTimer.singleShot(0,self.pump)
+                QTimer.singleShot(0,self,self.pump)
             def discard_uncommitted():
                 if produced and not committed:
                     try:(store.directory/produced['thumb']).unlink(missing_ok=True)

@@ -11,9 +11,11 @@ import {installNativeQueue} from './native_queue.js';
 import {createNativeBootstrap} from './native_bootstrap.js';
 import {createSeedObserver} from './native_seed.js';
 import {createParameterCapabilities} from './native_parameter_capabilities.js';
+import {createBridgeRequests} from './bridge_request.js';
 
 const observed = new WeakSet();
-let root, token, config = {destinations: {}}, library, active = null, mode = 'binding', publishImages, workflowRuns, nativeQueue;
+const {request, readConfig, hasCredential} = createBridgeRequests(api);
+let root, config = {destinations: {}}, library, active = null, mode = 'binding', publishImages, workflowRuns, nativeQueue;
 const seedObserver=createSeedObserver(()=>app.extensionManager.setting.get('Comfy.WidgetControlMode'));
 seedObserver.installFactory(ComfyWidgets);
 const parameterCapabilities=createParameterCapabilities(app,ComfyWidgets);
@@ -46,21 +48,8 @@ function notify(message, error = false) {
     const box = root?.querySelector('.ps-notice');
     if (box) { box.textContent = message; box.classList.toggle('error', error); }
 }
-async function request(path, data, options={}) {
-    if(data!==undefined&&!token)token=(await request('config')).token;
-    const response = await api.fetchApi('/prompt_studio/' + path, data === undefined ? {} : {
-        method: 'POST', headers: {'Content-Type': 'application/json', 'X-Prompt-Studio': token}, body: JSON.stringify(data),...options
-    });
-    let result; try { result = await response.json(); } catch { throw new Error('ComfyUI 擴充未載入或連線中斷，請確認已重新啟動後端。'); }
-    if (!response.ok) {
-        const error=new Error(result.error ?? '操作失敗，請重新整理頁面後再試。');
-        if(response.status===400&&typeof result.capture_uncommitted==='string')error.uncommittedOperation=result.capture_uncommitted;
-        throw error;
-    }
-    return result;
-}
 async function connect() {
-    const data = await request('config'); token = data.token; config = data.settings;
+    const data = await readConfig(); config = data.settings;
     try { library = await request('library'); notify('已讀取桌面輸出。'); }
     catch (error) { notify(error.message, true); }
     render(); await restoreDesktop(); await workflowRuns?.refresh();
@@ -223,7 +212,7 @@ async function pickFolder(title, start, done) {
 
 async function restoreDesktop() {
     if (library?.state?.multi_output?.version>=4)return;
-    if (!token || app.graph?.extra?.prompt_studio_desktop === false) return;
+    if (!hasCredential() || app.graph?.extra?.prompt_studio_desktop === false) return;
     if (app.graph?.extra?.prompt_studio_v08 && app.graph.extra.prompt_studio_desktop !== true) return;
     const node=workflowTarget(app.graph);
     if (node) await bindSelected(String(node.id),true);

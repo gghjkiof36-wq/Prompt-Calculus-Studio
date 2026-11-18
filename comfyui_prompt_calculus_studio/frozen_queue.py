@@ -47,14 +47,22 @@ class FrozenQueue:
             db.execute('UPDATE queue_attempts SET body=? WHERE id=?',
                        (json.dumps(attempt, ensure_ascii=False), attempt['id']))
 
+    def active_attempts(self, db):
+        sql="SELECT body FROM queue_attempts WHERE json_extract(body,'$.state') IN ("+','.join('?' for _ in ACTIVE)+')'
+        return (json.loads(row[0]) for row in db.execute(sql,tuple(ACTIVE)))
+
     def unresolved(self):
         with self.service.connect() as db:
-            return [json.loads(r[0]) for r in db.execute('SELECT body FROM queue_attempts')
-                    if json.loads(r[0])['state'] in ACTIVE]
+            return list(self.active_attempts(db))
+
+    def occupied(self, db):
+        return any(not self.service.result_manifests.has_delivery(db,'frozen',row['id'],row.get('prompt_id',''))
+                   for row in self.active_attempts(db))
 
     def require_idle(self):
-        if self.unresolved():
-            raise ValueError('Queue 尚有未結案工作，請先完成或核對該工作。')
+        with self.service.connect() as db:
+            if self.occupied(db):
+                raise ValueError('Queue 尚有未結案工作，請先完成或核對該工作。')
 
     def preserve_image(self, filename):
         if self.input_root is None or not isinstance(filename, str):
@@ -214,8 +222,7 @@ class FrozenQueue:
                 if saved['request_hash'] != fingerprint:
                     raise ValueError('同一 Queue 嘗試內容不一致。')
                 return saved
-            active = [json.loads(r[0]) for r in db.execute('SELECT body FROM queue_attempts')]
-            if native_busy or any(r['state'] in ACTIVE for r in active):
+            if native_busy or self.occupied(db):
                 raise ValueError('已有尚未結案的 PCS 工作；未派送另一項。')
             prompt = str(uuid.uuid4())
             payload = self.payload(work, job, ident, prompt)
@@ -226,6 +233,8 @@ class FrozenQueue:
             from .event_log import PROCESS_INSTANCE
             saved.update(submit_inflight=True,submit_process=PROCESS_INSTANCE)
             db.execute('INSERT INTO queue_attempts VALUES (?,?)', (ident, json.dumps(saved, ensure_ascii=False)))
+            if 'result_document' in value:
+                self.service.result_manifests.register_submission(db, 'frozen', saved, work['snapshot'], value['result_document'])
         attempted = accepted = False
         try:
             for asset in work['assets']:
@@ -294,9 +303,17 @@ class FrozenQueue:
 
     def reconcile(self, ident, running, queued, history):
         saved = self.read('queue_attempts', ident)
+        prompt = saved['prompt_id']
+        if not saved.get('abandoned') and prompt not in running and prompt not in queued and prompt not in history:
+            with self.service.connect() as db:
+                sealed = self.service.result_manifests.has_delivery(db,'frozen',ident,prompt)
+            if sealed and saved['state'] not in ('failed','cancelled'):
+                if saved['state']!='complete':
+                    saved.update(state='complete',submit_inflight=False,error='')
+                    self.save_attempt(saved)
+                return dict(saved,recovery=dict(location='sealed',can_abandon=False))
         if saved['state'] not in ACTIVE:
             return saved
-        prompt = saved['prompt_id']
         if prompt in running or prompt in queued:
             saved.update(state='running' if prompt in running else 'queued', error='',submit_inflight=False)
         elif prompt in history:
@@ -331,6 +348,7 @@ class FrozenQueue:
             location='missing'
             if any(item[1]==prompt for item in queue.currently_running.values()):location='running'
             elif any(item[1]==prompt for item in queue.queue):location='queued'
+            elif self.service.result_manifests.has_delivery(db,'frozen',ident,prompt):location='sealed'
             elif saved.get('submit_inflight'):location='submitting'
             else:
                 history=getattr(queue,'get_history',None)

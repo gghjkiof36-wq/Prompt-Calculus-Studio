@@ -178,6 +178,13 @@ class StageRunner(QObject):
         """
         if self.store.transaction_depth:
             self.store._transactions.after_commit(self.claim_dispatch);return
+        events=getattr(self.client,'events',None)
+        workspace=getattr(self.client,'workspace',None)
+        if workspace and events and events.enabled and events.identity and not events.ready:
+            # Preserve click order across documents while their channel snapshots
+            # arrive. Registration and submission still need dispatch_allowed.
+            workspace.scheduler.claim(self.client)
+            return False
         return self.client.dispatch_allowed
 
     def record_next_scope(self,run,index=0):
@@ -283,8 +290,14 @@ class StageRunner(QObject):
 
     def _create_run(self,plan,count,direct=False,status='running',frozen_state=None,execution_group=None):
         if not direct and any(n['kind']!='stage' for n in plan['tree']):
-            return self.create_batch_run(plan,count,status,execution_group)
-        return self._create_legacy_run(plan,count,direct,status,frozen_state,execution_group)
+            run=self.create_batch_run(plan,count,status,execution_group)
+        else:
+            run=self._create_legacy_run(plan,count,direct,status,frozen_state,execution_group)
+        events=getattr(self.client,'events',None)
+        if run['status']=='running' and events and events.enabled and events.identity and not events.ready:
+            run['await_channel']=True
+            self.store.patch(run['id'],await_channel=True)
+        return run
 
     def _create_legacy_run(self,plan,count,direct=False,status='running',frozen_state=None,execution_group=None):
         state=frozen_state if frozen_state is not None else self.context();initial={}
@@ -1172,7 +1185,7 @@ class StageRunner(QObject):
     def disconnected(self):
         if self.closed:return
         for run in self.runs(True):
-            if run['status'] in ('running','waiting'):
+            if run['status'] in ('running','waiting') and not self.store.can_reconnect(run):
                 self.pause(run['id'],'連線中斷；已提交紀錄保留，恢復後請繼續。',reason='disconnect')
         self.cancel_apply('輸入同步連線中斷，未自動重送。')
         aux=getattr(getattr(self.client,'events',None),'aux',None)

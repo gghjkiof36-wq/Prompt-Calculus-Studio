@@ -69,9 +69,8 @@ class NativeQueue:
         from .event_protocol import EVIDENCE_SECONDS
         if 'created' in value:value.setdefault('deadline_at',value['created']+EVIDENCE_SECONDS)
         with self.service.connect() as db:
-            old=db.execute('SELECT body FROM native_operations WHERE id=?',(value['id'],)).fetchone()
-            prior=json.loads(old[0]) if old else {}
-            if prior.get('first_error'):value['first_error']=prior['first_error']
+            old=db.execute("SELECT json_extract(body,'$.first_error') FROM native_operations WHERE id=?",(value['id'],)).fetchone()
+            if old and old[0]:value['first_error']=old[0]
             elif value.get('error') and value.get('state') in ('failed','unconfirmed'):value['first_error']=value['error']
             db.execute('INSERT OR REPLACE INTO native_operations VALUES (?,?)',(value['id'],json.dumps(value,ensure_ascii=False)))
 
@@ -93,11 +92,6 @@ class NativeQueue:
                 events.append(dict(event,received_at=time.time()));events.sort(key=lambda e:e['seq'])
             db.execute('INSERT OR REPLACE INTO native_diagnostics VALUES (?,?)',(operation['id'],json.dumps(body,ensure_ascii=False)))
         return dict(ok=True)
-
-    def diagnostics(self,ident):
-        with self.service.connect() as db:row=db.execute('SELECT body FROM native_diagnostics WHERE id=?',(ident,)).fetchone()
-        value=json.loads(row[0]) if row else {}
-        return {k:value[k] for k in ('events','reason') if k in value}
 
     def poll(self,value):
         self.require_supported()
@@ -245,8 +239,7 @@ class NativeQueue:
         # explicit click. This never re-sends or discards the old receipt.
         with self.service.connect() as db:
             stale=[row[0] for row in db.execute("SELECT id FROM native_operations WHERE json_extract(body,'$.state') IN ('pending','delivered','prepared','submitted') AND json_extract(body,'$.created')<?",(time.time()-30,))]
-        for old in stale:self.status(old)
-        with self.service.connect() as db:
+            for old in stale:self.status(old)
             prior=db.execute('SELECT body FROM native_operations WHERE id=?',(ident,)).fetchone()
             if prior:
                 saved=json.loads(prior[0])
@@ -274,6 +267,9 @@ class NativeQueue:
             raise ValueError('請更新同版擴充並重新整理 ComfyUI，才能使用 Stage 參數。')
         operation=dict(id=ident,request_hash=fingerprint,created=time.time(),state='pending',error='',session=session,
             identity=copy.deepcopy(live['identity']),epoch=live['epoch'],client_id=live['client_id'],snapshot=snapshot,workflow=workflow,texts=texts,images=images,user_scope='default',target=target,needs_navigation=needs_navigation)
+        if action=='queue' and 'result_document' in value:
+            from .result_manifest import text
+            operation['result_document']=text(value['result_document'], 'result document')
         if action=='open':operation.update(action='open',target=target)
         if action=='capture':operation.update(action='capture',server=server)
         if action=='apply':operation.update(action='apply')
@@ -438,6 +434,9 @@ class NativeQueue:
                 db.execute('INSERT OR REPLACE INTO native_operations VALUES (?,?)',
                     (operation['id'],json.dumps(operation,ensure_ascii=False)))
                 db.execute('INSERT OR REPLACE INTO jobs VALUES (?,?,?)',(prompt_id,json.dumps(envelope,ensure_ascii=False),time.time()))
+                if 'result_document' in operation:
+                    self.service.result_manifests.register_submission(db, 'native', operation,
+                        operation['snapshot'], operation['result_document'])
             recorded=True
         except (ValueError,KeyError,TypeError):
             pass
@@ -515,11 +514,16 @@ class NativeQueue:
 
     def status(self,ident):
         self.require_supported()
-        operation=self.read(ident)
+        with self.service.connect() as db:
+            row=db.execute('SELECT n.body,d.body FROM native_operations n LEFT JOIN native_diagnostics d '
+                           'ON d.id=n.id WHERE n.id=?',(ident,)).fetchone()
+        if not row:raise ValueError('找不到原生執行要求。')
+        operation=json.loads(row[0])
         if operation['state'] in ('awaiting_browser','pending','delivered','prepared','submitted') and time.time()-operation['created']>30:
             operation.update(state='failed' if operation['state'] in ('awaiting_browser','pending') else 'unconfirmed',error='原生提交逾時，不會自動重送。');self.save(operation)
         result=self.receipt(operation)
-        result['diagnostics']=self.diagnostics(ident)
+        diagnostics=json.loads(row[1]) if row[1] else {}
+        result['diagnostics']={key:diagnostics[key] for key in ('events','reason') if key in diagnostics}
         return result
 
     def receipt(self, operation):
@@ -574,7 +578,7 @@ class NativeQueue:
             return self.abandon(ident,queue)
         return dict(ok=True,state='settled',reason=result['recovery']['reason'],recovery=result['recovery'])
 
-    def _recovery(self, operation, queue):
+    def _recovery(self, operation, queue, db):
         """Called with the executor lock held; absence alone is not completion."""
         prompt=operation.get('prompt_id');ident=operation['id']
         for location,items in (('running',queue.currently_running.values()),('queued',queue.queue)):
@@ -582,6 +586,8 @@ class NativeQueue:
                 marker=item[3].get('extra_pnginfo',{}).get('prompt_studio',{}).get('generation',{}) if len(item)>3 and isinstance(item[3],dict) else {}
                 if (prompt and item[1]==prompt) or marker.get('native_operation')==ident:
                     return dict(location=location,can_abandon=False,reason='這項工作仍在 ComfyUI '+('執行' if location=='running' else '等待')+'；尚未解除追蹤。')
+        if prompt and self.service.result_manifests.has_delivery(db,'native',ident,prompt):
+            return dict(location='sealed',can_abandon=False,reason='已封存這筆工作的最終輸出。')
         if operation['state'] in ('pending','delivered','prepared') or operation.get('submit_inflight',operation['state'] in ('submitted','unconfirmed') and bool(prompt)):
             return dict(location='submitting',can_abandon=False,reason='這項原生操作仍待提交或回覆，不能略過；請先取消，若服務已中斷請重新啟動服務後核對。')
         history=getattr(queue,'get_history',None)
@@ -684,7 +690,7 @@ class NativeQueue:
                     db.execute('INSERT OR IGNORE INTO event_fences VALUES (?,?)',(entity,json.dumps(payload)))
                     self.service.events.append(db,'operation.missing',payload,entity=entity,scope=frozen_scope,prompt_id=expected_prompt)
                     return dict(id=ident,state='unconfirmed',recovery=proof)
-                operation=json.loads(row[0]);proof=self._recovery(operation,queue)
+                operation=json.loads(row[0]);proof=self._recovery(operation,queue,db)
                 if proof['location']=='missing' and proof['can_abandon']:
                     if not operation.get('missing_fence'):
                         operation['missing_fence']=dict(epoch=self.service.events.epoch,checked=time.time())
@@ -703,18 +709,19 @@ class NativeQueue:
             marker=extra.get('prompt_studio',{})
             if marker and not marker.get('generation',{}).get('queue_job'):return True
         with self.service.connect() as db:
-            rows=[json.loads(r[0]) for r in db.execute('SELECT body FROM native_operations')]
+            rows=[json.loads(r[0]) for r in db.execute("""SELECT body FROM native_operations
+                WHERE COALESCE(json_extract(body,'$.queue_terminal'),0)=0
+                AND COALESCE(json_extract(body,'$.action'),'queue') NOT IN ('capture','open','apply','inspect')
+                AND json_extract(body,'$.state') NOT IN ('failed','opened','captured')""")]
         for operation in rows:
-            if (operation.get('action') in ('capture','open','apply','inspect') or operation.get('queue_terminal')
-                    or operation['state'] in ('failed','opened','captured')):
-                continue
             prompt=operation.get('prompt_id')
             if not prompt or prompt in known:return True
             entry=history(prompt).get(prompt,{})
             original=entry.get('prompt',[])
             terminal=entry.get('status',{}).get('completed') is True or entry.get('status',{}).get('status_str')=='error'
             if len(original)<3 or original[1]!=prompt or not terminal:
-                return True
+                with self.service.connect() as db:
+                    if not self.service.result_manifests.has_delivery(db,'native',operation['id'],prompt):return True
             operation['queue_terminal']=True;self.save(operation)
         return False
 
@@ -728,7 +735,7 @@ class NativeQueue:
                 db.execute('BEGIN IMMEDIATE')
                 row=db.execute('SELECT body FROM native_operations WHERE id=?',(ident,)).fetchone()
                 if row is None:raise ValueError('找不到原生執行要求。')
-                operation=json.loads(row[0]);proof=self._recovery(operation,queue)
+                operation=json.loads(row[0]);proof=self._recovery(operation,queue,db)
                 if not proof['can_abandon']:raise ValueError(proof['reason'])
                 if proof['location']=='missing':
                     operation['missing_fence']=dict(epoch=self.service.events.epoch,checked=time.time());proof['fenced']=True
