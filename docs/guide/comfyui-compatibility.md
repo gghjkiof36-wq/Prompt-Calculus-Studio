@@ -1,21 +1,14 @@
 # ComfyUI 配套與資料格式相容
 
-適用：pre-alpha3 開發中的事件通道，以及下方另列的 0.8.9 Beta2 歷史配套。· [安裝步驟](comfyui.md) · [疑難排解](troubleshooting.md)
+適用：0.8.10 Pre-alpha3，以及下方另列的 0.8.9 Beta2 歷史配套。· [安裝步驟](comfyui.md) · [疑難排解](troubleshooting.md)
 
-## pre-alpha3 事件通道配套
+## Pre-alpha3 配套
 
-持久收據／事件紀錄需要更新 ComfyUI 端擴充，再重啟後端並重新整理網頁。只更新桌面程式不會讓舊擴充具備此能力；實際載入版、安裝位置與 `execution_events_v1` 能力以服務回覆為準，安裝位置由擴充的 `extension_info.root` 回報。
+本版需要同版事件通道與結果保存擴充。關閉 ComfyUI 後安裝，重新啟動後端，再重新整理工作流頁面。
 
-桌面通道接手原生／凍結生成任務。舊擴充沒有有效事件能力時不啟動通道，顯示「需要更新擴充」並禁止新派送；已在途任務仍可核對原收據收尾，不會重送。舊 PCS 使用新版擴充可繼續走原路徑。studio DB 的事件接受紀錄須經複製後搬遷，文件及 PNG 版本不變，不支援舊 PCS 開啟新庫。
+實機已核對 ComfyUI 0.42.5／frontend 1.55.18 的固定工作流，包含 PCS 中斷、後端重開、原結果回收及後續工作接續。日常服務的 Desktop 與瀏覽器另完成原生工作流讀取。其他環境與自訂節點依各自配置確認。
 
-| 通道支援矩陣 | 核對程度 |
-|---|---|
-| ComfyUI 0.38.0 核心原生事件 | **已對 0.38.0 原始碼核對**；prompt_id、快取、多輸出、子圖、error／interrupted、排隊取消由來源衍生 fixture 驗證。 |
-| 其他 ComfyUI 後端版本 | 未驗證；下方歷史套件標籤不代表新通道已驗證。 |
-| 原生網頁、第三方 group／custom nodes、官方 Desktop | 新通道未做真環境驗證。 |
-| GPU 生成、實際安裝／熱重載 | 未驗證；更新須重啟後端。 |
-
-事件重播、容量、scope 與安全細節見[事件協定](../development/comfy-event-protocol.md)。這些結果只證明固定來源及離線合成測試，不表示目前使用者安裝已更新或全部工作流已通過。
+通用、legacy 0.39.2、modern 0.40.0 是配套設定檔，請擇一安裝。詳細範圍見[本版驗證](../releases/0.8.10/validation/pre-alpha.3.md)。
 
 ## 擴充資料夾自動綁定
 
@@ -27,15 +20,15 @@ Workspace 的手動選擇、開關、啟動檢查與自動綁定共用資料根�
 
 ## 0.8.9 Beta2 歷史配套
 
-主程式與配套擴充都須更新。0.8.9 Beta2 的通用、legacy 與 modern 配套使用同源核心，支援 PCS 文件／快照格式 **1–7**；每次只在 `custom_nodes` 安裝一份 PCS 擴充。
+主程式與配套擴充都須更新。0.8.10 Pre-alpha2 的通用、legacy 與 modern 配套使用同源核心，支援 PCS 文件／快照格式 **1–7**；每次只在 `custom_nodes` 安裝一份 PCS 擴充。
 
 | 配套 | ComfyUI 後端對照 | 前端對照 |
 |---|---|---|
-| 通用 `PCS-v0.8.9-Beta2-ComfyUI.zip` | 一般安裝入口使用 | 依實際工作流能力核對 |
-| `PCS-v0.8.9-Beta2-ComfyUI-legacy-0.39.2.zip` | 0.39.2 | 1.53.10 |
-| `PCS-v0.8.9-Beta2-ComfyUI-modern-0.40.0.zip` | 0.40.0 | 1.55.17 |
+| 通用 `PCS-v0.8.10-Pre-alpha2-ComfyUI.zip` | 一般安裝入口使用 | 依實際工作流能力核對 |
+| `PCS-v0.8.10-Pre-alpha2-ComfyUI-legacy-0.39.2.zip` | 0.39.2 | 1.53.10 |
+| `PCS-v0.8.10-Pre-alpha2-ComfyUI-modern-0.40.0.zip` | 0.40.0 | 1.55.17 |
 
-legacy／modern 是包內 `COMFYUI_COMPATIBILITY.json` 的相容設定檔，共用同一套核心；不代表本輪已完成兩版真實 GPU 驗收。其他 ComfyUI 版本、官方 Desktop、新機與第三方節點需按實際環境核對。[本版 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta.2)列出下載附件。
+legacy／modern 是包內 `COMFYUI_COMPATIBILITY.json` 的相容設定檔，共用同一套核心；不代表本輪已完成兩版真實 GPU 驗收。其他 ComfyUI 版本、官方 Desktop、新機與第三方節點需按實際環境核對。[本版 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.10-pre-alpha.2)列出下載附件。
 
 ## 遇到「不支援的備份版本」
 

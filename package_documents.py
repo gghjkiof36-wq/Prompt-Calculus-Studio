@@ -48,7 +48,7 @@ def source_paths(root=ROOT):
         rel=Path(name)
         if rel.is_absolute() or '..' in rel.parts or any(part.casefold() in blocked for part in rel.parts):continue
         delivery_tool=rel.as_posix() in {'tools/build_user_delivery_089.py','tools/connector_host.py',
-                                       'tools/install_chrome_connector.py','tools/build_connector.py',
+                                       'tools/install_chrome_connector.py','tools/build_connector.py','tools/pcs_agent.py',
                                        'tools/user_delivery/materials.json'}
         delivery_template=rel.as_posix().startswith('tools/user_delivery/') and rel.suffix.lower()=='.md'
         if len(rel.parts)>1 and rel.parts[0] not in folders and not (delivery_tool or delivery_template):continue

@@ -1,4 +1,4 @@
-"""Double-click Start.cmd; data lives beside this launcher unless overridden."""
+"""Start the document workspace; Start.vbs provides windowless source startup."""
 import os
 import sys
 from pathlib import Path

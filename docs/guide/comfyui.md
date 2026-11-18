@@ -1,6 +1,6 @@
 # ComfyUI 整合
 
-適用：0.8.9 Beta2 · [使用指南](README.md)
+適用：0.8.10 Pre-alpha3 · [使用指南](README.md)
 
 先確認本機 ComfyUI 與工作流能正常生成；本版需要保持該工作流網頁開啟。
 
@@ -14,7 +14,7 @@
 
 ## 手動安裝方式
 
-從 [同版 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.9-beta.2) 取得 `PCS-v0.8.9-Beta2-ComfyUI.zip`，解壓到 ComfyUI 安裝目錄以外。完整資料夾名稱為 `comfyui_prompt_calculus_studio`；開發原始碼中的同名資料夾缺少打包時加入的共用核心，請使用完整擴充 ZIP。
+從 [同版 Release](https://github.com/gghjkiof36-wq/Prompt-Calculus-Studio/releases/tag/v0.8.10-pre-alpha.3) 取得 `PCS-v0.8.10-Pre-alpha3-ComfyUI.zip`，解壓到 ComfyUI 安裝目錄以外。完整資料夾名稱為 `comfyui_prompt_calculus_studio`；開發原始碼中的同名資料夾缺少打包時加入的共用核心，請使用完整擴充 ZIP。
 
 先啟動一次 PCS 建立資料庫，再關閉 ComfyUI。使用完整擴充包內的安裝腳本，將範例路徑改成實際位置：
 
@@ -27,13 +27,13 @@
 
 已有舊擴充時，確認 ComfyUI 已停止後加 `-Update`。腳本核對完整包與桌面資料庫，將舊擴充保存在 ComfyUI 的 `.pcs-program-backups`；若新舊名稱同時存在或 `DesktopData` 與舊設定不同，會停止而不覆寫設定。先保存並移出不使用的擴充、確認正確資料位置，再重試。不要刪除資料庫或憑證來繞過錯誤。
 
-安裝後重新啟動 ComfyUI 後端並重新整理網頁；舊網頁仍可能使用舊協定。此指南以可管理 `custom_nodes` 的本機安裝為準，官方 ComfyUI Desktop 尚未完成本版相容性驗收。
+安裝後重新啟動 ComfyUI 後端並重新整理網頁；舊網頁仍可能使用舊協定。此指南適用可管理 `custom_nodes` 的本機安裝，工作流可在 ComfyUI Desktop 或瀏覽器開啟。核對目前選定的原生頁面，避免同一工作流在多頁重複開啟。
 
 請直接使用同版擴充附件。開發者自行建包的條件與方法見[建置指南](../development/building.md)。
 
 ## 配套及格式版本
 
-0.8.9 Beta2 的通用、legacy 0.39.2、modern 0.40.0 配套使用同源核心，支援文件格式 1–7；每次只安裝一份。主程式與配套都要更新。這些是相容設定檔，真實服務／GPU驗證範圍另列，見[相容指南](comfyui-compatibility.md)。
+0.8.10 Pre-alpha3 的通用、legacy 0.39.2、modern 0.40.0 配套使用同源核心，支援文件格式 1–7；每次只安裝一份。主程式與配套都要更新。這些是相容設定檔，真實服務／GPU驗證範圍另列，見[相容指南](comfyui-compatibility.md)。
 
 ## 第一次連接與綁定
 
